@@ -76,7 +76,7 @@ def _build_release_meta(base_dir: Path) -> dict[str, str]:
 
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha24"
+        release_label = f"{version}-alpha25"
     return {
         "version": version,
         "label": release_label,

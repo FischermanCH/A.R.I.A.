@@ -9,20 +9,41 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ### Added
 
 ### Changed
-- `/help` now serves a human-readable Alpha help document in DE/EN (`docs/help/alpha-help-system.de.md` / `.en.md`) instead of exposing the future help-system design notes directly
+
+### Fixed
+
+### Security
+
+### Known Limitations
+
+### Upgrade Notes
+
+## [0.1.0-alpha.25] - 2026-04-04
+
+### Added
+- Added practical, human-readable DE/EN Alpha help docs (`docs/help/alpha-help-system.de.md` / `.en.md`) and made `/help` load the matching language variant
+
+### Changed
 - Chat toolbox skill entries now show the actual skill name plus a compact `/skill` badge and a wrapped description/example line, instead of repeating only `/skill` for every skill button
 - In the user menu, `Help` now appears after `Config` and before `Users`, so support docs sit closer to settings but still before user administration
 - `README.md` is now split into a clear English-first section and a separately labeled German section instead of silently switching language mid-document
+- `README.md` now embeds the architecture diagrams directly in both language sections
 
 ### Fixed
 - `Systemzustand` cards in `/stats` now expose `visual_status` as well, so ARIA Runtime, Model Stack, Memory/Qdrant, Security Store, and Activities/Logs use the same status lamps as the rest of the page
 
 ### Security
-- Repo/privacy sweep: removed personal dev-host defaults from `docker/pull-from-dev.sh`, neutralized `config/secrets.env`, and removed stray root artifacts `=1.2` / `=2.1`
+- Repo/privacy sweep: removed personal dev-host defaults from `docker/pull-from-dev.sh`, neutralized `config/secrets.env`, removed stray root artifacts `=1.2` / `=2.1`, and excluded `project.docu/` from the public repo while keeping it locally
 
 ### Known Limitations
+- ARIA is still primarily a personal single-user system
+- No full shared-skill/shared-connection RBAC model yet
+- Capability results are not automatically written into Memory unless modeled explicitly
+- Public internet exposure is still not recommended for this ALPHA line
 
 ### Upgrade Notes
+- Update the ARIA container/image, keep persistent volumes
+- Hard-refresh the browser after the update if old CSS/theme assets are still cached
 
 ## [0.1.0-alpha.24] - 2026-04-04
 
