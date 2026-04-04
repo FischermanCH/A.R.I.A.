@@ -94,6 +94,18 @@ It combines:
 ARIA is intentionally **not** trying to become a giant OpenWebUI-style suite.  
 The goal is to stay lean, understandable, and extensible.
 
+## Built With Human + AI Collaboration
+
+ARIA was not created by a human alone, and not by AI alone.
+
+It was built through a real long-form collaboration between **Fischerman** and **AI coding/research systems**:
+
+- **Codex** played a major role in implementation, debugging, refactoring, release preparation, and day-to-day product iteration
+- the broader **masterplan and architectural direction** were shaped in collaboration between **Fischerman** and **Claude.ai**
+
+That means ARIA is itself a product of the workflow it represents:
+human direction, AI acceleration, shared iteration, and a lot of stubborn refinement.
+
 ## Current ALPHA boundary
 
 - ARIA ALPHA is currently **primarily a personal single-user system**
@@ -384,6 +396,18 @@ ARIA verbindet:
 
 ARIA soll bewusst **keine riesige OpenWebUI-artige Alles-in-einem-Suite** werden.  
 Das Ziel ist, klein, verständlich und erweiterbar zu bleiben.
+
+## Entstanden Aus Mensch + KI Zusammenarbeit
+
+ARIA wurde weder allein von einem Menschen noch allein von einer KI gebaut.
+
+Das Projekt ist aus einer echten, langen Zusammenarbeit zwischen **Fischerman** und **KI-gestützten Entwicklungs- und Research-Systemen** entstanden:
+
+- **Codex** war maßgeblich an Implementierung, Debugging, Refactoring, Release-Vorbereitung und der täglichen Produktentwicklung beteiligt
+- der größere **Masterplan und die architektonische Leitlinie** entstanden in Zusammenarbeit zwischen **Fischerman** und **Claude.ai**
+
+ARIA ist damit selbst ein Ergebnis genau der Arbeitsweise, die es unterstützen soll:
+menschliche Richtung, KI als Beschleuniger, gemeinsame Iteration und sehr viel hartnäckige Feinarbeit.
 
 ## Aktuelle ALPHA-Grenze
 
