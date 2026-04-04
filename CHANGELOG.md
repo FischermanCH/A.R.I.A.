@@ -12,6 +12,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - `/help` now serves a human-readable Alpha help document in DE/EN (`docs/help/alpha-help-system.de.md` / `.en.md`) instead of exposing the future help-system design notes directly
 - Chat toolbox skill entries now show the actual skill name plus a compact `/skill` badge and a wrapped description/example line, instead of repeating only `/skill` for every skill button
 - In the user menu, `Help` now appears after `Config` and before `Users`, so support docs sit closer to settings but still before user administration
+- `README.md` is now split into a clear English-first section and a separately labeled German section instead of silently switching language mid-document
 
 ### Fixed
 - `Systemzustand` cards in `/stats` now expose `visual_status` as well, so ARIA Runtime, Model Stack, Memory/Qdrant, Security Store, and Activities/Logs use the same status lamps as the rest of the page

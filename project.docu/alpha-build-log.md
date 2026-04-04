@@ -279,6 +279,8 @@ Zweck:
   - lange Skill-Titel und Hinweise koennen in der Toolbox sauber umbrechen statt unsichtbar abgeschnitten zu werden
 - Menue:
   - `Hilfe` sitzt jetzt nach `Einstellungen` und vor `Benutzer`
+- README:
+  - Root-`README.md` klar in `English`- und `Deutsch`-Abschnitt getrennt, mit EN zuerst und DE als eigener, eindeutig markierter Block weiter unten
 - `/stats` -> `Systemzustand`: ARIA Runtime, Model Stack, Memory / Qdrant, Security Store und Activities / Logs bekommen jetzt ebenfalls die normalen Status-Laempchen
 - Repo-/Privacy-Sweep:
   - persoenliche Dev-Host-Defaults aus `docker/pull-from-dev.sh` entfernt

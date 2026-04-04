@@ -1,74 +1,80 @@
 # ARIA
 
-Lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first interface.
+Lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first UI.
 
-ARIA is built for people who want:
+**Languages:** [English](#english) · [Deutsch](#deutsch)
 
-- a clear local AI assistant instead of platform bloat
+---
+
+# English
+
+## What ARIA is
+
+ARIA is a small, modular AI assistant for people who want control instead of platform sprawl.
+
+It combines:
+
+- a browser-first chat UI
+- structured memory with Qdrant
+- configurable skills and automations
 - modular connections to real systems
 - explicit security and role boundaries
-- a GUI-first workflow instead of API-first complexity
 
-It is intentionally **not** meant to become a giant OpenWebUI-style suite.  
-ARIA aims to stay small, understandable, and extensible.
+ARIA is intentionally **not** trying to become a giant OpenWebUI-style suite.  
+The goal is to stay lean, understandable, and extensible.
 
-Current ALPHA boundary:
+## Current ALPHA boundary
 
-- ARIA ALPHA is not yet a full multi-user system
-- ARIA should currently be understood primarily as a personal single-user system
-- the current user mode is a reduced view for everyday work
-- advanced configuration stays behind admin mode
-- later ownership / sharing / RBAC for skills and resources will come as a separate architecture step
-- ARIA ALPHA is intended for LAN / VPN / homelab usage, not open public internet exposure
+- ARIA ALPHA is currently **primarily a personal single-user system**
+- User mode is a reduced everyday working view
+- Advanced configuration stays behind Admin mode
+- Full ownership / sharing / RBAC for skills, connections, and memories is planned as a later architecture step
+- ARIA ALPHA is intended for **LAN / VPN / homelab**, not direct public internet exposure
 
-## Who This ALPHA Is For
+## Who this ALPHA is for
 
-ARIA ALPHA is a good fit for:
+Good fit:
 
-- people who want a personal AI workspace for themselves
-- self-hosters
-- homelab users
-- tinkerers who are comfortable with Docker / Portainer
+- people who want a personal AI workspace
+- self-hosters and homelab users
+- tinkerers comfortable with Docker / Portainer
 - small private tests with 1-2 trusted users
 
-ARIA ALPHA is currently **not** meant for:
+Not the current target:
 
 - open internet exposure
 - production teams
 - full multi-user permission setups
 - hands-off enterprise deployment
 
-## Overview
+## Current implementation snapshot
+
+- Chat UI at `/`
+- Deterministic routing plus custom-skill and capability execution
+- Qdrant-backed memory with typed collections, weighted recall, and JSON export
+- Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP, and MQTT
+- Custom Skills as JSON manifests with a browser wizard, import/export, and bundled sample skills
+- `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset
+- Read-only `/help` and `/product-info`
+- OpenAI-compatible endpoint `POST /v1/chat/completions`
+- Config via `config/config.yaml` plus `ARIA_*` environment overrides
+- `/health` endpoint
+
+## Documentation
 
 - Product overview: `docs/product/overview.md`
 - Feature list: `docs/product/feature-list.md`
 - Architecture summary: `docs/product/architecture-summary.md`
-- Roadmap snapshot: `docs/product/roadmap.md`
-- Copy pack for GitHub / releases / landing pages: `docs/product/copy-pack.md`
+- Roadmap: `docs/product/roadmap.md`
 - Setup overview: `docs/setup/setup-overview.md`
 - Portainer deploy checklist: `docs/setup/portainer-deploy-checklist.md`
-- Help system: `docs/help/help-system.md`
-- Alpha backlog: `docs/backlog/alpha-backlog.md`
-- Main backlog: `docs/backlog/main-backlog.md`
-- Versioning / release notes plan: `docs/release/versioning.md`
-- GitHub release notes template: `docs/release/github-release-notes-template.md`
-- Current status: `project.docu/status-aktuell.md`
-- Internal notes index: `project.docu/README.md`
+- Alpha help (DE): `docs/help/alpha-help-system.de.md`
+- Alpha help (EN): `docs/help/alpha-help-system.en.md`
+- Memory help: `docs/help/memory.md`
+- Pricing help: `docs/help/pricing.md`
+- Security help: `docs/help/security.md`
 - Changelog: `CHANGELOG.md`
-
-## Current implementation snapshot
-
-- Browser chat UI at `/`
-- Deterministic routing plus custom-skill and capability execution
-- Qdrant-backed memory with typed collections, weighted recall, and JSON export
-- Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP, and MQTT
-- Custom Skills as JSON manifests with a browser wizard, import/export, and sample skills
-- `Statistiken` under `/stats` with health, token, cost, preflight, connection status, activities, and reset
-- Read-only `/help` and `/product-info`
-- OpenAI-compatible endpoint `POST /v1/chat/completions`
-- Config from `config/config.yaml` with `ARIA_*` env overrides
-- Prompt loader with mtime cache
-- Healthcheck under `/health`
+- Internal project notes: `project.docu/README.md`
 
 ## Quickstart
 
@@ -80,8 +86,288 @@ cp config/secrets.env.example config/secrets.env
 ./aria.sh start
 ```
 
-Dann Browser öffnen: `http://localhost:8800`
-Stats: `http://localhost:8800/stats`
+Then open:
+
+- ARIA: `http://localhost:8800`
+- Stats: `http://localhost:8800/stats`
+
+## App control
+
+```bash
+cd /path/to/ARIA
+./aria.sh start
+./aria.sh status
+./aria.sh logs
+./aria.sh stop
+./aria.sh maintenance
+```
+
+Foreground mode:
+
+```bash
+./aria.sh start --foreground
+```
+
+`aria.sh` reads host and port from `config/config.yaml`. If needed, override them with `ARIA_ARIA_HOST` and `ARIA_ARIA_PORT`.
+
+## Git / container publish safety
+
+Local runtime config and secrets should stay out of Git.
+
+Ignored runtime files/directories include:
+
+- `config/config.yaml`
+- `config/secrets.env`
+- `data/auth/`
+- `data/logs/`
+- `data/skills/`
+- `data/chat_history/`
+- `data/qdrant/`
+- `data/runtime/`
+- `data/ssh_keys/`
+
+Tracked examples/templates:
+
+- `config/config.example.yaml`
+- `config/secrets.env.example`
+- `.env.example`
+
+For a new local/container setup:
+
+```bash
+cp config/config.example.yaml config/config.yaml
+cp config/secrets.env.example config/secrets.env
+cp .env.example .env
+```
+
+## Autostart
+
+ARIA can manage its own user-level cron autostart:
+
+```bash
+cd /path/to/ARIA
+./aria.sh autostart-status
+./aria.sh autostart-install
+./aria.sh autostart-remove
+```
+
+`autostart-install` creates:
+
+- `@reboot` startup
+- a one-minute watchdog restart check
+- daily memory maintenance at `03:17`
+
+## Docker / Compose
+
+```bash
+cd /path/to/ARIA
+cp config/config.example.yaml config/config.yaml
+cp config/secrets.env.example config/secrets.env
+cp .env.example .env
+```
+
+Set at least this in `.env`:
+
+```dotenv
+ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
+```
+
+Optional:
+
+```dotenv
+ARIA_HTTP_PORT=8800
+```
+
+Start:
+
+```bash
+docker compose up -d --build
+```
+
+Open:
+
+- ARIA: `http://localhost:8800`
+- Qdrant: `http://localhost:6333`
+
+First start flow:
+
+1. create the first user
+2. that first user becomes Admin automatically
+3. Admin mode is active
+4. configure LLMs, embeddings, connections, and skills
+
+## Portainer
+
+For Portainer, use `docker/portainer-stack.example.yml` as a base and set stack variables such as:
+
+- `ARIA_QDRANT_API_KEY`
+- `ARIA_HTTP_PORT`
+- `ARIA_LLM_API_BASE`
+- `ARIA_EMBEDDINGS_API_BASE`
+- `ARIA_PUBLIC_URL`
+
+Important notes:
+
+- stack examples use named volumes
+- empty `config` / `prompts` volumes are initialized from built-in defaults on first container start
+- `config.yaml` and `secrets.env` are generated in the volume if missing
+- keep the same Qdrant API key for both `aria` and `qdrant`
+- on Linux, `host.docker.internal` is wired through `host-gateway` in the compose setup
+
+## Friend tester quickstart
+
+If you want 1-2 trusted people to test ARIA:
+
+1. run ARIA on a separate host via Docker or Portainer
+2. keep access inside LAN / VPN
+3. let the tester create the first user and configure their own LLM
+4. collect feedback on first-run setup, chat quality, connections, memories, and rough UI edges
+
+Please frame it clearly as an **ALPHA**.
+
+## OpenAI-compatible API
+
+```bash
+curl -X POST http://localhost:8800/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Hello ARIA"}]}'
+```
+
+If `channels.api.auth_token` is configured:
+
+```bash
+curl -X POST http://localhost:8800/v1/chat/completions \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Hello ARIA"}]}'
+```
+
+## Environment override examples
+
+```bash
+export ARIA_LLM_MODEL="ollama_chat/qwen3:8b"
+export ARIA_LLM_API_BASE="http://localhost:11434"
+export ARIA_LLM_TEMPERATURE="0.4"
+export ARIA_LLM_MAX_TOKENS="4096"
+export ARIA_ARIA_HOST="0.0.0.0"
+export ARIA_ARIA_PORT="8800"
+```
+
+Secret-related environment variables are resolved centrally:
+
+- `ARIA_MASTER_KEY`
+- `ARIA_AUTH_SIGNING_SECRET`
+- `ARIA_FORGET_SIGNING_SECRET`
+
+Never commit real secrets into code or YAML.
+
+## Operational notes
+
+- Qdrant must be reachable if `memory.enabled: true`
+- if Memory fails, chat should still continue and message details show `memory_error`
+- context rollup uses `memory.compression_summary_prompt` (default: `prompts/skills/memory_compress.md`)
+- for ALPHA testing, prefer a separate host/container, LAN/VPN access, and avoid mixing highly sensitive real user data into throwaway test instances
+
+## Tests
+
+```bash
+./.venv/bin/pytest -q
+```
+
+## Public release status
+
+ARIA is close to a first public ALPHA release. The remaining work is mostly release hygiene and end-to-end verification.
+
+## One-line summary
+
+**ARIA is a lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first interface built for real control instead of platform bloat.**
+
+---
+
+# Deutsch
+
+## Was ARIA ist
+
+ARIA ist ein kleiner, modularer, selbst gehosteter AI-Assistent für Menschen, die Kontrolle statt Plattform-Bloat wollen.
+
+ARIA verbindet:
+
+- eine browser-first Chat-UI
+- strukturiertes Memory mit Qdrant
+- konfigurierbare Skills und Automationen
+- modulare Connections zu echten Systemen
+- klare Security- und Rollen-Grenzen
+
+ARIA soll bewusst **keine riesige OpenWebUI-artige Alles-in-einem-Suite** werden.  
+Das Ziel ist, klein, verständlich und erweiterbar zu bleiben.
+
+## Aktuelle ALPHA-Grenze
+
+- ARIA ALPHA ist aktuell **primär ein persönliches Single-User-System**
+- der User-Modus ist eine reduzierte Arbeitsansicht für den Alltag
+- erweiterte Konfiguration bleibt hinter dem Admin-Modus
+- Ownership / Sharing / RBAC für Skills, Connections und Memories ist als späterer Architektur-Schritt geplant
+- ARIA ALPHA ist für **LAN / VPN / Homelab** gedacht, nicht für direkte offene Internet-Exponierung
+
+## Für wen diese ALPHA gedacht ist
+
+Gut geeignet für:
+
+- Menschen, die einen eigenen AI-Workspace wollen
+- Self-Hoster und Homelab-User
+- Bastler, die mit Docker / Portainer umgehen können
+- kleine private Tests mit 1-2 vertrauenswürdigen Personen
+
+Aktuell **nicht** gedacht für:
+
+- offene Internet-Exponierung
+- produktive Teams
+- vollständige Multi-User-Berechtigungsmodelle
+- hands-off Enterprise-Deployment
+
+## Aktueller Implementierungsstand
+
+- Chat-UI unter `/`
+- deterministisches Routing plus Custom-Skill- und Capability-Ausführung
+- Qdrant-Memory mit typisierten Collections, gewichtetem Recall und JSON-Export
+- Connection-Seiten für SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP und MQTT
+- Custom Skills als JSON-Manifeste mit Wizard, Import/Export und mitgelieferten Sample-Skills
+- `Statistiken` unter `/stats` mit Health, Token-/Kosten-Stats, Connection-Status, Aktivitäten und Reset
+- Read-only `/help` und `/product-info`
+- OpenAI-kompatibler Endpoint `POST /v1/chat/completions`
+- Konfiguration über `config/config.yaml` plus `ARIA_*` ENV-Overrides
+- `/health` Endpoint
+
+## Dokumentation
+
+- Produktüberblick: `docs/product/overview.md`
+- Feature-Liste: `docs/product/feature-list.md`
+- Architektur: `docs/product/architecture-summary.md`
+- Roadmap: `docs/product/roadmap.md`
+- Setup-Überblick: `docs/setup/setup-overview.md`
+- Portainer-Deploy-Checkliste: `docs/setup/portainer-deploy-checklist.md`
+- Alpha-Hilfe DE: `docs/help/alpha-help-system.de.md`
+- Alpha-Hilfe EN: `docs/help/alpha-help-system.en.md`
+- Memory-Hilfe: `docs/help/memory.md`
+- Pricing-Hilfe: `docs/help/pricing.md`
+- Security-Hilfe: `docs/help/security.md`
+- Changelog: `CHANGELOG.md`
+- Interne Projekt-Notizen: `project.docu/README.md`
+
+## Quickstart
+
+```bash
+cd /path/to/ARIA
+pip install -e .
+cp config/config.example.yaml config/config.yaml
+cp config/secrets.env.example config/secrets.env
+./aria.sh start
+```
+
+Danach öffnen:
+
+- ARIA: `http://localhost:8800`
+- Statistiken: `http://localhost:8800/stats`
 
 ## App-Steuerung
 
@@ -94,27 +380,37 @@ cd /path/to/ARIA
 ./aria.sh maintenance
 ```
 
-Optional im Vordergrund starten:
+Im Vordergrund starten:
 
 ```bash
 ./aria.sh start --foreground
 ```
 
-`aria.sh` liest Host und Port aus `config/config.yaml`. Falls noetig, koennen beide Werte per `ARIA_ARIA_HOST` und `ARIA_ARIA_PORT` ueberschrieben werden.
+`aria.sh` liest Host und Port aus `config/config.yaml`. Falls nötig, kannst du beides mit `ARIA_ARIA_HOST` und `ARIA_ARIA_PORT` überschreiben.
 
-## Git / Container Publish Safety
+## Git-/Container-Publish-Sicherheit
 
-- `config/config.yaml` ist jetzt eine lokale Laufzeitdatei und bleibt aus Git draussen.
-- `config/secrets.env` bleibt ebenfalls lokal und wird nicht committed.
-- Im Repo gehoeren nur die Beispiele:
-  - `config/config.example.yaml`
-  - `config/secrets.env.example`
-- Laufzeitdaten bleiben lokal:
-  - `data/auth/`
-  - `data/logs/`
-  - `data/skills/`
+Lokale Runtime-Config und Secrets sollen nicht in Git landen.
 
-Fuer Container/Deployment bedeutet das:
+Ignorierte Runtime-Dateien/-Ordner:
+
+- `config/config.yaml`
+- `config/secrets.env`
+- `data/auth/`
+- `data/logs/`
+- `data/skills/`
+- `data/chat_history/`
+- `data/qdrant/`
+- `data/runtime/`
+- `data/ssh_keys/`
+
+Getrackte Beispiele/Templates:
+
+- `config/config.example.yaml`
+- `config/secrets.env.example`
+- `.env.example`
+
+Für ein neues lokales/containerisiertes Setup:
 
 ```bash
 cp config/config.example.yaml config/config.yaml
@@ -122,41 +418,25 @@ cp config/secrets.env.example config/secrets.env
 cp .env.example .env
 ```
 
-Dann echte Werte lokal setzen oder per Umgebung ueberschreiben. Direkte `os.environ`-Zugriffe sind auf das zentrale Config-Modul beschraenkt.
+## Autostart
 
-## Dauerbetrieb (Autostart)
-
-ARIA kann sich selbst als User-Cronjob verwalten:
+ARIA kann seinen eigenen User-Cron-Autostart verwalten:
 
 ```bash
 cd /path/to/ARIA
-  ./aria.sh autostart-status
-  ./aria.sh autostart-install
-  ./aria.sh autostart-remove
+./aria.sh autostart-status
+./aria.sh autostart-install
+./aria.sh autostart-remove
 ```
 
-`autostart-install` legt zwei Eintraege an:
+`autostart-install` legt an:
 
-- `@reboot`: startet ARIA nach einem Reboot
-- `* * * * *`: prueft jede Minute und startet neu, falls ARIA nicht laeuft
-- `17 3 * * *`: fuehrt taegliche Memory-Maintenance (Kontext-Rollup) aus
+- Start bei Reboot über `@reboot`
+- einen Watchdog-Check jede Minute
+- tägliche Memory-Maintenance um `03:17`
 
 ## Docker / Compose
 
-Es gibt jetzt einen container-faehigen Startpfad:
-
-```bash
-cd /path/to/ARIA
-cp config/config.example.yaml config/config.yaml
-cp config/secrets.env.example config/secrets.env
-cp .env.example .env
-docker compose up -d --build
-```
-
-### Eigene ARIA als Container
-
-Wenn du deine eigene ARIA lokal oder im Homelab betreiben willst, ist das der vorgesehene ALPHA-Weg:
-
 ```bash
 cd /path/to/ARIA
 cp config/config.example.yaml config/config.yaml
@@ -164,141 +444,66 @@ cp config/secrets.env.example config/secrets.env
 cp .env.example .env
 ```
 
-Dann in `.env` mindestens setzen:
+In `.env` mindestens setzen:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=hier-einen-langen-zufaelligen-key-setzen
 ```
 
-Optional anpassen:
+Optional:
 
 ```dotenv
 ARIA_HTTP_PORT=8800
 ```
 
-Danach starten:
+Starten:
 
 ```bash
 docker compose up -d --build
 ```
 
-Dann im Browser:
+Im Browser öffnen:
 
 - ARIA: `http://localhost:8800`
 - Qdrant: `http://localhost:6333`
 
-Beim ersten Start:
+First-Run-Flow:
 
 1. ersten Benutzer anlegen
 2. dieser erste Benutzer wird automatisch Admin
-3. Admin-Modus ist direkt aktiv
-4. danach LLMs und weitere Verbindungen konfigurieren
+3. Admin-Modus ist aktiv
+4. danach LLMs, Embeddings, Connections und Skills konfigurieren
 
-### Friend Tester Quickstart
+## Portainer
 
-If you want to hand ARIA to 1-2 friends for early feedback, this is the intended ALPHA path:
+Für Portainer kannst du `docker/portainer-stack.example.yml` als Basis nehmen und Stack-Variablen setzen, z. B.:
 
-1. run ARIA on a separate host via Docker or Portainer
-2. keep access inside LAN / VPN
-3. let the tester create the first user and configure their own LLM
-4. collect feedback on:
-   - first-run setup
-   - chat quality
-   - connections
-   - memories
-   - rough edges in the UI
+- `ARIA_QDRANT_API_KEY`
+- `ARIA_HTTP_PORT`
+- `ARIA_LLM_API_BASE`
+- `ARIA_EMBEDDINGS_API_BASE`
+- `ARIA_PUBLIC_URL`
 
-Recommended framing for early testers:
+Wichtige Hinweise:
 
-- this is an **ALPHA**
-- ARIA is already usable
-- but rough edges, missing polish, and later architecture steps are still expected
+- die Stack-Beispiele nutzen named volumes
+- leere `config`- und `prompts`-Volumes werden beim ersten Start automatisch mit eingebauten Defaults befüllt
+- `config.yaml` und `secrets.env` werden im Volume erzeugt, wenn sie noch fehlen
+- denselben Qdrant API Key für `aria` und `qdrant` verwenden
+- unter Linux ist `host.docker.internal` im Compose-Setup über `host-gateway` verdrahtet
 
-### Portainer Stack
+## Friend-Tester-Quickstart
 
-Wenn du ARIA spaeter per Portainer betreiben willst, gibt es jetzt zwei sinnvolle Wege:
+Wenn du ARIA an 1-2 vertraute Tester geben willst:
 
-1. **Jetzt, vor der oeffentlichen Image-Verteilung**
-- Repo auf den Zielhost legen
-- mit dem normalen `docker-compose.yml` arbeiten
-- oder zuerst lokal ein Image bauen und spaeter auf einen Registry-Pfad umstellen
+1. ARIA auf einem separaten Host über Docker oder Portainer betreiben
+2. Zugriff auf LAN / VPN beschränken
+3. Tester den ersten User selbst anlegen und das eigene LLM konfigurieren lassen
+4. Feedback zu First-Run, Chatqualität, Connections, Memories und UI-Reibung sammeln
 
-2. **Sobald das verteilbare Image bereitsteht**
-- `docker/portainer-stack.example.yml` als Grundlage nehmen
-- dort nur noch den finalen Image-Namen einsetzen
-- in Portainer die Stack-Variablen setzen:
-  - `ARIA_QDRANT_API_KEY`
-  - optional `ARIA_HTTP_PORT`
-  - optional `ARIA_LLM_API_BASE`
-  - optional `ARIA_EMBEDDINGS_API_BASE`
+Bitte klar als **ALPHA** framen.
 
-Wichtig fuer den Portainer-Weg:
-
-- das Beispiel nutzt **named volumes**
-- leere `config`-/`prompts`-Volumes werden beim ersten Start automatisch aus den eingebauten Defaults befuellt
-- `config.yaml` und `secrets.env` werden dadurch beim ersten Start automatisch angelegt, wenn sie im Volume noch fehlen
-- danach bleiben diese Daten im Volume erhalten
-
-Enthalten:
-
-- `Dockerfile`
-- `docker-compose.yml`
-- `docker/entrypoint.sh`
-- `docker/portainer-stack.example.yml`
-- `.dockerignore`
-
-Wichtig fuer den Container-Betrieb:
-
-- `config/config.yaml` und `config/secrets.env` werden als lokale Laufzeitdateien erwartet
-- `.env` ist die einfachste Stelle fuer den Qdrant-Key und optionale Container-Overrides
-- falls `config/config.yaml` im Container fehlt, kopiert der Entry-Point automatisch `config/config.example.yaml`
-- `config/secrets.env` wird beim Container-Start gesourced, damit `ARIA_MASTER_KEY` und andere Runtime-Secrets verfuegbar sind
-- `ARIA_QDRANT_API_KEY` muss vor dem ersten produktiven Start explizit gesetzt werden
-- Volumes:
-  - `./config -> /app/config`
-  - `./prompts -> /app/prompts`
-  - `./data -> /app/data`
-
-Beispiel `docker compose` oder Portainer Stack:
-
-```yaml
-environment:
-  ARIA_QDRANT_API_KEY: "hier-einen-eigenen-langen-key-setzen"
-```
-
-Wichtig:
-
-- denselben Wert fuer `aria` und `qdrant` verwenden
-- fuer Portainer den Wert als Stack-Env hinterlegen
-- fuer Compose den Wert am besten in `.env` oder im Stack-File setzen
-- auf Linux ist `host.docker.internal` im Compose-Setup bereits ueber `host-gateway` verdrahtet
-
-## Public Release Status
-
-ARIA is close to a first public ALPHA release, but the intended path remains:
-
-1. stabilize in `dev`
-2. test on a separate host like a real user
-3. verify the update pipeline
-4. only then publish to GitHub and Docker Hub
-
-That means:
-
-- GitHub / Docker Hub are near, but not the very first milestone
-- the current focus stays on:
-  - release polish
-  - documentation quality
-  - clean public packaging
-  - honest ALPHA boundaries
-
-Before public GitHub / Docker Hub release, the remaining work is mostly release hygiene and end-to-end verification:
-
-- verify Qdrant size reporting and Memory export on a real upgraded deployment
-- run a fresh-host smoke test and an upgrade test with existing volumes
-- apply real Git/Docker release tags once the public repo exists
-- run a final privacy / artifact sweep
-
-## API (OpenAI-kompatibel)
+## OpenAI-kompatible API
 
 ```bash
 curl -X POST http://localhost:8800/v1/chat/completions \
@@ -315,41 +520,42 @@ curl -X POST http://localhost:8800/v1/chat/completions \
   -d '{"messages":[{"role":"user","content":"Hallo ARIA"}]}'
 ```
 
-## ENV-Overrides (Beispiele)
+## ENV-Override-Beispiele
 
 ```bash
 export ARIA_LLM_MODEL="ollama_chat/qwen3:8b"
 export ARIA_LLM_API_BASE="http://localhost:11434"
 export ARIA_LLM_TEMPERATURE="0.4"
-export ARIA_LLM_MAX_TOKENS="1024"
+export ARIA_LLM_MAX_TOKENS="4096"
 export ARIA_ARIA_HOST="0.0.0.0"
 export ARIA_ARIA_PORT="8800"
 ```
 
-Wichtig:
+Secret-ENV-Variablen werden zentral aufgelöst:
 
-- Secrets nie im Code oder in committed YAML-Dateien hinterlegen.
-- Secret-bezogene ENV-Werte werden zentral aufgeloest:
-  - `ARIA_MASTER_KEY`
-  - `ARIA_AUTH_SIGNING_SECRET`
-  - `ARIA_FORGET_SIGNING_SECRET`
+- `ARIA_MASTER_KEY`
+- `ARIA_AUTH_SIGNING_SECRET`
+- `ARIA_FORGET_SIGNING_SECRET`
 
-## Hinweise
+Echte Secrets bitte nie in Code oder YAML committen.
 
-- Qdrant muss erreichbar sein, falls `memory.enabled: true`.
-- Bei Memory-Fehlern läuft Chat weiter; Badge zeigt `memory_error`.
-- Kontext-Rollup nutzt Prompt-Datei aus `memory.compression_summary_prompt` (Default: `prompts/skills/memory_compress.md`).
-- Memory-Hilfe: `docs/help/memory.md`
-- Pricing/Kosten-Hilfe: `docs/help/pricing.md`
-- Security-Hilfe: `docs/help/security.md`
-- Zentrale ARIA-Hilfe: `docs/help/help-system.md`
-- Fuer ALPHA-Tests gilt:
-  - lieber separater Host oder Container
-  - lieber LAN / VPN statt offenem Internet
-  - echte User-Daten nicht leichtfertig in Testinstanzen mischen
+## Betriebshinweise
+
+- Qdrant muss erreichbar sein, wenn `memory.enabled: true`
+- bei Memory-Fehlern läuft der Chat weiter, Message-Details zeigen dann `memory_error`
+- Kontext-Rollup nutzt `memory.compression_summary_prompt` (Default: `prompts/skills/memory_compress.md`)
+- für ALPHA-Tests besser separater Host/Container, LAN/VPN-Zugriff und keine hochsensiblen Echtdaten in Wegwerf-Testinstanzen
 
 ## Tests
 
 ```bash
 ./.venv/bin/pytest -q
 ```
+
+## Public-Release-Status
+
+ARIA ist nah an einem ersten Public-ALPHA-Release. Der Rest ist vor allem Release-Hygiene und End-to-End-Verifikation.
+
+## Ein-Satz-Zusammenfassung
+
+**ARIA ist ein schlanker, modularer, selbst gehosteter AI-Assistent mit Memory, Skills, sicheren Connections und browser-first UI für echte Kontrolle statt Plattform-Bloat.**
