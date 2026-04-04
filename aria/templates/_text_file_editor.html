@@ -13,26 +13,27 @@
   </form>
 
   {% if selected_row %}
+  {% set selected_mode = selected_row.mode|default('edit') %}
   <div class="meta-row file-editor-meta">
     <span class="meta-chip"><strong>{{ selected_row.label or selected_row.name }}</strong></span>
     <span class="meta-chip"><code>{{ selected_row.path }}</code></span>
     <span class="meta-chip">{{ tr(request, 'config_files.group', 'Bereich') }}: {{ tr(request, 'config_files.group_' ~ selected_row.group, selected_row.group) }}</span>
-    <span class="meta-chip">{{ tr(request, 'config_files.mode', 'Modus') }}: {{ tr(request, 'config_files.' ~ selected_row.mode, selected_row.mode) }}</span>
+    <span class="meta-chip">{{ tr(request, 'config_files.mode', 'Modus') }}: {{ tr(request, 'config_files.' ~ selected_mode, selected_mode) }}</span>
     <span class="meta-chip">{{ selected_row.size_label or (selected_row.size ~ ' B') }}</span>
     <span class="meta-chip">{{ selected_row.updated }}</span>
   </div>
   {% endif %}
 
-  {% if selected_row and selected_row.mode == 'readonly' %}
+  {% if selected_row and selected_row.mode|default('edit') == 'readonly' %}
   <div class="alert note">{{ tr(request, 'config_files.readonly_hint', 'Diese Datei ist im GUI nur lesbar, damit keine Support-relevanten Hilfetexte versehentlich verändert werden.') }}</div>
   {% endif %}
 
   <form method="post" action="{{ save_action }}" class="editor-form">
     <input type="hidden" name="file" value="{{ selected_file }}">
     <label for="{{ textarea_id }}">{{ content_label }}{% if selected_file %}: <code>{{ selected_file }}</code>{% endif %}</label>
-    <textarea id="{{ textarea_id }}" name="content" class="editor-textarea{% if selected_row and selected_row.mode == 'readonly' %} is-readonly{% endif %}" spellcheck="false" {% if selected_row and selected_row.mode == 'readonly' %}readonly{% endif %}>{{ file_content }}</textarea>
+    <textarea id="{{ textarea_id }}" name="content" class="editor-textarea{% if selected_row and selected_row.mode|default('edit') == 'readonly' %} is-readonly{% endif %}" spellcheck="false" {% if selected_row and selected_row.mode|default('edit') == 'readonly' %}readonly{% endif %}>{{ file_content }}</textarea>
     <div class="inline-actions">
-      {% if not selected_row or selected_row.mode == 'edit' %}
+      {% if not selected_row or selected_row.mode|default('edit') == 'edit' %}
       <button type="submit">{{ save_label }}</button>
       {% else %}
       <span class="meta-chip">{{ tr(request, 'config_files.save_disabled', 'Speichern für diese Datei deaktiviert.') }}</span>

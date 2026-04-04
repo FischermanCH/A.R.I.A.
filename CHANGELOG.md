@@ -9,8 +9,10 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ### Added
 
 ### Changed
+- `README.md` now links Docker Hub directly in the header, next to the GitHub repository link.
 
 ### Fixed
+- Prompt Studio no longer disables saving for editable prompt files like `prompts/persona.md`; prompt rows now carry explicit `edit` metadata and the shared editor template defaults missing modes to editable.
 
 ### Security
 

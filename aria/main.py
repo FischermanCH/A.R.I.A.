@@ -2035,6 +2035,8 @@ def _build_app() -> FastAPI:
                     {
                         "path": rel,
                         "name": path.name,
+                        "group": "prompts",
+                        "mode": "edit",
                         "size": int(stat.st_size),
                         "updated": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
                     }

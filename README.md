@@ -6,7 +6,8 @@
 
 Lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first UI.
 
-**GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)
+**GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
+**Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
 **Languages:** [English](#english) · [Deutsch](#deutsch)
 
 ---
