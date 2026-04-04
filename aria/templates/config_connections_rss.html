@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section class="config-card">
+    <h2>{{ tr(request,'config_conn.rss_global_poll_title','Globales RSS-Ping-Intervall') }}</h2>
+    <p>{{ tr(request,'config_conn.rss_global_poll_hint','Dieses Intervall gilt für alle RSS-Feeds. So musst du bei vielen Feeds nicht jedes Profil einzeln anfassen.') }}</p>
+    <form method="post" action="/config/connections/rss/poll-interval/save" class="editor-form">
+      <label for="rss_global_poll_interval_minutes">{{ tr(request,'config_conn.rss_poll_interval_minutes','Ping-Intervall (Minuten)') }}</label>
+      <input
+        id="rss_global_poll_interval_minutes"
+        type="number"
+        name="poll_interval_minutes"
+        min="1"
+        max="10080"
+        value="{{ rss_poll_interval_minutes or 60 }}"
+        required
+      >
+      <button type="submit">{{ tr(request,'config_conn.rss_save_global_poll','Globales Ping-Intervall speichern') }}</button>
+    </form>
+  </section>
+
+  <section class="config-card">
+    <details class="skill-details">
+      <summary>{{ tr(request,'config_conn.rss_opml_title','OPML Import / Export') }}</summary>
+      <div class="skill-details-content connection-status-stack">
+        <div class="connection-status-head">
+          <small>{{ tr(request,'config_conn.rss_opml_hint','Importiere viele Feeds aus einer OPML-Datei oder exportiere deine aktuelle RSS-Sammlung wieder als OPML.') }}</small>
+        </div>
+        <div class="inline-actions">
+          <a class="button-link subtle-link" href="/config/connections/rss/export-opml">{{ tr(request,'config_conn.rss_export_opml','OPML exportieren') }}</a>
+        </div>
+        <form method="post" action="/config/connections/rss/import-opml" class="editor-form" enctype="multipart/form-data">
+          <label for="opml_file">{{ tr(request,'config_conn.rss_opml_file','OPML-Datei') }}</label>
+          <input id="opml_file" type="file" name="opml_file" accept=".opml,.xml,text/xml,application/xml" required>
+
+          <button type="submit">{{ tr(request,'config_conn.rss_import_opml','OPML importieren') }}</button>
+        </form>
+      </div>
+    </details>
+  </section>
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' %}hidden{% endif %}>
+    <div class="connection-status-stack">
+      <div class="connection-status-head">
+        <h2>{{ tr(request,'config_conn.rss_groups_title','Thematische Feed-Gruppen') }}</h2>
+        <small>{{ tr(request,'config_conn.rss_groups_hint','ARIA gruppiert RSS-Profile thematisch. Bei vielen Feeds hilft ein LLM beim sinnvollen Clustering, sonst greift ein stabiler Fallback.') }}</small>
+      </div>
+      {% if not rss_selected_explicit %}
+      <div class="inline-actions">
+        <a class="button-link" href="/config/connections/rss?refresh_groups=1&mode=edit">{{ tr(request,'config_conn.rss_refresh_groups','Kategorien mit LLM aktualisieren') }}</a>
+      </div>
+      <div class="editor-form">
+        <label for="rss_feed_search">{{ tr(request,'config_conn.rss_search_label','RSS-Feeds durchsuchen') }}</label>
+        <input
+          id="rss_feed_search"
+          type="search"
+          placeholder="{{ tr(request,'config_conn.rss_search_placeholder','Nur in RSS-Titel, URL, Ref, Gruppe und Tags suchen') }}"
+          autocomplete="off"
+          data-rss-search-input
+        >
+      </div>
+      {% endif %}
+      {% if rss_selected_explicit %}
+      <div class="connection-status-grid">
+        {% for item in rss_status_rows %}
+        {% if item.selected %}
+        <article class="connection-test-card status-{{ item.status }} current-profile">
+          <div class="connection-test-head">
+            <span class="health-lamp status-{{ item.status }}"></span>
+            <strong>{{ item.display_name }}</strong>
+            {% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
+            <span class="connection-current-badge">{{ tr(request,'config_conn.current','Current') }}</span>
+          </div>
+          <small class="connection-status-target">{{ item.target }}</small>
+          {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+          {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
+          <small>{{ item.message }}</small>
+          <form method="post" action="/config/connections/rss/ping-now" class="inline-form">
+            <input type="hidden" name="rss_ref" value="{{ item.ref }}">
+            <button type="submit" class="button-link subtle-link">{{ tr(request,'config_conn.rss_ping_now','Jetzt pingen') }}</button>
+          </form>
+        </article>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      {% if rss_status_groups %}
+      <div class="rss-group-stack">
+        {% for group in rss_status_groups %}
+        <details class="skill-details rss-group-card" data-rss-group-card data-rss-group-name="{{ group.name|lower|e }}">
+          <summary>
+            <div>
+              <h3>{{ group.name }}</h3>
+              <small>{{ group.total }} {{ tr(request,'config_conn.profiles','Profiles') }} · {{ group.healthy }} {{ tr(request,'config_conn.healthy','Healthy') }} · {{ group.issues }} {{ tr(request,'config_conn.issues','Issues') }}</small>
+            </div>
+          </summary>
+          <div class="skill-details-content connection-status-grid">
+            {% for item in group.rows %}
+            <a
+              href="/config/connections/rss?mode=edit&rss_ref={{ item.ref|urlencode }}"
+              class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}"
+              data-rss-feed-card
+              data-rss-search-text="{{ (item.display_name ~ ' ' ~ item.ref ~ ' ' ~ item.target ~ ' ' ~ group.name ~ ' ' ~ (item.tags or [])|join(' '))|lower|e }}"
+            >
+              <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}{% if item.selected %}<span class="connection-current-badge">{{ tr(request,'config_conn.current','Current') }}</span>{% endif %}</div>
+              <small class="connection-status-target">{{ item.target }}</small>
+          {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+              {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
+              <small>{{ item.message }}</small>
+            </a>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="skill-summary"><span>{{ tr(request,'config_conn.rss_no_profiles_hint','No RSS profiles yet. Save a profile and ARIA will test it automatically.') }}</span></div>
+      {% endif %}
+      {% endif %}
+    </div>
+
+    {% if rss_selected_explicit %}
+    {% if rss_test_status == 'ok' or rss_test_status == 'error' %}
+    <article class="connection-test-card status-{{ rss_test_status }}">
+      <div class="connection-test-head">
+        <span class="health-lamp status-{{ rss_test_status }}"></span>
+        <strong>{% if rss_test_status == 'ok' %}{{ tr(request,'config_conn.rss_test_ok','RSS connection test successful') }}{% else %}{{ tr(request,'config_conn.rss_test_error','RSS connection test failed') }}{% endif %}</strong>
+      </div>
+      <small>{% if rss_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+
+    <form method="post" action="/config/connections/rss/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_rss_ref }}">
+      {% set schema_fields = rss_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'rss_edit' %}
+      {% set meta_llm_kind = 'rss' %}
+
+      {% set meta_values = selected_rss %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.rss_save_profile','Save RSS profile') }}</button>
+    </form>
+
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'rss' %}
+    {% set delete_ref = selected_rss_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+
+    <div class="skill-summary connection-flow-note">
+      <strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong>
+      <span>{{ tr(request,'config_conn.rss_recommended_flow_text','1) RSS-Profil mit Feed-URL speichern. 2) Speichern. 3) ARIA testet den Feed automatisch.') }}</span>
+    </div>
+
+    <form method="post" action="/config/connections/rss/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = rss_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'rss_new' %}
+      {% set meta_llm_kind = 'rss' %}
+
+      {% set meta_values = {} %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.rss_save_profile','Save RSS profile') }}</button>
+    </form>
+  </section>
+</main>
+<script>
+  (function () {
+    const input = document.querySelector('[data-rss-search-input]');
+    if (!input) return;
+
+    const groups = Array.from(document.querySelectorAll('[data-rss-group-card]'));
+    const normalize = (value) => (value || '').toString().trim().toLowerCase();
+    const applyRssSearchFilter = () => {
+      const query = normalize(input.value);
+      groups.forEach((group) => {
+        const cards = Array.from(group.querySelectorAll('[data-rss-feed-card]'));
+        const groupName = normalize(group.dataset.rssGroupName);
+        let visibleCount = 0;
+
+        cards.forEach((card) => {
+          const haystack = normalize(card.dataset.rssSearchText);
+          const matches = !query || haystack.includes(query);
+          card.hidden = !matches;
+          if (matches) visibleCount += 1;
+        });
+
+        const groupMatches = !query || groupName.includes(query);
+        group.hidden = !groupMatches && visibleCount === 0;
+        if (query && !group.hidden) {
+          group.open = true;
+        }
+      });
+    };
+
+    input.addEventListener('input', applyRssSearchFilter);
+    input.addEventListener('search', applyRssSearchFilter);
+  })();
+
+  (function () {
+    const buttons = Array.from(document.querySelectorAll('[data-connection-meta-llm-kind="rss"]'));
+    if (!buttons.length) return;
+
+    const mergeListValues = (currentValue, suggestedValue) => {
+      const rows = [];
+      const seen = new Set();
+      [currentValue, suggestedValue].forEach((value) => {
+        String(value || '')
+          .split(/[\n,;]+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .forEach((item) => {
+            const key = item.toLowerCase();
+            if (!seen.has(key)) {
+              seen.add(key);
+              rows.push(item);
+            }
+          });
+      });
+      return rows.join(', ');
+    };
+
+    const setFieldValue = (fieldId, value, { merge = false } = {}) => {
+      const field = document.getElementById(fieldId);
+      if (!field) return;
+      const cleanValue = String(value || '').trim();
+      if (!cleanValue) return;
+      field.value = merge ? mergeListValues(field.value, cleanValue) : cleanValue;
+    };
+
+    const readFieldValue = (fieldId) => {
+      const field = document.getElementById(fieldId);
+      return field ? String(field.value || '').trim() : '';
+    };
+
+    const applySuggestion = async (button) => {
+      const prefix = button.dataset.connectionMetaPrefix || '';
+      if (!prefix || button.disabled) return;
+      const params = new URLSearchParams({
+        connection_ref: readFieldValue(`${prefix}_connection_ref`),
+        feed_url: readFieldValue(`${prefix}_feed_url`),
+        group_name: readFieldValue(`${prefix}_group_name`),
+        connection_title: readFieldValue(`${prefix}_connection_title`),
+        connection_description: readFieldValue(`${prefix}_connection_description`),
+        connection_aliases: readFieldValue(`${prefix}_connection_aliases`),
+        connection_tags: readFieldValue(`${prefix}_connection_tags`),
+      });
+
+      const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Check mit LLM';
+      const loadingLabel = button.dataset.loadingLabel || 'LLM denkt nach ...';
+      button.disabled = true;
+      button.textContent = loadingLabel;
+      try {
+        const response = await fetch(`/config/connections/rss/suggest-metadata?${params.toString()}`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        setFieldValue(`${prefix}_connection_title`, payload.title);
+        setFieldValue(`${prefix}_connection_description`, payload.description);
+        setFieldValue(`${prefix}_connection_aliases`, payload.aliases, { merge: true });
+        setFieldValue(`${prefix}_connection_tags`, payload.tags, { merge: true });
+      } catch (error) {
+        window.alert(String(error && error.message ? error.message : error));
+      } finally {
+        button.disabled = false;
+        button.textContent = defaultLabel;
+      }
+    };
+
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        void applySuggestion(button);
+      });
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,68 @@
+{
+  "id": "rss-digest-to-discord-template",
+  "name": "RSS Digest to Discord Template",
+  "version": "0.1.0",
+  "description": "Beispielskill fuer eine kleine taegliche Zeitung: RSS laden, per LLM kuratieren und das Ergebnis an Discord senden.",
+  "category": "communication",
+  "router_keywords": [
+    "rss zeitung nach discord",
+    "taegliche zeitung posten",
+    "rss digest senden",
+    "news briefing discord"
+  ],
+  "connections": [
+    "rss",
+    "discord"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "RSS-Feed laden",
+      "type": "rss_read",
+      "params": {
+        "connection_ref": "news-main"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Zeitung kuratieren",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Erstelle aus dem RSS-Input eine kurze, gut lesbare Mini-Zeitung auf Deutsch fuer Discord. Gib eine Ueberschrift und danach 3-5 kurze Bulletpoints mit den wichtigsten Meldungen. Sachlich, kompakt, ohne Rohdaten-Rubriken. Technischer Input:\\n\\n{prev_output}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s3",
+      "name": "Zeitung an Discord senden",
+      "type": "discord_send",
+      "params": {
+        "connection_ref": "alerts-main",
+        "message": "{s2_output}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s4",
+      "name": "Bestaetigung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "Die kuratierte RSS-Zeitung wurde an Discord gesendet.\\n\\n{s2_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine RSS-Connection mit Ref news-main und eine Discord-Connection mit Ref alerts-main anlegen oder die Refs im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

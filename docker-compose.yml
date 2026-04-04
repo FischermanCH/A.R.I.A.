@@ -1,0 +1,43 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: aria-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:?Set ARIA_QDRANT_API_KEY in .env or your stack environment}"
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  aria:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aria:alpha-local
+    container_name: aria
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${ARIA_HTTP_PORT:-8800}:8800"
+    environment:
+      ARIA_ARIA_HOST: "0.0.0.0"
+      ARIA_ARIA_PORT: "8800"
+      ARIA_LLM_API_BASE: "${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}"
+      ARIA_LLM_MODEL: "${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}"
+      ARIA_EMBEDDINGS_API_BASE: "${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}"
+      ARIA_EMBEDDINGS_MODEL: "${ARIA_EMBEDDINGS_MODEL:-ollama/nomic-embed-text}"
+      ARIA_QDRANT_URL: "http://qdrant:6333"
+      ARIA_QDRANT_API_KEY: "${ARIA_QDRANT_API_KEY:?Set ARIA_QDRANT_API_KEY in .env or your stack environment}"
+    volumes:
+      - ./config:/app/config
+      - ./prompts:/app/prompts
+      - ./data:/app/data
+      - qdrant_storage:/qdrant/storage:ro
+    depends_on:
+      - qdrant
+
+volumes:
+  qdrant_storage:

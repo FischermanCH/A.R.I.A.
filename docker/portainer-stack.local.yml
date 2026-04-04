@@ -1,0 +1,41 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: aria-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-TEST-QDRANT-KEY}"
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  aria:
+    image: aria:alpha-local
+    pull_policy: never
+    container_name: aria
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "80:8800"
+    environment:
+      ARIA_ARIA_HOST: "0.0.0.0"
+      ARIA_ARIA_PORT: "8800"
+      ARIA_PUBLIC_URL: "${ARIA_PUBLIC_URL:-}"
+      ARIA_QDRANT_URL: "http://qdrant:6333"
+      ARIA_QDRANT_API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-TEST-QDRANT-KEY}"
+    volumes:
+      - aria_config:/app/config
+      - aria_prompts:/app/prompts
+      - aria_data:/app/data
+      - qdrant_storage:/qdrant/storage:ro
+    depends_on:
+      - qdrant
+
+volumes:
+  qdrant_storage:
+  aria_config:
+  aria_prompts:
+  aria_data:

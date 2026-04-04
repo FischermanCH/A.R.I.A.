@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('files', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_files.title', 'File Editor') }}</h2></div>
+    <p>{{ tr(request, 'config_files.subtitle', 'Edit only approved user files and view internal help texts safely in the UI.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_files.saved', 'Saved.') }}</div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+
+    {% set picker_action = '/config/files' %}
+    {% set save_action = '/config/files/save' %}
+    {% set picker_id = 'editable-file' %}
+    {% set textarea_id = 'editable-content' %}
+    {% set picker_label_key = 'config_files.file' %}
+    {% set content_label_key = 'config_files.content' %}
+    {% set save_label_key = 'config_files.save' %}
+    {% set empty_label_key = 'config_files.empty' %}
+    {% include "_text_file_editor.html" with context %}
+  </section>
+</main>
+{% endblock %}

@@ -1,0 +1,48 @@
+{
+  "id": "sftp-read-template",
+  "name": "SFTP Read Template",
+  "version": "0.1.0",
+  "description": "Beispielskill für einen einfachen Datei-Lesezugriff via SFTP.",
+  "category": "automation",
+  "router_keywords": [
+    "sftp datei lesen",
+    "logdatei holen",
+    "remote file read"
+  ],
+  "connections": [
+    "sftp"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Datei lesen",
+      "type": "sftp_read",
+      "params": {
+        "connection_ref": "sftp-main",
+        "remote_path": "/var/log/syslog"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Bestätigung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "SFTP-Leseversuch ausgeführt. Prüfe das Skill-Ergebnis für den Dateiinhalt."
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SFTP-Connection mit Ref sftp-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

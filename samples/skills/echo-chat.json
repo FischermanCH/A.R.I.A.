@@ -1,0 +1,35 @@
+{
+  "id": "echo-chat",
+  "name": "Echo Chat",
+  "version": "0.1.0",
+  "description": "Minimaler Demo-Skill ohne externe Verbindung. Antwortet direkt im Chat.",
+  "category": "utility",
+  "router_keywords": [
+    "echo chat",
+    "demo antwort",
+    "test skill"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Direkte Chat-Antwort",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "Echo-Chat Demo aktiv. Dieser Skill funktioniert ohne externe Verbindung."
+      },
+      "on_error": "stop"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Sicherer Beispielskill ohne Connections."
+  },
+  "schema_version": "1.1"
+}

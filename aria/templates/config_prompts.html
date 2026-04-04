@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('prompts', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_prompts.title', 'Prompt Editing') }}</h2></div>
+    <p>{{ tr(request, 'config_prompts.subtitle', 'Edit relevant prompt files only. No Python code on this page.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_prompts.saved', 'Prompt saved.') }}</div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+
+    {% set picker_action = '/config/prompts' %}
+    {% set save_action = '/config/prompts/save' %}
+    {% set picker_id = 'prompt-file' %}
+    {% set textarea_id = 'prompt-content' %}
+    {% set picker_label_key = 'config_prompts.col_file' %}
+    {% set content_label_key = 'config_prompts.content' %}
+    {% set save_label_key = 'config_prompts.save' %}
+    {% set empty_label_key = 'config_prompts.empty' %}
+    {% include "_text_file_editor.html" with context %}
+  </section>
+</main>
+{% endblock %}

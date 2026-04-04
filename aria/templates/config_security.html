@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('security', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_security.title', 'Security Guardrails') }}</h2></div>
+    <p>{{ tr(request, 'config_security.subtitle', 'Hier steuerst du Login-Sicherheit und wiederverwendbare Guardrail-Profile für ARIA-Module.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_security.saved', 'Security-Konfiguration gespeichert.') }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+  </section>
+
+  <section class="config-card">
+    <h2>{{ tr(request, 'config_security.bootstrap_section', 'Login & Bootstrap') }}</h2>
+    <p>{{ tr(request, 'config_security.bootstrap_section_hint', 'Grundlegende Schutzmechanismen für den ersten Login und den Security-Store.') }}</p>
+    <p class="hint-text">{{ tr(request, 'config_security.bootstrap_explainer', 'Solange noch kein Benutzer existiert, kann ARIA den ersten Login als Bootstrap-Admin anlegen. Nach dem ersten Setup sollte Bootstrap gesperrt bleiben, damit auf einer leeren/fehlerhaften User-DB nicht versehentlich wieder ein neuer Admin erzeugt wird.') }}</p>
+    <form method="post" action="/config/security/save" class="config-form-grid">
+      <label class="checkbox-row" for="bootstrap-locked">
+        <input
+          id="bootstrap-locked"
+          name="bootstrap_locked"
+          type="checkbox"
+          value="1"
+          {% if security_cfg.bootstrap_locked %}checked{% endif %}
+        >
+        {{ tr(request, 'config_security.bootstrap_lock', 'Bootstrap sperren (empfohlen)') }}
+      </label>
+      <p class="hint-text">
+        {{ tr(request, 'config_security.when_on', 'Wenn aktiv: bei leerer User-DB wird') }} <strong>{{ tr(request, 'config_security.no_auto_admin', 'kein') }}</strong> {{ tr(request, 'config_security.auto_admin_created', 'automatischer Admin via Login erstellt.') }}
+      </p>
+      <p class="hint-text">
+        {{ tr(request, 'config_security.when_off', 'Wenn deaktiviert: erster Login auf leerer User-DB erzeugt automatisch einen Admin.') }}
+      </p>
+      <div class="config-divider"></div>
+      <p class="hint-text">
+        {{ tr(request, 'config_security.active_store', 'Aktiver Security-Store:') }} <code>{{ security_cfg.db_path }}</code>
+      </p>
+      <button type="submit">{{ tr(request, 'config_security.save', 'Speichern') }}</button>
+    </form>
+  </section>
+
+  <section class="config-card">
+    <h2>{{ tr(request, 'config_security.guardrails_title', 'Guardrail-Profile') }}</h2>
+    <p>{{ tr(request, 'config_security.guardrails_subtitle', 'Wiederverwendbare Sicherheitsprofile für einzelne Dienste. Guardrails lassen sich an kompatible Verbindungen anhängen und später modular erweitern.') }}</p>
+
+    <form method="get" action="/config/security" class="editor-form">
+      <label for="guardrail_ref">{{ tr(request, 'config_security.load_existing', 'Bestehendes Guardrail laden') }}</label>
+      <div class="inline-actions">
+        <select id="guardrail_ref" name="guardrail_ref">
+          {% if not guardrail_ref_options %}<option value="">{{ tr(request, 'config_security.no_guardrails', '-- noch keine Guardrails --') }}</option>{% endif %}
+          {% for item in guardrail_ref_options %}<option value="{{ item.ref }}" {% if item.ref == selected_guardrail_ref %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
+        </select>
+        <button type="submit">{{ tr(request, 'config_conn.load', 'Load') }}</button>
+      </div>
+    </form>
+
+    {% if selected_guardrail_ref %}
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_security.current_guardrail', 'Geladenes Guardrail') }}</strong><span>{{ selected_guardrail_ref }}</span></div>
+    <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_guardrail_ref }}">
+      <label for="guardrail_ref_edit">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }}</label>
+      <input id="guardrail_ref_edit" name="guardrail_ref" type="text" value="{{ selected_guardrail_ref }}" maxlength="64" required>
+      <label for="guardrail_kind_edit">{{ tr(request, 'config_security.guardrail_kind', 'Guardrail-Typ') }}</label>
+      <select id="guardrail_kind_edit" name="kind">
+        {% for item in guardrail_kind_options %}
+        <option value="{{ item.value }}" {% if item.value == (selected_guardrail.kind or 'ssh_command') %}selected{% endif %}>{{ item.label }}</option>
+        {% endfor %}
+      </select>
+      <small class="hint-text">{{ tr(request, 'config_security.guardrail_kind_hint', 'Der Typ legt fest, für welche Verbindungsklassen dieses Guardrail später verwendet werden darf.') }}</small>
+      <label for="guardrail_title_edit">{{ tr(request, 'config_security.guardrail_title', 'Titel') }}</label>
+      <input id="guardrail_title_edit" name="title" type="text" value="{{ selected_guardrail.title or '' }}" maxlength="160">
+      <label for="guardrail_description_edit">{{ tr(request, 'config_security.guardrail_description', 'Kurzbeschreibung') }}</label>
+      <textarea id="guardrail_description_edit" name="description" rows="3">{{ selected_guardrail.description or '' }}</textarea>
+      <div class="connection-form-grid">
+        <div>
+          <label for="guardrail_allow_edit">{{ tr(request, 'config_security.guardrail_allow', 'Allow-Wording') }}</label>
+          <textarea id="guardrail_allow_edit" name="allow_terms" rows="5" placeholder="apt update&#10;df -h&#10;uptime">{{ (selected_guardrail.allow_terms or [])|join('\n') }}</textarea>
+          <small class="hint-text">{{ tr(request, 'config_security.guardrail_allow_hint', 'Wenn gesetzt, muss mindestens ein Eintrag in der Anfrage vorkommen, damit ARIA sie ausführen darf.') }}</small>
+        </div>
+        <div>
+          <label for="guardrail_deny_edit">{{ tr(request, 'config_security.guardrail_deny', 'Deny-Wording') }}</label>
+          <textarea id="guardrail_deny_edit" name="deny_terms" rows="5" placeholder="rm -rf&#10;shutdown&#10;reboot">{{ (selected_guardrail.deny_terms or [])|join('\n') }}</textarea>
+          <small class="hint-text">{{ tr(request, 'config_security.guardrail_deny_hint', 'Wenn ein Eintrag vorkommt, blockiert ARIA die Anfrage sofort.') }}</small>
+        </div>
+      </div>
+      <button type="submit">{{ tr(request, 'config_security.save_guardrail', 'Guardrail speichern') }}</button>
+    </form>
+    <h3>{{ tr(request, 'config_security.delete_guardrail', 'Guardrail löschen') }}</h3>
+    <p>{{ tr(request, 'config_security.delete_guardrail_hint', 'Löscht das Profil und entfernt die Zuordnung aus SSH-Verbindungen, die es verwendet haben.') }}</p>
+    <form method="post" action="/config/security/guardrails/delete" class="editor-form">
+      <input type="hidden" name="guardrail_ref" value="{{ selected_guardrail_ref }}">
+      <button type="submit" class="danger">{{ tr(request, 'config_security.delete_guardrail_action', 'Guardrail löschen') }}</button>
+    </form>
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request, 'config_security.no_guardrail_loaded', 'Noch kein Guardrail geladen') }}</span></div>
+    {% endif %}
+  </section>
+
+  <section class="config-card">
+    <h2>{{ tr(request, 'config_security.create_guardrail', 'Neues Guardrail erfassen') }}</h2>
+    <p>{{ tr(request, 'config_security.create_guardrail_hint', 'Ein Guardrail ist ein wiederverwendbares Sicherheitsprofil für einen bestimmten Diensttyp. Danach kannst du es an kompatible Verbindungen anhängen.') }}</p>
+    <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      <label for="guardrail_ref_new">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }}</label>
+      <input id="guardrail_ref_new" name="guardrail_ref" type="text" value="" maxlength="64" required placeholder="{{ tr(request, 'config_security.ref_placeholder', 'z. B. readonly-linux') }}">
+      <label for="guardrail_kind_new">{{ tr(request, 'config_security.guardrail_kind', 'Guardrail-Typ') }}</label>
+      <select id="guardrail_kind_new" name="kind">
+        {% for item in guardrail_kind_options %}
+        <option value="{{ item.value }}" {% if item.value == 'ssh_command' %}selected{% endif %}>{{ item.label }}</option>
+        {% endfor %}
+      </select>
+      <small class="hint-text">{{ tr(request, 'config_security.guardrail_kind_hint', 'Der Typ legt fest, für welche Verbindungsklassen dieses Guardrail später verwendet werden darf.') }}</small>
+      <label for="guardrail_title_new">{{ tr(request, 'config_security.guardrail_title', 'Titel') }}</label>
+      <input id="guardrail_title_new" name="title" type="text" value="" maxlength="160" placeholder="{{ tr(request, 'config_security.guardrail_title_placeholder', 'z. B. Read-only Linux') }}">
+      <label for="guardrail_description_new">{{ tr(request, 'config_security.guardrail_description', 'Kurzbeschreibung') }}</label>
+      <textarea id="guardrail_description_new" name="description" rows="3" placeholder="{{ tr(request, 'config_security.guardrail_description_placeholder', 'Erlaubt nur harmlose Leseaktionen auf Linux-Hosts.') }}"></textarea>
+      <div class="connection-form-grid">
+        <div>
+          <label for="guardrail_allow_new">{{ tr(request, 'config_security.guardrail_allow', 'Allow-Wording') }}</label>
+          <textarea id="guardrail_allow_new" name="allow_terms" rows="5" placeholder="{{ tr(request, 'config_security.guardrail_allow_placeholder', 'apt update&#10;df -h&#10;uptime') }}"></textarea>
+          <small class="hint-text">{{ tr(request, 'config_security.guardrail_allow_hint', 'Wenn gesetzt, muss mindestens ein Eintrag in der Anfrage vorkommen, damit ARIA sie ausführen darf.') }}</small>
+        </div>
+        <div>
+          <label for="guardrail_deny_new">{{ tr(request, 'config_security.guardrail_deny', 'Deny-Wording') }}</label>
+          <textarea id="guardrail_deny_new" name="deny_terms" rows="5" placeholder="{{ tr(request, 'config_security.guardrail_deny_placeholder', 'rm -rf&#10;shutdown&#10;reboot') }}"></textarea>
+          <small class="hint-text">{{ tr(request, 'config_security.guardrail_deny_hint', 'Wenn ein Eintrag vorkommt, blockiert ARIA die Anfrage sofort.') }}</small>
+        </div>
+      </div>
+      <button type="submit">{{ tr(request, 'config_security.save_guardrail', 'Guardrail speichern') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

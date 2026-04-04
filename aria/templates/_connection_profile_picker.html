@@ -1,0 +1,15 @@
+<div class="connection-profile-picker">
+  <label>{{ tr(request, 'config_conn.pick_existing_profile', 'Bestehendes Profil direkt öffnen') }}</label>
+  {% if picker_ref_options %}
+  <div class="connection-profile-links">
+    {% for item in picker_ref_options %}
+    <a class="connection-profile-link {% if item.ref == picker_selected_ref %}is-active{% endif %}" href="{{ picker_href_prefix }}{{ item.ref|urlencode }}">
+      {{ item.label }}
+    </a>
+    {% endfor %}
+  </div>
+  <small class="hint-text">{{ tr(request, 'config_conn.pick_existing_profile_hint', 'Ein Klick öffnet das Profil direkt im Bearbeitungsmodus.') }}</small>
+  {% else %}
+  <div class="skill-summary"><span>{{ tr(request, picker_empty_key, picker_empty_text) }}</span></div>
+  {% endif %}
+</div>

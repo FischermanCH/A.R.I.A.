@@ -1,0 +1,13 @@
+connections:
+  http_api:
+    api-main:
+      title: "Main API"
+      description: "Neutrales Beispiel für eine HTTP-API-Verbindung"
+      base_url: "https://api.example.local/v1"
+      auth_type: "bearer"
+      auth_token: ""
+      timeout_seconds: 20
+      verify_tls: true
+      default_headers:
+        Accept: "application/json"
+      guardrail_ref: "internal-api-only"

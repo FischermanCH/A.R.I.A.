@@ -1,0 +1,15 @@
+connections:
+  ssh:
+    srv-main:
+      title: "Main Server"
+      description: "Neutrales Beispiel für eine SSH-Verbindung"
+      host: "10.0.0.10"
+      port: 22
+      user: "admin"
+      key_path: "/app/data/ssh_keys/srv-main_ed25519"
+      timeout_seconds: 20
+      strict_host_key_checking: "accept-new"
+      allow_commands:
+        - "uptime"
+        - "df -h"
+      guardrail_ref: "readonly-linux"

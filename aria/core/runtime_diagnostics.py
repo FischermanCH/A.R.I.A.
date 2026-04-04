@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from litellm import aembedding
+from aria.core.config import EmbeddingsConfig, LLMConfig, MemoryConfig, PromptConfig, Settings
+from aria.core.llm_client import LLMClient, LLMClientError
+from aria.core.qdrant_client import create_async_qdrant_client
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _resolve_embedding_model(model: str) -> str:
+    clean = str(model or "").strip()
+    if not clean:
+        return clean
+    if "/" not in clean and not clean.lower().startswith("ollama"):
+        return f"openai/{clean}"
+    return clean
+
+
+def _embedding_vector_present(response: Any) -> bool:
+    data = list(getattr(response, "data", []) or [])
+    if not data:
+        return False
+    first = data[0]
+    if isinstance(first, dict):
+        return bool(first.get("embedding"))
+    return bool(getattr(first, "embedding", None))
+
+
+async def probe_qdrant(memory: MemoryConfig) -> dict[str, Any]:
+    if not bool(memory.enabled):
+        return {
+            "id": "qdrant",
+            "status": "skipped",
+            "summary_key": "qdrant_disabled",
+            "summary": "Memory deaktiviert.",
+            "detail": "",
+        }
+    if str(memory.backend or "").strip().lower() != "qdrant":
+        return {
+            "id": "qdrant",
+            "status": "skipped",
+            "summary_key": "qdrant_backend_inactive",
+            "summary": "Qdrant nicht als Backend aktiv.",
+            "detail": "",
+        }
+
+    client = create_async_qdrant_client(
+        url=memory.qdrant_url,
+        api_key=(memory.qdrant_api_key or None),
+        timeout=4,
+    )
+    try:
+        response = await client.get_collections()
+        collections = list(getattr(response, "collections", []) or [])
+        return {
+            "id": "qdrant",
+            "status": "ok",
+            "summary_key": "qdrant_ok",
+            "summary": f"Qdrant erreichbar ({len(collections)} Collections).",
+            "detail": str(memory.qdrant_url or "").strip() or "-",
+            "collection_count": len(collections),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "id": "qdrant",
+            "status": "error",
+            "summary_key": "qdrant_error",
+            "summary": "Qdrant nicht erreichbar.",
+            "detail": str(exc),
+        }
+    finally:
+        try:
+            await client.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def probe_llm(llm: LLMConfig) -> dict[str, Any]:
+    client = LLMClient(
+        llm.model_copy(
+            update={
+                "max_tokens": min(int(llm.max_tokens or 16), 16),
+                "timeout_seconds": min(int(llm.timeout_seconds or 8), 8),
+                "temperature": 0.0,
+            }
+        )
+    )
+    try:
+        response = await client.chat(
+            [{"role": "user", "content": "Reply with OK only."}]
+        )
+        content = str(response.content or "").strip()
+        status = "ok" if content else "warn"
+        return {
+            "id": "llm",
+            "status": status,
+            "summary_key": "llm_ok" if content else "llm_empty",
+            "summary": "LLM erreichbar." if content else "LLM antwortet leer.",
+            "detail": str(llm.model or "").strip() or "-",
+        }
+    except LLMClientError as exc:
+        return {
+            "id": "llm",
+            "status": "error",
+            "summary_key": "llm_error",
+            "summary": "LLM nicht erreichbar.",
+            "detail": str(exc),
+        }
+
+
+async def probe_embeddings(embeddings: EmbeddingsConfig) -> dict[str, Any]:
+    model = _resolve_embedding_model(embeddings.model)
+    if not model:
+        return {
+            "id": "embeddings",
+            "status": "warn",
+            "summary_key": "embeddings_missing_model",
+            "summary": "Embedding-Modell fehlt.",
+            "detail": "",
+        }
+    try:
+        response = await aembedding(
+            model=model,
+            input=["healthcheck"],
+            api_base=embeddings.api_base,
+            api_key=embeddings.api_key or None,
+            timeout=min(int(embeddings.timeout_seconds or 8), 8),
+        )
+        has_vector = _embedding_vector_present(response)
+        return {
+            "id": "embeddings",
+            "status": "ok" if has_vector else "warn",
+            "summary_key": "embeddings_ok" if has_vector else "embeddings_empty_vector",
+            "summary": "Embeddings erreichbar." if has_vector else "Embeddings antworten ohne Vektor.",
+            "detail": str(embeddings.model or "").strip() or "-",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "id": "embeddings",
+            "status": "error",
+            "summary_key": "embeddings_error",
+            "summary": "Embeddings nicht erreichbar.",
+            "detail": str(exc),
+        }
+
+
+def probe_prompt_files(base_dir: Path, prompts: PromptConfig) -> dict[str, Any]:
+    persona_path = (base_dir / str(prompts.persona or "").strip()).resolve()
+    skills_dir = (base_dir / str(prompts.skills_dir or "").strip()).resolve()
+
+    missing: list[str] = []
+    if not persona_path.exists() or persona_path.suffix.lower() != ".md":
+        missing.append("persona")
+    if not skills_dir.exists() or not skills_dir.is_dir():
+        missing.append("skills_dir")
+
+    skill_prompt_count = 0
+    if skills_dir.exists() and skills_dir.is_dir():
+        skill_prompt_count = len([path for path in skills_dir.rglob("*.md") if path.is_file()])
+
+    if missing:
+        return {
+            "id": "prompts",
+            "status": "error",
+            "summary_key": "prompts_incomplete",
+            "summary": "Prompt-Dateien unvollständig.",
+            "detail": ", ".join(missing),
+            "persona_path": str(persona_path),
+            "skill_prompt_count": skill_prompt_count,
+        }
+
+    return {
+        "id": "prompts",
+        "status": "ok",
+        "summary_key": "prompts_ok",
+        "summary": f"Prompt-Dateien ok ({skill_prompt_count} Skill-Prompts).",
+        "detail": str(persona_path.relative_to(base_dir)).replace("\\", "/"),
+        "persona_path": str(persona_path),
+        "skill_prompt_count": skill_prompt_count,
+    }
+
+
+async def build_runtime_diagnostics(base_dir: Path, settings: Settings) -> dict[str, Any]:
+    checks = [
+        probe_prompt_files(base_dir, settings.prompts),
+        await probe_qdrant(settings.memory),
+        await probe_llm(settings.llm),
+        await probe_embeddings(settings.embeddings),
+    ]
+    statuses = [str(row.get("status", "warn")) for row in checks]
+    overall = "ok"
+    if "error" in statuses:
+        overall = "error"
+    elif "warn" in statuses:
+        overall = "warn"
+
+    return {
+        "status": overall,
+        "checked_at": _now_iso(),
+        "checks": checks,
+    }

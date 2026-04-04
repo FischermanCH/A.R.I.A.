@@ -1,0 +1,61 @@
+{
+  "id": "linux-updates-check-template",
+  "name": "Linux Updates Check Template",
+  "version": "0.1.0",
+  "description": "Read-only Beispielskill fuer Debian/Ubuntu Linux-Server. Prueft via SSH, ob Paket-Updates verfuegbar sind, ohne etwas zu installieren, und fasst das Ergebnis anschliessend ARIA-typisch im Chat zusammen.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "brauchen meine linux server updates",
+    "gibt es updates auf meinem linux server",
+    "pruefe linux updates",
+    "check server updates",
+    "apt updates pruefen",
+    "server updates check"
+  ],
+  "connections": [
+    "ssh"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Updates auf Linux-Host pruefen",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "srv-main",
+        "timeout_seconds": 120,
+        "command": "h=$(hostname 2>/dev/null||echo host); k=$(uname -r 2>/dev/null||echo kernel); echo \"Host: $h\"; echo \"Kernel: $k\"; export DEBIAN_FRONTEND=noninteractive; if command -v sudo >/dev/null 2>&1; then s=sudo; else s=; fi; $s apt-get update -qq >/dev/null 2>&1||true; u=\"$(apt list --upgradable 2>/dev/null|sed 1d||true)\"; c=\"$(printf \"%s\\n\" \"$u\"|grep -c .||true)\"; echo \"Updates available: $c\"; [ -n \"$u\" ] && printf \"%s\\n\" \"$u\"|sed -n \"1,20p\" || echo \"System is up to date.\""
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Ergebnis kurz zusammenfassen",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Formuliere aus dem technischen Linux-Update-Check eine kurze, natuerliche Antwort auf Deutsch. Beginne mit einer klaren Kurzantwort wie 'Ja, ...' oder 'Nein, ...'. Danach 2-4 knappe Bulletpoints. Nenne Host, Anzahl Updates und bis zu 3 Paketnamen. Keine Rohsektionen wie STDOUT, STDERR, Exit Code oder Technischer Lauf wiederholen. Wenn keine Updates vorhanden sind, sage das klar. Technischer Input:\\n\\n{prev_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SSH-Connection mit Ref srv-main anlegen oder die Ref im JSON anpassen. Dieser Skill prueft nur und installiert keine Updates. Optimiert fuer Debian/Ubuntu."
+  },
+  "schema_version": "1.1"
+}

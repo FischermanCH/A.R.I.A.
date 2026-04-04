@@ -1,0 +1,58 @@
+{
+  "id": "smb-share-list-template",
+  "name": "SMB Share List Template",
+  "version": "0.1.0",
+  "description": "Beispielskill fuer SMB. Listet ein Share oder einen Unterordner und fasst den Inhalt kurz im Chat zusammen.",
+  "category": "knowledge",
+  "router_keywords": [
+    "was liegt in meinem share",
+    "zeige den inhalt meines shares",
+    "smb share auflisten",
+    "welche dateien liegen im share"
+  ],
+  "connections": [
+    "smb"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "SMB-Inhalt lesen",
+      "type": "smb_read",
+      "params": {
+        "connection_ref": "smb-main",
+        "remote_path": "/"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "SMB-Inhalt zusammenfassen",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Fasse den SMB-Share-Inhalt kurz und natuerlich auf Deutsch zusammen. Wenn Dateinamen sichtbar sind, nenne die wichtigsten 5 Eintraege. Keine Rohdaten-Rubriknamen wiederholen. Technischer Input:\\n\\n{prev_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SMB-Connection mit Ref smb-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_email_ref %}hidden{% endif %}>
+
+    {% if selected_email_ref %}
+    {% if email_test_status == 'ok' or email_test_status == 'error' %}
+    <article class="connection-test-card status-{{ email_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ email_test_status }}"></span><strong>{% if email_test_status == 'ok' %}{{ tr(request,'config_conn.email_test_ok','Email connection test successful') }}{% else %}{{ tr(request,'config_conn.email_test_error','Email connection test failed') }}{% endif %}</strong></div>
+      <small>{% if email_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/smtp/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_email_ref }}">
+      {% set schema_fields = email_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'smtp_edit' %}
+
+      {% set meta_values = selected_email %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.email_save_profile','Save email profile') }}</button>
+    </form>
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'email' %}
+    {% set delete_ref = selected_email_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.email_recommended_flow_text','1) Save email profile with SMTP host, user and password. 2) ARIA stores the password in the secure store. 3) Save. 4) ARIA tests the SMTP connection automatically.') }}</span></div>
+    <form method="post" action="/config/connections/smtp/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = email_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'smtp_new' %}
+
+      {% set meta_values = {} %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.email_save_profile','Save email profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

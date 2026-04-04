@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_discord_ref %}hidden{% endif %}>
+
+    {% if selected_discord_ref %}
+    {% set discord_send_test_messages_enabled = selected_discord.send_test_messages or selected_discord.send_test_messages is not defined %}
+    {% set discord_allow_skill_messages_enabled = selected_discord.allow_skill_messages or selected_discord.allow_skill_messages is not defined %}
+    {% set discord_alert_skill_errors_enabled = selected_discord.alert_skill_errors %}
+    {% set discord_alert_safe_fix_enabled = selected_discord.alert_safe_fix %}
+    {% set discord_alert_connection_changes_enabled = selected_discord.alert_connection_changes %}
+    {% set discord_alert_system_events_enabled = selected_discord.alert_system_events %}
+    <div class="skill-summary connection-flow-note">
+      <strong>{{ tr(request, 'config_conn.discord_active_routes_title', 'Aktive Discord-Routen') }}</strong>
+      <span>{{ tr(request, 'config_conn.discord_active_routes_hint', 'Hier siehst du auf einen Blick, welche Discord-Funktionen für dieses Profil gerade aktiv sind.') }}</span>
+    </div>
+    <div class="status-badge-row">
+      {% if discord_send_test_messages_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_send_test_messages_toggle', 'Testposts aktivieren') }}</span>{% endif %}
+      {% if discord_allow_skill_messages_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_allow_skill_messages_toggle', 'Skill-Ziel erlauben') }}</span>{% endif %}
+      {% if discord_alert_skill_errors_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_skill_errors_toggle', 'Skill-Fehler an Discord senden') }}</span>{% endif %}
+      {% if discord_alert_safe_fix_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_safe_fix_toggle', 'Safe-Fix Events senden') }}</span>{% endif %}
+      {% if discord_alert_connection_changes_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_connection_changes_toggle', 'Statuswechsel senden') }}</span>{% endif %}
+      {% if discord_alert_system_events_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_system_events_toggle', 'System-Events senden') }}</span>{% endif %}
+      {% if not discord_send_test_messages_enabled and not discord_allow_skill_messages_enabled and not discord_alert_skill_errors_enabled and not discord_alert_safe_fix_enabled and not discord_alert_connection_changes_enabled and not discord_alert_system_events_enabled %}
+      <span class="status-badge status-badge-muted">{{ tr(request, 'config_conn.discord_active_routes_empty', 'Zurzeit sind keine Discord-Routen aktiv.') }}</span>
+      {% endif %}
+    </div>
+    {% if discord_test_status == 'ok' or discord_test_status == 'error' %}
+    <article class="connection-test-card status-{{ discord_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ discord_test_status }}"></span><strong>{% if discord_test_status == 'ok' %}{{ tr(request, 'config_conn.discord_test_ok', 'Discord connection test successful') }}{% else %}{{ tr(request, 'config_conn.discord_test_error', 'Discord connection test failed') }}{% endif %}</strong></div>
+      <small>{% if discord_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/discord/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_discord_ref }}">
+      {% set schema_fields = discord_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+
+      <details class="skill-details connection-toggle-block">
+        <summary>{{ tr(request, 'config_conn.discord_alerting_title', 'Discord Alerting & Verhalten') }}</summary>
+        <div class="skill-details-content">
+          {% set toggle_sections = discord_edit_toggle_sections %}
+          {% include "_connection_toggle_sections.html" %}
+        </div>
+      </details>
+      {% set meta_prefix = 'discord_edit' %}
+      {% set meta_values = selected_discord %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request, 'config_conn.discord_save_profile', 'Save Discord profile') }}</button>
+    </form>
+
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'discord' %}
+    {% set delete_ref = selected_discord_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_conn.recommended_flow', 'Recommended flow') }}</strong><span>{{ tr(request, 'config_conn.discord_recommended_flow_text', '1) Save Discord profile with webhook URL. 2) ARIA stores the webhook in the secure store. 3) Save. 4) ARIA tests the webhook automatically.') }}</span></div>
+    <form method="post" action="/config/connections/discord/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = discord_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      <details class="skill-details connection-toggle-block">
+        <summary>{{ tr(request, 'config_conn.discord_alerting_title', 'Discord Alerting & Verhalten') }}</summary>
+        <div class="skill-details-content">
+          {% set toggle_sections = discord_new_toggle_sections %}
+          {% include "_connection_toggle_sections.html" %}
+        </div>
+      </details>
+      {% set meta_prefix = 'discord_new' %}
+
+      {% set meta_values = {} %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request, 'config_conn.discord_save_profile', 'Save Discord profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

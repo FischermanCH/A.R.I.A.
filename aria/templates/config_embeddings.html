@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('embeddings', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_embed.title', 'Embeddings Configuration') }}</h2></div>
+    <p>{{ tr(request, 'config_embed.subtitle', 'Embedding model configuration (memory & similarity). API keys are stored in the secure database.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_embed.saved', 'Embeddings configuration saved.') }}</div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="meta-row">
+      <span class="meta-badge">{{ tr(request, 'config_embed.active_profile', 'Active profile') }}: {{ active_embedding_profile }}</span>
+    </div>
+
+    <div class="alert info">
+      {{ tr(request, 'config_embed.save_help', 'Save updates the active profile. To create or overwrite a named profile, enter a profile name below and use "Save as profile".') }}
+    </div>
+
+    <form method="post" action="/config/embeddings/profile/load" class="editor-form">
+      <label for="embedding_profile_name_load">{{ tr(request, 'config_embed.load_profile', 'Load profile') }}</label>
+      <div class="inline-actions">
+        <select id="embedding_profile_name_load" name="profile_name">
+          {% for p in embedding_profiles %}
+          <option value="{{ p }}" {% if p == active_embedding_profile %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">{{ tr(request, 'config_embed.load_profile_btn', 'Load profile') }}</button>
+      </div>
+    </form>
+
+    <form method="post" action="/config/embeddings/profile/delete" class="editor-form">
+      <label for="embedding_profile_name_delete">{{ tr(request, 'config_embed.delete_profile', 'Delete profile') }}</label>
+      <div class="inline-actions">
+        <select id="embedding_profile_name_delete" name="profile_name">
+          {% for p in embedding_profiles %}
+          <option value="{{ p }}" {% if p == active_embedding_profile %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="danger-btn">{{ tr(request, 'config_embed.delete_profile_btn', 'Delete profile') }}</button>
+      </div>
+      <small class="hint-text">{{ tr(request, 'config_embed.delete_profile_hint', 'Active profile cannot be deleted.') }}</small>
+    </form>
+
+    <form method="post" action="/config/embeddings/save" class="editor-form">
+      <label for="provider-preset">{{ tr(request, 'config_embed.provider_preset', 'Provider preset') }}</label>
+      <select id="provider-preset">
+        <option value="">{{ tr(request, 'config_embed.preset_choose', '-- Choose preset --') }}</option>
+        {% for p in providers %}
+        <option value="{{ p.key }}" data-model="{{ p.default_model }}" data-api-base="{{ p.default_api_base }}">
+          {{ p.label }} ({{ p.default_model }})
+        </option>
+        {% endfor %}
+      </select>
+
+      <label for="api_base">API Base</label>
+      <input id="api_base" name="api_base" type="text" value="{{ embeddings.api_base or '' }}" placeholder="http://localhost:11434">
+
+      <label for="api_key">API Key</label>
+      <input id="api_key" name="api_key" type="password" value="{{ embeddings.api_key or '' }}" placeholder="{{ tr(request, 'config_embed.api_key_hint', 'Required for non-Ollama providers') }}">
+
+      <div class="inline-actions">
+        <button type="button" id="load-models-btn">{{ tr(request, 'config_embed.load_models_btn', 'Load models') }}</button>
+      </div>
+
+      <label for="model-select">{{ tr(request, 'config_embed.models_from_api', 'Models from API base') }}</label>
+      <select id="model-select">
+        <option value="">{{ tr(request, 'config_embed.model_choose', '-- Select model --') }}</option>
+      </select>
+      <small id="models-hint" class="hint-text">{{ tr(request, 'config_embed.models_hint', 'Loads models from') }} <code>/v1/models</code> {{ tr(request, 'config_embed.models_hint_fallback', '(fallback:') }} <code>/api/tags</code>).</small>
+
+      <label for="model">Embedding Model</label>
+      <input id="model" name="model" type="text" value="{{ embeddings.model }}" required>
+
+      <label for="timeout_seconds">{{ tr(request, 'config_embed.timeout_seconds', 'Timeout (seconds)') }}</label>
+      <input id="timeout_seconds" name="timeout_seconds" type="number" min="1" value="{{ embeddings.timeout_seconds }}" required>
+
+      <label for="embedding_profile_name_save">{{ tr(request, 'config_embed.profile_name', 'Profile name (for save as profile)') }}</label>
+      <input id="embedding_profile_name_save" name="profile_name" type="text" value="{{ active_embedding_profile }}" maxlength="48">
+      <small class="hint-text">{{ tr(request, 'config_embed.profile_name_hint', 'Example: litellm-embeddings. The normal Save button keeps the current active profile and only updates its values.') }}</small>
+
+      <div class="inline-actions">
+        <button type="submit">{{ tr(request, 'config_embed.save', 'Save') }}</button>
+        <button type="submit" formaction="/config/embeddings/profile/save">{{ tr(request, 'config_embed.save_as_profile', 'Save as profile') }}</button>
+      </div>
+    </form>
+  </section>
+</main>
+<script>
+  (function () {
+    const tNeedApiBase = {{ tr(request, 'config_embed.js_need_api_base', 'Please enter API base first.')|tojson }};
+    const tLoadingModels = {{ tr(request, 'config_embed.js_loading_models', 'Loading models...')|tojson }};
+    const tSelectModel = {{ tr(request, 'config_embed.model_choose', '-- Select model --')|tojson }};
+    const tLoadError = {{ tr(request, 'config_embed.js_load_error', 'Failed to load')|tojson }};
+    const tModelsLoaded = {{ tr(request, 'config_embed.js_models_loaded', 'Models loaded. Selection will update the model value.')|tojson }};
+    const tNoModels = {{ tr(request, 'config_embed.js_no_models', 'No models found.')|tojson }};
+    const tErrorPrefix = {{ tr(request, 'config_embed.js_error_prefix', 'Error:')|tojson }};
+
+    const preset = document.getElementById("provider-preset");
+    const apiBase = document.getElementById("api_base");
+    const model = document.getElementById("model");
+    const apiKey = document.getElementById("api_key");
+    const modelSelect = document.getElementById("model-select");
+    const loadBtn = document.getElementById("load-models-btn");
+    const hint = document.getElementById("models-hint");
+
+    function readCookie(name) {
+      const key = name + "=";
+      const parts = document.cookie.split(";");
+      for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i].trim();
+        if (part.startsWith(key)) {
+          return decodeURIComponent(part.substring(key.length));
+        }
+      }
+      return "";
+    }
+
+    function csrfToken() {
+      const fromMeta = document.querySelector("meta[name='csrf-token']");
+      if (fromMeta && fromMeta.content) return fromMeta.content;
+      return readCookie("aria_csrf_token");
+    }
+
+    preset.addEventListener("change", function () {
+      const selected = preset.options[preset.selectedIndex];
+      const presetModel = selected.getAttribute("data-model") || "";
+      const presetApiBase = selected.getAttribute("data-api-base") || "";
+      if (presetApiBase && !apiBase.value.trim()) {
+        apiBase.value = presetApiBase;
+      }
+      if (!model.value.trim() || model.value.includes("<modellname>")) {
+        model.value = presetModel;
+      }
+    });
+
+    modelSelect.addEventListener("change", function () {
+      if (modelSelect.value) {
+        model.value = modelSelect.value;
+      }
+    });
+
+    loadBtn.addEventListener("click", async function () {
+      const base = apiBase.value.trim();
+      if (!base) {
+        hint.textContent = tNeedApiBase;
+        return;
+      }
+      hint.textContent = tLoadingModels;
+      modelSelect.innerHTML = '<option value="">' + tSelectModel + '</option>';
+      try {
+        const form = new URLSearchParams();
+        form.set("api_base", base);
+        form.set("api_key", apiKey.value || "");
+        const res = await fetch("/config/embeddings/models", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRF-Token": csrfToken(),
+          },
+          body: form.toString(),
+        });
+        const raw = await res.text();
+        let payload = {};
+        try {
+          payload = raw ? JSON.parse(raw) : {};
+        } catch (parseErr) {
+          throw new Error(raw || tLoadError);
+        }
+        if (!res.ok) {
+          throw new Error(payload.detail || tLoadError);
+        }
+        (payload.models || []).forEach(function (name) {
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name;
+          modelSelect.appendChild(opt);
+        });
+        hint.textContent = (payload.models || []).length
+          ? tModelsLoaded
+          : tNoModels;
+      } catch (err) {
+        hint.textContent = tErrorPrefix + " " + err.message;
+      }
+    });
+  })();
+</script>
+{% endblock %}

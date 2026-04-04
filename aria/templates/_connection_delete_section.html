@@ -1,0 +1,28 @@
+<section class="config-card">
+  <h2>{{ tr(request, 'config_conn.delete_profile', 'Profil löschen') }}</h2>
+  <p>{{ tr(request, 'config_conn.delete_profile_hint', 'Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+
+  {% if delete_ref %}
+  <form
+    method="post"
+    action="/config/connections/delete"
+    class="editor-form"
+    onsubmit="return confirm('{{ tr(request, 'config_conn.delete_profile_confirm', 'Dieses Profil wirklich löschen?')|e }}');"
+  >
+    <input type="hidden" name="kind" value="{{ delete_kind }}">
+    <input type="hidden" name="connection_ref" value="{{ delete_ref }}">
+    <div class="skill-summary connection-flow-note">
+      <strong>{{ tr(request, 'config_conn.current', 'Aktuell') }}</strong>
+      <span>{{ delete_ref }}</span>
+    </div>
+    {% if delete_extra_hint %}
+    <small class="hint-text">{{ delete_extra_hint }}</small>
+    {% endif %}
+    <button type="submit" class="danger-btn">{{ tr(request, 'config_conn.delete_profile_btn', 'Profil löschen') }}</button>
+  </form>
+  {% else %}
+  <div class="skill-summary">
+    <span>{{ tr(request, 'config_conn.delete_profile_none', 'Lade zuerst ein bestehendes Profil, um es zu löschen.') }}</span>
+  </div>
+  {% endif %}
+</section>

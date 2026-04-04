@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="floating-card">
+    <div class="page-title-row"><span>{{ icon('language', 'page-title-icon') }}</span><h3>{{ tr(request, 'config_language.title', 'Sprache') }}</h3></div>
+    <p>{{ tr(request, 'config_language.subtitle', 'Standardsprache festlegen und Sprachdateien verwalten.') }}</p>
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_language.saved', 'Gespeichert.') }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    <form method="post" action="/config/language/save" class="editor-form">
+      <label>
+        {{ tr(request, 'config_language.default_language', 'Standardsprache') }}
+        <select name="default_language">
+          {% for row in language_rows %}
+          <option value="{{ row.code }}" {% if default_language == row.code %}selected{% endif %}>{{ row.flag }} {{ row.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">{{ tr(request, 'config_language.save_default', 'Standardsprache speichern') }}</button>
+    </form>
+  </section>
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <details class="skill-details">
+      <summary>{{ tr(request, 'config_language.advanced_summary', 'Erweitert: Sprachdatei editieren') }}</summary>
+      <div class="skill-details-content">
+        <form method="get" action="/config/language" class="editor-form">
+          <label>
+            {{ tr(request, 'config_language.select_file', 'Datei auswählen') }}
+            <select name="file" onchange="this.form.submit()">
+              {% for row in language_rows %}
+              {% set file_name = row.code + '.json' %}
+              <option value="{{ file_name }}" {% if selected_file == file_name %}selected{% endif %}>{{ row.flag }} {{ row.label }} ({{ file_name }})</option>
+              {% endfor %}
+            </select>
+          </label>
+        </form>
+        <form method="post" action="/config/language/file/save" class="editor-form">
+          <input type="hidden" name="file_name" value="{{ selected_file }}">
+          <label>
+            {{ tr(request, 'config_language.content', 'Inhalt (JSON)') }}
+            <textarea name="content" rows="16" spellcheck="false">{{ editor_content }}</textarea>
+          </label>
+          <button type="submit">{{ tr(request, 'config_language.save_file', 'Sprachdatei speichern') }}</button>
+        </form>
+      </div>
+    </details>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('memories', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_memory.setup_title', 'Memory setup (Qdrant)') }}</h2></div>
+    <p>{{ tr(request, 'config_memory.setup_subtitle', 'Without selection, the default user collection is used automatically:') }} <code>{{ default_collection }}</code></p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_memory.saved', 'Memory setup updated.') }}</div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    <div class="meta-row">
+      <span class="meta-badge">{{ tr(request, 'config_memory.active', 'Active') }}: {{ active_collection }}</span>
+      <span class="meta-badge">{{ tr(request, 'config_memory.default', 'Default') }}: {{ default_collection }}</span>
+      <span class="meta-badge">Qdrant: {% if qdrant_overview.reachable %}{{ tr(request, 'config_memory.reachable', 'reachable') }}{% else %}{{ tr(request, 'config_memory.unreachable', 'unreachable') }}{% endif %}</span>
+    </div>
+
+    <div class="inline-actions">
+      {% if request.state.auth_role == "admin" and request.state.debug_mode and qdrant_overview.dashboard_url %}
+      <a class="nav-link" href="{{ qdrant_overview.dashboard_url }}" target="_blank" rel="noopener noreferrer">{{ tr(request, 'config_memory.qdrant_dashboard', 'Qdrant dashboard') }}</a>
+      <span class="hint-text"><code>{{ qdrant_overview.qdrant_url }}</code></span>
+      {% else %}
+      <span class="hint-text">{{ tr(request, 'config_memory.qdrant_admin_only', 'Qdrant link visible in admin mode only (On).') }}</span>
+      {% endif %}
+    </div>
+    {% if qdrant_overview.error %}
+    <div class="alert err">{{ tr(request, 'config_memory.qdrant_error', 'Qdrant error') }}: {{ qdrant_overview.error }}</div>
+    {% endif %}
+
+    <div class="qdrant-overview-grid">
+      <article class="qdrant-stat">
+        <h3>{{ tr(request, 'config_memory.collections', 'Collections') }}</h3>
+        <p>{{ qdrant_overview.collection_count }}</p>
+      </article>
+      <article class="qdrant-stat">
+        <h3>{{ tr(request, 'config_memory.total_points', 'Total points') }}</h3>
+        <p>{{ qdrant_overview.total_points }}</p>
+      </article>
+      <article class="qdrant-stat">
+        <h3>{{ tr(request, 'config_memory.max_points_per_collection', 'Max points / collection') }}</h3>
+        <p>{{ qdrant_overview.max_points }}</p>
+      </article>
+    </div>
+
+    <form method="post" action="/memories/config/backend-save" class="editor-form">
+      <label for="memory_enabled">{{ tr(request, 'config_memory.memory_enabled', 'Memory backend enabled') }}</label>
+      <select id="memory_enabled" name="enabled">
+        <option value="1" {% if memory_cfg.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.on', 'on') }}</option>
+        <option value="0" {% if not memory_cfg.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.off', 'off') }}</option>
+      </select>
+
+      <label for="memory_backend">{{ tr(request, 'config_memory.backend', 'Backend') }}</label>
+      <select id="memory_backend" name="backend">
+        <option value="qdrant" selected>Qdrant</option>
+      </select>
+
+      <label for="memory_qdrant_url">{{ tr(request, 'config_memory.qdrant_url', 'Qdrant URL') }}</label>
+      <input
+        id="memory_qdrant_url"
+        name="qdrant_url"
+        type="text"
+        value="{{ memory_cfg.qdrant_url }}"
+        placeholder="http://qdrant:6333"
+        required
+      >
+
+      <label for="memory_qdrant_api_key">{{ tr(request, 'config_memory.qdrant_api_key', 'Qdrant API key') }}</label>
+      <input
+        id="memory_qdrant_api_key"
+        name="qdrant_api_key"
+        type="password"
+        placeholder="{% if has_qdrant_api_key %}{{ tr(request, 'config_memory.secret_configured', 'Already stored securely') }}{% else %}{{ tr(request, 'config_memory.secret_optional', 'Optional') }}{% endif %}"
+        autocomplete="new-password"
+      >
+      <small class="hint-text">
+        {% if has_qdrant_api_key %}
+        {{ tr(request, 'config_memory.secret_leave_unchanged', 'Leave empty to keep the securely stored key unchanged.') }}
+        {% else %}
+        {{ tr(request, 'config_memory.secret_optional_hint', 'Only needed when this Qdrant instance is protected by an API key.') }}
+        {% endif %}
+      </small>
+
+      <button type="submit">{{ tr(request, 'config_memory.save_backend', 'Save memory backend') }}</button>
+    </form>
+
+    <form method="post" action="/memories/config/select" class="editor-form">
+      <label for="collection">{{ tr(request, 'config_memory.select_collection', 'Select collection') }}</label>
+      <select id="collection" name="collection">
+        <option value="">{{ tr(request, 'config_memory.use_default_user_collection', 'Use default per user') }}</option>
+        {% for name in collections %}
+        <option value="{{ name }}" {% if name == active_collection %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">{{ tr(request, 'config_memory.set_active_collection', 'Set active collection') }}</button>
+    </form>
+
+    <form method="post" action="/memories/config/create" class="editor-form">
+      <label for="collection_name">{{ tr(request, 'config_memory.new_collection_name', 'New collection (name)') }}</label>
+      <input id="collection_name" name="collection_name" type="text" placeholder="{{ tr(request, 'config_memory.new_collection_placeholder', 'e.g. aria_memory_demo_lab') }}" required>
+      <small class="hint-text">{{ tr(request, 'config_memory.new_collection_hint', 'Will be created in Qdrant on first store with matching embedding dimension.') }}</small>
+      <button type="submit">{{ tr(request, 'config_memory.activate_collection', 'Activate collection') }}</button>
+    </form>
+
+    <div class="prompt-table-wrap">
+      <table class="prompt-table">
+        <thead>
+          <tr>
+            <th>{{ tr(request, 'config_memory.col_existing_collections', 'Existing Qdrant collections') }}</th>
+            <th>{{ tr(request, 'config_memory.col_points', 'Points') }}</th>
+            <th>{{ tr(request, 'config_memory.col_distribution', 'Distribution') }}</th>
+            <th>{{ tr(request, 'config_memory.col_status', 'Status') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if qdrant_overview.collections %}
+            {% for row in qdrant_overview.collections %}
+            <tr {% if row.name == active_collection %}class="is-selected"{% endif %}>
+              <td><code>{{ row.name }}</code></td>
+              <td>{{ row.points }}</td>
+              <td>
+                <div class="qdrant-bar">
+                  <span style="width: {{ row.points_bar_pct }}%"></span>
+                </div>
+              </td>
+              <td>{{ row.status }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="4">{{ tr(request, 'config_memory.no_collections_found', 'No collections found in this Qdrant instance yet.') }}</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <hr class="config-divider">
+
+    <h2 id="rollup">{{ tr(request, 'config_memory.rollup_title', 'Context rollup (Qdrant)') }}</h2>
+    <p>{{ tr(request, 'config_memory.rollup_subtitle_before', 'Moves old') }} <strong>{{ tr(request, 'config_memory.rollup_day_collections', 'Qdrant day-context collections') }}</strong> {{ tr(request, 'config_memory.rollup_subtitle_after', 'automatically into') }} <code>aria_context-mem_{{ username|lower }}</code> {{ tr(request, 'config_memory.rollup_subtitle_delete', 'and deletes the old day collections afterwards.') }}</p>
+    <div class="inline-actions">
+      <a class="nav-link" href="/config/prompts?file={{ memory_cfg.compression_summary_prompt|urlencode }}">
+        {{ tr(request, 'config_memory.edit_summary_prompt', 'Edit summary prompt') }}
+      </a>
+      <span class="hint-text">{{ tr(request, 'config_memory.summary_prompt_hint', 'Prompt text is managed in Prompt Studio, not as a file path in end-user UI.') }}</span>
+    </div>
+    <form method="post" action="/memories/config/compression-save" class="editor-form">
+      <label for="compress_after_days">{{ tr(request, 'config_memory.compress_after_days', 'Move day context to rollup after how many days?') }}</label>
+      <input
+        id="compress_after_days"
+        name="compress_after_days"
+        type="number"
+        min="1"
+        value="{{ memory_cfg.collections.sessions.compress_after_days or 7 }}"
+        required
+      >
+      <label for="monthly_after_days">{{ tr(request, 'config_memory.monthly_after_days', 'Create monthly summary after how many days?') }}</label>
+      <input
+        id="monthly_after_days"
+        name="monthly_after_days"
+        type="number"
+        min="1"
+        value="{{ memory_cfg.collections.sessions.monthly_after_days or 30 }}"
+        required
+      >
+      <button type="submit">{{ tr(request, 'config_memory.save_settings', 'Save settings') }}</button>
+    </form>
+    <form method="post" action="/memories/config/compress" class="editor-form">
+      <button type="submit">{{ tr(request, 'config_memory.move_now', 'Move now') }}</button>
+      <small class="hint-text">{{ tr(request, 'config_memory.move_now_hint', 'Processes only day-context collections that are older than the configured threshold.') }}</small>
+    </form>
+    {% if compress_result %}
+    <div class="alert ok">{{ compress_result }}</div>
+    {% endif %}
+
+    <hr class="config-divider">
+
+    <h2>{{ tr(request, 'config_memory.auto_title', 'Auto-memory') }}</h2>
+    <p>{{ tr(request, 'config_memory.auto_subtitle', 'Extracts facts without code words and uses session + user memory during recall.') }}</p>
+
+    <div class="meta-row">
+      <span class="meta-badge">{{ tr(request, 'config_memory.config_status', 'Config') }}: {% if auto_memory.enabled %}{{ tr(request, 'config_memory.on', 'on') }}{% else %}{{ tr(request, 'config_memory.off', 'off') }}{% endif %}</span>
+      <span class="meta-badge">{{ tr(request, 'config_memory.browser_status', 'Current browser indicator') }}: {% if auto_memory_cookie %}{{ tr(request, 'config_memory.on', 'on') }}{% else %}{{ tr(request, 'config_memory.off', 'off') }}{% endif %}</span>
+    </div>
+
+    <form method="post" action="/memories/config/auto-save" class="editor-form">
+      <label for="auto_memory_enabled">{{ tr(request, 'config_memory.auto_memory', 'Auto-memory') }}</label>
+      <select id="auto_memory_enabled" name="enabled">
+        <option value="1" {% if auto_memory.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.on', 'on') }}</option>
+        <option value="0" {% if not auto_memory.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.off', 'off') }}</option>
+      </select>
+
+      <label for="session_recall_top_k">{{ tr(request, 'config_memory.session_recall_top_k', 'Session recall top-k') }}</label>
+      <input
+        id="session_recall_top_k"
+        name="session_recall_top_k"
+        type="number"
+        min="1"
+        value="{{ auto_memory.session_recall_top_k }}"
+        required
+      >
+
+      <label for="user_recall_top_k">{{ tr(request, 'config_memory.user_recall_top_k', 'User recall top-k') }}</label>
+      <input
+        id="user_recall_top_k"
+        name="user_recall_top_k"
+        type="number"
+        min="1"
+        value="{{ auto_memory.user_recall_top_k }}"
+        required
+      >
+
+      <label for="max_facts_per_message">{{ tr(request, 'config_memory.max_facts_per_message', 'Max facts per message') }}</label>
+      <input
+        id="max_facts_per_message"
+        name="max_facts_per_message"
+        type="number"
+        min="1"
+        value="{{ auto_memory.max_facts_per_message }}"
+        required
+      >
+
+      <small class="hint-text">
+        {{ tr(request, 'config_memory.max_facts_hint', 'Tip: keep this small (e.g. 2-4) to keep prompt context lean.') }}
+      </small>
+      <button type="submit">{{ tr(request, 'config_memory.save_auto_memory', 'Save auto-memory') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

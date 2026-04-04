@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="stats-layout">
+  <section class="stat-card stats-release-card">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.release_title', 'Release') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.release_label', 'Current ARIA version') }}</p>
+      </div>
+    </div>
+    <div class="stats-cluster-grid stats-release-grid">
+      <div class="stats-cluster-item">
+        <div class="memory-led-panel status-ok">
+          <div class="memory-led-value">{{ release_meta.label }}</div>
+          <div class="memory-led-caption">{{ tr(request, 'stats.release_label', 'Current ARIA version') }}</div>
+        </div>
+      </div>
+      <div class="stats-cluster-item">
+        <div class="memory-led-panel status-ok">
+          <div class="memory-led-value">{{ release_meta.version }}</div>
+          <div class="memory-led-caption">{{ tr(request, 'stats.release_base', 'Base version') }}</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {% if reset_done is not none %}
+  <div class="alert ok">
+    {{ tr(request, 'stats.reset_done', 'Statistiken und Aktivitäten wurden zurückgesetzt.') }}
+    {{ tr(request, 'config_logs.pruned_info', 'Entfernt') }}:
+    <strong>{{ reset_done }}</strong>
+    {{ tr(request, 'config_logs.rows', 'Zeilen') }}
+  </div>
+  {% endif %}
+  {% if reset_error %}
+  <div class="alert err">{{ reset_error }}</div>
+  {% endif %}
+
+  <section class="stats-grid">
+    <article class="stat-card stats-cluster">
+      <h2>{{ tr(request, 'stats.tokens_title', 'Tokens') }}</h2>
+      <div class="stats-cluster-grid">
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ stats.request_count }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.requests_days', 'Requests') }} · {{ stats.days }} {{ tr(request, 'stats.days', 'days') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ stats.total_tokens }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.total_tokens', 'Total Tokens') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ stats.avg_tokens_per_request }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.avg_tokens_per_request', 'Avg tokens / request') }}</div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="stat-card stats-cluster">
+      <h2>{{ tr(request, 'stats.costs_title', 'Costs') }}</h2>
+      <div class="stats-cluster-grid">
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">${{ "%.6f"|format(stats.total_cost_usd) }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.total_cost_usd', 'Total USD') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">${{ "%.6f"|format(stats.avg_cost_usd_per_request) }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.avg_cost_per_request', 'Avg cost / request (USD)') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ stats.priced_requests_count }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.priced_requests_tail', 'priced requests') }}</div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="stat-card stats-cluster stat-card-memory">
+      <h2>{{ tr(request, 'stats.resources_title', 'Resources') }}</h2>
+      <div class="stats-cluster-grid">
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-{{ runtime_memory.status }}">
+            <div class="memory-led-value">{{ runtime_memory.rss_human }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.memory_aria_ram', 'ARIA RAM') }}</div>
+          </div>
+          <p class="stat-sub stat-sub-memory"><strong>{{ runtime_memory.percent_label }}</strong> {{ tr(request, 'stats.memory_of_total', 'of system RAM') }} {{ runtime_memory.total_human }}</p>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ qdrant_storage.size_human }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.qdrant_size', 'Qdrant DB') }}</div>
+          </div>
+          {% if qdrant_storage.path %}
+          <p class="stat-sub stat-sub-memory">{{ qdrant_storage.path }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section class="stat-card">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.preflight_title', 'Startup Preflight') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.preflight_subtitle', 'Checks from the latest startup/runtime diagnostic run.') }}</p>
+      </div>
+      <div class="stats-health-totals">
+        <div class="health-overview status-{{ preflight_meta.overall_status }}">
+          <span class="health-lamp status-{{ preflight_meta.overall_status }}"></span>
+          <div>
+            <strong>{{ tr(request, 'stats.preflight_overall', 'Preflight') }}</strong>
+            <small>
+              {% if preflight_meta.overall_status == 'ok' %}
+                {{ tr(request, 'stats.preflight_ok', 'Startup checks look healthy.') }}
+              {% elif preflight_meta.overall_status == 'warn' %}
+                {{ tr(request, 'stats.preflight_warn', 'At least one startup check needs attention.') }}
+              {% else %}
+                {{ tr(request, 'stats.preflight_error', 'At least one startup check currently fails.') }}
+              {% endif %}
+            </small>
+          </div>
+        </div>
+        <div class="health-meter-row">
+          <span class="health-meter status-ok">
+            <span class="health-lamp status-ok"></span>
+            <span>{{ preflight_meta.ok_count }}</span>
+          </span>
+          <span class="health-meter status-warn">
+            <span class="health-lamp status-warn"></span>
+            <span>{{ preflight_meta.warn_count }}</span>
+          </span>
+          <span class="health-meter status-error">
+            <span class="health-lamp status-error"></span>
+            <span>{{ preflight_meta.error_count }}</span>
+          </span>
+        </div>
+        {% if preflight_meta.checked_at %}
+        <p class="stat-sub">{{ tr(request, 'stats.preflight_checked_at', 'Last check') }}: {{ preflight_meta.checked_at|replace('T', ' ') }}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% if preflight_meta.issue_checks %}
+    <div class="alert {% if preflight_meta.overall_status == 'error' %}err{% else %}ok{% endif %}">
+      <strong>{{ tr(request, 'stats.preflight_attention', 'Auffällige Checks') }}:</strong>
+      {% for row in preflight_meta.issue_checks %}
+        {% if not loop.first %} · {% endif %}
+        {{ row.name }} — {{ row.summary }}
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="stats-health-grid stats-health-grid-preflight">
+      {% for row in preflight_meta.checks %}
+        <article class="stats-health-card status-{{ row.visual_status }}">
+          <div class="stats-health-card-head">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ row.visual_status }}"></span>
+              <strong>{{ row.name }}</strong>
+            </div>
+          </div>
+          <p class="stats-health-summary">{{ row.summary }}</p>
+          {% if row.detail %}
+          <small class="stats-health-detail">{{ row.detail }}</small>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="stat-card">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.health_title', 'Health') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.health_subtitle', 'Lightweight runtime health of the main ARIA services.') }}</p>
+      </div>
+      <div class="stats-health-totals">
+        <div class="health-overview status-{{ health_meta.overall_status }}">
+          <span class="health-lamp status-{{ health_meta.overall_status }}"></span>
+          <div>
+            <strong>{{ tr(request, 'stats.health_overall', 'Overall') }}</strong>
+            <small>
+              {% if health_meta.overall_status == 'ok' %}
+                {{ tr(request, 'stats.health_overall_ok', 'All core services look healthy.') }}
+              {% elif health_meta.overall_status == 'warn' %}
+                {{ tr(request, 'stats.health_overall_warn', 'At least one service needs attention.') }}
+              {% else %}
+                {{ tr(request, 'stats.health_overall_error', 'At least one service currently reports an error.') }}
+              {% endif %}
+            </small>
+          </div>
+        </div>
+        <div class="health-meter-row">
+          <span class="health-meter status-ok">
+            <span class="health-lamp status-ok"></span>
+            <span>{{ health_meta.ok_count }}</span>
+          </span>
+          <span class="health-meter status-warn">
+            <span class="health-lamp status-warn"></span>
+            <span>{{ health_meta.warn_count }}</span>
+          </span>
+          <span class="health-meter status-error">
+            <span class="health-lamp status-error"></span>
+            <span>{{ health_meta.error_count }}</span>
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="stats-health-grid">
+      {% for row in health_meta.services %}
+        <article class="stats-health-card status-{{ row.visual_status }}">
+          <div class="stats-health-card-head">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ row.visual_status }}"></span>
+              <strong>{{ row.name }}</strong>
+            </div>
+          </div>
+          <p class="stats-health-summary">{{ row.summary }}</p>
+          <small class="stats-health-detail">{{ row.detail }}</small>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="stat-card">
+    <div class="connection-status-stack">
+      <div class="connection-status-head">
+        <h2>{{ tr(request, 'stats.connections_live_title', 'Live-Status aller konfigurierten Verbindungen') }}</h2>
+        <small>{{ tr(request, 'stats.connections_live_hint', 'ARIA prüft hier alle konfigurierten Verbindungen und aktualisiert den Status beim Öffnen der Seite.') }}</small>
+      </div>
+      {% if connection_status_rows %}
+      <div class="connection-status-grid">
+        {% for item in connection_status_rows %}
+        {% if item.edit_url %}
+        <a href="{{ item.edit_url }}" class="connection-test-card connection-test-card-link status-{{ item.status }}">
+        {% else %}
+        <article class="connection-test-card status-{{ item.status }}">
+        {% endif %}
+          <div class="connection-test-head">
+            <span class="health-lamp status-{{ item.status }}"></span>
+            <strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
+            <span class="connection-current-badge">
+              <span class="stats-connection-kind-icon">{{ icon(item.kind_icon, 'submenu-icon') }}</span>
+              {{ item.kind }}
+              {% if item.kind_alpha %}<span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>{% endif %}
+            </span>
+          </div>
+          <small class="connection-status-target">{{ item.target }}</small>
+          {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+          {% if item.last_success_at %}
+          <small class="connection-status-target">{{ tr(request, 'config_conn.last_success', 'Last success') }}: {{ item.last_success_at|replace('T', ' ') }}</small>
+          {% endif %}
+          <small>{{ item.message }}</small>
+        {% if item.edit_url %}
+        </a>
+        {% else %}
+        </article>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="skill-summary">
+        <span>{{ tr(request, 'stats.connections_live_empty', 'Noch keine Verbindungen konfiguriert. Sobald Profile gespeichert sind, zeigt ARIA sie hier mit Live-Status an.') }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="stat-card">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'activities.title', 'Aktivitäten & Runs') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Skill-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
+      </div>
+    </div>
+
+    <div class="stats-health-grid stats-activity-kpi-grid">
+      <article class="stats-health-card status-ok">
+        <div class="stats-health-title">
+          <span class="health-lamp status-ok"></span>
+          <div>
+            <strong>{{ tr(request, 'activities.total', 'Aktivitäten') }}</strong>
+            <small class="stats-health-state">{{ tr(request, 'activities.total', 'Aktivitäten') }}</small>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ activities.summary.count }}</p>
+      </article>
+      <article class="stats-health-card status-ok">
+        <div class="stats-health-title">
+          <span class="health-lamp status-ok"></span>
+          <div>
+            <strong>{{ tr(request, 'activities.success', 'Erfolgreich') }}</strong>
+            <small class="stats-health-state">{{ tr(request, 'activities.status_ok', 'OK') }}</small>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ activities.summary.success }}</p>
+      </article>
+      <article class="stats-health-card status-{{ 'error' if activities.summary.errors else 'ok' }}">
+        <div class="stats-health-title">
+          <span class="health-lamp status-{{ 'error' if activities.summary.errors else 'ok' }}"></span>
+          <div>
+            <strong>{{ tr(request, 'activities.errors', 'Mit Fehlern') }}</strong>
+            <small class="stats-health-state">
+              {% if activities.summary.errors %}
+                {{ tr(request, 'activities.status_error', 'Fehler') }}
+              {% else %}
+                {{ tr(request, 'activities.status_ok', 'OK') }}
+              {% endif %}
+            </small>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ activities.summary.errors }}</p>
+      </article>
+      <article class="stats-health-card status-ok">
+        <div class="stats-health-title">
+          <span class="health-lamp status-ok"></span>
+          <div>
+            <strong>{{ tr(request, 'activities.avg_duration', 'Ø Dauer') }}</strong>
+            <small class="stats-health-state">ms</small>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ activities.summary.avg_duration_ms }} ms</p>
+      </article>
+    </div>
+
+    {% if activities.rows %}
+    <div class="stats-activity-list">
+      {% for row in activities.rows %}
+      <details class="memory-card activity-card" {% if row.skill_errors %}open{% endif %}>
+        <summary class="memory-summary">
+          <div class="memory-summary-main">
+            <strong class="memory-title">{{ row.title }}</strong>
+            <span class="memory-preview">{{ row.summary_bits|join(' · ') }}</span>
+          </div>
+          <div class="memory-summary-meta">
+            <span class="meta-badge">
+              {% if row.success %}
+                {{ tr(request, 'activities.status_ok', 'OK') }}
+              {% else %}
+                {{ tr(request, 'activities.status_error', 'Fehler') }}
+              {% endif %}
+            </span>
+          </div>
+        </summary>
+        <div class="memory-card-body">
+          <ul class="stats-list">
+            {% for item in row.detail_items %}
+            <li><span>{{ tr(request, item.key, item.fallback) }}</span><strong>{{ item.value }}</strong></li>
+            {% endfor %}
+          </ul>
+          {% if row.skill_errors %}
+          <details class="stats-details activity-errors" open>
+            <summary>{{ tr(request, 'activities.error_details', 'Fehlerdetails') }}</summary>
+            <div class="stats-details-content">
+              <section class="stat-card">
+                <ul class="stats-list">
+                  {% for error in row.skill_errors %}
+                  <li><span>{{ error }}</span></li>
+                  {% endfor %}
+                </ul>
+              </section>
+            </div>
+          </details>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="stat-sub">{{ tr(request, 'activities.empty', 'Noch keine Aktivitäten vorhanden.') }}</p>
+    {% endif %}
+  </section>
+
+  <details class="stats-details">
+    <summary>{{ tr(request, 'stats.more_routing', 'More Info / Details: Routing & Intents') }}</summary>
+    <div class="stats-details-content">
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.requests_by_intent', 'Requests by intent') }}</h2>
+        {% if stats.requests_by_intent %}
+          <ul class="stats-list">
+            {% for intent, count in stats.requests_by_intent.items() %}
+              <li><span>{{ intent }}</span><strong>{{ count }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
+        {% endif %}
+      </section>
+
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.requests_by_router', 'Requests by router level') }}</h2>
+        {% if stats.requests_by_router_level %}
+          <ul class="stats-list">
+            {% for level, count in stats.requests_by_router_level.items() %}
+              <li><span>Level {{ level }}</span><strong>{{ count }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
+        {% endif %}
+      </section>
+    </div>
+  </details>
+
+  <details class="stats-details">
+    <summary>{{ tr(request, 'stats.more_models_tokens', 'More Info / Details: Models & Tokens') }}</summary>
+    <div class="stats-details-content">
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.chat_tokens_by_model', 'ChatLLM tokens by model') }}</h2>
+        {% if stats.chat_tokens_by_model %}
+          <ul class="stats-list">
+            {% for model, tokens in stats.chat_tokens_by_model.items() %}
+              <li><span>{{ model }}</span><strong>{{ tokens }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
+        {% endif %}
+      </section>
+
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.embed_tokens_by_model', 'Embedding tokens by model') }}</h2>
+        {% if stats.embedding_tokens_by_model %}
+          <ul class="stats-list">
+            {% for model, tokens in stats.embedding_tokens_by_model.items() %}
+              <li><span>{{ model }}</span><strong>{{ tokens }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
+        {% endif %}
+      </section>
+    </div>
+  </details>
+
+  <details class="stats-details">
+    <summary>{{ tr(request, 'stats.more_costs', 'More Info / Details: Costs & Pricing') }}</summary>
+    <div class="stats-details-content">
+      <section class="stat-card">
+        <div class="stats-health-head">
+          <div>
+            <h2>{{ tr(request, 'stats.price_status', 'Pricing status') }}</h2>
+            <p class="stat-sub">
+              {{ tr(request, 'stats.price_list', 'Price list') }}: {{ pricing_meta.last_updated }}
+              · {{ tr(request, 'stats.currency', 'Currency') }}: {{ pricing_meta.currency }}
+              · {{ pricing_meta.default_source_name }}
+            </p>
+          </div>
+          {% if request.state.can_access_advanced_config %}
+          <form method="post" action="/stats/pricing/refresh" class="inline-form">
+            <button type="submit" class="nav-link">{{ tr(request, 'stats.refresh_pricing', 'Preise aktualisieren') }}</button>
+          </form>
+          {% endif %}
+        </div>
+        <p class="stat-sub">
+          Coverage: Chat {{ pricing_meta.chat_seen_count }}/{{ pricing_meta.priced_chat_count }}
+          · Embedding {{ pricing_meta.embedding_seen_count }}/{{ pricing_meta.priced_embedding_count }}
+        </p>
+      </section>
+
+      <section class="stat-card">
+        <h2>Pricing Coverage</h2>
+        <ul class="stats-list">
+          <li>
+            <span>{{ tr(request, 'stats.chat_seen_priced', 'Chat models seen / priced') }}</span>
+            <strong>{{ pricing_meta.chat_seen_count }} / {{ pricing_meta.priced_chat_count }}</strong>
+          </li>
+          <li>
+            <span>{{ tr(request, 'stats.embed_seen_priced', 'Embedding models seen / priced') }}</span>
+            <strong>{{ pricing_meta.embedding_seen_count }} / {{ pricing_meta.priced_embedding_count }}</strong>
+          </li>
+          <li>
+            <span>{{ tr(request, 'stats.chat_unpriced', 'Unpriced chat models') }}</span>
+            <strong>
+              {% if pricing_meta.unpriced_chat_models %}
+                {{ pricing_meta.unpriced_chat_models|join(", ") }}
+              {% else %}
+                {{ tr(request, 'stats.none', 'none') }}
+              {% endif %}
+            </strong>
+          </li>
+          <li>
+            <span>{{ tr(request, 'stats.embed_unpriced', 'Unpriced embedding models') }}</span>
+            <strong>
+              {% if pricing_meta.unpriced_embedding_models %}
+                {{ pricing_meta.unpriced_embedding_models|join(", ") }}
+              {% else %}
+                {{ tr(request, 'stats.none', 'none') }}
+              {% endif %}
+            </strong>
+          </li>
+        </ul>
+      </section>
+
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.chat_cost_by_model', 'ChatLLM cost by model (USD)') }}</h2>
+        {% if stats.chat_cost_usd_by_model %}
+          <ul class="stats-list">
+            {% for model, cost in stats.chat_cost_usd_by_model.items() %}
+              <li><span>{{ model }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_priced_data', 'No priced data yet.') }}</p>
+        {% endif %}
+      </section>
+
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.embed_cost_by_model', 'Embedding cost by model (USD)') }}</h2>
+        {% if stats.embedding_cost_usd_by_model %}
+          <ul class="stats-list">
+            {% for model, cost in stats.embedding_cost_usd_by_model.items() %}
+              <li><span>{{ model }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_priced_data', 'No priced data yet.') }}</p>
+        {% endif %}
+      </section>
+    </div>
+  </details>
+
+  <details class="stats-details">
+    <summary>{{ tr(request, 'stats.more_sources', 'More Info / Details: Price sources') }}</summary>
+    <div class="stats-details-content">
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.price_sources', 'Price sources') }}</h2>
+        {% if pricing_meta.source_rows %}
+          <ul class="stats-list">
+            {% for row in pricing_meta.source_rows %}
+              <li>
+                <span>
+                  [{{ row.kind }}] {{ row.model }} · {{ row.rate }} · {{ tr(request, 'stats.verified', 'verified') }}: {{ row.verified_at }}
+                  {% if row.source_url %}
+                    · <a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer">{{ row.source_name }}</a>
+                  {% else %}
+                    · {{ row.source_name }}
+                  {% endif %}
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p>{{ tr(request, 'stats.no_sources', 'No price sources configured yet.') }}</p>
+        {% endif %}
+      </section>
+    </div>
+  </details>
+
+  {% if request.state.can_access_advanced_config %}
+  <details class="stats-details">
+    <summary>{{ tr(request, 'stats.reset_title', 'Statistiken zurücksetzen') }}</summary>
+    <div class="stats-details-content">
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.reset_title', 'Statistiken zurücksetzen') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.reset_subtitle', 'Löscht die gespeicherte Token-/Kosten-/Activity-Historie. Memories, Skills und Verbindungen bleiben erhalten.') }}</p>
+        <p class="hint-text">{{ tr(request, 'stats.reset_confirm_hint', 'Zur bewussten Bestätigung bitte RESET eingeben.') }}</p>
+        <form method="post" action="/stats/reset" class="config-form-grid">
+          <label for="stats-reset-confirm">{{ tr(request, 'config_logs.reset_confirm_label', 'Bestätigung') }}</label>
+          <input id="stats-reset-confirm" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
+          <div class="config-actions">
+            <button type="submit" class="danger-btn">{{ tr(request, 'stats.reset_now', 'Statistiken jetzt löschen') }}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </details>
+  {% endif %}
+</main>
+{% endblock %}

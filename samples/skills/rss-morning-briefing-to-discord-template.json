@@ -1,0 +1,86 @@
+{
+  "id": "rss-morning-briefing-to-discord-template",
+  "name": "RSS Morning Briefing to Discord Template",
+  "version": "0.1.0",
+  "description": "Beispielskill fuer eine taegliche Morgen-Zeitung: mehrere RSS-Feeds laden, per LLM nach Kriterien kuratieren und als kompaktes Briefing nach Discord senden.",
+  "category": "communication",
+  "router_keywords": [
+    "morgen briefing discord",
+    "rss morgen zeitung",
+    "taegliches news briefing",
+    "rss top news kuratieren"
+  ],
+  "connections": [
+    "rss",
+    "discord"
+  ],
+  "enabled_default": false,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "RSS Feed 1 laden",
+      "type": "rss_read",
+      "params": {
+        "connection_ref": "news-main"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s2",
+      "name": "RSS Feed 2 laden",
+      "type": "rss_read",
+      "params": {
+        "connection_ref": "news-security"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "RSS Feed 3 laden",
+      "type": "rss_read",
+      "params": {
+        "connection_ref": "news-linux"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s4",
+      "name": "Morgen-Briefing kuratieren",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA und erstellst ein kuratiertes Morgen-Briefing fuer Discord auf Deutsch.\\n\\nWaehle aus den RSS-Eingaengen nur die spannendsten Artikel nach diesen Kriterien:\\n1. Relevanz fuer Security, Infrastruktur, Linux, Homelab und AI\\n2. Praktischer Nutzwert oder konkretes Risiko\\n3. Keine Duplikate, keine reinen Clickbait-Headlines\\n\\nFormat:\\n- Eine knackige Ueberschrift\\n- Danach 5-10 Bulletpoints\\n- Pro Bulletpoint: Quelle, Titel, 1 Satz warum es wichtig ist\\n- Sachlich, kompakt, keine Rohdaten-Rubriknamen, keine ueberlangen Abschnitte\\n\\nRSS Feed 1:\\n{s1_output}\\n\\nRSS Feed 2:\\n{s2_output}\\n\\nRSS Feed 3:\\n{s3_output}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s5",
+      "name": "Briefing nach Discord senden",
+      "type": "discord_send",
+      "params": {
+        "connection_ref": "alerts-main",
+        "message": "{s4_output}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s6",
+      "name": "Chat-Bestaetigung",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "Das RSS-Morgen-Briefing wurde nach Discord gesendet.\\n\\n{s4_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": true,
+    "cron": "0 7 * * *",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Refs news-main, news-security, news-linux und alerts-main an deine eigenen RSS-/Discord-Connections anpassen. Der Skill ist absichtlich deaktiviert, bis du ihn nach der Anpassung manuell aktivierst."
+  },
+  "schema_version": "1.1"
+}

@@ -1,0 +1,36 @@
+<section class="connection-meta-block">
+  <div class="skill-summary connection-flow-note">
+    <strong>{{ tr(request, 'config_conn.meta_title', 'Kontext & Metadaten') }}</strong>
+    <span>{{ tr(request, 'config_conn.meta_hint', 'Diese Angaben helfen ARIA, Verbindungen natürlicher zu erkennen und später auch modularer zu erweitern.') }}</span>
+  </div>
+  {% if meta_llm_kind %}
+  <div class="inline-actions">
+    <button
+      type="button"
+      class="button-link subtle-link"
+      data-connection-meta-llm-kind="{{ meta_llm_kind|e }}"
+      data-connection-meta-prefix="{{ meta_prefix|e }}"
+      data-default-label="{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}"
+      data-loading-label="{{ tr(request, 'config_conn.meta_llm_suggest_loading', 'LLM denkt nach ...') }}"
+    >{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}</button>
+  </div>
+  {% endif %}
+
+  <div class="connection-form-grid">
+    <div>
+      <label for="{{ meta_prefix }}_connection_title">{{ tr(request, 'config_conn.meta_display_title', 'Angezeigter Titel (optional)') }}</label>
+      <input id="{{ meta_prefix }}_connection_title" name="connection_title" type="text" value="{{ meta_values.title or '' }}" maxlength="80" placeholder="{{ tr(request, 'config_conn.meta_display_title_placeholder', 'z. B. NAS Docker Share') }}">
+    </div>
+    <div>
+      <label for="{{ meta_prefix }}_connection_tags">{{ tr(request, 'config_conn.meta_tags', 'Tags (optional)') }}</label>
+      <input id="{{ meta_prefix }}_connection_tags" name="connection_tags" type="text" value="{{ meta_values.tags_text or '' }}" placeholder="{{ tr(request, 'config_conn.meta_tags_placeholder', 'z. B. nas, docker, backup') }}">
+    </div>
+  </div>
+
+  <label for="{{ meta_prefix }}_connection_description">{{ tr(request, 'config_conn.meta_description', 'Kurzbeschreibung (optional)') }}</label>
+  <textarea id="{{ meta_prefix }}_connection_description" name="connection_description" class="connection-meta-textarea" placeholder="{{ tr(request, 'config_conn.meta_description_placeholder', 'Wofür ist diese Verbindung gedacht?') }}">{{ meta_values.description or '' }}</textarea>
+
+  <label for="{{ meta_prefix }}_connection_aliases">{{ tr(request, 'config_conn.meta_aliases', 'Aliase / Suchbegriffe (optional)') }}</label>
+  <textarea id="{{ meta_prefix }}_connection_aliases" name="connection_aliases" class="connection-meta-textarea" placeholder="{{ tr(request, 'config_conn.meta_aliases_placeholder', 'z. B. hauptserver, docker-share, backup-system') }}">{{ meta_values.aliases_text or '' }}</textarea>
+  <small class="hint-text">{{ tr(request, 'config_conn.meta_aliases_hint', 'Mehrere Werte mit Komma oder Zeilenumbruch trennen. ARIA nutzt diese Begriffe für natürlichere Zuordnung im Chat.') }}</small>
+</section>

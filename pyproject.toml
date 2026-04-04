@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aria-agent"
+version = "0.1.0"
+description = "ARIA - Adaptive Reasoning & Intelligence Agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "litellm>=1.55",
+    "qdrant-client>=1.12",
+    "numpy<2",
+    "paramiko>=3.5",
+    "paho-mqtt>=2.1",
+    "pysmb>=1.2",
+    "cryptography>=45.0",
+    "argon2-cffi>=23.1",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+    "pydantic>=2.11",
+    "pydantic-settings>=2.7",
+    "python-multipart>=0.0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+]
+
+[tool.setuptools.packages.find]
+include = ["aria*"]

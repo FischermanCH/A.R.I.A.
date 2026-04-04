@@ -1,0 +1,20 @@
+{% for section in toggle_sections %}
+<div class="skill-summary connection-flow-note">
+  <strong>{% if section.title_key %}{{ tr(request, section.title_key, section.title) }}{% else %}{{ section.title }}{% endif %}</strong>
+  <span>{% if section.hint_key %}{{ tr(request, section.hint_key, section.hint) }}{% else %}{{ section.hint }}{% endif %}</span>
+</div>
+<div class="connection-options-grid">
+  {% for card in section.cards %}
+  <article class="connection-option-card">
+    <div class="connection-option-head">
+      <strong>{% if card.title_key %}{{ tr(request, card.title_key, card.title) }}{% else %}{{ card.title }}{% endif %}</strong>
+    </div>
+    {% if card.hint %}<p class="connection-option-text">{% if card.hint_key %}{{ tr(request, card.hint_key, card.hint) }}{% else %}{{ card.hint }}{% endif %}</p>{% endif %}
+    <label class="inline-check" for="{{ card.id }}">
+      <input id="{{ card.id }}" type="checkbox" name="{{ card.name }}" value="1" {% if card.checked %}checked{% endif %}>
+      {% if card.toggle_key %}{{ tr(request, card.toggle_key, card.toggle) }}{% else %}{{ card.toggle }}{% endif %}
+    </label>
+  </article>
+  {% endfor %}
+</div>
+{% endfor %}

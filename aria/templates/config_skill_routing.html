@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="floating-card">
+    <div class="page-title-row"><span>{{ icon('routing', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_skill_routing.title', 'Skill Routing') }}</h2></div>
+    <p>{{ tr(request, 'config_skill_routing.subtitle', 'Central trigger overview for all custom skills. One trigger can map to one or more skills.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_skill_routing.saved', 'Saved.') }}</div>
+    {% endif %}
+    {% if info_message %}
+    <div class="alert ok">{{ tr(request, 'config_skill_routing.info', 'Info') }}: {{ info_message }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    {% if load_errors %}
+    <div class="alert err">{{ tr(request, 'config_skill_routing.load_errors', 'Some skill manifests could not be loaded:') }}</div>
+    <ul class="hint-text">
+      {% for err in load_errors %}
+      <li>{{ err }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <div class="meta-row">
+      <span class="meta-badge">{{ tr(request, 'config_skill_routing.skills', 'Skills') }}: {{ index.skills_count }}</span>
+      <span class="meta-badge">{{ tr(request, 'config_skill_routing.triggers', 'Triggers') }}: {{ index.triggers_count }}</span>
+      <span class="meta-badge">{{ tr(request, 'config_skill_routing.collisions', 'Collisions') }}: {{ index.collisions_count }}</span>
+    </div>
+
+    <form method="post" action="/config/skill-routing/rebuild" class="editor-form">
+      <button type="submit">{{ tr(request, 'config_skill_routing.rebuild', 'Rebuild trigger index') }}</button>
+    </form>
+    <form method="post" action="/config/skill-routing/suggest-all" class="editor-form">
+      <button type="submit">{{ tr(request, 'config_skill_routing.suggest_all', 'Suggest keywords for all skills (LLM)') }}</button>
+    </form>
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config_skill_routing.per_skill', 'Per skill') }}</h3>
+    {% if rows %}
+      {% for row in rows %}
+      <article class="config-group-card">
+        <h4><code>{{ row.id }}</code> · {{ row.name }}</h4>
+        <p class="hint-text"><code>{{ row.json_path }}</code></p>
+        <form method="post" action="/config/skill-routing/save" class="editor-form">
+          <input type="hidden" name="skill_id" value="{{ row.id }}">
+          <label>{{ tr(request, 'config_skill_routing.keywords', 'Trigger keywords (comma separated)') }}</label>
+          <textarea name="router_keywords" class="editor-textarea short" spellcheck="false">{{ row.router_keywords_text }}</textarea>
+          <button type="submit">{{ tr(request, 'config_skill_routing.save', 'Save trigger keywords') }}</button>
+        </form>
+        <form method="post" action="/config/skill-routing/suggest" class="editor-form">
+          <input type="hidden" name="skill_id" value="{{ row.id }}">
+          <button type="submit">{{ tr(request, 'config_skill_routing.suggest_one', 'Suggest keywords via LLM') }}</button>
+        </form>
+      </article>
+      {% endfor %}
+    {% else %}
+      <p>{{ tr(request, 'config_skill_routing.empty', 'No custom skills found.') }}</p>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config_skill_routing.index', 'Trigger index preview') }}</h3>
+    <div class="prompt-table-wrap">
+      <table class="prompt-table">
+        <thead>
+          <tr>
+            <th>{{ tr(request, 'config_skill_routing.col_trigger', 'Trigger') }}</th>
+            <th>{{ tr(request, 'config_skill_routing.col_skills', 'Skills') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if index.triggers %}
+            {% for row in index.triggers %}
+            <tr>
+              <td><code>{{ row.trigger }}</code></td>
+              <td>{{ row.skills|join(", ") }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="2">{{ tr(request, 'config_skill_routing.no_triggers', 'No triggers indexed yet.') }}</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{% endblock %}

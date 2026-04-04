@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="memories-layout">
+  <section class="memories-toolbar">
+    <form method="get" action="/memories" class="memories-filter-form">
+      <label for="type">{{ tr(request, 'memories.type', 'Typ') }}</label>
+      <select id="type" name="type">
+        <option value="all" {% if filter_type == "all" %}selected{% endif %}>{{ tr(request, 'memories.type_all', 'Alle') }}</option>
+        <option value="fact" {% if filter_type == "fact" %}selected{% endif %}>{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
+        <option value="preference" {% if filter_type == "preference" %}selected{% endif %}>{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
+        <option value="session" {% if filter_type == "session" %}selected{% endif %}>{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}</option>
+        <option value="knowledge" {% if filter_type == "knowledge" %}selected{% endif %}>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
+      </select>
+      <label for="sort">{{ tr(request, 'memories.sort', 'Sortierung') }}</label>
+      <select id="sort" name="sort">
+        <option value="updated_desc" {% if sort == "updated_desc" %}selected{% endif %}>{{ tr(request, 'memories.sort_newest', 'Neueste zuerst') }}</option>
+        <option value="updated_asc" {% if sort == "updated_asc" %}selected{% endif %}>{{ tr(request, 'memories.sort_oldest', 'Älteste zuerst') }}</option>
+        <option value="type" {% if sort == "type" %}selected{% endif %}>{{ tr(request, 'memories.sort_type', 'Nach Typ') }}</option>
+        <option value="collection" {% if sort == "collection" %}selected{% endif %}>{{ tr(request, 'memories.sort_collection', 'Nach Collection') }}</option>
+        <option value="score_desc" {% if sort == "score_desc" %}selected{% endif %}>{{ tr(request, 'memories.sort_score', 'Nach Score') }}</option>
+      </select>
+      <label for="limit">{{ tr(request, 'memories.per_page', 'Pro Seite') }}</label>
+      <select id="limit" name="limit">
+        <option value="20" {% if limit == 20 %}selected{% endif %}>20</option>
+        <option value="50" {% if limit == 50 %}selected{% endif %}>50</option>
+        <option value="100" {% if limit == 100 %}selected{% endif %}>100</option>
+      </select>
+      <label for="q">{{ tr(request, 'memories.search', 'Suche') }}</label>
+      <input id="q" name="q" type="text" value="{{ query }}" placeholder="{{ tr(request, 'memories.search_placeholder', 'Memory Suche (semantisch)') }}">
+      <input type="hidden" name="page" value="1">
+      <button type="submit">{{ tr(request, 'memories.search_btn', 'Suchen') }}</button>
+    </form>
+    <div class="inline-actions">
+      <a
+        class="chat-status memories-link"
+        href="/memories/export?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}"
+      >{{ tr(request, 'memories.export', 'Memory exportieren') }}</a>
+      <a class="chat-status memories-link" href="/memories/map">{{ tr(request, 'memories.map', 'Memory Map') }}</a>
+      {% if request.state.auth_role == "admin" %}
+      <a class="chat-status memories-link" href="/memories/config">{{ tr(request, 'memories.setup', 'Memory-Setup') }}</a>
+      {% endif %}
+      <form method="post" action="/memories/maintenance" class="memories-maintenance-form">
+        <button type="submit">{{ tr(request, 'memories.rollup', 'Kontext-Rollup') }}</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="memories-meta">
+    <span class="chat-status">{{ tr(request, 'memories.page', 'Seite') }}: <code>{{ page }}</code>/<code>{{ total_pages }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.hits', 'Treffer') }}: <code>{{ total_rows }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.facts', 'Facts') }}: <code>{{ counts.fact }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.preferences', 'Preferences') }}: <code>{{ counts.preference }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ counts.session }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ counts.knowledge }}</code></span>
+    {% if qdrant_dashboard_url and request.state.auth_role == "admin" and request.state.debug_mode %}
+    <a class="chat-status memories-link" href="{{ qdrant_dashboard_url }}" target="_blank" rel="noopener noreferrer">Qdrant Dashboard</a>
+    {% endif %}
+  </section>
+
+  {% if total_pages > 1 %}
+  <section class="memories-meta">
+    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ prev_page }}">← {{ tr(request, 'memories.back', 'Zurück') }}</a>
+    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ next_page }}">{{ tr(request, 'memories.next', 'Weiter') }} →</a>
+  </section>
+  {% endif %}
+
+  {% if info_message %}
+  <div class="alert ok">{{ info_message }}</div>
+  {% endif %}
+  {% if error_message %}
+  <div class="alert err">{{ error_message }}</div>
+  {% endif %}
+
+  <section class="memory-create-card">
+    <h2>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h2>
+    <p>{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</p>
+    <form method="post" action="/memories/create" class="editor-form">
+      <input type="hidden" name="type" value="{{ filter_type }}">
+      <input type="hidden" name="q" value="{{ query }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="limit" value="{{ limit }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <div class="connection-form-grid">
+        <div>
+          <label for="memory_type">{{ tr(request, 'memories.create_type', 'Memory-Typ') }}</label>
+          <select id="memory_type" name="memory_type">
+            <option value="fact">{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
+            <option value="preference">{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
+            <option value="knowledge">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
+          </select>
+        </div>
+      </div>
+      <label for="memory_text">{{ tr(request, 'memories.create_text', 'Text') }}</label>
+      <textarea id="memory_text" name="text" class="editor-textarea short" maxlength="4000" placeholder="{{ tr(request, 'memories.create_placeholder', 'z. B. Ich nutze für Server-Dateien meist mein Hauptsystem.') }}" required></textarea>
+      <button type="submit">{{ tr(request, 'memories.create_button', 'Memory speichern') }}</button>
+    </form>
+  </section>
+
+  <section class="memories-list">
+    {% if rows %}
+      {% for row in rows %}
+      <details class="memory-card">
+        <summary class="memory-summary">
+          <div class="memory-summary-main">
+            <strong class="memory-title">{{ row.title }}</strong>
+            <small class="memory-preview">{{ row.preview }}</small>
+          </div>
+          <div class="memory-summary-meta">
+            <span class="status-badge">{{ row.label }}</span>
+            <small>{{ row.display_timestamp or "n/a" }}</small>
+          </div>
+        </summary>
+        <div class="memory-card-body">
+          <header class="memory-card-head">
+            <strong>[{{ row.label }}]</strong>
+            <small>{{ row.collection }}</small>
+          </header>
+          <p>{{ row.text }}</p>
+          <footer class="memory-card-foot">
+            <small>{{ row.display_timestamp or "n/a" }} · {{ tr(request, 'memories.source', 'Quelle') }}: {{ row.source }}</small>
+            <div class="inline-actions">
+              <details class="memory-edit-box">
+                <summary>{{ tr(request, 'memories.edit', 'Bearbeiten') }}</summary>
+                <form method="post" action="/memories/edit" class="editor-form">
+                  <input type="hidden" name="collection" value="{{ row.collection }}">
+                  <input type="hidden" name="point_id" value="{{ row.id }}">
+                  <input type="hidden" name="type" value="{{ filter_type }}">
+                  <input type="hidden" name="q" value="{{ query }}">
+                  <input type="hidden" name="page" value="{{ page }}">
+                  <input type="hidden" name="limit" value="{{ limit }}">
+                  <input type="hidden" name="sort" value="{{ sort }}">
+                  <textarea name="text" class="editor-textarea short" required>{{ row.text }}</textarea>
+                  <button type="submit">{{ tr(request, 'memories.save', 'Speichern') }}</button>
+                </form>
+              </details>
+              <form method="post" action="/memories/delete">
+                <input type="hidden" name="collection" value="{{ row.collection }}">
+                <input type="hidden" name="point_id" value="{{ row.id }}">
+                <input type="hidden" name="type" value="{{ filter_type }}">
+                <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <button type="submit">{{ tr(request, 'memories.delete', 'Löschen') }}</button>
+              </form>
+            </div>
+          </footer>
+        </div>
+      </details>
+      {% endfor %}
+    {% else %}
+      <article class="memory-card memory-card-empty">
+        <p>{{ tr(request, 'memories.empty', 'Keine Memory-Einträge gefunden.') }}</p>
+      </article>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

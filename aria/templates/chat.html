@@ -1,0 +1,589 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="chat-layout">
+  {% if debug_mode %}
+  <div class="chat-meta-header">
+    <div class="chat-status-cluster">
+      <span class="chat-status">🗓 {{ tr(request, 'chat.debug_day_context', 'Tages-Kontext') }} <code>{{ active_session_collection }}</code></span>
+      <span class="chat-status">🧷 {{ tr(request, 'chat.debug_login_session', 'Login-Session') }} <code>{{ active_session_id }}</code></span>
+      <span
+        class="chat-status auto-memory-indicator {% if auto_memory_enabled %}is-on{% else %}is-off{% endif %}"
+        title="{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }} {% if auto_memory_enabled %}{{ tr(request, 'chat.debug_active', 'aktiv') }}{% else %}{{ tr(request, 'chat.debug_inactive', 'deaktiviert') }}{% endif %}"
+      >
+        <span class="status-lamp" aria-hidden="true"></span>
+        <span>{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }}</span>
+      </span>
+    </div>
+    <small class="hint-text">{{ tr(request, 'chat.debug_day', 'Tag') }}: <code>{{ active_memory_day }}</code> · {{ tr(request, 'chat.debug_role', 'Rolle') }}: <code>{{ auth_role }}</code></small>
+  </div>
+  {% endif %}
+  <section class="chat-box" id="messages">
+    {% if chat_history %}
+      {% for item in chat_history %}
+      <article class="msg msg-{{ item.role }}">
+        {% if item.role == "assistant" %}
+        <div class="msg-text">{{ render_assistant_message_html(item.text) }}</div>
+        {% else %}
+        <p>{{ item.text }}</p>
+        {% endif %}
+        {% if item.role == "assistant" %}
+        <details class="msg-details">
+          <summary>Details</summary>
+          <div class="meta-badge">{{ item.badge_icon }} {{ item.badge_intent }} · {{ item.badge_tokens }} tokens · {{ item.badge_cost_usd }} · {{ item.badge_duration }}s</div>
+          {% if item.badge_details %}
+          <div class="meta-row">
+            {% for row in item.badge_details %}
+            <div>{{ row }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </details>
+        {% endif %}
+      </article>
+      {% endfor %}
+    {% else %}
+    <article class="msg msg-assistant">
+      <p>{{ tr(request, 'chat.ready', 'ARIA ist bereit. Schreib deine erste Nachricht.') }}</p>
+    </article>
+    {% endif %}
+  </section>
+
+  <div id="typing-indicator" class="typing-indicator" aria-live="polite">
+    <div class="thinking-rings" aria-hidden="true">
+      <span class="ring ring-a"></span>
+      <span class="ring ring-b"></span>
+      <span class="ring ring-c"></span>
+    </div>
+    <span id="thinking-text">{{ tr(request, 'chat.thinking', 'ARIA denkt nach...') }}</span>
+  </div>
+
+  <form
+    id="chat-form"
+    class="chat-form"
+    action="/chat"
+    method="post"
+  >
+    <label class="sr-only" for="message">{{ tr(request, 'chat.message_label', 'Nachricht') }}</label>
+    <div class="composer-row">
+      <div class="textarea-wrap">
+        <textarea id="message" name="message" placeholder="{{ tr(request, 'chat.placeholder', 'Nachricht eingeben...') }}" required></textarea>
+        <div id="slash-menu" class="slash-menu" hidden></div>
+      </div>
+      <div class="composer-side">
+        <div class="chat-tools" data-open="false">
+          <button type="button" class="chat-tools-toggle" aria-expanded="false" aria-controls="chat-toolbox-panel">
+            <span class="toolbox-summary-label"><span class="toolbox-summary-icon">🧰</span>{{ tr(request, 'chat.toolbox', 'Tool-Box') }}</span>
+          </button>
+          <div id="chat-toolbox-panel" class="toolbox-groups" hidden>
+            {% for group in chat_toolbox_groups %}
+            <details class="toolbox-group" {% if group["key"] == "suggested" %}open{% endif %}>
+              <summary class="toolbox-group-title"><span class="toolbox-group-title-main"><span class="toolbox-group-icon">{{ group.get("icon", "•") }}</span>{{ group["title"] }}</span></summary>
+              <div class="toolbox-items">
+                {% for item in group["items"] %}
+                <button
+                  type="button"
+                  class="toolbox-item js-toolbox-insert"
+                  data-insert="{{ item['insert'] }}"
+                  title="{{ item['hint'] }}"
+                >
+                  <span class="toolbox-item-title">
+                    <span class="toolbox-item-title-main"><span class="toolbox-item-icon">{{ item['icon'] }}</span>{{ item['label'] }}</span>
+                    {% if item.get('badge') %}<span class="toolbox-item-badge">{{ item['badge'] }}</span>{% endif %}
+                  </span>
+                  <span class="toolbox-item-hint">{{ item['hint'] }}</span>
+                </button>
+                {% endfor %}
+              </div>
+            </details>
+            {% endfor %}
+          </div>
+        </div>
+        <button id="send-btn" type="submit">{{ tr(request, 'chat.send', 'Senden') }}</button>
+      </div>
+    </div>
+  </form>
+</main>
+<script>
+  (function () {
+    const uiText = {
+      ready: {{ tr(request, 'chat.ready', 'ARIA ist bereit. Schreib deine erste Nachricht.')|tojson }},
+      thinking: {{ tr(request, 'chat.thinking', 'ARIA denkt nach...')|tojson }},
+      send: {{ tr(request, 'chat.send', 'Senden')|tojson }},
+      sending: {{ tr(request, 'chat.sending', 'Wird gesendet...')|tojson }},
+      runningSkill: {{ tr(request, 'chat.running_skill', 'Skill wird ausgeführt...')|tojson }},
+      processingMessage: {{ tr(request, 'chat.processing_message', 'Nachricht wird verarbeitet...')|tojson }},
+      stillWorking: {{ tr(request, 'chat.still_working', 'ARIA arbeitet noch...')|tojson }},
+      longRunningSkill: {{ tr(request, 'chat.long_running_skill', 'Längerer Skill läuft noch. Das kann 30-60 Sekunden dauern...')|tojson }},
+      skillPhase: {{ tr(request, 'chat.skill_phase', 'Aktueller Schritt')|tojson }},
+      parseError: {{ tr(request, 'chat.response_parse_error', 'Antwort konnte nicht verarbeitet werden.')|tojson }},
+      unknownError: {{ tr(request, 'chat.unknown_error', 'Unbekannter Fehler.')|tojson }},
+      serverError: {{ tr(request, 'chat.server_send_error', 'Serverfehler beim Senden.')|tojson }},
+      slashClsHint: {{ tr(request, 'chat.slash_cls_hint', 'Lokalen Chatverlauf löschen')|tojson }},
+      slashReadCmd: {{ tr(request, 'chat.slash_read_cmd', '/lesen')|tojson }},
+      slashStoreCmd: {{ tr(request, 'chat.slash_store_cmd', '/merken')|tojson }},
+      slashSkillCmd: {{ tr(request, 'chat.slash_skill_cmd', '/skill')|tojson }}
+    };
+    const skillTriggerHints = {{ (skill_trigger_hints or [])|tojson }};
+    const skillProgressHints = {{ (skill_progress_hints or [])|tojson }};
+    const chatCommandEntries = {{ (chat_command_entries or [])|tojson }};
+    const chatCommandGroupTitles = {{ (chat_command_group_titles or {})|tojson }};
+
+    const form = document.getElementById("chat-form");
+    const textarea = document.getElementById("message");
+    const sendBtn = document.getElementById("send-btn");
+    const messages = document.getElementById("messages");
+    const indicator = document.getElementById("typing-indicator");
+    const thinkingText = document.getElementById("thinking-text");
+    const slashMenu = document.getElementById("slash-menu");
+    const chatTools = document.querySelector(".chat-tools");
+    const chatToolsToggle = document.querySelector(".chat-tools-toggle");
+    const chatToolsPanel = document.getElementById("chat-toolbox-panel");
+    const csrfMeta = document.querySelector("meta[name='csrf-token']");
+    let pendingStatusTimer = null;
+    let pendingStatusInterval = null;
+
+    const draftStorageKey = "aria_chat_draft_v1";
+
+    function readCookie(name) {
+      const key = name + "=";
+      const parts = document.cookie.split(";");
+      for (let i = 0; i < parts.length; i += 1) {
+        const part = parts[i].trim();
+        if (part.startsWith(key)) {
+          return decodeURIComponent(part.substring(key.length));
+        }
+      }
+      return "";
+    }
+
+    function csrfToken() {
+      if (csrfMeta && csrfMeta.content) return csrfMeta.content;
+      return readCookie("aria_csrf_token");
+    }
+
+    function setBusy(isBusy, busyText) {
+      textarea.disabled = isBusy;
+      sendBtn.disabled = isBusy;
+      form.classList.toggle("is-busy", isBusy);
+      indicator.classList.toggle("htmx-request", isBusy);
+      if (isBusy) {
+        if (window.ariaBeginBusy) window.ariaBeginBusy();
+      } else {
+        if (window.ariaEndBusy) window.ariaEndBusy();
+      }
+      if (isBusy) {
+        if (thinkingText) thinkingText.textContent = busyText || uiText.processingMessage;
+        sendBtn.textContent = uiText.sending;
+      } else {
+        if (thinkingText) thinkingText.textContent = uiText.thinking || {{ agent_text(request, 'ARIA denkt nach...')|tojson }};
+        sendBtn.textContent = uiText.send;
+      }
+    }
+
+    function clearPendingStatusTimers() {
+      if (pendingStatusTimer) {
+        window.clearTimeout(pendingStatusTimer);
+        pendingStatusTimer = null;
+      }
+      if (pendingStatusInterval) {
+        window.clearInterval(pendingStatusInterval);
+        pendingStatusInterval = null;
+      }
+    }
+
+    function resolveLikelySkillInfo(message) {
+      const text = String(message || "").trim().toLowerCase();
+      if (!text) return null;
+      let best = null;
+      let bestScore = 0;
+      for (const skill of skillProgressHints) {
+        const triggers = Array.isArray(skill && skill.triggers) ? skill.triggers : [];
+        let score = 0;
+        for (const hint of triggers) {
+          const item = String(hint || "").trim().toLowerCase();
+          if (!item || !text.includes(item)) continue;
+          score += Math.max(1, item.length);
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = skill;
+        }
+      }
+      return bestScore > 0 ? best : null;
+    }
+
+    function buildPendingSkillText(baseText, skillInfo, elapsedSeconds) {
+      if (!skillInfo) return baseText + " (" + elapsedSeconds + "s)";
+      const steps = Array.isArray(skillInfo.steps) ? skillInfo.steps : [];
+      if (!steps.length) return baseText + " (" + elapsedSeconds + "s)";
+      const phaseIndex = Math.min(steps.length - 1, Math.floor(Math.max(0, elapsedSeconds - 8) / 25));
+      const phaseLabel = String(steps[phaseIndex] || "").trim();
+      if (!phaseLabel) return baseText + " (" + elapsedSeconds + "s)";
+      return baseText + " " + uiText.skillPhase + ": " + phaseLabel + " (" + elapsedSeconds + "s)";
+    }
+
+    function startPendingStatusTimers(pendingAssistantNode, likelySkill) {
+      clearPendingStatusTimers();
+      if (!pendingAssistantNode) return;
+      const textNode = pendingAssistantNode.querySelector("p");
+      if (!textNode) return;
+      const startedAt = Date.now();
+
+      pendingStatusTimer = window.setTimeout(function () {
+        const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+        if (likelySkill) {
+          textNode.textContent = buildPendingSkillText(uiText.longRunningSkill, likelySkill, elapsed);
+          if (thinkingText) thinkingText.textContent = uiText.longRunningSkill;
+        } else {
+          textNode.textContent = uiText.stillWorking + " (" + elapsed + "s)";
+          if (thinkingText) thinkingText.textContent = uiText.stillWorking;
+        }
+      }, 8000);
+
+      pendingStatusInterval = window.setInterval(function () {
+        const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+        if (likelySkill && elapsed >= 8) {
+          textNode.textContent = buildPendingSkillText(uiText.longRunningSkill, likelySkill, elapsed);
+        } else if (!likelySkill && elapsed >= 8) {
+          textNode.textContent = uiText.stillWorking + " (" + elapsed + "s)";
+        }
+      }, 1000);
+    }
+
+    function persistDraft() {
+      localStorage.setItem(draftStorageKey, textarea.value);
+    }
+
+    function hideSlashMenu() {
+      slashMenu.hidden = true;
+      slashMenu.innerHTML = "";
+    }
+
+    function hideToolbox() {
+      if (chatTools && chatToolsToggle && chatToolsPanel) {
+        chatTools.dataset.open = "false";
+        chatToolsToggle.setAttribute("aria-expanded", "false");
+        chatToolsPanel.hidden = true;
+        if (typeof chatToolsToggle.blur === "function") {
+          chatToolsToggle.blur();
+        }
+      }
+    }
+
+    function showToolbox() {
+      if (chatTools && chatToolsToggle && chatToolsPanel) {
+        chatTools.dataset.open = "true";
+        chatToolsToggle.setAttribute("aria-expanded", "true");
+        chatToolsPanel.hidden = false;
+      }
+    }
+
+    function toggleToolbox() {
+      if (!chatTools) return;
+      if (chatTools.dataset.open === "true") {
+        hideToolbox();
+      } else {
+        showToolbox();
+      }
+    }
+
+    function slashCatalog() {
+      return Array.isArray(chatCommandEntries) ? chatCommandEntries : [];
+    }
+
+    function applySlashItem(insertText) {
+      if (!insertText) return;
+      if (insertText === "/cls" || insertText === "/clear") {
+        localStorage.removeItem(draftStorageKey);
+        textarea.value = "";
+        clearChatHistory();
+        return;
+      }
+      textarea.value = insertText;
+      persistDraft();
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+      hideSlashMenu();
+      hideToolbox();
+    }
+
+    function updateSlashMenu() {
+      const text = String(textarea.value || "").trimStart();
+      if (!text.startsWith("/")) {
+        hideSlashMenu();
+        return;
+      }
+      const query = text.slice(1).toLowerCase();
+      const skillMode = query.startsWith("skill");
+      let entries = slashCatalog().filter((row) => {
+        const search = (row.label + " " + row.hint + " " + row.insert).toLowerCase();
+        if (skillMode && row.group !== "skills") return false;
+        return !query || search.includes(query);
+      });
+      if (skillMode) {
+        entries = entries.slice(0, 20);
+      } else {
+        entries = entries.slice(0, 8);
+      }
+      if (!entries.length) {
+        hideSlashMenu();
+        return;
+      }
+      const groupTitles = chatCommandGroupTitles || {};
+      const grouped = {};
+      entries.forEach((row, idx) => {
+        const key = row.group || "commands";
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push({ row, idx });
+      });
+      const order = ["commands", "read", "store", "skills", "admin"];
+      const chunks = [];
+      order.forEach((groupKey) => {
+        const items = grouped[groupKey] || [];
+        if (!items.length) return;
+        chunks.push('<div class="slash-group"><div class="slash-group-title">' + (groupTitles[groupKey] || groupKey) + "</div>");
+        items.forEach(({ row, idx }) => {
+          chunks.push(
+            '<button type="button" class="slash-item" data-idx="' + idx + '">' +
+              '<span class="slash-title"><span class="slash-icon">' + (row.icon || "•") + "</span>" + row.label + "</span>" +
+              '<span class="slash-hint">' + row.hint + "</span>" +
+            "</button>"
+          );
+        });
+        chunks.push("</div>");
+      });
+      slashMenu.innerHTML = chunks.join("");
+      const buttons = slashMenu.querySelectorAll(".slash-item");
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const idx = Number(btn.getAttribute("data-idx") || "0");
+          if (entries[idx]) {
+            applySlashItem(entries[idx].insert);
+          }
+        });
+      });
+      slashMenu.hidden = false;
+    }
+
+    function resetMessages() {
+      messages.innerHTML = [
+        '<article class="msg msg-assistant">',
+        "<p>" + uiText.ready + "</p>",
+        "</article>",
+      ].join("");
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function restoreDraft() {
+      const saved = localStorage.getItem(draftStorageKey);
+      if (saved) {
+        textarea.value = saved;
+      }
+    }
+
+    async function clearChatHistory() {
+      const token = csrfToken();
+      try {
+        await fetch("/chat/history/clear", {
+          method: "POST",
+          headers: {
+            "X-CSRF-Token": token || "",
+          },
+        });
+      } catch (err) {
+        // local reset still happens if the server-side clear fails temporarily
+      }
+      resetMessages();
+      textarea.focus();
+      hideSlashMenu();
+    }
+
+    function appendUserMessage(text) {
+      const article = document.createElement("article");
+      article.className = "msg msg-user pending-user";
+      const p = document.createElement("p");
+      p.textContent = text;
+      article.appendChild(p);
+      messages.appendChild(article);
+      messages.scrollTop = messages.scrollHeight;
+      return article;
+    }
+
+    function appendErrorMessage(text) {
+      const article = document.createElement("article");
+      article.className = "msg msg-assistant";
+      const p = document.createElement("p");
+      p.textContent = text;
+      article.appendChild(p);
+      messages.appendChild(article);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function appendPendingAssistant(text) {
+      const article = document.createElement("article");
+      article.className = "msg msg-assistant pending-assistant";
+      const p = document.createElement("p");
+      p.textContent = text;
+      article.appendChild(p);
+      messages.appendChild(article);
+      messages.scrollTop = messages.scrollHeight;
+      return article;
+    }
+
+    function looksLikeSkillExecution(message) {
+      const text = String(message || "").trim().toLowerCase();
+      if (!text) return false;
+      for (const hint of skillTriggerHints) {
+        const item = String(hint || "").trim().toLowerCase();
+        if (item && text.includes(item)) return true;
+      }
+      return false;
+    }
+
+    function extractAssistantFromHtml(html) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const assistants = doc.querySelectorAll(".msg-assistant");
+      if (!assistants.length) return null;
+      return assistants[assistants.length - 1].outerHTML;
+    }
+
+    restoreDraft();
+
+    textarea.addEventListener("input", function () {
+      persistDraft();
+      updateSlashMenu();
+    });
+    function injectTemplate(value) {
+      if (!value) return;
+      const current = textarea.value.trim();
+      const prefix = value.endsWith(" ") ? value : value + " ";
+      textarea.value = current ? (prefix + current) : prefix;
+      persistDraft();
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+      updateSlashMenu();
+    }
+
+    document.querySelectorAll(".js-toolbox-insert").forEach((btn) => {
+      btn.addEventListener("click", function () {
+        injectTemplate(String(btn.getAttribute("data-insert") || ""));
+      });
+    });
+
+    if (chatToolsToggle) {
+      chatToolsToggle.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleToolbox();
+      });
+    }
+
+    textarea.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (!textarea.disabled) {
+          form.requestSubmit();
+        }
+      } else if (event.key === "Escape") {
+        hideSlashMenu();
+        hideToolbox();
+      }
+    });
+
+    function handleOutsideInteractions(event) {
+      if (chatTools && chatTools.dataset.open === "true" && !chatTools.contains(event.target)) {
+        hideToolbox();
+      }
+      if (!slashMenu.hidden && !slashMenu.contains(event.target) && event.target !== textarea) {
+        hideSlashMenu();
+      }
+    }
+
+    document.addEventListener("click", handleOutsideInteractions);
+    document.addEventListener("pointerdown", handleOutsideInteractions, { passive: true });
+
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      const message = textarea.value.trim();
+      if (!message || textarea.disabled) {
+        return;
+      }
+      const command = message.toLowerCase();
+      if (command === "cls" || command === "/cls" || command === "clear" || command === "/clear") {
+        localStorage.removeItem(draftStorageKey);
+        textarea.value = "";
+        await clearChatHistory();
+        return;
+      }
+
+      const pendingUserNode = appendUserMessage(message);
+      textarea.value = "";
+      localStorage.removeItem(draftStorageKey);
+      const likelySkill = resolveLikelySkillInfo(message) || (looksLikeSkillExecution(message) ? { id: "skill", name: "skill", steps: [] } : null);
+      const pendingAssistantNode = appendPendingAssistant(likelySkill ? uiText.runningSkill : uiText.processingMessage);
+      setBusy(true, likelySkill ? uiText.runningSkill : uiText.processingMessage);
+      startPendingStatusTimers(pendingAssistantNode, likelySkill);
+
+      try {
+        const formData = new URLSearchParams();
+        formData.set("message", message);
+        const token = csrfToken();
+        if (token) {
+          formData.set("csrf_token", token);
+        }
+
+        const response = await fetch("/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-CSRF-Token": token || "",
+          },
+          body: formData.toString(),
+        });
+
+        if (!response.ok) {
+          let message = uiText.serverError;
+          const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+          try {
+            if (contentType.includes("application/json")) {
+              const payload = await response.json();
+              if (payload && typeof payload.detail === "string" && payload.detail.trim()) {
+                message = payload.detail.trim();
+              }
+            } else {
+              const text = (await response.text()).trim();
+              if (text) {
+                message = text;
+              }
+            }
+          } catch (error) {
+            // fall back to generic message
+          }
+          throw new Error(message);
+        }
+
+        const html = await response.text();
+        const assistantHtml = extractAssistantFromHtml(html);
+        pendingUserNode.classList.remove("pending-user");
+        pendingAssistantNode.remove();
+        if (assistantHtml) {
+          messages.insertAdjacentHTML("beforeend", assistantHtml);
+        } else {
+          appendErrorMessage(uiText.parseError);
+        }
+      } catch (err) {
+        pendingAssistantNode.remove();
+        pendingUserNode.classList.remove("pending-user");
+        appendErrorMessage(err.message || uiText.unknownError);
+      } finally {
+        clearPendingStatusTimers();
+        setBusy(false);
+        messages.scrollTop = messages.scrollHeight;
+        textarea.focus();
+        hideSlashMenu();
+      }
+    });
+  })();
+</script>
+{% endblock %}

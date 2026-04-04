@@ -1,0 +1,19 @@
+<section class="config-card">
+  <h2>{{ tr(request, connection_intro.title_key, connection_intro.title) }}</h2>
+  <p>{{ tr(request, connection_intro.subtitle_key, connection_intro.subtitle) }}</p>
+  <div class="inline-actions">
+    <a class="button-link subtle-link" href="{{ connection_intro.back_url or '/config' }}">{{ tr(request, connection_intro.back_label_key or 'config_conn.back_to_hub', connection_intro.back_label or 'Back to connection overview') }}</a>
+  </div>
+  {% if saved %}<div class="alert ok">{{ tr(request, 'config_conn.saved', 'Connection saved.') }}</div>{% endif %}
+  {% if info_message %}<div class="alert ok">{{ info_message }}</div>{% endif %}
+  {% if error_message %}<div class="alert err">{{ error_message }}</div>{% endif %}
+  <div class="connection-summary-grid">
+    {% for card in connection_intro.summary_cards %}
+    <article class="connection-summary-card">
+      <span class="connection-summary-label">{{ tr(request, card.label_key, card.label) }}</span>
+      <strong>{% if card.value_key %}{{ tr(request, card.value_key, card.value) }}{% else %}{{ card.value }}{% endif %}</strong>
+      <small>{{ tr(request, card.hint_key, card.hint) }}</small>
+    </article>
+    {% endfor %}
+  </div>
+</section>

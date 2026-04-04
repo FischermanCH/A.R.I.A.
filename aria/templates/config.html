@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+{% from "_icons.html" import icon %}
+<main class="config-layout">
+  {% if error_message %}
+  <section class="floating-card">
+    <div class="alert err">{{ error_message }}</div>
+  </section>
+  {% endif %}
+  {% if saved %}
+  <section class="floating-card">
+    <div class="alert ok">{{ tr(request, 'config.saved', 'Konfiguration gespeichert.') }}</div>
+  </section>
+  {% endif %}
+  {% if info_message %}
+  <section class="floating-card">
+    <div class="alert ok">{{ info_message }}</div>
+  </section>
+  {% endif %}
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.h1', 'Tune Intelligence') }}</h3>
+    <p>{{ tr(request, 'config.h1_desc', 'Configure how ARIA thinks, responds, and computes.') }}</p>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/llm">
+        <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.llm_title', 'Chat Brain (LLM)') }}</span><span class="submenu-desc">{{ tr(request, 'config.llm_desc', 'Provider, API base, API key, model, temperature, tokens, timeout.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/embeddings">
+        <span class="submenu-icon-wrap">{{ icon('embeddings', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.embed_title', 'Embedding Radar') }}</span><span class="submenu-desc">{{ tr(request, 'config.embed_desc', 'Separate model for memory, search, and similarity.') }}</span></span>
+      </a>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.memory_title', 'Fine-Tune Memory') }}</h3>
+    <p>{{ tr(request, 'config.memory_desc', 'So ARIA keeps important facts and returns stronger recall results.') }}</p>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/routing">
+        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.memory_routing_title', 'Memory Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.memory_routing_desc', 'Adjust keywords like “remember this” and “do you remember”.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/skill-routing">
+        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.skill_routing_title', 'Skill Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.skill_routing_desc', 'Central trigger map for all custom skills with direct JSON linkage.') }}</span></span>
+      </a>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.persona_title', 'Personality & Style') }}</h3>
+    <p>{{ tr(request, 'config.persona_desc', 'Define ARIA tone, character, and working style.') }}</p>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/prompts">
+        <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.prompt_title', 'Prompt Studio') }}</span><span class="submenu-desc">{{ tr(request, 'config.prompt_desc', 'Edit persona and skill prompts directly in the browser.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/appearance">
+        <span class="submenu-icon-wrap">{{ icon('appearance', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.appearance_title', 'Appearance & Theme') }}</span><span class="submenu-desc">{{ tr(request, 'config.appearance_desc', 'Choose the visual style, accent palette, and background atmosphere for your ARIA.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/language">
+        <span class="submenu-icon-wrap">{{ icon('language', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.language_title', 'Language & Translation') }}</span><span class="submenu-desc">{{ tr(request, 'config.language_desc', 'Set default language and edit language files in Advanced mode.') }}</span></span>
+      </a>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.connections_title', 'Connections') }}</h3>
+    <p>{{ tr(request, 'config.connections_desc', 'Everything for external systems and access.') }}</p>
+    <div class="config-submenu">
+      {% for row in connection_menu_rows %}
+      <a class="config-submenu-item" href="{{ row.url }}">
+        <span class="submenu-icon-wrap">{{ icon(row.icon, 'submenu-icon') }}</span>
+        <span class="submenu-copy">
+          {% if row.alpha %}
+          <span class="submenu-title-row">
+            <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+            <span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>
+          </span>
+          {% else %}
+          <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+          {% endif %}
+          <span class="submenu-desc">{{ tr(request, row.desc_key, '') }}</span>
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.sample_connections_title', 'Mitgelieferte Sample-Connections') }}</h3>
+    <p>{{ tr(request, 'config.sample_connections_desc', 'Diese Beispielprofile liegen im Container unter /app/samples/connections und können direkt in config.yaml importiert werden.') }}</p>
+    <div class="config-group-grid">
+      {% for sample in sample_connection_rows %}
+      <article class="config-group-card">
+        <div class="skill-card-head">
+          <h3>{{ sample.title }}</h3>
+          <span class="skill-state is-off">{{ sample.label }}</span>
+        </div>
+        {% if sample.description %}
+        <p>{{ sample.description }}</p>
+        {% endif %}
+        <p class="hint-text">{{ sample.ref }} · {{ sample.file_name }}</p>
+        <form class="inline-form" method="post" action="/config/connections/import-sample">
+          <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
+          <button type="submit">{{ tr(request, 'config.sample_connections_import_btn', 'Sample importieren') }}</button>
+        </form>
+      </article>
+      {% else %}
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Sample-Connections gefunden') }}</h3>
+        <p>{{ tr(request, 'config.sample_connections_empty_desc', 'Im Container wurde kein samples/connections-Verzeichnis gefunden.') }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if not request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.admin_mode_off_title', 'Admin mode is currently off') }}</h3>
+    <p>{{ tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Users > Admin On/Off.') }}</p>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/users">
+        <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+        <span class="submenu-copy">
+          <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Users & Access') }}</span>
+          <span class="submenu-desc">{{ tr(request, 'config.admin_mode_off_link_desc', 'There you can turn admin mode back on.') }}</span>
+        </span>
+      </a>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'config.workbench_title', 'Workbench (Advanced)') }}</h3>
+    <p>{{ tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.') }}</p>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/security">
+        <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/logs">
+        <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/files">
+        <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.files_title', 'File Editor') }}</span><span class="submenu-desc">{{ tr(request, 'config.files_desc', 'Direct access to relevant text files without an IDE.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/error-interpreter">
+        <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
+      </a>
+    </div>
+  </section>
+  {% endif %}
+</main>
+{% endblock %}

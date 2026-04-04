@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="floating-card">
+    <div class="page-title-row"><span>{{ icon('appearance', 'page-title-icon') }}</span><h3>{{ tr(request, 'config_appearance.title', 'Appearance & Theme') }}</h3></div>
+    <p>{{ tr(request, 'config_appearance.subtitle', 'Choose a calmer or bolder visual style for your personal ARIA workspace.') }}</p>
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_appearance.saved', 'Appearance saved.') }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    <form method="post" action="/config/appearance/save" class="editor-form">
+      <label>
+        {{ tr(request, 'config_appearance.theme_label', 'Theme palette') }}
+        <select name="theme">
+          {% for row in theme_rows %}
+          <option value="{{ row.value }}" {% if current_theme == row.value %}selected{% endif %}>{{ tr(request, row.label_key, row.fallback) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        {{ tr(request, 'config_appearance.background_label', 'Background style') }}
+        <select name="background">
+          {% for row in background_rows %}
+          <option value="{{ row.value }}" {% if current_background == row.value %}selected{% endif %}>{{ tr(request, row.label_key, row.fallback) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint-text">{{ tr(request, 'config_appearance.hint', 'The selection updates the whole interface and is stored centrally in the UI config.') }}</p>
+      <button type="submit">{{ tr(request, 'config_appearance.save', 'Save appearance') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

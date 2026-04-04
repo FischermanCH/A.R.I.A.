@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('routing', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_routing.title', 'Routing & Memory Rules') }}</h2></div>
+    <p>{{ tr(request, 'config_routing.subtitle', 'Plain-text rules for router and memory extraction. One line = one entry.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_routing.saved', 'Routing configuration saved.') }}</div>
+    {% endif %}
+
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+
+    <form method="get" action="/config/routing" class="editor-form">
+      <label for="scope">{{ tr(request, 'config_routing.scope', 'Language scope') }}</label>
+      <select id="scope" name="scope" onchange="this.form.submit()">
+        {% for option in scope_options %}
+        <option value="{{ option }}" {% if option == selected_scope %}selected{% endif %}>
+          {% if option == "default" %}
+            {{ tr(request, 'config_routing.scope_default', 'default') }}
+          {% else %}
+            {{ option }}
+          {% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      <small class="hint-text">{{ tr(request, 'config_routing.scope_hint', 'Default is fallback. Language scope overrides only that language.') }}</small>
+    </form>
+
+    <form method="post" action="/config/routing/save" class="editor-form">
+      <input type="hidden" name="scope" value="{{ selected_scope }}">
+      <label for="memory_store_keywords">memory_store_keywords</label>
+      <textarea id="memory_store_keywords" name="memory_store_keywords" class="editor-textarea short" spellcheck="false">{{ store_keywords_text }}</textarea>
+
+      <label for="memory_recall_keywords">memory_recall_keywords</label>
+      <textarea id="memory_recall_keywords" name="memory_recall_keywords" class="editor-textarea short" spellcheck="false">{{ recall_keywords_text }}</textarea>
+
+      <label for="memory_forget_keywords">memory_forget_keywords</label>
+      <textarea id="memory_forget_keywords" name="memory_forget_keywords" class="editor-textarea short" spellcheck="false">{{ forget_keywords_text }}</textarea>
+
+      <label for="memory_store_prefixes">memory_store_prefixes</label>
+      <textarea id="memory_store_prefixes" name="memory_store_prefixes" class="editor-textarea short" spellcheck="false">{{ store_prefixes_text }}</textarea>
+
+      <label for="memory_recall_cleanup_keywords">memory_recall_cleanup_keywords</label>
+      <textarea id="memory_recall_cleanup_keywords" name="memory_recall_cleanup_keywords" class="editor-textarea short" spellcheck="false">{{ recall_cleanup_text }}</textarea>
+
+      <button type="submit">{{ tr(request, 'config_routing.save', 'Save rules') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

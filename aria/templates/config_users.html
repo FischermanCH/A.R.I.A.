@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card floating-card">
+    <div class="page-title-row"><span>{{ icon('users', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_users.title', 'Team & Access') }}</h2></div>
+    <p>{{ tr(request, 'config_users.subtitle', 'Create users and manage roles. Leave password empty to keep it unchanged.') }}</p>
+
+    {% if saved %}
+    <p class="hint-text">{{ tr(request, 'config_users.saved', 'Saved.') }}</p>
+    {% endif %}
+    {% if info_message %}
+    <p class="hint-text">{{ info_message }}</p>
+    {% endif %}
+    {% if error_message %}
+    <p class="error-text">{{ error_message }}</p>
+    {% endif %}
+  </section>
+
+  <section class="config-card floating-card">
+    <h3>{{ tr(request, 'config_users.admin_toggle', 'Admin On/Off') }}</h3>
+    <p class="hint-text">{{ tr(request, 'config_users.admin_toggle_hint', 'Shows technical UI details (debug view) for admins only.') }}</p>
+    <p class="hint-text">{{ tr(request, 'config_users.admin_mode_explainer', 'Admin-Modus blendet tiefere Systembereiche wie LLM, Embeddings, Security, Logs und den Datei-Editor ein. User-Modus bleibt absichtlich schlanker für den Alltag. Rollenrechte und Admin-Modus sind zwei getrennte Dinge: nur Admins können diesen Schalter überhaupt nutzen.') }}</p>
+    <p class="hint-text">
+      <strong>{{ tr(request, 'config_users.admin_mode_status_label', 'Current status') }}:</strong>
+      {% if debug_mode %}
+      <span class="pill brand-admin-pill">{{ tr(request, 'config_users.admin_mode_on', 'Active') }}</span>
+      {% else %}
+      <span class="pill">{{ tr(request, 'config_users.admin_mode_off', 'Inactive') }}</span>
+      {% endif %}
+    </p>
+    <p class="hint-text">{{ tr(request, 'config_users.admin_toggle_effect', 'This controls advanced areas such as LLM, Embeddings, Security, Logs and the File Editor.') }}</p>
+    <form class="editor-form" method="post" action="/config/users/debug-save">
+      <label class="inline-check">
+        <input type="checkbox" name="debug_mode" value="1" {% if debug_mode %}checked{% endif %}>
+        {{ tr(request, 'config_users.enable_admin_mode', 'Enable admin mode') }}
+      </label>
+      <div class="inline-actions">
+        <button type="submit">{{ tr(request, 'config_users.save', 'Save') }}</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="config-card floating-card">
+    <h3>{{ tr(request, 'config_users.create_user', 'Create new user') }}</h3>
+    <p class="hint-text">{{ tr(request, 'config_users.create_user_hint', 'Neue Benutzer starten mit der gewählten Rolle. Für den aktuellen ALPHA-Stand ist ARIA trotzdem primär als Personal-Single-User-System gedacht; geteilte Ownership/RBAC kommen später als separater Architekturblock.') }}</p>
+    <form class="editor-form" method="post" action="/config/users/create">
+      <div class="inline-actions">
+        <input type="text" name="create_username" maxlength="40" placeholder="Username" required>
+        <input type="password" name="create_password" minlength="8" placeholder="{{ tr(request, 'config_users.password_placeholder', 'Password (min. 8)') }}" required>
+        <select name="create_role">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+        <button type="submit">{{ tr(request, 'config_users.create_user_btn', 'Create user') }}</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="config-card floating-card">
+    <h3>{{ tr(request, 'config_users.existing_users', 'Existing users') }}</h3>
+    <div class="users-card-list">
+      {% for row in users %}
+      <article class="config-group-card user-manage-card">
+        <h4><code>{{ row.username }}</code></h4>
+        <form class="editor-form" method="post" action="/config/users/update">
+          <input type="hidden" name="username_value" value="{{ row.username }}">
+          <label>{{ tr(request, 'config_users.username_new', 'Username (new)') }}
+            <input type="text" name="new_username_value" maxlength="40" value="{{ row.username }}" required>
+          </label>
+          <label>{{ tr(request, 'config_users.role', 'Role') }}
+            <select name="role_value">
+              <option value="user" {% if row.role == "user" %}selected{% endif %}>user</option>
+              <option value="admin" {% if row.role == "admin" %}selected{% endif %}>admin</option>
+            </select>
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" name="active_value" value="1" {% if row.active %}checked{% endif %}>
+            {{ tr(request, 'config_users.active', 'active') }}
+          </label>
+          <label>{{ tr(request, 'config_users.new_password_optional', 'New password (optional)') }}
+            <input type="password" name="password_value" minlength="8" placeholder="optional">
+          </label>
+          <div class="inline-actions">
+            <button type="submit">{{ tr(request, 'config_users.update', 'Update') }}</button>
+          </div>
+        </form>
+      </article>
+      {% else %}
+      <article class="config-group-card user-manage-card">
+        <p>{{ tr(request, 'config_users.empty', 'No users found.') }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}

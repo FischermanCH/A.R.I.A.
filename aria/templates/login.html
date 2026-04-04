@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="chat-layout login-layout">
+  <section class="login-box">
+    <form method="get" action="/login" class="editor-form login-lang-form">
+      <input type="hidden" name="next" value="{{ next_path or '/' }}">
+      <label>
+        {{ tr(request, 'login.language', 'Sprache') }}
+        <select name="lang" onchange="this.form.submit()">
+          {% for code in request.state.supported_languages %}
+          <option value="{{ code }}" {% if request.state.lang == code %}selected{% endif %}>{{ lang_flag(code) }} {{ lang_label(code) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+    <h2>{{ tr(request, 'login.title', 'Login') }}</h2>
+    <p class="hint-text">{{ tr(request, 'login.subtitle', 'Melde dich mit Benutzername und Passwort an.') }}</p>
+    <p class="hint-text">{{ tr(request, 'login.case_hint', 'Benutzername ist gross/klein-sensitiv.') }}</p>
+    {% if error_message %}
+    <p class="error-text">{{ error_message }}</p>
+    {% endif %}
+    {% if info_message %}
+    <div class="alert ok">{{ info_message }}</div>
+    {% endif %}
+    {% if bootstrap_mode %}
+    <p class="hint-text">
+      {{ tr(request, 'login.bootstrap_hint', 'Es existiert noch kein Benutzer. Lege hier bitte den ersten Benutzer an. Dieser erste Benutzer wird automatisch Admin.') }}
+    </p>
+    <p class="hint-text">
+      {{ tr(request, 'login.bootstrap_admin_hint', 'Danach kannst du im Admin-Modus LLM, Embeddings, Connections, Skills und Security konfigurieren. Der spätere User-Modus bleibt bewusst eine reduzierte Arbeitsansicht.') }}
+    </p>
+    {% if bootstrap_locked %}
+    <p class="error-text">
+      {{ tr(request, 'login.bootstrap_locked', 'Bootstrap ist aktuell gesperrt. Bitte durch einen bestehenden Admin freischalten.') }}
+    </p>
+    {% endif %}
+    {% endif %}
+    <form action="/login" method="post" class="login-form">
+      <input type="hidden" name="next_path" value="{{ next_path or '/' }}">
+      <label for="login-username">{{ tr(request, 'login.username', 'Benutzername') }}</label>
+      <input
+        id="login-username"
+        name="username"
+        type="text"
+        maxlength="40"
+        required
+        autocomplete="username"
+        {% if login_users and not bootstrap_mode %}list="login-users-list"{% endif %}
+        placeholder="{{ tr(request, 'login.username', 'Benutzername') }}"
+      >
+      {% if login_users and not bootstrap_mode %}
+      <datalist id="login-users-list">
+        {% for user in login_users %}
+        <option value="{{ user }}"></option>
+        {% endfor %}
+      </datalist>
+      {% endif %}
+      <label for="login-password">{{ tr(request, 'login.password', 'Passwort') }}</label>
+      <input id="login-password" name="password" type="password" minlength="8" required autocomplete="{% if bootstrap_mode %}new-password{% else %}current-password{% endif %}">
+      {% if bootstrap_mode %}
+      <label for="login-password-confirm">{{ tr(request, 'login.password_confirm', 'Passwort wiederholen') }}</label>
+      <input id="login-password-confirm" name="password_confirm" type="password" minlength="8" required autocomplete="new-password">
+      <small class="hint-text">{{ tr(request, 'login.password_confirm_hint', 'Zur Sicherheit das Passwort bitte ein zweites Mal identisch eingeben.') }}</small>
+      {% endif %}
+      <small class="hint-text">{{ tr(request, 'login.min_length', 'Mindestens 8 Zeichen.') }}</small>
+      <button type="submit">{{ tr(request, 'login.submit', 'Einloggen') }}</button>
+    </form>
+    {% if not bootstrap_mode %}
+    <p class="hint-text">{{ tr(request, 'login.normal_signin', 'Normale Anmeldung mit vorhandenem Benutzer.') }}</p>
+    <p class="hint-text">{{ tr(request, 'login.mode_hint', 'Falls erweiterte Konfigurationen fehlen: als Admin anmelden und unter Benutzer den Admin-Modus aktivieren.') }}</p>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

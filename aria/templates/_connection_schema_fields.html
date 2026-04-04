@@ -1,0 +1,69 @@
+{% if schema_fields.grid_fields %}
+<div class="connection-form-grid">
+  {% for field in schema_fields.grid_fields %}
+  <div>
+    <label for="{{ field.id }}">{% if field.label_key %}{{ tr(request, field.label_key, field.label) }}{% else %}{{ field.label }}{% endif %}</label>
+    {% if field.type == 'select' %}
+    <select id="{{ field.id }}" name="{{ field.name }}" {% if field.required %}required{% endif %}>
+      {% for option in field.options %}
+      <option value="{{ option }}" {% if field.value == option %}selected{% endif %}>{{ option }}</option>
+      {% endfor %}
+    </select>
+    {% elif field.type == 'textarea' %}
+    <textarea
+      id="{{ field.id }}"
+      name="{{ field.name }}"
+      rows="{{ field.rows or 4 }}"
+      {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
+      autocomplete="off"
+      {% if field.required %}required{% endif %}
+    >{{ field.value or '' }}</textarea>
+    {% else %}
+    <input
+      id="{{ field.id }}"
+      name="{{ field.name }}"
+      type="{{ field.type }}"
+      {% if field.type == 'number' and field.min is not none %}min="{{ field.min }}"{% endif %}
+      {% if field.datalist_id %}list="{{ field.datalist_id }}"{% endif %}
+      value="{{ field.value or '' }}"
+      {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
+      autocomplete="off"
+      {% if field.required %}required{% endif %}
+    >
+    {% if field.datalist_id and field.datalist_options %}
+    <datalist id="{{ field.datalist_id }}">
+      {% for option in field.datalist_options %}
+      <option value="{{ option }}"></option>
+      {% endfor %}
+    </datalist>
+    {% endif %}
+    {% endif %}
+    {% if field.hint %}<small class="hint-text">{% if field.hint_key %}{{ tr(request, field.hint_key, field.hint) }}{% else %}{{ field.hint }}{% endif %}</small>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if schema_fields.inline_fields %}
+<div class="inline-actions">
+  {% for field in schema_fields.inline_fields %}
+  <label class="inline-check" for="{{ field.id }}">
+    <input id="{{ field.id }}" type="checkbox" name="{{ field.name }}" value="1" {% if field.checked %}checked{% endif %}>
+    {% if field.label_key %}{{ tr(request, field.label_key, field.label) }}{% else %}{{ field.label }}{% endif %}
+  </label>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% for field in schema_fields.secret_fields %}
+<label for="{{ field.id }}">{% if field.label_key %}{{ tr(request, field.label_key, field.label) }}{% else %}{{ field.label }}{% endif %}</label>
+<input
+  id="{{ field.id }}"
+  name="{{ field.name }}"
+  type="password"
+  {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}
+  autocomplete="off"
+  {% if field.required %}required{% endif %}
+>
+{% if field.hint %}<small class="hint-text">{% if field.hint_key %}{{ tr(request, field.hint_key, field.hint) }}{% else %}{{ field.hint }}{% endif %}</small>{% endif %}
+{% endfor %}

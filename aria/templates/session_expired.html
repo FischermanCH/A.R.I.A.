@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="chat-layout login-layout">
+  <section class="login-box session-expired-box">
+    <h2>Session abgelaufen</h2>
+    <p class="hint-text">
+      Deine Anmeldung ist nicht mehr gültig (z.B. Logout, Neustart oder Zeitablauf).
+      Bitte melde dich erneut an.
+    </p>
+    <p class="hint-text">Weiterleitung in <strong><span id="countdown-seconds">2</span>s</strong>.</p>
+    <div class="session-expired-progress" aria-hidden="true">
+      <span id="countdown-bar"></span>
+    </div>
+    <p>
+      <a class="nav-link" href="/login?next={{ next_query }}">Jetzt einloggen</a>
+    </p>
+  </section>
+</main>
+<script>
+  var totalMs = 2000;
+  var start = Date.now();
+  var secondsEl = document.getElementById("countdown-seconds");
+  var barEl = document.getElementById("countdown-bar");
+
+  var timer = setInterval(function () {
+    var elapsed = Date.now() - start;
+    var remaining = Math.max(0, totalMs - elapsed);
+    var pct = (remaining / totalMs) * 100;
+    if (barEl) {
+      barEl.style.width = pct.toFixed(0) + "%";
+    }
+    if (secondsEl) {
+      secondsEl.textContent = Math.ceil(remaining / 1000).toString();
+    }
+    if (remaining <= 0) {
+      clearInterval(timer);
+    }
+  }, 100);
+
+  setTimeout(function () {
+    window.location.href = "/login?next={{ next_query }}";
+  }, totalMs);
+</script>
+{% endblock %}

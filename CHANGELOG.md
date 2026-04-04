@@ -1,0 +1,155 @@
+# Changelog
+
+All notable changes to ARIA should be documented in this file.
+
+Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgrade Notes`
+
+## [Unreleased]
+
+### Added
+
+### Changed
+- `/help` now serves a human-readable Alpha help document in DE/EN (`docs/help/alpha-help-system.de.md` / `.en.md`) instead of exposing the future help-system design notes directly
+- Chat toolbox skill entries now show the actual skill name plus a compact `/skill` badge and a wrapped description/example line, instead of repeating only `/skill` for every skill button
+- In the user menu, `Help` now appears after `Config` and before `Users`, so support docs sit closer to settings but still before user administration
+
+### Fixed
+- `Systemzustand` cards in `/stats` now expose `visual_status` as well, so ARIA Runtime, Model Stack, Memory/Qdrant, Security Store, and Activities/Logs use the same status lamps as the rest of the page
+
+### Security
+- Repo/privacy sweep: removed personal dev-host defaults from `docker/pull-from-dev.sh`, neutralized `config/secrets.env`, and removed stray root artifacts `=1.2` / `=2.1`
+
+### Known Limitations
+
+### Upgrade Notes
+
+## [0.1.0-alpha.24] - 2026-04-04
+
+### Added
+- `/skills` now exposes bundled sample-skill manifests from `/app/samples/skills` and lets admins import them directly without downloading files out of the container first
+- `/config` now exposes bundled sample-connection YAMLs from `/app/samples/connections` and lets admins import them directly into `config.yaml`
+- Added `rss-morning-briefing-to-discord-template.json`, a scheduled multi-RSS + LLM + Discord sample for a daily curated morning briefing
+
+### Changed
+- Product Info now only exposes user-facing docs; the internal Copy Pack card was removed from the Product Info page
+- CyberPunk Pulse buttons and menu labels are now rendered in neon green for stronger theme contrast, and Deep Space was shifted toward a darker violet/nebula palette so it is less close to Harbor Blue
+- Skill Wizard now explicitly documents that `llm_transform` prompts can use `{prev_output}` as well as step-specific placeholders like `{s1_output}` and `{s2_output}`
+
+### Fixed
+- `samples/` is now packaged into the Docker image, so bundled sample skills, sample connections, and sample guardrails are available inside the container as `/app/samples`
+
+### Security
+
+### Known Limitations
+- ARIA is still primarily a personal single-user system
+- No full shared-skill/shared-connection RBAC model yet
+- Capability results are not automatically written into Memory unless modeled explicitly
+- Public internet exposure is still not recommended for this ALPHA line
+
+### Upgrade Notes
+- Update the ARIA container/image, keep persistent volumes
+- Hard-refresh the browser after the update if old CSS/theme assets are still cached
+
+
+## [0.1.0-alpha.23] - 2026-04-04
+
+### Added
+
+### Changed
+- CyberPunk Pulse theme tuned further: stronger hot-pink panel/glow treatment, while secondary helper/meta/status text and chips now use neon `#00ff00`
+- `Produkt-Info` moved out of the top menu and linked from the `/help` page instead, so product docs are presented as support material rather than a main navigation item
+
+### Fixed
+- iPhone chat view no longer allows subtle horizontal side-panning/drift while scrolling; chat container and message bubbles are now locked to vertical pan with hard X-axis clipping
+- `/help` and `/product-info` docs are now packaged into the Docker image, so read-only help/product pages no longer show missing-file fallbacks in container deployments
+- Qdrant DB size in `/stats` no longer stops at `0 B` when telemetry reports collections but zero disk bytes; ARIA now falls through to local storage-path inspection first and only then uses the zero-byte telemetry fallback
+
+### Security
+
+### Known Limitations
+- ARIA is still primarily a personal single-user system
+- No full shared-skill/shared-connection RBAC model yet
+- Capability results are not automatically written into Memory unless modeled explicitly
+- Public internet exposure is still not recommended for this ALPHA line
+
+### Upgrade Notes
+- Update the ARIA container/image, keep persistent volumes
+- Hard-refresh the browser after the update if old CSS/theme assets are still cached
+
+## [0.1.0-alpha.22] - 2026-04-03
+
+### Added
+- Read-only `/help` page backed by `docs/help/help-system.md`
+- Read-only `/product-info` page with overview, feature list, architecture docs, and embedded architecture diagrams
+- Memory JSON export from `/memories` for the current user and current filter/search scope
+- `/stats` reset flow with explicit `RESET` confirmation
+- MIT `LICENSE` and `THIRD_PARTY_NOTICES.md`
+
+### Changed
+- Documentation tree reorganized into public `docs/` and internal `project.docu/history/`
+- Login, Users, and Security UI now explain first-run bootstrap and Admin/User mode boundaries more clearly
+- CyberPunk Pulse theme shifted toward stronger hot-pink/magenta accents
+- Auto-Memory now skips transient one-off questions and pure tool/action prompts unless they contain stable facts/preferences
+- Capability results are intentionally not auto-persisted to Memory by default; future durable state should use explicit summary/state-memory flows
+- Memory docs/backlogs now treat weighted multi-collection recall and JSON export as Public Alpha scope, while session rollup and reindex remain post-alpha work
+
+### Fixed
+- More robust Qdrant DB size fallback for separate Docker/Portainer Qdrant volumes mounted read-only into the ARIA container
+- Long `Tages-Kontext` / `Login-Session` debug IDs no longer cause horizontal overflow on iPhone chat screens
+- Help-file tests updated to the new `docs/help/...` paths
+
+### Security
+- Third-party attribution for Qdrant and key runtime dependencies documented explicitly
+
+### Known Limitations
+- ARIA is still primarily a personal single-user system
+- No full shared-skill/shared-connection RBAC model yet
+- Capability results are not automatically written into Memory unless modeled explicitly
+- Public internet exposure is still not recommended for this ALPHA line
+- Home Assistant, document ingest, web research, SSE streaming, and full multi-user sharing remain roadmap items
+
+### Upgrade Notes
+- Update the ARIA container/image, keep persistent volumes
+- Hard-refresh the browser after the update if old CSS/theme assets are still cached
+- If you use a separate Qdrant container, ensure the Qdrant storage volume is mounted read-only into the ARIA container as in the updated stack examples
+
+## [0.1.0-alpha.21] - 2026-04-03
+
+### Added
+- New UI themes: CyberPunk Pulse, 8-Bit Arcade, Amber CRT, Deep Space
+- RSS metadata helper button `Check mit LLM` to suggest/enrich title, description, aliases, and tags
+- Global RSS poll interval for all RSS feeds
+- Stable per-feed RSS poll phase offset to avoid all feeds becoming due on the same interval edge
+
+### Changed
+- RSS routing now uses title, description, aliases, and tags of RSS profiles more strongly
+- Short free-form RSS prompts like `was für news gibs auf heise` are recognized more reliably
+- Statistics / Startup Preflight / System health now display state mostly via status lamps instead of repeated text labels
+- CyberPunk theme adjusted toward stronger hot-pink/magenta accents and a darker black base
+
+### Fixed
+- RSS page search now correctly hides non-matching groups and feeds
+- RSS search also reacts when the browser clear `x` resets the search field
+
+### Security
+- No dedicated security change in this release block
+
+### Known Limitations
+- ARIA is still primarily a personal single-user system
+- No full shared-skill/shared-connection RBAC model yet
+- Capability results are not automatically written into Memory in the same way as normal chat responses
+- Public internet exposure is still not recommended for this ALPHA line
+
+### Upgrade Notes
+- Update the ARIA container/image, keep persistent volumes
+- Hard-refresh the browser after the update if old CSS/theme assets are still cached
+
+## Internal Notes
+
+- Detailed internal build history currently lives in `project.docu/alpha-build-log.md`
+- Public release wording can be derived from:
+  - `docs/product/feature-list.md`
+  - `docs/backlog/future-features.md`
+  - `docs/setup/setup-overview.md`
+  - `docs/product/architecture-summary.md`
+  - `docs/release/versioning.md`

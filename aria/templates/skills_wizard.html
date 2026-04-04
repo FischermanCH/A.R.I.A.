@@ -1,0 +1,646 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="skills-layout">
+  <section class="floating-card">
+    <h2>Skill Wizard</h2>
+    <p>Skill = Steps + Parameter. Du definierst pro Schritt Typ und Eingaben.</p>
+    {% if saved %}
+    <div class="alert ok">Skill gespeichert.</div>
+    {% endif %}
+    {% if info_message %}
+    <div class="alert ok">{{ info_message }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <form class="editor-form" method="post" action="/skills/wizard/save" id="skill-wizard-form">
+      <input type="hidden" name="original_skill_id" value="{{ skill.id or '' }}">
+      <div class="config-form-grid">
+        <label>
+          Name *
+          <span class="field-help" title="Pflichtfeld. Wird in der Skills-Übersicht angezeigt.">i</span>
+          <input type="text" name="skill_name" maxlength="80" required value="{{ skill.name or '' }}" placeholder="z.B. Netzwerk-Check">
+        </label>
+
+        <label>
+          ID (optional)
+          <span class="field-help" title="Kann leer bleiben. Wird automatisch aus dem Namen erzeugt und kann später bearbeitet werden.">i</span>
+          <input type="text" name="skill_id" maxlength="48" value="{{ skill.id or '' }}" placeholder="auto aus Name">
+        </label>
+
+        <label>
+          Version
+          <span class="field-help" title="Optional. Für spätere Skill-Entwicklung und Export-Versionierung.">i</span>
+          <input type="text" name="skill_version" maxlength="20" value="{{ skill.version or '0.1.0' }}">
+        </label>
+
+        <label>
+          Kategorie
+          <span class="field-help" title="Dropdown hilft, die Anzahl Kategorien kontrolliert zu halten.">i</span>
+          <select name="skill_category">
+            {% for cat in category_options %}
+            <option value="{{ cat }}" {% if (skill.category or 'custom') == cat %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Beschreibung
+          <span class="field-help" title="Kurz erklären, was der Skill tut.">i</span>
+          <textarea name="skill_description" rows="3" maxlength="400">{{ skill.description or '' }}</textarea>
+        </label>
+
+        <label>
+          Trigger-Keywords
+          <span class="field-help" title="Kommagetrennte Keywords. Wenn eines im Prompt vorkommt, wird der Skill aktiviert.">i</span>
+          <input type="text" name="skill_router_keywords" value="{{ (skill.router_keywords or [])|join(', ') }}" placeholder="z.B. update server, patchen">
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" name="auto_generate_keywords" value="1" checked>
+          {{ tr(request, 'skills.wizard_auto_keywords', 'Trigger automatically via LLM when empty') }}
+        </label>
+
+        <details class="skill-details">
+          <summary>JSON-Felder (erweitert)</summary>
+          <div class="skill-details-content">
+            <label>
+              Connections (kommagetrennt)
+              <span class="field-help" title="Optionales Override-Feld für das Skill-JSON. Runtime-Connections aus Steps bleiben zusätzlich erhalten.">i</span>
+              <input type="text" name="skill_connections" value="{{ connections_text or '' }}" placeholder="z.B. ssh, llm, discord">
+            </label>
+            <label>
+              Prompt-Datei
+              <span class="field-help" title="Pfad wird im Skill-JSON gespeichert.">i</span>
+              <input type="text" name="skill_prompt_file" maxlength="200" value="{{ prompt_file_value or prompt_preview }}">
+            </label>
+            <label>
+              Schema-Version
+              <span class="field-help" title="Version im Skill-Manifest, z.B. 1.1">i</span>
+              <input type="text" name="skill_schema_version" maxlength="16" value="{{ schema_version_value or '1.1' }}">
+            </label>
+          </div>
+        </details>
+
+        <fieldset class="connections-fieldset">
+          <legend>Zeitplan (optional)
+            <span class="field-help" title="Auf Skill-Ebene planen. Steps bleiben die eigentliche Ausführungslogik.">i</span>
+          </legend>
+          <label class="inline-check">
+            <input type="checkbox" name="schedule_enabled" value="1" {% if schedule.enabled %}checked{% endif %}>
+            Zeitplan aktivieren
+          </label>
+          <label>
+            Uhrzeit (24h)
+            <span class="field-help" title="Beispiel: 07:00. Wird intern als Cron gespeichert.">i</span>
+            <input type="time" name="schedule_time" value="{{ schedule.time_24h or '' }}" step="60">
+          </label>
+          <label>
+            Zeitzone
+            <span class="field-help" title="Beispiel: Europe/Zurich">i</span>
+            <input type="text" name="schedule_timezone" maxlength="80" value="{{ schedule.timezone or 'Europe/Zurich' }}" placeholder="Europe/Zurich">
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" name="schedule_run_on_startup" value="1" {% if schedule.run_on_startup %}checked{% endif %}>
+            {{ agent_text(request, 'Beim ARIA-Start einmal ausführen') }}
+          </label>
+        </fieldset>
+
+        <fieldset class="connections-fieldset">
+          <legend>Step Pipeline
+            <span class="field-help" title="Baue deinen Skill als Kette aus Schritten. Reihenfolge = Ausführungsreihenfolge.">i</span>
+          </legend>
+          <p class="hint-text">
+            Hinweis: <code>chat_send</code> nutzt die interne Connection <code>chat</code> (Default, ohne Konfiguration).
+          </p>
+
+          <div id="steps-container" class="config-form-grid">
+            {% for step in step_forms %}
+            <details class="skill-details step-block" data-step-index="{{ step.idx }}" open>
+              <summary>Step {{ step.idx }}{% if step.name %}: {{ step.name }}{% endif %}</summary>
+              <div class="skill-details-content">
+                <label class="inline-check">
+                  <input type="checkbox" name="step_{{ step.idx }}_enabled" value="1" {% if step.enabled %}checked{% endif %}>
+                  Step aktiv
+                </label>
+
+                <input type="hidden" name="step_{{ step.idx }}_id" value="{{ step.id }}">
+
+                <label>
+                  Step Name
+                  <input type="text" name="step_{{ step.idx }}_name" maxlength="80" value="{{ step.name }}" placeholder="z.B. Server updaten">
+                </label>
+
+                <label>
+                  Typ
+                  <select name="step_{{ step.idx }}_type">
+                    <option value="ssh_run" {% if step.type == 'ssh_run' %}selected{% endif %}>ssh_run</option>
+                    <option value="sftp_read" {% if step.type == 'sftp_read' %}selected{% endif %}>sftp_read</option>
+                    <option value="sftp_write" {% if step.type == 'sftp_write' %}selected{% endif %}>sftp_write</option>
+                    <option value="smb_read" {% if step.type == 'smb_read' %}selected{% endif %}>smb_read</option>
+                    <option value="smb_write" {% if step.type == 'smb_write' %}selected{% endif %}>smb_write</option>
+                    <option value="rss_read" {% if step.type == 'rss_read' %}selected{% endif %}>rss_read</option>
+                    <option value="llm_transform" {% if step.type == 'llm_transform' %}selected{% endif %}>llm_transform</option>
+                    <option value="discord_send" {% if step.type == 'discord_send' %}selected{% endif %}>discord_send</option>
+                    <option value="chat_send" {% if step.type == 'chat_send' %}selected{% endif %}>chat_send</option>
+                  </select>
+                </label>
+
+                <label>
+                  On Error
+                  <select name="step_{{ step.idx }}_on_error">
+                    <option value="stop" {% if step.on_error == 'stop' %}selected{% endif %}>stop</option>
+                    <option value="continue" {% if step.on_error == 'continue' %}selected{% endif %}>continue</option>
+                  </select>
+                </label>
+
+                <label>
+                  SSH Connection Ref (für ssh_run)
+                  <div class="inline-actions">
+                    <select name="step_{{ step.idx }}_connection_ref">
+                      <option value="">-- keine --</option>
+                      {% for item in ssh_connection_options %}
+                      <option value="{{ item.ref }}" {% if step.connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                  </div>
+                </label>
+
+                <label>
+                  SSH Command (für ssh_run)
+                  <textarea name="step_{{ step.idx }}_command" rows="4" maxlength="2400" placeholder="sudo apt update && sudo apt upgrade -y">{{ step.command }}</textarea>
+                </label>
+
+                <label>
+                  SFTP Connection Ref (für sftp_read / sftp_write)
+                  <div class="inline-actions">
+                    <select name="step_{{ step.idx }}_sftp_connection_ref">
+                      <option value="">-- keine --</option>
+                      {% for item in sftp_connection_options %}
+                      <option value="{{ item.ref }}" {% if step.sftp_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                  </div>
+                </label>
+
+                <label>
+                  SFTP Remote-Pfad (für sftp_read / sftp_write)
+                  <input type="text" name="step_{{ step.idx }}_sftp_remote_path" maxlength="400" value="{{ step.sftp_remote_path }}" placeholder="/data/report.txt oder report.txt">
+                </label>
+
+                <label>
+                  SFTP Inhalt / Template (für sftp_write)
+                  <textarea name="step_{{ step.idx }}_sftp_content" rows="3" maxlength="1200" placeholder="{prev_output}">{{ step.sftp_content }}</textarea>
+                </label>
+
+                <label>
+                  SMB Connection Ref (für smb_read / smb_write)
+                  <div class="inline-actions">
+                    <select name="step_{{ step.idx }}_smb_connection_ref">
+                      <option value="">-- keine --</option>
+                      {% for item in smb_connection_options %}
+                      <option value="{{ item.ref }}" {% if step.smb_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                  </div>
+                </label>
+
+                <label>
+                  SMB Remote-Pfad (für smb_read / smb_write)
+                  <input type="text" name="step_{{ step.idx }}_smb_remote_path" maxlength="400" value="{{ step.smb_remote_path }}" placeholder="/ oder reports/status.txt">
+                </label>
+
+                <label>
+                  SMB Inhalt / Template (für smb_write)
+                  <textarea name="step_{{ step.idx }}_smb_content" rows="3" maxlength="1200" placeholder="{prev_output}">{{ step.smb_content }}</textarea>
+                </label>
+
+                <label>
+                  RSS Connection Ref (für rss_read)
+                  <div class="inline-actions">
+                    <select name="step_{{ step.idx }}_rss_connection_ref">
+                      <option value="">-- keine --</option>
+                      {% for item in rss_connection_options %}
+                      <option value="{{ item.ref }}" {% if step.rss_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                  </div>
+                </label>
+
+                <label>
+                  LLM Prompt (für llm_transform)
+                  <textarea name="step_{{ step.idx }}_prompt" rows="3" maxlength="1200" placeholder="Fasse das Ergebnis kurz zusammen:\n{prev_output}">{{ step.prompt }}</textarea>
+                </label>
+                <p class="hint-text">Platzhalter: <code>{prev_output}</code> für den direkt vorherigen Step oder <code>{s1_output}</code>, <code>{s2_output}</code>, ... für gezielte frühere Step-Ergebnisse.</p>
+
+                <label>
+                  Discord Connection Ref (für discord_send)
+                  <div class="inline-actions">
+                    <select name="step_{{ step.idx }}_discord_connection_ref">
+                      <option value="">-- keine --</option>
+                      {% for item in discord_connection_options %}
+                      <option value="{{ item.ref }}" {% if step.discord_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
+                      {% endfor %}
+                    </select>
+                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                  </div>
+                </label>
+
+                <label>
+                  Discord Webhook URL (für discord_send)
+                  <input type="text" name="step_{{ step.idx }}_webhook_url" maxlength="400" value="{{ step.webhook_url }}" placeholder="https://discord.com/api/webhooks/...">
+                </label>
+
+                <label>
+                  Discord Message Template (für discord_send)
+                  <textarea name="step_{{ step.idx }}_message" rows="3" maxlength="1200" placeholder="Update Ergebnis:\n{prev_output}">{{ step.message }}</textarea>
+                </label>
+
+                <label>
+                  Chat Message Template (für chat_send)
+                  <textarea name="step_{{ step.idx }}_chat_message" rows="3" maxlength="1200" placeholder="Antwort für Chat:\n{prev_output}">{{ step.chat_message or step.message }}</textarea>
+                </label>
+
+                <div class="inline-actions">
+                  <button type="button" class="js-move-step-up">Nach oben</button>
+                  <button type="button" class="js-move-step-down">Nach unten</button>
+                  <button type="button" class="js-duplicate-step">Schritt duplizieren</button>
+                  <button type="button" class="danger-btn js-remove-step">Schritt entfernen</button>
+                </div>
+              </div>
+            </details>
+            {% endfor %}
+          </div>
+
+          <div class="inline-actions">
+            <button type="button" id="add-step-btn">+ Zusätzlichen Schritt aktivieren</button>
+          </div>
+        </fieldset>
+
+        <details class="skill-details">
+          <summary>Erweitert (optional)</summary>
+          <div class="skill-details-content">
+            <label>
+              UI-Konfig-Link
+              <span class="field-help" title="Optionaler Link zu einer passenden Config-Seite. Wird in Skills-Details angezeigt.">i</span>
+              <input type="text" name="skill_ui_config_path" maxlength="200" value="{{ (skill.ui or {}).get('config_path', '') }}" placeholder="/config/...">
+            </label>
+            <label>
+              UI-Hinweis
+              <span class="field-help" title="Optionaler Hinweistext in den Skill-Details.">i</span>
+              <input type="text" name="skill_ui_hint" maxlength="200" value="{{ (skill.ui or {}).get('hint', '') }}">
+            </label>
+          </div>
+        </details>
+
+        <label class="inline-check">
+          <input type="checkbox" name="enabled_default" value="1" {% if skill.enabled_default %}checked{% endif %}>
+          Beim ersten Laden aktiv
+        </label>
+      </div>
+
+      <section class="skill-summary">
+        <h3>Config Summary</h3>
+        <p class="hint-text">Prompt-Datei: <code>{{ prompt_preview }}</code> (auto)</p>
+        <p class="hint-text">Step-Modell aktiv: <code>steps[]</code></p>
+      </section>
+
+      <div class="inline-actions">
+        <button type="submit">Skill speichern</button>
+        {% if skill.id %}
+        <button
+          type="submit"
+          class="danger-btn"
+          formaction="/skills/delete"
+          formmethod="post"
+          name="skill_id"
+          value="{{ skill.id }}"
+          onclick="return confirm('{{ tr(request, 'skills.delete_confirm', 'Skill wirklich löschen?') }}');"
+        >{{ tr(request, 'skills.delete', 'Löschen') }}</button>
+        {% endif %}
+        <a class="nav-link" href="/skills">Zurück zu Skills</a>
+      </div>
+    </form>
+  </section>
+</main>
+
+<template id="step-template">
+  <details class="skill-details step-block" data-step-index="__IDX__" open>
+    <summary>Step __IDX__</summary>
+    <div class="skill-details-content">
+      <label class="inline-check">
+        <input type="checkbox" name="step___IDX___enabled" value="1" checked>
+        Step aktiv
+      </label>
+
+      <input type="hidden" name="step___IDX___id" value="s__IDX__">
+
+      <label>
+        Step Name
+        <input type="text" name="step___IDX___name" maxlength="80" placeholder="z.B. Server updaten">
+      </label>
+
+      <label>
+        Typ
+        <select name="step___IDX___type">
+          <option value="ssh_run" selected>ssh_run</option>
+          <option value="sftp_read">sftp_read</option>
+          <option value="sftp_write">sftp_write</option>
+          <option value="smb_read">smb_read</option>
+          <option value="smb_write">smb_write</option>
+          <option value="rss_read">rss_read</option>
+          <option value="llm_transform">llm_transform</option>
+          <option value="discord_send">discord_send</option>
+          <option value="chat_send">chat_send</option>
+        </select>
+      </label>
+
+      <label>
+        On Error
+        <select name="step___IDX___on_error">
+          <option value="stop" selected>stop</option>
+          <option value="continue">continue</option>
+        </select>
+      </label>
+
+      <label>
+        SSH Connection Ref (für ssh_run)
+        <div class="inline-actions">
+          <select name="step___IDX___connection_ref">
+            <option value="">-- keine --</option>
+            {% for item in ssh_connection_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+        </div>
+      </label>
+
+      <label>
+        SSH Command (für ssh_run)
+        <textarea name="step___IDX___command" rows="4" maxlength="2400" placeholder="sudo apt update && sudo apt upgrade -y"></textarea>
+      </label>
+
+      <label>
+        SFTP Connection Ref (für sftp_read / sftp_write)
+        <div class="inline-actions">
+          <select name="step___IDX___sftp_connection_ref">
+            <option value="">-- keine --</option>
+            {% for item in sftp_connection_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+        </div>
+      </label>
+
+      <label>
+        SFTP Remote-Pfad (für sftp_read / sftp_write)
+        <input type="text" name="step___IDX___sftp_remote_path" maxlength="400" placeholder="/data/report.txt oder report.txt">
+      </label>
+
+      <label>
+        SFTP Inhalt / Template (für sftp_write)
+        <textarea name="step___IDX___sftp_content" rows="3" maxlength="1200" placeholder="{prev_output}"></textarea>
+      </label>
+
+      <label>
+        SMB Connection Ref (für smb_read / smb_write)
+        <div class="inline-actions">
+          <select name="step___IDX___smb_connection_ref">
+            <option value="">-- keine --</option>
+            {% for item in smb_connection_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+        </div>
+      </label>
+
+      <label>
+        SMB Remote-Pfad (für smb_read / smb_write)
+        <input type="text" name="step___IDX___smb_remote_path" maxlength="400" placeholder="/ oder reports/status.txt">
+      </label>
+
+      <label>
+        SMB Inhalt / Template (für smb_write)
+        <textarea name="step___IDX___smb_content" rows="3" maxlength="1200" placeholder="{prev_output}"></textarea>
+      </label>
+
+      <label>
+        RSS Connection Ref (für rss_read)
+        <div class="inline-actions">
+          <select name="step___IDX___rss_connection_ref">
+            <option value="">-- keine --</option>
+            {% for item in rss_connection_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+        </div>
+      </label>
+
+      <label>
+        LLM Prompt (für llm_transform)
+        <textarea name="step___IDX___prompt" rows="3" maxlength="1200" placeholder="Fasse das Ergebnis kurz zusammen:\n{prev_output}"></textarea>
+      </label>
+      <p class="hint-text">Platzhalter: <code>{prev_output}</code> für den direkt vorherigen Step oder <code>{s1_output}</code>, <code>{s2_output}</code>, ... für gezielte frühere Step-Ergebnisse.</p>
+
+      <label>
+        Discord Connection Ref (für discord_send)
+        <div class="inline-actions">
+          <select name="step___IDX___discord_connection_ref">
+            <option value="">-- keine --</option>
+            {% for item in discord_connection_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+        </div>
+      </label>
+
+      <label>
+        Discord Webhook URL (für discord_send)
+        <input type="text" name="step___IDX___webhook_url" maxlength="400" placeholder="https://discord.com/api/webhooks/...">
+      </label>
+
+      <label>
+        Discord Message Template (für discord_send)
+        <textarea name="step___IDX___message" rows="3" maxlength="1200" placeholder="Update Ergebnis:\n{prev_output}"></textarea>
+      </label>
+
+      <label>
+        Chat Message Template (für chat_send)
+        <textarea name="step___IDX___chat_message" rows="3" maxlength="1200" placeholder="Antwort für Chat:\n{prev_output}"></textarea>
+      </label>
+
+      <div class="inline-actions">
+        <button type="button" class="js-move-step-up">Nach oben</button>
+        <button type="button" class="js-move-step-down">Nach unten</button>
+        <button type="button" class="js-duplicate-step">Schritt duplizieren</button>
+        <button type="button" class="danger-btn js-remove-step">Schritt entfernen</button>
+      </div>
+    </div>
+  </details>
+</template>
+
+<script>
+  (function () {
+    const container = document.getElementById("steps-container");
+    const addBtn = document.getElementById("add-step-btn");
+    const tpl = document.getElementById("step-template");
+    const form = document.getElementById("skill-wizard-form");
+    if (!container || !addBtn || !tpl || !form) return;
+
+    function currentMaxIndex() {
+      const blocks = container.querySelectorAll(".step-block");
+      let max = 0;
+      blocks.forEach((block) => {
+        const idx = Number(block.getAttribute("data-step-index") || "0");
+        if (idx > max) max = idx;
+      });
+      return max;
+    }
+
+    function wireRemove(scope) {
+      scope.querySelectorAll(".js-remove-step").forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const step = btn.closest(".step-block");
+          if (step) {
+            step.remove();
+            renumberAllSteps();
+          }
+        });
+      });
+    }
+
+    function updateStepSummary(step) {
+      if (!step) return;
+      const idx = Number(step.getAttribute("data-step-index") || "0");
+      const summary = step.querySelector("summary");
+      const nameInput = step.querySelector(`input[name="step_${idx}_name"]`);
+      if (!summary) return;
+      const name = nameInput ? (nameInput.value || "").trim() : "";
+      summary.textContent = name ? `Step ${idx}: ${name}` : `Step ${idx}`;
+    }
+
+    function renumberStep(step, newIdx) {
+      if (!step) return;
+      const oldIdx = String(step.getAttribute("data-step-index") || "");
+      step.setAttribute("data-step-index", String(newIdx));
+      step.querySelectorAll("input, select, textarea").forEach((field) => {
+        const currentName = field.getAttribute("name") || "";
+        if (oldIdx) {
+          field.setAttribute("name", currentName.replace(`step_${oldIdx}_`, `step_${newIdx}_`));
+        }
+      });
+      const idField = step.querySelector(`input[name="step_${newIdx}_id"]`);
+      if (idField) idField.value = `s${newIdx}`;
+      updateStepSummary(step);
+    }
+
+    function renumberAllSteps() {
+      Array.from(container.querySelectorAll(".step-block")).forEach((step, index) => {
+        renumberStep(step, index + 1);
+      });
+    }
+
+    function cloneStep(step) {
+      const clone = step.cloneNode(true);
+      step.insertAdjacentElement("afterend", clone);
+      wireStepInteractions(clone);
+      renumberAllSteps();
+      clone.open = true;
+    }
+
+    function moveStep(step, direction) {
+      if (!step) return;
+      if (direction === "up") {
+        const previous = step.previousElementSibling;
+        if (previous) {
+          container.insertBefore(step, previous);
+          renumberAllSteps();
+        }
+        return;
+      }
+      const next = step.nextElementSibling;
+      if (direction === "down" && next) {
+        container.insertBefore(next, step);
+        renumberAllSteps();
+      }
+    }
+
+    function wireMove(scope) {
+      scope.querySelectorAll(".js-move-step-up").forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const step = btn.closest(".step-block");
+          moveStep(step, "up");
+        });
+      });
+      scope.querySelectorAll(".js-move-step-down").forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const step = btn.closest(".step-block");
+          moveStep(step, "down");
+        });
+      });
+    }
+
+    function wireDuplicate(scope) {
+      scope.querySelectorAll(".js-duplicate-step").forEach((btn) => {
+        btn.addEventListener("click", function () {
+          const step = btn.closest(".step-block");
+          if (step) {
+            cloneStep(step);
+          }
+        });
+      });
+    }
+
+    function wireSummaryUpdates(scope) {
+      scope.querySelectorAll('.step-block').forEach((step) => {
+        const idx = Number(step.getAttribute("data-step-index") || "0");
+        const nameInput = step.querySelector(`input[name="step_${idx}_name"]`);
+        if (!nameInput || nameInput.dataset.summaryBound === "1") return;
+        nameInput.dataset.summaryBound = "1";
+        nameInput.addEventListener("input", function () {
+          updateStepSummary(step);
+        });
+        updateStepSummary(step);
+      });
+    }
+
+    function wireStepInteractions(scope) {
+      wireRemove(scope);
+      wireMove(scope);
+      wireDuplicate(scope);
+      wireSummaryUpdates(scope);
+    }
+
+    addBtn.addEventListener("click", function () {
+      const idx = currentMaxIndex() + 1;
+      const html = tpl.innerHTML.replaceAll("__IDX__", String(idx));
+      const wrap = document.createElement("div");
+      wrap.innerHTML = html.trim();
+      const node = wrap.firstElementChild;
+      if (node) {
+        container.appendChild(node);
+        wireStepInteractions(node);
+        renumberAllSteps();
+      }
+    });
+
+    form.addEventListener("submit", function () {
+      renumberAllSteps();
+    });
+
+    wireStepInteractions(container);
+    renumberAllSteps();
+  })();
+</script>
+{% endblock %}

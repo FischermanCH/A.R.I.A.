@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_mqtt_ref %}hidden{% endif %}>
+
+    {% if selected_mqtt_ref %}
+    {% if mqtt_test_status == 'ok' or mqtt_test_status == 'error' %}
+    <article class="connection-test-card status-{{ mqtt_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ mqtt_test_status }}"></span><strong>{% if mqtt_test_status == 'ok' %}{{ tr(request,'config_conn.mqtt_test_ok','MQTT connection test successful') }}{% else %}{{ tr(request,'config_conn.mqtt_test_error','MQTT connection test failed') }}{% endif %}</strong></div>
+      <small>{% if mqtt_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/mqtt/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_mqtt_ref }}">
+      {% set schema_fields = mqtt_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'mqtt_edit' %}
+
+      {% set meta_values = selected_mqtt %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.mqtt_save_profile','Save MQTT profile') }}</button>
+    </form>
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'mqtt' %}
+    {% set delete_ref = selected_mqtt_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.mqtt_recommended_flow_text','1) Save MQTT profile with host, user and password. 2) ARIA stores the password in the secure store. 3) Save. 4) ARIA tests the broker automatically.') }}</span></div>
+    <form method="post" action="/config/connections/mqtt/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = mqtt_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'mqtt_new' %}
+
+      {% set meta_values = {} %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.mqtt_save_profile','Save MQTT profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

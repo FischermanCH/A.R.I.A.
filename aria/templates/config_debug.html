@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('settings', 'page-title-icon') }}</span><h2>Admin-On/Off</h2></div>
+    <p>{{ agent_text(request, 'Wenn aktiv, zeigt ARIA Admin-Zusatzinfos und sensible Betriebslinks (z.B. Session/Stores/Qdrant) an.') }}</p>
+
+    {% if saved %}
+    <p class="hint-text">Gespeichert.</p>
+    {% endif %}
+    {% if error_message %}
+    <p class="error-text">{{ error_message }}</p>
+    {% endif %}
+
+    <form class="editor-form" method="post" action="/config/debug/save">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <label class="inline-check">
+        <input type="checkbox" name="debug_mode" value="1" {% if debug_mode %}checked{% endif %}>
+        Admin-Modus aktivieren
+      </label>
+      <div class="inline-actions">
+        <button type="submit">Speichern</button>
+        <a class="nav-link" href="/config">Zurück zu Config</a>
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}

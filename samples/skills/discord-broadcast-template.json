@@ -1,0 +1,49 @@
+{
+  "id": "discord-broadcast-template",
+  "name": "Discord Broadcast Template",
+  "version": "0.1.0",
+  "description": "Beispielskill fuer Discord. Sendet eine einfache Nachricht an einen konfigurierten Discord-Webhook.",
+  "category": "communication",
+  "router_keywords": [
+    "sende test nach discord",
+    "discord testnachricht",
+    "sende status an discord",
+    "discord broadcast"
+  ],
+  "connections": [
+    "discord"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Nachricht an Discord senden",
+      "type": "discord_send",
+      "params": {
+        "connection_ref": "alerts-main",
+        "message": "ARIA Discord-Test\\n\\nAnfrage: {query}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Bestaetigung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "Die Nachricht wurde an Discord gesendet."
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine Discord-Connection mit Ref alerts-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

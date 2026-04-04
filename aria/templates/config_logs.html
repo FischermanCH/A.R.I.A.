@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="config-card">
+    <div class="page-title-row"><span>{{ icon('logs', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_logs.title', 'Logs & Retention') }}</h2></div>
+    <p>{{ tr(request, 'config_logs.subtitle', 'Control how long token/run logs for stats and activities are kept.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_logs.saved', 'Log configuration saved.') }}</div>
+    {% endif %}
+    {% if pruned is not none %}
+    <div class="alert ok">{{ tr(request, 'config_logs.pruned', 'Log cleanup completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ pruned }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
+    {% endif %}
+    {% if reset is not none %}
+    <div class="alert ok">{{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ reset }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
+    {% endif %}
+    {% if factory_reset %}
+    <div class="alert ok">
+      {{ tr(request, 'config_logs.factory_reset_done', 'Factory reset completed.') }}
+      {% if factory_qdrant is not none %}
+      {{ tr(request, 'config_logs.factory_qdrant_removed', 'Deleted Qdrant collections') }}: <strong>{{ factory_qdrant }}</strong>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+
+    <form method="post" action="/config/logs/save" class="config-form-grid">
+      <label class="checkbox-row" for="logs-enabled">
+        <input
+          id="logs-enabled"
+          name="enabled"
+          type="checkbox"
+          value="1"
+          {% if token_tracking.enabled %}checked{% endif %}
+        >
+        {{ tr(request, 'config_logs.enabled', 'Token/run logging enabled') }}
+      </label>
+
+      <label for="retention-days">{{ tr(request, 'config_logs.retention_days', 'Retention in days') }}</label>
+      <input id="retention-days" name="retention_days" type="number" min="0" step="1" value="{{ token_tracking.retention_days }}">
+      <p class="hint-text">{{ tr(request, 'config_logs.retention_hint', '0 = never auto-delete. Recommended for normal operation: 14-90 days.') }}</p>
+
+      <div class="config-divider"></div>
+
+      <p class="hint-text">{{ tr(request, 'config_logs.log_file', 'Active log file') }}: <code>{{ token_tracking.log_file }}</code></p>
+
+      {% if health.exists %}
+      <ul class="stats-list">
+        <li><span>{{ tr(request, 'config_logs.line_count', 'Lines') }}</span><strong>{{ health.line_count }}</strong></li>
+        <li><span>{{ tr(request, 'config_logs.size', 'Size') }}</span><strong>{{ health.size_human }}</strong></li>
+        <li><span>{{ tr(request, 'config_logs.oldest', 'Oldest entry') }}</span><strong>{{ health.oldest_timestamp or 'n/a' }}</strong></li>
+        <li><span>{{ tr(request, 'config_logs.newest', 'Newest entry') }}</span><strong>{{ health.newest_timestamp or 'n/a' }}</strong></li>
+      </ul>
+      {% else %}
+      <p class="hint-text">{{ tr(request, 'config_logs.missing', 'No log file exists yet.') }}</p>
+      {% endif %}
+
+      <div class="config-actions">
+        <button type="submit">{{ tr(request, 'config_logs.save', 'Save') }}</button>
+      </div>
+    </form>
+
+    <form method="post" action="/config/logs/cleanup" class="config-actions" style="margin-top: 1rem;">
+      <button type="submit">{{ tr(request, 'config_logs.cleanup_now', 'Clean up now') }}</button>
+    </form>
+
+    <section class="config-card" style="margin-top: 1rem;">
+      <h3>{{ tr(request, 'config_logs.reset_title', 'Stats reset') }}</h3>
+      <p>{{ tr(request, 'config_logs.reset_subtitle', 'Deletes the stored token/run history that powers stats and activities. Memories and connection profiles stay untouched.') }}</p>
+      {% if reset is not none %}
+      <div class="alert ok">{{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ reset }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
+      {% endif %}
+      <p class="hint-text">{{ tr(request, 'config_logs.reset_confirm_hint', 'Type RESET to confirm the reset deliberately.') }}</p>
+      <form method="post" action="/config/logs/reset" class="config-form-grid">
+        <label for="confirm-reset">{{ tr(request, 'config_logs.reset_confirm_label', 'Confirmation') }}</label>
+        <input id="confirm-reset" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
+        <div class="config-actions">
+          <button type="submit" class="danger-btn">{{ tr(request, 'config_logs.reset_now', 'Reset stats now') }}</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="config-card" style="margin-top: 1rem;">
+      <h3>{{ tr(request, 'config_logs.factory_reset_title', 'Factory Reset') }}</h3>
+      <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes user data, memories, connections, guardrails, custom skills, chat history, SSH keys, and local runtime caches. Runtime secrets and prompts remain intact.') }}</p>
+      <p class="hint-text">{{ tr(request, 'config_logs.factory_reset_confirm_hint', 'Type FACTORY RESET to wipe this ARIA instance deliberately.') }}</p>
+      <form method="post" action="/config/logs/factory-reset" class="config-form-grid">
+        <label for="confirm-factory-reset">{{ tr(request, 'config_logs.factory_reset_confirm_label', 'Confirmation') }}</label>
+        <input id="confirm-factory-reset" name="confirm_text" type="text" value="" placeholder="FACTORY RESET" autocomplete="off">
+        <div class="config-actions">
+          <button type="submit" class="danger-btn">{{ tr(request, 'config_logs.factory_reset_now', 'Run factory reset now') }}</button>
+        </div>
+      </form>
+    </section>
+  </section>
+</main>
+{% endblock %}

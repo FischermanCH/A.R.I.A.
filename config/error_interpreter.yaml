@@ -1,0 +1,142 @@
+rules:
+  - id: timeout
+    patterns:
+      - "custom_skill_ssh_timeout"
+      - "timed? out"
+      - "connection timed out"
+    messages:
+      de:
+        title: "Verbindung oder Befehl hat das Zeitlimit erreicht."
+        cause: "Der Host war zu langsam erreichbar oder der Befehl lief laenger als erlaubt."
+        next_step: "Timeout fuer diese Connection pruefen oder den Befehl manuell auf dem Zielsystem testen."
+      en:
+        title: "Connection or command hit the timeout."
+        cause: "The host was slow to reach or the command ran longer than allowed."
+        next_step: "Check the timeout for this connection or test the command manually on the target host."
+
+  - id: host_unreachable
+    patterns:
+      - "no route to host"
+      - "name or service not known"
+      - "temporary failure in name resolution"
+      - "could not resolve hostname"
+      - "connection refused"
+      - "network is unreachable"
+    messages:
+      de:
+        title: "Die SSH-Verbindung konnte das Zielsystem nicht sauber erreichen."
+        cause: "Typisch sind DNS-, Routing-, Firewall- oder Dienstprobleme auf dem Zielhost."
+        next_step: "Host, Port, DNS und SSH-Dienst pruefen. Danach den Verbindungstest in ARIA erneut ausfuehren."
+      en:
+        title: "SSH could not reach the target system cleanly."
+        cause: "Typical causes are DNS, routing, firewall, or SSH service issues on the target host."
+        next_step: "Check host, port, DNS, and the SSH service, then rerun the ARIA connection test."
+
+  - id: auth
+    patterns:
+      - "permission denied"
+      - "publickey"
+      - "authentication failed"
+      - "host key verification failed"
+    messages:
+      de:
+        title: "Die Anmeldung auf dem Zielsystem ist fehlgeschlagen."
+        cause: "SSH-Key, Benutzername oder Host-Key-Pruefung passen nicht zum Zielsystem."
+        next_step: "Connection-Profil, Key-Exchange und Host-Key-Status pruefen. Danach Verbindung erneut testen."
+      en:
+        title: "Authentication on the target system failed."
+        cause: "SSH key, username, or host key verification does not match the target system."
+        next_step: "Check the connection profile, key exchange, and host key state, then test the connection again."
+
+  - id: sudo
+    patterns:
+      - "sudo:"
+      - "a terminal is required"
+      - "password is required"
+      - "is not in the sudoers file"
+      - "sudoers"
+    messages:
+      de:
+        title: "Der Befehl scheitert an sudo-Rechten."
+        cause: "Der Benutzer darf den Befehl nicht passwortfrei ausfuehren oder braucht ein interaktives Terminal."
+        next_step: "sudoers-Regel fuer diesen Befehl pruefen oder den Befehl ohne sudo testen."
+      en:
+        title: "The command failed because of sudo permissions."
+        cause: "The user may not run the command passwordlessly or requires an interactive terminal."
+        next_step: "Check the sudoers rule for this command or test the command without sudo."
+
+  - id: apt_lock
+    patterns:
+      - "could not get lock"
+      - "unable to acquire the dpkg frontend lock"
+      - "is another process using it"
+      - "unattended-upgrades"
+    messages:
+      de:
+        title: "Das Paketmanagement war gerade gesperrt."
+        cause: "Oft laeuft parallel ein anderes apt/dpkg/unattended-upgrades."
+        next_step: "Ein paar Minuten warten und erneut versuchen oder prüfen, welcher Prozess den Lock haelt."
+      en:
+        title: "Package management was locked."
+        cause: "Another apt/dpkg/unattended-upgrades process is usually running in parallel."
+        next_step: "Wait a few minutes and try again, or check which process currently holds the lock."
+
+  - id: package_missing
+    patterns:
+      - "unable to locate package"
+      - "has no installation candidate"
+      - "package .* is not available"
+      - "couldn't find any package"
+    messages:
+      de:
+        title: "Mindestens ein Paket konnte nicht gefunden oder installiert werden."
+        cause: "Paketname, Repository oder Paketstatus passt nicht zur Zielmaschine."
+        next_step: "Paketnamen und aktivierte Repositories pruefen. Danach den Befehl erneut ausfuehren."
+      en:
+        title: "At least one package could not be found or installed."
+        cause: "The package name, repository, or package state does not match the target machine."
+        next_step: "Check package names and enabled repositories, then run the command again."
+
+  - id: repo_gpg
+    patterns:
+      - "gpg error"
+      - "the following signatures couldn't be verified"
+      - "repository .* is not signed"
+      - "no_pubkey"
+      - "key is stored in legacy trusted.gpg"
+    messages:
+      de:
+        title: "Repository- oder GPG-Key-Problem erkannt."
+        cause: "Ein Repository ist falsch signiert, veraltet oder der passende Key fehlt."
+        next_step: "APT-Quelle und Schluesselverwaltung pruefen. Danach `apt update` erneut testen."
+      en:
+        title: "Repository or GPG key problem detected."
+        cause: "A repository is incorrectly signed, outdated, or the required key is missing."
+        next_step: "Check the APT source and key management, then test `apt update` again."
+
+  - id: command_missing
+    patterns:
+      - "command not found"
+      - "not found"
+    messages:
+      de:
+        title: "Ein benoetigter Befehl ist auf dem Zielsystem nicht vorhanden."
+        cause: "Das Tool oder Paket existiert dort nicht oder der Pfad ist anders."
+        next_step: "Befehl manuell via SSH pruefen und das benoetigte Paket installieren oder den Skill anpassen."
+      en:
+        title: "A required command is missing on the target system."
+        cause: "The tool or package is not installed there or the path differs."
+        next_step: "Check the command manually over SSH and install the needed package or adjust the skill."
+
+  - id: unknown_nonzero
+    default: true
+    patterns: []
+    messages:
+      de:
+        title: "Der Befehl ist fehlgeschlagen, aber ARIA kann den genauen Grund noch nicht sicher einordnen."
+        cause: "Der Exit-Code war ungleich null, ohne klaren Treffer in den bekannten Fehlerbildern."
+        next_step: "Bitte den technischen Output unter Details pruefen oder den Befehl manuell auf dem Zielsystem testen."
+      en:
+        title: "The command failed, but ARIA cannot classify the exact reason with confidence yet."
+        cause: "The exit code was non-zero without a clear match in the known error patterns."
+        next_step: "Please check the technical output in Details or test the command manually on the target host."

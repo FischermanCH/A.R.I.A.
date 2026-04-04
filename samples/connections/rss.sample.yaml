@@ -1,0 +1,7 @@
+connections:
+  rss:
+    news-main:
+      title: "News Feed"
+      description: "Neutrales Beispiel für einen RSS-Feed"
+      feed_url: "https://example.org/feed.xml"
+      timeout_seconds: 10

@@ -1,0 +1,1385 @@
+# ARIA Status (Aktuell)
+
+Stand: 2026-03-25
+
+## Routing-/Fehlerpfad-Härtung 2026-03-31
+
+- Freie Prompt-Kanten im Core weiter gehärtet:
+  - Custom-Skill-Matching berücksichtigt jetzt zusätzlich `skill_id`-Tokens
+  - generische Aktionsprompts mit sinnvoller Token-Überlappung greifen robuster
+- SMB-/NAS-Auflösung mit echten Refnamen verbessert:
+  - nummerierte Refs wie `synrs816-01-docker` liefern jetzt natürliche Kurz-Aliase wie `synrs816`
+  - dadurch funktioniert die Alias-Auflösung nicht nur mit künstlich vorbereiteten Test-Aliases
+- Capability-Ausführungsfehler werden jetzt in der Pipeline defensiv abgefangen:
+  - kein unkontrolliertes Durchkippen von Runtime-Fehlern in Richtung `Internal Server Error`
+  - stattdessen nutzerverständliche Fehlerantwort plus strukturierter Fehlercode
+- Friendly-Error-Hinweise im Chat wurden dafür erweitert:
+  - Capability-Fehler geben jetzt einen klaren Prüfhinweis statt stummem Serverfehler
+- Neue Regressionstests decken jetzt explizit ab:
+  - realitätsnaher Update-Prompt für `server-update-2nodes`
+  - SMB-Routing mit echtem Ref-Stil `synrs816-01-docker`
+  - freundlicher Fehlerpfad bei Capability-Ausnahmen
+- Verifikation:
+  - `54 passed`
+  - `py_compile`: ok
+  - ARIA neu gestartet
+  - `/health`: ok
+
+## Update-Skill-Feinschliff 2026-03-31
+
+- Der Update-Skill `server-update-2nodes` gibt jetzt zusätzlich einen klareren technischen Laufblock aus:
+  - pro Server:
+    - Status / Exit
+    - Dauer
+    - Anzahl gehaltener Pakete
+    - typische Warnhinweise wie `apt-key/GPG`, `Fetch`, `DNS/Netz`, `dpkg/Lock`
+- SSH-Custom-Step-Läufe liefern dafür jetzt strukturiertere Metadaten:
+  - `custom_duration_seconds`
+  - `custom_timeout_seconds`
+  - `custom_warning_hints`
+- `ssh_run`-Steps unterstützen jetzt optionale `timeout_seconds` pro Step
+- Der konkrete Update-Skill nutzt jetzt bewusst begrenzte Laufzeiten:
+  - `180s` pro Server-Step statt vollständig an der sehr großzügigen SSH-Connection-Timeout-Grenze zu hängen
+- Ziel:
+  - lange Update-Läufe bleiben transparenter
+  - Ergebnisse werden technischer und nachvollziehbarer
+  - ohne das eigentliche Update-Verhalten unnötig zu verändern
+- Verifikation:
+  - `48 passed`
+  - `py_compile`: ok
+  - ARIA neu gestartet
+  - `/health`: ok
+
+## Guardrails-Update 2026-03-31
+
+- Das frühere SSH-spezifische Guardrail-Modell wurde auf ein generisches Core-Modell umgestellt:
+  - `security.guardrails`
+  - Profilfelder:
+    - `kind`
+    - `title`
+    - `description`
+    - `allow_terms`
+    - `deny_terms`
+- Neue zentrale Guardrail-Schicht:
+  - `aria/core/guardrails.py`
+  - enthält:
+    - Guardrail-Katalog
+    - Kompatibilitätslogik pro Connection-Typ
+    - neutrale Evaluierung / Entscheidung
+- Aktuell angebundene Enforcement-Stufe:
+  - `SSH` über `kind=ssh_command`
+- Neu dazu:
+  - `Webhook`
+  - `HTTP API`
+  - beide über `kind=http_request`
+- Neu dazu:
+  - `SFTP`
+  - `SMB`
+  - beide über `kind=file_access`
+- Die HTTP-Verbindungen können jetzt ebenfalls ein Guardrail-Profil tragen:
+  - Auswahl direkt auf den Connection-Seiten unter den erweiterten Optionen
+  - Validierung beim Speichern auf Kompatibilität mit dem Verbindungstyp
+- Zur Laufzeit prüfen HTTP-Guardrails jetzt deterministisch:
+  - Methode
+  - Ziel-URL / Pfad
+  - relevante Request-Fragmente
+- Datei-Guardrails prüfen jetzt deterministisch:
+  - Operation (`read`, `write`, `list`)
+  - Zielpfad
+  - bei Schreiboperationen zusätzlich den Content-Kontext
+- Damit ist das Guardrail-System jetzt nicht mehr nur ein SSH-Beweisstück, sondern ein echtes modulübergreifendes Sicherheitsmuster im Core.
+- Die Security-UI unter `/config/security` ist jetzt ebenfalls auf das generische Modell umgestellt:
+  - Guardrail-Typ auswählbar
+  - keine alte `ssh_guardrails`-Sonderstruktur mehr
+- SSH-Verbindungen validieren jetzt:
+  - Guardrail-Profil existiert
+  - Guardrail-Profil ist mit `SSH` kompatibel
+- Wichtig für den Core:
+  - keine Legacy-`security.ssh_guardrails`-Altlast mehr
+  - Guardrails sind jetzt als allgemeines Framework angelegt
+  - weitere Typen wie `HTTP API/Webhook`, `File Access` oder `MQTT` können später auf derselben Basis andocken
+
+## Internet-Fokus 2026-03-31
+
+- Für die erste Internet-Freigabe sind die Prioritäten jetzt enger geschnitten.
+- Wichtige offene Gates:
+  - Login-Bruteforce-/Rate-Limit fehlt aktuell noch
+  - Frontend lädt `htmx` noch extern über `unpkg`
+  - Reverse-Proxy-/HTTPS-Referenzsetup ist noch nicht als belastbarer Betriebsweg festgezogen
+  - großer Browser-/E2E-Testblock vor Freigabe bleibt Pflicht
+  - freie Prompt-Kanten wurden im Core weiter gehärtet, brauchen vor Freigabe aber noch einen kurzen manuellen Retest
+- Referenz:
+  - `project.docu/release-readiness-plan.md`
+
+## Release-Ready / User-Simulation 2026-03-31
+
+- Zielbild geschärft:
+  - ARIA soll zuerst **release-ready** werden
+  - danach als echter User-Container betrieben werden
+  - GitHub-/Public-Veröffentlichung erst später
+- Geplante Kette:
+  - Core härten
+  - großer Testblock
+  - Container-Artefakt bauen
+  - User-Simulation fahren
+  - Update-Kette simulieren
+- Wichtig:
+  - Änderungen weiterhin in `dev`
+  - Nutzer-Sicht über separaten Container testen
+  - Updates explizit wie bei echten Usern durchspielen
+- Referenz:
+  - `project.docu/release-readiness-plan.md`
+
+## Public Release Vorbereitung 2026-04-02
+
+- ARIA ist jetzt technisch nah an einem ersten oeffentlichen `ALPHA`-Release.
+- Wichtige Grundlage dafuer wurde bereits real belegt:
+  - separater Host laeuft
+  - Containerbetrieb funktioniert
+  - Update-Pipe funktioniert
+- Vor `GitHub` und `Docker Hub` kommt jetzt noch ein letzter oeffentlicher Release-Polish-Block:
+  - README final schaerfen
+  - Repo-Inhalt bewusst schneiden
+  - Privacy-/Clean-Sweep final sichern
+  - Image-/Release-Versionierung sauberer machen
+  - ALPHA-Grenzen klar kommunizieren
+- Referenz:
+  - `project.docu/release-readiness-plan.md`
+
+## Backlog / Apple Music 2026-03-31
+
+- `Apple Music` als späterer Integrationsblock vormerken.
+- Zielbild:
+  - eigener Connection-Typ `apple_music`
+  - erste Capability-Stufe: Playlisten in Apple Music erstellen
+- Möglicher MVP:
+  - OAuth-/Token-Flow sauber anbinden
+  - Playlist erstellen
+  - später Tracks suchen und zu Playlisten hinzufügen
+- Wichtiger Hinweis:
+  - nicht als Schnellschuss behandeln
+  - wegen Auth, Katalog-/Track-Auflösung und Nutzerfluss eher ein mittelgroßer eigener Feature-Block
+- Architektonisch passt es gut zu ARIA:
+  - eigener Connection-Typ
+  - eigene Capability-Familie
+  - später sauber guardrail-/katalogfähig
+
+## Kurzfazit
+
+ARIA ist für den aktuellen Entwicklungsstand stabil nutzbar: Chat, Memory (Qdrant), Auto-Memory, Konfig-UI, Stats und Startscript funktionieren im Alltag.
+
+## Testsession 2026-03-29
+
+- SSH:
+  - Connection-Seite, Speichern und `/stats` ok
+  - freier Prompt `welche skills sind aktiv` ok
+  - Finding:
+    - `/stats` lädt bei vielen Connection-Checks spürbar langsam
+    - freier Prompt `machst du mir ein update auf dem server` greift den vorhandenen SSH-/Update-Skill noch nicht
+- Discord:
+  - Connection-Seite, Speichern, `/stats` und Testposts ok
+  - freier Prompt `schicke eine test nachricht nach discord, inhalt ...` funktioniert jetzt direkt aus dem Chat
+  - Backlog/Finding:
+    - aktive Alert-Kategorien auf der Discord-Seite kompakter sichtbar machen
+    - `Discord Alerting & Verhalten` optional aufklappbar machen
+- SFTP:
+  - Connection-Seite, Speichern, `/stats` und echter `file_read` ok
+  - Finding:
+    - Chat-Details wie `Ausgeführt via ...` / `Pfad ...` über alle Connection-Capabilities konsistent nachziehen
+- SMB:
+  - Connection-Seite, Speichern und `/stats` ok
+  - Finding:
+    - natürlicher SMB-Prompt mit Host-/Share-Kontext wird noch nicht robust genug erkannt
+    - `/stats`-Connection-Karten sollten direkt auf die passende Connection-Seite verlinken
+- RSS:
+  - RSS-UI und RSS-Stats-Summary ok
+  - natürlicher Prompt `was gibts neues auf heise online news` war zunächst in den generischen LLM-Pfad gefallen
+  - Router-Fix + Regressionstests dafür sind jetzt drin
+  - zusätzlich ist jetzt eine kleine semantische RSS-Auflösung aktiv:
+    - bei mehreren RSS-Profilen kann ARIA den passenden Feed per LLM aus Ref/URL/Alias-Kontext wählen
+    - Ziel: neue Feeds robuster treffen, ohne jeden Namen hart zu verdrahten
+- Webhook:
+  - Connection-Seite, Anlegen, Bearbeiten und Auto-Test ok
+  - Fehlerfall mit ungültiger URL liefert verständlichen Verbindungsfehler
+  - Chat-E2E gegen `n8n` ok
+  - auch natürlicher Prompt mit explizitem Ref-Namen wie `schicke per n8n-test-webhook ...` funktioniert
+- HTTP API:
+  - Connection-Seite, Speichern, `/stats` und Chat-E2E ok
+  - `n8n`-Health-Endpoint `/health` wird korrekt via `GET` aufgerufen
+  - Namenskollision mit ähnlich benanntem Webhook-Profil ist behoben und per Test abgesichert
+
+## Architektur-/UX-Update 2026-03-30
+
+- Verbindungen haben jetzt gemeinsame Metadaten:
+  - `Titel`
+  - `Kurzbeschreibung`
+  - `Aliase`
+  - `Tags`
+- Diese Metadaten sind auf allen Connection-Seiten als gemeinsamer Block eingebaut:
+  - `SSH`
+  - `Discord`
+  - `SFTP`
+  - `SMB`
+  - `Webhook`
+  - `SMTP`
+  - `IMAP`
+  - `HTTP API`
+  - `RSS`
+  - `MQTT`
+- Die Metadaten werden direkt semantisch genutzt:
+  - für natürlichere Connection-Auflösung im Chat
+  - als Vorarbeit für spätere user-definierte Connection-Typen / JSON-Erweiterungen
+- Connection-Status-Karten zeigen jetzt bevorzugt den `Titel` statt nur die Ref:
+  - auf den Connection-Seiten
+  - auf `/stats`
+  - Ref bleibt als kleiner Zweitbezeichner sichtbar
+  - Tags werden kompakt direkt an der Karte angezeigt
+- SMB-/NAS-Routing wurde für natürlichere Formulierungen erweitert:
+  - zusätzliche Heuristiken für `Daten von`, `Ordner von`, `Synology`, `Docker-Verzeichnis`
+- mehrere Einstellungs-Unterseiten zeigen jetzt zusätzlich ein passendes Icon im Seitenkopf:
+  - `LLM`
+  - `Embeddings`
+  - `Prompts`
+  - `Routing`
+  - `Skill Routing`
+  - `Sprache`
+  - `Benutzer`
+  - `Security`
+  - `Logs`
+  - `Dateien`
+  - `Error Interpreter`
+  - `Memory`
+- Chat-Toolbox ist jetzt nicht nur zentral, sondern auch kontextsensitiv:
+  - aus den letzten Chat-Nachrichten wird ein kleiner `Passend jetzt`-Block berechnet
+  - dort erscheinen bevorzugt die gerade relevanten Hilfen, z. B. `Discord`, `RSS`, `Webhook` oder `HTTP API`
+  - die Priorisierung baut auf demselben Command-Katalog auf und muss für neue Chat-Kommandos nicht separat gepflegt werden
+- Chat-Admin-Flow unterstützt jetzt zusätzlich `MQTT`:
+  - `create` per Chat mit Host + optionalem Topic
+  - `update` per Chat für Host/Topic/Metadaten
+  - Toolbox/Admin-Hilfen ziehen `MQTT` automatisch mit
+- Chat-Admin-Flow unterstützt jetzt zusätzlich `SMTP` und `IMAP`:
+  - `SMTP` via Chat mit SMTP-Host plus optional `user`, `from`, `to`
+  - `IMAP` via Chat mit Host plus optional `user`, `mailbox`
+  - beide laufen wie die anderen einfachen Typen über Confirm-Step, Vorschau und Toolbox-Hilfen
+
+## Schema-Config UI 2026-03-30
+
+- Die Connection-UI nutzt jetzt für die einfachen und mittleren Typen gemeinsame schema-gerenderte Formularblöcke:
+  - `RSS`
+  - `Webhook`
+  - `HTTP API`
+  - `MQTT`
+  - `SMTP`
+  - `IMAP`
+  - `SMB`
+  - `SFTP`
+  - `SSH`
+  - `Discord` (Basisfelder)
+- Neuer gemeinsamer Partial:
+  - `aria/templates/_connection_schema_fields.html`
+- Der Renderer kann jetzt:
+  - Text-/Zahlen-/URL-/Passwortfelder
+  - Selects
+  - Checkboxes
+  - Textareas für Listenfelder wie `allow_commands`
+  - Feld-Hinweise und i18n-Labels
+- Komplexe Seiten bleiben bewusst hybrid:
+  - `SSH` behält Key-Exchange und Key-Management separat
+  - `SFTP` behält den `Aus SSH-Profil übernehmen`-Flow separat
+  - `Discord` behält den Alerting-/Verhaltensblock separat
+- `Discord` ist jetzt zusätzlich einen Schritt weiter in Richtung Registry-/Schema-Modell gezogen:
+  - Alerting-/Verhaltenssektionen werden nicht mehr als doppelt gepflegte HTML-Blöcke beschrieben
+  - die Toggle-Karten werden jetzt aus dem gemeinsamen Connection-Katalog aufgebaut
+  - damit hängen Titel, Hints und Toggle-Labels enger an der zentralen Definition statt an Template-Copy/Paste
+- Der gemeinsame Connection-Katalog treibt jetzt zusätzlich mehr UI-Flächen direkt:
+  - `Einstellungen > Verbindungen` baut die Connection-Navigation aus dem Katalog
+  - die Chat-Toolbox nutzt für Connection-Admin-Hilfen jetzt auch die Katalog-Icons
+  - `Stats` nutzt bereits Edit-Ziele/Typ-Infos aus derselben Quelle
+- Ziel:
+  - neue Connection-Typen später mit weniger Handarbeit in `Config`, `Toolbox` und `Stats` sichtbar machen
+- `Stats` wurde weiter an den Katalog gehängt:
+  - Connection-Karten tragen jetzt Typ-Metadaten direkt aus der zentralen Definition
+  - inklusive Icon und `Alpha!`-Status
+  - die Reihenfolge der Settings-Connections folgt jetzt derselben zentralen Ordnung
+- Capability-Metadaten sind jetzt ebenfalls zentralisiert:
+  - neue Datei: `aria/core/capability_catalog.py`
+  - Chat-Badges für Capability-Antworten kommen nicht mehr aus einer langen `if`-Kette
+  - Capability-Details im Chat werden jetzt aus derselben kleinen Registry gebaut
+- Ziel:
+  - weniger Drift zwischen `Pipeline`, `Chat` und späteren Capability-Erweiterungen
+- Ziel:
+  - weniger Copy/Paste in den Connection-Seiten
+  - gemeinsame Feldbasis für spätere noch stärker schema-/registry-getriebene Config-Generierung
+
+## Backlog / RAS-WireGuard 2026-03-30
+
+- `WireGuard` wird bewusst **nicht** als normaler Connection-Typ gebaut.
+- Stattdessen als eigener Produktblock / eigener Menüpunkt:
+  - `RAS`
+  - gemeint als `Remote Access / Secure Access`
+- Gewünschtes Zielbild:
+  - ARIA sicher aus dem Internet erreichbar machen
+  - User-Aufwand möglichst klein halten
+  - keine verwirrende Raw-WireGuard-Oberfläche als Erstversion
+- Vorschlag für den späteren MVP:
+  - lokaler WireGuard-Server bzw. Peer-Verwaltung in ARIA
+  - Generierung von:
+    - Client-Konfig
+    - QR-Code für iPhone/iPad
+    - einfacher Schritt-für-Schritt-Anleitung
+  - klare Info für nötigen Port-Forward:
+    - z. B. `UDP 51820 -> ARIA`
+  - Health-/Status-Anzeige direkt in ARIA
+- OPNsense:
+  - war nur ein Beispiel für die typische WireGuard-Komplexität
+  - keine OPNsense-spezifische Integration für den MVP nötig
+  - Fokus bleibt auf einer standalone Lösung mit guter Anleitung / Checkliste / Export
+- Wichtig:
+  - `RAS` soll architektonisch so gebaut werden, dass spätere Rechte-/RBAC-Modelle und Multi-User nicht im Weg stehen
+
+## Release-Fokus 2026-03-30
+
+- Freigabe-Prioritaet liegt jetzt bewusst auf:
+  - Funktionskern
+  - Architektur
+  - Stabilitaet / Security
+- Nice-to-have-Themen wie `SMTP E2E`, `IMAP E2E`, `MQTT E2E`, `WireGuard / RAS`, `Multi-User / RBAC`, `Dokumente / RAG` und `Theme-/UI-System` sind aktuell nach hinten priorisiert.
+- Eigene freigabeorientierte Arbeitsliste:
+  - `project.docu/release-readiness-plan.md`
+
+## Strategie-Update Websuche (2026-03-24)
+
+- Websuche bleibt eine Pflichtfunktion für ARIA als Assistent.
+- Umsetzung: **provider-native Web-Tools first** (LLM/Gateway), damit kein zusätzlicher Pflicht-Container nötig ist.
+- **SearXNG ist optional** als spätere Plugin-/Power-User-Erweiterung, nicht mehr als Default-Dependency.
+
+## Bereits umgesetzt
+
+- GUI-first Chat läuft inkl. Typing-Flow und Status-Badges.
+- Navigation umgebaut (mobilfreundlich):
+  - `Chat`-Link entfernt (Home via Logo/ARIA)
+  - Hauptmenues: `Memories`, `Skills`, Username-Menue
+  - Username-Menue enthält `Stats` sowie admin-spezifisch `Config` und `Benutzer`
+- Security-Basis aktiv:
+  - Secrets werden verschlüsselt in SQLite gespeichert (`data/auth/aria_secure.sqlite`)
+  - Master-Key via `config/secrets.env` (`ARIA_MASTER_KEY`)
+  - Runtime-Signing-Secrets ebenfalls via `config/secrets.env`:
+    - `ARIA_AUTH_SIGNING_SECRET`
+    - `ARIA_FORGET_SIGNING_SECRET`
+  - `config.yaml` kann API-Keys leer halten
+  - direkte ENV-/Secret-Zugriffe sind auf `aria/core/config.py` zentralisiert
+  - Repo-/Container-Publish ist gehaertet:
+    - echte Laufzeitdateien bleiben lokal (`config/config.yaml`, `config/secrets.env`, `data/auth`, `data/logs`, `data/skills`)
+    - Beispiel-Dateien für Git: `config/config.example.yaml`, `config/secrets.env.example`
+- Login + Rollenbasis aktiv:
+  - Login-Seite: `/login`
+  - Erster Login erzeugt nur bei aktivem Bootstrap den ersten `admin` (steuerbar via `security.bootstrap_locked`)
+  - Rollen: `admin`, `user`
+  - `Config` ist nur für `admin` freigeschaltet
+  - Chat/Stats/Memories nur mit aktiver Login-Session
+  - User-Verwaltung im UI: über User-Menue (oben rechts), Seite `/config/users`
+  - Username kann im UI umbenannt werden (case-sensitive, mit Duplikat-Check)
+  - Wenn ein Admin den eigenen Username ändert, wird die laufende Session automatisch auf den neuen Namen aktualisiert
+  - Session-Ablauf/ungültige Session leitet auf `/session-expired` mit anschliessendem Redirect auf `/login`
+  - Security-Schalter im Admin-UI: `/config/security` (Bootstrap-Lock speichern ohne YAML-Edit)
+  - Session-Cookies werden serverseitig gegen aktiven User im Security-Store validiert (deaktivierte User verlieren Zugriff sofort)
+  - Benutzernamen sind case-sensitive (`fischerman` und `Fischerman` sind getrennte Accounts)
+  - UI-Restart-Watchdog aktiv: wenn ARIA kurz nicht erreichbar war und wieder hochkommt, leitet die offene Seite automatisch auf `/login` um
+  - Rollen-/Modus-Logik getrennt:
+    - `admin` = darf grundsaetzlich alles
+    - `user` = kein Zugriff auf technische/gefährliche Systembereiche
+    - `Admin-On/Off` = Sichtbarkeits-/Power-Modus für Admins, damit Admins bewusst in einer reduzierten User-Sicht arbeiten können
+  - Route-Level-Haertung aktiv:
+    - `user` hat keinen Zugriff auf `LLM`, `Embeddings`, `Routing`, `Skill-Routing`, `Security`, `Dateien`, `Logs`, `Error Interpreter`
+    - `admin` sieht und öffnet diese Bereiche nur mit aktivem `Admin-On/Off`
+    - `Benutzer` bleibt für `admin` immer erreichbar, auch wenn `Admin-On/Off` aus ist
+  - Config-Hub und Menues respektieren die gleiche Zugriffsmatrix:
+    - `Einstellungen` für eingeloggte User sichtbar
+    - technische Karten nur bei aktivem Admin-Modus sichtbar
+    - Sprachdatei-Editor unter `/config/language` ist ebenfalls an Admin-Modus gebunden
+- Debug-Schalter im Admin-Bereich aktiv:
+  - Seite: `/config/users` (Sektion `Admin-On/Off`)
+  - UI-Name: `Admin-On/Off`
+  - blendet technische Chat-Metadaten und sensible Betriebslinks ein/aus
+- Username-basierte Zuordnung (Cookie) ist aktiv.
+- Memory Store/Recall mit Qdrant ist aktiv.
+- Recall nutzt relevante Collections der Memory-Familie (User + Tages-Kontext).
+- Deduplizierung bei Memory-Store ist eingebaut.
+- Tages-Kontext nutzt Namensschema `YYMMDD`:
+  - Beispiel: `aria_sessions_fischerman_260317`
+- Facts-Store nutzt typisierten Prefix:
+  - Beispiel: `aria_facts_fischerman`
+- Auto-Memory ist konfigurierbar; Anzeige im Chat-Header als Ampel (gruen/rot).
+- `aria.sh` vorhanden für `start|stop|restart|status|logs|url`.
+- `aria.sh` stabilisiert:
+  - robustere Prozess-Erkennung (kein `ps`-Truncation-Problem)
+  - Start-Detach gehaertet (`setsid` + `nohup`, falls verfügbar)
+  - `status` mit Health-Fallback, falls PID nicht eindeutig auflösbar ist
+- `aria.sh` erweitert um Security-Kommandos:
+  - `secure-migrate`
+  - `user-admin`
+- `aria.sh` verwaltet jetzt Autostart direkt:
+  - `autostart-status`
+  - `autostart-install`
+  - `autostart-remove`
+- `./aria.sh url` zeigt die reale Host-IP statt `127.0.0.1`.
+- Container-Basis ist vorhanden:
+  - `Dockerfile`
+  - `.dockerignore`
+  - `docker/entrypoint.sh`
+  - `docker-compose.yml`
+  - Container-Start lädt `config/secrets.env` und nutzt lokale Volumes für `config`, `prompts`, `data`
+  - wenn `config/config.yaml` im Container fehlt, wird automatisch `config/config.example.yaml` übernommen
+  - Docker-Build und `/health` im Test-Container erfolgreich verifiziert
+  - `numpy<2` ist für Container-/CPU-Kompatibilitaet explizit gepinnt
+- Stats zeigen Tokens pro Modell sowie Kosten (USD), wenn Modellpreise gepflegt sind.
+- Stats haben jetzt zusätzlich eine Health-Sektion:
+  - zeigt Kern-Dienste direkt im UI:
+    - `ARIA Runtime`
+    - `Model Stack`
+    - `Memory / Qdrant`
+    - `Security Store`
+    - `Activities / Logs`
+  - jeder Dienst hat Status (`OK`, `Warnung`, `Fehler`) plus Kurztext
+  - visuell mit gruener/amber/roter Status-Lampe statt nur Text-Badges
+  - Qdrant-Check ist bewusst kurz getaktet, damit `/stats` bei Problemfaellen nicht lange blockiert
+  - darunter zusätzlich eigener Live-Block für SSH-Verbindungen:
+    - nutzt denselben Karten-/Lampenstil wie `/config/connections`
+    - zeigt alle konfigurierten SSH-, Discord- und SFTP-Profile mit Ziel/Zielhost und Statusmeldung
+    - pro Verbindung zusätzlich `letzter Erfolg`, persistent über einfache Datei unter `data/runtime/connection_health.json`
+    - Probe-Checks laufen kurz getaktet, damit `/stats` mobil und im Alltag reaktionsfähig bleibt
+- Skills-Seite (`/skills`) ausgebaut:
+  - Core-Kartenansicht fokussiert auf `Memory` und `Auto-Memory`
+  - Admin kann Skills zentral aktivieren/deaktivieren
+  - normale User sehen den Status read-only
+  - pro Skill aufklappbare `Details` mit Quick-Links zu passenden Konfig-Seiten
+  - neue Custom-Skill Engine (MVP):
+    - Skill-Manifeste als JSON unter `data/skills/*.json`
+    - dynamische Anzeige im Skills-UI (automatisch, ohne Hardcoding)
+    - Skill Wizard (`/skills/wizard`) für Erstellen/Bearbeiten
+    - Import (`/skills/import`) und Export (`/skills/export/{id}`) von JSON-Skills
+    - Editierbare Felder: ID, Name, Version, Kategorie, Beschreibung, Prompt-Pfad, Router-Keywords, Connections, Execution-Typ, Execution-Anweisung, UI-Link/Hinweis
+    - Runtime MVP aktiv: Custom-Skills triggern per Keyword und liefern als `llm_task` Skill-Kontext in die Pipeline
+    - Runtime erweitert: `execution.type = ssh_command` (MVP)
+      - Connection-Ref aus `config.yaml` unter `connections.ssh.<name>`
+      - Command-Template mit `{query}`-Platzhalter
+      - Guardrails: Allowlist, Timeout, Host-Key-Mode, Output-Kuerzung
+    - Verbindungen-UI für SSH ist aktiv:
+      - Seite: `/config/connections/ssh`
+      - SSH-Profile editierbar im Browser (Host, Port, User, Key-Pfad, Timeout, Host-Key-Mode, Command-Allowlist)
+      - ED25519-Keypair-Erzeugung im UI
+      - Public-Key-Preview zum direkten Eintrag in `authorized_keys`
+      - Browser-Key-Exchange aktiv:
+        - einmaliger Login mit User+Passwort vom Zielhost
+        - ARIA schreibt den Public Key automatisch nach `~/.ssh/authorized_keys`
+        - Passwort wird nicht gespeichert
+        - Key-Exchange ist jetzt im Standard-Flow von "Profil speichern" integriert (Default aktiv)
+      - Verbindungstest aktiv:
+        - läuft automatisch direkt nach dem Speichern eines Profils
+      - prüft passwortlosen SSH-Login per Key (`echo ARIA_SSH_OK`)
+      - `/config/connections/ssh` testet alle vorhandenen SSH-Profile beim Seitenaufruf mit kurzem Probe-Timeout
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro Profil und Detailmeldung bei Fehlern
+      - Live-Status ist als eigener UI-Block von der Profilbearbeitung getrennt; Summary oben auf 4 Karten reduziert
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt, auch wenn der aktuelle Check fehlschlaegt
+    - Verbindungen-UI für Discord ist aktiv:
+      - Seite: `/config/connections/discord`
+      - Discord-Profile editierbar im Browser
+      - Discord-Webhook-URL wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Speichern testet den Webhook automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro Discord-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+      - Discord-Seite erklärt den nötigen Webhook-Setup auf Discord-Seite jetzt klarer
+      - bestehende Discord-Profile können sichtbarer geladen und bearbeitet werden
+      - Discord-Fehler `403` / `401` / `404` werden verständlicher interpretiert
+      - Discord-POSTs senden jetzt einen expliziten `User-Agent`, damit Cloudflare/Discord valide Webhooks nicht fälschlich abweist
+      - Discord-Test kann jetzt optional eine nerdige A.R.I.A-Handshake-Nachricht posten oder still prüfen
+      - pro Discord-Profil ist steuerbar, ob Skills dieses Profil für `discord_send` überhaupt verwenden dürfen
+      - Discord kann pro Profil jetzt selektiv als kleine Alarm-/Log-Zentrale für ARIA genutzt werden:
+        - Skill-Fehler
+        - Safe-Fix bereit/ausgeführt
+        - Verbindungsstatus-Änderungen
+        - System-Start
+    - Verbindungen-UI für SFTP ist aktiv:
+      - Seite: `/config/connections/sftp`
+      - SFTP-Profile editierbar im Browser (Host, Port, User, Passwort oder Key, Timeout, optionaler Startpfad)
+      - bestehende SSH-Profile können als Vorlage übernommen werden (Host, User, Port, Key-Pfad)
+      - SFTP-Passwort wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Key-basierte SFTP-Authentisierung ist ebenfalls unterstützt
+      - Speichern testet die Verbindung automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro SFTP-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+      - SFTP ist jetzt auch als Skill-Runtime nutzbar:
+        - Step `sftp_read` liest Dateien aus einem SFTP-Profil
+        - Step `sftp_write` schreibt Dateien über ein SFTP-Profil
+        - Skill-Wizard unterstützt beide Step-Typen inkl. Profilwahl, Remote-Pfad und Content-Template
+    - Verbindungen-UI für SMB ist aktiv:
+      - Seite: `/config/connections/smb`
+      - SMB-Profile editierbar im Browser (Host, Share, Port, User, Passwort, Timeout, optionaler Remote-Pfad)
+      - SMB-Passwort wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Speichern testet die Verbindung automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro SMB-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+    - Connection-Profile können jetzt einheitlich gelöscht werden:
+      - eigener `Profil löschen`-Block auf allen Connection-Seiten
+      - löscht Config-Eintrag, Secure-Store-Secret(s) und Health-Cache-Eintrag
+      - bei `SSH` bleiben lokale Key-Dateien bewusst erhalten
+    - Verbindungen-UI für Webhook ist aktiv:
+      - Seite: `/config/connections/webhook`
+      - Webhook-Profile editierbar im Browser (URL, Methode, Content-Type, Timeout)
+      - Webhook-URL wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Speichern testet den Endpoint automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro Webhook-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+    - Verbindungen-UI für Email ist aktiv:
+      - Seite: `/config/connections/email`
+      - SMTP-Profile editierbar im Browser (SMTP-Host, Port, User, Passwort, From/To, STARTTLS/SSL, Timeout)
+      - SMTP-Passwort wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Speichern testet die Verbindung automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro Email-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+    - Verbindungen-UI für HTTP API ist aktiv:
+      - Seite: `/config/connections/http-api`
+      - HTTP-API-Profile editierbar im Browser (Base-URL, optionales Bearer-Token, Health-Pfad, Methode, Timeout)
+      - Bearer-Token wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Speichern testet den Endpoint automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro HTTP-API-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+    - Verbindungen-UI für RSS ist aktiv:
+      - Seite: `/config/connections/rss`
+      - RSS-/Atom-Profile editierbar im Browser (Feed-URL, Timeout)
+      - Speichern testet den Feed automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro RSS-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+    - Verbindungen-UI für MQTT ist aktiv:
+      - Seite: `/config/connections/mqtt`
+      - MQTT-Profile editierbar im Browser (Host, Port, User, Passwort, Topic, TLS, Timeout)
+      - MQTT-Passwort wird im Secure Store gespeichert (nicht in `config.yaml`)
+      - Speichern testet den Broker automatisch
+      - Live-Statusliste im UI mit gruener/roter Status-Lampe pro MQTT-Profil
+      - letzter erfolgreicher Test wird file-basiert persistiert und als Zeitstempel angezeigt
+    - Verbindungen sind jetzt modular getrennt:
+      - `Einstellungen > Verbindungen` listet die vorhandenen Connection-Typen direkt
+      - jede Connection-Art auf eigener Unterseite
+      - Ziel: kleinere, ruhigere Seiten und später leichter erweiterbare Connection-Typen
+      - aktuell: `SSH`, `Discord`, `SFTP`, `SMB`, `Webhook`, `Email`, `HTTP API`, `RSS`, `MQTT`
+    - Verbindungs-Health in `/stats` erweitert:
+      - zeigt alle konfigurierten Profile aus `SSH`, `Discord`, `SFTP`, `SMB`, `Webhook`, `Email`, `HTTP API`, `RSS`, `MQTT`
+      - gleicher rot/gruen-Stil wie auf den Connection-Unterseiten
+      - inkl. persistentem Zeitstempel für den letzten erfolgreichen Check
+      - Überschrift/Hinweistext auf `/stats` sind jetzt generisch für alle konfigurierten Verbindungen, nicht mehr SSH-spezifisch
+      - Status-/Testlogik ist jetzt zentral in `aria/core/connection_runtime.py` gebündelt
+      - Connection-Unterseiten und `/stats` nutzen denselben Prüfpfad statt doppelte Einzel-Implementierungen
+      - das reduziert Pflegeaufwand und ist die Vorstufe für später auto-generierte/eigene Connection-Typen
+      - RSS erscheint dort bei vielen Feeds bewusst nur noch als kompakte Summary statt als lange Einzelliste
+    - Runtime-/Projekt-Dependencies für neue Verbindungen erweitert:
+      - `pysmb` für SMB
+      - `paho-mqtt` für MQTT
+    - Wizard ist jetzt benutzergefuehrt:
+      - ID optional (auto-generiert), Kategorie via Dropdown, Connections via Presets
+      - Prompt-Datei und Execution-Typ als Read-only Summary
+      - optionale UI-Felder in „Erweitert“
+      - Inline-`i`-Hilfen vorbereitet für spätere Live-Hilfe
+    - Step-Pipeline für Skills (MVP) aktiv:
+      - Skill-Manifest unterstützt `steps[]` mit `ssh_run`, `llm_transform`, `discord_send`
+      - Wizard fuehrt Schritt-für-Schritt durch dynamische Steps (per `+ Zusätzlichen Schritt aktivieren`)
+      - `on_error` pro Step (`stop`/`continue`)
+      - Legacy-`execution` wurde entfernt, `steps[]` ist jetzt verpflichtend
+      - Connection-Auswahl nur noch pro Step (inkl. Direktlink zu `Einstellungen > Verbindungen`)
+      - optionaler Skill-Zeitplan auf Skill-Ebene (`cron`, `timezone`, `run_on_startup`)
+      - Zeitplan-UI zeigt normale 24h-Uhrzeit; Cron bleibt intern
+- Pricing Coverage in Stats vorhanden:
+  - gesehen vs. bepreist
+  - unbepreiste Modelle
+  - Preisquellen und Verifikationsdatum
+
+## Hilfe-System / Doku
+
+- Zentrale Hilfe: `docs/help/help-system.md`
+- Memory-Doku: `docs/help/memory.md`
+- Pricing-Doku: `docs/help/pricing.md`
+- Security-Doku: `docs/help/security.md`
+- Test-Checkliste: `project.docu/history/test-checkliste.md`
+- Changelog alt: `project.docu/history/changelog-2026-03.md`
+- Changelog public: `CHANGELOG.md`
+- UX-Log: `project.docu/user-experience-log`
+
+## Backlog / Offene Punkte
+
+- Icons auch auf den einzelnen Einstellungs-Unterseiten ergänzen
+- Connections später auch per Chat erstellen/löschen/ändern:
+  - mit Confirm-Steps
+  - Secret-/Security-Schutz
+  - modular genug, damit spätere user-definierte Connection-Typen automatisch profitieren
+  - erster sicherer Schritt: `delete` mit Bestätigung
+  - danach `create`
+  - `update` bewusst zuletzt
+- Connection-Kontext/Aliase künftig noch strukturierter mitdenken:
+  - Host-/Share-/URL-Aliase
+  - beschreibende Connection-Metadaten
+  - später optional semantisch via Memory/Qdrant ergänzen
+- Test-Session bewusst später abschliessen:
+  - `SMTP`
+  - `IMAP`
+  - `MQTT`
+- WireGuard als eigener Connection-/VPN-Baustein integrieren:
+  - ARIA sicherer aus dem Internet erreichbar machen
+  - lieber Zugriff via VPN statt offener Web-Exponierung
+  - sauber unter `Einstellungen > Verbindungen`
+  - später kompatibel mit user-definierten Connection-Typen
+- Einstellungen-Unterseiten visuell weiter vereinheitlichen und auto-generierter strukturieren
+- Umbau-Plan / Architektur-Referenz:
+  - `project.docu/history/umbau-plan.md`
+  - `project.docu/history/capability-routing-plan.md`
+
+## Aktueller Betriebsmodus
+
+- Pricing ist aktuell aktiviert (`pricing.enabled: true` in `config/config.yaml`).
+- Security ist aktuell aktiviert (`security.enabled: true` in `config/config.yaml`).
+- Kosten erscheinen für neue Requests, wenn das jeweilige Modell in `pricing.chat_models` bzw. `pricing.embedding_models` eingetragen ist.
+- Alte Logeintraege ohne Preisbasis bleiben ohne Kostenwerte.
+- Dauerbetrieb ist über User-Cronjob möglich (Reboot + 1-Minuten-Ensure).
+- Phase 2A-1 gestartet: kompatibles `memory.collections`-Schema ist eingefuehrt.
+- Phase 2A-2 umgesetzt: Recall sucht typisiert über Facts, Preferences, Sessions und Knowledge, merged gewichtet und liefert Typ-Labels.
+- Phase 2A-3 gestartet: "Vergiss X" zeigt Treffer-Vorschau und löscht nur nach Code-Bestätigung im Chat.
+- Recall-Regression gefixt: semantische Recall-Suche ist wieder Standard, Keyword-Fallback nur noch bei Fehler/leerem Trefferbild.
+- Router-Disambiguation aktiv:
+  - `vergiss nicht ...` => `memory_store`
+  - echte Lösch-Intents => exklusiv `memory_forget`
+- Forget-Sicherheitsfix aktiv:
+  - Pending-Delete-Cookie ist jetzt HMAC-signiert
+  - manipulierte Cookie-Payloads werden verworfen
+- Routing-Konfigseite erweitert: `memory_forget_keywords` ist im GUI editierbar und speicherbar.
+- Auto-Memory erkennt jetzt Typen getrennt:
+  - Facts in `aria_facts_<user>`
+  - Preferences in `aria_preferences_<user>`
+- Neues Memory-UI:
+  - Seite `/memories` mit Typ-Filter, semantischer Suche, Eintrag-löschen
+  - Pagination + Sortierung + Seitenstatus für grosse Memory-Mengen
+  - Eintraege direkt editierbar (Text anpassen) und speicherbar
+  - Manueller Trigger für Kontext-Rollup
+  - Anzeige "Empty-Cleanup" mit letzter Aktion (Anzahl/Scope/Zeit) im Header
+  - List-Ansicht nutzt user-basierten Vollscan über alle Collections (auch Legacy-Namen)
+  - Memory Health Panel (Points, Typ-Verteilung, dominante Collection, Komprimierungsbedarf)
+  - Memory Map Seite `/memories/map` als native ARIA-Visualisierung (ohne iframe-Abhaengigkeit)
+- Error-Handling verbessert:
+  - Fehlerklassen `memory_unavailable` und `embedding_failed`
+  - Chat zeigt nutzerfreundlichen Hinweis bei Memory-Problemen
+- Token-Log erweitert:
+  - `skill_errors`
+  - `extraction_*` Felder für Auto-Memory-Extraction
+- Task 7 finalisiert:
+  - nutzerfreundliche Memory-Fehlertexte im Chat (`memory_unavailable`, `embedding_failed`, fallback)
+  - Forget-Flow nutzt dieselben klaren Fehlertexte auch bei Preview/Apply-Fehlern
+- Task 8 erweitert:
+  - neue Tests für Kontext-Rollup (7d/30d Verhalten)
+  - Tests decken Komprimieren alter Sessions sowie Skip für frische Sessions ab
+  - neue Tests für Session-vs-User-Recall (Facts + Sessions kombiniert)
+  - neuer Test für leere Collection-Bereinigung (Global-Cleanup)
+- Task 5 vervollstaendigt:
+  - Auto-Komprimierung beim App-Startup aktiv
+  - Startup-Maintenance läuft als Background-Task (blockiert App-Start nicht mehr)
+  - Leere Memory-Collections werden beim Startup automatisch bereinigt (inkl. Legacy `aria_memory_*`)
+  - `aria.sh maintenance` als manueller/cronfähiger Maintenance-Runner verfügbar
+  - `autostart-install` setzt täglichen Maintenance-Cron (`17 3 * * *`)
+  - Legacy-Session-Namen (`aria_memory_<user>_session_*`) werden bei Rollup/Komprimierung mitverarbeitet (Alterslogik via Timestamp)
+  - CLI-Maintenance (`./aria.sh maintenance`) respektiert `monthly_after_days` aus Config
+  - Maintenance entfernt jetzt zusätzlich operative Skill-Trigger aus alten Session-Collections (`noise` im Output)
+  - Token-/Run-Logs werden jetzt ebenfalls per Retention bereinigt (`token_tracking.retention_days`)
+  - Startup-Maintenance und CLI-Maintenance prune alte Eintraege aus `data/logs/tokens.jsonl`
+  - Admin-UI dafür: `/config/logs`
+- Summary-Prompt für Kontext-Rollup ist jetzt ausgelagert:
+  - Prompt-Datei: `prompts/skills/memory_compress.md`
+  - Config-Key: `memory.compression_summary_prompt`
+  - im Memory-Config-UI direkt editierbar (Prompt-Pfad speichern)
+  - Rollup-Ziel für alte Sessions: `aria_context-mem_<user>` (statt `aria_knowledge_<user>`)
+  - Tage-Regeln für Rollup sind im Memory-Config-UI editierbar (`compress_after_days`, `monthly_after_days`)
+- Teststatus: `37 passed` (pytest, 2026-03-26).
+- Skill-Runtime SSH-Optimierung (2026-03-25):
+  - Connect-Timeout und Command-Timeout sind getrennt.
+  - Verbindungen schlagen jetzt schnell fehl, auch wenn lange Command-Laufzeiten erlaubt sind.
+  - verhindert "hängt ewig bei Host down", ohne lange Wartungsjobs abzuschneiden.
+- Skill-Status-Intent aktiv (2026-03-25):
+  - Fragen wie `welche skills sind aktiv` oder `was für skills hast du aktiv` werden sicher erkannt.
+  - natuerlichere Varianten wie `Was sind deine aktuellen Skills?` werden jetzt ebenfalls deterministisch erkannt.
+  - Antwort kommt deterministisch aus Runtime-Daten (Core + Custom) statt aus LLM-Freitext.
+  - Ausgabe ist gruppiert in `Aktiv` und `Deaktiviert`, inkl. Zweck und Connections.
+- SSH-Update-Skill verbessert (2026-03-25):
+  - Trigger-Erkennung für natürliche Formulierungen wie „update der zwei server“ erweitert
+  - Summary-Step wertet jetzt beide Node-Outputs aus (nicht nur den letzten Step)
+  - universelle Hold-Detection in `ssh_run`:
+    - zurückgehaltene APT-Pakete werden für alle Custom Skills erkannt und pro Connection aggregiert
+    - Ergebnis enthält automatisch eine Safe-Fix-Empfehlung (`apt install --only-upgrade ...`)
+  - Confirm-Flow für Safe-Fix:
+    - ARIA fuehrt den vorgeschlagenen Fix erst nach expliziter Bestätigung aus (`bestätige fix <token>`)
+    - Pending-Fix ist user-gebunden, signiert und zeitbegrenzt
+  - Fehler-Dolmetscher aktiv:
+    - SSH-/apt-/sudo-/Netzwerkfehler werden über Regeln in `config/error_interpreter.yaml` interpretiert
+    - neue Config-Seite `/config/error-interpreter` im gewohnten Editor-Stil
+    - Safe-Fix-Ausgaben enthalten dadurch besser lesbare Ursache-/Nächster-Schritt-Hinweise
+- Chat-Reset im UI aktiv (2026-03-25):
+  - Chat-Reset per Chat-Commands: `cls`, `/cls`, `clear`, `/clear`.
+  - löscht den letzten Chatverlauf jetzt serverseitig browserübergreifend pro User.
+  - Draft bleibt bewusst lokal im Browser gespeichert.
+  - Qdrant-Memory bleibt unverändert.
+  - dedizierter Chat-Reset-Button wurde wieder entfernt (cleanes Chat-Layout).
+  - Slash-Menue im Chat aktiv: bei `/` erscheinen Tools/Aktionen direkt als Auswahl.
+  - `/skill` im Slash-Menue:
+    - zeigt Trigger-Vorschlaege aus vorhandenen Custom-Skills
+    - Vorschlaege werden automatisch aus den gepflegten Skill-Keywords geladen
+    - User kann Trigger direkt einklicken statt manuell tippen
+  - Laufzeit-Feedback im Chat aktiv:
+    - temporaere Assistant-Statusmeldung waehrend Requests
+    - unterscheidet `Skill wird ausgefuehrt...` vs. `Nachricht wird verarbeitet...`
+  - letzter Chat ist jetzt browserübergreifend pro User verfügbar:
+    - file-basiert unter `data/chat_history/`
+    - keine SQLite-/DB-Erweiterung nötig
+    - Laden beim Öffnen der Chat-Seite, Speichern nach jeder erfolgreichen Antwort
+  - operative Skill-Trigger werden nicht mehr als `auto_session` in Tages-Kontext-Collections persistiert
+    - Ziel: Memories enthalten Wissen, nicht Bedien-/Ausführungsrauschen
+- Aktivitaeten/Runs getrennt vom Memory (2026-03-26):
+  - neue Seite `/activities` im User-Menue
+  - zeigt operative Skill-Läufe, Memory-Aktionen und Systemaktionen aus dem Token-Log
+  - bewusst getrennt vom semantischen Memory, damit die Memory-Ansicht sauber bleibt
+  - nur passende Intents werden angezeigt (`custom_skill:*`, `skill_status`, `memory_*`)
+  - Zusammenfassung oben: Anzahl, Erfolg, Fehler, Durchschnittsdauer
+  - Fehlerdetails pro Run aufklappbar
+  - Filter im UI: `Alle`, `Skills`, `Memory`, `System`
+  - zusätzlicher Status-Filter: `Alle`, `OK`, `Fehler`
+- Skill-Wizard Bugfix (2026-03-26):
+  - Umbenennen eines Skills überschreibt den Anzeigenamen nicht mehr versehentlich mit einer Connection wie `llm`, `ssh` oder `chat`
+- Skill-ID-Rename-Flow gehaertet (2026-03-27):
+  - ändert ein Admin die Skill-ID im Wizard, wird das jetzt als echtes Umbenennen behandelt
+  - alte Skill-Datei wird entfernt/ersetzt statt still parallel liegenzubleiben
+  - `skills.custom.<id>` in `config.yaml` wird von alter auf neue ID migriert
+  - wenn `prompt_file` dem Default-Schema folgt (`prompts/skills/<id>.md`), wird dieser Pfad auf die neue ID mitgezogen
+  - Empfehlung:
+    - Umbenennen ist jetzt technisch sauber unterstützt
+    - trotzdem nicht ohne Grund dauernd umbenennen; viele historische/manuelle Änderungen machen Systeme nie klarer
+  - Backlog:
+    - optionaler Audit-/Cleanup-Job für verwaiste Skill-Artefakte nach alten manuellen Änderungen oder Legacy-Staenden
+  - Ursache war ein Variablen-Konflikt im Manifest-Validator
+- Log-Retention / Cleanup (2026-03-26):
+  - neue Admin-Seite `/config/logs`
+  - Token-/Run-Logging ein-/ausschaltbar
+  - Retention in Tagen konfigurierbar (`0 = nie automatisch löschen`)
+  - aktueller Log-Zustand sichtbar: Datei, Zeilen, Grösse, ältester/neuster Eintrag
+  - manueller Cleanup-Button im UI
+  - Token-Tracker intern bereinigt: weniger doppelte JSONL-/Timestamp-Logik, Filter zentralisiert, Log-Health robuster
+- Mehrsprachigkeit (MVP) aktiv (2026-03-25):
+  - DE/EN über Language-Files (`aria/i18n/de.json`, `aria/i18n/en.json`)
+  - Sprachwahl per `?lang=de|en`, gespeichert im Cookie `aria_lang`
+  - Basis-Navigation, Login und Chat sind bereits i18n-fähig
+  - konfigurierbare Standardsprache via `ui.language`
+  - Sprachwahl als Flaggen-Dropdown (automatisch aus vorhandenen Language-Files)
+  - Login hat zusätzlich ein eigenes Sprach-Dropdown im Formularbereich
+  - neue Seite `/config/language` für Default-Sprache + optionalen Sprachdatei-Editor (Erweitert)
+  - i18n-Restaudit erledigt für `base`, `chat`, `login`, `config/language` (keine harten DE-UI-Texte mehr in diesen Seiten)
+  - i18n-Welle 2: `/memories` und `/skills` ebenfalls sprachfähig gemacht (DE/EN)
+  - i18n-Welle 3: `/memories/config` ebenfalls sprachfähig gemacht (DE/EN, `config_memory.*`)
+  - i18n-Welle 4: `/config` (Hub) ebenfalls sprachfähig gemacht (DE/EN, `config.*`)
+  - i18n-Welle 5: `/config/llm`, `/config/embeddings`, `/config/routing`, `/config/prompts`, die Connection-Unterseiten, `/config/security`, `/config/files`, `/config/users`, `/stats` ebenfalls sprachfähig gemacht (DE/EN, inkl. JS-Texte bei Model-Loader)
+  - Routing ist jetzt mehrsprachig konfigurierbar:
+    - `routing.default` als Fallback
+    - `routing.languages.<lang>` für sprachspezifische Trigger/Keywords
+    - `/config/routing` hat Scope-Auswahl (`default`, `de`, `en`, ...)
+    - pro Request wird anhand der aktiven Sprache das passende Routing-Profil verwendet
+  - Skill-Routing jetzt zentral konfigurierbar:
+    - neue Admin-Seite `/config/skill-routing`
+    - Trigger pro Custom-Skill editierbar (ohne JSON-Handedit)
+    - Trigger können jetzt via aktivem Chat-LLM vorgeschlagen werden (pro Skill oder global für alle Skills)
+    - Trigger-Index (`data/skills/_trigger_index.json`) wird automatisch gepflegt und kann manuell neu gebaut werden
+    - Skill-Runtime ignoriert interne Index-Dateien (`_*.json`) sauber
+    - Info-Ausgaben für LLM-Vorschlaege sind jetzt lesbar (keine kryptischen Codes mehr)
+  - Skill-Wizard erweitert (alle relevanten JSON-Felder abbildbar):
+    - neue Felder: `connections`, `prompt_file`, `schema_version`
+    - optionale Auto-Generierung für Trigger im Erstellprozess (wenn Trigger-Feld leer ist)
+    - Validierung fuehrt explizite + aus Steps abgeleitete Connections zusammen
+    - Skill-Manifeste bleiben dadurch GUI-vollstaendig editierbar
+  - Skill-Beschreibungstexte:
+    - Core-Skill-Descriptions sind i18n-gesteuert
+    - bekannte Default-Custom-Description (`Server Update (2 Nodes)`) hat EN-Fallback im UI
+  - sichtbare deutsche UI-Texte wurden zusätzlich auf echte Umlaute und Schweizer `ss` nachgezogen
+- User/Memory-Konsistenz gefixt (2026-03-24):
+  - Login-Cookies nutzen den kanonischen Username aus dem Security-Store
+  - Memory-Filterung ist wieder strikt pro `user_id` (kein Alias-Match)
+- App-Lifecycle modernisiert:
+  - FastAPI Lifespan statt `@app.on_event("startup")` (deprecation entfernt)
+  - Startup-Maintenance bleibt non-blocking und wird beim Shutdown sauber abgeraeumt
+- Security-by-default Header aktiv:
+  - `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`
+- CSRF-Schutz aktiv für Browser-Write-Requests:
+  - Token-Cookie + Form/Header-Validierung (`aria_csrf_token`, `X-CSRF-Token`)
+
+## Offene Punkte / Nächste Schritte
+
+- Preise weiter pro Provider/Modell verifizieren und pflegen.
+- Optional: UI-Seite für Pricing-Pflege statt YAML-Edit.
+- Optional: Hilfe-Seite direkt im Web-UI verlinken.
+- Optional: Mehrsprachigkeit vorbereiten (z.B. `de`/`en` via Sprachdateien statt festem Template-Text).
+- Backlog Theming: zentrales Theme-System (ein CSS-Basissystem + austauschbare Farbschemata), damit User eigene Themes definieren können.
+- Backlog UI/Branding: Wenn `ui.title` im Datei-Editor geändert wird, soll der Name neben dem Logo automatisch mitziehen; dabei Zeichenlimit einbauen (damit Header/Admin-Badge das Layout nicht zerreisst). Optional später: kleiner Namensgenerator als Gimmick.
+- Backlog Skill-System: Wizard-basierter Skill-Builder (Eingabemasken) erzeugt Skill-JSON; Navigation, Menues und Skill-Config-Seiten werden daraus dynamisch generiert (enduser-freundlich, ohne Dateisystem-Bearbeitung).
+- Backlog Skills/Cleanup: optionaler Audit-/Cleanup-Job für verwaiste Skill-Dateien, Prompt-Dateien und Legacy-Config-Eintraege nach manuellen Dateiedits, Import-Fehlern oder sehr alten Ständen.
+- Backlog UX Safe-Fix: Confirm-Flow sichtbarer machen (kompakte Vorschaukarte mit Connection->Pakete direkt vor Token-Anzeige), damit die Funktion für Enduser klar erkennbar bleibt.
+- Backlog UX/Security Safe-Fix: optionaler Bestätigen-Button im UI mit Passwort-Recheck (statt Chat-Token-only), damit Confirm-Flow einfacher und trotzdem sicher bleibt.
+- Backlog Dokumente: Dokument-Ingest als eigenes RAG-Modul mit expliziter Collection-Strategie (neu/bestehend/pro User), nicht als einfacher Skill-Schalter.
+- Ausbaupfad Connections ist priorisiert vor Dokumenten/RAG:
+  - 1. `Discord`
+  - 2. `SFTP / SMB`
+  - 3. `Webhook`
+  - 4. `Email`
+  - 5. `HTTP API`
+  - 6. `RSS`
+  - 7. `MQTT`
+  - Ziel: alle im gleichen klaren UI-/Config-Stil wie `SSH`, einfach konfigurierbar und skill-tauglich
+  - Stand heute: die komplette erste Connection-Welle ist als Config-/Health-Schicht aktiv (`Discord`, `SFTP`, `SMB`, `Webhook`, `Email`, `HTTP API`, `RSS`, `MQTT`)
+  - offener Ausbau danach: konkrete Skill-/Runtime-Nutzung pro Connection-Typ schrittweise nachziehen
+- Backlog Connections/Power-User:
+  - späterer Wizard für eigene Connection-Typen
+  - Connection-Bloecke unter `Einstellungen > Verbindungen` sollen sich dann aus Metadaten/Definitionen automatisch generieren statt hart verdrahtet zu bleiben
+  - eigene Connection-Typen sollen auf der bestehenden zentralen Connection-Runtime aufsetzen statt weitere Spezialpfade zu duplizieren
+  - späterer Discord-Bot-/Inbound-Modus, damit User ARIA aus dem LAN heraus auch über Discord ansprechen können, ohne direkt per VPN ins ARIA-Web-UI zu müssen
+- Nächster Architekturblock vorbereitet:
+  - Capability Routing + Memory Assist
+  - eigener Plan unter `project.docu/history/capability-routing-plan.md`
+  - Ziel: User-Wünsche wie Datei lesen/schreiben/listen fachlich erkennen, Memory zur Auflösung einbeziehen und dann den passenden Executor/Connection-Typ wählen
+  - Start klein mit `file_read`, `file_write`, `file_list` über `SFTP`, später `SMB`
+  - Phase 1 ist begonnen:
+    - neue Kernmodule `capability_router`, `memory_assist`, `action_plan`, `executor_registry`
+    - additiver Pipeline-Hook für normale Chat-Anfragen ohne Custom-Skill-Treffer
+    - erster Capability-Pfad aktiv für `SFTP`
+    - Chat kann jetzt einfache Datei-Aktionen direkt aus natürlicher Sprache ausführen:
+      - `file_read`
+      - `file_write`
+      - `file_list`
+    - Capability-Antworten bleiben im Chattext sauber; das verwendete Connection-Profil und der Zielpfad erscheinen stattdessen im aufklappbaren `Details`-Bereich der Assistant-Nachricht
+    - Erkennung wurde sprachlich breiter gemacht:
+      - natürlichere Formulierungen wie `Inhalt von ... zeigen`, `Datei erstellen`, `welche Dateien liegen in ...`, `öffne ... auf <server>`
+      - `file_list` wird jetzt sauber vor generischen `zeige`-/`show`-Formulierungen erkannt
+    - Phase 3 gestartet:
+      - kurzer operativer Capability-Kontext pro User wird file-basiert gespeichert
+      - Follow-up-Formulierungen wie `wie letztes Mal`, `im gleichen Pfad` und `im gleichen Ordner` lösen jetzt letzten Server/Pfad plausibel wieder auf
+      - `cls` / Chat-History-Reset löscht auch diesen operativen Kurzzeit-Kontext
+    - Phase 4 gestartet:
+      - derselbe Capability-Pfad unterstützt jetzt neben `SFTP` auch `SMB`
+      - `file_read`, `file_write`, `file_list` wählen dadurch je nach Ref/Hinweis/Default den passenden Datei-Transport
+      - SMB-/NAS-/Share-Hinweise und explizite SMB-Refs werden direkt im Router berücksichtigt
+    - Phase 5 gestartet:
+      - erste Nicht-Datei-Capability `feed_read` ist aktiv
+      - RSS-/Atom-Feeds können jetzt über denselben Capability-Pfad gelesen werden
+      - natürliche Feed-Formulierungen wie `RSS Feed ... zeigen` werden über `RSS`-Profile deterministisch ausgeführt
+      - RSS-Ausgabe ist lesbarer formatiert:
+        - kompaktere Anzahl Einträge
+        - lesbare Zeitstempel ohne ISO-Rohformat
+        - aufgeräumte Feed-Links ohne typischen Tracking-Müll wie `wt_mc` oder `utm_*`
+      - RSS-Editor im UI klarer getrennt:
+        - expliziter `Neues Profil`-Modus mit leerem Formular
+        - sichtbarer Hinweis, ob ein bestehendes Profil bearbeitet oder ein neues erstellt wird
+    - Bounded Cleanup nachgezogen:
+      - wiederholte Connection-Kontext-Builder in `config_routes.py` für die einfachen Connection-Typen reduziert
+      - wiederholte Profil-/Listing-Logik in `skill_runtime.py` für `SFTP` und `SMB` auf kleine gemeinsame Helper zusammengezogen
+      - Ziel: weniger Copy/Paste, ohne erneut einen riskanten Grossumbau auszulösen
+      - `file_list`
+    - Auflösung der Zielverbindung aktuell über:
+      - explizite Erwähnung eines SFTP-Profils
+      - einzig vorhandenes SFTP-Profil
+      - Memory-Assist über bestehende Memory-Suche
+- Dokumente / RAG bleiben bewusst ein eigenes Feature:
+  - kein normaler Skill
+  - eigener Ingest-/Chunking-/Collection-Flow
+  - steht weiter auf der Roadmap, aber nach dem Connection-Ausbau
+- Backlog Wissensindex (Qdrant): semantisch suchbare Inhalte (Prompts, Skill-Dokus, Help-Content, Run-Summaries) als Read-Index in Qdrant spiegeln; Source-of-Truth bleibt Datei/DB (kein Config/Auth/Secrets in Qdrant). Optionaler Sync-Job: Datei -> Qdrant-Index.
+- Backlog Security/Release: Docker-Netzwerk/FW-Haertung für Veröffentlichung (Default nur HTTP/HTTPS nach aussen; keine unnötigen Ports offen), plus klare Self-Install-Empfehlung.
+- Backlog Container/Release: finalen OCI-/GHCR-Workflow definieren (Build/Tag/Publish), inkl. Entscheidung zu non-root User, Compose-Varianten und optionalem Reverse-Proxy/HTTPS.
+- Backlog Security/SSH: Risiko- und Schutzkonzept für gestohlene SSH-Keys (Rotation/Revocation, least-privilege SSH-User, `authorized_keys`-Restriktionen, Key-Lifecycle).
+- Backlog Release/Git: vor einer öffentlichen Veröffentlichung prüfen, ob bereits getrackte lokale Runtime-Dateien via `git rm --cached` aus dem Repo entfernt werden müssen.
+- Backlog Logging: separate Rotation/Begrenzung für `uvicorn.log` (automatische Retention ist aktuell nur für `tokens.jsonl`/Run-Logs aktiv).
+- Backlog UX Config/Connections: die Connection-Unterseiten später visuell vereinheitlichen und als noch stärker auto-generierte Module strukturieren.
+- Architektur-Umbau ist vorbereitet und in `project.docu/history/umbau-plan.md` als schrittweiser Refactor-Pfad dokumentiert.
+- Phase 1 des Architektur-Umbaus abgeschlossen:
+  - Backup erstellt: `/home/fischerman/ARIA_backup_2026-03-26`
+  - Skill-Manifest-Basis wurde aus `aria/main.py` nach `aria/core/custom_skills.py` verschoben
+  - `main.py` nutzt die Skill-Basis jetzt per Import statt eigener Inline-Definitionen
+- Phase 2 des Architektur-Umbaus abgeschlossen:
+  - neue Route-Module:
+    - `aria/web/stats_routes.py`
+    - `aria/web/activities_routes.py`
+  - `/stats` und `/activities` wurden aus `aria/main.py` in eigene Registrierer verschoben
+  - `main.py` registriert beide Seiten jetzt nur noch über `register_stats_routes(...)` und `register_activities_routes(...)`
+  - Verifikation:
+    - `py_compile`: OK
+    - `pytest`: `37 passed`
+    - Neustart + `/health`: OK
+    - Login-Redirects für `/stats` und `/activities` korrekt
+- Phase 3 des Architektur-Umbaus abgeschlossen:
+  - neues Route-Modul:
+    - `aria/web/skills_routes.py`
+  - ausgelagert aus `aria/main.py`:
+    - `/skills`
+    - `/skills/save`
+    - `/skills/wizard`
+    - `/skills/wizard/save`
+    - `/skills/import`
+    - `/skills/export/{skill_id}`
+  - `main.py` registriert die Skills-Seiten jetzt nur noch über `register_skills_routes(...)`
+  - Runtime-Schutz:
+    - ausgelagerte Route-Module nutzen Getter für `settings`/`pipeline`, damit `reload_runtime()` weiterhin aktuelle Runtime-Objekte verwendet
+  - Verifikation:
+    - `py_compile`: OK
+    - `pytest`: `37 passed`
+    - Neustart + `/health`: OK
+    - Login-Redirects für `/skills` und `/skills/wizard` korrekt
+- Phase 4 des Architektur-Umbaus abgeschlossen:
+  - neue Runtime-Module:
+    - `aria/core/safe_fix.py`
+    - `aria/core/ssh_runtime.py`
+    - `aria/core/skill_runtime.py`
+  - aus `aria/core/pipeline.py` ausgelagert:
+    - Safe-Fix-Logik
+    - SSH-Command-Runtime
+    - Custom-Skill-Runtime inkl. Step-Ausführung
+    - Laden/Matchen von Custom-Skills
+    - Skill-Status-Textaufbau
+    - Auto-Memory-Skip-Regel für operative Skill-Runs
+  - `Pipeline` delegiert diese Bereiche jetzt an eigene Module; `process()` bleibt Orchestrator
+  - interne Pipeline-Methoden bleiben als Wrapper erhalten, damit Tests und bestehende Aufrufer stabil bleiben
+  - Verifikation:
+    - `py_compile`: OK
+    - `pytest`: `37 passed`
+    - Neustart + `/health`: OK
+    - Login-Redirects für `/skills` und `/activities` korrekt
+  - manueller Lauf:
+    - Skill-Status-Intent antwortet korrekt und sehr schnell
+    - Upgrade-Skill für beide `ubnsrv`-Server läuft erfolgreich
+    - Hold-Detection + Safe-Fix-Vorschlag erscheinen korrekt
+- Phase 5 des Architektur-Umbaus abgeschlossen:
+  - neues Route-Modul:
+    - `aria/web/memories_routes.py`
+  - ausgelagert aus `aria/main.py`:
+    - `/memories`
+    - `/memories/map`
+    - `/memories/delete`
+    - `/memories/edit`
+    - `/memories/maintenance`
+    - `/memories/config`
+    - Alias `/config/memory` inkl. zugehoeriger POST-Aktionen
+  - `main.py` registriert die Memory-Seiten jetzt nur noch über `register_memories_routes(...)`
+  - Getter-/Callback-Muster wie bei `skills` übernommen:
+    - `reload_runtime()` nutzt weiter aktuelle `settings`/`pipeline`
+    - Qdrant-/Cookie-/Config-Helfer bleiben zentral, HTTP-Logik ist modularisiert
+  - Verifikation:
+    - `py_compile`: OK
+    - `pytest`: `37 passed`
+    - Neustart + `/health`: OK
+    - Login-Redirects für `/memories`, `/memories/map`, `/memories/config` und `/config/memory` korrekt
+- Phase 6 des Architektur-Umbaus abgeschlossen:
+  - neues Route-Modul:
+    - `aria/web/config_routes.py`
+  - ausgelagert aus `aria/main.py`:
+    - `/config`
+    - `/config/language`
+    - `/config/debug`
+    - `/config/security`
+    - `/config/logs`
+    - `/config/connections`
+    - `/config/users`
+    - `/config/prompts`
+    - `/config/routing`
+    - `/config/skill-routing`
+    - `/config/llm`
+    - `/config/embeddings`
+    - `/config/files`
+    - `/config/error-interpreter`
+  - `main.py` registriert die Config-Seiten jetzt nur noch über `register_config_routes(...)`
+  - Getter-/Proxy-Muster auch für `config` umgesetzt:
+    - aktuelle `settings`/`pipeline` bleiben nach `reload_runtime()` gültig
+    - Config-Helfer bleiben zentral, HTTP-Logik ist modularisiert
+  - Verifikation:
+    - `py_compile`: OK
+    - `tests/test_router.py`: `8 passed`
+    - `tests/test_memory.py`: `4 passed`
+    - `tests/test_error_handling.py`: `4 passed`
+    - Neustart + `/health`: OK
+    - Route-Registry: `50` `/config*`-Routen vorhanden
+  - Nachtraeglicher Runtime-Fix:
+    - der späte `tests/test_pipeline.py`-Haenger wurde isoliert und behoben
+    - Ursache war eine stale `memory_skill`-Referenz nach Phase 4:
+      - `CustomSkillRuntime` hielt noch die urspruengliche `MemorySkill`, auch wenn `pipeline.memory_skill` später ersetzt wurde
+    - Loesung:
+      - `CustomSkillRuntime` nutzt jetzt einen Getter statt einer fest verdrahteten Referenz
+      - dadurch greifen Tests und Runtime wieder auf die aktuelle `memory_skill` zu
+    - Verifikation:
+      - gezielter Regressionstest: `tests/test_pipeline.py::test_pipeline_custom_skill_does_not_persist_auto_memory_session_context` -> `1 passed`
+      - gesamte `tests/test_pipeline.py` -> `11 passed`
+      - Vollsuite -> `37 passed`
+- Memory-Rollup-UX nachgeschaerft:
+  - Button in `/memories/config` jetzt praeziser (`Rollup jetzt starten`)
+  - Hinweistext erklaert, dass nur Tages-Kontext-Collections oberhalb des Alters-Grenzwerts verarbeitet werden
+  - Redirect springt nach manueller Ausführung direkt zur Rollup-Sektion
+  - Ergebnistext nennt verschobene/entfernte und bewusst unveränderte Collections klarer
+  - `MemorySkill.compress_old_sessions(...)` liefert dafür jetzt erweiterte Rückgabedaten (`compressed_collections`, `removed_collections`, `skipped_recent`, `skipped_empty`, `failed_delete`)
+  - Verifikation:
+    - `py_compile`: OK (`aria/web/memories_routes.py`, `aria/skills/memory.py`)
+    - gezielter Test: `tests/test_memory_compression.py` -> `3 passed`
+    - Neustart + `/health`: OK
+- Memory-UI aufgeraeumt (2026-03-27):
+  - der Übersichtsblock mit `Memory-Punkte`, Typ-Mix, grösster Collection, Komprimierungsfaelligkeit und `Empty-Cleanup` wurde von `/memories` nach `/memories/map` verschoben
+  - `/memories` fokussiert dadurch stärker auf Filter, Suche, Liste und Bearbeitung
+  - `/memories/map` zeigt jetzt sowohl Collection-Visualisierung als auch den kompakten Gesundheits-/Maintenance-Überblick
+- Kleine UX-Verbesserungen (2026-03-27):
+  - Memory-Zeitstempel in der Listenansicht werden lesbarer dargestellt (`YYYY-MM-DD HH:MM:SS...` statt ISO mit `T`)
+  - gleicher Formatstil jetzt auch für den `Empty-Cleanup`-Zeitstempel auf der Memory-Map
+  - globaler Zurück-Pfeil in der Topbar ergänzt:
+    - nutzt Browser-History für schnelle Rückspruenge
+    - faellt bei direktem Einstieg sauber auf Chat bzw. Login zurück
+  - Hauptnavigation klarer benannt:
+    - Username wurde im Top-Menue durch `Mehr` ersetzt
+    - Username/Rolle stehen jetzt nur noch klein im Dropdown selbst
+    - Ziel: sauberere Navigation ohne semantisch irrefuehrenden Username-Menuepunkt
+    - die kleine `ADMIN`-Rollenanzeige im Dropdown erscheint nur noch bei aktivem Admin-Modus (`Admin-On/Off`)
+    - `Config` wurde sprachlich sauberer zu `Einstellungen` / `Settings`
+- Connections-UI nachgeschliffen (2026-03-27):
+  - die Connection-Unterseiten sind jetzt klarer nach echtem Arbeitsablauf strukturiert:
+    - kompakter Status-/Profil-Überblick oben
+    - Profil laden/testen getrennt und sichtbar
+    - Hauptbereich für Profil + Key-Exchange bzw. Profil-Konfiguration als Standard-Flow
+    - manuelle Werkzeuge nur dort, wo sie fachlich nötig sind
+  - Ziel: weniger Options-Overload, mehr Orientierung für den Standardfall
+  - fehleranfaelliger doppelter `Test connection`-Button im Save-Form wurde entfernt
+  - restliche Feldlabels auf der Seite sind jetzt i18n-konsistent
+  - Verbindungstest gibt jetzt direkt sichtbares UI-Feedback:
+    - gruene Status-Karte bei Erfolg
+    - rote Status-Karte bei Fehler
+    - Detailtext/Fehlermeldung direkt darunter
+- Connection-UI jetzt auf allen vorhandenen Connection-Seiten logisch getrennt:
+  - eigener Bereich für neue Verbindungen mit bewusst leerem Formular
+  - eigener Bereich für bestehende Verbindungen zum Laden, Bearbeiten und Löschen
+  - umgesetzt für:
+    - `SSH`
+    - `Discord`
+    - `SFTP`
+    - `SMB`
+    - `Webhook`
+    - `Email`
+    - `HTTP API`
+    - `RSS`
+    - `MQTT`
+  - Ziel:
+    - klarer Neuanlage-vs-Bearbeiten-Flow
+    - weniger Verwirrung durch vorbelegte Altwerte
+    - gleiche Bedienlogik über alle Connection-Typen hinweg
+  - technische Basis:
+    - neue gemeinsame Inline-Delete-Teilvorlage `_connection_delete_inline.html`
+    - zusätzliche i18n-Texte für `Neu anlegen` vs `Bestehend bearbeiten`
+  - Verifikation:
+    - `py_compile`: OK (`aria/web/config_routes.py`, `aria/main.py`)
+    - JSON validiert (`aria/i18n/de.json`, `aria/i18n/en.json`)
+    - Tests: `tests/test_error_handling.py` + `tests/test_stats_routes.py` -> `10 passed`
+    - Neustart + `/health`: OK
+- Connection-Profile sauberer gespeichert (2026-03-29):
+  - Bearbeiten eines bestehenden Connection-Profils nutzt jetzt durchgängig `original_ref`
+  - Änderungen an einer bestehenden Verbindung erzeugen dadurch nicht mehr still ein zweites Profil
+  - gilt jetzt für:
+    - `SSH`
+    - `Discord`
+    - `SFTP`
+    - `SMB`
+    - `Webhook`
+    - `Email`
+    - `HTTP API`
+    - `RSS`
+    - `MQTT`
+  - Rename-Flow berücksichtigt dabei auch Secure-Store-Secrets und alte Health-Einträge
+  - neue Profile werden bei gleicher Ref jetzt sauber blockiert statt still überschrieben
+  - zusätzliche RSS-Dublettenprüfung:
+    - dieselbe `feed_url` kann nicht mehr nochmals unter einem zweiten RSS-Profil angelegt werden
+  - SFTP-Seite repariert:
+    - `/config/connections/sftp` rendert wieder sauber
+    - SSH-Seed-Kontext für `Aus SSH-Profil übernehmen` wird wieder korrekt an das Template geliefert
+  - Verifikation:
+    - `py_compile`: OK
+    - Jinja-Template-Load für alle Connection-Seiten: OK
+    - `tests/test_error_handling.py` + `tests/test_stats_routes.py`: `10 passed`
+    - Neustart + `/health`: OK
+
+- Webhook als neue Capability-Familie umgesetzt: natuerliche Chat-Prompts koennen jetzt ueber konfigurierte Webhook-Profile Nachrichten senden (`webhook_send`).
+
+- HTTP API als neue Capability-Familie umgesetzt: natuerliche Chat-Prompts koennen jetzt konfigurierte HTTP-API-Profile direkt ansprechen (`api_request`).
+
+- Mail-Verbindungen sauber getrennt: bestehende Email-Connection im UI zu SMTP umbenannt, IMAP als eigener Connection-Typ ergänzt.
+
+- Mail-Capabilities ergänzt: `email_send` über SMTP sowie `mail_read` und `mail_search` über IMAP.
+
+- MQTT-Capability ergänzt: `mqtt_publish` sendet Nachrichten über konfigurierte MQTT-Profile auf ein Topic.
+
+- RSS-Connections wurden UI-seitig verschlankt:
+  - `/config/connections/rss` gruppiert viele Feeds thematisch statt sie nur flach untereinander aufzulisten
+  - bevorzugt LLM-Clusterung mit stabilem Fallback
+  - `/stats` zeigt RSS nur noch als Summary (Anzahl / gruen / rot), nicht mehr als Einzelkarten
+
+- RSS-UI nachgeschaerft:
+  - manuelles `Kategorien aktualisieren` statt teurer Neugruppierung bei jedem Aufruf
+  - RSS auf `/stats` als konsistente Status-Karte mit Lampe statt separater Sonderbox
+- Backlog: UI punktuell mit externen Icon-Sets wie Pictogrammers aufwerten, aber erst nach bewusstem Lizenz-/Einbau-Check.
+
+- UI-Polish: Menues und Config-Hub haben jetzt eine lokale Icon-Schicht fuer schnellere Orientierung.
+- Umgesetzt ohne neue Frontend-Abhaengigkeit; geeignet fuer ARIAs schlanke Ausrichtung.
+- Backlog: Discord-Systemmeldungen sollen statt `0.0.0.0:8800` die real erreichbare ARIA-IP bzw. URL des Hosts anzeigen.
+- Backlog: Auf `/stats` soll `ARIA Runtime` die real erreichbare ARIA-IP/URL anzeigen statt der reinen Bind-Adresse `0.0.0.0:8800`.
+- Backlog: Icons auch auf einzelnen Einstellungs-Unterseiten ergänzen, nicht nur im Config-Hub und in den Menüs.
+
+- Breiter iPhone-/Mobile-Hardening-Pass ueber Navigation, Dropdown, Config-Hub, Tabellen und dichte Karten gelegt.
+
+- SSH-Testsession 2026-03-29:
+  - SSH-Connection-Seite: OK
+  - Laden/Speichern bestehender Profile inkl. Auto-Test: OK
+  - `/stats` zeigt SSH korrekt: OK
+  - Runtime-Status `welche skills sind aktiv`: OK
+  - offenes Finding:
+    - `/stats` laedt bei vielen Connection-Checks spuerbar langsam
+  - offenes Finding:
+    - freier Prompt `machst du mir ein update auf dem server` triggert den bestehenden SSH-/Update-Skill aktuell noch nicht robust genug
+
+- Discord-Testsession 2026-03-29:
+  - Discord-Connection-Seite: OK
+  - Speichern/Ändern der Alert-Checkboxen: OK
+  - `/stats` zeigt Discord korrekt: OK
+  - Discord-Testnachrichten kommen an: OK
+  - direkter Chat-Prompt fuer Discord-Nachrichten war zunaechst ein Routing-Gap und wurde direkt gefixt
+  - freier Prompt `schicke eine test nachricht nach discord, inhalt ...` sendet jetzt erfolgreich direkt aus dem Chat
+  - offenes UX-Finding:
+    - auf der Discord-Seite sollte klarer sichtbar sein, welche Alert-Kategorien aktuell aktiv sind
+  - Backlog:
+    - Block `Discord Alerting & Verhalten` soll optional aufklappbar werden, aehnlich wie `Details` im Chat
+
+- SFTP-Testsession 2026-03-29:
+  - SFTP-Connection-Seite: OK
+  - Laden/Speichern bestehender Profile inkl. Auto-Test: OK
+  - `/stats` zeigt SFTP korrekt: OK
+  - `file_read` via Chat funktioniert: OK
+  - offenes Detail-/UI-Finding:
+    - Chat-Details (`Ausgeführt via ...`, `Pfad: ...`) sollen für alle Connection-Capabilities konsistent nachgezogen werden
+
+- SMB-Testsession 2026-03-29:
+  - SMB-Connection-Seite: OK
+  - Laden/Speichern bestehender Profile inkl. Auto-Test: OK
+  - `/stats` zeigt SMB korrekt: OK
+  - offenes Routing-Finding:
+    - freier Prompt wie `zeige mir die daten aus dem docker verzeichnich von synrs816` wird noch nicht robust als SMB-/Share-Kontext erkannt
+
+- UI-/Navigation-Polish 2026-03-30:
+  - Connection-Karten auf `/stats` verlinken jetzt direkt zur passenden Connection-Seite im Edit-Modus.
+  - Capability-Details im Chat laufen jetzt zentral über eine gemeinsame Detail-Logik statt über Einzelsonderfälle.
+  - `mail_search` zeigt den Suchbegriff im Detailbereich, `mqtt_publish` zeigt dort das Topic.
+  - `Discord Alerting & Verhalten` ist jetzt auf der Discord-Seite einklappbar.
+  - Die Sprachauswahl ist aus dem eingeloggten Hauptmenü entfernt; Sprache liegt damit sauber unter `Einstellungen`.
+  - Das ARIA-Logo zeigt bei spürbar längeren Aktionen jetzt eine kleine Aktivitätsanimation, damit Requests wie `/stats` nicht wie ein Freeze wirken.
+
+- UI-/Runtime-Polish 2026-03-30:
+  - `/stats` zeigt bei `ARIA Runtime` jetzt die real erreichbare ARIA-URL statt der Bind-Adresse `0.0.0.0:8800`.
+  - Discord-Systemevents nutzen dieselbe Runtime-URL-Logik fuer Host-Meldungen.
+  - Discord-Seite zeigt bei geladenem Profil kompakt, welche Alert-/Routing-Kategorien aktiv sind.
+  - Das Hauptmenue schliesst jetzt auch per Klick ausserhalb oder via `Escape`.
+
+- Stats-UI 2026-03-30: oberer KPI-Block zeigt jetzt auch aktuelle RAM-Nutzung von ARIA inkl. kleiner Gauge und Anteil am System-RAM.
+
+- Memory-UI 2026-03-30:
+  - `/memories` zeigt Eintraege jetzt kompakt ueber Titel + Kurzinfo und klappt Details erst bei Bedarf auf.
+  - Eintraege koennen weiter bearbeitet und geloescht werden, ohne dass die Listenansicht zu roh wirkt.
+  - Neue manuelle Memories lassen sich direkt auf `/memories` als Fakt / Praeferenz / Wissen erfassen.
+- Backlog Connections/Security: WireGuard als eigener Connection-/VPN-Baustein integrieren, damit User ARIA sicherer aus dem Internet erreichen koennen, ohne ARIA direkt ungeschuetzt freizugeben. Zielbild: Port-Forward nur auf ARIA/WireGuard, Zugriff auf ARIA dann ueber VPN statt offenem Web-Zugang. Wichtig: schlank halten, sauber unter `Einstellungen > Verbindungen` einordnen und spaeter so strukturieren, dass user-definierte Connection-Typen denselben Mechanismus automatisch mitnutzen koennen.
+- Backlog Multi-User/RBAC 2026-03-30:
+  - echte Multi-User-Faehigkeit mit sauberem RBAC ueber alle Funktionen einplanen.
+  - Zielbild: Rollen/Rechte nicht nur fuer Login/Views, sondern fuer saemtliche Funktionsbereiche (`Connections`, `Skills`, `Memories`, `Chat-Admin`, `Files`, `Users`, `Security`, spaetere user-definierte Module).
+  - wichtig: von Anfang an modular denken, damit neue Funktionen/Connection-Typen Rechte automatisch mitziehen statt separat verdrahtet werden zu muessen.
+  - dazu gehoeren spaeter auch Ownership/Scope-Fragen pro User/Team sowie auditierbare Aktionen bei kritischen Admin-Operationen.
+
+- Backlog-Cleanup 2026-03-30:
+  - erledigte Punkte aus dem Top-Backlog entfernt (Runtime-URL, Logo-Aktivitaet, Sprachwahl im Menu, klickbare Stats-Karten, Alpha-Markierung).
+  - offener Backlog jetzt wieder auf die realen Restpunkte fokussiert.
+
+- Connection-Kontext 2026-03-30:
+  - Connection-Aliase werden jetzt strukturierter aus Ref + technischen Kerndaten aufgebaut (z. B. Host, Share, URL, Root-Path).
+  - Capability-Routing kann diese Aliase jetzt direkt als Remote-Hinweis nutzen.
+  - Ziel: Prompts mit Host-/NAS-/Docker-Bezug robuster aufloesen, auch wenn `smb`/`share` nicht explizit gesagt werden.
+
+- Chat-Connections 2026-03-30:
+  - erster sicherer Admin-Flow fuer Connection-Verwaltung via Chat vorbereitet.
+  - aktuell umgesetzt: `delete` mit Confirm-Step und signiertem Pending-Token.
+  - `create` und `update` bleiben bewusst im Backlog und kommen spaeter modular oben drauf.
+- Stats-UI 2026-03-30: RAM-Karte zeigt Memory Usage jetzt als digitale LED-Anzeige; Prozentwert ist explizit als Anteil am gesamten System-RAM beschrieben.
+- Stats-Header 2026-03-30: obere Kennzahlen zu Tokens, Kosten und Ressourcen zusammengefasst; Ressourcen-Block zeigt Memory plus lokal erkannte Qdrant-DB-Groesse im LED-Stil.
+- Connection-UX 2026-03-30:
+  - Connection-Auswahllisten zeigen jetzt bevorzugt `Titel · Ref` statt nur nackter Refs.
+  - Gilt fuer die Selector auf den Connection-Seiten inkl. SSH-Seed-Auswahl bei SFTP.
+- Chat-Connections 2026-03-30:
+  - erster `create`-Flow fuer einfache Connection-Typen umgesetzt.
+  - aktuell per Chat anlegbar: `Discord`, `RSS`, `Webhook`, `HTTP API`.
+  - bewusst mit Confirm-Step und signiertem Pending-Token vor dem echten Schreiben.
+  - technische Basis liegt jetzt so, dass spaeter weitere Connection-Typen modular angeschlossen werden koennen.
+  - `create` unterstuetzt jetzt zusaetzlich optionale Metadaten direkt im Prompt:
+    - `Titel`
+    - `Beschreibung`
+    - `Tags`
+    - `Aliase`
+  - der Confirm-Dialog zeigt diese Metadaten vor dem finalen Schreiben sichtbar an.
+  - erster `update`-Flow fuer einfache Connection-Typen ist jetzt ebenfalls umgesetzt.
+  - aktuell per Chat aktualisierbar: `Discord`, `RSS`, `Webhook`, `HTTP API`.
+  - Update kann bewusst auch nur Metadaten aendern, ohne URL/Base-URL neu setzen zu muessen.
+  - auch `update` laeuft ueber Confirm-Step und signierten Pending-Token statt Blindschreiben.
+  - Vorschau-/Summary-Texte im Chat nutzen jetzt freundlichere Feldnamen wie `Feed-URL`, `Webhook-URL`, `Base-URL`, `Health-Pfad`.
+- Chat-Toolbox 2026-03-30:
+  - Toolbox und Slash-Menue ziehen ihre Kommandos jetzt aus einem gemeinsamen Backend-Katalog statt aus halb-statischen Frontend-Fragmenten.
+  - neue Chat-Kommandos und Skill-Hinweise muessen damit nur noch an einer Stelle eingehängt werden.
+  - Admin-spezifische Chat-Hilfen fuer `Connection erstellen`, `aktualisieren` und `löschen` erscheinen nur fuer Admins.
+  - Toolbox ist damit wieder echte Hilfe fuer den aktuellen Chat-Stand statt eine manuell driftende Liste.
+  - Admin-Hilfen werden jetzt direkt aus den echten `create`-/`update`-Specs erzeugt.
+  - Beispiel-Kommandos nutzen wenn moeglich reale vorhandene Connection-Refs statt nur generische Platzhalter.
+- Skill-Wizard UX 2026-03-30:
+  - Connection-Auswahlen im Skill-Wizard zeigen jetzt wie die Connection-Seiten bevorzugt `Titel · Ref`.
+  - damit profitieren die neuen Connection-Metadaten auch direkt im Skill-Bau-Flow.
+- Connection-Kontext 2026-03-30:
+  - freie Prompts fuer Connection-Capabilities nutzen jetzt Metadaten robuster, nicht nur nackte Refs.
+  - kindspezifische Alias-Kombinationen aus `Titel`/`Tags` werden jetzt automatisch mitgebaut (z. B. `alerts mail`, `ops inbox`, `event bus`, `inventory endpoint`).
+  - `email_send`, `mail_read`/`mail_search` und `mqtt_publish` greifen jetzt auch dann sauberer, wenn der Prompt eher ueber Titel/Alias als ueber harte Typwoerter formuliert ist.
+  - MQTT-Details zeigen jetzt auch das Default-Topic aus dem Profil, wenn im Prompt kein eigenes Topic angegeben wurde.
+- Chat-Connections 2026-03-30:
+  - Chat-Admin-Flow unterstuetzt jetzt zusaetzlich `SSH`.
+  - `create` und `update` verstehen fuer `SSH` jetzt Host, User, optionalen Key-Pfad und optionale Allow-Commands inkl. Confirm-Step.
+  - SSH-Vorschauen in Chat/Toolbox zeigen dabei lesbare Felder wie `Host`, `User`, `Key-Pfad` und `Host-Key-Prüfung`.
+  - Chat-Admin-Flow unterstuetzt jetzt zusaetzlich `SMB`.
+  - `create` und `update` verstehen fuer `SMB` jetzt Host, Share, User und optionalen Pfad inkl. Confirm-Step.
+  - SMB-Vorschauen in Chat/Toolbox zeigen dabei lesbare Felder wie `Host`, `Share` und `Pfad`.
+  - Chat-Admin-Flow unterstuetzt jetzt zusaetzlich `SFTP`.
+  - `create` und `update` verstehen fuer `SFTP` jetzt Host, User, optionalen Pfad und optionalen Key-Pfad inkl. Confirm-Step.
+  - SFTP-Vorschauen in Chat/Toolbox zeigen dabei lesbare Felder wie `Host`, `User`, `Pfad` und `Key-Pfad`.
+- Connection-Kontext 2026-03-30:
+  - Alias-/Titel-Aufloesung ist jetzt auch per Pipeline-Tests fuer `Discord`, `HTTP API` und `IMAP` abgesichert.
+  - Das Ziel ist hier bewusst: freie Prompts sollen ueber Titel/Tags/Aliase stabiler funktionieren, nicht nur ueber harte Ref-Namen.
+- Stats / Qdrant 2026-03-30:
+  - Qdrant-DB-Groesse zaehlt jetzt belegten Speicher statt theoretischer Dateigroessen.
+  - Hintergrund: Qdrant verwendet sparse/vorallokierte Dateien; `st_size` wirkte dadurch deutlich groesser als der reale Platzverbrauch.
+  - Aktueller lokaler Projektwert liegt damit wieder plausibel im Bereich von rund `133 MB` statt ueber `1 GB`.
+- Projektbeschreibung / GitHub-Text 2026-03-30:
+  - neue Übersicht `docs/product/overview.md` beschreibt ARIA als Produkt, Architekturidee und Fähigkeitsprofil in einer wiederverwendbaren Form.
+  - README-Einstieg von altem `Session 3`-Framing auf eine allgemein nutzbare Produktbeschreibung umgestellt.
+  - zusätzliches `docs/product/copy-pack.md` liefert kurze und lange Textvarianten für GitHub, Release Notes, Landingpage und Elevator Pitch.
+
+- Routing / Modularitaet 2026-03-30:
+  - zentraler `connection_catalog` eingefuehrt; Labels, Beispiel-Refs, Toolbox-Keywords und Chat-Insert-Templates liegen jetzt in einer gemeinsamen Registry statt verteilt in mehreren Mappings.
+  - `main.py`, Connection-Status und semantische Connection-Aufloesung greifen damit auf dieselbe Katalogbasis zu; neue Connection-Typen ziehen kuenftig weniger Handpflege in Toolbox/Chat/Status nach sich.
+  - generischer LLM-Fallback fuer die Auswahl des passenden Connection-Profils vorbereitet; LLM hilft jetzt bei der Profilwahl, die eigentliche Ausfuehrung bleibt weiterhin deterministisch ueber Registry + ActionPlan.
+
+- Security / Stabilitaet 2026-03-30:
+  - Chat-Admin-Pending-Cookies fuer Connection-Create/Update/Delete tragen jetzt `issued_at` und verfallen serverseitig zusaetzlich zur Cookie-Laufzeit.
+  - Pending-Payloads werden jetzt kindspezifisch ueber ein zentrales Feld-Schema bereinigt; neue Connection-Felder wie `host`, `share`, `key_path`, `allow_commands`, `smtp_host`, `mailbox` oder `topic` gehen damit nicht mehr still beim Confirm-Step verloren.
+  - `create_connection_profile` und `update_connection_profile` validieren dieselben bereinigten Payloads jetzt auch serverseitig erneut.
+- Schema-Basis fuer modulare Connections 2026-03-30:
+  - `connection_catalog` enthaelt jetzt neben Labels/Keywords auch Feld-Schemata (`type`, Grenzen, Listenlaengen, Label), sowie Config-Seite und Ref-Query-Param.
+  - `/stats` und `config_routes` ziehen Edit-Ziele damit jetzt ebenfalls aus der gemeinsamen Registry statt aus weiteren lokalen Mapping-Tabellen.
+  - Das ist noch keine voll auto-generierte Config-UI, aber die notwendige gemeinsame Feldbasis dafuer ist jetzt da.
+
+- Schema-Config UI 2026-03-30:
+  - erste schema-gerenderte Formularbloecke fuer einfache Connection-Typen umgesetzt: `RSS`, `Webhook`, `HTTP API`, `MQTT`, `SMTP`, `IMAP`.
+  - diese Seiten rendern Basisfelder jetzt ueber einen gemeinsamen `_connection_schema_fields.html`-Block statt ueber rein handgeschriebene Einzel-Inputs.
+  - Feldlabels, Typen, Grenzen und Secret-/Bool-/Select-Verhalten kommen dabei aus der gemeinsamen Schema-Basis; Metadaten bleiben wie bisher im separaten gemeinsamen Metadaten-Block.
+  - komplexere Spezialseiten wie `SSH`, `SFTP`, `SMB` und `Discord` bleiben vorerst bewusst handgebaut.
+- Chat-Parser / Katalogisierung 2026-03-30:
+  - Chat-`create`/`update` fuer Connections laufen jetzt ueber eine gemeinsame kataloggetriebene Parserbasis statt ueber viele getrennte Kind-Regeln in `main.py`.
+  - `connection_catalog` beschreibt dafuer jetzt auch Chat-Aliase, Primary-Felder und sinnvolle Defaultwerte pro Connection-Typ.
+  - der Parser extrahiert gemeinsame Felder (`user`, `share`, `pfad`, `key`, `mailbox`, `topic`, `from`, `to`, `password`, `token`, `method`, `content-type`, `port`, `timeout`) jetzt ueber eine zentrale Feldtabelle.
+  - vorhandene Prompts bleiben erhalten; zusaetzlich sind generische Secret-/Token-Felder jetzt per Tests abgesichert, ohne neue Spezialzweige pro Typ zu brauchen.
+- Schema-/Katalogisierung Runde 2 2026-03-30:
+  - Parser-Feldregeln liegen jetzt nicht mehr lokal in `main.py`, sondern im gemeinsamen `connection_catalog`; Chat-Feldformen wie `url ...`, `host ...`, `token ...` oder `password ...` werden jetzt direkt ueber katalogisierte Feldregeln gelesen.
+  - Vorschau-/Summary-Felder fuer Connection-Create/Update werden ebenfalls aus dem gemeinsamen Katalog abgeleitet statt ueber eine lokale statische Feldliste.
+  - `capability_catalog` enthaelt jetzt neben Badge-Infos auch Executor-Bindings und Detail-Metadaten; die Pipeline registriert Executor dadurch per Loop aus dem Katalog statt ueber eine feste Registerliste.
+  - neue Tests decken jetzt sowohl katalogisierte Connection-Feldformen als auch die Capability-/Executor-Bindings explizit ab.
+- Config-/Seitenkatalogisierung 2026-03-30:
+  - Connection-Katalog beschreibt jetzt auch die Template-Namen der Connection-Seiten; `config_routes` rendert die meisten Connection-Seiten damit ueber einen gemeinsamen Seiten-Helper statt ueber viele fast identische `TemplateResponse`-Bloecke.
+  - Auch vorbereitende Hub-/Seiten-Daten koennen damit staerker aus `connection_menu_rows()` und den katalogisierten Seitenspezifikationen abgeleitet werden, statt einzelne Typen versteckt von Hand zu listen.
+  - Zusaetzliche Katalog-Tests sichern Spezialfaelle wie `HTTP API -> config_connections_http_api.html` und `SMTP -> config_connections_smtp.html` jetzt explizit ab.
+- Connection-UI Vereinheitlichung 2026-03-30:
+  - Die schema-nahen Connection-Seiten `RSS`, `Webhook`, `HTTP API`, `SMTP`, `IMAP` und `MQTT` nutzen jetzt gemeinsame Partials fuer Intro-/Summary- und Live-Status-Bloecke statt das Markup jeweils lokal zu duplizieren.
+  - Seitentitel und Untertitel dieser Blaecke kommen jetzt ueber `connection_menu_meta(...)` aus dem gemeinsamen Katalog statt aus lokal wiederholten Template-Texten.
+  - Das reduziert weitere UI-Doppelung und bringt neue Connection-Typen naeher an das Ziel, in `Config`/`Stats`/Toolbox mit weniger Handpflege mitzuziehen.
+- Connection-UI Vereinheitlichung Runde 2 2026-03-30:
+  - Auch die komplexeren Connection-Seiten `SSH`, `SFTP`, `SMB` und `Discord` nutzen jetzt dieselben gemeinsamen Intro-/Status-Partials.
+  - Live-Status-Texte kommen dabei nicht mehr lokal aus `config_routes`, sondern ueber `connection_status_meta(...)` aus dem gemeinsamen Katalog.
+  - Der Verbindungen-Hub liest Profil-/Healthy-/Issue-Zahlen jetzt direkt aus `connection_status_block.rows` statt ueber eine zweite lokale Schluessel-Tabelle.
+  - `RSS` haengt damit jetzt ebenfalls sauber am gemeinsamen Statusblock; neue Tests sichern Override-/Default-Logik fuer Status-Metadaten explizit ab.
+- Connection-UI / Katalog Runde 3 2026-03-30:
+  - Die wiederholten Summary-Karten `Profiles`, `Healthy`, `Issues` werden jetzt ueber `_build_connection_summary_cards(...)` aus `connection_overview_meta(...)` erzeugt statt pro Connection-Seite erneut lokal zusammengebaut.
+  - Dadurch bleiben auf den einzelnen Seiten nur noch die wirklich Connection-spezifischen Extra-Karten wie `Key status`, `Webhook status`, `Password status` oder `Token status`.
+  - Chat-Toolbox-Icons fuer Connection-Admin-Hilfen kommen jetzt ueber `connection_chat_emoji(...)` ebenfalls aus dem gemeinsamen Katalog statt aus einer zweiten lokalen Emoji-Tabelle.
+  - Auch die zusammengefasste RSS-Karte auf `/stats` zieht Kind-Label/Icon/Alpha-Info jetzt ueber denselben Connection-Katalog.
+- Routing / Skill-Fallback 2026-03-30:
+  - Freie Custom-Skill-Treffer werden jetzt nicht mehr nur ueber exakte Keyword-Teilstrings erkannt, sondern ueber einen kleinen gewichteten Matcher auf Keywords, Name und Beschreibung.
+  - Dadurch greifen natuerliche Formulierungen wie `machst du mir ein update auf dem server` robuster fuer passende Skills, ohne fuer jedes Wording neue harte Trigger nachzupflegen.
+  - Capability-Pfade haben dabei jetzt bewusst Vorrang vor Custom-Skills: Datei-/Feed-/API-/Mail-/MQTT-Aktionen werden zuerst deterministisch als Capability ausgefuehrt, erst danach springt der Skill-Fallback ein.
+  - Zusaetzlich gibt es jetzt einen eng gefuehrten LLM-Fallback fuer die Skill-Auswahl: nur wenn kein Capability-Pfad passt und die Anfrage wirklich nach Ausfuehrung klingt, darf das LLM genau einen passenden Skill auswaehlen.
+  - Neue Tests sichern sowohl natuerliche Skill-Treffer als auch den Capability-Vorrang und den LLM-Skill-Fallback ab.
+- Security / Reverse-Proxy-Haertung 2026-03-30:
+  - zentrale Helferfunktion `request_is_secure(...)` eingefuehrt; sie wertet `x-forwarded-proto` aus und faellt nur ohne Proxy-Hinweis auf `request.url.scheme` zurueck.
+  - Auth-, Session-, CSRF-, Sprach-, Auto-Memory- und Pending-Confirm-Cookies nutzen jetzt dieselbe proxy-taugliche Secure-Entscheidung statt punktuell `request.url.scheme == https` oder gar keiner Secure-Angabe.
+  - derselbe Helper wird jetzt auch in `config_routes` und `memories_routes` genutzt, damit User-Rename- und Memory-Config-Cookies unter Reverse Proxy konsistent bleiben.
+  - neue Unit-Tests decken Forwarded-Proto- und Runtime-URL-Verhalten explizit ab; damit ist die Basis fuer HTTPS hinter Reverse Proxy deutlich sauberer.
+- Session / Recovery-Haertung 2026-03-30:
+  - ungültige Auth-Sessions werden bei geschützten Routen jetzt nicht nur nach `/session-expired` umgeleitet, sondern dabei aktiv clientseitig bereinigt; dadurch bleiben keine Zombie-Auth-Cookies haengen.
+  - die Seite `/session-expired` selbst loescht jetzt ebenfalls Auth-/Session-/Pending-Cookies, damit der Browser sicher in einen sauberen Zustand zurueckkommt.
+  - ungültige oder abgelaufene Bestätigungstokens fuer `forget`, `safe fix` sowie Connection-`create`/`update`/`delete` löschen die jeweiligen Pending-Cookies jetzt ebenfalls statt sie haengen zu lassen.
+  - `_reload_runtime()` laedt neue Settings/PromptLoader/LLM/Pipeline jetzt atomar vor und uebernimmt sie erst nach erfolgreicher Initialisierung; bei Reload-Fehlern bleibt die laufende Runtime stabil auf dem letzten funktionierenden Stand.
+  - neue Recovery-Tests pruefen Session-Expired-Redirects und das aktive Loeschen von Auth-/Pending-Cookies.
+- Activities / Security Guardrails 2026-03-30:
+  - `/activities` ist jetzt deutlich ruhiger: Eintraege werden wie bei `/memories` kompakt als aufklappbare Karten dargestellt statt sofort als lange Vollansicht.
+  - Null-/Rauschinfos werden versteckt: `Tokens`, `Kosten`, `Chat-Modell` und `Quelle` erscheinen nur noch, wenn sie fuer den konkreten Run wirklich Sinn ergeben; interne Quellen wie `web` oder `chat` werden nicht mehr staendig angezeigt.
+  - im Bereich `Einstellungen > Security Guardrails` gibt es jetzt einen echten MVP statt nur Bootstrap-Toggle: wiederverwendbare `SSH Guardrail-Profile` mit `Allow-Wording` und `Deny-Wording`.
+  - SSH-Connections koennen jetzt ein Guardrail-Profil referenzieren; das Profil wird im SSH-Runtime-Pfad fuer Custom-Skills und Safe-Fix-Kommandos tatsaechlich durchgesetzt.
+  - vorhandene `allow_commands` pro SSH-Profil bleiben zusaetzlich aktiv; Guardrails erweitern das also um wiederverwendbare Sicherheitsprofile statt es zu ersetzen.
+  - neue Tests decken die Activities-Bereinigung sowie Guardrail-Blocks fuer SSH-Kommandos explizit ab.
+- Qdrant Distribution / Memory Backend 2026-03-31:
+  - `memory.qdrant_api_key` ist jetzt Teil des regulären Config-/Secure-Store-Modells; ENV-Override, Secure-Store-Merge und Secret-Migration sind dafuer im Core verdrahtet.
+  - Qdrant-Clients in Memory-Skill, Stats und Admin-Overview verwenden den API Key jetzt konsistent, wenn einer gesetzt ist.
+  - `/config/memory` hat jetzt einen echten Backend-Block fuer `enabled`, `backend`, `qdrant_url` und `qdrant_api_key`; der Key wird nach Moeglichkeit sicher im Secure Store abgelegt statt im Klartext.
+  - `docker-compose.yml` bringt jetzt einen internen `qdrant`-Service mit eigenem Volume mit; ARIA spricht standardmaessig ueber `http://qdrant:6333` statt ueber `host.docker.internal`.
+  - dieselbe Compose-Basis unterstuetzt bereits einen gemeinsamen `ARIA_QDRANT_API_KEY` fuer ARIA und den Qdrant-Container; der Browser-Dashboard-Link wird bei interner Container-URL bewusst nicht mehr angezeigt.
+  - Zielbild fuer die Distribution: zweiter Container, sichere Default-Verbindung, GUI-konfigurierbarer ARIA-seitiger Qdrant-Zugang und moeglichst wenig Nutzerinteraktion beim Erststart.
+- Release-Haertung Frontend / Fehlerpfade 2026-03-31:
+  - `htmx` wird nicht mehr extern ueber `unpkg` geladen, sondern lokal aus `aria/static/vendor/htmx-1.9.12.min.js` ausgeliefert. Damit faellt eine externe CDN-Abhaengigkeit fuer das Web-UI weg.
+  - globale Request-Fehler laufen jetzt ueber einen kontrollierten Ausnahme-Handler statt in nackte Browser-500er zu kippen; Chat-Requests bekommen JSON-Details, normale HTML-Seiten eine einfache ARIA-Fehlerseite.
+  - das Chat-Frontend liest bei nicht erfolgreichen `/chat`-Antworten jetzt vorhandene JSON-/Text-Details aus und zeigt sie dem Nutzer direkt, statt nur generisch `Serverfehler beim Senden.` auszugeben.
+- Release-Haertung Connection-Admin Errors 2026-03-31:
+  - Chat-`create`/`update`/`delete` fuer Connections nutzen jetzt einen gemeinsamen Friendly-Error-Pfad statt rohe Exception-Texte direkt an den Nutzer durchzureichen.
+  - Pflichtfelder werden dabei ueber die katalogisierten Feldlabels aufgeloest (`Base-URL`, `Feed-URL`, `SMTP Host` statt interner Feldnamen).
+  - Security-Store-Abhaengigkeiten werden fuer Nutzer neutraler formuliert (`Profil kann nur gespeichert werden, wenn der Security Store aktiv ist.`) statt mit stark technischer Secret-Implementierungs-Sprache.
+  - die Härtung ist per echten venv-Tests abgesichert: `tests/test_connection_admin.py` und `tests/test_error_handling.py`.
+- Persona-Name im UI 2026-03-31:
+  - `prompts/persona.md` liefert jetzt den sichtbaren Agent-Namen ueber die Zeile `Name: ...`; `PromptLoader` kann diesen Namen direkt auslesen.
+  - sichtbare UI-Texte, die den Agent-Namen enthalten, laufen jetzt zentral ueber eine Ersetzung von `ARIA`/`Aria` auf den Persona-Namen statt ueber harte Template-Einzeltexte.
+  - Brand-/Seitentitel sowie die einfache HTML-Fehlerseite verwenden jetzt denselben Persona-Namen ebenfalls.
+  - bewusst noch **nicht** angefasst: tieferes Branding/Design, Logo-Dateien oder ein vollstaendiges Theme-System; das bleibt als spaeterer UI-/Branding-Block im Backlog.
+
+- Prompt Studio / Workbench Editor vereinheitlicht 2026-03-31:
+  - `/config/prompts` und `/config/files` nutzen jetzt denselben klaren Editor-Flow mit Dateiauswahl, Dateimetadaten, grossem Textfeld und sichtbaren Save-/Reload-Aktionen.
+  - Prompt-Dateien sind damit im Prompt Studio nicht nur lesbar, sondern gleich deutlich als editierbare Dateien praesentiert; dieselbe Bedienlogik gilt jetzt auch im Workbench-Dateieditor.
+  - Speichert der Nutzer im Workbench eine Datei unter `prompts/` oder `aria/skills`, wird die Runtime jetzt wie im Prompt Studio direkt neu geladen, damit Aenderungen nicht nur auf Platte landen, sondern auch wirksam werden.
+
+- Startup-Preflight / Runtime-Diagnostik 2026-03-31:
+  - neuer Core-Block `aria/core/runtime_diagnostics.py` prueft Prompt-Dateien, Qdrant, Chat-LLM und Embeddings in einem einheitlichen Diagnostikformat.
+  - beim Start wird dieselbe Diagnostik im Hintergrund ausgefuehrt und als In-Memory-Status gehalten, ohne den App-Start zu blockieren.
+  - geschuetzte Detail-Route `/api/system/preflight` liefert den letzten bekannten Diagnostikstand fuer Admin-/Release-Pruefungen.
+  - Ziel: Infrastruktur-/Prompt-Probleme frueher sehen, statt sie erst beim ersten echten Chat oder Memory-Call zu bemerken.
+
+- Stats / Startup-Preflight 2026-03-31:
+  - `/stats` zeigt den neuen Runtime-/Startup-Preflight jetzt sichtbar als eigenen Block mit Gesamtstatus, Letzt-Check und Einzelchecks fuer Prompt-Dateien, Qdrant, Chat-LLM und Embeddings.
+  - die Darstellung bleibt bewusst nah an den bestehenden Health-Karten, damit die Seite ruhig bleibt und keine zweite visuelle Logik aufmacht.
+  - `skipped`-Checks werden als weicher Warnzustand angezeigt, aber textlich weiterhin als `Übersprungen` gekennzeichnet.
+
+- Stats / Preflight-Fix 2026-03-31:
+  - Health-/Preflight-Warntexte auf `/stats` sind jetzt sauber lokalisiert; englische Fallback-Meldungen wurden fuer den DE-Flow nachgezogen.
+  - der Preflight-Block zeigt zusaetzlich eine kompakte Ursachenzeile fuer alle nicht-ok Checks, damit Warnungen nicht ohne konkrete Ausloeser im Raum stehen.
+  - der Embedding-Check erkennt LiteLLM-Antworten jetzt robuster auch dann, wenn Embedding-Daten als Dict statt als Objekt geliefert werden; damit faellt ein falscher Warnzustand weg.
+
+- Stats / i18n / Preflight-Fallback 2026-03-31:
+  - `/stats` holt den Runtime-Preflight jetzt bei leerem Startup-Cache sofort synchron nach; dadurch erscheint kein nutzloser `warn`-Zustand mehr nur deshalb, weil der Hintergrundcheck noch nicht fertig war.
+  - sichtbare Kernflächen (`base.html`, `config.html`, `stats.html`) haben jetzt deutlich mehr echte i18n-Einträge statt harter Default-Fallbacks; insbesondere Menu, Config-Hub und Stats sind damit fuer `de`/`en` sauberer abgesichert.
+  - neuer Test `tests/test_i18n_core_surfaces.py` stellt sicher, dass die Kernflächen-Templates fuer `de` und `en` nicht wieder auf fehlende Keys laufen.

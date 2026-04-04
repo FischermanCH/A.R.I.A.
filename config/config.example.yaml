@@ -1,0 +1,173 @@
+aria:
+  host: "0.0.0.0"
+  port: 8800
+  log_level: "info"
+  public_url: ""
+
+llm:
+  model: "ollama_chat/qwen3:8b"
+  api_base: "http://localhost:11434"
+  api_key: ""
+  temperature: 0.4
+  max_tokens: 4096
+  timeout_seconds: 60
+
+embeddings:
+  model: "ollama/nomic-embed-text"
+  api_base: "http://localhost:11434"
+  api_key: ""
+  timeout_seconds: 60
+
+profiles:
+  active:
+    llm: "default"
+    embeddings: "default"
+  llm:
+    default:
+      model: "ollama_chat/qwen3:8b"
+      api_base: "http://localhost:11434"
+      api_key: ""
+      temperature: 0.4
+      max_tokens: 4096
+      timeout_seconds: 60
+  embeddings:
+    default:
+      model: "ollama/nomic-embed-text"
+      api_base: "http://localhost:11434"
+      api_key: ""
+      timeout_seconds: 60
+
+memory:
+  enabled: true
+  backend: "qdrant"
+  qdrant_url: "http://localhost:6333"
+  qdrant_api_key: ""
+  collection: "aria_memory"
+  top_k: 3
+  compression_summary_prompt: "prompts/skills/memory_compress.md"
+  collections:
+    facts:
+      prefix: "aria_facts"
+      weight: 1.0
+      top_k: 2
+      dedup_threshold: 0.85
+    preferences:
+      prefix: "aria_preferences"
+      weight: 0.8
+      top_k: 1
+      dedup_threshold: 0.80
+    sessions:
+      prefix: "aria_sessions"
+      weight: 0.5
+      top_k: 2
+      time_decay: true
+      compress_after_days: 7
+      archive_after_days: 90
+    knowledge:
+      prefix: "aria_knowledge"
+      weight: 0.7
+      top_k: 2
+      dedup_threshold: 0.90
+
+auto_memory:
+  enabled: true
+  session_recall_top_k: 4
+  user_recall_top_k: 3
+  max_facts_per_message: 3
+
+routing:
+  memory_store_keywords:
+    - "merk"
+    - "speicher"
+    - "vergiss nicht"
+    - "notier"
+  memory_recall_keywords:
+    - "erinnerst"
+    - "weisst du noch"
+    - "weißt du noch"
+    - "was weisst du"
+    - "was weißt du"
+    - "letztes mal"
+    - "gespeichert"
+    - "was weisst du über"
+    - "was weißt du über"
+  memory_store_prefixes:
+    - "merk dir, dass "
+    - "merk dir dass "
+    - "merk dir "
+    - "speichere, dass "
+    - "speichere dass "
+    - "speichere "
+    - "notier dir, dass "
+    - "notier dir dass "
+    - "notier dir "
+    - "vergiss nicht, dass "
+    - "vergiss nicht dass "
+    - "vergiss nicht "
+  memory_recall_cleanup_keywords:
+    - "erinnerst du dich"
+    - "weisst du noch"
+    - "weißt du noch"
+    - "gespeichert"
+    - "letztes mal"
+  memory_forget_keywords:
+    - "vergiss"
+    - "loesch"
+    - "lösch"
+    - "entfern"
+    - "delete"
+    - "remove"
+
+prompts:
+  persona: "prompts/persona.md"
+  skills_dir: "prompts/skills/"
+
+channels:
+  api:
+    enabled: true
+    auth_token: ""
+
+connections:
+  ssh: {}
+  discord: {}
+  sftp: {}
+  smb: {}
+  webhook: {}
+  smtp: {}
+  imap: {}
+  http_api: {}
+  rss: {}
+  mqtt: {}
+
+rss:
+  poll_interval_minutes: 60
+
+token_tracking:
+  enabled: true
+  log_file: "data/logs/tokens.jsonl"
+  retention_days: 30
+
+pricing:
+  enabled: true
+  currency: "USD"
+  last_updated: "2026-03-17"
+  default_source_name: "Provider Pricing"
+  default_source_url: ""
+  chat_models: {}
+  embedding_models: {}
+
+ui:
+  title: "ARIA"
+  debug_mode: false
+  language: "de"
+  theme: "matrix"
+  background: "grid"
+
+security:
+  enabled: true
+  db_path: "data/auth/aria_secure.sqlite"
+  bootstrap_locked: false
+  guardrails: {}
+
+skills:
+  custom: {}

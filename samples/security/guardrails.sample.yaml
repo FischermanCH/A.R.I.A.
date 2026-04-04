@@ -1,0 +1,41 @@
+security:
+  guardrails:
+    readonly-linux:
+      kind: ssh_command
+      title: "Read-only Linux"
+      description: "Erlaubt nur harmlose Lese-/Status-Kommandos"
+      allow_terms:
+        - "uptime"
+        - "df -h"
+        - "free -m"
+        - "systemctl status"
+      deny_terms:
+        - "rm -rf"
+        - "reboot"
+        - "shutdown"
+        - "apt remove"
+    readonly-files:
+      kind: file_access
+      title: "Read-only Files"
+      description: "Erlaubt nur Lese- und Listen-Operationen"
+      allow_terms:
+        - "read"
+        - "list"
+        - "/srv/data"
+      deny_terms:
+        - "write"
+        - "delete"
+        - "/etc"
+    internal-api-only:
+      kind: http_request
+      title: "Internal API Only"
+      description: "Erlaubt nur interne GET-Anfragen gegen bekannte Pfade"
+      allow_terms:
+        - "GET"
+        - "/status"
+        - "/health"
+        - "api.example.local"
+      deny_terms:
+        - "POST"
+        - "DELETE"
+        - "http://"

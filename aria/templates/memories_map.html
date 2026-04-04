@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% block content %}
+{% from "_icons.html" import icon %}
+<main class="memories-layout">
+  <section class="memories-toolbar">
+    <div class="inline-actions">
+      <a class="chat-status memories-link" href="/memories">{{ tr(request, 'memories_map.back', 'Zurück zu Memories') }}</a>
+      {% if request.state.auth_role == "admin" and request.state.debug_mode %}
+        {% if qdrant_dashboard_url %}
+        <a class="chat-status memories-link" href="{{ qdrant_dashboard_url }}" target="_blank" rel="noopener noreferrer">{{ tr(request, 'memories_map.qdrant_tab', 'Qdrant im neuen Tab') }}</a>
+        {% endif %}
+        {% if qdrant_api_key %}
+        <div class="memory-qdrant-tools">
+          <button
+            type="button"
+            class="chat-status memories-link memory-qdrant-toggle"
+            data-qdrant-key-toggle
+            aria-expanded="false"
+          >
+            <span>{{ tr(request, 'memories_map.qdrant_key', 'Qdrant Key') }}</span>
+          </button>
+          <div class="memory-qdrant-key-panel" data-qdrant-key-panel hidden>
+            <code
+              class="memory-qdrant-key-value"
+              data-qdrant-key-value
+              data-qdrant-key-full="{{ qdrant_api_key }}"
+            >{{ "*" * ((qdrant_api_key|length) - 4) }}{{ qdrant_api_key[-4:] if (qdrant_api_key|length) > 4 else qdrant_api_key }}</code>
+            <button type="button" class="memory-qdrant-copy-button" data-qdrant-key-copy>
+              {{ icon('files') }}
+              <span>{{ tr(request, 'memories_map.copy', 'Copy') }}</span>
+            </button>
+            <span class="memory-qdrant-copy-status" data-qdrant-key-status aria-live="polite"></span>
+          </div>
+        </div>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="memory-health-grid">
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories.health_points', 'Memory-Punkte') }}</h3>
+      <p>{{ health.user_total_points }}</p>
+      <small>{{ tr(request, 'memories.health_over', 'über') }} {{ health.user_collections }} {{ tr(request, 'memories.health_collections', 'Collections') }}</small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories.health_mix', 'Typ-Verteilung') }}</h3>
+      <p>F {{ health.type_points.fact }} · P {{ health.type_points.preference }}</p>
+      <small>S {{ health.type_points.session }} · K {{ health.type_points.knowledge }}</small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories.health_largest', 'Grösste Collection') }}</h3>
+      <p>{{ health.largest_collection_points }} ({{ health.largest_collection_share_pct }}%)</p>
+      <small>{{ health.largest_collection_name }}</small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories.health_due', 'Komprimierung fällig') }}</h3>
+      <p>{{ health.stale_sessions }}</p>
+      <small>{{ tr(request, 'memories.health_days_old', 'Tages-Kontext älter als') }} {{ health.compress_after_days }} {{ tr(request, 'memories.days', 'Tage') }}</small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories_map.qdrant_reachable', 'Qdrant erreichbar') }}</h3>
+      <p>{% if qdrant_overview.reachable %}{{ tr(request, 'memories_map.yes', 'Ja') }}{% else %}{{ tr(request, 'memories_map.no', 'Nein') }}{% endif %}</p>
+      <small>
+        {% if request.state.auth_role == "admin" and request.state.debug_mode %}
+          {{ qdrant_overview.qdrant_url or "n/a" }}
+        {% else %}
+          {{ tr(request, 'memories_map.url_hidden', 'URL verborgen (Admin-Modus)') }}
+        {% endif %}
+      </small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories_map.collections', 'Collections') }}</h3>
+      <p>{{ qdrant_overview.collection_count or 0 }}</p>
+      <small>{{ tr(request, 'memories_map.total_points', 'Total Points') }}: {{ qdrant_overview.total_points or 0 }}</small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories_map.user_points', 'User Points') }}</h3>
+      <p>{{ map_total_points }}</p>
+      <small>{{ tr(request, 'memories_map.only_user_collections', 'nur Collections von') }} {{ username }}</small>
+    </article>
+    <article class="memory-health-card">
+      <h3>{{ tr(request, 'memories_map.type_mix', 'Typ Mix') }}</h3>
+      <p>F {{ map_kind_totals.fact }} · S {{ map_kind_totals.session }}</p>
+      <small>P {{ map_kind_totals.preference }} · K {{ map_kind_totals.knowledge }}</small>
+    </article>
+  </section>
+
+  <section class="memories-meta">
+    <span class="chat-status">{{ tr(request, 'memories.facts', 'Facts') }}: <code>{{ health.type_points.fact }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.preferences', 'Preferences') }}: <code>{{ health.type_points.preference }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ health.type_points.session }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ health.type_points.knowledge }}</code></span>
+  </section>
+
+  {% if cleanup_status and cleanup_status.timestamp %}
+  <section class="memories-meta">
+    <span class="chat-status">
+      {{ tr(request, 'memories.cleanup', 'Empty-Cleanup') }}: {{ cleanup_status.removed_count }} {{ tr(request, 'memories.removed', 'entfernt') }}
+      · {{ tr(request, 'memories.scope', 'Scope') }}: {{ cleanup_status.scope or "n/a" }}
+      · {{ tr(request, 'memories.time', 'Zeit') }}: {{ cleanup_status.timestamp }}
+    </span>
+  </section>
+  {% endif %}
+
+  <section class="memory-map-frame-wrap">
+    <div class="memory-map-canvas">
+      {% if map_rows %}
+        {% for row in map_rows %}
+        <article class="memory-node kind-{{ row.kind }}" style="--node-size: {{ row.node_size }}px;">
+          <strong>{{ row.name }}</strong>
+          <span>{{ row.points }} Punkte · {{ row.share_pct }}%</span>
+        </article>
+        {% endfor %}
+      {% else %}
+        <article class="memory-card">
+          <p>{{ tr(request, 'memories_map.none_for_user', 'Für diesen Nutzer sind aktuell keine Collections vorhanden.') }}</p>
+        </article>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if map_rows %}
+  <section class="prompt-table-wrap">
+    <table class="prompt-table">
+      <thead>
+        <tr>
+          <th>{{ tr(request, 'memories_map.col_collection', 'Collection') }}</th>
+          <th>{{ tr(request, 'memories_map.col_type', 'Typ') }}</th>
+          <th>{{ tr(request, 'memories_map.col_points', 'Punkte') }}</th>
+          <th>{{ tr(request, 'memories_map.col_share', 'Anteil') }}</th>
+          <th>{{ tr(request, 'memories_map.col_status', 'Status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in map_rows %}
+        <tr>
+          <td><code>{{ row.name }}</code></td>
+          <td>{{ row.kind }}</td>
+          <td>{{ row.points }}</td>
+          <td>{{ row.share_pct }}%</td>
+          <td>{{ row.status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+</main>
+<script>
+  (function () {
+    const toggle = document.querySelector("[data-qdrant-key-toggle]");
+    const panel = document.querySelector("[data-qdrant-key-panel]");
+    const value = document.querySelector("[data-qdrant-key-value]");
+    const copyButton = document.querySelector("[data-qdrant-key-copy]");
+    const status = document.querySelector("[data-qdrant-key-status]");
+    if (!toggle || !panel || !value || !copyButton || !status) return;
+
+    function setStatus(text) {
+      status.textContent = text || "";
+    }
+
+    function fallbackCopy(text) {
+      const helper = document.createElement("textarea");
+      helper.value = text;
+      helper.setAttribute("readonly", "readonly");
+      helper.style.position = "absolute";
+      helper.style.left = "-9999px";
+      document.body.appendChild(helper);
+      helper.select();
+      let success = false;
+      try {
+        success = document.execCommand("copy");
+      } catch (error) {
+        success = false;
+      }
+      document.body.removeChild(helper);
+      return success;
+    }
+
+    toggle.addEventListener("click", function () {
+      const shouldShow = panel.hidden;
+      panel.hidden = !shouldShow;
+      toggle.setAttribute("aria-expanded", shouldShow ? "true" : "false");
+      if (shouldShow) setStatus("");
+    });
+
+    copyButton.addEventListener("click", async function () {
+      const text = value.dataset.qdrantKeyFull || "";
+      if (!text) return;
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        }
+      } catch (error) {
+        copied = false;
+      }
+      if (!copied) copied = fallbackCopy(text);
+      setStatus(copied ? "{{ tr(request, 'memories_map.copy_ok', 'Copied') }}" : "{{ tr(request, 'memories_map.copy_error', 'Copy failed') }}");
+    });
+
+    document.addEventListener("click", function (event) {
+      if (panel.hidden) return;
+      if (toggle.contains(event.target) || panel.contains(event.target)) return;
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      setStatus("");
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape" || panel.hidden) return;
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      setStatus("");
+    });
+  })();
+</script>
+{% endblock %}

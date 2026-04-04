@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_sftp_ref %}hidden{% endif %}>
+
+    {% if selected_sftp_ref %}
+    {% if selected_sftp.guardrail_ref %}
+    <div class="skill-summary connection-flow-note connection-guardrail-summary"><strong>{{ tr(request, 'config_conn.attached_guardrail', 'Aktives Guardrail') }}</strong><span><code>{{ selected_sftp.guardrail_ref }}</code></span></div>
+    {% endif %}
+    {% if sftp_test_status == 'ok' or sftp_test_status == 'error' %}
+    <article class="connection-test-card status-{{ sftp_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ sftp_test_status }}"></span><strong>{% if sftp_test_status == 'ok' %}{{ tr(request, 'config_conn.sftp_test_ok', 'SFTP connection test successful') }}{% else %}{{ tr(request, 'config_conn.sftp_test_error', 'SFTP connection test failed') }}{% endif %}</strong></div>
+      <small>{% if sftp_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/sftp/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_sftp_ref }}">
+      {% set schema_fields = sftp_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      <details class="skill-details">
+        <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
+        <div class="skill-details-content">
+          <label for="guardrail_ref_sftp_edit">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
+          <select id="guardrail_ref_sftp_edit" name="guardrail_ref">
+            {% for item in sftp_guardrail_ref_options %}
+            <option value="{{ item.ref }}" {% if item.ref == (selected_sftp.guardrail_ref or '') %}selected{% endif %}>{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint-text">{{ tr(request, 'config_security.file_guardrail_hint', 'Datei-Guardrails prüfen Operation und Pfad, bevor ARIA liest, schreibt oder Verzeichnisse auflistet.') }}</small>
+        </div>
+      </details>
+      {% set meta_prefix = 'sftp_edit' %}
+      {% set meta_values = selected_sftp %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request, 'config_conn.sftp_save_profile', 'Save SFTP profile') }}</button>
+    </form>
+
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'sftp' %}
+    {% set delete_ref = selected_sftp_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    {% if ssh_refs %}
+    <form method="get" action="/config/connections/sftp" class="editor-form">
+      <label for="copy_from_ssh_ref">{{ tr(request, 'config_conn.sftp_import_ssh', 'Aus SSH-Profil übernehmen') }}</label>
+      <div class="inline-actions">
+        <input type="hidden" name="mode" value="create">
+        <input type="hidden" name="sftp_ref" value="">
+        <select id="copy_from_ssh_ref" name="copy_from_ssh_ref">
+          {% for item in ssh_ref_options %}<option value="{{ item.ref }}" {% if item.ref == selected_ssh_seed_ref %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
+        </select>
+        <button type="submit">{{ tr(request, 'config_conn.sftp_import_ssh_action', 'SSH-Daten übernehmen') }}</button>
+      </div>
+      <small class="hint-text">{{ tr(request, 'config_conn.sftp_import_ssh_hint', 'Übernimmt Host, User, Port und Key-Pfad aus einem bestehenden SSH-Profil. Root-Pfad und Passwort bleiben SFTP-spezifisch.') }}</small>
+    </form>
+    {% endif %}
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_conn.recommended_flow', 'Recommended flow') }}</strong><span>{{ tr(request, 'config_conn.sftp_recommended_flow_text', '1) Optional: SSH-Profil als Vorlage übernehmen. 2) SFTP-Profil mit Host/User und Passwort oder Key speichern. 3) Root-Pfad setzen. 4) Speichern. 5) ARIA testet die Verbindung automatisch.') }}</span></div>
+    <form method="post" action="/config/connections/sftp/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = sftp_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      <details class="skill-details">
+        <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
+        <div class="skill-details-content">
+          <label for="guardrail_ref_sftp_new">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
+          <select id="guardrail_ref_sftp_new" name="guardrail_ref">
+            {% for item in sftp_guardrail_ref_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint-text">{{ tr(request, 'config_security.file_guardrail_hint', 'Datei-Guardrails prüfen Operation und Pfad, bevor ARIA liest, schreibt oder Verzeichnisse auflistet.') }}</small>
+        </div>
+      </details>
+      {% set meta_prefix = 'sftp_new' %}
+
+      {% set meta_values = selected_ssh_seed %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request, 'config_conn.sftp_save_profile', 'Save SFTP profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

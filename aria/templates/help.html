@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+{% from "_icons.html" import icon %}
+<section class="panel">
+  <div class="page-head">
+    <div>
+      <p class="section-kicker">{{ tr(request, 'base.nav_help', 'Hilfe') }}</p>
+      <h2>{{ tr(request, 'help.title', 'ARIA Hilfe') }}</h2>
+      <p>{{ tr(request, 'help.subtitle', 'Kurze, technische Hilfe zu Setup, Memory, Connections, Skills und Statistiken.') }}</p>
+    </div>
+  </div>
+
+  <div class="help-source-chip">
+    <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
+    <code>{{ help_path }}</code>
+  </div>
+
+  <a href="/product-info" class="product-doc-card help-product-link">
+    <div class="product-doc-card-head">
+      <span class="product-doc-icon">{{ icon('product') }}</span>
+      <strong>{{ tr(request, 'base.nav_product_info', 'Produkt-Info') }}</strong>
+    </div>
+    <p>{{ tr(request, 'help.product_info_hint', 'Technischer Überblick, Feature-Liste, Architektur und Roadmap.') }}</p>
+  </a>
+
+  {% if help_text %}
+  <pre class="help-document">{{ help_text }}</pre>
+  {% else %}
+  <div class="empty-state">{{ tr(request, 'help.missing', 'Noch keine Hilfe-Datei gefunden.') }}</div>
+  {% endif %}
+</section>
+{% endblock %}

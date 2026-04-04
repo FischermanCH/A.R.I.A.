@@ -1,0 +1,17 @@
+<article class="msg msg-user">
+  <p>{{ user_message }}</p>
+</article>
+<article class="msg msg-assistant">
+  <div class="msg-text">{{ render_assistant_message_html(assistant_message) }}</div>
+  <details class="msg-details">
+    <summary>Details</summary>
+    <div class="meta-badge">{{ badge_icon }} {{ badge_intent }} · {{ badge_tokens }} tokens · {{ badge_cost_usd }} · {{ badge_duration }}s</div>
+    {% if badge_details %}
+    <div class="meta-row">
+      {% for row in badge_details %}
+      <div>{{ row }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </details>
+</article>

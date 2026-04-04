@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="{{ request.state.lang if request and request.state else 'de' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ request.state.csrf_token if request and request.state else '' }}">
+  <title>{{ agent_name(request, title) }}</title>
+  <script src="/static/vendor/htmx-1.9.12.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}">
+  {% from "_icons.html" import icon %}
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand brand-home" href="/" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
+        <div class="brand-mark">
+          <img src="/static/logo-aria-v01.png" alt="{{ agent_name(request, title) }} Logo" class="brand-logo">
+          <span class="thinking-rings brand-thinking-rings" aria-hidden="true">
+            <span class="ring ring-a"></span>
+            <span class="ring ring-b"></span>
+            <span class="ring ring-c"></span>
+          </span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title-row">
+            <h1>{{ agent_name(request, title) }}</h1>
+            {% if request.state.authenticated and request.state.can_access_advanced_config %}
+            <span class="pill brand-admin-pill desktop-only">{{ tr(request, 'base.admin_on', 'Admin ON') }}</span>
+            {% endif %}
+          </div>
+          <p>{{ tr(request, 'base.subtitle', 'Adaptive Reasoning & Intelligence Agent') }}</p>
+        </div>
+      </a>
+      <nav class="topnav" aria-label="{{ tr(request, 'base.nav_main', 'Hauptnavigation') }}">
+        {% if request.state.authenticated %}
+        {% if request.state.can_access_advanced_config %}
+        <span class="pill brand-admin-pill mobile-admin-pill mobile-only">{{ tr(request, 'base.admin_on', 'Admin ON') }}</span>
+        {% endif %}
+        <details class="user-menu">
+          <summary class="user-pill user-pill-icon">{{ icon('more') }}<span>Menu</span></summary>
+          <div class="user-menu-panel">
+            <div class="user-menu-header">
+              <strong>{{ username or request.state.auth_user }}</strong>
+              {% if request.state.can_access_advanced_config %}
+              <small>{{ request.state.auth_role }}</small>
+              {% endif %}
+            </div>
+            {% if request.url.path != "/" %}
+            <button
+              type="button"
+              class="user-menu-link user-menu-link-icon user-menu-button mobile-only"
+              onclick="(function(){ if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
+            >{{ icon('more') }}<span>{{ tr(request, 'base.nav_back', 'Zurück') }}</span></button>
+            {% endif %}
+            <a href="/memories" class="user-menu-link user-menu-link-icon">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
+            <a href="/skills" class="user-menu-link user-menu-link-icon">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Skills') }}</span></a>
+            <a href="/stats" class="user-menu-link user-menu-link-icon">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
+            {% if request.state.can_access_advanced_config %}
+            <a href="/config" class="user-menu-link user-menu-link-icon">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Config') }}</span></a>
+            {% endif %}
+            <a href="/help" class="user-menu-link user-menu-link-icon">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
+            {% if request.state.can_access_users %}
+            <a href="/config/users" class="user-menu-link user-menu-link-icon">{{ icon('users') }}<span>{{ tr(request, 'base.nav_users', 'Benutzer') }}</span></a>
+            {% endif %}
+            <form action="/logout" method="post" class="inline-form">
+              <button type="submit" class="user-menu-link user-menu-link-icon user-menu-button">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_logout', 'Logout') }}</span></button>
+            </form>
+          </div>
+        </details>
+        {% else %}
+        <form method="get" action="{{ request.url.path }}" class="inline-form">
+          <select name="lang" class="lang-select" onchange="this.form.submit()">
+            {% for code in request.state.supported_languages %}
+            <option value="{{ code }}" {% if request.state.lang == code %}selected{% endif %}>
+              {{ lang_flag(code) }} {{ lang_label(code) }}
+            </option>
+            {% endfor %}
+          </select>
+        </form>
+        <a href="/login" class="nav-link nav-link-icon">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_login', 'Login') }}</span></a>
+        {% endif %}
+      </nav>
+      {% if request.url.path != "/" %}
+      <button
+        type="button"
+        class="nav-back-button desktop-only"
+        aria-label="{{ tr(request, 'base.nav_back', 'Zurück') }}"
+        title="{{ tr(request, 'base.nav_back', 'Zurück') }}"
+        onclick="(function(){ if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
+      >←</button>
+      {% endif %}
+    </header>
+    {% block content %}{% endblock %}
+  </div>
+  <script>
+    (function () {
+      const isAuthenticated = {{ "true" if request.state.authenticated else "false" }};
+      const restartProbeKey = "aria_restart_probe_failed";
+      const backReloadKey = "aria_back_reload_pending";
+      const body = document.body;
+      const brandMark = document.querySelector(".brand-mark");
+      let busyCount = 0;
+      let busyTimer = null;
+
+      function setBusy(active) {
+        body.classList.toggle("app-busy", !!active);
+        if (brandMark) {
+          brandMark.classList.toggle("logo-busy", !!active);
+        }
+      }
+
+      function beginBusy() {
+        busyCount += 1;
+        if (busyTimer || body.classList.contains("app-busy")) return;
+        busyTimer = window.setTimeout(function () {
+          busyTimer = null;
+          if (busyCount > 0) setBusy(true);
+        }, 220);
+      }
+
+      function endBusy() {
+        busyCount = Math.max(0, busyCount - 1);
+        if (busyCount > 0) return;
+        if (busyTimer) {
+          window.clearTimeout(busyTimer);
+          busyTimer = null;
+        }
+        setBusy(false);
+      }
+
+      window.ariaBeginBusy = beginBusy;
+      window.ariaEndBusy = endBusy;
+
+      function readCookie(name) {
+        const key = name + "=";
+        const parts = document.cookie.split(";");
+        for (let i = 0; i < parts.length; i += 1) {
+          const part = parts[i].trim();
+          if (part.startsWith(key)) {
+            return decodeURIComponent(part.substring(key.length));
+          }
+        }
+        return "";
+      }
+
+      function csrfToken() {
+        const fromMeta = document.querySelector("meta[name='csrf-token']");
+        if (fromMeta && fromMeta.content) return fromMeta.content;
+        return readCookie("aria_csrf_token");
+      }
+
+      function attachFormToken(form, token) {
+        if (!form || !token) return;
+        const method = (form.getAttribute("method") || "get").toLowerCase();
+        if (method !== "post") return;
+        let input = form.querySelector("input[name='csrf_token']");
+        if (!input) {
+          input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "csrf_token";
+          form.appendChild(input);
+        }
+        input.value = token;
+      }
+
+      const token = csrfToken();
+      document.querySelectorAll("form").forEach((form) => attachFormToken(form, token));
+
+      window.addEventListener("pageshow", function () {
+        busyCount = 0;
+        if (busyTimer) {
+          window.clearTimeout(busyTimer);
+          busyTimer = null;
+        }
+        setBusy(false);
+        try {
+          if (sessionStorage.getItem(backReloadKey) !== "1") return;
+          sessionStorage.removeItem(backReloadKey);
+          window.location.reload();
+        } catch (error) {
+          // ignore storage access problems and keep default browser behaviour
+        }
+      });
+
+      document.body.addEventListener("htmx:configRequest", function (event) {
+        if (!token) return;
+        event.detail.headers["X-CSRF-Token"] = token;
+      });
+      document.body.addEventListener("htmx:beforeRequest", beginBusy);
+      document.body.addEventListener("htmx:afterRequest", endBusy);
+      document.body.addEventListener("htmx:responseError", endBusy);
+
+      document.addEventListener("submit", function (event) {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        if (form.id === "chat-form") return;
+        beginBusy();
+      });
+
+      document.addEventListener("click", function (event) {
+        const link = event.target && event.target.closest ? event.target.closest("a[href]") : null;
+        if (!link) return;
+        if (link.target && link.target !== "_self") return;
+        const href = link.getAttribute("href") || "";
+        if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+        try {
+          const url = new URL(href, window.location.origin);
+          if (url.origin !== window.location.origin) return;
+        } catch (error) {
+          return;
+        }
+        beginBusy();
+      });
+
+      document.addEventListener("click", function (event) {
+        document.querySelectorAll(".user-menu[open]").forEach(function (menu) {
+          if (menu.contains(event.target)) return;
+          menu.removeAttribute("open");
+        });
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        document.querySelectorAll(".user-menu[open]").forEach(function (menu) {
+          menu.removeAttribute("open");
+        });
+      });
+
+      // If ARIA restarts while this page is open:
+      // 1) detect temporary health check failures
+      // 2) once healthy again, send user to login so the UI is in a clean state
+      if (isAuthenticated && window.location.pathname !== "/login") {
+        const checkHealth = async function () {
+          try {
+            const response = await fetch("/health", {
+              method: "GET",
+              cache: "no-store",
+              credentials: "same-origin",
+            });
+            if (!response.ok) throw new Error("health not ok");
+            const hadFailure = sessionStorage.getItem(restartProbeKey) === "1";
+            if (hadFailure) {
+              sessionStorage.removeItem(restartProbeKey);
+              window.location.assign("/login?next=" + encodeURIComponent(window.location.pathname));
+            }
+          } catch (error) {
+            sessionStorage.setItem(restartProbeKey, "1");
+          }
+        };
+
+        setInterval(checkHealth, 3000);
+      }
+    })();
+  </script>
+</body>
+</html>

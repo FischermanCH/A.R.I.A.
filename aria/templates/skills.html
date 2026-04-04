@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="skills-layout">
+  <section class="floating-card skills-intro">
+    <h2>{{ tr(request, 'skills.title', 'Skills') }}</h2>
+    <p>{{ tr(request, 'skills.subtitle', 'Hier aktivierst du Fähigkeiten von ARIA. Neue Skills erscheinen automatisch aus JSON-Manifesten.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'skills.saved', 'Skills gespeichert.') }}</div>
+    {% endif %}
+    {% if info_message %}
+    <div class="alert ok">{{ info_message }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    {% if skills_readonly %}
+    <div class="alert note">{{ tr(request, 'skills.readonly_mode', 'User mode is active. Skills can be viewed here, but changes are disabled.') }}</div>
+    {% endif %}
+    {% if custom_errors %}
+    <p class="error-text">{{ tr(request, 'skills.load_errors', 'Einige Skill-Dateien konnten nicht geladen werden:') }}</p>
+    <ul class="hint-text">
+      {% for err in custom_errors %}
+      <li>{{ err }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <form id="skills-toggles-form" class="editor-form" method="post" action="/skills/save">
+    <section class="floating-card skills-section">
+      <h3>{{ tr(request, 'skills.core', 'Core Skills') }}</h3>
+      <div class="config-group-grid">
+        {% for row in skill_rows %}
+        <article class="config-group-card skill-card">
+          <div class="skill-card-head">
+            <h3>{{ row.title }}</h3>
+            <span class="skill-state {% if row.enabled %}is-on{% else %}is-off{% endif %}">
+              {% if row.enabled %}{{ tr(request, 'skills.state_on', 'aktiv') }}{% else %}{{ tr(request, 'skills.state_off', 'aus') }}{% endif %}
+            </span>
+          </div>
+          <p>{{ row.desc }}</p>
+          <label class="inline-check">
+            <input
+              type="checkbox"
+              name="{{ row.key }}_enabled"
+              value="1"
+              {% if row.enabled %}checked{% endif %}
+              {% if skills_readonly %}disabled{% endif %}
+            >
+            {{ row.title }} {{ tr(request, 'skills.enable', 'aktivieren') }}
+          </label>
+          <details class="skill-details">
+            <summary>{{ tr(request, 'skills.details', 'Details') }}</summary>
+            <div class="skill-details-content">
+              {% if row.key == "memory" %}
+              <a class="nav-link" href="/memories/config">{{ tr(request, 'skills.memory_setup', 'Memory-Setup') }}</a>
+              <a class="nav-link" href="/memories">{{ tr(request, 'skills.memory_view', 'Memory-Ansicht') }}</a>
+              {% elif row.key == "auto_memory" %}
+              <a class="nav-link" href="/memories/config">{{ tr(request, 'skills.auto_memory_settings', 'Auto-Memory Einstellungen') }}</a>
+              <a class="nav-link" href="/config/routing">{{ tr(request, 'skills.memory_routing', 'Memory-Trigger & Routing') }}</a>
+              {% endif %}
+            </div>
+          </details>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="floating-card skills-section">
+      <h3>{{ tr(request, 'skills.custom', 'Custom Skills') }}</h3>
+      <div class="config-group-grid">
+        {% for row in custom_rows %}
+        <article class="config-group-card skill-card">
+          <div class="skill-card-head">
+            <h3>{{ row.title }}</h3>
+            <span class="skill-state {% if row.enabled %}is-on{% else %}is-off{% endif %}">
+              {% if row.enabled %}{{ tr(request, 'skills.state_on', 'aktiv') }}{% else %}{{ tr(request, 'skills.state_off', 'aus') }}{% endif %}
+            </span>
+          </div>
+          <p>{{ row.desc }}</p>
+          <p class="hint-text">{{ tr(request, 'skills.category', 'Kategorie') }}: {{ row.category }}{% if row.prompt_file %} · {{ tr(request, 'skills.prompt', 'Prompt') }}: {{ row.prompt_file }}{% endif %}</p>
+          <label class="inline-check">
+            <input
+              type="checkbox"
+              name="custom_enabled__{{ row.key }}"
+              value="1"
+              {% if row.enabled %}checked{% endif %}
+              {% if request.state.auth_role != "admin" %}disabled{% endif %}
+            >
+            {{ row.title }} {{ tr(request, 'skills.enable', 'aktivieren') }}
+          </label>
+          <details class="skill-details">
+            <summary>{{ tr(request, 'skills.details', 'Details') }}</summary>
+            <div class="skill-details-content">
+              {% if row.router_keywords %}
+              <p class="hint-text">{{ tr(request, 'skills.trigger', 'Trigger') }}: {{ row.router_keywords|join(", ") }}</p>
+              {% endif %}
+              {% if row.connections %}
+              <p class="hint-text">{{ tr(request, 'skills.connections', 'Connections') }}: {{ row.connections|join(", ") }}</p>
+              {% endif %}
+              {% if row.steps %}
+              <p class="hint-text">{{ tr(request, 'skills.steps', 'Steps') }}: {{ row.steps|length }}</p>
+              {% for step in row.steps %}
+              <p class="hint-text">- {{ step.id }} · {{ step.type }}{% if step.name %} · {{ step.name }}{% endif %}</p>
+              {% endfor %}
+              {% endif %}
+              {% if row.schedule and row.schedule.enabled %}
+              <p class="hint-text">{{ tr(request, 'skills.schedule', 'Zeitplan') }}: {{ row.schedule_time_24h or 'custom' }} {{ tr(request, 'skills.clock', 'Uhr') }} ({{ row.schedule.timezone }}){% if row.schedule.run_on_startup %} · + {{ tr(request, 'skills.start', 'Start') }}{% endif %}</p>
+              {% endif %}
+              {% if not skills_readonly %}
+              <div class="inline-actions">
+                <a class="nav-link" href="/skills/wizard?skill_id={{ row.key }}">{{ tr(request, 'skills.edit', 'Bearbeiten') }}</a>
+                <button
+                  type="submit"
+                  class="danger-btn"
+                  formaction="/skills/delete"
+                  formmethod="post"
+                  name="skill_id"
+                  value="{{ row.key }}"
+                  onclick="return confirm('{{ tr(request, 'skills.delete_confirm', 'Skill wirklich löschen?') }}');"
+                >{{ tr(request, 'skills.delete', 'Löschen') }}</button>
+              </div>
+              {% endif %}
+              {% if row.hint %}
+              <small class="hint-text">{{ row.hint }}</small>
+              {% endif %}
+            </div>
+          </details>
+        </article>
+        {% else %}
+        <article class="config-group-card skill-card is-future">
+          <h3>{{ tr(request, 'skills.none_title', 'Noch keine Custom Skills') }}</h3>
+          <p>{{ tr(request, 'skills.none_text', 'Erstelle den ersten Skill über den Wizard oder importiere ein JSON-Manifest.') }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="floating-card skills-save">
+    {% if not skills_readonly %}
+    <p class="hint-text">{{ tr(request, 'skills.auto_save', 'Änderungen an den Schaltern werden automatisch gespeichert.') }}</p>
+    {% else %}
+    <p class="hint-text">{{ tr(request, 'skills.readonly_hint', 'Skills are visible in user mode, but editing, importing and toggling are disabled.') }}</p>
+    {% endif %}
+    </section>
+  </form>
+
+  {% if not skills_readonly %}
+  <section class="floating-card skills-actions skills-actions-create">
+    <h3>{{ tr(request, 'skills.create', 'Skill erstellen') }}</h3>
+    <div class="inline-actions">
+      <a class="nav-link skill-action-link" href="/skills/wizard">{{ tr(request, 'skills.create_wizard', 'Neuen Skill erstellen (Wizard)') }}</a>
+    </div>
+  </section>
+
+  <section class="floating-card skills-actions skills-actions-import">
+    <h3>{{ tr(request, 'skills.import', 'Skill importieren') }}</h3>
+    <form class="editor-form" method="post" action="/skills/import" enctype="multipart/form-data">
+      <div class="inline-actions">
+        <input type="file" name="skill_file" accept="application/json,.json" required>
+        <button type="submit" class="skill-action-button">{{ tr(request, 'skills.import_btn', 'Skill importieren') }}</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="floating-card skills-actions skills-actions-samples">
+    <h3>{{ tr(request, 'skills.samples_title', 'Mitgelieferte Sample-Skills') }}</h3>
+    <p class="hint-text">{{ tr(request, 'skills.samples_hint', 'Diese Skill-Templates liegen im Container unter /app/samples/skills und können direkt importiert werden.') }}</p>
+    <div class="config-group-grid">
+      {% for sample in sample_skill_rows %}
+      <article class="config-group-card skill-card">
+        <div class="skill-card-head">
+          <h3>{{ sample.name }}</h3>
+          <span class="skill-state is-off">{{ sample.category }}</span>
+        </div>
+        {% if sample.description %}
+        <p>{{ sample.description }}</p>
+        {% endif %}
+        <p class="hint-text">{{ sample.file_name }}</p>
+        <form method="post" action="/skills/import-sample" class="inline-form">
+          <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
+          <button type="submit" class="skill-action-button">{{ tr(request, 'skills.import_sample_btn', 'Sample importieren') }}</button>
+        </form>
+      </article>
+      {% else %}
+      <article class="config-group-card skill-card is-future">
+        <h3>{{ tr(request, 'skills.samples_empty_title', 'Keine Sample-Skills gefunden') }}</h3>
+        <p>{{ tr(request, 'skills.samples_empty_hint', 'Im Container wurde kein samples/skills-Verzeichnis gefunden.') }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</main>
+{% if not skills_readonly %}
+<script>
+  (function () {
+    const form = document.getElementById("skills-toggles-form");
+    if (!form) return;
+    const boxes = form.querySelectorAll('input[type="checkbox"]');
+    boxes.forEach(function (box) {
+      box.addEventListener("change", function () {
+        form.submit();
+      });
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

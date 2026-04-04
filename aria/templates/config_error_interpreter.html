@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  <section class="floating-card">
+    <div class="page-title-row"><span>{{ icon('error', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_error_interpreter.title', 'Error Interpreter') }}</h2></div>
+    <p>{{ tr(request, 'config_error_interpreter.subtitle', 'Interpretation rules for SSH, apt, sudo, and runtime errors. ARIA uses these rules to explain failures in a more human-friendly way.') }}</p>
+
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_error_interpreter.saved', 'Rules saved.') }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+
+    <div class="meta-row">
+      <span class="meta-badge">{{ tr(request, 'config_error_interpreter.file', 'File') }}: <code>{{ file_path }}</code></span>
+      <span class="meta-badge">{{ tr(request, 'config_error_interpreter.categories', 'Categories') }}: {{ category_count }}</span>
+    </div>
+  </section>
+
+  <section class="floating-card">
+    <form method="post" action="/config/error-interpreter/save" class="editor-form">
+      <label for="content">{{ tr(request, 'config_error_interpreter.content', 'Rules (YAML)') }}</label>
+      <textarea id="content" name="content" class="editor-textarea" spellcheck="false">{{ file_content }}</textarea>
+      <button type="submit">{{ tr(request, 'config_error_interpreter.save', 'Save rules') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

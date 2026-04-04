@@ -1,0 +1,13 @@
+connections:
+  discord:
+    alerts-main:
+      title: "Discord Alerts"
+      description: "Neutrales Beispiel für Discord-Benachrichtigungen"
+      webhook_url: "https://discord.com/api/webhooks/REPLACE/ME"
+      timeout_seconds: 10
+      send_test_messages: true
+      allow_skill_messages: true
+      alert_skill_errors: true
+      alert_safe_fix: true
+      alert_connection_changes: false
+      alert_system_events: false

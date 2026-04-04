@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="stats-layout">
+  <section class="stats-grid">
+    <article class="stat-card">
+      <h2>{{ tr(request, 'activities.total', 'Aktivitäten') }}</h2>
+      <p class="stat-value">{{ activities.summary.count }}</p>
+    </article>
+    <article class="stat-card">
+      <h2>{{ tr(request, 'activities.success', 'Erfolgreich') }}</h2>
+      <p class="stat-value">{{ activities.summary.success }}</p>
+    </article>
+    <article class="stat-card">
+      <h2>{{ tr(request, 'activities.errors', 'Mit Fehlern') }}</h2>
+      <p class="stat-value">{{ activities.summary.errors }}</p>
+    </article>
+    <article class="stat-card">
+      <h2>{{ tr(request, 'activities.avg_duration', 'Ø Dauer') }}</h2>
+      <p class="stat-value">{{ activities.summary.avg_duration_ms }} ms</p>
+    </article>
+  </section>
+
+  <section class="stat-card">
+    <h2>{{ tr(request, 'activities.title', 'Aktivitäten & Runs') }}</h2>
+    <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Skill-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
+  </section>
+
+  <section class="stat-card">
+    <form method="get" action="/activities" class="memories-filter-form">
+      <label for="kind">{{ tr(request, 'activities.filter_label', 'Bereich') }}</label>
+      <select id="kind" name="kind">
+        <option value="all" {% if activity_kind == "all" %}selected{% endif %}>{{ tr(request, 'activities.filter_all', 'Alle') }}</option>
+        <option value="skill" {% if activity_kind == "skill" %}selected{% endif %}>{{ tr(request, 'activities.filter_skill', 'Skills') }}</option>
+        <option value="memory" {% if activity_kind == "memory" %}selected{% endif %}>{{ tr(request, 'activities.filter_memory', 'Memory') }}</option>
+        <option value="system" {% if activity_kind == "system" %}selected{% endif %}>{{ tr(request, 'activities.filter_system', 'System') }}</option>
+      </select>
+      <label for="status">{{ tr(request, 'activities.filter_status_label', 'Status') }}</label>
+      <select id="status" name="status">
+        <option value="all" {% if activity_status == "all" %}selected{% endif %}>{{ tr(request, 'activities.filter_status_all', 'Alle') }}</option>
+        <option value="ok" {% if activity_status == "ok" %}selected{% endif %}>{{ tr(request, 'activities.filter_status_ok', 'OK') }}</option>
+        <option value="error" {% if activity_status == "error" %}selected{% endif %}>{{ tr(request, 'activities.filter_status_error', 'Fehler') }}</option>
+      </select>
+      <button type="submit">{{ tr(request, 'activities.filter_apply', 'Anwenden') }}</button>
+    </form>
+  </section>
+
+  {% if activities.rows %}
+    <section class="stats-details-content">
+      {% for row in activities.rows %}
+        <details class="memory-card activity-card" {% if row.skill_errors %}open{% endif %}>
+          <summary class="memory-summary">
+            <div class="memory-summary-main">
+              <strong class="memory-title">{{ row.title }}</strong>
+              <span class="memory-preview">{{ row.summary_bits|join(' · ') }}</span>
+            </div>
+            <div class="memory-summary-meta">
+              <span class="meta-badge">
+                {% if row.success %}
+                  {{ tr(request, 'activities.status_ok', 'OK') }}
+                {% else %}
+                  {{ tr(request, 'activities.status_error', 'Fehler') }}
+                {% endif %}
+              </span>
+            </div>
+          </summary>
+          <div class="memory-card-body">
+            <ul class="stats-list">
+              {% for item in row.detail_items %}
+              <li><span>{{ tr(request, item.key, item.fallback) }}</span><strong>{{ item.value }}</strong></li>
+              {% endfor %}
+            </ul>
+            {% if row.skill_errors %}
+            <details class="stats-details activity-errors" open>
+              <summary>{{ tr(request, 'activities.error_details', 'Fehlerdetails') }}</summary>
+              <div class="stats-details-content">
+                <section class="stat-card">
+                  <ul class="stats-list">
+                    {% for error in row.skill_errors %}
+                    <li><span>{{ error }}</span></li>
+                    {% endfor %}
+                  </ul>
+                </section>
+              </div>
+            </details>
+            {% endif %}
+          </div>
+        </details>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="stat-card">
+      <p>{{ tr(request, 'activities.empty', 'Noch keine Aktivitäten vorhanden.') }}</p>
+    </section>
+  {% endif %}
+</main>
+{% endblock %}

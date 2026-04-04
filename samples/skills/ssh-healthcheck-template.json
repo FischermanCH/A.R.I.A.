@@ -1,0 +1,48 @@
+{
+  "id": "ssh-healthcheck-template",
+  "name": "SSH Healthcheck Template",
+  "version": "0.1.0",
+  "description": "Beispiel für einen SSH-Skill. Führt einen einfachen Healthcheck aus und meldet das Ergebnis im Chat.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "ssh healthcheck",
+    "server status prüfen",
+    "uptime check"
+  ],
+  "connections": [
+    "ssh"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Uptime prüfen",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "srv-main",
+        "command": "uptime"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Kurzmeldung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "SSH Healthcheck ausgeführt. Details stehen im Schritt-Ergebnis."
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SSH-Connection mit Ref srv-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

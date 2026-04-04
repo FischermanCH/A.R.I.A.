@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_smb_ref %}hidden{% endif %}>
+
+    {% if selected_smb_ref %}
+    {% if selected_smb.guardrail_ref %}
+    <div class="skill-summary connection-flow-note connection-guardrail-summary"><strong>{{ tr(request, 'config_conn.attached_guardrail', 'Aktives Guardrail') }}</strong><span><code>{{ selected_smb.guardrail_ref }}</code></span></div>
+    {% endif %}
+    {% if smb_test_status == 'ok' or smb_test_status == 'error' %}
+    <article class="connection-test-card status-{{ smb_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ smb_test_status }}"></span><strong>{% if smb_test_status == 'ok' %}{{ tr(request,'config_conn.smb_test_ok','SMB connection test successful') }}{% else %}{{ tr(request,'config_conn.smb_test_error','SMB connection test failed') }}{% endif %}</strong></div>
+      <small>{% if smb_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/smb/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_smb_ref }}">
+      {% set schema_fields = smb_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      <details class="skill-details">
+        <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
+        <div class="skill-details-content">
+          <label for="guardrail_ref_smb_edit">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
+          <select id="guardrail_ref_smb_edit" name="guardrail_ref">
+            {% for item in smb_guardrail_ref_options %}
+            <option value="{{ item.ref }}" {% if item.ref == (selected_smb.guardrail_ref or '') %}selected{% endif %}>{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint-text">{{ tr(request, 'config_security.file_guardrail_hint', 'Datei-Guardrails prüfen Operation und Pfad, bevor ARIA liest, schreibt oder Verzeichnisse auflistet.') }}</small>
+        </div>
+      </details>
+      {% set meta_prefix = 'smb_edit' %}
+
+      {% set meta_values = selected_smb %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.smb_save_profile','Save SMB profile') }}</button>
+    </form>
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'smb' %}
+    {% set delete_ref = selected_smb_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.smb_recommended_flow_text','1) Save SMB profile with host, share, user and password. 2) ARIA stores the password in the secure store. 3) Save. 4) ARIA tests the connection automatically.') }}</span></div>
+    <form method="post" action="/config/connections/smb/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = smb_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      <details class="skill-details">
+        <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
+        <div class="skill-details-content">
+          <label for="guardrail_ref_smb_new">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
+          <select id="guardrail_ref_smb_new" name="guardrail_ref">
+            {% for item in smb_guardrail_ref_options %}
+            <option value="{{ item.ref }}">{{ item.label }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint-text">{{ tr(request, 'config_security.file_guardrail_hint', 'Datei-Guardrails prüfen Operation und Pfad, bevor ARIA liest, schreibt oder Verzeichnisse auflistet.') }}</small>
+        </div>
+      </details>
+      {% set meta_prefix = 'smb_new' %}
+
+      {% set meta_values = {} %}
+
+      {% include "_connection_metadata_fields.html" %}
+
+      <button type="submit">{{ tr(request,'config_conn.smb_save_profile','Save SMB profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

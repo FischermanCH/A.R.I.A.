@@ -1,0 +1,7 @@
+<nav class="connection-mode-nav" aria-label="{{ tr(request, 'config_conn.section_jump', 'Bereiche') }}">
+  {% if connection_mode == 'create' %}
+  <a href="{{ connection_mode_edit_url }}" class="button-link subtle-link connection-mode-link">{{ tr(request, 'config_conn.back_to_existing_profiles', 'Zurück zu Verbindungen') }}</a>
+  {% else %}
+  <a href="{{ connection_mode_create_url }}" class="button-link subtle-link connection-mode-link is-active">{{ tr(request, 'config_conn.create_section_tab', 'Neu') }}</a>
+  {% endif %}
+</nav>

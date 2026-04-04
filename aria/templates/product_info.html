@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<section class="panel">
+  <div class="page-head">
+    <div>
+      <p class="section-kicker">{{ tr(request, 'product_info.kicker', 'Produkt-Info') }}</p>
+      <h2>{{ tr(request, 'product_info.title', 'ARIA Produkt-Info') }}</h2>
+      <p>{{ tr(request, 'product_info.subtitle', 'Read-only Produkt-, Architektur- und Release-Doku direkt aus dem Repo.') }}</p>
+    </div>
+  </div>
+
+  <div class="product-doc-grid">
+    {% for product_doc in product_docs %}
+    <a
+      href="/product-info?doc={{ product_doc.id }}"
+      class="product-doc-card {% if selected_doc.id == product_doc.id %}is-active{% endif %}"
+      aria-current="{{ 'page' if selected_doc.id == product_doc.id else 'false' }}"
+    >
+      <div class="product-doc-card-head">
+        <span class="product-doc-icon">{{ icon(product_doc.icon) }}</span>
+        <strong>{{ tr(request, product_doc.label_i18n, product_doc.label_default) }}</strong>
+      </div>
+      <p>{{ tr(request, product_doc.summary_i18n, product_doc.summary_default) }}</p>
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="help-source-chip">
+    <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
+    <code>{{ doc_path }}</code>
+  </div>
+
+  {% if selected_doc.assets %}
+  <div class="product-diagram-grid">
+    {% for asset in selected_doc.assets %}
+    <figure class="product-diagram-card">
+      <img src="{{ asset.src }}" alt="{{ tr(request, asset.caption_i18n, asset.caption_default) }}" loading="lazy">
+      <figcaption>{{ tr(request, asset.caption_i18n, asset.caption_default) }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if doc_text %}
+  <pre class="help-document">{{ doc_text }}</pre>
+  {% else %}
+  <div class="empty-state">{{ tr(request, 'product_info.missing', 'Noch keine Produkt-Doku-Datei gefunden.') }}</div>
+  {% endif %}
+</section>
+{% endblock %}

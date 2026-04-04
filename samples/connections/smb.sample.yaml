@@ -1,0 +1,13 @@
+connections:
+  smb:
+    smb-main:
+      title: "Team Share"
+      description: "Neutrales Beispiel für eine SMB-Verbindung"
+      host: "10.0.0.30"
+      port: 445
+      share: "documents"
+      user: "backup"
+      password: ""
+      timeout_seconds: 10
+      root_path: "/"
+      guardrail_ref: "readonly-files"
