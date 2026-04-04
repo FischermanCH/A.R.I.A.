@@ -11,25 +11,56 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 **Languages:** [English](#english) · [Deutsch](#deutsch)
 
 ---
-<img width="1588" height="1639" alt="aria-chat-skill-sample-01" src="https://github.com/user-attachments/assets/bca9df58-f65e-4fba-a42b-00d8d2f87223" />
-Chat-Screen, A.R.I.A. doing updates on linux server's
+## Screenshots
 
-<img width="816" height="1930" alt="aria-config-01" src="https://github.com/user-attachments/assets/804e6584-2447-4901-a006-9543e8c0c275" />
-A.R.I.A. configuration screen
-
-<img width="1433" height="1109" alt="aria-mem-map-01" src="https://github.com/user-attachments/assets/1810671e-5452-4255-8165-f1f2f10072e2" />
-A.R.I.A. memory map
-
-<img width="813" height="1925" alt="aria-skill-config-01" src="https://github.com/user-attachments/assets/e583d84d-52a8-4a60-9279-a6b214bb5732" />
-A.R.I.A. configuration screen
-
-<img width="1278" height="1917" alt="aria-stats-01" src="https://github.com/user-attachments/assets/434a28c2-f7bd-447b-8218-d848a1d1f0e9" />
-A.R.I.A. statistics
-
-<img width="1433" height="846" alt="aria-theme-01" src="https://github.com/user-attachments/assets/2ed2281e-6fff-448c-af94-2e6262b26e84" />
-and now worries, there are also different themes with different colors ;-)
-
-<img width="1435" height="811" alt="aria-theme-02" src="https://github.com/user-attachments/assets/eae1715d-4272-46e3-bf67-cddc37890b32" />
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/bca9df58-f65e-4fba-a42b-00d8d2f87223" alt="ARIA chat running a Linux update skill" width="100%">
+      <br>
+      <sub><strong>Chat + Skills:</strong> ARIA running a Linux server update workflow.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/804e6584-2447-4901-a006-9543e8c0c275" alt="ARIA configuration screen" width="100%">
+      <br>
+      <sub><strong>Configuration:</strong> browser-based setup for system and provider settings.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/1810671e-5452-4255-8165-f1f2f10072e2" alt="ARIA memory map" width="100%">
+      <br>
+      <sub><strong>Memory Map:</strong> visual view into ARIA's stored memory structure.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/e583d84d-52a8-4a60-9279-a6b214bb5732" alt="ARIA skill configuration screen" width="100%">
+      <br>
+      <sub><strong>Skill Builder:</strong> UI for editing and wiring custom skills.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/434a28c2-f7bd-447b-8218-d848a1d1f0e9" alt="ARIA statistics page" width="100%">
+      <br>
+      <sub><strong>Statistics:</strong> runtime health, usage, costs, and system status.</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/2ed2281e-6fff-448c-af94-2e6262b26e84" alt="ARIA theme variant one" width="100%">
+      <br>
+      <sub><strong>Themes:</strong> different looks and color directions are built in.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="https://github.com/user-attachments/assets/eae1715d-4272-46e3-bf67-cddc37890b32" alt="ARIA theme variant two" width="100%">
+      <br>
+      <sub><strong>Theme Variant:</strong> another UI style from the same system.</sub>
+    </td>
+    <td align="center" width="50%">
+      &nbsp;
+    </td>
+  </tr>
+</table>
 
 
 # English
