@@ -11,9 +11,13 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 **Languages:** [English](#english) · [Deutsch](#deutsch)
 
 ---
+<img width="1588" height="1639" alt="aria-chat-skill-sample-01" src="https://github.com/user-attachments/assets/bca9df58-f65e-4fba-a42b-00d8d2f87223" />
+Chat-Screen, A.R.I.A. doing updates on linux server's
+
+<img width="816" height="1930" alt="aria-config-01" src="https://github.com/user-attachments/assets/804e6584-2447-4901-a006-9543e8c0c275" />
+A.R.I.A. configuration screen
 
 # English
-
 ## What ARIA is
 
 ARIA is a small, modular AI assistant for people who want control instead of platform sprawl.
