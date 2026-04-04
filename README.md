@@ -1,7 +1,12 @@
+<p align="center">
+  <img src="aria/static/logo-aria-v01.png" alt="ARIA logo" width="180">
+</p>
+
 # ARIA
 
 Lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first UI.
 
+**GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)
 **Languages:** [English](#english) · [Deutsch](#deutsch)
 
 ---
