@@ -22,3 +22,5 @@ data/chat_history/
 data/qdrant/
 data/runtime/
 data/ssh_keys/
+
+project.docu/

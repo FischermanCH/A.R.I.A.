@@ -60,6 +60,20 @@ Not the current target:
 - Config via `config/config.yaml` plus `ARIA_*` environment overrides
 - `/health` endpoint
 
+## Architecture at a glance
+
+### Layered architecture
+
+![ARIA layered architecture](docs/product/aria_schichten_architektur.svg)
+
+### Intelligent routing
+
+![ARIA intelligent routing](docs/product/aria_intelligentes_routing.svg)
+
+### Modularity and persistence
+
+![ARIA modularity and persistence](docs/product/aria_modularitaet_persistenz.svg)
+
 ## Documentation
 
 - Product overview: `docs/product/overview.md`
@@ -74,7 +88,6 @@ Not the current target:
 - Pricing help: `docs/help/pricing.md`
 - Security help: `docs/help/security.md`
 - Changelog: `CHANGELOG.md`
-- Internal project notes: `project.docu/README.md`
 
 ## Quickstart
 
@@ -338,6 +351,20 @@ Aktuell **nicht** gedacht für:
 - Konfiguration über `config/config.yaml` plus `ARIA_*` ENV-Overrides
 - `/health` Endpoint
 
+## Architektur auf einen Blick
+
+### Schichtenarchitektur
+
+![ARIA Schichtenarchitektur](docs/product/aria_schichten_architektur.svg)
+
+### Intelligentes Routing
+
+![ARIA Intelligentes Routing](docs/product/aria_intelligentes_routing.svg)
+
+### Modularität und Persistenz
+
+![ARIA Modularität und Persistenz](docs/product/aria_modularitaet_persistenz.svg)
+
 ## Dokumentation
 
 - Produktüberblick: `docs/product/overview.md`
@@ -352,7 +379,6 @@ Aktuell **nicht** gedacht für:
 - Pricing-Hilfe: `docs/help/pricing.md`
 - Security-Hilfe: `docs/help/security.md`
 - Changelog: `CHANGELOG.md`
-- Interne Projekt-Notizen: `project.docu/README.md`
 
 ## Quickstart
 
