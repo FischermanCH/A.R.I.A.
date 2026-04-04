@@ -17,6 +17,21 @@ Chat-Screen, A.R.I.A. doing updates on linux server's
 <img width="816" height="1930" alt="aria-config-01" src="https://github.com/user-attachments/assets/804e6584-2447-4901-a006-9543e8c0c275" />
 A.R.I.A. configuration screen
 
+<img width="1433" height="1109" alt="aria-mem-map-01" src="https://github.com/user-attachments/assets/1810671e-5452-4255-8165-f1f2f10072e2" />
+A.R.I.A. memory map
+
+<img width="813" height="1925" alt="aria-skill-config-01" src="https://github.com/user-attachments/assets/e583d84d-52a8-4a60-9279-a6b214bb5732" />
+A.R.I.A. configuration screen
+
+<img width="1278" height="1917" alt="aria-stats-01" src="https://github.com/user-attachments/assets/434a28c2-f7bd-447b-8218-d848a1d1f0e9" />
+A.R.I.A. statistics
+
+<img width="1433" height="846" alt="aria-theme-01" src="https://github.com/user-attachments/assets/2ed2281e-6fff-448c-af94-2e6262b26e84" />
+and now worries, there are also different themes with different colors ;-)
+
+<img width="1435" height="811" alt="aria-theme-02" src="https://github.com/user-attachments/assets/eae1715d-4272-46e3-bf67-cddc37890b32" />
+
+
 # English
 ## What ARIA is
 
