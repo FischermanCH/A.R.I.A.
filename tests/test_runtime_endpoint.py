@@ -17,7 +17,7 @@ def _settings(*, host: str = "0.0.0.0", port: int = 8800, public_url: str = ""):
 
 
 def test_request_is_secure_uses_forwarded_proto() -> None:
-    request = _request(headers={"x-forwarded-proto": "https", "host": "aria.example"})
+    request = _request(headers={"x-forwarded-proto": "https", "x-forwarded-host": "aria.example", "host": "aria.example"})
 
     assert request_is_secure(request) is True
 
@@ -29,7 +29,19 @@ def test_request_is_secure_falls_back_to_request_scheme() -> None:
 
 
 def test_request_is_secure_uses_first_forwarded_proto_value() -> None:
-    request = _request(headers={"x-forwarded-proto": "https, http", "host": "aria.example"})
+    request = _request(headers={"x-forwarded-proto": "https, http", "x-forwarded-host": "aria.example", "host": "aria.example"})
+
+    assert request_is_secure(request) is True
+
+
+def test_request_is_secure_ignores_bare_forwarded_proto_on_plain_http() -> None:
+    request = _request(headers={"x-forwarded-proto": "https", "host": "aria.example"})
+
+    assert request_is_secure(request) is False
+
+
+def test_request_is_secure_supports_standard_forwarded_header() -> None:
+    request = _request(headers={"forwarded": 'for=1.2.3.4;proto=https;host=aria.example', "host": "internal:8800"})
 
     assert request_is_secure(request) is True
 

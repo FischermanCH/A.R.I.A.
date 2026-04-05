@@ -33,15 +33,47 @@ def _detect_lan_ip() -> str:
     return "localhost"
 
 
+def _forwarded_header_proto(headers: Any) -> str:
+    raw = str((headers or {}).get("forwarded", "") or "").strip()
+    if not raw:
+        return ""
+    first_hop = raw.split(",", 1)[0]
+    for part in first_hop.split(";"):
+        key, sep, value = part.partition("=")
+        if not sep:
+            continue
+        if key.strip().lower() != "proto":
+            continue
+        return value.strip().strip('"').lower()
+    return ""
+
+
 def request_is_secure(request: Any | None) -> bool:
     if request is None:
         return False
     try:
-        forwarded_proto = str(getattr(request, "headers", {}).get("x-forwarded-proto", "") or "").strip()
-        if forwarded_proto:
-            return forwarded_proto.split(",")[0].strip().lower() == "https"
+        headers = getattr(request, "headers", {}) or {}
         scheme = str(getattr(getattr(request, "url", object()), "scheme", "") or "").strip().lower()
-        return scheme == "https"
+        if scheme == "https":
+            return True
+
+        forwarded_proto = _forwarded_header_proto(headers)
+        if forwarded_proto:
+            return forwarded_proto == "https"
+
+        forwarded_proto = str(headers.get("x-forwarded-proto", "") or "").strip()
+        if forwarded_proto:
+            forwarded_first = forwarded_proto.split(",", 1)[0].strip().lower()
+            if forwarded_first != "https":
+                return False
+            forwarded_host = str(headers.get("x-forwarded-host", "") or "").strip()
+            forwarded_port = str(headers.get("x-forwarded-port", "") or "").strip()
+            if forwarded_host or forwarded_port == "443":
+                return True
+            # Be conservative: plain HTTP requests should not become secure-cookie
+            # candidates just because a stray x-forwarded-proto header is present.
+            return False
+        return False
     except Exception:
         return False
 
