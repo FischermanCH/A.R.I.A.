@@ -5172,6 +5172,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         temperature: float = Form(...),
         max_tokens: int = Form(...),
         timeout_seconds: int = Form(...),
+        profile_name: str = Form(""),
     ) -> RedirectResponse:
         try:
             cleaned_model = model.strip()
@@ -5198,11 +5199,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["llm"]["max_tokens"] = int(max_tokens)
             raw["llm"]["timeout_seconds"] = int(timeout_seconds)
             active_name = _get_active_profile_name(raw, "llm")
-            if active_name:
+            requested_name = _sanitize_profile_name(profile_name)
+            target_name = requested_name or active_name
+            if target_name:
+                _set_active_profile(raw, "llm", target_name)
                 raw.setdefault("profiles", {})
                 raw["profiles"].setdefault("llm", {})
                 if isinstance(raw["profiles"]["llm"], dict):
-                    raw["profiles"]["llm"][active_name] = {
+                    raw["profiles"]["llm"][target_name] = {
                         "model": cleaned_model,
                         "api_base": api_base.strip(),
                         "api_key": "",
@@ -5213,12 +5217,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             store = _get_secure_store(raw)
             if store and cleaned_api_key:
                 store.set_secret("llm.api_key", cleaned_api_key)
-                if active_name:
-                    store.set_secret(f"profiles.llm.{active_name}.api_key", cleaned_api_key)
+                if target_name:
+                    store.set_secret(f"profiles.llm.{target_name}.api_key", cleaned_api_key)
             elif not store:
                 raw["llm"]["api_key"] = cleaned_api_key
-                if active_name and isinstance(raw.get("profiles", {}).get("llm"), dict):
-                    raw["profiles"]["llm"][active_name]["api_key"] = cleaned_api_key
+                if target_name and isinstance(raw.get("profiles", {}).get("llm"), dict):
+                    raw["profiles"]["llm"][target_name]["api_key"] = cleaned_api_key
             _write_raw_config(raw)
             _reload_runtime()
             return RedirectResponse(url="/config/llm?saved=1", status_code=303)
@@ -5384,6 +5388,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         api_base: str = Form(""),
         api_key: str = Form(""),
         timeout_seconds: int = Form(...),
+        profile_name: str = Form(""),
     ) -> RedirectResponse:
         try:
             cleaned_model = model.strip()
@@ -5404,11 +5409,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["embeddings"]["api_key"] = ""
             raw["embeddings"]["timeout_seconds"] = int(timeout_seconds)
             active_name = _get_active_profile_name(raw, "embeddings")
-            if active_name:
+            requested_name = _sanitize_profile_name(profile_name)
+            target_name = requested_name or active_name
+            if target_name:
+                _set_active_profile(raw, "embeddings", target_name)
                 raw.setdefault("profiles", {})
                 raw["profiles"].setdefault("embeddings", {})
                 if isinstance(raw["profiles"]["embeddings"], dict):
-                    raw["profiles"]["embeddings"][active_name] = {
+                    raw["profiles"]["embeddings"][target_name] = {
                         "model": cleaned_model,
                         "api_base": api_base.strip(),
                         "api_key": "",
@@ -5417,12 +5425,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             store = _get_secure_store(raw)
             if store and cleaned_api_key:
                 store.set_secret("embeddings.api_key", cleaned_api_key)
-                if active_name:
-                    store.set_secret(f"profiles.embeddings.{active_name}.api_key", cleaned_api_key)
+                if target_name:
+                    store.set_secret(f"profiles.embeddings.{target_name}.api_key", cleaned_api_key)
             elif not store:
                 raw["embeddings"]["api_key"] = cleaned_api_key
-                if active_name and isinstance(raw.get("profiles", {}).get("embeddings"), dict):
-                    raw["profiles"]["embeddings"][active_name]["api_key"] = cleaned_api_key
+                if target_name and isinstance(raw.get("profiles", {}).get("embeddings"), dict):
+                    raw["profiles"]["embeddings"][target_name]["api_key"] = cleaned_api_key
             _write_raw_config(raw)
             _reload_runtime()
             return RedirectResponse(url="/config/embeddings?saved=1", status_code=303)

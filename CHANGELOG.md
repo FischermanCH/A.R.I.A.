@@ -9,16 +9,37 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ### Added
 
 ### Changed
-- `README.md` now links Docker Hub directly in the header, next to the GitHub repository link.
 
 ### Fixed
-- Prompt Studio no longer disables saving for editable prompt files like `prompts/persona.md`; prompt rows now carry explicit `edit` metadata and the shared editor template defaults missing modes to editable.
 
 ### Security
 
 ### Known Limitations
 
 ### Upgrade Notes
+
+## [0.1.0-alpha.26] - 2026-04-05
+
+### Added
+
+### Changed
+- `README.md` now links Docker Hub directly in the header, next to the GitHub repository link.
+
+### Fixed
+- Prompt Studio no longer disables saving for editable prompt files like `prompts/persona.md`; prompt rows now carry explicit `edit` metadata and the shared editor template defaults missing modes to editable.
+- LLM and Embeddings config now also create or overwrite a named profile when a different profile name is entered and the normal `Save` button or Enter key is used, instead of silently only updating the current active profile.
+
+### Security
+
+### Known Limitations
+- ARIA is still primarily a personal single-user system
+- No full shared-skill/shared-connection RBAC model yet
+- Capability results are not automatically written into Memory unless modeled explicitly
+- Public internet exposure is still not recommended for this ALPHA line
+
+### Upgrade Notes
+- Update the ARIA container/image, keep persistent volumes
+- Hard-refresh the browser after the update if old CSS/theme assets are still cached
 
 ## [0.1.0-alpha.25] - 2026-04-04
 
