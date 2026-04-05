@@ -1749,7 +1749,7 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
         pass
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha34"
+        release_label = f"{version}-alpha35"
     return {
         "version": version,
         "label": release_label,
@@ -2544,8 +2544,6 @@ def _build_app() -> FastAPI:
                     secure=secure_cookie,
                     httponly=False,
                 )
-            elif request.cookies.get(AUTH_COOKIE):
-                response.delete_cookie(AUTH_COOKIE)
             response.set_cookie(
                 key=CSRF_COOKIE,
                 value=csrf_cookie_token,

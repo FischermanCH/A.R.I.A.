@@ -18,6 +18,26 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 
+## [0.1.0-alpha.35] - 2026-04-05
+
+### Added
+
+### Changed
+
+### Fixed
+- der Auth-Cookie wird nicht mehr auf unkritischen Responses wie öffentlichen Nebenrequests versehentlich gelöscht; dadurch bleiben Login-Sessions bei `Load models`, Profilwechseln und normalen Seitenwechseln stabil
+- LLM- und Embeddings-Konfigurationen können wieder zuverlässig Modelle laden und speichern, ohne Nutzer auf `Login` oder `Bitte zuerst anmelden` zurückzuwerfen
+
+### Security
+
+### Known Limitations
+- ARIA ist weiterhin primär ein Personal-Single-User-System
+- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
+- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
+- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
+
+### Upgrade Notes
+
 ## [0.1.0-alpha.34] - 2026-04-05
 
 ### Added

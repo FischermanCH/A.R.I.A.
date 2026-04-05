@@ -85,3 +85,14 @@ def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkey
     response = client.get("/stats", follow_redirects=False)
 
     assert response.status_code == 200
+
+
+def test_public_health_request_with_invalid_auth_cookie_does_not_delete_cookie() -> None:
+    client = TestClient(app)
+    client.cookies.set(AUTH_COOKIE, "invalid.session.cookie")
+
+    response = client.get("/health", follow_redirects=False)
+
+    assert response.status_code == 200
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert not any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
