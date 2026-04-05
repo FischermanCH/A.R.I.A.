@@ -128,6 +128,7 @@ Zielbild:
 - Memory- und Skill-UX weiter vereinfachen
 - zusätzliche Themes nur dort ergänzen, wo sie wirklich Qualität bringen
 - Accessibility und Mobile/Safari weiter glätten
+- GitHub Wiki und Docker-Hub-Landingpages später noch kompakter und schöner kuratieren
 
 ## Bewusst später / Nice-to-Have
 
