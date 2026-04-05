@@ -37,7 +37,7 @@
         <span class="pill brand-admin-pill mobile-admin-pill mobile-only">{{ tr(request, 'base.admin_on', 'Admin ON') }}</span>
         {% endif %}
         <details class="user-menu">
-          <summary class="user-pill user-pill-icon">{{ icon('more') }}<span>Menu</span></summary>
+          <summary class="user-pill user-pill-icon">{{ icon('more') }}<span>Menu</span>{% if request.state.update_status.update_available %}<span class="topnav-update-indicator" title="{{ tr(request, 'updates.available_short', 'Update verfügbar') }}"><span class="health-lamp status-warn"></span></span>{% endif %}</summary>
           <div class="user-menu-panel">
             <div class="user-menu-header">
               <strong>{{ username or request.state.auth_user }}</strong>
@@ -58,6 +58,7 @@
             {% if request.state.can_access_advanced_config %}
             <a href="/config" class="user-menu-link user-menu-link-icon">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Config') }}</span></a>
             {% endif %}
+            <a href="/updates" class="user-menu-link user-menu-link-icon">{{ icon('updates') }}<span>{{ tr(request, 'base.nav_updates', 'Updates') }}</span>{% if request.state.update_status.update_available %}<span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>{% endif %}</a>
             <a href="/help" class="user-menu-link user-menu-link-icon">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
             {% if request.state.can_access_users %}
             <a href="/config/users" class="user-menu-link user-menu-link-icon">{{ icon('users') }}<span>{{ tr(request, 'base.nav_users', 'Benutzer') }}</span></a>
@@ -77,6 +78,7 @@
             {% endfor %}
           </select>
         </form>
+        <a href="/updates" class="nav-link nav-link-icon">{% if request.state.update_status.update_available %}<span class="health-lamp status-warn"></span>{% else %}{{ icon('updates') }}{% endif %}<span>{{ tr(request, 'base.nav_updates', 'Updates') }}</span></a>
         <a href="/login" class="nav-link nav-link-icon">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_login', 'Login') }}</span></a>
         {% endif %}
       </nav>

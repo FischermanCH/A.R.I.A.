@@ -16,6 +16,15 @@
     <h2>{{ tr(request, 'login.title', 'Login') }}</h2>
     <p class="hint-text">{{ tr(request, 'login.subtitle', 'Melde dich mit Benutzername und Passwort an.') }}</p>
     <p class="hint-text">{{ tr(request, 'login.case_hint', 'Benutzername ist gross/klein-sensitiv.') }}</p>
+    {% if request.state.update_status.update_available %}
+    <a href="/updates" class="update-notice-card">
+      <span class="health-lamp status-warn"></span>
+      <div>
+        <strong>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</strong>
+        <small>{{ tr(request, 'login.update_available_hint', 'Installiert: {current} · Neu: {latest}. Release Notes ansehen.').format(current=request.state.release_meta.label, latest=request.state.update_status.latest_label) }}</small>
+      </div>
+    </a>
+    {% endif %}
     {% if error_message %}
     <p class="error-text">{{ error_message }}</p>
     {% endif %}

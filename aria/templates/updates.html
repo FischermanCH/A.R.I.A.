@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="page-head">
+    <div>
+      <p class="section-kicker">{{ tr(request, 'base.nav_updates', 'Updates') }}</p>
+      <h2>{{ tr(request, 'updates.title', 'ARIA Update-Status') }}</h2>
+      <p>{{ tr(request, 'updates.subtitle', 'Prüft gegen GitHub-Tags und zeigt die Release Notes der neuesten öffentlichen Version.') }}</p>
+    </div>
+  </div>
+
+  <div class="stats-list">
+    <li>
+      <span>{{ tr(request, 'updates.current_version', 'Installierte Version') }}</span>
+      <strong>{{ release_meta.label }}</strong>
+    </li>
+    <li>
+      <span>{{ tr(request, 'updates.latest_version', 'Neueste öffentliche Version') }}</span>
+      <strong>{{ update_status.latest_label or release_meta.label }}</strong>
+    </li>
+    <li>
+      <span>{{ tr(request, 'updates.status_label', 'Status') }}</span>
+      <strong class="update-status-inline">
+        <span class="health-lamp status-{{ 'warn' if update_status.update_available else 'ok' }}"></span>
+        <span>{{ tr(request, 'updates.available_short', 'Update verfügbar') if update_status.update_available else tr(request, 'updates.up_to_date', 'Aktuell') }}</span>
+      </strong>
+    </li>
+    <li>
+      <span>{{ tr(request, 'updates.checked_at', 'Zuletzt geprüft') }}</span>
+      <strong>{{ update_status.checked_at or tr(request, 'updates.not_checked_yet', 'Noch nicht geprüft') }}</strong>
+    </li>
+  </div>
+
+  {% if update_status.update_available %}
+  <div class="alert warn update-alert">
+    <strong>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</strong>
+    <div>{{ tr(request, 'updates.manual_update_hint', 'Die Installation bleibt bewusst manuell. Für interne Setups weiter aria-pull nutzen; für Public/Docker den neuen Tag aus GitHub oder Docker Hub übernehmen.') }}</div>
+  </div>
+  {% endif %}
+
+  {% if update_status.error %}
+  <div class="alert warn update-alert">
+    <strong>{{ tr(request, 'updates.check_error_title', 'Letzter Check mit Fallback') }}</strong>
+    <div>{{ update_status.error }}</div>
+  </div>
+  {% endif %}
+
+  <div class="help-source-chip">
+    <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
+    <code>{{ update_status.source or 'github-tags' }} · {{ update_status.release_notes_source or 'CHANGELOG.md' }}</code>
+  </div>
+
+  {% if update_status.release_notes %}
+  <pre class="help-document">{{ update_status.release_notes }}</pre>
+  {% else %}
+  <div class="empty-state">{{ tr(request, 'updates.notes_missing', 'Für diese Version wurden noch keine Release Notes gefunden.') }}</div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -14,6 +14,7 @@ import secrets
 import socket
 import subprocess
 import shlex
+import tomllib
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
@@ -104,6 +105,7 @@ from aria.core.prompt_loader import PromptLoader, PromptLoadError
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.runtime_diagnostics import build_runtime_diagnostics
 from aria.core.runtime_endpoint import request_is_secure
+from aria.core.update_check import get_update_status
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -1725,6 +1727,29 @@ def _load_models_from_api_base(api_base: str, api_key: str = "", timeout_seconds
     raise ValueError("Modelle konnten nicht geladen werden.")
 
 
+def _read_release_meta(base_dir: Path) -> dict[str, str]:
+    version = "0.1.0"
+    try:
+        pyproject = base_dir / "pyproject.toml"
+        payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        project = payload.get("project", {})
+        if isinstance(project, dict):
+            version = str(project.get("version", version) or version).strip() or version
+    except Exception:
+        pass
+    release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
+    if not release_label:
+        release_label = f"{version}-alpha27"
+    return {
+        "version": version,
+        "label": release_label,
+    }
+
+
+def _get_update_status(current_label: str) -> dict[str, Any]:
+    return get_update_status(BASE_DIR, current_label=current_label)
+
+
 def _build_app() -> FastAPI:
     global AUTH_SIGNING_SECRET, FORGET_SIGNING_SECRET
     settings: Settings = load_settings(CONFIG_PATH)
@@ -2258,6 +2283,8 @@ def _build_app() -> FastAPI:
         request.state.lang = resolved_lang
         request.state.supported_languages = I18N.available_languages()
         request.state.agent_name = _agent_name_value()
+        request.state.release_meta = _read_release_meta(BASE_DIR)
+        request.state.update_status = _get_update_status(request.state.release_meta["label"])
         auth = _get_auth_session_from_request(request)
         csrf_cookie_token = _sanitize_csrf_token(request.cookies.get(CSRF_COOKIE))
         if not csrf_cookie_token:
@@ -2743,6 +2770,22 @@ def _build_app() -> FastAPI:
                 "username": username,
                 "help_path": f"docs/help/{help_file}",
                 "help_text": help_text,
+            },
+        )
+
+    @app.get("/updates", response_class=HTMLResponse)
+    async def updates_page(request: Request) -> HTMLResponse:
+        username = _get_username_from_request(request)
+        update_status = dict(getattr(request.state, "update_status", {}) or {})
+        release_meta = dict(getattr(request.state, "release_meta", {}) or _read_release_meta(BASE_DIR))
+        return TEMPLATES.TemplateResponse(
+            request=request,
+            name="updates.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "release_meta": release_meta,
+                "update_status": update_status,
             },
         )
 

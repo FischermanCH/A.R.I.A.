@@ -933,6 +933,30 @@ body[data-background="nodes"] {
   display: flex;
 }
 
+.topnav-update-indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.1rem;
+}
+
+.topnav-update-indicator .health-lamp {
+  margin-top: 0;
+}
+
+.menu-update-chip {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.menu-update-chip .health-lamp {
+  margin-top: 0;
+}
+
 .user-menu-link-icon .ui-icon,
 .nav-link-icon .ui-icon,
 .user-pill-icon .ui-icon {
@@ -1014,6 +1038,38 @@ body[data-background="nodes"] {
   border-radius: 10px;
   padding: 0.45rem 0.9rem;
   cursor: pointer;
+}
+
+.update-notice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border: 1px solid rgba(233, 176, 61, 0.45);
+  background: rgba(53, 34, 8, 0.22);
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  margin: 0.25rem 0 0.8rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.update-notice-card:hover {
+  border-color: rgba(233, 176, 61, 0.74);
+}
+
+.update-notice-card .health-lamp {
+  margin-top: 0.12rem;
+}
+
+.update-notice-card strong,
+.update-notice-card small {
+  display: block;
+}
+
+.update-notice-card small {
+  margin-top: 0.18rem;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .error-text {
@@ -2260,6 +2316,20 @@ button.danger-btn:hover {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.update-status-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.update-status-inline .health-lamp {
+  margin-top: 0;
+}
+
+.update-alert {
+  margin-top: 0.9rem;
 }
 
 .stats-details {

@@ -18,6 +18,7 @@ Zweck:
 
 - kein riskanter In-App-Container-Updater
 - stattdessen UI-Hinweis, wenn auf Docker Hub / GitHub Releases eine neuere ARIA-Version verfügbar ist
+- echte UI-Update-Aktion bleibt bewusst Backlog und muss Host-/Container-Realität berücksichtigen
 
 ### Capability -> Memory Policy
 

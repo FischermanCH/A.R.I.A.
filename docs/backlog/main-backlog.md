@@ -123,6 +123,7 @@ Zielbild:
 ## UI / Produktpolish
 
 - Help-System schrittweise zu kontextsensitiver Inline-Hilfe ausbauen
+- mögliche UI-Update-Aktion später host-/containerbewusst ergänzen, nicht als blinden In-App-Updater
 - mehr Guided-Onboarding für First Run und Skill-Bau
 - Memory- und Skill-UX weiter vereinfachen
 - zusätzliche Themes nur dort ergänzen, wo sie wirklich Qualität bringen

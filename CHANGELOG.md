@@ -18,6 +18,26 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 
+## [0.1.0-alpha.27] - 2026-04-05
+
+### Added
+- Update-Hinweis auf Basis von GitHub-Tags plus Release-Notes-Seite unter `/updates`
+
+### Changed
+- Login-Screen und Menü zeigen jetzt ein dezentes oranges Update-Lämpchen, wenn eine neuere öffentliche Version verfügbar ist
+
+### Fixed
+
+### Security
+
+### Known Limitations
+- ARIA ist weiterhin primär ein Personal-Single-User-System
+- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
+- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
+- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
+
+### Upgrade Notes
+
 ## [0.1.0-alpha.26] - 2026-04-05
 
 ### Added
