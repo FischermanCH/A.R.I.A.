@@ -1414,22 +1414,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         bootstrap_locked: str = Form("0"),
         session_timeout_minutes: int = Form(60 * 12 // 60),
     ) -> RedirectResponse:
-        try:
-            active = str(bootstrap_locked).strip().lower() in {"1", "true", "on", "yes"}
-            timeout_minutes = max(5, min(int(session_timeout_minutes or 0), 60 * 24 * 30))
-            raw = _read_raw_config()
-            raw.setdefault("security", {})
-            if not isinstance(raw["security"], dict):
-                raw["security"] = {}
-            raw["security"]["bootstrap_locked"] = active
-            raw["security"]["session_max_age_seconds"] = int(timeout_minutes * 60)
-            _write_raw_config(raw)
-            _reload_runtime()
-            return RedirectResponse(url="/config/security?saved=1", status_code=303)
-        except (OSError, ValueError) as exc:
-            lang = str(getattr(request.state, "lang", "de") or "de")
-            error = _friendly_route_error(lang, exc, "Security-Konfiguration konnte nicht gespeichert werden.", "Could not save security configuration.")
-            return RedirectResponse(url=f"/config/security?error={quote_plus(error)}", status_code=303)
+        return await _save_user_security_settings(request, bootstrap_locked, session_timeout_minutes)
 
     @app.post("/config/security/guardrails/save")
     async def config_security_guardrail_save(
@@ -4584,6 +4569,15 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "info_message": info,
                 "users": users,
                 "debug_mode": bool(settings.ui.debug_mode),
+                "security_cfg": settings.security,
+                "security_session_timeout_minutes": max(
+                    5,
+                    int(getattr(settings.security, "session_max_age_seconds", 60 * 60 * 12) or 0) // 60,
+                ),
+                "security_session_timeout_display": _format_session_timeout_label(
+                    max(5, int(getattr(settings.security, "session_max_age_seconds", 60 * 60 * 12) or 0) // 60),
+                    lang=str(getattr(request.state, "lang", "de") or "de"),
+                ),
             },
         )
 
@@ -4611,6 +4605,41 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             return RedirectResponse(url=f"/config/users?saved=1&info={quote_plus(info)}", status_code=303)
         except (OSError, ValueError) as exc:
             return RedirectResponse(url=f"/config/users?error={quote_plus(str(exc))}", status_code=303)
+
+    async def _save_user_security_settings(
+        request: Request,
+        bootstrap_locked: str,
+        session_timeout_minutes: int,
+    ) -> RedirectResponse:
+        try:
+            active = str(bootstrap_locked).strip().lower() in {"1", "true", "on", "yes"}
+            timeout_minutes = max(5, min(int(session_timeout_minutes or 0), 60 * 24 * 30))
+            raw = _read_raw_config()
+            raw.setdefault("security", {})
+            if not isinstance(raw["security"], dict):
+                raw["security"] = {}
+            raw["security"]["bootstrap_locked"] = active
+            raw["security"]["session_max_age_seconds"] = int(timeout_minutes * 60)
+            _write_raw_config(raw)
+            _reload_runtime()
+            return RedirectResponse(url="/config/users?saved=1", status_code=303)
+        except (OSError, ValueError) as exc:
+            lang = str(getattr(request.state, "lang", "de") or "de")
+            error_msg = _friendly_route_error(
+                lang,
+                exc,
+                "Benutzer- und Login-Einstellungen konnten nicht gespeichert werden.",
+                "Could not save user and login settings.",
+            )
+            return RedirectResponse(url=f"/config/users?error={quote_plus(error_msg)}", status_code=303)
+
+    @app.post("/config/users/security-save")
+    async def config_users_security_save(
+        request: Request,
+        bootstrap_locked: str = Form("0"),
+        session_timeout_minutes: int = Form(60 * 60 * 12 // 60),
+    ) -> RedirectResponse:
+        return await _save_user_security_settings(request, bootstrap_locked, session_timeout_minutes)
 
     @app.post("/config/users/create")
     async def config_users_create(

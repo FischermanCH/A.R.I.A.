@@ -4,7 +4,7 @@
 <main class="config-layout">
   <section class="config-card">
     <div class="page-title-row"><span>{{ icon('security', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_security.title', 'Security Guardrails') }}</h2></div>
-    <p>{{ tr(request, 'config_security.subtitle', 'Hier steuerst du Login-Sicherheit und wiederverwendbare Guardrail-Profile für ARIA-Module.') }}</p>
+    <p>{{ tr(request, 'config_security.subtitle', 'Hier verwaltest du wiederverwendbare Guardrail-Profile für ARIA-Module.') }}</p>
 
     {% if saved %}
     <div class="alert ok">{{ tr(request, 'config_security.saved', 'Security-Konfiguration gespeichert.') }}</div>
@@ -12,54 +12,6 @@
     {% if error_message %}
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
-  </section>
-
-  <section class="config-card">
-    <h2>{{ tr(request, 'config_security.bootstrap_section', 'Login & Bootstrap') }}</h2>
-    <p>{{ tr(request, 'config_security.bootstrap_section_hint', 'Grundlegende Schutzmechanismen für den ersten Login und den Security-Store.') }}</p>
-    <p class="hint-text">{{ tr(request, 'config_security.bootstrap_explainer', 'Solange noch kein Benutzer existiert, kann ARIA den ersten Login als Bootstrap-Admin anlegen. Nach dem ersten Setup sollte Bootstrap gesperrt bleiben, damit auf einer leeren/fehlerhaften User-DB nicht versehentlich wieder ein neuer Admin erzeugt wird.') }}</p>
-    <form method="post" action="/config/security/save" class="config-form-grid">
-      <label class="checkbox-row" for="bootstrap-locked">
-        <input
-          id="bootstrap-locked"
-          name="bootstrap_locked"
-          type="checkbox"
-          value="1"
-          {% if security_cfg.bootstrap_locked %}checked{% endif %}
-        >
-        {{ tr(request, 'config_security.bootstrap_lock', 'Bootstrap sperren (empfohlen)') }}
-      </label>
-      <p class="hint-text">
-        {{ tr(request, 'config_security.when_on', 'Wenn aktiv: bei leerer User-DB wird') }} <strong>{{ tr(request, 'config_security.no_auto_admin', 'kein') }}</strong> {{ tr(request, 'config_security.auto_admin_created', 'automatischer Admin via Login erstellt.') }}
-      </p>
-      <p class="hint-text">
-        {{ tr(request, 'config_security.when_off', 'Wenn deaktiviert: erster Login auf leerer User-DB erzeugt automatisch einen Admin.') }}
-      </p>
-      <div class="config-divider"></div>
-      <label for="session-timeout-minutes">
-        {{ tr(request, 'config_security.session_timeout', 'Login-Timeout (Minuten)') }}
-      </label>
-      <input
-        id="session-timeout-minutes"
-        name="session_timeout_minutes"
-        type="number"
-        min="5"
-        max="43200"
-        value="{{ security_session_timeout_minutes }}"
-      >
-      <p class="hint-text">
-        <strong>{{ tr(request, 'config_security.session_timeout_current', 'Aktuell:') }}</strong>
-        <span>{{ security_session_timeout_display }}</span>
-      </p>
-      <p class="hint-text">
-        {{ tr(request, 'config_security.session_timeout_hint', 'Bestimmt, wie lange eine Login-Session ohne vollständiges Neuanmelden gültig bleibt. Bestehende Sessions werden bei normalen Seitenaufrufen weiterhin aufgefrischt.') }}
-      </p>
-      <div class="config-divider"></div>
-      <p class="hint-text">
-        {{ tr(request, 'config_security.active_store', 'Aktiver Security-Store:') }} <code>{{ security_cfg.db_path }}</code>
-      </p>
-      <button type="submit">{{ tr(request, 'config_security.save', 'Speichern') }}</button>
-    </form>
   </section>
 
   <section class="config-card">

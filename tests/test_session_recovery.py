@@ -87,6 +87,29 @@ def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkey
     assert response.status_code == 200
 
 
+def test_json_fetch_with_temporary_auth_store_unavailability_keeps_auth_cookie(monkeypatch) -> None:
+    client = TestClient(app)
+    client.cookies.set(AUTH_COOKIE, main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(CSRF_COOKIE, "dummy")
+
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+
+    response = client.post(
+        "/config/llm/models",
+        headers={
+            "accept": "application/json",
+            "x-requested-with": "fetch",
+            "x-csrf-token": "dummy",
+        },
+        data={"api_base": "http://example.invalid"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code in {401, 403}
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert not any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
+
+
 def test_public_health_request_with_invalid_auth_cookie_does_not_delete_cookie() -> None:
     client = TestClient(app)
     client.cookies.set(AUTH_COOKIE, "invalid.session.cookie")

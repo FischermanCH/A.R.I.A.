@@ -1758,7 +1758,7 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
         pass
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha37"
+        release_label = f"{version}-alpha39"
     return {
         "version": version,
         "label": release_label,
@@ -2396,7 +2396,8 @@ def _build_app() -> FastAPI:
                             "login_url": login_url,
                         },
                     )
-                    _clear_auth_related_cookies(response)
+                    if auth_reason not in {"store_unavailable", "store_error"}:
+                        _clear_auth_related_cookies(response)
                     return response
                 response = RedirectResponse(url=f"/session-expired?next={next_path}", status_code=303)
                 if auth_reason not in {"store_unavailable", "store_error"}:

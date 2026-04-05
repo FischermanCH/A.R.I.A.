@@ -42,6 +42,38 @@
   </section>
 
   <section class="config-card floating-card">
+    <h3>{{ tr(request, 'config_users.login_bootstrap', 'Login & Bootstrap') }}</h3>
+    <p class="hint-text">{{ tr(request, 'config_users.login_bootstrap_hint', 'Persönliche Login- und Erststart-Einstellungen für diese ARIA-Instanz.') }}</p>
+    <p class="hint-text">{{ tr(request, 'config_users.bootstrap_explainer', 'Solange noch kein Benutzer existiert, kann ARIA den ersten Login als Bootstrap-Admin anlegen. Nach dem ersten Setup sollte Bootstrap gesperrt bleiben, damit auf einer leeren oder fehlerhaften User-DB nicht versehentlich wieder ein neuer Admin erzeugt wird.') }}</p>
+    <form class="editor-form" method="post" action="/config/users/security-save">
+      <label class="inline-check">
+        <input type="checkbox" name="bootstrap_locked" value="1" {% if security_cfg.bootstrap_locked %}checked{% endif %}>
+        {{ tr(request, 'config_users.bootstrap_lock', 'Bootstrap sperren (empfohlen)') }}
+      </label>
+      <p class="hint-text">
+        {{ tr(request, 'config_users.session_timeout', 'Login-Timeout (Minuten)') }}
+      </p>
+      <input
+        id="session-timeout-minutes"
+        name="session_timeout_minutes"
+        type="number"
+        min="5"
+        max="43200"
+        value="{{ security_session_timeout_minutes }}"
+      >
+      <p class="hint-text">
+        <strong>{{ tr(request, 'config_security.session_timeout_current', 'Aktuell:') }}</strong>
+        <span>{{ security_session_timeout_display }}</span>
+      </p>
+      <p class="hint-text">{{ tr(request, 'config_users.session_timeout_hint', 'Bestimmt, wie lange eine Login-Session gültig bleibt. Normale Seitenaufrufe und legitime Aktivität halten die Sitzung frisch.') }}</p>
+      <p class="hint-text">{{ tr(request, 'config_users.active_store', 'Aktiver Security-Store:') }} <code>{{ security_cfg.db_path }}</code></p>
+      <div class="inline-actions">
+        <button type="submit">{{ tr(request, 'config_users.save_login_settings', 'Login-Einstellungen speichern') }}</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="config-card floating-card">
     <h3>{{ tr(request, 'config_users.create_user', 'Create new user') }}</h3>
     <p class="hint-text">{{ tr(request, 'config_users.create_user_hint', 'Neue Benutzer starten mit der gewählten Rolle. Für den aktuellen ALPHA-Stand ist ARIA trotzdem primär als Personal-Single-User-System gedacht; geteilte Ownership/RBAC kommen später als separater Architekturblock.') }}</p>
     <form class="editor-form" method="post" action="/config/users/create">
