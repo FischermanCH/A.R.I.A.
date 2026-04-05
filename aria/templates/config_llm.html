@@ -165,9 +165,12 @@
         form.set("api_key", apiKey.value || "");
         const res = await fetch("/config/llm/models", {
           method: "POST",
+          credentials: "same-origin",
           headers: {
+            "Accept": "application/json",
             "Content-Type": "application/x-www-form-urlencoded",
             "X-CSRF-Token": csrfToken(),
+            "X-Requested-With": "fetch",
           },
           body: form.toString(),
         });

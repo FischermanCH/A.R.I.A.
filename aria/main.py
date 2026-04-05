@@ -1739,7 +1739,7 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
         pass
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha29"
+        release_label = f"{version}-alpha30"
     return {
         "version": version,
         "label": release_label,
@@ -2274,6 +2274,9 @@ def _build_app() -> FastAPI:
     async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         path = request.url.path or "/"
         secure_cookie = request_is_secure(request)
+        accept_header = str(request.headers.get("accept", "") or "").lower()
+        requested_with = str(request.headers.get("x-requested-with", "") or "").lower()
+        expects_json = "application/json" in accept_header or requested_with in {"fetch", "xmlhttprequest"}
         requested_lang = (
             str(request.query_params.get("lang", "")).strip().lower()
             or str(request.cookies.get(LANG_COOKIE, "")).strip().lower()
@@ -2338,26 +2341,91 @@ def _build_app() -> FastAPI:
             if request.url.query:
                 target_path = f"{path}?{request.url.query}"
             next_path = quote_plus(target_path)
+            login_url = f"/login?next={next_path}"
             if request.cookies.get(AUTH_COOKIE):
+                if expects_json:
+                    response = JSONResponse(
+                        status_code=401,
+                        content={
+                            "code": "session_expired",
+                            "detail": _tr(request, "auth.session_expired", "Sitzung abgelaufen. Bitte erneut anmelden."),
+                            "login_url": login_url,
+                        },
+                    )
+                    _clear_auth_related_cookies(response)
+                    return response
                 response = RedirectResponse(url=f"/session-expired?next={next_path}", status_code=303)
                 _clear_auth_related_cookies(response)
                 return response
-            return RedirectResponse(url=f"/login?next={next_path}", status_code=303)
+            if expects_json:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "code": "login_required",
+                        "detail": _tr(request, "auth.login_required", "Bitte zuerst anmelden."),
+                        "login_url": login_url,
+                    },
+                )
+            return RedirectResponse(url=login_url, status_code=303)
 
         if not is_public_or_api and path == "/set-auto-memory" and auth:
             if _sanitize_role(auth.get("role")) != "admin":
+                if expects_json:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "code": "no_admin",
+                            "detail": _tr(request, "auth.no_admin", "Admin-Rechte erforderlich."),
+                        },
+                    )
                 return RedirectResponse(url="/?error=no_admin", status_code=303)
 
         if not is_public_or_api and path == "/config" and auth:
             if not request.state.can_access_settings:
+                if expects_json:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "code": "no_settings",
+                            "detail": _tr(request, "auth.no_settings", "Keine Berechtigung für Einstellungen."),
+                        },
+                    )
                 return RedirectResponse(url="/?error=no_settings", status_code=303)
 
         if not is_public_or_api and path.startswith("/config/") and auth:
             if not request.state.can_access_settings:
+                if expects_json:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "code": "no_settings",
+                            "detail": _tr(request, "auth.no_settings", "Keine Berechtigung für Einstellungen."),
+                        },
+                    )
                 return RedirectResponse(url="/?error=no_settings", status_code=303)
             if is_admin_only_path(path) and not request.state.can_access_users:
+                if expects_json:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "code": "no_admin",
+                            "detail": _tr(request, "auth.no_admin", "Admin-Rechte erforderlich."),
+                        },
+                    )
                 return RedirectResponse(url="/config?error=no_admin", status_code=303)
             if is_advanced_config_path(path) and not request.state.can_access_advanced_config:
+                if expects_json:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "code": "admin_mode_required",
+                            "detail": _tr(
+                                request,
+                                "auth.admin_mode_required",
+                                "Admin-Modus erforderlich. Bitte unter Benutzer aktivieren.",
+                            ),
+                        },
+                    )
                 return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
 
         protected_methods = {"POST", "PUT", "PATCH", "DELETE"}
@@ -2387,6 +2455,18 @@ def _build_app() -> FastAPI:
                     form_token = ""
             supplied = header_token or form_token
             if not supplied or not hmac.compare_digest(supplied, csrf_cookie_token):
+                if expects_json:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "code": "csrf_failed",
+                            "detail": _tr(
+                                request,
+                                "auth.csrf_failed",
+                                "CSRF-Prüfung fehlgeschlagen. Bitte Seite neu laden.",
+                            ),
+                        },
+                    )
                 return HTMLResponse(
                     content="<h3>CSRF validation failed. Bitte Seite neu laden.</h3>",
                     status_code=403,
