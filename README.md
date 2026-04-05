@@ -8,6 +8,7 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 
 **GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
+**Wiki:** [GitHub Wiki](https://github.com/FischermanCH/A.R.I.A./wiki)  
 **Languages:** [English](#english) · [Deutsch](#deutsch)
 
 ---
@@ -159,10 +160,12 @@ Not the current target:
 
 ## Documentation
 
+- GitHub Wiki: `https://github.com/FischermanCH/A.R.I.A./wiki`
 - Product overview: `docs/product/overview.md`
 - Feature list: `docs/product/feature-list.md`
 - Architecture summary: `docs/product/architecture-summary.md`
 - Roadmap: `docs/product/roadmap.md`
+- Contributing guide: `CONTRIBUTING.md`
 - Setup overview: `docs/setup/setup-overview.md`
 - Portainer deploy checklist: `docs/setup/portainer-deploy-checklist.md`
 - Alpha help (DE): `docs/help/alpha-help-system.de.md`
