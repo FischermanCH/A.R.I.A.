@@ -130,7 +130,7 @@
     function csrfToken() {
       const fromMeta = document.querySelector("meta[name='csrf-token']");
       if (fromMeta && fromMeta.content) return fromMeta.content;
-      return readCookie("aria_csrf_token");
+      return readCookie(window.ariaCsrfCookieName || "aria_csrf_token");
     }
 
     preset.addEventListener("change", function () {

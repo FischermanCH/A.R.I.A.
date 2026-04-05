@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 import aria.main as main_mod
 from aria.main import AUTH_COOKIE, CONNECTION_CREATE_PENDING_COOKIE, CSRF_COOKIE, FORGET_PENDING_COOKIE, app
+
+
+def _current_cookie_name(base_name: str, host: str = "testserver") -> str:
+    return main_mod._cookie_name(base_name, public_url=f"http://{host}")
 
 
 def test_protected_route_with_invalid_auth_cookie_redirects_to_session_expired_and_clears_session() -> None:
@@ -15,7 +20,7 @@ def test_protected_route_with_invalid_auth_cookie_redirects_to_session_expired_a
     assert response.status_code == 303
     assert response.headers["location"].startswith("/session-expired?")
     set_cookie_headers = response.headers.get_list("set-cookie")
-    assert any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
 
 
 def test_session_expired_page_clears_auth_and_pending_cookies() -> None:
@@ -28,7 +33,7 @@ def test_session_expired_page_clears_auth_and_pending_cookies() -> None:
 
     assert response.status_code == 200
     set_cookie_headers = response.headers.get_list("set-cookie")
-    assert any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
     assert any(header.startswith(f"{FORGET_PENDING_COOKIE}=") for header in set_cookie_headers)
     assert any(header.startswith(f"{CONNECTION_CREATE_PENDING_COOKIE}=") for header in set_cookie_headers)
 
@@ -73,7 +78,7 @@ def test_json_fetch_with_invalid_auth_cookie_returns_session_expired_json_and_cl
     assert payload["code"] == "session_expired"
     assert payload["login_url"].startswith("/login?next=")
     set_cookie_headers = response.headers.get_list("set-cookie")
-    assert any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
 
 
 def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkeypatch) -> None:
@@ -107,7 +112,7 @@ def test_json_fetch_with_temporary_auth_store_unavailability_keeps_auth_cookie(m
 
     assert response.status_code in {401, 403}
     set_cookie_headers = response.headers.get_list("set-cookie")
-    assert not any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
+    assert not any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
 
 
 def test_public_health_request_with_invalid_auth_cookie_does_not_delete_cookie() -> None:
@@ -118,4 +123,42 @@ def test_public_health_request_with_invalid_auth_cookie_does_not_delete_cookie()
 
     assert response.status_code == 200
     set_cookie_headers = response.headers.get_list("set-cookie")
-    assert not any(header.startswith(f"{AUTH_COOKIE}=") for header in set_cookie_headers)
+    assert not any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
+
+
+def test_cookie_namespace_differs_between_ports() -> None:
+    cookie_a = main_mod._cookie_name(AUTH_COOKIE, public_url="http://aria.black.lan:8800")
+    cookie_b = main_mod._cookie_name(AUTH_COOKIE, public_url="http://aria.black.lan:8810")
+
+    assert cookie_a != cookie_b
+
+
+def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() -> None:
+    host = "aria.black.lan:8810"
+    valid_cookie = main_mod._encode_auth_session("neo", "admin")
+    cookie_header = "; ".join(
+        [
+            f"{AUTH_COOKIE}=invalid.session.cookie",
+            f"{_current_cookie_name(AUTH_COOKIE, host)}={valid_cookie}",
+        ]
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/stats",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [
+                (b"host", host.encode("utf-8")),
+                (b"cookie", cookie_header.encode("utf-8")),
+            ],
+            "client": ("127.0.0.1", 1234),
+            "server": ("aria.black.lan", 8810),
+        }
+    )
+    request.state.cookie_public_url = ""
+    request.state.cookie_names = main_mod._cookie_names_for_request(request, public_url="")
+
+    assert main_mod._request_cookie_value(request, AUTH_COOKIE) == valid_cookie

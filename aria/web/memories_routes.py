@@ -309,6 +309,14 @@ def register_memories_routes(
     memory_collection_cookie: str,
     auto_memory_cookie: str,
 ) -> None:
+    def _cookie_name_for_request(request: Request, key: str, fallback: str) -> str:
+        cookie_names = getattr(request.state, "cookie_names", {}) or {}
+        if isinstance(cookie_names, dict):
+            candidate = str(cookie_names.get(key, "") or "").strip()
+            if candidate:
+                return candidate
+        return fallback
+
     @app.get("/memories", response_class=HTMLResponse)
     async def memories_page(
         request: Request,
@@ -789,7 +797,7 @@ def register_memories_routes(
         response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
         if clean:
             response.set_cookie(
-                key=memory_collection_cookie,
+                key=_cookie_name_for_request(request, "memory_collection", memory_collection_cookie),
                 value=clean,
                 max_age=60 * 60 * 24 * 365,
                 samesite="lax",
@@ -797,7 +805,7 @@ def register_memories_routes(
                 httponly=False,
             )
         else:
-            response.delete_cookie(memory_collection_cookie)
+            response.delete_cookie(_cookie_name_for_request(request, "memory_collection", memory_collection_cookie))
         return response
 
     @app.post("/memories/config/create")
@@ -811,7 +819,7 @@ def register_memories_routes(
         secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
         response.set_cookie(
-            key=memory_collection_cookie,
+            key=_cookie_name_for_request(request, "memory_collection", memory_collection_cookie),
             value=clean,
             max_age=60 * 60 * 24 * 365,
             samesite="lax",
@@ -853,7 +861,7 @@ def register_memories_routes(
             secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
             response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
             response.set_cookie(
-                key=auto_memory_cookie,
+                key=_cookie_name_for_request(request, "auto_memory", auto_memory_cookie),
                 value="1" if raw["auto_memory"]["enabled"] else "0",
                 max_age=60 * 60 * 24 * 365,
                 samesite="lax",

@@ -124,6 +124,21 @@ CONNECTION_UPDATE_PENDING_COOKIE = "aria_connection_update_pending"
 AUTH_COOKIE = "aria_auth_session"
 CSRF_COOKIE = "aria_csrf_token"
 LANG_COOKIE = "aria_lang"
+COOKIE_NAME_BASES: dict[str, str] = {
+    "username": USERNAME_COOKIE,
+    "memory_collection": MEMORY_COLLECTION_COOKIE,
+    "session": SESSION_COOKIE,
+    "auto_memory": AUTO_MEMORY_COOKIE,
+    "forget_pending": FORGET_PENDING_COOKIE,
+    "safe_fix_pending": SAFE_FIX_PENDING_COOKIE,
+    "connection_delete_pending": CONNECTION_DELETE_PENDING_COOKIE,
+    "connection_create_pending": CONNECTION_CREATE_PENDING_COOKIE,
+    "connection_update_pending": CONNECTION_UPDATE_PENDING_COOKIE,
+    "auth": AUTH_COOKIE,
+    "csrf": CSRF_COOKIE,
+    "lang": LANG_COOKIE,
+}
+COOKIE_KEY_BY_BASE = {value: key for key, value in COOKIE_NAME_BASES.items()}
 FILE_EDITOR_CATALOG: tuple[dict[str, str], ...] = (
     {
         "path": "prompts/persona.md",
@@ -243,6 +258,115 @@ def _replace_agent_name(text: str, agent_name: str) -> str:
     raw = str(text or "")
     clean_name = str(agent_name or "").strip() or "ARIA"
     return re.sub(r"\b(?:ARIA|Aria)\b", clean_name, raw)
+
+
+def _cookie_scope_source(request: Request | None = None, *, public_url: str = "") -> str:
+    explicit_namespace = str(os.getenv("ARIA_COOKIE_NAMESPACE", "") or "").strip()
+    if explicit_namespace:
+        return explicit_namespace
+
+    configured_public_url = str(public_url or "").strip()
+    if configured_public_url:
+        parsed = urlparse(configured_public_url)
+        host = str(parsed.netloc or "").strip().lower()
+        path = str(parsed.path or "").strip().rstrip("/")
+        if host:
+            return f"{host}{path}"
+
+    if request is not None:
+        headers = getattr(request, "headers", {}) or {}
+        forwarded_host = str(headers.get("x-forwarded-host", "") or "").strip()
+        host_header = str(headers.get("host", "") or "").strip()
+        host = (forwarded_host or host_header).lower()
+        if not host:
+            try:
+                req_url = getattr(request, "url", object())
+                hostname = str(getattr(req_url, "hostname", "") or "").strip().lower()
+                port = getattr(req_url, "port", None)
+                if hostname:
+                    host = f"{hostname}:{int(port)}" if port else hostname
+            except Exception:
+                host = ""
+        root_path = str(getattr(request, "scope", {}).get("root_path", "") or "").strip().rstrip("/")
+        if host:
+            return f"{host}{root_path}"
+
+    return "default"
+
+
+def _cookie_name(base_name: str, request: Request | None = None, *, public_url: str = "") -> str:
+    scope_source = _cookie_scope_source(request, public_url=public_url)
+    scope_hash = hashlib.sha1(scope_source.encode("utf-8")).hexdigest()[:10]
+    return f"{base_name}_{scope_hash}"
+
+
+def _cookie_names_for_request(request: Request | None = None, *, public_url: str = "") -> dict[str, str]:
+    return {
+        key: _cookie_name(base_name, request, public_url=public_url)
+        for key, base_name in COOKIE_NAME_BASES.items()
+    }
+
+
+def _request_cookie_name(request: Request | None, base_name: str, *, public_url: str = "") -> str:
+    if request is not None:
+        cookie_names = getattr(getattr(request, "state", object()), "cookie_names", None)
+        key = COOKIE_KEY_BY_BASE.get(base_name)
+        if key and isinstance(cookie_names, dict) and cookie_names.get(key):
+            return str(cookie_names[key])
+        state_public_url = str(getattr(getattr(request, "state", object()), "cookie_public_url", "") or "").strip()
+        if state_public_url:
+            public_url = state_public_url
+    return _cookie_name(base_name, request, public_url=public_url)
+
+
+def _request_cookie_value(
+    request: Request,
+    base_name: str,
+    *,
+    allow_legacy: bool = True,
+    public_url: str = "",
+) -> str:
+    current_name = _request_cookie_name(request, base_name, public_url=public_url)
+    current_value = request.cookies.get(current_name)
+    if current_value not in {None, ""}:
+        return str(current_value)
+    if allow_legacy and current_name != base_name:
+        legacy_value = request.cookies.get(base_name)
+        if legacy_value not in {None, ""}:
+            return str(legacy_value)
+    return ""
+
+
+def _set_response_cookie(
+    response: Response,
+    request: Request,
+    base_name: str,
+    value: str,
+    *,
+    max_age: int,
+    secure: bool,
+    httponly: bool,
+    samesite: str = "lax",
+) -> None:
+    response.set_cookie(
+        key=_request_cookie_name(request, base_name),
+        value=value,
+        max_age=max_age,
+        samesite=samesite,
+        secure=secure,
+        httponly=httponly,
+    )
+
+
+def _delete_response_cookie(response: Response, request: Request | None, base_name: str) -> None:
+    response.delete_cookie(_request_cookie_name(request, base_name))
+
+
+def _delete_response_cookie_variants(response: Response, request: Request | None, base_name: str) -> None:
+    current_name = _request_cookie_name(request, base_name)
+    response.delete_cookie(current_name)
+    if current_name != base_name:
+        response.delete_cookie(base_name)
 
 
 def _build_client_skill_progress_hints(custom_manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -904,7 +1028,7 @@ def _get_username_from_request(request: Request) -> str:
     auth_session = _get_auth_session_from_request(request)
     if auth_session:
         return _sanitize_username(auth_session.get("username"))
-    return _sanitize_username(request.cookies.get(USERNAME_COOKIE))
+    return _sanitize_username(_request_cookie_value(request, USERNAME_COOKIE))
 
 
 def _sanitize_role(value: str | None) -> str:
@@ -956,29 +1080,29 @@ def _decode_auth_session_with_reason(raw: str | None) -> tuple[dict[str, Any] | 
 
 
 def _get_auth_session_from_request(request: Request) -> dict[str, Any] | None:
-    raw = request.cookies.get(AUTH_COOKIE)
+    raw = _request_cookie_value(request, AUTH_COOKIE)
     return _decode_auth_session(raw)
 
 
 def _get_auth_session_from_request_with_reason(request: Request) -> tuple[dict[str, Any] | None, str]:
-    raw = request.cookies.get(AUTH_COOKIE)
+    raw = _request_cookie_value(request, AUTH_COOKIE)
     return _decode_auth_session_with_reason(raw)
 
 
-def _clear_auth_related_cookies(response: Response, *, clear_preferences: bool = False) -> None:
-    response.delete_cookie(AUTH_COOKIE)
-    response.delete_cookie(CSRF_COOKIE)
-    response.delete_cookie(USERNAME_COOKIE)
-    response.delete_cookie(MEMORY_COLLECTION_COOKIE)
-    response.delete_cookie(SESSION_COOKIE)
-    response.delete_cookie(FORGET_PENDING_COOKIE)
-    response.delete_cookie(SAFE_FIX_PENDING_COOKIE)
-    response.delete_cookie(CONNECTION_DELETE_PENDING_COOKIE)
-    response.delete_cookie(CONNECTION_CREATE_PENDING_COOKIE)
-    response.delete_cookie(CONNECTION_UPDATE_PENDING_COOKIE)
+def _clear_auth_related_cookies(response: Response, request: Request | None = None, *, clear_preferences: bool = False) -> None:
+    _delete_response_cookie_variants(response, request, AUTH_COOKIE)
+    _delete_response_cookie_variants(response, request, CSRF_COOKIE)
+    _delete_response_cookie_variants(response, request, USERNAME_COOKIE)
+    _delete_response_cookie_variants(response, request, MEMORY_COLLECTION_COOKIE)
+    _delete_response_cookie_variants(response, request, SESSION_COOKIE)
+    _delete_response_cookie_variants(response, request, FORGET_PENDING_COOKIE)
+    _delete_response_cookie_variants(response, request, SAFE_FIX_PENDING_COOKIE)
+    _delete_response_cookie_variants(response, request, CONNECTION_DELETE_PENDING_COOKIE)
+    _delete_response_cookie_variants(response, request, CONNECTION_CREATE_PENDING_COOKIE)
+    _delete_response_cookie_variants(response, request, CONNECTION_UPDATE_PENDING_COOKIE)
     if clear_preferences:
-        response.delete_cookie(LANG_COOKIE)
-        response.delete_cookie(AUTO_MEMORY_COOKIE)
+        _delete_response_cookie_variants(response, request, LANG_COOKIE)
+        _delete_response_cookie_variants(response, request, AUTO_MEMORY_COOKIE)
 
 
 def _sanitize_collection_name(value: str | None) -> str:
@@ -1916,13 +2040,13 @@ def _build_app() -> FastAPI:
         return f"{prefix}_{slug}"
 
     def _ensure_session_id(request: Request) -> str:
-        current = _sanitize_session_id(request.cookies.get(SESSION_COOKIE))
+        current = _sanitize_session_id(_request_cookie_value(request, SESSION_COOKIE))
         if current:
             return current
         return uuid4().hex[:12]
 
     def _get_effective_memory_collection(request: Request, user_id: str) -> str:
-        selected = _sanitize_collection_name(request.cookies.get(MEMORY_COLLECTION_COOKIE))
+        selected = _sanitize_collection_name(_request_cookie_value(request, MEMORY_COLLECTION_COOKIE))
         if selected:
             return selected
         return _default_memory_collection_for_user(user_id)
@@ -2299,12 +2423,15 @@ def _build_app() -> FastAPI:
     async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         path = request.url.path or "/"
         secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
+        cookie_public_url = str(settings.aria.public_url or "")
+        request.state.cookie_public_url = cookie_public_url
+        request.state.cookie_names = _cookie_names_for_request(request, public_url=cookie_public_url)
         accept_header = str(request.headers.get("accept", "") or "").lower()
         requested_with = str(request.headers.get("x-requested-with", "") or "").lower()
         expects_json = "application/json" in accept_header or requested_with in {"fetch", "xmlhttprequest"}
         requested_lang = (
             str(request.query_params.get("lang", "")).strip().lower()
-            or str(request.cookies.get(LANG_COOKIE, "")).strip().lower()
+            or str(_request_cookie_value(request, LANG_COOKIE)).strip().lower()
             or str(settings.ui.language or "de").strip().lower()
         )
         resolved_lang = I18N.resolve_lang(requested_lang, default_lang=str(settings.ui.language or "de"))
@@ -2313,10 +2440,10 @@ def _build_app() -> FastAPI:
         request.state.agent_name = _agent_name_value()
         request.state.release_meta = _read_release_meta(BASE_DIR)
         request.state.update_status = _get_update_status(request.state.release_meta["label"])
-        raw_auth_cookie = str(request.cookies.get(AUTH_COOKIE, "") or "").strip()
+        raw_auth_cookie = str(_request_cookie_value(request, AUTH_COOKIE) or "").strip()
         auth, auth_reason = _get_auth_session_from_request_with_reason(request)
         auth_degraded = False
-        csrf_cookie_token = _sanitize_csrf_token(request.cookies.get(CSRF_COOKIE))
+        csrf_cookie_token = _sanitize_csrf_token(_request_cookie_value(request, CSRF_COOKIE))
         if not csrf_cookie_token:
             csrf_cookie_token = _new_csrf_token()
         request.state.csrf_token = csrf_cookie_token
@@ -2397,11 +2524,11 @@ def _build_app() -> FastAPI:
                         },
                     )
                     if auth_reason not in {"store_unavailable", "store_error"}:
-                        _clear_auth_related_cookies(response)
+                        _clear_auth_related_cookies(response, request)
                     return response
                 response = RedirectResponse(url=f"/session-expired?next={next_path}", status_code=303)
                 if auth_reason not in {"store_unavailable", "store_error"}:
-                    _clear_auth_related_cookies(response)
+                    _clear_auth_related_cookies(response, request)
                 return response
             if expects_json:
                 return JSONResponse(
@@ -2546,35 +2673,39 @@ def _build_app() -> FastAPI:
             )
             if auth and path != "/logout":
                 refreshed = _encode_auth_session(auth["username"], auth["role"])
-                response.set_cookie(
-                    key=AUTH_COOKIE,
-                    value=refreshed,
+                _set_response_cookie(
+                    response,
+                    request,
+                    AUTH_COOKIE,
+                    refreshed,
                     max_age=AUTH_SESSION_MAX_AGE_SECONDS,
-                    samesite="lax",
                     secure=secure_cookie,
                     httponly=True,
                 )
-                response.set_cookie(
-                    key=USERNAME_COOKIE,
-                    value=auth["username"],
+                _set_response_cookie(
+                    response,
+                    request,
+                    USERNAME_COOKIE,
+                    auth["username"],
                     max_age=60 * 60 * 24 * 365,
-                    samesite="lax",
                     secure=secure_cookie,
                     httponly=False,
                 )
-            response.set_cookie(
-                key=CSRF_COOKIE,
-                value=csrf_cookie_token,
+            _set_response_cookie(
+                response,
+                request,
+                CSRF_COOKIE,
+                csrf_cookie_token,
                 max_age=60 * 60 * 24 * 7,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
-            response.set_cookie(
-                key=LANG_COOKIE,
-                value=response_lang,
+            _set_response_cookie(
+                response,
+                request,
+                LANG_COOKIE,
+                response_lang,
                 max_age=60 * 60 * 24 * 365,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
@@ -2693,35 +2824,39 @@ def _build_app() -> FastAPI:
             canonical_username = _sanitize_username((user or {}).get("username")) or clean_username
             role = _sanitize_role((user or {}).get("role"))
             response = RedirectResponse(url=target, status_code=303)
-            response.set_cookie(
-                key=AUTH_COOKIE,
-                value=_encode_auth_session(canonical_username, role),
+            _set_response_cookie(
+                response,
+                request,
+                AUTH_COOKIE,
+                _encode_auth_session(canonical_username, role),
                 max_age=AUTH_SESSION_MAX_AGE_SECONDS,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=True,
             )
-            response.set_cookie(
-                key=USERNAME_COOKIE,
-                value=canonical_username,
+            _set_response_cookie(
+                response,
+                request,
+                USERNAME_COOKIE,
+                canonical_username,
                 max_age=60 * 60 * 24 * 365,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
-            response.set_cookie(
-                key=MEMORY_COLLECTION_COOKIE,
-                value=_default_memory_collection_for_user(canonical_username),
+            _set_response_cookie(
+                response,
+                request,
+                MEMORY_COLLECTION_COOKIE,
+                _default_memory_collection_for_user(canonical_username),
                 max_age=60 * 60 * 24 * 365,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
-            response.set_cookie(
-                key=SESSION_COOKIE,
-                value=uuid4().hex[:12],
+            _set_response_cookie(
+                response,
+                request,
+                SESSION_COOKIE,
+                uuid4().hex[:12],
                 max_age=60 * 60 * 24 * 7,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
@@ -2730,9 +2865,9 @@ def _build_app() -> FastAPI:
             return RedirectResponse(url=f"/login?error={quote_plus('Login fehlgeschlagen')}", status_code=303)
 
     @app.post("/logout")
-    async def logout() -> RedirectResponse:
+    async def logout(request: Request) -> RedirectResponse:
         response = RedirectResponse(url="/login", status_code=303)
-        _clear_auth_related_cookies(response, clear_preferences=True)
+        _clear_auth_related_cookies(response, request, clear_preferences=True)
         return response
 
     @app.get("/session-expired", response_class=HTMLResponse)
@@ -2749,7 +2884,7 @@ def _build_app() -> FastAPI:
                 "next_query": quote_plus(target),
             },
         )
-        _clear_auth_related_cookies(response)
+        _clear_auth_related_cookies(response, request)
         return response
 
     @app.get("/", response_class=HTMLResponse)
@@ -2858,20 +2993,22 @@ def _build_app() -> FastAPI:
                 "chat_history": chat_history,
             },
         )
-        if not request.cookies.get(SESSION_COOKIE):
-            response.set_cookie(
-                key=SESSION_COOKIE,
-                value=session_id,
+        if not _request_cookie_value(request, SESSION_COOKIE):
+            _set_response_cookie(
+                response,
+                request,
+                SESSION_COOKIE,
+                session_id,
                 max_age=60 * 60 * 24 * 7,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
-        response.set_cookie(
-            key=AUTO_MEMORY_COOKIE,
-            value="1" if auto_memory_enabled else "0",
+        _set_response_cookie(
+            response,
+            request,
+            AUTO_MEMORY_COOKIE,
+            "1" if auto_memory_enabled else "0",
             max_age=60 * 60 * 24 * 365,
-            samesite="lax",
             secure=secure_cookie,
             httponly=False,
         )
@@ -3078,27 +3215,30 @@ def _build_app() -> FastAPI:
         response = RedirectResponse(url="/", status_code=303)
         session_id = uuid4().hex[:12]
         if clean_username:
-            response.set_cookie(
-                key=USERNAME_COOKIE,
-                value=clean_username,
+            _set_response_cookie(
+                response,
+                request,
+                USERNAME_COOKIE,
+                clean_username,
                 max_age=60 * 60 * 24 * 365,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
-            response.set_cookie(
-                key=MEMORY_COLLECTION_COOKIE,
-                value=_default_memory_collection_for_user(clean_username),
+            _set_response_cookie(
+                response,
+                request,
+                MEMORY_COLLECTION_COOKIE,
+                _default_memory_collection_for_user(clean_username),
                 max_age=60 * 60 * 24 * 365,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
-            response.set_cookie(
-                key=SESSION_COOKIE,
-                value=session_id,
+            _set_response_cookie(
+                response,
+                request,
+                SESSION_COOKIE,
+                session_id,
                 max_age=60 * 60 * 24 * 7,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
@@ -3118,11 +3258,12 @@ def _build_app() -> FastAPI:
             _write_raw_config(raw)
             _reload_runtime()
             response = RedirectResponse(url=target, status_code=303)
-            response.set_cookie(
-                key=AUTO_MEMORY_COOKIE,
-                value="1" if active else "0",
+            _set_response_cookie(
+                response,
+                request,
+                AUTO_MEMORY_COOKIE,
+                "1" if active else "0",
                 max_age=60 * 60 * 24 * 365,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
@@ -3156,12 +3297,13 @@ def _build_app() -> FastAPI:
                     "badge_details": [],
                 },
             )
-            if not request.cookies.get(SESSION_COOKIE):
-                response.set_cookie(
-                    key=SESSION_COOKIE,
-                    value=session_id,
+            if not _request_cookie_value(request, SESSION_COOKIE):
+                _set_response_cookie(
+                    response,
+                    request,
+                    SESSION_COOKIE,
+                    session_id,
                     max_age=60 * 60 * 24 * 7,
-                    samesite="lax",
                     secure=secure_cookie,
                     httponly=False,
                 )
@@ -3172,15 +3314,15 @@ def _build_app() -> FastAPI:
         total_tokens = 0
         cost_usd = "n/a"
         duration_s = "0.0"
-        forget_cookie_value = request.cookies.get(FORGET_PENDING_COOKIE)
+        forget_cookie_value = _request_cookie_value(request, FORGET_PENDING_COOKIE)
         forget_pending = _decode_forget_pending(forget_cookie_value)
-        safe_fix_cookie_value = request.cookies.get(SAFE_FIX_PENDING_COOKIE)
+        safe_fix_cookie_value = _request_cookie_value(request, SAFE_FIX_PENDING_COOKIE)
         safe_fix_pending = _decode_safe_fix_pending(safe_fix_cookie_value)
-        connection_delete_cookie_value = request.cookies.get(CONNECTION_DELETE_PENDING_COOKIE)
+        connection_delete_cookie_value = _request_cookie_value(request, CONNECTION_DELETE_PENDING_COOKIE)
         connection_delete_pending = _decode_connection_delete_pending(connection_delete_cookie_value)
-        connection_create_cookie_value = request.cookies.get(CONNECTION_CREATE_PENDING_COOKIE)
+        connection_create_cookie_value = _request_cookie_value(request, CONNECTION_CREATE_PENDING_COOKIE)
         connection_create_pending = _decode_connection_create_pending(connection_create_cookie_value)
-        connection_update_cookie_value = request.cookies.get(CONNECTION_UPDATE_PENDING_COOKIE)
+        connection_update_cookie_value = _request_cookie_value(request, CONNECTION_UPDATE_PENDING_COOKIE)
         connection_update_pending = _decode_connection_update_pending(connection_update_cookie_value)
         forget_decision = pipeline.router.classify(clean_message)
         safe_fix_confirm_token = _parse_safe_fix_confirm_token(clean_message)
@@ -3625,67 +3767,73 @@ def _build_app() -> FastAPI:
                 badge_duration=duration_s,
                 badge_details=badge_details,
             )
-        if not request.cookies.get(SESSION_COOKIE):
-            response.set_cookie(
-                key=SESSION_COOKIE,
-                value=session_id,
+        if not _request_cookie_value(request, SESSION_COOKIE):
+            _set_response_cookie(
+                response,
+                request,
+                SESSION_COOKIE,
+                session_id,
                 max_age=60 * 60 * 24 * 7,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
         if clear_forget_cookie:
-            response.delete_cookie(FORGET_PENDING_COOKIE)
+            _delete_response_cookie(response, request, FORGET_PENDING_COOKIE)
         elif set_forget_cookie:
-            response.set_cookie(
-                key=FORGET_PENDING_COOKIE,
-                value=set_forget_cookie,
+            _set_response_cookie(
+                response,
+                request,
+                FORGET_PENDING_COOKIE,
+                set_forget_cookie,
                 max_age=60 * 10,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
         if clear_safe_fix_cookie:
-            response.delete_cookie(SAFE_FIX_PENDING_COOKIE)
+            _delete_response_cookie(response, request, SAFE_FIX_PENDING_COOKIE)
         elif set_safe_fix_cookie:
-            response.set_cookie(
-                key=SAFE_FIX_PENDING_COOKIE,
-                value=set_safe_fix_cookie,
+            _set_response_cookie(
+                response,
+                request,
+                SAFE_FIX_PENDING_COOKIE,
+                set_safe_fix_cookie,
                 max_age=60 * 15,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
         if clear_connection_delete_cookie:
-            response.delete_cookie(CONNECTION_DELETE_PENDING_COOKIE)
+            _delete_response_cookie(response, request, CONNECTION_DELETE_PENDING_COOKIE)
         elif set_connection_delete_cookie:
-            response.set_cookie(
-                key=CONNECTION_DELETE_PENDING_COOKIE,
-                value=set_connection_delete_cookie,
+            _set_response_cookie(
+                response,
+                request,
+                CONNECTION_DELETE_PENDING_COOKIE,
+                set_connection_delete_cookie,
                 max_age=60 * 10,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
         if clear_connection_create_cookie:
-            response.delete_cookie(CONNECTION_CREATE_PENDING_COOKIE)
+            _delete_response_cookie(response, request, CONNECTION_CREATE_PENDING_COOKIE)
         elif set_connection_create_cookie:
-            response.set_cookie(
-                key=CONNECTION_CREATE_PENDING_COOKIE,
-                value=set_connection_create_cookie,
+            _set_response_cookie(
+                response,
+                request,
+                CONNECTION_CREATE_PENDING_COOKIE,
+                set_connection_create_cookie,
                 max_age=60 * 10,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )
         if clear_connection_update_cookie:
-            response.delete_cookie(CONNECTION_UPDATE_PENDING_COOKIE)
+            _delete_response_cookie(response, request, CONNECTION_UPDATE_PENDING_COOKIE)
         elif set_connection_update_cookie:
-            response.set_cookie(
-                key=CONNECTION_UPDATE_PENDING_COOKIE,
-                value=set_connection_update_cookie,
+            _set_response_cookie(
+                response,
+                request,
+                CONNECTION_UPDATE_PENDING_COOKIE,
+                set_connection_update_cookie,
                 max_age=60 * 10,
-                samesite="lax",
                 secure=secure_cookie,
                 httponly=False,
             )

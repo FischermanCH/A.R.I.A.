@@ -970,6 +970,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     _format_skill_routing_info = deps.format_skill_routing_info
     _suggest_skill_keywords_with_llm = deps.suggest_skill_keywords_with_llm
 
+    def _cookie_name_for_request(request: Request, key: str, fallback: str) -> str:
+        cookie_names = getattr(request.state, "cookie_names", {}) or {}
+        if isinstance(cookie_names, dict):
+            candidate = str(cookie_names.get(key, "") or "").strip()
+            if candidate:
+                return candidate
+        return fallback
+
     prompts_root = (BASE_DIR / "prompts").resolve()
     skills_root = (BASE_DIR / "aria" / "skills").resolve()
 
@@ -1322,7 +1330,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             request.state.lang = code
             response = RedirectResponse(url="/config/language?saved=1", status_code=303)
             response.set_cookie(
-                key=deps.lang_cookie,
+                key=_cookie_name_for_request(request, "lang", deps.lang_cookie),
                 value=code,
                 max_age=60 * 60 * 24 * 365,
                 samesite="lax",
@@ -1649,9 +1657,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 ),
                 status_code=303,
             )
-            response.delete_cookie(AUTH_COOKIE)
-            response.delete_cookie(USERNAME_COOKIE)
-            response.delete_cookie(MEMORY_COLLECTION_COOKIE)
+            response.delete_cookie(_cookie_name_for_request(request, "auth", AUTH_COOKIE))
+            response.delete_cookie(_cookie_name_for_request(request, "username", USERNAME_COOKIE))
+            response.delete_cookie(_cookie_name_for_request(request, "memory_collection", MEMORY_COLLECTION_COOKIE))
             return response
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
@@ -4723,7 +4731,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             if old_username == current_username:
                 secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
                 response.set_cookie(
-                    key=AUTH_COOKIE,
+                    key=_cookie_name_for_request(request, "auth", AUTH_COOKIE),
                     value=_encode_auth_session(clean_username, clean_role),
                     max_age=AUTH_SESSION_MAX_AGE_SECONDS,
                     samesite="lax",
@@ -4731,7 +4739,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     httponly=True,
                 )
                 response.set_cookie(
-                    key=USERNAME_COOKIE,
+                    key=_cookie_name_for_request(request, "username", USERNAME_COOKIE),
                     value=clean_username,
                     max_age=60 * 60 * 24 * 365,
                     samesite="lax",
@@ -4739,7 +4747,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     httponly=False,
                 )
                 response.set_cookie(
-                    key=MEMORY_COLLECTION_COOKIE,
+                    key=_cookie_name_for_request(request, "memory_collection", MEMORY_COLLECTION_COOKIE),
                     value=_default_memory_collection_for_user(clean_username),
                     max_age=60 * 60 * 24 * 365,
                     samesite="lax",

@@ -130,6 +130,8 @@
 
       window.ariaBeginBusy = beginBusy;
       window.ariaEndBusy = endBusy;
+      window.ariaCookieNames = {{ (request.state.cookie_names or {})|tojson }};
+      window.ariaCsrfCookieName = (window.ariaCookieNames && window.ariaCookieNames.csrf) || "aria_csrf_token";
 
       function readCookie(name) {
         const key = name + "=";
@@ -146,7 +148,7 @@
       function csrfToken() {
         const fromMeta = document.querySelector("meta[name='csrf-token']");
         if (fromMeta && fromMeta.content) return fromMeta.content;
-        return readCookie("aria_csrf_token");
+        return readCookie(window.ariaCsrfCookieName || "aria_csrf_token");
       }
 
       function attachFormToken(form, token) {

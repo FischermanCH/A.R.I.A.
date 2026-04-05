@@ -18,6 +18,28 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 
+## [0.1.0-alpha.40] - 2026-04-05
+
+### Added
+
+### Changed
+- ARIA verwendet für Login-, CSRF- und Session-Cookies jetzt instanzspezifische Cookie-Namen, damit mehrere ARIA-Container auf demselben Host mit unterschiedlichen Ports sich nicht mehr gegenseitig die Browser-Session überschreiben
+
+### Fixed
+- der automatische Logout nach wenigen Minuten in Multi-Instanz-Setups wurde behoben; Ursache waren kollidierende Cookie-Namen zwischen z. B. `aria.black.lan:8800` und `aria.black.lan:8810`
+- LLM-, Embeddings-, Chat- und Memory-Flows lesen jetzt konsistent die zur aktuellen Instanz gehörenden Cookies, statt versehentlich Session- oder CSRF-Werte einer anderen ARIA-Instanz zu verwenden
+
+### Security
+
+### Known Limitations
+- ARIA ist weiterhin primär ein Personal-Single-User-System
+- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
+- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
+- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
+
+### Upgrade Notes
+- bei mehreren ARIA-Instanzen auf demselben Host kann nach dem Update ein einmaliges Neuanmelden sinnvoll sein, damit alte globale Legacy-Cookies nicht mehr im Browser bevorzugt werden
+
 ## [0.1.0-alpha.39] - 2026-04-05
 
 ### Added

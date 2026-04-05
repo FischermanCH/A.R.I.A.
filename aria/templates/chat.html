@@ -158,7 +158,7 @@
 
     function csrfToken() {
       if (csrfMeta && csrfMeta.content) return csrfMeta.content;
-      return readCookie("aria_csrf_token");
+      return readCookie(window.ariaCsrfCookieName || "aria_csrf_token");
     }
 
     function setBusy(isBusy, busyText) {
