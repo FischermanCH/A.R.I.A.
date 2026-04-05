@@ -926,32 +926,42 @@ def _encode_auth_session(username: str, role: str, issued_at: int | None = None)
 
 
 def _decode_auth_session(raw: str | None) -> dict[str, Any] | None:
+    payload, _ = _decode_auth_session_with_reason(raw)
+    return payload
+
+
+def _decode_auth_session_with_reason(raw: str | None) -> tuple[dict[str, Any] | None, str]:
     if not raw:
-        return None
+        return None, "no_cookie"
     try:
         encoded, signature = str(raw).split(".", 1)
         decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
         expected = hmac.new(AUTH_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
-            return None
+            return None, "signature_invalid"
         payload = json.loads(decoded.decode("utf-8"))
         if not isinstance(payload, dict):
-            return None
+            return None, "payload_invalid"
         username = _sanitize_username(str(payload.get("username", "")))
         role = _sanitize_role(payload.get("role"))
         issued_at = int(payload.get("iat", 0) or 0)
         if not username or issued_at <= 0:
-            return None
+            return None, "payload_invalid"
         if int(time.time()) - issued_at > AUTH_SESSION_MAX_AGE_SECONDS:
-            return None
-        return {"username": username, "role": role, "iat": issued_at}
+            return None, "expired"
+        return {"username": username, "role": role, "iat": issued_at}, "ok"
     except Exception:
-        return None
+        return None, "decode_failed"
 
 
 def _get_auth_session_from_request(request: Request) -> dict[str, Any] | None:
     raw = request.cookies.get(AUTH_COOKIE)
     return _decode_auth_session(raw)
+
+
+def _get_auth_session_from_request_with_reason(request: Request) -> tuple[dict[str, Any] | None, str]:
+    raw = request.cookies.get(AUTH_COOKIE)
+    return _decode_auth_session_with_reason(raw)
 
 
 def _clear_auth_related_cookies(response: Response, *, clear_preferences: bool = False) -> None:
@@ -1739,7 +1749,7 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
         pass
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha33"
+        release_label = f"{version}-alpha34"
     return {
         "version": version,
         "label": release_label,
@@ -2286,7 +2296,9 @@ def _build_app() -> FastAPI:
         request.state.agent_name = _agent_name_value()
         request.state.release_meta = _read_release_meta(BASE_DIR)
         request.state.update_status = _get_update_status(request.state.release_meta["label"])
-        auth = _get_auth_session_from_request(request)
+        raw_auth_cookie = str(request.cookies.get(AUTH_COOKIE, "") or "").strip()
+        auth, auth_reason = _get_auth_session_from_request_with_reason(request)
+        auth_degraded = False
         csrf_cookie_token = _sanitize_csrf_token(request.cookies.get(CSRF_COOKIE))
         if not csrf_cookie_token:
             csrf_cookie_token = _new_csrf_token()
@@ -2294,19 +2306,36 @@ def _build_app() -> FastAPI:
         if auth:
             manager = _get_auth_manager()
             if manager:
-                user = manager.store.get_user(auth["username"])
-                if not user or not bool(user.get("active")):
-                    auth = None
+                try:
+                    user = manager.store.get_user(auth["username"])
+                except Exception:
+                    LOGGER.exception("Auth store lookup failed; keeping signed session for this request")
+                    auth_degraded = True
+                    auth_reason = "store_error"
                 else:
-                    # Canonical username comes from trusted store (lowercase in current store schema).
-                    auth["username"] = _sanitize_username(user.get("username"))
-                    # Role comes from trusted store, not only from cookie payload.
-                    auth["role"] = _sanitize_role(user.get("role"))
+                    if not user:
+                        auth = None
+                        auth_reason = "user_missing"
+                    elif not bool(user.get("active")):
+                        auth = None
+                        auth_reason = "user_inactive"
+                    else:
+                        # Canonical username comes from trusted store (lowercase in current store schema).
+                        auth["username"] = _sanitize_username(user.get("username"))
+                        # Role comes from trusted store, not only from cookie payload.
+                        auth["role"] = _sanitize_role(user.get("role"))
             else:
-                auth = None
+                if bool(settings.security.enabled):
+                    auth_degraded = True
+                    auth_reason = "store_unavailable"
+                else:
+                    auth = None
+                    auth_reason = "security_disabled"
         request.state.authenticated = bool(auth)
         request.state.auth_user = auth.get("username") if auth else ""
         request.state.auth_role = auth.get("role") if auth else ""
+        request.state.auth_debug_reason = auth_reason
+        request.state.auth_degraded = auth_degraded
         request.state.debug_mode = bool(settings.ui.debug_mode)
         request.state.ui_theme = normalize_ui_theme(getattr(settings.ui, "theme", "matrix"))
         request.state.ui_background = normalize_ui_background(getattr(settings.ui, "background", "grid"))
@@ -2340,7 +2369,7 @@ def _build_app() -> FastAPI:
                 target_path = f"{path}?{request.url.query}"
             next_path = quote_plus(target_path)
             login_url = f"/login?next={next_path}"
-            if request.cookies.get(AUTH_COOKIE):
+            if raw_auth_cookie:
                 if expects_json:
                     response = JSONResponse(
                         status_code=401,
@@ -2353,7 +2382,8 @@ def _build_app() -> FastAPI:
                     _clear_auth_related_cookies(response)
                     return response
                 response = RedirectResponse(url=f"/session-expired?next={next_path}", status_code=303)
-                _clear_auth_related_cookies(response)
+                if auth_reason not in {"store_unavailable", "store_error"}:
+                    _clear_auth_related_cookies(response)
                 return response
             if expects_json:
                 return JSONResponse(
@@ -2476,6 +2506,9 @@ def _build_app() -> FastAPI:
                 str(getattr(request.state, "lang", resolved_lang) or resolved_lang),
                 default_lang=str(settings.ui.language or "de"),
             )
+            if bool(request.state.debug_mode):
+                response.headers.setdefault("X-ARIA-Auth-Reason", str(auth_reason or "unknown"))
+                response.headers.setdefault("X-ARIA-Auth-Degraded", "1" if auth_degraded else "0")
             response.headers.setdefault("X-Content-Type-Options", "nosniff")
             response.headers.setdefault("X-Frame-Options", "DENY")
             response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")

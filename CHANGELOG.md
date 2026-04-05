@@ -18,6 +18,26 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 
+## [0.1.0-alpha.34] - 2026-04-05
+
+### Added
+
+### Changed
+
+### Fixed
+- gültige, signierte Login-Sessions bleiben jetzt auch dann erhalten, wenn der Security-/Auth-Store während eines Runtime-Reloads kurzzeitig nicht verfügbar ist; ARIA wirft Nutzer in diesem Fall nicht mehr vorschnell auf `/login`
+- Debug-Header für die Session-Diagnose wurden vorbereitet (`X-ARIA-Auth-Reason`, `X-ARIA-Auth-Degraded`), damit künftige Auth-Probleme gezielter eingegrenzt werden können
+
+### Security
+
+### Known Limitations
+- ARIA ist weiterhin primär ein Personal-Single-User-System
+- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
+- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
+- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
+
+### Upgrade Notes
+
 ## [0.1.0-alpha.33] - 2026-04-05
 
 ### Added
