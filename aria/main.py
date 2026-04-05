@@ -104,7 +104,7 @@ from aria.core.pricing_catalog import resolve_litellm_pricing_entry
 from aria.core.prompt_loader import PromptLoader, PromptLoadError
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.runtime_diagnostics import build_runtime_diagnostics
-from aria.core.runtime_endpoint import request_is_secure
+from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 from aria.core.update_check import get_update_status
 
 
@@ -1739,15 +1739,13 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
         pass
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha30"
+        release_label = f"{version}-alpha33"
     return {
         "version": version,
         "label": release_label,
     }
-
-
-def _get_update_status(current_label: str) -> dict[str, Any]:
-    return get_update_status(BASE_DIR, current_label=current_label)
+def _get_update_status(current_label: str, *, ttl_seconds: int = 60 * 60 * 6) -> dict[str, Any]:
+    return get_update_status(BASE_DIR, current_label=current_label, ttl_seconds=ttl_seconds)
 
 
 def _build_app() -> FastAPI:
@@ -2273,7 +2271,7 @@ def _build_app() -> FastAPI:
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         path = request.url.path or "/"
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         accept_header = str(request.headers.get("accept", "") or "").lower()
         requested_with = str(request.headers.get("x-requested-with", "") or "").lower()
         expects_json = "application/json" in accept_header or requested_with in {"fetch", "xmlhttprequest"}
@@ -2597,7 +2595,7 @@ def _build_app() -> FastAPI:
         password_confirm: str = Form(""),
         next_path: str = Form("/"),
     ) -> RedirectResponse:
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         clean_username = _sanitize_username(username)
         target = str(next_path or "/")
         if not target.startswith("/"):
@@ -2707,7 +2705,7 @@ def _build_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         username = _get_username_from_request(request)
         session_id = _ensure_session_id(request)
         auth = _get_auth_session_from_request(request) or {}
@@ -2856,8 +2854,8 @@ def _build_app() -> FastAPI:
     @app.get("/updates", response_class=HTMLResponse)
     async def updates_page(request: Request) -> HTMLResponse:
         username = _get_username_from_request(request)
-        update_status = dict(getattr(request.state, "update_status", {}) or {})
         release_meta = dict(getattr(request.state, "release_meta", {}) or _read_release_meta(BASE_DIR))
+        update_status = _get_update_status(str(release_meta.get("label", "") or ""), ttl_seconds=0)
         return TEMPLATES.TemplateResponse(
             request=request,
             name="updates.html",
@@ -3023,7 +3021,7 @@ def _build_app() -> FastAPI:
 
     @app.post("/set-username")
     async def set_username(request: Request, username: str = Form(...)) -> RedirectResponse:
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         auth = _get_auth_session_from_request(request)
         clean_username = _sanitize_username(username)
         if auth:
@@ -3059,7 +3057,7 @@ def _build_app() -> FastAPI:
 
     @app.post("/set-auto-memory")
     async def set_auto_memory(request: Request, enabled: str = Form("0"), next_path: str = Form("/")) -> RedirectResponse:
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         target = "/" if not str(next_path).startswith("/") else str(next_path)
         try:
             active = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
@@ -3085,7 +3083,7 @@ def _build_app() -> FastAPI:
 
     @app.post("/chat", response_class=HTMLResponse)
     async def chat(request: Request, message: str = Form(...)) -> HTMLResponse:
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         clean_message = message.strip()
         if not clean_message:
             return HTMLResponse("", status_code=204)

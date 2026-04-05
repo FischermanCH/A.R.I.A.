@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aria.core.pipeline import Pipeline
-from aria.core.runtime_endpoint import request_is_secure
+from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 
 
 UsernameResolver = Callable[[Request], str]
@@ -785,7 +785,7 @@ def register_memories_routes(
         if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
             return RedirectResponse(url="/memories?error=no_admin", status_code=303)
         clean = sanitize_collection_name(collection)
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
         if clean:
             response.set_cookie(
@@ -808,7 +808,7 @@ def register_memories_routes(
         clean = sanitize_collection_name(collection_name)
         if not clean:
             return RedirectResponse(url="/memories/config?error=Ungültiger+Collection-Name", status_code=303)
-        secure_cookie = request_is_secure(request)
+        secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
         response.set_cookie(
             key=memory_collection_cookie,
@@ -850,7 +850,7 @@ def register_memories_routes(
             write_raw_config(raw)
             reload_runtime()
 
-            secure_cookie = request_is_secure(request)
+            secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
             response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
             response.set_cookie(
                 key=auto_memory_cookie,

@@ -1046,6 +1046,7 @@
   "help.subtitle": "Short technical help for setup, memory, connections, skills, and statistics.",
   "help.source_label": "Source",
   "help.product_info_hint": "Technical overview, feature list, architecture, and roadmap.",
+  "help.updates_hint": "See the installed version, latest public version, and release notes.",
   "help.missing": "No help file found yet.",
   "login.update_available_hint": "Installed: {current} · New: {latest}. View release notes.",
   "updates.title": "ARIA Update Status",

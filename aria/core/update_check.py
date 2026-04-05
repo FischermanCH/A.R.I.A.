@@ -168,6 +168,7 @@ def get_update_status(base_dir: Path, *, current_label: str, ttl_seconds: int = 
     cached = _load_cache(base_dir)
     now = time.time()
     if cached:
+        cached_latest = normalize_release_label(str(cached.get("latest_label", "") or ""))
         cached_checked_at = str(cached.get("checked_at", "") or "").strip()
         try:
             checked_at = datetime.fromisoformat(cached_checked_at).timestamp() if cached_checked_at else 0.0
@@ -175,6 +176,7 @@ def get_update_status(base_dir: Path, *, current_label: str, ttl_seconds: int = 
             checked_at = 0.0
         if (
             str(cached.get("current_label", "") or "").strip() == normalized_current
+            and not is_newer_release(normalized_current, cached_latest)
             and checked_at > 0
             and (now - checked_at) <= max(60, int(ttl_seconds or 0))
         ):

@@ -48,7 +48,7 @@
     {% endif %}
   </section>
 
-  <div id="typing-indicator" class="typing-indicator" aria-live="polite">
+  <div id="typing-indicator" class="typing-indicator" aria-live="polite" hidden>
     <div class="thinking-rings" aria-hidden="true">
       <span class="ring ring-a"></span>
       <span class="ring ring-b"></span>
@@ -166,6 +166,7 @@
       sendBtn.disabled = isBusy;
       form.classList.toggle("is-busy", isBusy);
       indicator.classList.toggle("htmx-request", isBusy);
+      indicator.hidden = !isBusy;
       if (isBusy) {
         if (window.ariaBeginBusy) window.ariaBeginBusy();
       } else {

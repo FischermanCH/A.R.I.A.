@@ -15,13 +15,26 @@
     <code>{{ help_path }}</code>
   </div>
 
-  <a href="/product-info" class="product-doc-card help-product-link">
-    <div class="product-doc-card-head">
-      <span class="product-doc-icon">{{ icon('product') }}</span>
-      <strong>{{ tr(request, 'base.nav_product_info', 'Produkt-Info') }}</strong>
-    </div>
-    <p>{{ tr(request, 'help.product_info_hint', 'Technischer Überblick, Feature-Liste, Architektur und Roadmap.') }}</p>
-  </a>
+  <div class="product-doc-grid help-link-grid">
+    <a href="/product-info" class="product-doc-card help-product-link">
+      <div class="product-doc-card-head">
+        <span class="product-doc-icon">{{ icon('product') }}</span>
+        <strong>{{ tr(request, 'base.nav_product_info', 'Produkt-Info') }}</strong>
+      </div>
+      <p>{{ tr(request, 'help.product_info_hint', 'Technischer Überblick, Feature-Liste, Architektur und Roadmap.') }}</p>
+    </a>
+
+    <a href="/updates" class="product-doc-card help-product-link">
+      <div class="product-doc-card-head">
+        <span class="product-doc-icon">{{ icon('updates') }}</span>
+        <strong>{{ tr(request, 'base.nav_updates', 'Updates') }}</strong>
+        {% if request.state.update_status.update_available %}
+        <span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>
+        {% endif %}
+      </div>
+      <p>{{ tr(request, 'help.updates_hint', 'Installierte Version, neueste öffentliche Version und Release Notes ansehen.') }}</p>
+    </a>
+  </div>
 
   {% if help_text %}
   <pre class="help-document">{{ help_text }}</pre>

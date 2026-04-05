@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from aria.core.runtime_endpoint import request_is_secure, resolve_runtime_url
+from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure, resolve_runtime_url
 
 
 def _request(*, scheme: str = "http", headers: dict[str, str] | None = None, host: str = "localhost", port: int = 8800):
@@ -44,6 +44,24 @@ def test_request_is_secure_supports_standard_forwarded_header() -> None:
     request = _request(headers={"forwarded": 'for=1.2.3.4;proto=https;host=aria.example', "host": "internal:8800"})
 
     assert request_is_secure(request) is True
+
+
+def test_cookie_should_be_secure_uses_public_url_over_forwarded_headers() -> None:
+    request = _request(headers={"forwarded": 'for=1.2.3.4;proto=https;host=aria.example', "host": "internal:8800"})
+
+    assert cookie_should_be_secure(request, public_url="http://aria.black.lan") is False
+
+
+def test_cookie_should_be_secure_accepts_https_public_url() -> None:
+    request = _request(scheme="http", headers={"host": "internal:8800"})
+
+    assert cookie_should_be_secure(request, public_url="https://aria.example") is True
+
+
+def test_cookie_should_be_secure_falls_back_to_real_request_scheme() -> None:
+    request = _request(scheme="https", headers={"host": "aria.local"})
+
+    assert cookie_should_be_secure(request) is True
 
 
 def test_resolve_runtime_url_prefers_forwarded_host_and_proto() -> None:

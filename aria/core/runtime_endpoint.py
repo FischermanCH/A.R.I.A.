@@ -78,6 +78,19 @@ def request_is_secure(request: Any | None) -> bool:
         return False
 
 
+def cookie_should_be_secure(request: Any | None, *, public_url: str = "") -> bool:
+    configured_public_url = str(public_url or "").strip().lower()
+    if configured_public_url:
+        return configured_public_url.startswith("https://")
+    if request is None:
+        return False
+    try:
+        scheme = str(getattr(getattr(request, "url", object()), "scheme", "") or "").strip().lower()
+        return scheme == "https"
+    except Exception:
+        return False
+
+
 def resolve_runtime_url(settings: Any, request: Any | None = None) -> str:
     port = int(getattr(getattr(settings, "aria", object()), "port", 8800) or 8800)
     public_url = str(getattr(getattr(settings, "aria", object()), "public_url", "") or "").strip()

@@ -9,7 +9,7 @@ def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
-        lambda _current_label: {
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
             "current_label": "0.1.0-alpha26",
             "latest_label": "0.1.0-alpha27",
             "latest_tag": "v0.1.0-alpha.27",
@@ -34,7 +34,7 @@ def test_updates_page_renders_release_notes(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
-        lambda _current_label: {
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
             "current_label": "0.1.0-alpha26",
             "latest_label": "0.1.0-alpha27",
             "latest_tag": "v0.1.0-alpha.27",

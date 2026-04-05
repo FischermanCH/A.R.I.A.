@@ -56,7 +56,7 @@ from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.rss_grouping import build_rss_status_groups
 from aria.core.rss_grouping import load_cached_rss_status_groups, save_cached_rss_status_groups
 from aria.core.rss_opml import build_opml_document, parse_opml_feeds
-from aria.core.runtime_endpoint import request_is_secure
+from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 
 
 SettingsGetter = Callable[[], Any]
@@ -1290,7 +1290,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 value=code,
                 max_age=60 * 60 * 24 * 365,
                 samesite="lax",
-                secure=request_is_secure(request),
+                secure=cookie_should_be_secure(request, public_url=str(settings.aria.public_url or "")),
                 httponly=False,
             )
             return response
@@ -4643,7 +4643,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             manager.store.set_user_active(clean_username, target_active)
             response = RedirectResponse(url="/config/users?saved=1&info=User+aktualisiert", status_code=303)
             if old_username == current_username:
-                secure_cookie = request_is_secure(request)
+                secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
                 response.set_cookie(
                     key=AUTH_COOKIE,
                     value=_encode_auth_session(clean_username, clean_role),
