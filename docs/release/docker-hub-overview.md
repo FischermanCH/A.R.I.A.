@@ -21,6 +21,12 @@ What you need:
 - a reachable LLM endpoint
 - a Qdrant API key for the bundled Qdrant container
 
+Generate a suitable Qdrant key on Unix:
+
+```bash
+openssl rand -hex 32
+```
+
 Then bring ARIA up with either Docker Compose or Portainer.
 
 Default web UI after startup:
@@ -89,6 +95,12 @@ ARIA_EMBEDDINGS_API_BASE=http://host.docker.internal:11434
 ARIA_EMBEDDINGS_MODEL=ollama/nomic-embed-text
 ```
 
+If you still need a key:
+
+```bash
+openssl rand -hex 32
+```
+
 Start:
 
 ```bash
@@ -141,6 +153,12 @@ Recommended Portainer environment variables:
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://<your-host>:8800
+```
+
+If you still need a key:
+
+```bash
+openssl rand -hex 32
 ```
 
 ## Notes
