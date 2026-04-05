@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a defect, regression, or broken workflow in ARIA.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for writing this up. Clear bug reports make release work much easier.
+  - type: input
+    id: version
+    attributes:
+      label: ARIA version
+      description: What version or tag are you running?
+      placeholder: 0.1.0-alpha28
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment type
+      options:
+        - Docker / Portainer
+        - Local dev
+        - Internal alpha build
+        - Public Docker image
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What is broken?
+      description: Short factual summary of the problem.
+      placeholder: Saving a new LLM profile reports success, but no new profile appears.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact sequence we can follow.
+      placeholder: |
+        1. Open /config/llm
+        2. Enter a new profile name
+        3. Click Save
+        4. Notice ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or notes
+      description: Paste relevant logs, screenshots, stack output, or browser details.
+      render: shell
+

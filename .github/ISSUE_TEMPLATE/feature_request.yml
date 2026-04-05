@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a user-facing feature, workflow improvement, or architectural addition.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or friction
+      description: What is currently missing or annoying?
+      placeholder: Managing many RSS feeds becomes slow because ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want.
+      placeholder: Add a local RSS search that filters only RSS feeds by title, ref, URL, group, and tags.
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Why this matters
+      description: What user value or operational benefit does this unlock?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Chat
+        - Memory
+        - Skills
+        - Connections
+        - RSS
+        - Stats / Operations
+        - UI / UX
+        - Docs / Release
+        - Security
+        - Routing
+        - Smart Home / Home Assistant
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes
+      description: Constraints, screenshots, examples, or implementation hints.
+

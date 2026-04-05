@@ -1,0 +1,34 @@
+name: Chore / release / docs
+description: Track cleanup, release work, documentation, or repo maintenance.
+title: "[Chore]: "
+labels:
+  - chore
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Type
+      options:
+        - Release prep
+        - Documentation
+        - Cleanup
+        - Repo / CI / GitHub
+        - Packaging / Docker
+        - Testing
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Task
+      placeholder: Prepare GitHub Release notes for the next public alpha.
+    validations:
+      required: true
+  - type: textarea
+    id: done_when
+    attributes:
+      label: Done when
+      description: Clear acceptance criteria.
+    validations:
+      required: true
+
