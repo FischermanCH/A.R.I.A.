@@ -62,6 +62,22 @@ OLD_IMAGE_ID="$(docker image inspect "$IMAGE_REF" --format '{{.Id}}' 2>/dev/null
 log "Lade neuestes TAR: $LATEST_TAR"
 docker load -i "$LATEST_TAR" >/tmp/aria-docker-load.log
 cat /tmp/aria-docker-load.log
+
+LOADED_IMAGE_REF="$(
+  sed -n 's/^Loaded image: //p' /tmp/aria-docker-load.log \
+    | head -n1 \
+    | tr -d '\r'
+)"
+
+if [[ -z "$LOADED_IMAGE_REF" ]]; then
+  die "Konnte geladenes Image-Tag aus docker load nicht erkennen."
+fi
+
+if [[ "$LOADED_IMAGE_REF" != "$IMAGE_REF" ]]; then
+  log "Retagge geladenes Image: $LOADED_IMAGE_REF -> $IMAGE_REF"
+  docker tag "$LOADED_IMAGE_REF" "$IMAGE_REF"
+fi
+
 rm -f /tmp/aria-docker-load.log
 
 NEW_IMAGE_ID="$(docker image inspect "$IMAGE_REF" --format '{{.Id}}' 2>/dev/null || true)"
