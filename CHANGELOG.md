@@ -18,6 +18,29 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 
+## [0.1.0-alpha.37] - 2026-04-05
+
+### Added
+- die Security-Seite zeigt den Login-Timeout jetzt zusätzlich in einer menschenlesbaren Form an, z. B. `12 Stunden` oder `1 Tag 6 Stunden`, damit große Minutenwerte nicht im Kopf umgerechnet werden müssen
+
+### Changed
+- Login-Sessions können jetzt über `Security` mit einem konfigurierbaren Default-Timeout gesteuert werden; der Wert wird intern weiter in Sekunden gespeichert und kann zusätzlich per `ARIA_SECURITY_SESSION_MAX_AGE_SECONDS` gesetzt werden
+- Update-Checks bleiben für den Zustand `up to date` deutlich frischer, damit neue Public-Releases schneller in Lampe und `/updates` sichtbar werden
+
+### Fixed
+- Login-Sessions bleiben bei LLM-/Embeddings-Konfigurationen und normalen Seitenwechseln stabil, statt durch unkritische Nebenrequests oder Runtime-Reloads ungewollt verloren zu gehen
+- frisch angemeldete Nutzer werden bei der Modellkonfiguration nicht mehr fälschlich auf `Login` oder `Sitzung abgelaufen` zurückgeworfen, solange die Session gültig ist
+
+### Security
+
+### Known Limitations
+- ARIA ist weiterhin primär ein Personal-Single-User-System
+- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
+- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
+- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
+
+### Upgrade Notes
+
 ## [0.1.0-alpha.35] - 2026-04-05
 
 ### Added

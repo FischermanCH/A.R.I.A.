@@ -220,7 +220,8 @@ CONFIG_PATH = BASE_DIR / "config" / "config.yaml"
 ERROR_INTERPRETER_PATH = BASE_DIR / "config" / "error_interpreter.yaml"
 FORGET_SIGNING_SECRET = ""
 AUTH_SIGNING_SECRET = ""
-AUTH_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12
+DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12
+AUTH_SESSION_MAX_AGE_SECONDS = DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS
 CONNECTION_PENDING_MAX_AGE_SECONDS = 60 * 10
 LOGGER = logging.getLogger(__name__)
 I18N = I18NStore(BASE_DIR / "aria" / "i18n")
@@ -995,6 +996,14 @@ def _sanitize_session_id(value: str | None) -> str:
     return clean[:32]
 
 
+def _sanitize_auth_session_max_age_seconds(value: Any) -> int:
+    try:
+        seconds = int(value or 0)
+    except (TypeError, ValueError):
+        return DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS
+    return max(60 * 5, min(seconds, 60 * 60 * 24 * 30))
+
+
 def _new_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -1749,7 +1758,7 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
         pass
     release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
     if not release_label:
-        release_label = f"{version}-alpha35"
+        release_label = f"{version}-alpha37"
     return {
         "version": version,
         "label": release_label,
@@ -1761,6 +1770,10 @@ def _get_update_status(current_label: str, *, ttl_seconds: int = 60 * 60 * 6) ->
 def _build_app() -> FastAPI:
     global AUTH_SIGNING_SECRET, FORGET_SIGNING_SECRET
     settings: Settings = load_settings(CONFIG_PATH)
+    global AUTH_SESSION_MAX_AGE_SECONDS
+    AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
+        getattr(settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
+    )
     get_or_create_runtime_secret("ARIA_MASTER_KEY", CONFIG_PATH)
     AUTH_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_AUTH_SIGNING_SECRET", CONFIG_PATH)
     FORGET_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_FORGET_SIGNING_SECRET", CONFIG_PATH)
@@ -1777,6 +1790,7 @@ def _build_app() -> FastAPI:
 
     def _reload_runtime() -> None:
         nonlocal settings, prompt_loader, llm_client, pipeline, startup_diagnostics
+        global AUTH_SESSION_MAX_AGE_SECONDS
         try:
             new_settings = load_settings(CONFIG_PATH)
             new_prompt_loader = PromptLoader(BASE_DIR / new_settings.prompts.persona)
@@ -1792,6 +1806,9 @@ def _build_app() -> FastAPI:
             raise ValueError(f"Runtime-Neuladen fehlgeschlagen: {exc}") from exc
 
         settings = new_settings
+        AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
+            getattr(new_settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
+        )
         prompt_loader = new_prompt_loader
         llm_client = new_llm_client
         pipeline = new_pipeline

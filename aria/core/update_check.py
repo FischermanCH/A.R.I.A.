@@ -15,6 +15,7 @@ GITHUB_REPO = "FischermanCH/A.R.I.A."
 GITHUB_TAGS_API = f"https://api.github.com/repos/{GITHUB_REPO}/tags?per_page=20"
 GITHUB_CHANGELOG_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/CHANGELOG.md"
 UPDATE_CHECK_CACHE = Path("data/runtime/update_status.json")
+NO_UPDATE_CACHE_TTL_SECONDS = 60
 
 _RELEASE_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([a-z]+)\.?(\d+)?)?$", re.IGNORECASE)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\]")
@@ -174,11 +175,14 @@ def get_update_status(base_dir: Path, *, current_label: str, ttl_seconds: int = 
             checked_at = datetime.fromisoformat(cached_checked_at).timestamp() if cached_checked_at else 0.0
         except ValueError:
             checked_at = 0.0
+        effective_ttl = max(60, int(ttl_seconds or 0))
+        if not bool(cached.get("update_available")):
+            effective_ttl = min(effective_ttl, NO_UPDATE_CACHE_TTL_SECONDS)
         if (
             str(cached.get("current_label", "") or "").strip() == normalized_current
             and not is_newer_release(normalized_current, cached_latest)
             and checked_at > 0
-            and (now - checked_at) <= max(60, int(ttl_seconds or 0))
+            and (now - checked_at) <= effective_ttl
         ):
             return cached
     try:

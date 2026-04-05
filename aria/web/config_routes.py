@@ -198,6 +198,42 @@ def _size_human(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
+def _format_session_timeout_label(total_minutes: int, lang: str = "de") -> str:
+    minutes = max(1, int(total_minutes or 0))
+    days, remainder = divmod(minutes, 60 * 24)
+    hours, mins = divmod(remainder, 60)
+
+    if str(lang or "de").lower().startswith("de"):
+        units = {
+            "day_singular": "Tag",
+            "day_plural": "Tage",
+            "hour_singular": "Stunde",
+            "hour_plural": "Stunden",
+            "minute_singular": "Minute",
+            "minute_plural": "Minuten",
+        }
+    else:
+        units = {
+            "day_singular": "day",
+            "day_plural": "days",
+            "hour_singular": "hour",
+            "hour_plural": "hours",
+            "minute_singular": "minute",
+            "minute_plural": "minutes",
+        }
+
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days} {units['day_singular'] if days == 1 else units['day_plural']}")
+    if hours:
+        parts.append(f"{hours} {units['hour_singular'] if hours == 1 else units['hour_plural']}")
+    if mins and not days:
+        parts.append(f"{mins} {units['minute_singular'] if mins == 1 else units['minute_plural']}")
+    if not parts:
+        parts.append(f"{minutes} {units['minute_singular'] if minutes == 1 else units['minute_plural']}")
+    return " ".join(parts)
+
+
 def _build_editor_entries_from_paths(base_dir: Path, rel_paths: list[str], resolver: FileResolver) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for rel_path in rel_paths:
@@ -1344,10 +1380,15 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         guardrail_ref: str = "",
     ) -> HTMLResponse:
         username = _get_username_from_request(request)
+        lang = str(getattr(request.state, "lang", "de") or "de")
         guardrail_rows = _read_guardrails()
         guardrail_refs = sorted(guardrail_rows.keys())
         selected_guardrail_ref = _sanitize_connection_name(guardrail_ref) or (guardrail_refs[0] if guardrail_refs else "")
         selected_guardrail = guardrail_rows.get(selected_guardrail_ref, {})
+        timeout_minutes = max(
+            5,
+            int(getattr(settings.security, "session_max_age_seconds", 60 * 60 * 12) or 0) // 60,
+        )
         return TEMPLATES.TemplateResponse(
             request=request,
             name="config_security.html",
@@ -1357,8 +1398,10 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "saved": bool(saved),
                 "error_message": error,
                 "security_cfg": settings.security,
+                "security_session_timeout_minutes": timeout_minutes,
+                "security_session_timeout_display": _format_session_timeout_label(timeout_minutes, lang=lang),
                 "guardrail_refs": guardrail_refs,
-                "guardrail_ref_options": _build_guardrail_ref_options(guardrail_rows, lang=str(getattr(request.state, "lang", "de") or "de"))[1:],
+                "guardrail_ref_options": _build_guardrail_ref_options(guardrail_rows, lang=lang)[1:],
                 "selected_guardrail_ref": selected_guardrail_ref,
                 "selected_guardrail": selected_guardrail,
                 "guardrail_kind_options": [{"value": kind, "label": guardrail_kind_label(kind)} for kind in guardrail_kind_options()],
@@ -1366,14 +1409,20 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         )
 
     @app.post("/config/security/save")
-    async def config_security_save(request: Request, bootstrap_locked: str = Form("0")) -> RedirectResponse:
+    async def config_security_save(
+        request: Request,
+        bootstrap_locked: str = Form("0"),
+        session_timeout_minutes: int = Form(60 * 12 // 60),
+    ) -> RedirectResponse:
         try:
             active = str(bootstrap_locked).strip().lower() in {"1", "true", "on", "yes"}
+            timeout_minutes = max(5, min(int(session_timeout_minutes or 0), 60 * 24 * 30))
             raw = _read_raw_config()
             raw.setdefault("security", {})
             if not isinstance(raw["security"], dict):
                 raw["security"] = {}
             raw["security"]["bootstrap_locked"] = active
+            raw["security"]["session_max_age_seconds"] = int(timeout_minutes * 60)
             _write_raw_config(raw)
             _reload_runtime()
             return RedirectResponse(url="/config/security?saved=1", status_code=303)

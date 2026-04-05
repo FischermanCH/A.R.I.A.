@@ -36,6 +36,25 @@
         {{ tr(request, 'config_security.when_off', 'Wenn deaktiviert: erster Login auf leerer User-DB erzeugt automatisch einen Admin.') }}
       </p>
       <div class="config-divider"></div>
+      <label for="session-timeout-minutes">
+        {{ tr(request, 'config_security.session_timeout', 'Login-Timeout (Minuten)') }}
+      </label>
+      <input
+        id="session-timeout-minutes"
+        name="session_timeout_minutes"
+        type="number"
+        min="5"
+        max="43200"
+        value="{{ security_session_timeout_minutes }}"
+      >
+      <p class="hint-text">
+        <strong>{{ tr(request, 'config_security.session_timeout_current', 'Aktuell:') }}</strong>
+        <span>{{ security_session_timeout_display }}</span>
+      </p>
+      <p class="hint-text">
+        {{ tr(request, 'config_security.session_timeout_hint', 'Bestimmt, wie lange eine Login-Session ohne vollständiges Neuanmelden gültig bleibt. Bestehende Sessions werden bei normalen Seitenaufrufen weiterhin aufgefrischt.') }}
+      </p>
+      <div class="config-divider"></div>
       <p class="hint-text">
         {{ tr(request, 'config_security.active_store', 'Aktiver Security-Store:') }} <code>{{ security_cfg.db_path }}</code>
       </p>

@@ -1183,5 +1183,6 @@
   "config_users.admin_mode_off": "Inactive",
   "config_users.admin_toggle_effect": "This controls advanced areas such as LLM, Embeddings, Security, Logs and the File Editor.",
   "skills.readonly_mode": "User mode is active. Skills can be viewed here, but changes are disabled.",
-  "skills.readonly_hint": "In user mode, skills remain visible, but editing, importing and toggling are disabled."
+  "skills.readonly_hint": "In user mode, skills remain visible, but editing, importing and toggling are disabled.",
+  "config_security.session_timeout_current": "Currently:"
 }

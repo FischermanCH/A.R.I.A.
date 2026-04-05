@@ -190,6 +190,7 @@ class SecurityConfig(BaseModel):
     enabled: bool = True
     db_path: str = "data/auth/aria_secure.sqlite"
     bootstrap_locked: bool = True
+    session_max_age_seconds: int = 60 * 60 * 12
     guardrails: dict[str, GuardrailConfig] = Field(default_factory=dict)
 
 
@@ -591,6 +592,7 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
         "ARIA_SECURITY_ENABLED": ("security", "enabled"),
         "ARIA_SECURITY_DB_PATH": ("security", "db_path"),
         "ARIA_SECURITY_BOOTSTRAP_LOCKED": ("security", "bootstrap_locked"),
+        "ARIA_SECURITY_SESSION_MAX_AGE_SECONDS": ("security", "session_max_age_seconds"),
     }
 
     merged = dict(data)

@@ -22,6 +22,7 @@ Zweck:
   - klare UI-Warnung, was dabei gelöscht wird und was nicht
 - [ ] Qdrant-Größenanzeige im separaten Container-Setup final gegen echten Prod-Betrieb prüfen
 - [ ] Preflight-/Statusanzeigen final auf Konsistenz und mobile Darstellung prüfen
+- [ ] Update-Info auch direkt in `/stats` anzeigen
 
 ### Memory
 - [x] gewichtetes Multi-Collection-Recall über Facts, Preferences, Sessions und Knowledge produktiv nutzen

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import aria.core.update_check as update_check
 from aria.core.update_check import extract_changelog_section
@@ -148,3 +149,64 @@ def test_get_update_status_ignores_cache_if_cached_latest_is_older_than_current(
 
     assert status["latest_label"] == "0.1.0-alpha30"
     assert status["update_available"] is False
+
+
+def test_get_update_status_refreshes_up_to_date_cache_quickly_for_new_releases(monkeypatch, tmp_path) -> None:
+    cache_path = tmp_path / "data" / "runtime" / "update_status.json"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(
+        json.dumps(
+            {
+                "current_label": "0.1.0-alpha34",
+                "latest_label": "0.1.0-alpha34",
+                "latest_tag": "v0.1.0-alpha.34",
+                "update_available": False,
+                "checked_at": (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat(),
+                "source": "github-tags",
+                "release_notes": "",
+                "release_notes_source": update_check.GITHUB_CHANGELOG_RAW,
+                "error": "",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    responses = {
+        update_check.GITHUB_TAGS_API: json.dumps(
+            [
+                {"name": "v0.1.0-alpha.34"},
+                {"name": "v0.1.0-alpha.35"},
+            ]
+        ),
+        update_check.GITHUB_CHANGELOG_RAW: """
+## [Unreleased]
+
+## [0.1.0-alpha.35] - 2026-04-05
+
+### Fixed
+- auth cookie cleanup
+""".strip(),
+    }
+
+    class FakeResponse:
+        def __init__(self, text: str) -> None:
+            self._data = text.encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._data
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        return FakeResponse(responses[str(request.full_url)])
+
+    monkeypatch.setattr(update_check, "urlopen", fake_urlopen)
+
+    status = get_update_status(tmp_path, current_label="0.1.0-alpha34", ttl_seconds=60 * 60 * 6)
+
+    assert status["latest_label"] == "0.1.0-alpha35"
+    assert status["update_available"] is True
