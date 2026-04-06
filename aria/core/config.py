@@ -156,7 +156,19 @@ class PromptConfig(BaseModel):
     skills_dir: str = "prompts/skills/"
 
 
-UI_THEME_OPTIONS = ("matrix", "sunset", "harbor", "paper", "cyberpunk", "cyberpunk-neo", "pixel", "crt-amber", "deep-space")
+UI_THEME_OPTIONS = (
+    "matrix",
+    "sunset",
+    "harbor",
+    "paper",
+    "cyberpunk",
+    "cyberpunk-neo",
+    "nyan-cat",
+    "puke-unicorn",
+    "pixel",
+    "crt-amber",
+    "deep-space",
+)
 UI_BACKGROUND_OPTIONS = ("grid", "aurora", "mesh", "nodes")
 
 

@@ -1,40 +1,58 @@
-# ARIA - Hilfe-System / Kontext-Hilfe
+# ARIA - Hilfe-System / Doku-Hub
 
-Stand: 2026-04-03
+Stand: 2026-04-06
 
 Zweck:
-- erstes mitlieferbares Hilfe-Dokument für ARIA
-- Textgrundlage für ein späteres kontextsensitives Info-Icon-/Help-System im UI
-- bewusst so geschrieben, dass einzelne Textblöcke später zentral ersetzt oder erweitert werden können
+- beschreibt die aktuelle Help-Richtung von ARIA
+- dokumentiert bewusst den einfacheren und nuetzlicheren Weg fuer die ALPHA-Linie
+- dient als Grundlage fuer lokale `/help`-Seiten und die GitHub-Wiki aus denselben Quelldateien
 
-## Zielbild
+## Aktuelle Richtung
 
-ARIA soll an erklärungsbedürftigen UI-Stellen ein kleines `Info`-Icon bekommen.
+ARIA setzt aktuell **nicht** auf ein grosses kontextsensitives Hilfe-System mit Info-Icons an vielen Einzelstellen.
 
-Beim Klick erscheint direkt eine kurze Hilfe genau zum aktuellen Kontext, z. B.:
-- als kleine Inline-Box
-- als Popover
-- später eventuell als seitlicher Help Drawer
+Der aktuelle Fokus ist:
 
-Wichtig:
-- Hilfe soll kontextsensitiv sein
-- Texte sollen zentral gepflegt werden
-- keine fest verstreuten Erklärtexte in zig Templates
+- eine gute, zentrale `/help`-Seite direkt im Produkt
+- dieselben Markdown-Quellen lokal und auf GitHub-Wiki nutzen
+- Hilfe nur einmal pflegen
+- praktische, eher produktnahe Doku statt vieler kleiner UI-Erklaerfetzen
 
-## MVP-Schnitt
+Das bringt fuer ARIA derzeit den groesseren Nutzen:
+- wenig Pflegeaufwand
+- hohe Sichtbarkeit fuer Nutzer
+- gute Grundlage fuer Public Alpha und Self-Hosting
+- spaeter trotzdem erweiterbar
 
-Für den ersten ALPHA-Schritt reicht bewusst eine kleine Variante:
+## Was `/help` heute sein soll
 
-- zentrale Help-Text-Sammlung
-- Info-Icon an ausgewählten UI-Blöcken/Feldern
-- Klick toggelt einen kurzen Text
-- Texte bleiben bewusst knapp und später austauschbar
+`/help` ist ein lokaler Docs-Hub fuer:
 
-Noch nicht nötig im ersten Schritt:
-- Volltextsuche in Hilfeartikeln
-- eigene Doku-Engine
+- Quick Start
+- Memory und Dokumenten-RAG
+- Skills
+- Connections
+- Releases / Upgrades
+- Pricing
+- Security
+
+Die Quellen dafuer liegen primaer in:
+- `docs/wiki/`
+- `docs/help/`
+
+Damit gilt:
+- GitHub-Wiki und lokale Hilfe greifen moeglichst auf dieselben Markdown-Dateien zu
+- Produktdoku wird nicht doppelt gepflegt
+- fuer lokalisierte Help-Seiten koennen passende Sprachvarianten wie `Quick-Start.de.md` oder `pricing.en.md` neben der Basisdatei liegen
+
+## Was bewusst nicht Prioritaet hat
+
+Noch nicht aktueller Fokus:
+- Help-Icons an sehr vielen einzelnen Formularfeldern
+- Popover pro UI-Feld
 - KI-generierte Live-Hilfe
-- großes Tutorial-System
+- grosses Tutorial-System
+- separate Doku-Engine
 
 ## Denkbares Datenmodell
 

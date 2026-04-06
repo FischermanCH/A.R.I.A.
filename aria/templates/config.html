@@ -1,6 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
 {% from "_icons.html" import icon %}
+{% macro config_section(title, desc, count=None, open=False) -%}
+  <details class="floating-card config-section-details"{% if open %} open{% endif %}>
+    <summary class="config-section-summary">
+      <span class="config-section-heading">
+        <span class="config-section-title-row">
+          <h3>{{ title }}</h3>
+          {% if count is not none %}
+          <span class="config-section-count">{{ count }}</span>
+          {% endif %}
+        </span>
+        <span class="config-section-desc">{{ desc }}</span>
+      </span>
+    </summary>
+    <div class="config-section-content">
+      {{ caller() }}
+    </div>
+  </details>
+{%- endmacro %}
 <main class="config-layout">
   {% if error_message %}
   <section class="floating-card">
@@ -18,9 +36,11 @@
   </section>
   {% endif %}
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.h1', 'Tune Intelligence') }}</h3>
-    <p>{{ tr(request, 'config.h1_desc', 'Configure how ARIA thinks, responds, and computes.') }}</p>
+  {% call config_section(
+    tr(request, 'config.h1', 'Tune Intelligence'),
+    tr(request, 'config.h1_desc', 'Configure how ARIA thinks, responds, and computes.'),
+    2
+  ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/llm">
         <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
@@ -31,13 +51,15 @@
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.embed_title', 'Embedding Radar') }}</span><span class="submenu-desc">{{ tr(request, 'config.embed_desc', 'Separate model for memory, search, and similarity.') }}</span></span>
       </a>
     </div>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.memory_title', 'Fine-Tune Memory') }}</h3>
-    <p>{{ tr(request, 'config.memory_desc', 'So ARIA keeps important facts and returns stronger recall results.') }}</p>
+  {% call config_section(
+    tr(request, 'config.memory_title', 'Fine-Tune Memory'),
+    tr(request, 'config.memory_desc', 'So ARIA keeps important facts and returns stronger recall results.'),
+    2
+  ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/routing">
         <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
@@ -48,13 +70,15 @@
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.skill_routing_title', 'Skill Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.skill_routing_desc', 'Central trigger map for all custom skills with direct JSON linkage.') }}</span></span>
       </a>
     </div>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.persona_title', 'Personality & Style') }}</h3>
-    <p>{{ tr(request, 'config.persona_desc', 'Define ARIA tone, character, and working style.') }}</p>
+  {% call config_section(
+    tr(request, 'config.persona_title', 'Personality & Style'),
+    tr(request, 'config.persona_desc', 'Define ARIA tone, character, and working style.'),
+    3
+  ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/prompts">
         <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
@@ -69,13 +93,15 @@
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.language_title', 'Language & Translation') }}</span><span class="submenu-desc">{{ tr(request, 'config.language_desc', 'Set default language and edit language files in Advanced mode.') }}</span></span>
       </a>
     </div>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.connections_title', 'Connections') }}</h3>
-    <p>{{ tr(request, 'config.connections_desc', 'Everything for external systems and access.') }}</p>
+  {% call config_section(
+    tr(request, 'config.connections_title', 'Connections'),
+    tr(request, 'config.connections_desc', 'Everything for external systems and access.'),
+    connection_menu_rows|length
+  ) %}
     <div class="config-submenu">
       {% for row in connection_menu_rows %}
       <a class="config-submenu-item" href="{{ row.url }}">
@@ -94,11 +120,13 @@
       </a>
       {% endfor %}
     </div>
-  </section>
+  {% endcall %}
 
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.sample_connections_title', 'Mitgelieferte Sample-Connections') }}</h3>
-    <p>{{ tr(request, 'config.sample_connections_desc', 'Diese Beispielprofile liegen im Container unter /app/samples/connections und können direkt in config.yaml importiert werden.') }}</p>
+  {% call config_section(
+    tr(request, 'config.sample_connections_title', 'Mitgelieferte Sample-Connections'),
+    tr(request, 'config.sample_connections_desc', 'Diese Beispielprofile liegen im Container unter /app/samples/connections und können direkt in config.yaml importiert werden.'),
+    sample_connection_rows|length
+  ) %}
     <div class="config-group-grid">
       {% for sample in sample_connection_rows %}
       <article class="config-group-card">
@@ -122,13 +150,16 @@
       </article>
       {% endfor %}
     </div>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if not request.state.can_access_advanced_config %}
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.admin_mode_off_title', 'Admin mode is currently off') }}</h3>
-    <p>{{ tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Users > Admin On/Off.') }}</p>
+  {% call config_section(
+    tr(request, 'config.admin_mode_off_title', 'Admin mode is currently off'),
+    tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Users > Admin On/Off.'),
+    1,
+    True
+  ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/users">
         <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
@@ -138,13 +169,15 @@
         </span>
       </a>
     </div>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card">
-    <h3>{{ tr(request, 'config.workbench_title', 'Workbench (Advanced)') }}</h3>
-    <p>{{ tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.') }}</p>
+  {% call config_section(
+    tr(request, 'config.workbench_title', 'Workbench (Advanced)'),
+    tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.'),
+    4
+  ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/security">
         <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
@@ -163,7 +196,7 @@
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
       </a>
     </div>
-  </section>
+  {% endcall %}
   {% endif %}
 </main>
 {% endblock %}

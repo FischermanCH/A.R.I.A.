@@ -30,6 +30,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+try:
+    import markdown as markdown_lib
+except ModuleNotFoundError:  # pragma: no cover - runtime dependency fallback
+    markdown_lib = None
+
 from aria.channels.api import register_api_routes
 from aria.web.activities_routes import register_activities_routes
 from aria.web.config_routes import ConfigRouteDeps, register_config_routes
@@ -227,6 +232,101 @@ PRODUCT_DOC_CATALOG: tuple[dict[str, Any], ...] = (
     },
 )
 PRODUCT_DOC_MAP = {entry["id"]: entry for entry in PRODUCT_DOC_CATALOG}
+HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
+    {
+        "id": "home",
+        "label_i18n": "help.doc_home",
+        "label_default": "Wiki Home",
+        "path": "docs/wiki/Home.md",
+        "summary_i18n": "help.doc_home_summary",
+        "summary_default": "Startpunkt fuer Orientierung, Doku-Pfade und empfohlene erste Schritte.",
+        "icon": "help",
+        "group": "wiki",
+    },
+    {
+        "id": "quick-start",
+        "label_i18n": "help.doc_quick_start",
+        "label_default": "Quick Start",
+        "path": "docs/wiki/Quick-Start.md",
+        "summary_i18n": "help.doc_quick_start_summary",
+        "summary_default": "Schneller Weg von Docker oder Portainer bis zur ersten nutzbaren ARIA-Instanz.",
+        "icon": "updates",
+        "group": "wiki",
+    },
+    {
+        "id": "memory",
+        "label_i18n": "help.doc_memory",
+        "label_default": "Memory",
+        "path": "docs/wiki/Memory.md",
+        "summary_i18n": "help.doc_memory_summary",
+        "summary_default": "Memory, RAG-Dokumente, Memory Map und Recall-Verhalten kompakt erklaert.",
+        "icon": "memories",
+        "group": "wiki",
+    },
+    {
+        "id": "skills",
+        "label_i18n": "help.doc_skills",
+        "label_default": "Skills",
+        "path": "docs/wiki/Skills.md",
+        "summary_i18n": "help.doc_skills_summary",
+        "summary_default": "Wie Skills aufgebaut sind, wie Trigger funktionieren und wie ARIA sie ausfuehrt.",
+        "icon": "skills",
+        "group": "wiki",
+    },
+    {
+        "id": "connections",
+        "label_i18n": "help.doc_connections",
+        "label_default": "Connections",
+        "path": "docs/wiki/Connections.md",
+        "summary_i18n": "help.doc_connections_summary",
+        "summary_default": "Uebersicht ueber Connection-Typen, Konfiguration und Routing-Nutzen.",
+        "icon": "settings",
+        "group": "wiki",
+    },
+    {
+        "id": "releases",
+        "label_i18n": "help.doc_releases",
+        "label_default": "Releases & Upgrades",
+        "path": "docs/wiki/Releases-and-Upgrades.md",
+        "summary_i18n": "help.doc_releases_summary",
+        "summary_default": "Wie Releases, lokale TAR-Updates und Upgrade-Flows zusammenhaengen.",
+        "icon": "updates",
+        "group": "wiki",
+    },
+    {
+        "id": "pricing",
+        "label_i18n": "help.doc_pricing",
+        "label_default": "Pricing",
+        "path": "docs/help/pricing.md",
+        "summary_i18n": "help.doc_pricing_summary",
+        "summary_default": "Wie ARIA Preise fuer LLM- und Embedding-Modelle aufloest und Kosten berechnet.",
+        "icon": "stats",
+        "group": "reference",
+    },
+    {
+        "id": "security",
+        "label_i18n": "help.doc_security",
+        "label_default": "Security",
+        "path": "docs/help/security.md",
+        "summary_i18n": "help.doc_security_summary",
+        "summary_default": "Session-, Guardrail- und Sicherheitsprinzipien der aktuellen ALPHA-Linie.",
+        "icon": "security",
+        "group": "reference",
+    },
+)
+HELP_DOC_MAP = {entry["id"]: entry for entry in HELP_DOC_CATALOG}
+HELP_DOC_GROUPS: tuple[dict[str, str], ...] = (
+    {
+        "id": "wiki",
+        "label_i18n": "help.group_wiki",
+        "label_default": "Wiki & Guides",
+    },
+    {
+        "id": "reference",
+        "label_i18n": "help.group_reference",
+        "label_default": "Technische Referenz",
+    },
+)
 PRODUCT_INFO_ASSET_MAP = {
     "aria_schichten_architektur.svg": BASE_DIR / "docs" / "product" / "aria_schichten_architektur.svg",
     "aria_intelligentes_routing.svg": BASE_DIR / "docs" / "product" / "aria_intelligentes_routing.svg",
@@ -1875,6 +1975,46 @@ def _read_release_meta(base_dir: Path) -> dict[str, str]:
     return read_release_meta(base_dir)
 
 
+def _read_doc_text(base_dir: Path, relative_path: str) -> str:
+    doc_path = base_dir / relative_path
+    if not doc_path.exists():
+        return ""
+    try:
+        return doc_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _localized_doc_path(base_dir: Path, relative_path: str, lang: str) -> str:
+    clean_lang = str(lang or "").strip().lower()
+    if not clean_lang:
+        return relative_path
+    doc_path = Path(relative_path)
+    if doc_path.suffix.lower() != ".md":
+        return relative_path
+    lang_code = clean_lang[:2]
+    if lang_code not in {"de", "en"}:
+        return relative_path
+    localized_name = f"{doc_path.stem}.{lang_code}{doc_path.suffix}"
+    localized_path = doc_path.with_name(localized_name)
+    if (base_dir / localized_path).exists():
+        return localized_path.as_posix()
+    return relative_path
+
+
+def _render_markdown_doc(text: str) -> Markup:
+    if not text.strip():
+        return Markup("")
+    if markdown_lib is None:
+        return Markup(f"<pre>{html.escape(text)}</pre>")
+    rendered = markdown_lib.markdown(
+        text,
+        extensions=["fenced_code", "tables", "sane_lists"],
+        output_format="html5",
+    )
+    return Markup(rendered)
+
+
 def _get_update_status(current_label: str, *, ttl_seconds: int = 60 * 60 * 6) -> dict[str, Any]:
     return get_update_status(BASE_DIR, current_label=current_label, ttl_seconds=ttl_seconds)
 
@@ -3003,25 +3143,31 @@ def _build_app() -> FastAPI:
         return response
 
     @app.get("/help", response_class=HTMLResponse)
-    async def help_page(request: Request) -> HTMLResponse:
+    async def help_page(request: Request, doc: str = "home") -> HTMLResponse:
         username = _get_username_from_request(request)
         lang = str(getattr(request.state, "lang", "de") or "de").strip().lower()
-        help_file = "alpha-help-system.de.md" if lang.startswith("de") else "alpha-help-system.en.md"
-        help_path = BASE_DIR / "docs" / "help" / help_file
-        help_text = ""
-        if help_path.exists():
-            try:
-                help_text = help_path.read_text(encoding="utf-8")
-            except OSError:
-                help_text = ""
+        selected_doc = HELP_DOC_MAP.get(doc) or HELP_DOC_CATALOG[0]
+        localized_help_path = _localized_doc_path(BASE_DIR, selected_doc["path"], lang)
+        help_text = _read_doc_text(BASE_DIR, localized_help_path)
+        help_sections = [
+            {
+                **group,
+                "docs": [entry for entry in HELP_DOC_CATALOG if entry.get("group") == group["id"]],
+            }
+            for group in HELP_DOC_GROUPS
+        ]
         return TEMPLATES.TemplateResponse(
             request=request,
             name="help.html",
             context={
                 "title": settings.ui.title,
                 "username": username,
-                "help_path": f"docs/help/{help_file}",
+                "help_docs": HELP_DOC_CATALOG,
+                "help_sections": help_sections,
+                "selected_doc": selected_doc,
+                "help_path": localized_help_path,
                 "help_text": help_text,
+                "help_html": _render_markdown_doc(help_text),
             },
         )
 

@@ -22,6 +22,7 @@ DEV_SSH="${DEV_SSH:-}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/aria_dev_pull}"
 REMOTE_BASE_DIR="${REMOTE_BASE_DIR:-/home/aria/ARIA}"
 LOCAL_UPDATE_SCRIPT="${LOCAL_UPDATE_SCRIPT:-$LOCAL_DIR/update-local-aria.sh}"
+REMOTE_ARTIFACT_DIR="${REMOTE_ARTIFACT_DIR:-/mnt/NAS/aria-images}"
 REMOTE_DIST_DIR="${REMOTE_DIST_DIR:-$REMOTE_BASE_DIR/dist}"
 REMOTE_DOCKER_DIR="${REMOTE_DOCKER_DIR:-$REMOTE_BASE_DIR/docker}"
 REMOTE_SAMPLES_DIR="${REMOTE_SAMPLES_DIR:-$REMOTE_BASE_DIR/samples}"
@@ -73,10 +74,14 @@ else
 fi
 
 LATEST_REMOTE_TAR="$(
-  ssh -i "$SSH_KEY_PATH" "$DEV_SSH" "find '$REMOTE_DIST_DIR' -maxdepth 1 -type f -name 'aria-alpha*-local.tar' | sed 's#^.*/##' | awk '
-    match(\$0, /^aria-alpha([0-9]+)-local\\.tar$/, m) { printf \"%012d %s\\n\", m[1], \$0; next }
-    \$0 == \"aria-alpha-local.tar\" { printf \"%012d %s\\n\", 0, \$0; next }
-  ' | sort | tail -n1 | cut -d' ' -f2- | sed 's#^#$REMOTE_DIST_DIR/#'"
+  ssh -i "$SSH_KEY_PATH" "$DEV_SSH" "artifact_dir=''; \
+    if [ -d '$REMOTE_ARTIFACT_DIR' ]; then artifact_dir='$REMOTE_ARTIFACT_DIR'; \
+    elif [ -d '$REMOTE_DIST_DIR' ]; then artifact_dir='$REMOTE_DIST_DIR'; fi; \
+    [ -n \"\$artifact_dir\" ] || exit 0; \
+    find \"\$artifact_dir\" -maxdepth 1 -type f -name 'aria-alpha*-local.tar' | sed 's#^.*/##' | awk '
+      match(\$0, /^aria-alpha([0-9]+)-local\\.tar$/, m) { printf \"%012d %s\\n\", m[1], \$0; next }
+      \$0 == \"aria-alpha-local.tar\" { printf \"%012d %s\\n\", 0, \$0; next }
+    ' | sort | tail -n1 | cut -d' ' -f2- | sed \"s#^#\$artifact_dir/#\""
 )"
 
 [[ -n "$LATEST_REMOTE_TAR" ]] || die "Kein ARIA-TAR auf dem Dev-Host gefunden"

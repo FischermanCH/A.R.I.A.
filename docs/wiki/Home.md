@@ -9,6 +9,8 @@ This wiki is meant to stay practical:
 - how memory, skills, and connections work
 - how releases and upgrades are handled
 
+The same core docs are also intended to appear locally under `/help`, so ARIA and GitHub stay aligned.
+
 For the main repository entry point, start with:
 
 - `README.md`

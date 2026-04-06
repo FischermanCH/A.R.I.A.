@@ -1230,6 +1230,8 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             {"value": "paper", "label_key": "config_appearance.theme_paper", "fallback": "Paper Ink"},
             {"value": "cyberpunk", "label_key": "config_appearance.theme_cyberpunk", "fallback": "CyberPunk Classic"},
             {"value": "cyberpunk-neo", "label_key": "config_appearance.theme_cyberpunk_neo", "fallback": "CyberPunk Neo"},
+            {"value": "nyan-cat", "label_key": "config_appearance.theme_nyan_cat", "fallback": "Nyan Cat"},
+            {"value": "puke-unicorn", "label_key": "config_appearance.theme_puke_unicorn", "fallback": "Puke Unicorn"},
             {"value": "pixel", "label_key": "config_appearance.theme_pixel", "fallback": "8-Bit Arcade"},
             {"value": "crt-amber", "label_key": "config_appearance.theme_crt_amber", "fallback": "Amber CRT"},
             {"value": "deep-space", "label_key": "config_appearance.theme_deep_space", "fallback": "Deep Space"},

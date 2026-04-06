@@ -5,7 +5,7 @@ import tomllib
 from pathlib import Path
 
 
-DEFAULT_RELEASE_SUFFIX = "alpha50"
+DEFAULT_RELEASE_SUFFIX = "alpha54"
 
 
 def read_release_meta(base_dir: Path) -> dict[str, str]:

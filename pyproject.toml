@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "litellm>=1.55",
+    "markdown>=3.7",
     "qdrant-client>=1.12",
     "numpy<2",
     "paramiko>=3.5",

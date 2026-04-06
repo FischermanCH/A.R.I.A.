@@ -101,9 +101,14 @@
     </a>
   </section>
 
-  <section class="memory-create-card">
-    <h2>{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</h2>
-    <p>{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</p>
+  <details class="memory-create-card memory-create-panel" {% if upload_success or upload_error or error_message %}open{% endif %}>
+    <summary class="memory-group-summary memory-create-summary">
+      <div>
+        <strong>{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</strong>
+        <small>{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</small>
+      </div>
+    </summary>
+    <div class="memory-group-list">
     <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data">
       <input type="hidden" name="type" value="{{ filter_type }}">
       <input type="hidden" name="q" value="{{ query }}">
@@ -139,11 +144,17 @@
         {{ tr(request, 'memories.upload_progress', 'Dokument wird vorbereitet, gechunkt und nach Qdrant importiert. Das kann je nach PDF kurz dauern.') }}
       </p>
     </form>
-  </section>
+    </div>
+  </details>
 
-  <section class="memory-create-card">
-    <h2>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h2>
-    <p>{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</p>
+  <details class="memory-create-card memory-create-panel">
+    <summary class="memory-group-summary memory-create-summary">
+      <div>
+        <strong>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</strong>
+        <small>{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</small>
+      </div>
+    </summary>
+    <div class="memory-group-list">
     <form method="post" action="/memories/create" class="editor-form">
       <input type="hidden" name="type" value="{{ filter_type }}">
       <input type="hidden" name="q" value="{{ query }}">
@@ -164,7 +175,8 @@
       <textarea id="memory_text" name="text" class="editor-textarea short" maxlength="4000" placeholder="{{ tr(request, 'memories.create_placeholder', 'z. B. Ich nutze für Server-Dateien meist mein Hauptsystem.') }}" required></textarea>
       <button type="submit">{{ tr(request, 'memories.create_button', 'Memory speichern') }}</button>
     </form>
-  </section>
+    </div>
+  </details>
 
   <section class="memories-list">
     {% if grouped_rows %}

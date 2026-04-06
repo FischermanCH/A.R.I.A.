@@ -6,13 +6,8 @@
     <div>
       <p class="section-kicker">{{ tr(request, 'base.nav_help', 'Hilfe') }}</p>
       <h2>{{ tr(request, 'help.title', 'ARIA Hilfe') }}</h2>
-      <p>{{ tr(request, 'help.subtitle', 'Kurze, technische Hilfe zu Setup, Memory, Connections, Skills und Statistiken.') }}</p>
+      <p>{{ tr(request, 'help.subtitle', 'ARIA nutzt lokal dieselben Wiki- und Hilfe-Dateien wie auf GitHub, damit die Dokumentation nur einmal gepflegt werden muss.') }}</p>
     </div>
-  </div>
-
-  <div class="help-source-chip">
-    <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
-    <code>{{ help_path }}</code>
   </div>
 
   <div class="product-doc-grid help-link-grid">
@@ -36,8 +31,40 @@
     </a>
   </div>
 
+  {% for section in help_sections %}
+  <section class="docs-section">
+    <div class="page-head docs-section-head">
+      <div>
+        <h3>{{ tr(request, section.label_i18n, section.label_default) }}</h3>
+      </div>
+    </div>
+    <div class="product-doc-grid">
+      {% for help_doc in section.docs %}
+      <a
+        href="/help?doc={{ help_doc.id }}"
+        class="product-doc-card {% if selected_doc.id == help_doc.id %}is-active{% endif %}"
+        aria-current="{{ 'page' if selected_doc.id == help_doc.id else 'false' }}"
+      >
+        <div class="product-doc-card-head">
+          <span class="product-doc-icon">{{ icon(help_doc.icon) }}</span>
+          <strong>{{ tr(request, help_doc.label_i18n, help_doc.label_default) }}</strong>
+        </div>
+        <p>{{ tr(request, help_doc.summary_i18n, help_doc.summary_default) }}</p>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+
+  <div class="help-source-chip">
+    <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
+    <code>{{ help_path }}</code>
+  </div>
+
   {% if help_text %}
-  <pre class="help-document">{{ help_text }}</pre>
+  <article class="doc-markdown">
+    {{ help_html }}
+  </article>
   {% else %}
   <div class="empty-state">{{ tr(request, 'help.missing', 'Noch keine Hilfe-Datei gefunden.') }}</div>
   {% endif %}

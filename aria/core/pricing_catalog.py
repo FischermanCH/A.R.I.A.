@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from functools import lru_cache
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,6 +35,58 @@ def _model_aliases(model_name: str) -> list[str]:
     if "/" in clean:
         aliases.append(clean.rsplit("/", 1)[-1])
     return list(dict.fromkeys(alias for alias in aliases if alias))
+
+
+def _normalize_lookup_key(model_name: str) -> str:
+    clean = str(model_name or "").strip().lower()
+    if not clean:
+        return ""
+    if "/" in clean:
+        clean = clean.rsplit("/", 1)[-1]
+    clean = clean.replace("_", "-").replace(" ", "-")
+    clean = re.sub(r"-+", "-", clean).strip("-")
+    if clean.endswith("-latest"):
+        clean = clean[: -len("-latest")]
+    return clean
+
+
+def _extract_claude_family(model_name: str) -> str:
+    normalized = _normalize_lookup_key(model_name)
+    if not normalized.startswith("claude-"):
+        return ""
+    tokens = [token for token in normalized.split("-") if token]
+    for family in ("sonnet", "haiku", "opus"):
+        if family in tokens:
+            return f"claude-{family}"
+    return ""
+
+
+def _extract_claude_version_tuple(model_name: str) -> tuple[int, ...]:
+    normalized = _normalize_lookup_key(model_name)
+    if not normalized.startswith("claude-"):
+        return ()
+    tokens = [token for token in normalized.split("-") if token]
+    numeric_tokens = [token for token in tokens[1:] if token.isdigit()]
+    return tuple(int(token) for token in numeric_tokens)
+
+
+def _resolve_claude_family_fallback(rows: dict[str, dict[str, Any]], model_name: str) -> Any | None:
+    requested_family = _extract_claude_family(model_name)
+    if not requested_family:
+        return None
+
+    best_entry: dict[str, Any] | None = None
+    best_version: tuple[int, ...] = ()
+    for key, entry in rows.items():
+        if not isinstance(entry, dict):
+            continue
+        if _extract_claude_family(str(key)) != requested_family:
+            continue
+        version = _extract_claude_version_tuple(str(key))
+        if best_entry is None or version > best_version:
+            best_entry = entry
+            best_version = version
+    return SimpleNamespace(**best_entry) if isinstance(best_entry, dict) else None
 
 
 def _litellm_price_row(model_name: str, payload: dict[str, Any], *, provider: str, verified_at: str) -> tuple[str, dict[str, Any]] | None:
@@ -107,6 +160,13 @@ def resolve_litellm_pricing_entry(model_name: str) -> Any | None:
         entry = lowered.get(clean.lower())
         if isinstance(entry, dict):
             return SimpleNamespace(**entry)
+        normalized_rows = {_normalize_lookup_key(str(key)): value for key, value in rows.items()}
+        normalized_entry = normalized_rows.get(_normalize_lookup_key(clean))
+        if isinstance(normalized_entry, dict):
+            return SimpleNamespace(**normalized_entry)
+        fallback_entry = _resolve_claude_family_fallback(rows, clean)
+        if fallback_entry is not None:
+            return fallback_entry
     return None
 
 

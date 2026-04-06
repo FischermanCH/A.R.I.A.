@@ -9,7 +9,11 @@ Es gibt keine Schaetzung für unbekannte Modelle.
 
 ## Datenquelle
 
-Preise werden in `config/config.yaml` unter `pricing` gepflegt.
+ARIA arbeitet heute mit einer kleinen Mischform:
+
+- `OpenAI` und `Anthropic` werden primär über den LiteLLM-Preiskatalog aufgelöst
+- `OpenRouter` kann über die Models-API synchronisiert werden
+- lokale oder exotische Modelle können zusätzlich weiter in `config/config.yaml` unter `pricing` ergänzt werden
 
 Wichtige Felder:
 
@@ -40,11 +44,12 @@ Embedding:
 `total_cost_usd` ist die Summe der bekannten Teile.
 Wenn kein Preis gefunden wird, bleibt der jeweilige Kostenanteil `null`.
 
-## Verhalten bei unbekannten Modellen
+## Verhalten bei unbekannten Modellen und Aliasen
 
 - Modell ohne Preiseintrag: keine Kostenberechnung für dieses Modell
 - Stats zeigen diese Modelle als "unbepreist" in der Coverage
 - Es wird absichtlich nichts geraten
+- ARIA versucht bei bekannten Anbieterfamilien grosszuegigere Aliase aufzufangen, z. B. `claude-sonnet` oder `anthropic/claude-3-5-sonnet-latest`
 
 ## Pflegeprozess
 
