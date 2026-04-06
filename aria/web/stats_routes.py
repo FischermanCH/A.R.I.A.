@@ -6,7 +6,6 @@ import json
 import os
 import sqlite3
 import time
-import tomllib
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote_plus
@@ -34,6 +33,7 @@ from aria.core.config import get_master_key
 from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import build_pricing_catalog_snapshot
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.release_meta import read_release_meta
 from aria.core.runtime_endpoint import resolve_runtime_url
 from aria.web.activities_routes import _decorate_activity_rows
 
@@ -64,23 +64,7 @@ def _config_path(base_dir: Path) -> Path:
 
 
 def _build_release_meta(base_dir: Path) -> dict[str, str]:
-    version = "0.1.0"
-    try:
-        pyproject = base_dir / "pyproject.toml"
-        payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        project = payload.get("project", {})
-        if isinstance(project, dict):
-            version = str(project.get("version", version) or version).strip() or version
-    except Exception:
-        pass
-
-    release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
-    if not release_label:
-        release_label = f"{version}-alpha40"
-    return {
-        "version": version,
-        "label": release_label,
-    }
+    return read_release_meta(base_dir)
 
 
 def _stats_connections_cache_path(base_dir: Path) -> Path:
@@ -582,7 +566,7 @@ def _build_preflight_meta(payload: dict[str, Any], language: str) -> dict[str, A
 
 async def _build_health_meta(settings: Any, pipeline: Pipeline, language: str, request: Request | None = None) -> dict[str, Any]:
     base_dir = _project_root()
-    services: list[dict[str, str]] = []
+    services: list[dict[str, Any]] = []
     runtime_url = resolve_runtime_url(settings, request)
 
     services.append(
@@ -691,6 +675,29 @@ async def _build_health_meta(settings: Any, pipeline: Pipeline, language: str, r
         }
     )
 
+    update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {}) if request else {}
+    release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or {}) if request else {}
+    current_label = str(update_status.get("current_label", "") or release_meta.get("label", "") or "-").strip() or "-"
+    latest_label = str(update_status.get("latest_label", "") or current_label).strip() or current_label
+    update_available = bool(update_status.get("update_available"))
+    services.append(
+        {
+            "name": "Updates",
+            "status": "warn" if update_available else "ok",
+            "summary": _pick_text(
+                language,
+                "Neueste Public-Version erkannt. Release Notes anzeigen." if update_available else "Kein neuer Public-Release erkannt. Release-Status ansehen.",
+                "A newer public release was found. Open the release notes." if update_available else "No newer public release detected. Open the release status.",
+            ),
+            "detail": _pick_text(
+                language,
+                f"Installiert: {current_label} · Public: {latest_label}",
+                f"Installed: {current_label} · Public: {latest_label}",
+            ),
+            "url": "/updates",
+        }
+    )
+
     overall_status = _overall_status(services)
     for service in services:
         service["visual_status"] = str(service.get("status", "warn")).strip().lower() or "warn"
@@ -768,7 +775,8 @@ def register_stats_routes(
         preflight_meta = _build_preflight_meta(preflight_payload if isinstance(preflight_payload, dict) else {}, language)
         runtime_memory = _build_runtime_memory_meta(language)
         qdrant_storage = await _build_qdrant_storage_meta(base_dir, settings)
-        release_meta = _build_release_meta(base_dir)
+        release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
+        update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
         activity_data = await pipeline.token_tracker.get_recent_activities(
             user_id=username,
             limit=18,
@@ -805,6 +813,7 @@ def register_stats_routes(
                 'runtime_memory': runtime_memory,
                 'qdrant_storage': qdrant_storage,
                 'release_meta': release_meta,
+                'update_status': update_status,
                 'activities': activity_data,
                 'connection_status_rows': connection_status_rows,
                 'reset_done': reset_done,

@@ -156,6 +156,23 @@ class Pipeline:
         return build_capability_detail_lines(effective_plan, self._connection_kind_label)
 
     @staticmethod
+    def _collect_skill_detail_lines(skill_results: list[SkillResult]) -> list[str]:
+        lines: list[str] = []
+        seen: set[str] = set()
+        for result in skill_results:
+            meta = result.metadata or {}
+            raw_lines = meta.get("detail_lines")
+            if not isinstance(raw_lines, list):
+                continue
+            for row in raw_lines:
+                text = str(row).strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                lines.append(text)
+        return lines
+
+    @staticmethod
     def _normalize_spaces(text: str) -> str:
         return re.sub(r"\s+", " ", text).strip()
 
@@ -702,6 +719,7 @@ class Pipeline:
             and any(str(intent).startswith("custom_skill:") for intent in merged_intents)
             and all(str(intent) == "chat" or str(intent).startswith("custom_skill:") for intent in merged_intents)
         ):
+            skill_detail_lines = self._collect_skill_detail_lines(skill_results)
             duration_ms = int((time.perf_counter() - start) * 1000)
             usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             await self.token_tracker.log(
@@ -734,6 +752,7 @@ class Pipeline:
                 embedding_cost_usd=None,
                 total_cost_usd=None,
                 safe_fix_plan=safe_fix_plan,
+                detail_lines=skill_detail_lines,
             )
 
         prompts = self.context_assembler.build(
@@ -834,6 +853,8 @@ class Pipeline:
             },
         )
 
+        skill_detail_lines = self._collect_skill_detail_lines(skill_results)
+
         return PipelineResult(
             request_id=request_id,
             text=llm_response.content,
@@ -846,4 +867,5 @@ class Pipeline:
             embedding_cost_usd=embedding_cost_usd,
             total_cost_usd=total_cost_usd,
             safe_fix_plan=safe_fix_plan,
+            detail_lines=skill_detail_lines,
         )

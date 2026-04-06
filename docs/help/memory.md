@@ -1,6 +1,6 @@
 # ARIA Hilfe: Memory und Stores
 
-Stand: 2026-03-23
+Stand: 2026-04-06
 
 ## Zweck
 
@@ -35,7 +35,7 @@ Der Output enthält dafür den Zähler:
 
 ## Store-Typen
 
-ARIA arbeitet aktuell mit drei Memory-Ebenen pro Benutzer:
+ARIA arbeitet aktuell mit vier Memory-Ebenen pro Benutzer:
 
 ### 1. Nutzer-Speicher
 
@@ -84,6 +84,30 @@ Zweck:
 - sammelt komprimierte Inhalte aus alten Qdrant-Tages-Kontext-Collections
 - reduziert Collection-Sprawl in Qdrant
 - bleibt für Recall als Wissensquelle aktiv
+
+### 4. Dokument-Collections (RAG v1)
+
+Schema:
+
+`aria_docs_<name>`
+
+Beispiele:
+
+- `aria_docs_alice`
+- `aria_docs_manuals`
+- `aria_docs_fischerman_lab`
+
+Zweck:
+
+- hochgeladene Dokumente für RAG
+- Chunk-basierter Import von `txt`, `md` und `pdf` mit eingebettetem Text
+- bewusst getrennt von Facts, Preferences und Rollup-Wissen
+
+Wichtig:
+
+- Dokument-Collections sind eigene Wissensquellen
+- sie sollen nicht mit normalen Facts-/Preference-/Session-Collections vermischt werden
+- wenn nach dem Löschen eines Dokuments keine Chunks mehr übrig sind, räumt ARIA die leere Collection direkt mit auf
 
 Wichtig:
 
@@ -137,7 +161,9 @@ Bei einer Recall-Frage kombiniert ARIA mehrere Wissensquellen:
 
 1. Nutzer-Speicher
 2. Tages-Kontext (Qdrant)
-3. weitere passende Collections derselben Memory-Familie, falls vorhanden
+3. Kontext-Memory / Rollup-Wissen
+4. einen internen Dokument-Guide-Index pro User
+5. passende Dokument-Collections (`aria_docs_*`), wenn Dokumentwissen relevant ist
 
 Praktische Folge:
 
@@ -147,6 +173,26 @@ Praktische Folge:
 kann gemeinsam in eine Antwort einfliessen.
 
 Zusätzlich nutzt ARIA dabei Typ-Gewichte und einen Zeitabfall für Tages-Kontext, damit stabilere Facts und Preferences im Ranking nicht unnötig von alten Session-Schnipseln überdeckt werden.
+
+Dokument-Recall läuft jetzt bewusst zweistufig:
+
+1. beim Upload erzeugt ARIA intern pro Dokument einen kompakten Guide-Eintrag mit:
+  - Dokumentname
+  - Kurz-Zusammenfassung
+  - Stichworten
+  - Ziel-Collection
+2. bei einer Recall-Frage wird zuerst dieser Guide-Index abgefragt
+3. nur die passendsten Dokumente werden danach mit ihren Chunks tief abgefragt
+
+Dadurch muss ARIA nicht blind alle Dokument-Collections durchsuchen und vermischt Dokumentwissen auch nicht mit normalen Fakten.
+
+Wenn ein Dokument für die Antwort verwendet wurde, zeigt ARIA in den Chat-Details zusätzlich die verwendeten Quellen an:
+
+- Dokumentname
+- Ziel-Collection
+- Chunk-Referenz, z. B. `Chunk 12/108`
+
+Dadurch bleibt nachvollziehbar, woher eine Dokument-Antwort stammt.
 
 ## Vergessen mit Bestätigung
 
@@ -216,12 +262,43 @@ Diese Meldungen erscheinen im Chat-Hinweis und im Detail-Badge.
 
 Neue Seite für operatives Memory-Management:
 
-- Typ-Filter (`all`, `fact`, `preference`, `session`, `knowledge`)
+- Typ-Filter (`all`, `fact`, `preference`, `session`, `document`, `knowledge`)
+- klickbare Typ-Kacheln für schnellere Navigation
 - Semantische Suche (Embedding-basiert)
 - `Memory exportieren` als JSON-Download für den aktuellen User und den aktuellen Filter/Suchkontext
 - Einzelne Eintraege direkt löschbar
 - Direkter Link zum Qdrant-Dashboard
 - Manueller Button für Kontext-Rollup
+- Dokument-Upload direkt im bestehenden Memory-Bereich
+- Upload in bestehende oder neue Dokument-Collections
+
+RAG v1 im Alltag:
+
+- Upload lebt bewusst in `/memories`
+- unterstützt aktuell:
+  - `txt`
+  - `md`
+  - `pdf` mit eingebettetem Text
+- Scan-/Bild-PDFs und OCR sind in v1 noch nicht enthalten
+- während Chunking und Import zeigt ARIA einen sichtbaren Arbeitszustand im Upload-Block
+- Einträge werden in `Alle` zusätzlich nach Typ gruppiert, damit große Mengen nicht wie abgeschnitten oder zufällig gemischt wirken
+
+## Memory Map (`/memories/map`)
+
+Die `Memory Map` ist der Ort für den strukturellen Blick auf gespeichertes Wissen.
+
+Seit RAG v1 zeigt sie zusätzlich:
+
+- importierte Dokumente gesammelt nach Dokumentname
+- Chunk-Anzahl pro Dokument
+- Ziel-Collection
+- kurze Vorschau
+- direktes Entfernen eines ganzen Dokuments aus Qdrant
+
+Wichtig:
+
+- `Memory` bleibt der Ort für Upload, Suche und einzelne Einträge
+- `Memory Map` ist der passende Ort für Dokument-Verwaltung und Collection-Struktur
 
 Hinweis:
 

@@ -101,9 +101,13 @@ It is designed for people who want:
   - preferences
   - session context
   - rolled-up knowledge
+- document collections for RAG uploads
 - auto-memory extraction
 - manual memory creation and editing
 - memory search and maintenance views
+- document upload directly in `Memory`
+- `txt`, `md`, and `pdf` with embedded text supported for RAG v1
+- grouped document management in `Memory Map`
 
 ### Skills and automation
 

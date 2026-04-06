@@ -217,7 +217,11 @@
     </div>
     <div class="stats-health-grid">
       {% for row in health_meta.services %}
+        {% if row.url %}
+        <a href="{{ row.url }}" class="stats-health-card stats-health-card-link status-{{ row.visual_status }}">
+        {% else %}
         <article class="stats-health-card status-{{ row.visual_status }}">
+        {% endif %}
           <div class="stats-health-card-head">
             <div class="stats-health-title">
               <span class="health-lamp status-{{ row.visual_status }}"></span>
@@ -226,7 +230,11 @@
           </div>
           <p class="stats-health-summary">{{ row.summary }}</p>
           <small class="stats-health-detail">{{ row.detail }}</small>
+        {% if row.url %}
+        </a>
+        {% else %}
         </article>
+        {% endif %}
       {% endfor %}
     </div>
   </section>

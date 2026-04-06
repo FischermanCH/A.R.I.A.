@@ -1,6 +1,6 @@
 # ARIA - Technical Feature List
 
-Stand: 2026-04-03
+Stand: 2026-04-06
 
 Zweck:
 - technische, faktische Feature-Zusammenfassung für GitHub, Releases, README-Überarbeitung und spätere externe Texte
@@ -62,8 +62,23 @@ Zweck:
   - löschen
   - JSON exportieren
   - Maintenance anstoßen
+- Dokument-RAG v1 direkt in `Memory`:
+  - Upload von `txt`, `md` und `pdf` mit eingebettetem Text
+  - Import in separate Dokument-Collections `aria_docs_*`
+  - sichtbarer Ingest-/Chunking-Status im Upload-Flow
+  - Upload-Hinweis resetet nach erfolgreichem Seiten-Reload sauber
+  - Dokument-Chunks als eigener UI-Typ `document`
+  - interner Dokument-Guide-Index mit Summary + Stichworten für gezielteren Chat-Recall
+  - Chat-Details zeigen die verwendeten Dokument-Quellen mit Collection und Chunk-Referenz
+- `Memory` gruppiert Einträge zusätzlich nach Typ und bietet klickbare Typ-Kacheln für schnellere Navigation bei vielen Einträgen
+- `Memory Map` zeigt Dokumente gruppiert nach Dokumentname:
+  - Chunk-Anzahl
+  - Ziel-Collection
+  - Vorschau
+  - ganzes Dokument aus Qdrant entfernen
 - leere Qdrant-Collections werden nach UI-Löschung und Chat-Forget aufgeräumt
 - Qdrant-Status und Qdrant-DB-Größe werden in `Statistiken` angezeigt
+- Update-Check kann bei GitHub-API-Rate-Limits auf den öffentlichen Changelog als Fallback wechseln, damit `/updates` weiter nutzbar bleibt
 
 ## Custom Skills
 

@@ -133,6 +133,57 @@ def test_cookie_namespace_differs_between_ports() -> None:
     assert cookie_a != cookie_b
 
 
+def test_memories_upload_without_file_returns_redirect_instead_of_validation_json(monkeypatch) -> None:
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    client = TestClient(app)
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
+
+    response = client.post(
+        "/memories/upload",
+        data={
+            "csrf_token": "dummy",
+            "collection": "",
+            "new_collection_name": "",
+            "type": "all",
+            "q": "",
+            "page": "1",
+            "limit": "50",
+            "sort": "updated_desc",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/memories?")
+
+
+def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None:
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    client = TestClient(app)
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
+
+    response = client.post(
+        "/memories/upload",
+        data={
+            "csrf_token": "dummy",
+            "collection": "",
+            "new_collection_name": "",
+            "type": "all",
+            "q": "",
+            "page": "1",
+            "limit": "50",
+            "sort": "updated_desc",
+        },
+        files={"document_file": ("wissen.txt", b"Ein wenig Testwissen fuer ARIA.", "text/plain")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/memories?")
+
+
 def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() -> None:
     host = "aria.black.lan:8810"
     valid_cookie = main_mod._encode_auth_session("neo", "admin")

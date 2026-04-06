@@ -24,6 +24,7 @@ dependencies = [
     "pydantic>=2.11",
     "pydantic-settings>=2.7",
     "python-multipart>=0.0.20",
+    "pypdf>=5.4",
 ]
 
 [project.optional-dependencies]

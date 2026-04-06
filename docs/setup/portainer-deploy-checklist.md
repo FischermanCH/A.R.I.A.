@@ -219,6 +219,16 @@ Wichtig:
 
 Wenn keine Env-Datei vorhanden ist, versucht das Script den aktuell laufenden Qdrant-Key aus den vorhandenen Containern zu uebernehmen.
 
+Neu fuer den Dev-Host:
+
+- Build-Artefakte sollten bevorzugt direkt nach `/mnt/NAS/aria-images` exportiert werden
+- wenn der NAS-Mount nicht verfuegbar ist, bleibt `dist/` der lokale Fallback
+- dafuer gibt es den Helper:
+
+```bash
+docker/export-local-build.sh
+```
+
 ## 12. Alternative: Update per SSH-Pull vom Dev-Host
 
 Wenn der Zielhost den Dev-Host im lokalen Netz per SSH erreichen kann, ist das oft bequemer als manuelles Kopieren.

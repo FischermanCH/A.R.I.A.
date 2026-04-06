@@ -84,6 +84,37 @@ Zweck:
 - kleines `aria --version` / Version-Check-Konzept ergänzen
 - bessere Release-Hinweise bei harten Browser-Caches nach UI/CSS-Updates
 - mehr Sample-Skills für typische Homelab-/RSS-/Admin-Flows
+- RAG-/Dokument-Chunks im `Memory`-UI sauber von normalem `Knowledge` / Rollup-Wissen trennen
+  - kein Durcheinander zwischen Dokument-Collections und normalen Memory-/Knowledge-Collections
+  - Dokument-Ingest soll im UI klar als Dokumentwissen erkennbar bleiben
+  - später sinnvoll:
+    - eigener Filter oder Marker `Dokument`
+    - klare Trennung von Rollup-Wissen vs. Dokument-Chunks
+- RAG v1 direkt in `Memory` integrieren
+  - kein neues Hauptmenü
+  - keine neue Top-Level-Seite
+  - Upload-/Import-Block in `/memories`
+  - Ziel-Collection auswählbar
+  - optional neue Collection direkt beim Upload anlegen
+  - zuerst nur Text-Dokumente:
+    - `txt`
+    - `md`
+    - `pdf`
+  - Ingest-Pipeline modular halten:
+    - Textextraktion
+    - Chunking
+    - Embeddings
+    - Qdrant-Import
+    - Quellen-Metadaten
+  - später erweiterbar auf:
+    - `docx`
+    - OCR
+    - Bilder
+  - Chat-Recall soll Quellen/Dateiherkunft sichtbar machen
+- `Memory` als natürlicher Ort für RAG nutzen
+  - User sucht Dokumentwissen dort
+  - kein zusätzliches Produkt-Tamtam
+  - Collection-Auswahl und Collection-Erstellung an bestehende Memory-Logik andocken
 
 ## Bewusst nicht mehr Blocker für Public Alpha
 
@@ -93,5 +124,18 @@ Zweck:
 - Memory Map / Graph-Visualisierung
 - Home Assistant Integration
 - Dokument-Ingest / Knowledge Base
+  - siehe `RAG v1` in `Memory`
 - Websuche / Research-Flow
+  - SearXNG als separater Container im Docker-Compose-/Portainer-Stack
+  - SearXNG wird nicht modifiziert
+  - ARIA nutzt nur die HTTP-API
+  - `format=json` in der SearXNG-Instanz aktivieren
+  - kleine, produktnahe ARIA-Konfiguration statt voller SearXNG-Komplexitaet:
+    - Base URL
+    - SafeSearch
+    - Sprache
+    - Kategorien
+    - Engines
+  - SearXNG im README / Wiki / Docker-Docs klar nennen und dokumentieren
+  - spaeter als modularer Websearch-/Research-Baustein neben RAG
 - Streaming/SSE für Live-Antworten

@@ -90,17 +90,38 @@
       >←</button>
       {% endif %}
     </header>
+    {% if request.state.authenticated %}
+    <div id="runtime-restart-banner" class="runtime-restart-banner" hidden>
+      <div class="runtime-restart-banner-copy">
+        <strong>{{ tr(request, 'base.restart_notice_title', 'ARIA kurz nicht erreichbar') }}</strong>
+        <span>{{ tr(request, 'base.restart_notice_text', 'ARIA war kurz nicht erreichbar. Die Seite könnte veraltet sein. Bitte bei Bedarf neu laden.') }}</span>
+      </div>
+      <div class="runtime-restart-banner-actions">
+        <button type="button" id="runtime-restart-reload" class="runtime-restart-banner-primary">
+          {{ tr(request, 'base.restart_notice_reload', 'Neu laden') }}
+        </button>
+        <button type="button" id="runtime-restart-dismiss" class="runtime-restart-banner-secondary">
+          {{ tr(request, 'base.restart_notice_dismiss', 'Später') }}
+        </button>
+      </div>
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </div>
   <script>
     (function () {
       const isAuthenticated = {{ "true" if request.state.authenticated else "false" }};
-      const restartProbeKey = "aria_restart_probe_failed";
       const backReloadKey = "aria_back_reload_pending";
+      const restartFailureCountKey = "aria_restart_probe_failure_count";
+      const restartFailureThreshold = 2;
       const body = document.body;
       const brandMark = document.querySelector(".brand-mark");
+      const restartBanner = document.getElementById("runtime-restart-banner");
+      const restartReloadButton = document.getElementById("runtime-restart-reload");
+      const restartDismissButton = document.getElementById("runtime-restart-dismiss");
       let busyCount = 0;
       let busyTimer = null;
+      let restartCheckInFlight = false;
 
       function setBusy(active) {
         body.classList.toggle("app-busy", !!active);
@@ -168,6 +189,41 @@
       const token = csrfToken();
       document.querySelectorAll("form").forEach((form) => attachFormToken(form, token));
 
+      function readStoredInt(key) {
+        try {
+          const raw = window.sessionStorage.getItem(key) || "0";
+          const value = parseInt(raw, 10);
+          return Number.isFinite(value) ? value : 0;
+        } catch (error) {
+          return 0;
+        }
+      }
+
+      function writeStoredInt(key, value) {
+        try {
+          window.sessionStorage.setItem(key, String(Math.max(0, value)));
+        } catch (error) {
+          // ignore storage access problems
+        }
+      }
+
+      function setRestartBannerVisible(visible) {
+        if (!restartBanner) return;
+        restartBanner.hidden = !visible;
+      }
+
+      if (restartReloadButton) {
+        restartReloadButton.addEventListener("click", function () {
+          window.location.reload();
+        });
+      }
+
+      if (restartDismissButton) {
+        restartDismissButton.addEventListener("click", function () {
+          setRestartBannerVisible(false);
+        });
+      }
+
       window.addEventListener("pageshow", function () {
         busyCount = 0;
         if (busyTimer) {
@@ -230,10 +286,12 @@
 
       // If ARIA restarts while this page is open:
       // 1) detect temporary health check failures
-      // 2) once healthy again, reload the current page
+      // 2) once healthy again, show a reload hint instead of hard-reloading
       // The backend can still redirect to /login if the session is truly gone.
       if (isAuthenticated && window.location.pathname !== "/login") {
         const checkHealth = async function () {
+          if (document.visibilityState === "hidden" || restartCheckInFlight) return;
+          restartCheckInFlight = true;
           try {
             const response = await fetch("/health", {
               method: "GET",
@@ -241,13 +299,16 @@
               credentials: "same-origin",
             });
             if (!response.ok) throw new Error("health not ok");
-            const hadFailure = sessionStorage.getItem(restartProbeKey) === "1";
-            if (hadFailure) {
-              sessionStorage.removeItem(restartProbeKey);
-              window.location.reload();
+            const failureCount = readStoredInt(restartFailureCountKey);
+            if (failureCount >= restartFailureThreshold) {
+              setRestartBannerVisible(true);
             }
+            writeStoredInt(restartFailureCountKey, 0);
           } catch (error) {
-            sessionStorage.setItem(restartProbeKey, "1");
+            const failureCount = readStoredInt(restartFailureCountKey);
+            writeStoredInt(restartFailureCountKey, Math.min(failureCount + 1, restartFailureThreshold + 5));
+          } finally {
+            restartCheckInFlight = false;
           }
         };
 

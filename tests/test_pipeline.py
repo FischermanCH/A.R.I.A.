@@ -103,6 +103,46 @@ def test_pipeline_single_llm_call() -> None:
     asyncio.run(_run_pipeline())
 
 
+def test_pipeline_collects_skill_detail_lines_for_chat_badges() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_run_skills(*args, **kwargs):
+            _ = (args, kwargs)
+            return [
+                SkillResult(
+                    skill_name="memory_recall",
+                    content="[DOKUMENT: demo.pdf] HDR ist automatisch aktiv.",
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: demo.pdf · aria_docs_demo_manuals · Chunk 3/12",
+                        ]
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+        result = await pipeline.process("Ist HDR aktiv?", user_id="u1", source="test")
+
+        assert result.text == "ok"
+        assert result.detail_lines == [
+            "Quelle: demo.pdf · aria_docs_demo_manuals · Chunk 3/12",
+        ]
+        assert llm.calls == 1
+
+    asyncio.run(_run())
+
+
 def test_pipeline_uses_litellm_pricing_fallback_for_known_chat_models() -> None:
     async def _run() -> None:
         settings = Settings.model_validate(

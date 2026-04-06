@@ -9,6 +9,7 @@ Diese Doku ist für alles gedacht, was mit ARIA als Produkt/Release mitgeliefert
 - Roadmap Snapshot: `docs/product/roadmap.md`
 - Architektur-Zusammenfassung: `docs/product/architecture-summary.md`
 - Copy Pack: `docs/product/copy-pack.md`
+- RAG v1 Plan: `docs/product/rag-v1-plan.md`
 
 ## Setup / Betrieb
 

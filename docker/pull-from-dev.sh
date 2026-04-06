@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_NAS_DIR="/mnt/NAS/aria-images"
+DEFAULT_FALLBACK_DIR="$HOME/aria-images"
+DEFAULT_LOCAL_DIR="$DEFAULT_NAS_DIR"
+
+if [[ ! -d "$DEFAULT_LOCAL_DIR" ]]; then
+  DEFAULT_LOCAL_DIR="$DEFAULT_FALLBACK_DIR"
+fi
+
+LOCAL_DIR="${LOCAL_DIR:-$DEFAULT_LOCAL_DIR}"
+LOCAL_PULL_ENV_FILE="${LOCAL_PULL_ENV_FILE:-$LOCAL_DIR/aria-pull.env}"
+
+if [[ -f "$LOCAL_PULL_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$LOCAL_PULL_ENV_FILE"
+fi
+
 DEV_SSH="${DEV_SSH:-}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/aria_dev_pull}"
 REMOTE_BASE_DIR="${REMOTE_BASE_DIR:-/home/aria/ARIA}"
-LOCAL_DIR="${LOCAL_DIR:-/mnt/NAS/aria-images}"
 LOCAL_UPDATE_SCRIPT="${LOCAL_UPDATE_SCRIPT:-$LOCAL_DIR/update-local-aria.sh}"
 REMOTE_DIST_DIR="${REMOTE_DIST_DIR:-$REMOTE_BASE_DIR/dist}"
 REMOTE_DOCKER_DIR="${REMOTE_DOCKER_DIR:-$REMOTE_BASE_DIR/docker}"
@@ -45,10 +61,16 @@ copy_dir() {
 }
 
 require_cmd ssh
-[[ -n "${DEV_SSH}" ]] || die "DEV_SSH ist nicht gesetzt. Beispiel: DEV_SSH=<dev-user>@<dev-host> ./pull-from-dev.sh"
+[[ -n "${DEV_SSH}" ]] || die "DEV_SSH ist nicht gesetzt. Lege $LOCAL_PULL_ENV_FILE mit DEV_SSH=<dev-user>@<dev-host> an oder setze DEV_SSH direkt."
 require_cmd scp
 [[ -f "$SSH_KEY_PATH" ]] || die "SSH-Key nicht gefunden: $SSH_KEY_PATH"
 mkdir -p "$LOCAL_DIR"
+
+if [[ "$LOCAL_DIR" == "$DEFAULT_FALLBACK_DIR" ]]; then
+  log "NAS-Pfad nicht gefunden, nutze lokalen Fallback: $LOCAL_DIR"
+else
+  log "Nutze Artefaktverzeichnis: $LOCAL_DIR"
+fi
 
 LATEST_REMOTE_TAR="$(
   ssh -i "$SSH_KEY_PATH" "$DEV_SSH" "find '$REMOTE_DIST_DIR' -maxdepth 1 -type f -name 'aria-alpha*-local.tar' | sed 's#^.*/##' | awk '

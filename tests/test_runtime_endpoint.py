@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from aria.core.discord_alerts import runtime_host_line
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure, resolve_runtime_url
 
 
@@ -92,3 +93,13 @@ def test_resolve_runtime_url_prefers_configured_public_url_over_request_host() -
     request = _request(headers={"host": "172.18.0.3:8800"}, host="172.18.0.3", port=8800)
 
     assert resolve_runtime_url(_settings(public_url="http://aria.black.lan"), request) == "http://aria.black.lan"
+
+
+def test_runtime_host_line_prefers_configured_public_url() -> None:
+    assert runtime_host_line(_settings(public_url="http://aria.black.lan/")) == "Host: http://aria.black.lan"
+
+
+def test_runtime_host_line_avoids_bind_all_bridge_guessing() -> None:
+    assert runtime_host_line(_settings(host="0.0.0.0", port=8800, public_url="")) == (
+        "Host: Public URL nicht konfiguriert (setze ARIA_PUBLIC_URL)"
+    )

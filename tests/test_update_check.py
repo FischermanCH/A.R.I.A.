@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
 
 import aria.core.update_check as update_check
 from aria.core.update_check import extract_changelog_section
@@ -210,3 +211,49 @@ def test_get_update_status_refreshes_up_to_date_cache_quickly_for_new_releases(m
 
     assert status["latest_label"] == "0.1.0-alpha35"
     assert status["update_available"] is True
+
+
+def test_get_update_status_falls_back_to_changelog_when_github_tags_rate_limited(monkeypatch, tmp_path) -> None:
+    responses = {
+        update_check.GITHUB_CHANGELOG_RAW: """
+## [Unreleased]
+
+## [0.1.0-alpha.40] - 2026-04-05
+
+### Fixed
+- memory map docs
+
+## [0.1.0-alpha.39] - 2026-04-05
+
+### Fixed
+- older thing
+""".strip(),
+    }
+
+    class FakeResponse:
+        def __init__(self, text: str) -> None:
+            self._data = text.encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._data
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        if str(request.full_url) == update_check.GITHUB_TAGS_API:
+            raise HTTPError(str(request.full_url), 403, "rate limit exceeded", hdrs=None, fp=None)
+        return FakeResponse(responses[str(request.full_url)])
+
+    monkeypatch.setattr(update_check, "urlopen", fake_urlopen)
+
+    status = get_update_status(tmp_path, current_label="0.1.0-alpha39", ttl_seconds=1)
+
+    assert status["latest_label"] == "0.1.0-alpha40"
+    assert status["update_available"] is True
+    assert status["source"] == "github-changelog-fallback"
+    assert status["error"] == ""
+    assert "memory map docs" in status["release_notes"]

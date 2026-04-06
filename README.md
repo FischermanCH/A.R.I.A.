@@ -136,6 +136,10 @@ Not the current target:
 - Chat UI at `/`
 - Deterministic routing plus custom-skill and capability execution
 - Qdrant-backed memory with typed collections, weighted recall, and JSON export
+- RAG v1 in `Memory` with document upload for `txt`, `md`, and `pdf` with embedded text
+- Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
+- Chat details now show document recall sources with file name, collection, and chunk reference
+- `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
 - Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP, and MQTT
 - Custom Skills as JSON manifests with a browser wizard, import/export, and bundled sample skills
 - `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset

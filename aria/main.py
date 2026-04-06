@@ -103,6 +103,7 @@ from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import resolve_litellm_pricing_entry
 from aria.core.prompt_loader import PromptLoader, PromptLoadError
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.release_meta import read_release_meta
 from aria.core.runtime_diagnostics import build_runtime_diagnostics
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 from aria.core.update_check import get_update_status
@@ -1871,22 +1872,9 @@ def _load_models_from_api_base(api_base: str, api_key: str = "", timeout_seconds
 
 
 def _read_release_meta(base_dir: Path) -> dict[str, str]:
-    version = "0.1.0"
-    try:
-        pyproject = base_dir / "pyproject.toml"
-        payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        project = payload.get("project", {})
-        if isinstance(project, dict):
-            version = str(project.get("version", version) or version).strip() or version
-    except Exception:
-        pass
-    release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
-    if not release_label:
-        release_label = f"{version}-alpha39"
-    return {
-        "version": version,
-        "label": release_label,
-    }
+    return read_release_meta(base_dir)
+
+
 def _get_update_status(current_label: str, *, ttl_seconds: int = 60 * 60 * 6) -> dict[str, Any]:
     return get_update_status(BASE_DIR, current_label=current_label, ttl_seconds=ttl_seconds)
 
@@ -2603,7 +2591,7 @@ def _build_app() -> FastAPI:
 
         protected_methods = {"POST", "PUT", "PATCH", "DELETE"}
         csrf_exempt_prefixes = ("/v1/", "/api/")
-        csrf_exempt_paths = {"/health", "/skills/import", "/config/connections/rss/import-opml"}
+        csrf_exempt_paths = {"/health", "/skills/import", "/config/connections/rss/import-opml", "/memories/upload"}
         if (
             request.method.upper() in protected_methods
             and path not in csrf_exempt_paths

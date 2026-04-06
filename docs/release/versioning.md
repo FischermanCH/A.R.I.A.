@@ -14,7 +14,8 @@ Zweck:
 - ARIA Release Label in der UI aktuell:
   - `0.1.0-alpha21`
 - interne Build-Artefakte aktuell:
-  - `dist/aria-alphaN-local.tar`
+  - bevorzugt: `/mnt/NAS/aria-images/aria-alphaN-local.tar`
+  - Fallback lokal: `dist/aria-alphaN-local.tar`
 - Änderungslog aktuell:
   - `project.docu/alpha-build-log.md`
 

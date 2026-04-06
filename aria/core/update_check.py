@@ -74,6 +74,21 @@ def extract_changelog_section(changelog_text: str, release_label: str) -> str:
     return "\n".join(section).strip()
 
 
+def _extract_release_labels_from_changelog(changelog_text: str) -> list[str]:
+    labels: list[str] = []
+    for line in str(changelog_text or "").splitlines():
+        match = _CHANGELOG_HEADING_RE.match(line.strip())
+        if not match:
+            continue
+        normalized = normalize_release_label(match.group(1))
+        if not normalized or normalized.lower() == "unreleased":
+            continue
+        if release_sort_key(normalized) == (0, 0, 0, -1, -1):
+            continue
+        labels.append(normalized)
+    return labels
+
+
 def _cache_path(base_dir: Path) -> Path:
     path = (base_dir / UPDATE_CHECK_CACHE).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -137,28 +152,40 @@ def _fetch_text(url: str, *, timeout: float = 1.2) -> str:
 
 def refresh_update_status(base_dir: Path, *, current_label: str) -> dict[str, Any]:
     status = _default_status(current_label)
-    payload = _fetch_json(GITHUB_TAGS_API)
-    if not isinstance(payload, list):
-        raise ValueError("GitHub tags response is not a list.")
-    candidates: list[tuple[tuple[int, int, int, int, int], str, str]] = []
-    for row in payload:
-        if not isinstance(row, dict):
-            continue
-        raw_name = str(row.get("name", "") or "").strip()
-        normalized_name = normalize_release_label(raw_name)
-        if not normalized_name:
-            continue
-        key = release_sort_key(normalized_name)
-        if key == (0, 0, 0, -1, -1):
-            continue
-        candidates.append((key, raw_name, normalized_name))
-    if not candidates:
-        raise ValueError("No usable GitHub tags found.")
-    _, latest_tag, latest_label = max(candidates, key=lambda item: item[0])
+    changelog_text = _fetch_text(GITHUB_CHANGELOG_RAW)
+    latest_label = ""
+    latest_tag = ""
+    source = "github-tags"
+    try:
+        payload = _fetch_json(GITHUB_TAGS_API)
+        if not isinstance(payload, list):
+            raise ValueError("GitHub tags response is not a list.")
+        candidates: list[tuple[tuple[int, int, int, int, int], str, str]] = []
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            raw_name = str(row.get("name", "") or "").strip()
+            normalized_name = normalize_release_label(raw_name)
+            if not normalized_name:
+                continue
+            key = release_sort_key(normalized_name)
+            if key == (0, 0, 0, -1, -1):
+                continue
+            candidates.append((key, raw_name, normalized_name))
+        if not candidates:
+            raise ValueError("No usable GitHub tags found.")
+        _, latest_tag, latest_label = max(candidates, key=lambda item: item[0])
+    except (OSError, URLError, ValueError, TimeoutError):
+        fallback_labels = _extract_release_labels_from_changelog(changelog_text)
+        if not fallback_labels:
+            raise
+        latest_label = max(fallback_labels, key=release_sort_key)
+        latest_tag = f"v{latest_label.replace('-alpha', '-alpha.')}" if "-alpha" in latest_label else f"v{latest_label}"
+        source = "github-changelog-fallback"
+    status["source"] = source
     status["latest_tag"] = latest_tag
     status["latest_label"] = latest_label
     status["update_available"] = is_newer_release(latest_label, status["current_label"])
-    changelog_text = _fetch_text(GITHUB_CHANGELOG_RAW)
     status["release_notes"] = extract_changelog_section(changelog_text, latest_label)
     status["checked_at"] = datetime.now(timezone.utc).isoformat()
     return status

@@ -9,6 +9,7 @@
         <option value="fact" {% if filter_type == "fact" %}selected{% endif %}>{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
         <option value="preference" {% if filter_type == "preference" %}selected{% endif %}>{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
         <option value="session" {% if filter_type == "session" %}selected{% endif %}>{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}</option>
+        <option value="document" {% if filter_type == "document" %}selected{% endif %}>{{ tr(request, 'memories.type_document', 'Dokumente') }}</option>
         <option value="knowledge" {% if filter_type == "knowledge" %}selected{% endif %}>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
       </select>
       <label for="sort">{{ tr(request, 'memories.sort', 'Sortierung') }}</label>
@@ -48,9 +49,11 @@
   <section class="memories-meta">
     <span class="chat-status">{{ tr(request, 'memories.page', 'Seite') }}: <code>{{ page }}</code>/<code>{{ total_pages }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.hits', 'Treffer') }}: <code>{{ total_rows }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.showing', 'Zeige') }}: <code>{{ page_start }}</code>-<code>{{ page_end }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.facts', 'Facts') }}: <code>{{ counts.fact }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.preferences', 'Preferences') }}: <code>{{ counts.preference }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ counts.session }}</code></span>
+    <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}: <code>{{ counts.document }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ counts.knowledge }}</code></span>
     {% if qdrant_dashboard_url and request.state.auth_role == "admin" and request.state.debug_mode %}
     <a class="chat-status memories-link" href="{{ qdrant_dashboard_url }}" target="_blank" rel="noopener noreferrer">Qdrant Dashboard</a>
@@ -70,6 +73,73 @@
   {% if error_message %}
   <div class="alert err">{{ error_message }}</div>
   {% endif %}
+
+  <section class="memory-type-grid">
+    <a class="memory-type-card {% if filter_type == 'all' %}active{% endif %}" href="/memories?type=all&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_all', 'Alle') }}</strong>
+      <span><code>{{ total_rows }}</code> {{ tr(request, 'memories.hits', 'Treffer') }}</span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'document' %}active{% endif %}" href="/memories?type=document&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_document', 'Dokumente') }}</strong>
+      <span><code>{{ counts.document }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'knowledge' %}active{% endif %}" href="/memories?type=knowledge&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</strong>
+      <span><code>{{ counts.knowledge }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'fact' %}active{% endif %}" href="/memories?type=fact&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_fact', 'Fakten') }}</strong>
+      <span><code>{{ counts.fact }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'preference' %}active{% endif %}" href="/memories?type=preference&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</strong>
+      <span><code>{{ counts.preference }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'session' %}active{% endif %}" href="/memories?type=session&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}</strong>
+      <span><code>{{ counts.session }}</code></span>
+    </a>
+  </section>
+
+  <section class="memory-create-card">
+    <h2>{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</h2>
+    <p>{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</p>
+    <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data">
+      <input type="hidden" name="type" value="{{ filter_type }}">
+      <input type="hidden" name="q" value="{{ query }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="limit" value="{{ limit }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <label for="document_file">{{ tr(request, 'memories.upload_file', 'Datei') }}</label>
+      <input id="document_file" name="document_file" type="file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" required>
+      <small class="hint-text">{{ tr(request, 'memories.upload_formats', 'Unterstützt:') }} {% for suffix in supported_upload_suffixes %}<code>{{ suffix }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</small>
+      <div class="connection-form-grid">
+        <div>
+          <label for="document_collection">{{ tr(request, 'memories.upload_collection', 'Bestehende Collection') }}</label>
+          <select id="document_collection" name="collection">
+            <option value="">{{ tr(request, 'memories.upload_use_active', 'Aktive Collection verwenden') }}{% if active_document_collection %}: {{ active_document_collection }}{% endif %}</option>
+            {% for name in document_collections %}
+            <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="document_new_collection">{{ tr(request, 'memories.upload_new_collection', 'Oder neue Collection') }}</label>
+          <input id="document_new_collection" name="new_collection_name" type="text" placeholder="{{ tr(request, 'memories.upload_new_collection_placeholder', 'z. B. aria_docs_handbuch') }}">
+        </div>
+      </div>
+      <small class="hint-text">{{ tr(request, 'memories.upload_collection_hint', 'Wenn keine Auswahl getroffen wird, nutzt ARIA die aktive Dokument-Collection oder legt die persönliche Default-Dokument-Collection an.') }} <code>{{ default_document_collection }}</code></small>
+      <button
+        type="submit"
+        class="memory-upload-submit"
+        data-default-label="{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}"
+        data-loading-label="{{ tr(request, 'memories.upload_button_loading', 'Dokument wird gechunkt und importiert ...') }}"
+      >{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}</button>
+      <p class="upload-progress-note" hidden aria-live="polite">
+        {{ tr(request, 'memories.upload_progress', 'Dokument wird vorbereitet, gechunkt und nach Qdrant importiert. Das kann je nach PDF kurz dauern.') }}
+      </p>
+    </form>
+  </section>
 
   <section class="memory-create-card">
     <h2>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h2>
@@ -97,8 +167,20 @@
   </section>
 
   <section class="memories-list">
-    {% if rows %}
-      {% for row in rows %}
+    {% if grouped_rows %}
+      {% for group in grouped_rows %}
+      <details class="memory-group-card" {% if filter_type != "all" or loop.first %}open{% endif %}>
+        <summary class="memory-group-summary">
+          <div>
+            <strong>{{ group.label }}</strong>
+            <small>{{ group.count }} {{ tr(request, 'memories.hits', 'Treffer') }}</small>
+          </div>
+          {% if filter_type == "all" %}
+          <a class="chat-status memories-link" href="/memories?type={{ group.type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ tr(request, 'memories.show_type_only', 'Nur diesen Typ anzeigen') }}</a>
+          {% endif %}
+        </summary>
+        <div class="memory-group-list">
+      {% for row in group.rows %}
       <details class="memory-card">
         <summary class="memory-summary">
           <div class="memory-summary-main">
@@ -117,8 +199,13 @@
           </header>
           <p>{{ row.text }}</p>
           <footer class="memory-card-foot">
-            <small>{{ row.display_timestamp or "n/a" }} · {{ tr(request, 'memories.source', 'Quelle') }}: {{ row.source }}</small>
+            <small>
+              {{ row.display_timestamp or "n/a" }} · {{ tr(request, 'memories.source', 'Quelle') }}: {{ row.source }}
+              {% if row.document_name %} · {{ tr(request, 'memories.document', 'Dokument') }}: {{ row.document_name }}{% endif %}
+              {% if row.type == "document" and row.chunk_index and row.chunk_total %} · {{ tr(request, 'memories.document_chunk_position', 'Chunk') }} {{ row.chunk_index }}/{{ row.chunk_total }}{% endif %}
+            </small>
             <div class="inline-actions">
+              {% if row.type != "document" %}
               <details class="memory-edit-box">
                 <summary>{{ tr(request, 'memories.edit', 'Bearbeiten') }}</summary>
                 <form method="post" action="/memories/edit" class="editor-form">
@@ -133,6 +220,7 @@
                   <button type="submit">{{ tr(request, 'memories.save', 'Speichern') }}</button>
                 </form>
               </details>
+              {% endif %}
               <form method="post" action="/memories/delete">
                 <input type="hidden" name="collection" value="{{ row.collection }}">
                 <input type="hidden" name="point_id" value="{{ row.id }}">
@@ -148,6 +236,9 @@
         </div>
       </details>
       {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
     {% else %}
       <article class="memory-card memory-card-empty">
         <p>{{ tr(request, 'memories.empty', 'Keine Memory-Einträge gefunden.') }}</p>
@@ -155,4 +246,41 @@
     {% endif %}
   </section>
 </main>
+<script>
+  (function () {
+    const form = document.querySelector(".memory-upload-form");
+    if (!form) return;
+    const fileInput = form.querySelector("input[name='document_file']");
+    const submitButton = form.querySelector(".memory-upload-submit");
+    const progressNote = form.querySelector(".upload-progress-note");
+    if (!(submitButton instanceof HTMLButtonElement)) return;
+
+    function resetUploadState() {
+      form.classList.remove("is-submitting");
+      submitButton.disabled = false;
+      submitButton.textContent = submitButton.dataset.defaultLabel || submitButton.textContent;
+      if (progressNote) {
+        progressNote.hidden = true;
+      }
+    }
+
+    resetUploadState();
+
+    window.addEventListener("pageshow", function () {
+      resetUploadState();
+    });
+
+    form.addEventListener("submit", function () {
+      if (!(fileInput instanceof HTMLInputElement) || !fileInput.files || fileInput.files.length === 0) {
+        return;
+      }
+      form.classList.add("is-submitting");
+      submitButton.disabled = true;
+      submitButton.textContent = submitButton.dataset.loadingLabel || submitButton.textContent;
+      if (progressNote) {
+        progressNote.hidden = false;
+      }
+    });
+  })();
+</script>
 {% endblock %}

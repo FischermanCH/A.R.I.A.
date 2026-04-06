@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-TAR_DIR="${TAR_DIR:-/mnt/NAS/aria-images}"
-STACK_FILE="${STACK_FILE:-/mnt/NAS/aria-images/portainer-stack.alpha3.local.yml}"
-ENV_FILE="${ENV_FILE:-/mnt/NAS/aria-images/aria-stack.env}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_TAR_DIR="/mnt/NAS/aria-images"
+
+if [[ ! -d "$DEFAULT_TAR_DIR" ]]; then
+  DEFAULT_TAR_DIR="$REPO_ROOT/dist"
+fi
+
+TAR_DIR="${TAR_DIR:-$DEFAULT_TAR_DIR}"
+STACK_FILE="${STACK_FILE:-$SCRIPT_DIR/portainer-stack.alpha3.local.yml}"
+ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/aria-stack.env}"
 IMAGE_REF="${IMAGE_REF:-aria:alpha-local}"
 SERVICE_NAME="${SERVICE_NAME:-aria}"
 QDRANT_SERVICE_NAME="${QDRANT_SERVICE_NAME:-aria-qdrant}"
@@ -41,7 +49,19 @@ require_cmd docker
 docker compose version >/dev/null 2>&1 || die "docker compose ist nicht verfügbar"
 
 [[ -d "$TAR_DIR" ]] || die "TAR-Verzeichnis nicht gefunden: $TAR_DIR"
+if [[ ! -f "$STACK_FILE" && -f "$TAR_DIR/portainer-stack.alpha3.local.yml" ]]; then
+  STACK_FILE="$TAR_DIR/portainer-stack.alpha3.local.yml"
+fi
+if [[ ! -f "$ENV_FILE" && -f "$TAR_DIR/aria-stack.env" ]]; then
+  ENV_FILE="$TAR_DIR/aria-stack.env"
+fi
 [[ -f "$STACK_FILE" ]] || die "Stack-Datei nicht gefunden: $STACK_FILE"
+
+if [[ "$TAR_DIR" == "/mnt/NAS/aria-images" ]]; then
+  log "Nutze NAS-Artefakte aus $TAR_DIR"
+else
+  log "NAS nicht verfuegbar, nutze lokalen Fallback: $TAR_DIR"
+fi
 
 LATEST_TAR="$(
   find "$TAR_DIR" -maxdepth 1 -type f -name 'aria-alpha*-local.tar' \

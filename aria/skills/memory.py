@@ -19,6 +19,7 @@ from qdrant_client.models import (
 )
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
+from aria.core.document_ingest import PreparedDocument
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.skills.base import BaseSkill, SkillResult
 
@@ -28,6 +29,7 @@ class MemorySkill(BaseSkill):
     description = "Speichert und erinnert nutzerspezifische Fakten."
     max_context_chars = 1500
     CONTEXT_MEM_PREFIX = "aria_context-mem"
+    DOCUMENT_GUIDE_PREFIX = "aria_doc_guides"
 
     def __init__(self, memory: MemoryConfig, embeddings: EmbeddingsConfig):
         self.memory = memory
@@ -132,9 +134,34 @@ class MemorySkill(BaseSkill):
             "fact": "FAKT",
             "preference": "PRAEFERENZ",
             "knowledge": "WISSEN",
+            "document": "DOKUMENT",
             "session": "KONTEXT",
         }
         return mapping.get(memory_type, "MEMORY")
+
+    @staticmethod
+    def _is_document_payload(payload: dict[str, Any] | None) -> bool:
+        data = payload or {}
+        source = str(data.get("source", "")).strip().lower()
+        document_name = str(data.get("document_name", "")).strip()
+        document_id = str(data.get("document_id", "")).strip()
+        return source == "rag_upload" or bool(document_name) or bool(document_id)
+
+    @staticmethod
+    def _is_document_collection_name(collection: str) -> bool:
+        return str(collection or "").strip().lower().startswith("aria_docs")
+
+    @classmethod
+    def _is_document_guide_collection_name(cls, collection: str) -> bool:
+        return str(collection or "").strip().lower().startswith(cls.DOCUMENT_GUIDE_PREFIX)
+
+    def _document_guide_collection_for_user(self, user_id: str) -> str:
+        return f"{self.DOCUMENT_GUIDE_PREFIX}_{self._slug_user_id(user_id)}"
+
+    def _display_memory_type(self, collection: str, payload: dict[str, Any] | None) -> str:
+        if self._is_document_payload(payload) or self._is_document_collection_name(collection):
+            return "document"
+        return self._normalize_memory_type(collection, (payload or {}).get("type"))
 
     def _combined_score(
         self,
@@ -147,6 +174,7 @@ class MemorySkill(BaseSkill):
             "fact": cfg.facts,
             "preference": cfg.preferences,
             "knowledge": cfg.knowledge,
+            "document": cfg.knowledge,
             "session": cfg.sessions,
         }.get(memory_type, cfg.sessions)
         weight = float(type_cfg.weight)
@@ -275,12 +303,308 @@ class MemorySkill(BaseSkill):
 
         return list(unique.values())
 
+    async def _build_document_targets(self, user_id: str) -> list[dict[str, Any]]:
+        _ = user_id
+        names = await self._list_collection_names()
+        targets: list[dict[str, Any]] = []
+        for collection in names:
+            if not self._is_document_collection_name(collection):
+                continue
+            targets.append(
+                {
+                    "type": "document",
+                    "label": self._type_label("document"),
+                    "collection": collection,
+                    "top_k": int(self.memory.collections.knowledge.top_k),
+                }
+            )
+        return targets
+
+    @staticmethod
+    def _build_document_guide_text(document: PreparedDocument, *, target_collection: str) -> str:
+        stem = Path(document.filename).stem.replace("_", " ").replace("-", " ").strip()
+        keywords = ", ".join(document.keywords[:8]).strip()
+        summary = str(document.summary or "").strip()
+        parts = [
+            f"Dokument: {document.filename}",
+            f"Titel: {stem}" if stem else "",
+            f"Collection: {target_collection}",
+            f"Zusammenfassung: {summary}" if summary else "",
+            f"Stichworte: {keywords}" if keywords else "",
+            f"Quelle: {document.source_type.upper()}",
+        ]
+        return "\n".join(part for part in parts if part).strip()
+
+    async def _build_document_guide_point(
+        self,
+        *,
+        user_id: str,
+        document: PreparedDocument,
+        target_collection: str,
+    ) -> tuple[str, PointStruct, dict[str, int]]:
+        guide_text = self._build_document_guide_text(document, target_collection=target_collection)
+        vector, usage = await self._embed(guide_text)
+        guide_collection = await self._get_collection_for_vector(
+            len(vector),
+            base_collection=self._document_guide_collection_for_user(user_id),
+        )
+        point_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"{guide_collection}|{user_id.strip()}|{target_collection}|{document.document_id}|guide",
+            )
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        point = PointStruct(
+            id=point_id,
+            vector=vector,
+            payload={
+                "text": guide_text,
+                "user_id": user_id,
+                "timestamp": now_iso,
+                "type": "knowledge",
+                "source": "rag_document_guide",
+                "document_id": document.document_id,
+                "document_name": document.filename,
+                "guide_summary": document.summary,
+                "guide_keywords": list(document.keywords),
+                "target_collection": target_collection,
+                "mime_type": document.mime_type,
+                "source_type": document.source_type,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            },
+        )
+        return guide_collection, point, usage
+
+    async def _delete_document_guide_entries(
+        self,
+        *,
+        user_id: str,
+        target_collection: str,
+        document_id: str = "",
+        document_name: str = "",
+    ) -> int:
+        guide_collection = self._document_guide_collection_for_user(user_id)
+        clean_user = str(user_id).strip()
+        clean_target = str(target_collection).strip()
+        clean_document_id = str(document_id).strip()
+        clean_document_name = str(document_name).strip()
+        if not clean_target or (not clean_document_id and not clean_document_name):
+            return 0
+        try:
+            exists = await self.qdrant.collection_exists(collection_name=guide_collection)
+            if not exists:
+                return 0
+            point_ids: list[str | int] = []
+            offset = None
+            while True:
+                points, next_offset = await self.qdrant.scroll(
+                    collection_name=guide_collection,
+                    scroll_filter=self._user_filter(clean_user),
+                    limit=200,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in points:
+                    payload = getattr(point, "payload", {}) or {}
+                    if str(payload.get("target_collection", "")).strip() != clean_target:
+                        continue
+                    matches = False
+                    if clean_document_id and str(payload.get("document_id", "")).strip() == clean_document_id:
+                        matches = True
+                    elif clean_document_name and str(payload.get("document_name", "")).strip() == clean_document_name:
+                        matches = True
+                    if not matches:
+                        continue
+                    point_id = getattr(point, "id", None)
+                    if point_id is None:
+                        continue
+                    point_ids.append(self._coerce_point_id(str(point_id)))
+                if next_offset is None:
+                    break
+                offset = next_offset
+            if not point_ids:
+                return 0
+            await self.qdrant.delete(
+                collection_name=guide_collection,
+                points_selector=PointIdsList(points=point_ids),
+                wait=True,
+            )
+            return len(point_ids)
+        except Exception:
+            return 0
+
+    async def _query_document_guides(
+        self,
+        *,
+        vector: list[float],
+        query: str,
+        user_id: str,
+        max_hits: int,
+    ) -> list[dict[str, Any]]:
+        guide_collection = self._document_guide_collection_for_user(user_id)
+        try:
+            exists = await self.qdrant.collection_exists(collection_name=guide_collection)
+            if not exists:
+                return []
+            query_result = await self.qdrant.query_points(
+                collection_name=guide_collection,
+                query=vector,
+                query_filter=self._user_filter(user_id),
+                limit=max(2, int(max_hits)),
+            )
+        except Exception:
+            return []
+
+        query_tokens = set(self._tokenize_for_match(query))
+        rows: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for hit in self._extract_hits(query_result):
+            payload = hit.payload or {}
+            document_id = str(payload.get("document_id", "")).strip()
+            target_collection = str(payload.get("target_collection", "")).strip()
+            document_name = str(payload.get("document_name", "")).strip()
+            if not document_id or not target_collection:
+                continue
+            key = (target_collection, document_id)
+            if key in seen:
+                continue
+            raw_score = float(getattr(hit, "score", 0.0) or 0.0)
+            keyword_pool = {
+                str(item).strip().lower()
+                for item in (payload.get("guide_keywords", []) or [])
+                if str(item).strip()
+            }
+            keyword_pool.update(self._tokenize_for_match(Path(document_name).stem))
+            guide_text = " ".join(
+                [
+                    str(payload.get("guide_summary", "")).strip(),
+                    document_name,
+                    str(payload.get("text", "")).strip(),
+                ]
+            ).lower()
+            keyword_hits = sum(1 for token in query_tokens if token in keyword_pool)
+            text_hits = sum(1 for token in query_tokens if token and token in guide_text)
+            if raw_score < 0.18 and keyword_hits <= 0 and text_hits <= 0:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "document_id": document_id,
+                    "document_name": document_name,
+                    "collection": target_collection,
+                    "guide_score": raw_score + (keyword_hits * 0.12) + (min(text_hits, 3) * 0.05),
+                }
+            )
+        rows.sort(key=lambda row: float(row.get("guide_score", 0.0)), reverse=True)
+        return rows[:max_hits]
+
+    def _build_document_targets_from_guides(self, guide_hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        targets: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for hit in guide_hits:
+            document_id = str(hit.get("document_id", "")).strip()
+            collection = str(hit.get("collection", "")).strip()
+            if not document_id or not collection:
+                continue
+            key = (collection, document_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(
+                {
+                    "type": "document",
+                    "label": self._type_label("document"),
+                    "collection": collection,
+                    "top_k": int(self.memory.collections.knowledge.top_k),
+                    "document_id": document_id,
+                    "document_name": str(hit.get("document_name", "")).strip(),
+                    "guide_score": float(hit.get("guide_score", 0.0) or 0.0),
+                }
+            )
+        return targets
+
+    @staticmethod
+    def _format_recall_source_detail(row: dict[str, Any]) -> str:
+        collection = str(row.get("collection", "")).strip()
+        document_name = str(row.get("document_name", "")).strip()
+        chunk_index = int(row.get("chunk_index", 0) or 0)
+        chunk_total = int(row.get("chunk_total", 0) or 0)
+        label = str(row.get("label", "")).strip() or "MEMORY"
+
+        if document_name:
+            parts = [f"Quelle: {document_name}"]
+            if collection:
+                parts.append(collection)
+            if chunk_index > 0 and chunk_total > 0:
+                parts.append(f"Chunk {chunk_index}/{chunk_total}")
+            return " · ".join(parts)
+
+        parts = [f"Quelle: {label}"]
+        if collection:
+            parts.append(collection)
+        return " · ".join(parts)
+
+    @staticmethod
+    def _recall_source_priority(entry: dict[str, Any]) -> tuple[int, int]:
+        source_type = str(entry.get("type", "")).strip().lower()
+        priority_map = {
+            "document": 0,
+            "web": 0,
+            "fact": 1,
+            "preference": 2,
+            "knowledge": 3,
+            "session": 4,
+        }
+        return priority_map.get(source_type, 9), int(entry.get("_position", 0) or 0)
+
+    def _build_recall_source_entries(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        max_items: int = 4,
+    ) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, row in enumerate(rows):
+            detail = self._format_recall_source_detail(row)
+            if not detail or detail in seen:
+                continue
+            seen.add(detail)
+            entries.append(
+                {
+                    "detail": detail,
+                    "type": str(row.get("type", "")).strip(),
+                    "label": str(row.get("label", "")).strip(),
+                    "collection": str(row.get("collection", "")).strip(),
+                    "document_id": str(row.get("document_id", "")).strip(),
+                    "document_name": str(row.get("document_name", "")).strip(),
+                    "chunk_index": int(row.get("chunk_index", 0) or 0),
+                    "chunk_total": int(row.get("chunk_total", 0) or 0),
+                    "_position": index,
+                }
+            )
+        entries.sort(key=self._recall_source_priority)
+        trimmed = entries[:max_items]
+        for entry in trimmed:
+            entry.pop("_position", None)
+        return trimmed
+
     async def _query_weighted_hits(
         self,
         vector: list[float],
         user_id: str,
         target: dict[str, Any],
     ) -> list[dict[str, Any]]:
+        must_conditions = [FieldCondition(key="user_id", match=MatchValue(value=str(user_id or "").strip() or "web"))]
+        document_id = str(target.get("document_id", "")).strip()
+        document_name = str(target.get("document_name", "")).strip()
+        if document_id:
+            must_conditions.append(FieldCondition(key="document_id", match=MatchValue(value=document_id)))
+        elif document_name:
+            must_conditions.append(FieldCondition(key="document_name", match=MatchValue(value=document_name)))
         try:
             exists = await self.qdrant.collection_exists(collection_name=target["collection"])
             if not exists:
@@ -288,7 +612,7 @@ class MemorySkill(BaseSkill):
             query_result = await self.qdrant.query_points(
                 collection_name=target["collection"],
                 query=vector,
-                query_filter=self._user_filter(user_id),
+                query_filter=Filter(must=must_conditions),
                 limit=max(1, int(target["top_k"])),
             )
         except Exception:
@@ -301,12 +625,20 @@ class MemorySkill(BaseSkill):
             if not text:
                 continue
             score = self._combined_score(getattr(hit, "score", 0.0), target["type"], payload)
+            if str(target.get("type", "")).strip().lower() == "document":
+                score += float(target.get("guide_score", 0.0) or 0.0) * 0.15
             weighted.append(
                 {
                     "score": score,
                     "label": target["label"],
                     "type": target["type"],
                     "text": self._clean_fact_text(text),
+                    "collection": str(target.get("collection", "")).strip(),
+                    "document_id": str(payload.get("document_id", "")).strip(),
+                    "document_name": str(payload.get("document_name", "")).strip(),
+                    "chunk_index": int(payload.get("chunk_index", 0) or 0),
+                    "chunk_total": int(payload.get("chunk_total", 0) or 0),
+                    "source": str(payload.get("source", "")).strip() or "n/a",
                 }
             )
         return weighted
@@ -351,6 +683,16 @@ class MemorySkill(BaseSkill):
                     "label": target["label"],
                     "text": text[:220],
                     "score": score,
+                    "timestamp": (
+                        str(payload.get("updated_at", "")).strip()
+                        or str(payload.get("created_at", "")).strip()
+                        or str(payload.get("timestamp", "")).strip()
+                    ),
+                    "source": str(payload.get("source", "")).strip() or "n/a",
+                    "document_id": str(payload.get("document_id", "")).strip(),
+                    "document_name": str(payload.get("document_name", "")).strip(),
+                    "chunk_index": int(payload.get("chunk_index", 0) or 0),
+                    "chunk_total": int(payload.get("chunk_total", 0) or 0),
                 }
             )
         return hits
@@ -610,6 +952,100 @@ class MemorySkill(BaseSkill):
             },
         )
 
+    async def store_document(
+        self,
+        *,
+        user_id: str,
+        document: PreparedDocument,
+        base_collection: str | None = None,
+        source: str = "rag_upload",
+    ) -> SkillResult:
+        if not document.chunks:
+            return SkillResult(skill_name=self.name, content="", success=False, error="Leeres Dokument")
+
+        usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        base_name = (base_collection or self.memory.collection).strip() or self.memory.collection
+        target_collection = ""
+        points: list[PointStruct] = []
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        for chunk in document.chunks:
+            vector, usage = await self._embed(chunk.text)
+            for key in usage_total:
+                usage_total[key] += int(usage.get(key, 0) or 0)
+            if not target_collection:
+                target_collection = await self._get_collection_for_vector(len(vector), base_collection=base_name)
+            point_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    (
+                        f"{target_collection}|{user_id.strip()}|{document.document_id}|"
+                        f"{chunk.index}|{chunk.text.strip().lower()}"
+                    ),
+                )
+            )
+            points.append(
+                PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "text": chunk.text,
+                        "user_id": user_id,
+                        "timestamp": now_iso,
+                        "type": "knowledge",
+                        "source": source,
+                        "document_id": document.document_id,
+                        "document_name": document.filename,
+                        "chunk_index": int(chunk.index),
+                        "chunk_total": int(chunk.total),
+                        "mime_type": document.mime_type,
+                        "source_type": document.source_type,
+                        "created_at": now_iso,
+                        "updated_at": now_iso,
+                    },
+                )
+            )
+
+        guide_collection = ""
+        guide_point: PointStruct | None = None
+        if target_collection:
+            guide_collection, guide_point, guide_usage = await self._build_document_guide_point(
+                user_id=user_id,
+                document=document,
+                target_collection=target_collection,
+            )
+            for key in usage_total:
+                usage_total[key] += int(guide_usage.get(key, 0) or 0)
+
+        if points:
+            await self.qdrant.upsert(collection_name=target_collection, points=points)
+            if guide_point is not None and guide_collection:
+                try:
+                    await self.qdrant.upsert(collection_name=guide_collection, points=[guide_point])
+                except Exception:
+                    await self.qdrant.delete(
+                        collection_name=target_collection,
+                        points_selector=PointIdsList(points=[self._coerce_point_id(str(point.id)) for point in points]),
+                        wait=True,
+                    )
+                    raise
+
+        return SkillResult(
+            skill_name=self.name,
+            content="Dokument erfolgreich importiert.",
+            success=True,
+            metadata={
+                "embedding_usage": usage_total,
+                "embedding_model": self._resolve_embedding_model(),
+                "memory_type": "document",
+                "chunk_count": len(points),
+                "collection": target_collection,
+                "guide_collection": guide_collection,
+                "document_name": document.filename,
+                "document_id": document.document_id,
+            },
+        )
+
     async def _recall(
         self,
         query: str,
@@ -620,7 +1056,15 @@ class MemorySkill(BaseSkill):
         try:
             vector, usage = await self._embed(query)
             recall_targets = await self._build_recall_targets(user_id=user_id, base_collection=base_collection)
-            target_collections = [t["collection"] for t in recall_targets]
+            guide_hits = await self._query_document_guides(
+                vector=vector,
+                query=query,
+                user_id=user_id,
+                max_hits=min(max(2, top_k), 4),
+            )
+            document_targets = self._build_document_targets_from_guides(guide_hits)
+            recall_targets = recall_targets + document_targets
+            target_collections = [str(t["collection"]) for t in recall_targets]
             tasks = [
                 self._query_weighted_hits(vector=vector, user_id=user_id, target=target)
                 for target in recall_targets
@@ -658,27 +1102,41 @@ class MemorySkill(BaseSkill):
 
         output_count = max(top_k, 5)
         lines: list[str] = []
+        selected_rows: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in weighted_hits:
             cleaned = str(item["text"]).strip()
             key = cleaned.lower()
             if cleaned and key not in seen:
                 seen.add(key)
-                lines.append(f"- [{item['label']}] {cleaned}")
+                selected_rows.append(item)
+                if str(item.get("type", "")).strip().lower() == "document" and str(item.get("document_name", "")).strip():
+                    lines.append(f"- [{item['label']}: {item['document_name']}] {cleaned}")
+                else:
+                    lines.append(f"- [{item['label']}] {cleaned}")
             if len(lines) >= output_count:
                 break
 
         content = "\n".join(lines) if lines else "Keine passende Erinnerung gefunden."
         truncated, saved = self.truncate(content)
+        source_entries = self._build_recall_source_entries(selected_rows)
+        metadata: dict[str, Any] = {
+            "embedding_usage": usage,
+            "embedding_model": self._resolve_embedding_model(),
+        }
+        if source_entries:
+            metadata["sources"] = source_entries
+            metadata["detail_lines"] = [
+                str(entry.get("detail", "")).strip()
+                for entry in source_entries
+                if str(entry.get("detail", "")).strip()
+            ]
         return SkillResult(
             skill_name=self.name,
             content=truncated,
             success=True,
             tokens_saved=saved,
-            metadata={
-                "embedding_usage": usage,
-                "embedding_model": self._resolve_embedding_model(),
-            },
+            metadata=metadata,
         )
 
     @staticmethod
@@ -842,11 +1300,15 @@ class MemorySkill(BaseSkill):
                         {
                             "id": str(getattr(point, "id", "")),
                             "collection": collection,
-                            "type": str(payload.get("type", memory_type)).strip() or memory_type,
-                            "label": label,
+                            "type": self._display_memory_type(collection, payload),
+                            "label": self._type_label(self._display_memory_type(collection, payload)),
                             "text": text,
                             "timestamp": timestamp,
                             "source": str(payload.get("source", "")).strip() or "n/a",
+                            "document_id": str(payload.get("document_id", "")).strip(),
+                            "document_name": str(payload.get("document_name", "")).strip(),
+                            "chunk_index": int(payload.get("chunk_index", 0) or 0),
+                            "chunk_total": int(payload.get("chunk_total", 0) or 0),
                         }
                     )
                     if len(rows) >= limit:
@@ -902,6 +1364,8 @@ class MemorySkill(BaseSkill):
         rows: list[dict[str, Any]] = []
         names = await self._list_collection_names()
         for collection in names:
+            if self._is_document_guide_collection_name(collection):
+                continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
                 if not exists:
@@ -921,7 +1385,7 @@ class MemorySkill(BaseSkill):
                         text = self._clean_fact_text(str(payload.get("text", "")).strip())
                         if not text:
                             continue
-                        memory_type = self._normalize_memory_type(collection, payload.get("type"))
+                        memory_type = self._display_memory_type(collection, payload)
                         if filter_key and filter_key != "all" and memory_type != filter_key:
                             continue
                         label = self._type_label(memory_type)
@@ -939,6 +1403,10 @@ class MemorySkill(BaseSkill):
                                 "text": text,
                                 "timestamp": timestamp,
                                 "source": str(payload.get("source", "")).strip() or "n/a",
+                                "document_id": str(payload.get("document_id", "")).strip(),
+                                "document_name": str(payload.get("document_name", "")).strip(),
+                                "chunk_index": int(payload.get("chunk_index", 0) or 0),
+                                "chunk_total": int(payload.get("chunk_total", 0) or 0),
                             }
                         )
                     if next_offset is None:
@@ -960,6 +1428,8 @@ class MemorySkill(BaseSkill):
         names = await self._list_collection_names()
         stats: list[dict[str, Any]] = []
         for collection in names:
+            if self._is_document_guide_collection_name(collection):
+                continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
                 if not exists:
@@ -979,7 +1449,7 @@ class MemorySkill(BaseSkill):
                     if points:
                         if count == 0:
                             first_payload = (points[0].payload or {})
-                            inferred_type = self._normalize_memory_type(collection, first_payload.get("type"))
+                            inferred_type = self._display_memory_type(collection, first_payload)
                         count += len(points)
                     if next_offset is None:
                         break
@@ -1180,14 +1650,17 @@ class MemorySkill(BaseSkill):
     ) -> list[dict[str, Any]]:
         vector, _usage = await self._embed(query)
         targets = await self._build_recall_targets(user_id=user_id)
+        document_targets = await self._build_document_targets(user_id=user_id)
         filter_key = type_filter.strip().lower()
+        if filter_key == "document":
+            targets = document_targets
+        elif filter_key in {"", "all"}:
+            targets = targets + document_targets
         tasks = []
-        active_targets: list[dict[str, Any]] = []
         for target in targets:
             target_type = str(target.get("type", "")).strip().lower()
             if filter_key and filter_key != "all" and target_type != filter_key:
                 continue
-            active_targets.append(target)
             tasks.append(
                 self._query_forget_hits(
                     vector=vector,
@@ -1215,8 +1688,12 @@ class MemorySkill(BaseSkill):
                         "label": str(row.get("label", "")),
                         "text": str(row.get("text", "")),
                         "score": float(row.get("score", 0.0) or 0.0),
-                        "timestamp": "",
-                        "source": "n/a",
+                        "timestamp": str(row.get("timestamp", "")),
+                        "source": str(row.get("source", "n/a")),
+                        "document_id": str(row.get("document_id", "")),
+                        "document_name": str(row.get("document_name", "")),
+                        "chunk_index": int(row.get("chunk_index", 0) or 0),
+                        "chunk_total": int(row.get("chunk_total", 0) or 0),
                     }
                 )
         rows.sort(key=lambda value: float(value.get("score", 0.0)), reverse=True)
@@ -1242,6 +1719,72 @@ class MemorySkill(BaseSkill):
             return True
         except Exception:
             return False
+
+    async def delete_document(
+        self,
+        user_id: str,
+        collection: str,
+        *,
+        document_id: str = "",
+        document_name: str = "",
+    ) -> int:
+        clean_user = str(user_id).strip()
+        clean_collection = str(collection).strip()
+        clean_document_id = str(document_id).strip()
+        clean_document_name = str(document_name).strip()
+        if not clean_collection or (not clean_document_id and not clean_document_name):
+            return 0
+        try:
+            exists = await self.qdrant.collection_exists(collection_name=clean_collection)
+            if not exists:
+                return 0
+            point_ids: list[str | int] = []
+            offset = None
+            while True:
+                points, next_offset = await self.qdrant.scroll(
+                    collection_name=clean_collection,
+                    scroll_filter=self._user_filter(clean_user),
+                    limit=200,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in points:
+                    payload = getattr(point, "payload", {}) or {}
+                    matches = False
+                    if clean_document_id and str(payload.get("document_id", "")).strip() == clean_document_id:
+                        matches = True
+                    elif clean_document_name and str(payload.get("document_name", "")).strip() == clean_document_name:
+                        matches = True
+                    if not matches:
+                        continue
+                    point_id = getattr(point, "id", None)
+                    if point_id is None:
+                        continue
+                    point_ids.append(self._coerce_point_id(str(point_id)))
+                if next_offset is None:
+                    break
+                offset = next_offset
+
+            if not point_ids:
+                return 0
+
+            await self.qdrant.delete(
+                collection_name=clean_collection,
+                points_selector=PointIdsList(points=point_ids),
+                wait=True,
+            )
+            await self._delete_document_guide_entries(
+                user_id=clean_user,
+                target_collection=clean_collection,
+                document_id=clean_document_id,
+                document_name=clean_document_name,
+            )
+            if clean_user:
+                await self.cleanup_empty_collections_for_user(clean_user)
+            return len(point_ids)
+        except Exception:
+            return 0
 
     async def update_memory_point(self, user_id: str, collection: str, point_id: str, text: str) -> bool:
         clean_collection = str(collection).strip()

@@ -6,7 +6,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
 
-from aria.core.runtime_endpoint import resolve_runtime_url
+from aria.core.runtime_endpoint import _host_port_url
 
 
 ALERT_CATEGORY_FLAGS = {
@@ -109,4 +109,14 @@ def send_discord_alerts(
 
 
 def runtime_host_line(settings: Any) -> str:
-    return f"Host: {resolve_runtime_url(settings)}"
+    aria_cfg = getattr(settings, "aria", object())
+    public_url = str(getattr(aria_cfg, "public_url", "") or "").strip()
+    if public_url:
+        return f"Host: {public_url.rstrip('/')}"
+
+    host = str(getattr(aria_cfg, "host", "") or "").strip()
+    port = int(getattr(aria_cfg, "port", 8800) or 8800)
+    if host and host not in {"0.0.0.0", "::"}:
+        return f"Host: {_host_port_url('http', host, port)}"
+
+    return "Host: Public URL nicht konfiguriert (setze ARIA_PUBLIC_URL)"
