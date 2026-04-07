@@ -69,6 +69,72 @@ ARIA_PUBLIC_URL=http://localhost:8800
 SEARXNG_SETTINGS_FILE=./docker/searxng.settings.yml
 ```
 
+Copy/paste-ready `docker-compose.public.yml`:
+
+```yaml
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  searxng-valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    volumes:
+      - searxng_valkey:/data
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    depends_on:
+      - searxng-valkey
+    environment:
+      FORCE_OWNERSHIP: "false"
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_LIMITER: "false"
+      SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
+    volumes:
+      - ${SEARXNG_SETTINGS_FILE:-./docker/searxng.settings.yml}:/etc/searxng/settings.yml:ro
+      - searxng_cache:/var/cache/searxng
+
+  aria:
+    image: fischermanch/aria:alpha
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+      - searxng
+    ports:
+      - "${ARIA_HTTP_PORT:-8800}:8800"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ARIA_ARIA_HOST: "0.0.0.0"
+      ARIA_ARIA_PORT: "8800"
+      ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
+      ARIA_QDRANT_URL: http://qdrant:6333
+      ARIA_QDRANT_API_KEY: ${ARIA_QDRANT_API_KEY}
+    volumes:
+      - aria_config:/app/config
+      - aria_prompts:/app/prompts
+      - aria_data:/app/data
+      - qdrant_storage:/qdrant/storage:ro
+
+volumes:
+  qdrant_storage:
+  searxng_cache:
+  searxng_valkey:
+  aria_config:
+  aria_prompts:
+  aria_data:
+```
+
 If you still need a key:
 
 ```bash
@@ -79,20 +145,6 @@ Start:
 
 ```bash
 docker compose -f docker-compose.public.yml up -d
-```
-
-Stack shape at a glance:
-
-```yaml
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-  searxng-valkey:
-    image: valkey/valkey:8-alpine
-  searxng:
-    image: searxng/searxng:latest
-  aria:
-    image: fischermanch/aria:alpha
 ```
 
 This public stack starts:
@@ -126,6 +178,76 @@ Recommended Portainer environment variables:
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
 ARIA_PUBLIC_URL=http://<your-host>:8800
 SEARXNG_SECRET=replace-with-a-long-random-key
+```
+
+Copy/paste-ready `docker/portainer-stack.public.yml`:
+
+```yaml
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: aria-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  searxng-valkey:
+    image: valkey/valkey:8-alpine
+    container_name: aria-searxng-valkey
+    restart: unless-stopped
+    volumes:
+      - searxng_valkey:/data
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: aria-searxng
+    restart: unless-stopped
+    depends_on:
+      - searxng-valkey
+    environment:
+      FORCE_OWNERSHIP: "false"
+      SEARXNG_SECRET: "${SEARXNG_SECRET:-CHANGE-ME-LONG-RANDOM-SEARXNG-SECRET}"
+      SEARXNG_LIMITER: "false"
+      SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
+    volumes:
+      - "${SEARXNG_SETTINGS_FILE:-./docker/searxng.settings.yml}:/etc/searxng/settings.yml:ro"
+      - searxng_cache:/var/cache/searxng
+
+  aria:
+    image: fischermanch/aria:alpha
+    container_name: aria
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "80:8800"
+    environment:
+      ARIA_ARIA_HOST: "0.0.0.0"
+      ARIA_ARIA_PORT: "8800"
+      ARIA_PUBLIC_URL: "${ARIA_PUBLIC_URL:-http://localhost:8800}"
+      ARIA_QDRANT_URL: "http://qdrant:6333"
+      ARIA_QDRANT_API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
+    volumes:
+      - aria_config:/app/config
+      - aria_prompts:/app/prompts
+      - aria_data:/app/data
+      - qdrant_storage:/qdrant/storage:ro
+    depends_on:
+      - qdrant
+      - searxng
+
+volumes:
+  qdrant_storage:
+  searxng_cache:
+  searxng_valkey:
+  aria_config:
+  aria_prompts:
+  aria_data:
 ```
 
 If you still need keys:
