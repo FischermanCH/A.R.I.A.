@@ -1,10 +1,9 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: aria-qdrant
     restart: unless-stopped
     environment:
-      QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY}"
+      QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
     ports:
       - "6333:6333"
       - "6334:6334"
@@ -13,52 +12,45 @@ services:
 
   searxng-valkey:
     image: valkey/valkey:8-alpine
-    container_name: aria-searxng-valkey
     restart: unless-stopped
     volumes:
       - searxng_valkey:/data
 
   searxng:
     image: searxng/searxng:latest
-    container_name: aria-searxng
     restart: unless-stopped
     depends_on:
       - searxng-valkey
     environment:
       FORCE_OWNERSHIP: "false"
-      SEARXNG_SECRET: "${SEARXNG_SECRET:-CHANGE-ME-LONG-RANDOM-SEARXNG-SECRET}"
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LIMITER: "false"
       SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
     volumes:
-      - "${SEARXNG_SETTINGS_FILE:-./docker/searxng.settings.yml}:/etc/searxng/settings.yml:ro"
+      - ${SEARXNG_SETTINGS_FILE:-./docker/searxng.settings.yml}:/etc/searxng/settings.yml:ro
       - searxng_cache:/var/cache/searxng
 
   aria:
     image: fischermanch/aria:alpha
-    container_name: aria
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      - qdrant
+      - searxng
     ports:
       - "${ARIA_HTTP_PORT:-8800}:8800"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
-      ARIA_LLM_API_BASE: "${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}"
-      ARIA_LLM_MODEL: "${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}"
-      ARIA_EMBEDDINGS_API_BASE: "${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}"
-      ARIA_EMBEDDINGS_MODEL: "${ARIA_EMBEDDINGS_MODEL:-ollama/nomic-embed-text}"
-      ARIA_PUBLIC_URL: "${ARIA_PUBLIC_URL:-http://localhost:8800}"
-      ARIA_QDRANT_URL: "http://qdrant:6333"
-      ARIA_QDRANT_API_KEY: "${ARIA_QDRANT_API_KEY}"
+      ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
+      ARIA_QDRANT_URL: http://qdrant:6333
+      ARIA_QDRANT_API_KEY: ${ARIA_QDRANT_API_KEY}
     volumes:
       - aria_config:/app/config
       - aria_prompts:/app/prompts
       - aria_data:/app/data
       - qdrant_storage:/qdrant/storage:ro
-    depends_on:
-      - qdrant
-      - searxng
 
 volumes:
   qdrant_storage:

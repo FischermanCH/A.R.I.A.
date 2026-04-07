@@ -40,6 +40,7 @@ from aria.core.config import (
     UI_THEME_OPTIONS,
     normalize_ui_background,
     normalize_ui_theme,
+    resolve_searxng_base_url,
 )
 from aria.core.connection_health import delete_connection_health
 from aria.core.connection_runtime import (
@@ -115,6 +116,25 @@ _RSS_METADATA_HEADERS = {
 }
 _SAMPLE_CONNECTIONS_DIR = Path(__file__).resolve().parents[2] / "samples" / "connections"
 EMBEDDING_SWITCH_CONFIRM_PHRASE = "EMBEDDINGS WECHSELN"
+_SEARXNG_CATEGORY_OPTIONS: list[tuple[str, str]] = [
+    ("general", "General"),
+    ("news", "News"),
+    ("it", "IT"),
+    ("science", "Science"),
+    ("videos", "Videos"),
+]
+_SEARXNG_ENGINE_OPTIONS: list[tuple[str, str]] = [
+    ("duckduckgo", "DuckDuckGo"),
+    ("startpage", "Startpage"),
+    ("brave", "Brave"),
+    ("qwant", "Qwant"),
+    ("wikipedia", "Wikipedia"),
+    ("wikibooks", "WikiBooks"),
+    ("youtube", "YouTube"),
+    ("github", "GitHub"),
+    ("stackoverflow", "Stack Overflow"),
+    ("arxiv", "arXiv"),
+]
 
 
 def _sanitize_csrf_token_local(value: str | None) -> str:
@@ -631,6 +651,12 @@ def _build_schema_form_fields(
         "method": "config_conn.webhook_method",
         "content_type": "config_conn.webhook_content_type",
         "base_url": "config_conn.http_api_base_url",
+        "language": "config_conn.searxng_language",
+        "safe_search": "config_conn.searxng_safe_search",
+        "categories": "config_conn.searxng_categories",
+        "engines": "config_conn.searxng_engines",
+        "time_range": "config_conn.searxng_time_range",
+        "max_results": "config_conn.searxng_max_results",
         "health_path": "config_conn.http_api_health_path",
         "auth_token": "config_conn.http_api_auth_token",
         "host": "config_conn.host",
@@ -2220,6 +2246,34 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             }
         return rows
 
+    def _read_searxng_connections() -> dict[str, dict[str, Any]]:
+        raw = _read_raw_config()
+        connections = raw.get("connections", {})
+        if not isinstance(connections, dict):
+            return {}
+        searxng = connections.get("searxng", {})
+        if not isinstance(searxng, dict):
+            return {}
+        rows: dict[str, dict[str, Any]] = {}
+        for key, value in searxng.items():
+            ref = _sanitize_connection_name(key)
+            if not ref or not isinstance(value, dict):
+                continue
+            safe_search = int(value.get("safe_search", 1) or 1)
+            max_results = int(value.get("max_results", 5) or 5)
+            rows[ref] = {
+                "base_url": resolve_searxng_base_url(str(value.get("base_url", "")).strip()),
+                "timeout_seconds": int(value.get("timeout_seconds", 10) or 10),
+                "language": str(value.get("language", "de-CH")).strip() or "de-CH",
+                "safe_search": max(0, min(safe_search, 2)),
+                "categories": [str(item).strip() for item in (value.get("categories", []) or []) if str(item).strip()],
+                "engines": [str(item).strip() for item in (value.get("engines", []) or []) if str(item).strip()],
+                "time_range": str(value.get("time_range", "")).strip(),
+                "max_results": max(1, min(max_results, 20)),
+                **_read_connection_metadata(value),
+            }
+        return rows
+
     def _read_mqtt_connections() -> dict[str, dict[str, Any]]:
         raw = _read_raw_config()
         connections = raw.get("connections", {})
@@ -2321,7 +2375,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "ssh",
             rows,
             selected_ref=selected_ref,
-            page_probe=True,
+            cached_only=True,
             base_dir=BASE_DIR,
             lang=lang,
         ))
@@ -2449,7 +2503,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             kind,
             rows,
             selected_ref=selected_ref,
-            page_probe=True,
+            cached_only=True,
             base_dir=BASE_DIR,
             lang=lang,
         ))
@@ -2572,7 +2626,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "sftp",
             sftp_rows,
             selected_ref=selected_sftp_ref,
-            page_probe=True,
+            cached_only=True,
             base_dir=BASE_DIR,
             lang=lang,
         )
@@ -2959,6 +3013,106 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         context["http_api_guardrail_ref_options"] = _build_guardrail_ref_options(guardrail_rows, connection_kind="http_api", lang=lang)
         return context
 
+    def _build_searxng_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
+        context = _build_generic_connections_context(
+            "searxng",
+            _read_searxng_connections(),
+            lang=lang,
+            selected_ref_raw=selected_ref_raw,
+            test_status=test_status,
+            ref_key="searxng_refs",
+            selected_ref_key="selected_searxng_ref",
+            selected_key="selected_searxng",
+            rows_key="searxng_status_rows",
+            healthy_key="searxng_healthy_count",
+            issue_key="searxng_issue_count",
+            test_status_key="searxng_test_status",
+        )
+        selected_profile = dict(context.get("selected_searxng", {}))
+        selected_categories = {
+            str(item).strip()
+            for item in (selected_profile.get("categories") or [])
+            if str(item).strip()
+        }
+        selected_engines = {
+            str(item).strip()
+            for item in (selected_profile.get("engines") or [])
+            if str(item).strip()
+        }
+        default_profile = {
+            "timeout_seconds": 10,
+            "language": "de-CH",
+            "safe_search": 1,
+            "categories": ["general"],
+            "engines": [],
+            "time_range": "",
+            "max_results": 5,
+        }
+        context["searxng_default_base_url"] = resolve_searxng_base_url("")
+        context["searxng_language_options"] = ["de-CH", "de-DE", "en-GB", "en-US", "fr-CH"]
+        context["searxng_safe_search_options"] = [
+            {"value": "0", "label": "0 - aus / off"},
+            {"value": "1", "label": "1 - normal"},
+            {"value": "2", "label": "2 - strikt / strict"},
+        ]
+        context["searxng_time_range_options"] = [
+            {"value": "", "label": "kein Standard / none"},
+            {"value": "day", "label": "day"},
+            {"value": "month", "label": "month"},
+            {"value": "year", "label": "year"},
+        ]
+        context["searxng_edit_profile"] = {
+            **default_profile,
+            **selected_profile,
+        }
+        context["searxng_new_profile"] = dict(default_profile)
+        context["searxng_category_options"] = [
+            {"value": value, "label": label, "checked": value in selected_categories}
+            for value, label in _SEARXNG_CATEGORY_OPTIONS
+        ]
+        context["searxng_engine_options"] = [
+            {"value": value, "label": label, "checked": value in selected_engines}
+            for value, label in _SEARXNG_ENGINE_OPTIONS
+        ]
+        context["searxng_new_category_options"] = [
+            {"value": value, "label": label, "checked": value in {"general"}}
+            for value, label in _SEARXNG_CATEGORY_OPTIONS
+        ]
+        context["searxng_new_engine_options"] = [
+            {"value": value, "label": label, "checked": False}
+            for value, label in _SEARXNG_ENGINE_OPTIONS
+        ]
+        context["connection_intro"] = _build_connection_intro(
+            kind="searxng",
+            summary_cards=_build_connection_summary_cards(
+                kind="searxng",
+                profiles=len(context.get("searxng_refs", [])),
+                healthy=int(context.get("searxng_healthy_count", 0) or 0),
+                issues=int(context.get("searxng_issue_count", 0) or 0),
+                extra_cards=[
+                    {
+                        "label_key": "config_conn.endpoint",
+                        "label": "Target",
+                        "value": resolve_searxng_base_url(str(selected_profile.get("base_url", "")).strip()),
+                        "hint_key": "config_conn.searxng_base_url_hint",
+                        "hint": "ARIA uses the fixed in-stack SearXNG JSON API target.",
+                    },
+                    {
+                        "label_key": "config_conn.searxng_max_results",
+                        "label": "Max. Treffer",
+                        "value": str(selected_profile.get("max_results", 5) or 5),
+                        "hint_key": "config_conn.searxng_max_results_hint",
+                        "hint": "How many hits ARIA should bring into the chat context by default.",
+                    },
+                ],
+            ),
+        )
+        context["connection_status_block"] = _build_connection_status_block(
+            kind="searxng",
+            rows=list(context.get("searxng_status_rows", [])),
+        )
+        return context
+
     def _build_rss_connections_context(
         selected_ref_raw: str = "",
         test_status: str = "",
@@ -3132,6 +3286,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "email": lambda: _build_email_connections_context(),
             "imap": lambda: _build_imap_connections_context(),
             "http_api": lambda: _build_http_api_connections_context(),
+            "searxng": lambda: _build_searxng_connections_context(),
             "rss": lambda: _build_rss_connections_context(),
             "mqtt": lambda: _build_mqtt_connections_context(),
         }
@@ -3485,6 +3640,28 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             context_builder=_build_http_api_connections_context,
             selected_ref_raw=http_api_ref,
             test_status=http_api_test_status,
+            mode=mode,
+        )
+
+    @app.get("/config/connections/searxng", response_class=HTMLResponse)
+    async def config_connections_searxng_page(
+        request: Request,
+        saved: int = 0,
+        info: str = "",
+        error: str = "",
+        searxng_ref: str = "",
+        searxng_test_status: str = "",
+        mode: str = "edit",
+    ) -> HTMLResponse:
+        return _render_connection_page(
+            request,
+            kind="searxng",
+            saved=saved,
+            info=info,
+            error=error,
+            context_builder=_build_searxng_connections_context,
+            selected_ref_raw=searxng_ref,
+            test_status=searxng_test_status,
             mode=mode,
         )
 
@@ -4266,6 +4443,72 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return RedirectResponse(url=f"/config/connections/http-api?error={quote_plus(str(exc))}&http_api_ref={quote_plus(ref_hint)}", status_code=303)
+
+    @app.post("/config/connections/searxng/save")
+    async def config_searxng_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        timeout_seconds: int = Form(10),
+        language: str = Form("de-CH"),
+        safe_search: int = Form(1),
+        categories: list[str] = Form([]),
+        engines: list[str] = Form([]),
+        time_range: str = Form(""),
+        max_results: int = Form(5),
+    ) -> RedirectResponse:
+        try:
+            lang = str(getattr(request.state, "lang", "de") or "de")
+            raw, _store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("searxng", connection_ref, original_ref)
+            existing_row = rows.get(original_ref_clean) if original_ref_clean else rows.get(ref)
+            if not isinstance(existing_row, dict):
+                existing_row = {}
+            row_value = {
+                "base_url": resolve_searxng_base_url(str(existing_row.get("base_url", "")).strip()),
+                "timeout_seconds": max(5, int(timeout_seconds)),
+                "language": str(language).strip() or "de-CH",
+                "safe_search": max(0, min(int(safe_search), 2)),
+                "categories": [item.strip() for item in categories if item.strip()][:12] or ["general"],
+                "engines": [item.strip() for item in engines if item.strip()][:20],
+                "time_range": str(time_range).strip().lower(),
+                "max_results": max(1, min(int(max_results), 20)),
+                **_build_connection_metadata(connection_title, connection_description, connection_aliases, connection_tags),
+            }
+            _finalize_connection_save(
+                "searxng",
+                raw=raw,
+                rows=rows,
+                ref=ref,
+                original_ref=original_ref_clean,
+                row_value=row_value,
+            )
+            test_row = _read_searxng_connections().get(ref, {})
+            test_result = build_connection_status_row("searxng", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
+            if test_result["status"] == "ok":
+                return RedirectResponse(
+                    url=(
+                        f"/config/connections/searxng?saved=1&info={quote_plus(_connection_saved_test_info('SearXNG', lang, success=True))}"
+                        f"&searxng_ref={quote_plus(ref)}&searxng_test_status=ok"
+                    ),
+                    status_code=303,
+                )
+            return RedirectResponse(
+                url=(
+                    f"/config/connections/searxng?saved=1&info={quote_plus(_connection_saved_test_info('SearXNG', lang, success=False))}"
+                    f"&error={quote_plus(test_result['message'])}&searxng_ref={quote_plus(ref)}&searxng_test_status=error"
+                ),
+                status_code=303,
+            )
+        except (OSError, ValueError) as exc:
+            ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
+            return RedirectResponse(
+                url=f"/config/connections/searxng?error={quote_plus(str(exc))}&searxng_ref={quote_plus(ref_hint)}",
+                status_code=303,
+            )
 
     @app.post("/config/connections/rss/save")
     async def config_rss_connections_save(

@@ -8,6 +8,18 @@ from typing import Any, Callable
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
+DEFAULT_SEARXNG_BASE_URL = "http://searxng:8080"
+
+
+def resolve_searxng_base_url(value: str | None = None) -> str:
+    clean = str(value or "").strip().rstrip("/")
+    if clean:
+        return clean
+    env_value = str(os.getenv("ARIA_SEARXNG_URL", "") or "").strip().rstrip("/")
+    if env_value:
+        return env_value
+    return DEFAULT_SEARXNG_BASE_URL
+
 
 class AriaRuntimeConfig(BaseModel):
     host: str = "0.0.0.0"
@@ -58,6 +70,9 @@ class RoutingLanguageConfig(BaseModel):
     memory_store_prefixes: list[str] = Field(default_factory=list)
     memory_recall_cleanup_keywords: list[str] = Field(default_factory=list)
     memory_forget_keywords: list[str] = Field(default_factory=list)
+    web_search_keywords: list[str] = Field(default_factory=list)
+    web_search_prefixes: list[str] = Field(default_factory=list)
+    web_search_cleanup_keywords: list[str] = Field(default_factory=list)
 
 
 class RoutingConfig(BaseModel):
@@ -112,6 +127,35 @@ class RoutingConfig(BaseModel):
             "remove",
         ]
     )
+    web_search_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "websuche",
+            "suche im web",
+            "recherchiere im web",
+            "such im web",
+            "search the web",
+            "web search",
+            "search web",
+        ]
+    )
+    web_search_prefixes: list[str] = Field(
+        default_factory=lambda: [
+            "websuche ",
+            "suche im web ",
+            "recherchiere im web ",
+            "such im web ",
+            "search the web ",
+            "web search ",
+            "search web ",
+        ]
+    )
+    web_search_cleanup_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "im web",
+            "online",
+            "im internet",
+        ]
+    )
     default: RoutingLanguageConfig | None = None
     languages: dict[str, RoutingLanguageConfig] = Field(default_factory=dict)
 
@@ -120,16 +164,22 @@ class RoutingConfig(BaseModel):
             return RoutingLanguageConfig(
                 memory_store_keywords=list(self.default.memory_store_keywords),
                 memory_recall_keywords=list(self.default.memory_recall_keywords),
-                memory_store_prefixes=list(self.default.memory_store_prefixes),
-                memory_recall_cleanup_keywords=list(self.default.memory_recall_cleanup_keywords),
-                memory_forget_keywords=list(self.default.memory_forget_keywords),
-            )
+            memory_store_prefixes=list(self.default.memory_store_prefixes),
+            memory_recall_cleanup_keywords=list(self.default.memory_recall_cleanup_keywords),
+            memory_forget_keywords=list(self.default.memory_forget_keywords),
+            web_search_keywords=list(self.default.web_search_keywords),
+            web_search_prefixes=list(self.default.web_search_prefixes),
+            web_search_cleanup_keywords=list(self.default.web_search_cleanup_keywords),
+        )
         return RoutingLanguageConfig(
             memory_store_keywords=list(self.memory_store_keywords),
             memory_recall_keywords=list(self.memory_recall_keywords),
             memory_store_prefixes=list(self.memory_store_prefixes),
             memory_recall_cleanup_keywords=list(self.memory_recall_cleanup_keywords),
             memory_forget_keywords=list(self.memory_forget_keywords),
+            web_search_keywords=list(self.web_search_keywords),
+            web_search_prefixes=list(self.web_search_prefixes),
+            web_search_cleanup_keywords=list(self.web_search_cleanup_keywords),
         )
 
     def for_language(self, language: str | None) -> RoutingLanguageConfig:
@@ -150,6 +200,11 @@ class RoutingConfig(BaseModel):
                 override.memory_recall_cleanup_keywords or base.memory_recall_cleanup_keywords
             ),
             memory_forget_keywords=list(override.memory_forget_keywords or base.memory_forget_keywords),
+            web_search_keywords=list(override.web_search_keywords or base.web_search_keywords),
+            web_search_prefixes=list(override.web_search_prefixes or base.web_search_prefixes),
+            web_search_cleanup_keywords=list(
+                override.web_search_cleanup_keywords or base.web_search_cleanup_keywords
+            ),
         )
 
 
@@ -347,6 +402,17 @@ class RSSConnectionConfig(ConnectionMetaConfig):
     poll_interval_minutes: int = 60
 
 
+class SearXNGConnectionConfig(ConnectionMetaConfig):
+    base_url: str = DEFAULT_SEARXNG_BASE_URL
+    timeout_seconds: int = 10
+    language: str = "de-CH"
+    safe_search: int = 1
+    categories: list[str] = Field(default_factory=lambda: ["general"])
+    engines: list[str] = Field(default_factory=list)
+    time_range: str = ""
+    max_results: int = 5
+
+
 class RSSRuntimeConfig(BaseModel):
     poll_interval_minutes: int = 60
 
@@ -371,6 +437,7 @@ class ConnectionsConfig(BaseModel):
     imap: dict[str, IMAPConnectionConfig] = Field(default_factory=dict)
     http_api: dict[str, HTTPAPIConnectionConfig] = Field(default_factory=dict)
     rss: dict[str, RSSConnectionConfig] = Field(default_factory=dict)
+    searxng: dict[str, SearXNGConnectionConfig] = Field(default_factory=dict)
     mqtt: dict[str, MQTTConnectionConfig] = Field(default_factory=dict)
 
 

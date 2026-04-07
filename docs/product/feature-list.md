@@ -1,6 +1,6 @@
 # ARIA - Technical Feature List
 
-Stand: 2026-04-06
+Stand: 2026-04-07
 
 Zweck:
 - technische, faktische Feature-Zusammenfassung für GitHub, Releases, README-Überarbeitung und spätere externe Texte
@@ -36,6 +36,7 @@ Zweck:
   - `memory_store`
   - `memory_recall`
   - `memory_forget`
+  - `web_search`
   - `chat`
 - Capability-Routing für Verbindungsaktionen wie:
   - Feed lesen
@@ -123,6 +124,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - `Discord`
 - `RSS`
 - `HTTP API`
+- `SearXNG`
 - `Webhook`
 - `SMTP`
 - `IMAP`
@@ -156,6 +158,23 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Discord Skill-Error-Alerts mit gekürzten/sanitized Fehlerdetails
 - HTTP-API- und Webhook-Connections mit eigenen Profilen
 - `ARIA_PUBLIC_URL` / `aria.public_url` für externe Links in Messages statt Docker-Bridge-IP
+
+## Websuche / SearXNG
+
+- dedizierte `SearXNG`-Connection mit eigener Config-Seite
+- ARIA nutzt SearXNG bewusst nur ueber die JSON-Search-API
+- die Base-URL ist im typischen Stack fest `http://searxng:8080` und muss nicht pro Profil neu eingegeben werden
+- sinnvolle Defaults fuer:
+  - Sprache
+  - SafeSearch
+  - Kategorien
+  - Engines
+  - Zeitbereich
+  - Maximalzahl Treffer
+- Profil-Metadaten wie Name, Aliase und Tags helfen beim Routing fuer unterschiedliche Suchprofile wie `youtube` fuer Videos oder `startpage` fuer Buecher
+- Chat kann explizite Websuche-Anfragen routen, z. B. `websuche ...`
+- Chat-Details zeigen Web-Quellen mit Titel, URL und Engine
+- Stack-Dateien koennen SearXNG als separaten Dienst neben ARIA und Qdrant mitfuehren
 
 ## RSS / OPML
 

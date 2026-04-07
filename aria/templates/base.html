@@ -307,8 +307,21 @@
       // 2) once healthy again, show a reload hint instead of hard-reloading
       // The backend can still redirect to /login if the session is truly gone.
       if (isAuthenticated && window.location.pathname !== "/login") {
+        const healthPollIntervalMs = 15000;
+        let healthPollTimer = null;
+
+        const scheduleHealthCheck = function (delayMs) {
+          if (healthPollTimer) {
+            window.clearTimeout(healthPollTimer);
+          }
+          healthPollTimer = window.setTimeout(checkHealth, delayMs);
+        };
+
         const checkHealth = async function () {
-          if (document.visibilityState === "hidden" || restartCheckInFlight) return;
+          if (document.visibilityState === "hidden" || restartCheckInFlight) {
+            scheduleHealthCheck(healthPollIntervalMs);
+            return;
+          }
           restartCheckInFlight = true;
           try {
             const response = await fetch("/health", {
@@ -327,10 +340,17 @@
             writeStoredInt(restartFailureCountKey, Math.min(failureCount + 1, restartFailureThreshold + 5));
           } finally {
             restartCheckInFlight = false;
+            scheduleHealthCheck(healthPollIntervalMs);
           }
         };
 
-        setInterval(checkHealth, 3000);
+        document.addEventListener("visibilitychange", function () {
+          if (document.visibilityState === "visible") {
+            scheduleHealthCheck(500);
+          }
+        });
+
+        scheduleHealthCheck(healthPollIntervalMs);
       }
     })();
   </script>

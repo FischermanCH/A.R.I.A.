@@ -10,6 +10,7 @@ Aktuell unterstuetzte Familien sind:
 - RSS
 - Discord
 - HTTP API
+- SearXNG
 - Webhook
 - SMTP
 - IMAP
@@ -21,6 +22,23 @@ Die Routing-Qualitaet steigt, wenn Connection-Metadaten gepflegt sind:
 - Kurzbeschreibung
 - Aliase
 - Tags
+
+`SearXNG` wird als eigener self-hosted Suchdienst im Stack behandelt.
+ARIA nutzt bewusst nur die JSON-Search-API und kann Web-Quellen direkt in den Chat-Details ausweisen.
+
+Die Stack-URL ist fuer SearXNG-Profile in ARIA normalerweise fest:
+
+- `http://searxng:8080`
+
+Pro Profil pflegst du vor allem:
+
+- Profilname
+- Titel / Kurzbeschreibung / Aliase / Tags fuer Routing
+- Sprache
+- SafeSearch
+- wenige sinnvolle Kategorien
+- wenige bevorzugte Engines
+- Trefferzahl und Zeitbereich
 
 Nuetzliche Referenzen:
 

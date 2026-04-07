@@ -45,6 +45,13 @@ read_label_from_container() {
   docker inspect "$container_name" --format "{{ index .Config.Labels \"$label_key\" }}" 2>/dev/null || true
 }
 
+read_env_from_file() {
+  local env_file="$1"
+  local key="$2"
+  [[ -f "$env_file" ]] || return 0
+  sed -n "s/^${key}=//p" "$env_file" | head -n1
+}
+
 require_cmd docker
 docker compose version >/dev/null 2>&1 || die "docker compose ist nicht verfügbar"
 
@@ -104,15 +111,25 @@ NEW_IMAGE_ID="$(docker image inspect "$IMAGE_REF" --format '{{.Id}}' 2>/dev/null
 log "Image vorher: ${OLD_IMAGE_ID:-<keins>}"
 log "Image jetzt:   ${NEW_IMAGE_ID:-<unbekannt>}"
 
+CURRENT_QDRANT_KEY="$(read_env_from_container "$QDRANT_SERVICE_NAME" "QDRANT__SERVICE__API_KEY" || true)"
+if [[ -z "$CURRENT_QDRANT_KEY" ]]; then
+  CURRENT_QDRANT_KEY="$(read_env_from_container "$SERVICE_NAME" "ARIA_QDRANT_API_KEY" || true)"
+fi
+
 COMPOSE_ARGS=()
 if [[ -f "$ENV_FILE" ]]; then
   log "Nutze Env-Datei: $ENV_FILE"
   COMPOSE_ARGS+=(--env-file "$ENV_FILE")
-else
-  CURRENT_QDRANT_KEY="$(read_env_from_container "$SERVICE_NAME" "ARIA_QDRANT_API_KEY" || true)"
-  if [[ -z "$CURRENT_QDRANT_KEY" ]]; then
-    CURRENT_QDRANT_KEY="$(read_env_from_container "$QDRANT_SERVICE_NAME" "QDRANT__SERVICE__API_KEY" || true)"
+  ENV_FILE_QDRANT_KEY="$(read_env_from_file "$ENV_FILE" "ARIA_QDRANT_API_KEY" || true)"
+  if [[ -n "$CURRENT_QDRANT_KEY" && "$ENV_FILE_QDRANT_KEY" != "$CURRENT_QDRANT_KEY" ]]; then
+    export ARIA_QDRANT_API_KEY="$CURRENT_QDRANT_KEY"
+    if [[ -n "$ENV_FILE_QDRANT_KEY" ]]; then
+      log "Env-Datei-Qdrant-Key weicht vom laufenden Qdrant-Key ab, nutze fuer das ARIA-Recreate den aktiven Live-Key"
+    else
+      log "Env-Datei ohne Qdrant-Key, nutze fuer das ARIA-Recreate den aktiven Live-Key"
+    fi
   fi
+else
   if [[ -n "$CURRENT_QDRANT_KEY" ]]; then
     export ARIA_QDRANT_API_KEY="$CURRENT_QDRANT_KEY"
     log "Keine Env-Datei gefunden, nutze vorhandenen Qdrant-Key aus laufendem Container"

@@ -145,6 +145,166 @@ def test_pipeline_collects_skill_detail_lines_for_chat_badges() -> None:
     asyncio.run(_run())
 
 
+def test_pipeline_includes_web_search_context_and_source_details() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _FakeWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "Mill WiFi Anleitung" in query
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "Suche: Mill WiFi Anleitung\n"
+                        "- [1] Mill Manual\n"
+                        "  URL: https://example.org/mill\n"
+                        "  Engine: duckduckgo\n"
+                        "  Snippet: WiFi setup steps"
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: Mill Manual · https://example.org/mill · duckduckgo",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _FakeWebSearchSkill()
+
+        result = await pipeline.process("Websuche Mill WiFi Anleitung", user_id="u1", source="test")
+
+        assert result.text == "ok"
+        assert result.intents == ["web_search"]
+        assert result.detail_lines == ["Quelle: Mill Manual · https://example.org/mill · duckduckgo"]
+        assert "Web Search via web-search" in str(llm.last_messages[1]["content"])
+        assert llm.calls == 1
+
+    asyncio.run(_run())
+
+
+def test_pipeline_returns_direct_error_when_web_search_fails() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _FailingWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = (query, params)
+                return SkillResult(skill_name="web_search", content="", success=False, error="Websuche fehlgeschlagen: Timeout")
+
+        pipeline.web_search_skill = _FailingWebSearchSkill()
+
+        result = await pipeline.process("Suche im Web nach Mill WiFi", user_id="u1", source="test")
+
+        assert result.text == "Websuche fehlgeschlagen: Timeout"
+        assert result.intents == ["web_search"]
+        assert llm.calls == 0
+
+    asyncio.run(_run())
+
+
+def test_pipeline_explicit_web_search_skips_auto_memory_recall() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": True},
+                "auto_memory": {"enabled": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        fake_memory = FakeMemorySkill()
+        pipeline.memory_skill = fake_memory
+
+        class _FakeWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "Rabbit R1" in query
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "Suche: Rabbit R1 letzter Release\n"
+                        "- [1] Rabbit Update\n"
+                        "  URL: https://example.org/rabbit\n"
+                        "  Engine: startpage"
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: Rabbit Update · https://example.org/rabbit · startpage",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _FakeWebSearchSkill()
+
+        with patch(
+            "aria.core.skill_runtime.AutoMemoryExtractor.decide",
+            return_value=SimpleNamespace(
+                recall_query="Rabbit R1 letzter Release",
+                facts=[],
+                preferences=[],
+                should_persist_session=False,
+            ),
+        ):
+            result = await pipeline.process(
+                "recherchiere im web zum Rabbit R1, letzter Release",
+                user_id="u1",
+                source="test",
+                auto_memory_enabled=True,
+                memory_collection="aria_facts_u1",
+                session_collection="aria_sessions_u1_260407",
+            )
+
+        assert result.intents == ["web_search"]
+        assert result.detail_lines == ["Quelle: Rabbit Update · https://example.org/rabbit · startpage"]
+        assert fake_memory.calls == []
+        assert llm.calls == 1
+
+    asyncio.run(_run())
+
+
 def test_pipeline_uses_litellm_pricing_fallback_for_known_chat_models() -> None:
     async def _run() -> None:
         settings = Settings.model_validate(

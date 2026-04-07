@@ -485,9 +485,15 @@ def should_skip_auto_memory_persist(intents: list[str]) -> bool:
 
 def build_skill_status_text(settings: Any, runtime_custom_skills: list[dict[str, Any]], auto_memory_enabled: bool) -> str:
     lines = ["Skills (Runtime-Status):", ""]
+    searxng_rows = getattr(getattr(settings, "connections", object()), "searxng", {})
     core_rows = [
         ("Memory", bool(settings.memory.enabled), "Speichert und ruft Wissen via Qdrant ab."),
         ("Auto-Memory", bool(auto_memory_enabled), "Extrahiert Fakten/Präferenzen automatisch aus Chat-Nachrichten."),
+        (
+            "Web Search",
+            bool(isinstance(searxng_rows, dict) and searxng_rows),
+            "Durchsucht das Web ueber SearXNG und liefert Quellen direkt im Chat.",
+        ),
     ]
     custom_rows: list[tuple[str, bool, str]] = []
     for row in sorted(runtime_custom_skills, key=lambda item: str(item.get("name", "")).lower()):
@@ -542,9 +548,11 @@ class CustomSkillRuntime:
         settings: Any,
         llm_client: Any,
         memory_skill_getter: Callable[[], Any],
+        web_search_skill_getter: Callable[[], Any],
         execute_custom_ssh_command: SSHExecutor,
         extract_memory_store_text: Callable[..., str],
         extract_memory_recall_query: Callable[..., str],
+        extract_web_search_query: Callable[..., str],
         facts_collection_for_user: Callable[[str], str],
         preferences_collection_for_user: Callable[[str], str],
         normalize_spaces: Callable[[str], str],
@@ -553,9 +561,11 @@ class CustomSkillRuntime:
         self.settings = settings
         self.llm_client = llm_client
         self.memory_skill_getter = memory_skill_getter
+        self.web_search_skill_getter = web_search_skill_getter
         self.execute_custom_ssh_command = execute_custom_ssh_command
         self.extract_memory_store_text = extract_memory_store_text
         self.extract_memory_recall_query = extract_memory_recall_query
+        self.extract_web_search_query = extract_web_search_query
         self.facts_collection_for_user = facts_collection_for_user
         self.preferences_collection_for_user = preferences_collection_for_user
         self.normalize_spaces = normalize_spaces
@@ -1869,16 +1879,15 @@ class CustomSkillRuntime:
             results.append(await self.execute_custom_steps(row=row, message=message, language=language))
 
         memory_skill = self.memory_skill_getter()
-        if not memory_skill:
-            return results
 
         explicit_store = "memory_store" in intents
         explicit_recall = "memory_recall" in intents
+        explicit_web_search = "web_search" in intents
         skip_auto_persist = should_skip_auto_memory_persist(intents)
         facts_collection = self.facts_collection_for_user(user_id)
         preferences_collection = self.preferences_collection_for_user(user_id)
 
-        if "memory_store" in intents:
+        if "memory_store" in intents and memory_skill:
             store_text = self.extract_memory_store_text(message, routing_profile)
             store_result = await memory_skill.execute(
                 query=store_text,
@@ -1893,7 +1902,7 @@ class CustomSkillRuntime:
             )
             results.append(store_result)
 
-        if "memory_recall" in intents:
+        if "memory_recall" in intents and memory_skill:
             recall_query = self.extract_memory_recall_query(message, routing_profile)
             family_base = (facts_collection or memory_collection or session_collection or "").strip()
             merged_top_k = max(
@@ -1912,7 +1921,21 @@ class CustomSkillRuntime:
             recall_result.skill_name = "memory_recall"
             results.append(recall_result)
 
-        if auto_memory_enabled and not explicit_recall:
+        if "web_search" in intents:
+            web_search_skill = self.web_search_skill_getter()
+            if web_search_skill is not None:
+                web_query = self.extract_web_search_query(message, routing_profile)
+                web_result = await web_search_skill.execute(
+                    web_query,
+                    {
+                        "action": "search",
+                        "user_id": user_id,
+                    },
+                )
+                web_result.skill_name = "web_search"
+                results.append(web_result)
+
+        if auto_memory_enabled and not explicit_recall and not explicit_web_search and memory_skill:
             auto = AutoMemoryExtractor.decide(
                 message,
                 max_facts=self.settings.auto_memory.max_facts_per_message,

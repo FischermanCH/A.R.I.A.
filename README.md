@@ -139,9 +139,10 @@ Not the current target:
 - RAG v1 in `Memory` with document upload for `txt`, `md`, and `pdf` with embedded text
 - Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
 - Chat details now show document recall sources with file name, collection, and chunk reference
+- pre-alpha web search via self-hosted `SearXNG`, with a fixed in-stack target URL, slim search profiles, and source lines in chat details
 - Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
 - `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
-- Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP, and MQTT
+- Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, SearXNG, Webhook, SMTP, IMAP, and MQTT
 - Custom Skills as JSON manifests with a browser wizard, import/export, and bundled sample skills
 - `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset
 - Read-only `/help` and `/product-info`
@@ -265,8 +266,6 @@ cd /path/to/ARIA
 
 ```bash
 cd /path/to/ARIA
-cp config/config.example.yaml config/config.yaml
-cp config/secrets.env.example config/secrets.env
 cp .env.example .env
 ```
 
@@ -274,24 +273,27 @@ Set at least this in `.env`:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
+SEARXNG_SECRET=replace-with-a-long-random-key
 ```
 
 Optional:
 
 ```dotenv
 ARIA_HTTP_PORT=8800
+ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
 Start:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.public.yml up -d
 ```
 
 Open:
 
 - ARIA: `http://localhost:8800`
 - Qdrant: `http://localhost:6333`
+- SearXNG is internal in the stack and is used from ARIA via `http://searxng:8080`
 
 First start flow:
 
@@ -302,13 +304,11 @@ First start flow:
 
 ## Portainer
 
-For Portainer, use `docker/portainer-stack.example.yml` as a base and set stack variables such as:
+For Portainer, use `docker/portainer-stack.public.yml` as a base and set stack variables such as:
 
 - `ARIA_QDRANT_API_KEY`
-- `ARIA_HTTP_PORT`
-- `ARIA_LLM_API_BASE`
-- `ARIA_EMBEDDINGS_API_BASE`
 - `ARIA_PUBLIC_URL`
+- `SEARXNG_SECRET`
 
 Important notes:
 
@@ -316,6 +316,8 @@ Important notes:
 - empty `config` / `prompts` volumes are initialized from built-in defaults on first container start
 - `config.yaml` and `secrets.env` are generated in the volume if missing
 - keep the same Qdrant API key for both `aria` and `qdrant`
+- SearXNG and Valkey run as separate services next to ARIA and Qdrant
+- `docker/searxng.settings.yml` is mounted read-only into the SearXNG container
 - on Linux, `host.docker.internal` is wired through `host-gateway` in the compose setup
 
 ## Friend tester quickstart
@@ -569,8 +571,6 @@ cd /path/to/ARIA
 
 ```bash
 cd /path/to/ARIA
-cp config/config.example.yaml config/config.yaml
-cp config/secrets.env.example config/secrets.env
 cp .env.example .env
 ```
 
@@ -578,24 +578,27 @@ In `.env` mindestens setzen:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=hier-einen-langen-zufaelligen-key-setzen
+SEARXNG_SECRET=hier-einen-langen-zufaelligen-searxng-key-setzen
 ```
 
 Optional:
 
 ```dotenv
 ARIA_HTTP_PORT=8800
+ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
 Starten:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.public.yml up -d
 ```
 
 Im Browser öffnen:
 
 - ARIA: `http://localhost:8800`
 - Qdrant: `http://localhost:6333`
+- SearXNG läuft intern im Stack und wird in ARIA über `http://searxng:8080` genutzt
 
 First-Run-Flow:
 
@@ -606,13 +609,11 @@ First-Run-Flow:
 
 ## Portainer
 
-Für Portainer kannst du `docker/portainer-stack.example.yml` als Basis nehmen und Stack-Variablen setzen, z. B.:
+Für Portainer kannst du `docker/portainer-stack.public.yml` als Basis nehmen und Stack-Variablen setzen, z. B.:
 
 - `ARIA_QDRANT_API_KEY`
-- `ARIA_HTTP_PORT`
-- `ARIA_LLM_API_BASE`
-- `ARIA_EMBEDDINGS_API_BASE`
 - `ARIA_PUBLIC_URL`
+- `SEARXNG_SECRET`
 
 Wichtige Hinweise:
 
@@ -620,6 +621,8 @@ Wichtige Hinweise:
 - leere `config`- und `prompts`-Volumes werden beim ersten Start automatisch mit eingebauten Defaults befüllt
 - `config.yaml` und `secrets.env` werden im Volume erzeugt, wenn sie noch fehlen
 - denselben Qdrant API Key für `aria` und `qdrant` verwenden
+- SearXNG und Valkey laufen als eigene Dienste neben ARIA und Qdrant
+- `docker/searxng.settings.yml` wird read-only in den SearXNG-Container gemountet
 - unter Linux ist `host.docker.internal` im Compose-Setup über `host-gateway` verdrahtet
 
 ## Friend-Tester-Quickstart

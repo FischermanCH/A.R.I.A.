@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 from urllib.request import Request as URLRequest, urlopen
 
 from aria.core.connection_health import get_connection_health
@@ -27,6 +27,7 @@ from aria.core.connection_catalog import (
     normalize_connection_kind,
     ordered_connection_kinds,
 )
+from aria.core.config import resolve_searxng_base_url
 
 
 CONNECTION_KIND_LABELS: dict[str, str] = connection_kind_labels()
@@ -44,6 +45,14 @@ _RSS_ROOT_HINTS = ("<rss", "<feed", "<rdf:rdf")
 
 def _msg(lang: str, de: str, en: str) -> str:
     return de if str(lang or "de").strip().lower().startswith("de") else en
+
+
+def _searxng_rate_limit_hint(lang: str) -> str:
+    return _msg(
+        lang,
+        "SearXNG-Test fehlgeschlagen: HTTP 429 Too Many Requests. Wahrscheinlich ist der SearXNG-Limiter aktiv. Fuer den internen ARIA-Stack `SEARXNG_LIMITER=false` setzen und den Stack neu deployen.",
+        "SearXNG test failed: HTTP 429 Too Many Requests. The SearXNG limiter is likely still active. Set `SEARXNG_LIMITER=false` for the internal ARIA stack and redeploy the stack.",
+    )
 
 
 def _project_root() -> Path:
@@ -236,6 +245,10 @@ def _http_api_target(row: Any) -> str:
 
 def _rss_target(row: Any) -> str:
     return str(_value(row, "feed_url", "")).strip() or "RSS Feed"
+
+
+def _searxng_target(row: Any) -> str:
+    return resolve_searxng_base_url(str(_value(row, "base_url", "")).strip())
 
 
 def _mqtt_target(row: Any) -> str:
@@ -609,6 +622,52 @@ def _test_rss_connection(ref: str, row: Any, *, timeout_override: int | None = N
     return _msg(lang, f"RSS-Test erfolgreich für {ref}", f"RSS test successful for {ref}")
 
 
+def _test_searxng_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
+    del base_dir, page_probe
+    base_url = resolve_searxng_base_url(str(_value(row, "base_url", "")).strip())
+    timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
+    language = str(_value(row, "language", "")).strip()
+    safe_search = int(_value(row, "safe_search", 1) or 1)
+    params = {
+        "q": "aria health check",
+        "format": "json",
+        "pageno": 1,
+        "safesearch": max(0, min(safe_search, 2)),
+    }
+    if language:
+        params["language"] = language
+    target_url = f"{base_url.rstrip('/')}/search?{urlencode(params)}"
+    req = URLRequest(
+        target_url,
+        headers={
+            "User-Agent": "ARIA/1.0",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
+            payload = resp.read()
+            status_code = int(getattr(resp, "status", 200) or 200)
+    except HTTPError as exc:
+        if int(getattr(exc, "code", 0) or 0) == 429:
+            raise ValueError(_searxng_rate_limit_hint(lang)) from exc
+        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: {exc}", f"SearXNG test failed: {exc}")) from exc
+    except URLError as exc:
+        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: {exc}", f"SearXNG test failed: {exc}")) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: {exc}", f"SearXNG test failed: {exc}")) from exc
+    if status_code >= 400:
+        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: HTTP {status_code}", f"SearXNG test failed: HTTP {status_code}"))
+    try:
+        data = json.loads(payload.decode("utf-8", errors="replace"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(_msg(lang, f"SearXNG-Test lieferte kein JSON: {exc}", f"SearXNG test did not return JSON: {exc}")) from exc
+    if not isinstance(data, dict) or "results" not in data:
+        raise ValueError(_msg(lang, "SearXNG-Test lieferte kein erwartetes Search-JSON.", "SearXNG test did not return the expected search JSON."))
+    return _msg(lang, f"SearXNG-Test erfolgreich für {ref}", f"SearXNG test successful for {ref}")
+
+
 def _cached_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> dict[str, str] | None:
     poll_interval = int(_value(row, "poll_interval_minutes", 60) or 60)
     poll_interval = max(1, min(poll_interval, 10080))
@@ -686,6 +745,43 @@ def _last_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> dict
     }
 
 
+def _cached_connection_status_row(kind: str, ref: str, row: Any, *, lang: str = "de") -> dict[str, Any]:
+    normalized_kind = normalize_connection_kind(kind)
+    if normalized_kind == "rss":
+        return _last_rss_connection_status(ref, row, lang=lang)
+
+    target = _CONNECTION_TARGETS[normalized_kind](row)
+    title = str(_value(row, "title", "")).strip()
+    tags_raw = _value(row, "tags", [])
+    tags = [str(item).strip() for item in tags_raw if str(item).strip()] if isinstance(tags_raw, list) else []
+    cached = get_connection_health(f"{normalized_kind}:{ref}")
+    status = str(cached.get("last_status", "")).strip().lower()
+    if status not in {"ok", "error"}:
+        status = "warn"
+    message = str(cached.get("last_message", "")).strip()
+    if not message:
+        message = _msg(
+            lang,
+            "Noch kein Status im Cache. Nutze den Test-Button fuer eine Live-Pruefung.",
+            "No cached status yet. Use the test button for a live check.",
+        )
+    return {
+        "kind_key": normalized_kind,
+        "kind": connection_kind_label(normalized_kind),
+        "kind_icon": connection_icon_name(normalized_kind),
+        "kind_alpha": connection_is_alpha(normalized_kind),
+        "ref": ref,
+        "display_name": title or ref,
+        "title": title,
+        "group_name": str(_value(row, "group_name", "")).strip() if normalized_kind == "rss" else "",
+        "tags": tags,
+        "target": target,
+        "status": status,
+        "message": message,
+        "last_success_at": str(cached.get("last_success_at", "")).strip(),
+    }
+
+
 def _test_mqtt_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
     host = str(_value(row, "host", "")).strip()
@@ -748,6 +844,7 @@ _CONNECTION_TESTERS = {
     "imap": _test_imap_connection,
     "http_api": _test_http_api_connection,
     "rss": _test_rss_connection,
+    "searxng": _test_searxng_connection,
     "mqtt": _test_mqtt_connection,
 }
 
@@ -761,6 +858,7 @@ _CONNECTION_TARGETS = {
     "imap": _imap_target,
     "http_api": _http_api_target,
     "rss": _rss_target,
+    "searxng": _searxng_target,
     "mqtt": _mqtt_target,
 }
 
@@ -777,10 +875,21 @@ def test_connection(kind: str, ref: str, row: Any, *, page_probe: bool = False, 
     return tester(ref, row, timeout_override=timeout_override, base_dir=base_dir, page_probe=page_probe, lang=lang)
 
 
-def build_connection_status_row(kind: str, ref: str, row: Any, *, page_probe: bool = False, base_dir: Path | None = None, lang: str = "de") -> dict[str, str]:
+def build_connection_status_row(
+    kind: str,
+    ref: str,
+    row: Any,
+    *,
+    page_probe: bool = False,
+    cached_only: bool = False,
+    base_dir: Path | None = None,
+    lang: str = "de",
+) -> dict[str, str]:
     normalized_kind = normalize_connection_kind(kind)
     if normalized_kind not in _CONNECTION_TESTERS:
         raise ValueError(_msg(lang, f"Unbekannter Connection-Typ: {kind}", f"Unknown connection type: {kind}"))
+    if cached_only:
+        return _cached_connection_status_row(normalized_kind, ref, row, lang=lang)
     if normalized_kind == "rss" and page_probe:
         cached_row = _cached_rss_connection_status(ref, row, lang=lang)
         if cached_row is not None:
@@ -821,6 +930,7 @@ def build_connection_status_rows(
     *,
     selected_ref: str = "",
     page_probe: bool = False,
+    cached_only: bool = False,
     base_dir: Path | None = None,
     lang: str = "de",
 ) -> list[dict[str, Any]]:
@@ -832,7 +942,15 @@ def build_connection_status_rows(
             continue
         rows.append(
             {
-                **build_connection_status_row(normalized_kind, ref, row, page_probe=page_probe, base_dir=base_dir, lang=lang),
+                **build_connection_status_row(
+                    normalized_kind,
+                    ref,
+                    row,
+                    page_probe=page_probe,
+                    cached_only=cached_only,
+                    base_dir=base_dir,
+                    lang=lang,
+                ),
                 "selected": ref == selected_ref,
             }
         )

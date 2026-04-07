@@ -92,6 +92,9 @@ copy_file "$LATEST_REMOTE_TAR" "$LOCAL_DIR/"
 log "Hole Stack-Datei"
 copy_file "$REMOTE_DOCKER_DIR/portainer-stack.alpha3.local.yml" "$LOCAL_DIR/"
 
+log "Hole SearXNG-Settings"
+copy_file "$REMOTE_DOCKER_DIR/searxng.settings.yml" "$LOCAL_DIR/"
+
 log "Hole lokales Update-Script"
 copy_file "$REMOTE_DOCKER_DIR/update-local-aria.sh" "$LOCAL_DIR/"
 

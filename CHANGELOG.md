@@ -6,17 +6,35 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.69] - 2026-04-08
+
 ### Added
+- pre-alpha Websuche ueber self-hosted `SearXNG` ist lokal vorbereitet: eigener Connection-Typ, eigener Chat-Intent und Quellenanzeige in den Chat-Details
+- die Compose-/Portainer-Stacks koennen jetzt zusaetzlich einen separaten `SearXNG`- und `Valkey`-Dienst mitfuehren, inklusive automatisch aktivierter JSON-API fuer ARIA
+- `SearXNG` taucht als eigene Connection-Familie in Config, Status und Connection-Hub auf
 
 ### Changed
+- `Memory`/RAG-Quellen und Web-Quellen nutzen jetzt dieselbe `detail_lines`-Schiene, damit spaetere Recherche- und Websearch-Pfade dieselbe Quellenanzeige im Chat verwenden koennen
+- die SearXNG-Stacks nutzen jetzt eine statische `searxng.settings.yml` statt eines Shell-Bootstrap-Blocks im Compose/Portainer-Stack; `secret_key` und Valkey-URL kommen ueber normale Container-Umgebungsvariablen
+- SearXNG-Profile in ARIA fragen die Stack-URL nicht mehr pro Verbindung ab; ARIA nutzt dafuer standardmaessig `http://searxng:8080` aus dem Stack bzw. einen zentralen Override und laesst pro Profil nur noch Suchverhalten und Routing-Metadaten konfigurieren
+- die SearXNG-Config-Seite ist jetzt schlanker: Kategorien und Engines werden per Checkboxen gepflegt, dazu Sprache, SafeSearch, Zeitbereich, Trefferzahl sowie Name, Aliase und Tags fuer Routing wie `youtube` fuer Videos oder `startpage` fuer Buecher
+- der globale Restart-/Health-Poll im Frontend laeuft fuer eingeloggte Seiten jetzt deutlich ruhiger ueber einen getakteten Timeout-Loop statt alle 3 Sekunden per `setInterval`; beim Zurueckkehren in einen sichtbaren Tab wird dafuer einmal zeitnah nachgeprueft
+- Connection-Seiten zeigen bestehende Health-/Test-Resultate jetzt standardmaessig aus dem Cache statt beim bloessen Oeffnen sofort neue Live-Probes gegen SSH, SFTP, Discord, HTTP, SearXNG oder MQTT zu fahren; fuer frische Live-Checks bleiben die vorhandenen Test-Buttons zustandig
+- der Public-Docker-Weg ist jetzt auf einen konsistenten SearXNG-Stack gezogen: `docker-compose.public.yml`, `docker/portainer-stack.public.yml`, `.env.example` und die Quick-Start-Doku zeigen denselben Compose-/Portainer-Schnitt fuer ARIA + Qdrant + SearXNG + Valkey
 
 ### Fixed
+- explizite Websuche mischt keinen Auto-Memory-Recall mehr in die Quellen; Web-Details bleiben dadurch bei Anfragen wie `recherchiere im web ...` sauber auf Web-Treffer fokussiert
+- SearXNG-Connection-Tests und Websuche geben bei `HTTP 429 Too Many Requests` jetzt einen klaren Hinweis auf den internen Stack-Fix mit `SEARXNG_LIMITER=false`, statt nur den rohen Fehler weiterzureichen
+- der interne `aria-pull`-/`update-local-aria`-Flow ueberfaehrt den laufenden Qdrant-Key nicht mehr still mit einem veralteten Wert aus `aria-stack.env`; bei Abweichungen nutzt ARIA fuer den reinen Service-Recreate jetzt den aktiven Live-Key des laufenden Stacks und vermeidet dadurch `HTTP 401 Unauthorized` gegen Qdrant nach Key-Rotationen im Portainer-Stack
+- Websuche uebergibt erkannte Trefferdaten jetzt sichtbarer in den Chat-Kontext: Treffer mit publiziertem Datum zeigen ihr Datum in den Details, und bei klaren Recency-/Release-Anfragen werden datierte Ergebnisse fuer die Antwortvorbereitung staerker nach oben sortiert
 
 ### Security
 
 ### Known Limitations
+- Websuche ist bewusst noch ein pre-alpha Block: ARIA nutzt die Top-Treffer aus SearXNG, aber noch kein Full-Page-Fetching oder Deep-Research-Crawling
 
 ### Upgrade Notes
+- fuer interne ARIA-Stacks wird SearXNG jetzt standardmaessig ohne API-Limiter betrieben (`SEARXNG_LIMITER=false`), weil ARIA sonst schnell in `HTTP 429 Too Many Requests` fuer die JSON-API laufen kann
 
 ## [0.1.0-alpha.64] - 2026-04-07
 ### Added

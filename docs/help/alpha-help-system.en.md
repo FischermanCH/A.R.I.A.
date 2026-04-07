@@ -1,6 +1,6 @@
 # ARIA Alpha Help
 
-Updated: 2026-04-04
+Updated: 2026-04-07
 
 This page is the practical short help for ARIA Alpha. It explains the main areas in a way that should let you start working directly.
 
@@ -100,6 +100,22 @@ The better your titles / aliases / tags are, the more reliably ARIA can pick the
 - Discord is currently mainly a webhook target and skill output channel
 - on Discord connections, you can enable test posts and `Allow as skill target`
 - HTTP API and Webhook profiles are meant for targeted request/send flows
+
+### SearXNG / Web Search
+
+- for ARIA, SearXNG is a separate search service in the stack, similar to how Qdrant stays separate
+- ARIA only uses the SearXNG JSON search API, not SearXNG code inside ARIA itself
+- ARIA now uses the in-stack URL as a fixed default:
+  - `http://searxng:8080`
+- per profile you mainly configure:
+  - language
+  - SafeSearch
+  - a few categories
+  - a few preferred engines
+  - result count
+  - time range
+- clear profile names and tags help routing, for example `youtube` for videos or `startpage` for books
+- in chat you can then use explicit prompts like `search the web ...` or `web search ...`
 
 ### RSS
 

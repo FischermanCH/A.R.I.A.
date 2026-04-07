@@ -22,8 +22,8 @@ def test_connection_template_name_handles_special_route_names() -> None:
 def test_connection_menu_rows_follow_catalog_order() -> None:
     rows = connection_menu_rows()
     assert [row["kind"] for row in rows] == ordered_connection_kinds()
-    assert [row["kind"] for row in rows[-3:]] == ["mqtt", "email", "imap"]
-    assert all(bool(row["alpha"]) for row in rows[-3:])
+    assert [row["kind"] for row in rows[-4:]] == ["searxng", "mqtt", "email", "imap"]
+    assert all(bool(row["alpha"]) for row in rows[-4:])
 
 
 def test_connection_menu_meta_exposes_page_text_keys() -> None:
@@ -65,3 +65,17 @@ def test_rss_catalog_exposes_poll_interval_field() -> None:
     assert fields["poll_interval_minutes"]["type"] == "int"
     assert fields["poll_interval_minutes"]["min"] == 1
     assert fields["poll_interval_minutes"]["max"] == 10080
+
+
+def test_searxng_catalog_exposes_web_search_defaults() -> None:
+    searxng = connection_menu_meta("searxng")
+    defaults = connection_chat_defaults("searxng")
+    fields = connection_field_specs("searxng")
+
+    assert searxng["url"] == "/config/connections/searxng"
+    assert defaults["base_url"] == "http://searxng:8080"
+    assert defaults["safe_search"] == 1
+    assert defaults["max_results"] == 5
+    assert fields["categories"]["type"] == "list"
+    assert fields["engines"]["type"] == "list"
+    assert connection_chat_emoji("searxng") == "🔎"

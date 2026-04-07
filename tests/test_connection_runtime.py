@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
 
 from aria.core import connection_runtime
 
@@ -165,6 +166,52 @@ def test_rss_page_probe_without_cache_returns_non_blocking_placeholder(monkeypat
     assert status["target"] == "https://example.org/feed.xml"
 
 
+def test_cached_only_connection_status_uses_health_store_without_live_probe(monkeypatch) -> None:
+    monkeypatch.setattr(
+        connection_runtime,
+        "get_connection_health",
+        lambda _ref: {
+            "last_checked_at": "2026-04-07T10:00:00+00:00",
+            "last_status": "ok",
+            "last_target": "https://api.example.org",
+            "last_message": "Zuletzt erfolgreich getestet",
+            "last_success_at": "2026-04-07T10:00:00+00:00",
+        },
+    )
+
+    def _fail_live_probe(*_args, **_kwargs):
+        raise AssertionError("live probe should not run while rendering cached connection status")
+
+    monkeypatch.setattr(connection_runtime, "_test_http_api_connection", _fail_live_probe)
+
+    status = connection_runtime.build_connection_status_row(
+        "http_api",
+        "inventory",
+        {"title": "Inventory API", "base_url": "https://api.example.org"},
+        cached_only=True,
+        lang="de",
+    )
+
+    assert status["status"] == "ok"
+    assert status["message"] == "Zuletzt erfolgreich getestet"
+    assert status["display_name"] == "Inventory API"
+
+
+def test_cached_only_connection_status_without_cache_returns_warn_placeholder(monkeypatch) -> None:
+    monkeypatch.setattr(connection_runtime, "get_connection_health", lambda _ref: {})
+
+    status = connection_runtime.build_connection_status_row(
+        "searxng",
+        "web-allgemein",
+        {"title": "Web Allgemein"},
+        cached_only=True,
+        lang="de",
+    )
+
+    assert status["status"] == "warn"
+    assert status["message"] == "Noch kein Status im Cache. Nutze den Test-Button fuer eine Live-Pruefung."
+
+
 def test_rss_connection_test_accepts_rdf_rss_feed(monkeypatch) -> None:
     payload = b"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns=\"http://purl.org/rss/1.0/\">
@@ -218,6 +265,58 @@ def test_extract_rss_preview_titles_supports_atom_feed() -> None:
 
     assert feed_title == "Atom Feed"
     assert titles == ["First item", "Second item"]
+
+
+def test_searxng_connection_test_accepts_json_results(monkeypatch) -> None:
+    payload = b'{"query":"aria health check","results":[{"title":"Example","url":"https://example.org","content":"Snippet","engines":["duckduckgo"]}]}'
+    monkeypatch.setattr(connection_runtime, "urlopen", lambda _req, timeout=0: _FakeHttpResponse(payload, status=200))
+
+    message = connection_runtime._test_searxng_connection(
+        "web-search",
+        {"base_url": "http://searxng:8080", "timeout_seconds": 10, "language": "de-CH", "safe_search": 1},
+        lang="de",
+    )
+
+    assert message == "SearXNG-Test erfolgreich für web-search"
+
+
+def test_searxng_connection_test_uses_default_stack_url_when_profile_url_is_missing(monkeypatch) -> None:
+    payload = b'{"query":"aria health check","results":[{"title":"Example","url":"https://example.org","content":"Snippet","engines":["duckduckgo"]}]}'
+    captured_url: dict[str, str] = {}
+
+    def _fake_open(request, timeout=0):
+        captured_url["url"] = request.full_url
+        return _FakeHttpResponse(payload, status=200)
+
+    monkeypatch.setattr(connection_runtime, "urlopen", _fake_open)
+
+    message = connection_runtime._test_searxng_connection(
+        "web-search",
+        {"timeout_seconds": 10, "language": "de-CH", "safe_search": 1},
+        lang="de",
+    )
+
+    assert message == "SearXNG-Test erfolgreich für web-search"
+    assert captured_url["url"].startswith("http://searxng:8080/search?")
+
+
+def test_searxng_connection_test_shows_actionable_hint_on_rate_limit(monkeypatch) -> None:
+    def _fail(_request, timeout=0):
+        raise HTTPError("http://searxng:8080/search?q=aria", 429, "Too Many Requests", hdrs=None, fp=None)
+
+    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
+
+    try:
+        connection_runtime._test_searxng_connection(
+            "web-search",
+            {"timeout_seconds": 10, "language": "de-CH", "safe_search": 1},
+            lang="de",
+        )
+    except ValueError as exc:
+        assert "SEARXNG_LIMITER=false" in str(exc)
+        assert "HTTP 429" in str(exc)
+    else:
+        raise AssertionError("429 rate limit should return actionable SearXNG hint")
 
 
 def test_rss_connection_test_rejects_json_with_actionable_hint(monkeypatch) -> None:

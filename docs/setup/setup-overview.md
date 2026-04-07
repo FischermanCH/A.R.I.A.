@@ -1,6 +1,6 @@
 # ARIA - Setup / Quick Overview
 
-Stand: 2026-04-03
+Stand: 2026-04-07
 
 Zweck:
 - technische Kurz-Erklärung, **wie ARIA grundsätzlich aufgesetzt und betrieben wird**
@@ -15,6 +15,8 @@ Empfohlener ALPHA-Betrieb:
 - Zugriff nur im LAN oder via VPN
 - persistente Volumes für Config, Prompts, Data
 - Qdrant als eigener Service/Container
+- optional SearXNG als eigener Search-Service/Container fuer Websuche
+- bei SearXNG bevorzugt eine statische `searxng.settings.yml` statt Shell-Logik im Stack
 
 Nicht empfohlen im aktuellen ALPHA-Stand:
 - offener Public-Internet-Betrieb ohne vorgeschaltete Schutzschicht
@@ -42,14 +44,17 @@ Zentrale Dateien:
 
 Technischer Ablauf:
 1. Repo auf den Zielhost legen
-2. lokale Config-/Secret-Dateien aus den Beispielen erzeugen
-3. `.env` setzen, mindestens Qdrant API Key
-4. `docker compose up -d --build`
-5. ARIA im Browser öffnen und initialen Admin-User erstellen
+2. `.env.example` nach `.env` kopieren
+3. `.env` setzen, mindestens Qdrant API Key + SearXNG Secret
+4. `docker compose -f docker-compose.public.yml up -d`
+5. optional SearXNG im selben Stack mitstarten
+6. ARIA im Browser öffnen und initialen Admin-User erstellen
 
 Zentrale Dateien:
 - `Dockerfile`
 - `docker-compose.yml`
+- `docker-compose.public.yml`
+- `docker/searxng.settings.yml`
 - `.env.example`
 - `docker/entrypoint.sh`
 
@@ -58,14 +63,17 @@ Zentrale Dateien:
 Technischer Ablauf:
 1. Portainer-Stack-YAML als Vorlage nehmen
 2. persistente Named Volumes für `config`, `prompts`, `data`, `qdrant_storage`
-3. Environment-Werte setzen, mindestens `ARIA_QDRANT_API_KEY`
-4. Stack starten
-5. ARIA im Browser öffnen und Erstnutzer/LLM/Connections konfigurieren
+3. optional zusaetzlich SearXNG/Valkey im selben Stack mitnehmen
+4. Environment-Werte setzen, mindestens `ARIA_QDRANT_API_KEY`
+5. Stack starten
+6. ARIA im Browser öffnen und Erstnutzer/LLM/Connections konfigurieren
 
 Zentrale Dateien:
+- `docker/portainer-stack.public.yml`
 - `docker/portainer-stack.example.yml`
 - `docker/portainer-stack.alpha3.local.yml`
 - `docker/aria-stack.env.example`
+- `docker/searxng.settings.yml`
 
 ## First-Run Flow
 
@@ -83,6 +91,8 @@ Für Containerbetrieb sind diese Mounts/Volumes wichtig:
 - `/app/prompts`
 - `/app/data`
 - Qdrant Storage Volume für den Qdrant-Container
+- optional SearXNG Cache-Volume fuer den Search-Container
+- bei SearXNG zusaetzlich eine gemountete `settings.yml` nach `/etc/searxng/settings.yml`
 
 Wichtiges Verhalten:
 - wenn `config` oder `prompts` beim ersten Containerstart leer sind, füllt der EntryPoint sie aus den eingebauten Defaults
@@ -102,6 +112,17 @@ Wichtige Beispiele:
 - `ARIA_ARIA_PORT`
 - `ARIA_PUBLIC_URL`
 - `ARIA_QDRANT_API_KEY`
+- `SEARXNG_SECRET`
+
+Wenn SearXNG im Stack mitlaeuft, nutzt ARIA intern standardmaessig diese feste Stack-URL:
+- `http://searxng:8080`
+
+Auf der SearXNG-Connection-Seite pflegst du pro Profil dann nur noch Suchverhalten und Routing-Metadaten.
+
+Fuer den SearXNG-Container selbst sind typischerweise gesetzt:
+- `SEARXNG_SECRET`
+- `SEARXNG_LIMITER=false`
+- `SEARXNG_VALKEY_URL`
 
 ## LLM / Embeddings
 

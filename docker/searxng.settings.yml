@@ -1,0 +1,23 @@
+use_default_settings: true
+
+general:
+  instance_name: "ARIA Search"
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  # Overwritten by ${SEARXNG_SECRET}
+  secret_key: "ultrasecretkey"
+  # For the ARIA stack SearXNG is normally only used internally by ARIA itself.
+  # The limiter would otherwise rate-limit the JSON API very quickly.
+  limiter: false
+  image_proxy: true
+
+valkey:
+  # Overwritten by ${SEARXNG_VALKEY_URL}
+  url: valkey://searxng-valkey:6379/0

@@ -1,6 +1,6 @@
 # ARIA Alpha Hilfe
 
-Stand: 2026-04-04
+Stand: 2026-04-07
 
 Diese Seite ist die praktische Kurz-Hilfe für ARIA Alpha. Sie erklärt die wichtigsten Bereiche so, dass du direkt arbeiten kannst.
 
@@ -100,6 +100,22 @@ Je besser Titel / Aliase / Tags gepflegt sind, desto eher trifft ARIA bei freien
 - Discord ist aktuell vor allem als Webhook-Ziel und Skill-Output-Kanal gedacht
 - für Discord-Connections kannst du z. B. Testposts und `Skill-Ziel erlauben` setzen
 - HTTP-API und Webhook sind für gezielte Request-/Send-Flows gedacht
+
+### SearXNG / Websuche
+
+- SearXNG ist fuer ARIA ein separater Suchdienst im Stack, aehnlich zur Trennung von Qdrant
+- ARIA nutzt nur die JSON-Suche von SearXNG, nicht den internen Code des Projekts
+- die Stack-URL ist in ARIA standardmaessig fest hinterlegt:
+  - `http://searxng:8080`
+- pro Profil konfigurierst du dann nur noch:
+  - Sprache
+  - SafeSearch
+  - wenige Kategorien
+  - wenige bevorzugte Engines
+  - Trefferzahl
+  - Zeitbereich
+- fuer Routing helfen klare Profilnamen und Tags, z. B. `youtube` fuer Videos oder `startpage` fuer Buecher
+- im Chat kannst du dann bewusst Formulierungen wie `websuche ...` oder `recherchiere im web ...` verwenden
 
 ### RSS
 

@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_searxng_ref %}hidden{% endif %}>
+    {% with
+      heading=tr(request, 'context_help.searxng_title', 'Kurz erklärt'),
+      body=tr(request, 'context_help.searxng_body', 'SearXNG läuft als eigener Suchdienst im Stack. ARIA nutzt nur dessen JSON-API und bringt Treffer später als Web-Kontext in den Chat.'),
+      help_doc='connections'
+    %}
+      {% include "_context_help.html" %}
+    {% endwith %}
+
+    {% if selected_searxng_ref %}
+    {% if searxng_test_status == 'ok' or searxng_test_status == 'error' %}
+    <article class="connection-test-card status-{{ searxng_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ searxng_test_status }}"></span><strong>{% if searxng_test_status == 'ok' %}{{ tr(request,'config_conn.searxng_test_ok','SearXNG connection test successful') }}{% else %}{{ tr(request,'config_conn.searxng_test_error','SearXNG connection test failed') }}{% endif %}</strong></div>
+      <small>{% if searxng_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/searxng/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_searxng_ref }}">
+      <label for="searxng_edit_connection_ref">{{ tr(request, 'config_conn.profile_name', 'Profilname') }}</label>
+      <input id="searxng_edit_connection_ref" name="connection_ref" type="text" value="{{ selected_searxng_ref }}" maxlength="48" required>
+      <small class="hint-text">{{ tr(request, 'config_conn.ref_hint', 'Technischer Referenzname für Routing und interne Zuordnung.') }}</small>
+
+      <div class="skill-summary connection-flow-note">
+        <strong>{{ tr(request, 'config_conn.endpoint', 'Target') }}</strong>
+        <span>{{ tr(request, 'config_conn.searxng_fixed_base_url_hint', 'Die SearXNG-URL kommt fest aus dem Stack. Pro Profil konfigurierst du nur Suchverhalten und Routing-Metadaten.') }}</span>
+      </div>
+      <div class="connection-form-grid">
+        <div>
+          <label>{{ tr(request, 'config_conn.searxng_fixed_base_url', 'Feste Stack-URL') }}</label>
+          <input type="text" value="{{ searxng_default_base_url }}" readonly>
+        </div>
+        <div>
+          <label for="searxng_edit_max_results">{{ tr(request, 'config_conn.searxng_max_results', 'Max. Treffer') }}</label>
+          <input id="searxng_edit_max_results" name="max_results" type="number" min="1" max="20" value="{{ searxng_edit_profile.max_results or 5 }}" required>
+          <small class="hint-text">{{ tr(request,'config_conn.searxng_max_results_hint','Wie viele Treffer standardmaessig in den Chat-Kontext uebernommen werden.') }}</small>
+        </div>
+      </div>
+
+      <div class="connection-form-grid">
+        <div>
+          <label for="searxng_edit_language">{{ tr(request, 'config_conn.searxng_language', 'Sprache') }}</label>
+          <select id="searxng_edit_language" name="language" required>
+            {% for option in searxng_language_options %}
+            <option value="{{ option }}" {% if (searxng_edit_profile.language or 'de-CH') == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="searxng_edit_safe_search">{{ tr(request, 'config_conn.searxng_safe_search', 'SafeSearch') }}</label>
+          <select id="searxng_edit_safe_search" name="safe_search" required>
+            {% for option in searxng_safe_search_options %}
+            <option value="{{ option.value }}" {% if (searxng_edit_profile.safe_search|string) == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label for="searxng_edit_time_range">{{ tr(request, 'config_conn.searxng_time_range', 'Zeitraum') }}</label>
+      <select id="searxng_edit_time_range" name="time_range">
+        {% for option in searxng_time_range_options %}
+        <option value="{{ option.value }}" {% if (searxng_edit_profile.time_range or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+
+      <section class="connection-meta-block">
+        <div class="skill-summary connection-flow-note">
+          <strong>{{ tr(request, 'config_conn.searxng_categories', 'Kategorien') }}</strong>
+          <span>{{ tr(request, 'config_conn.searxng_categories_hint', 'Wenige sinnvolle Kategorien reichen meist. Wenn nichts passt, lass nur general aktiv.') }}</span>
+        </div>
+        <div class="inline-actions">
+          {% for option in searxng_category_options %}
+          <label class="inline-check" for="searxng_edit_category_{{ option.value }}">
+            <input id="searxng_edit_category_{{ option.value }}" type="checkbox" name="categories" value="{{ option.value }}" {% if option.checked %}checked{% endif %}>
+            {{ option.label }}
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="connection-meta-block">
+        <div class="skill-summary connection-flow-note">
+          <strong>{{ tr(request, 'config_conn.searxng_engines', 'Suchmaschinen') }}</strong>
+          <span>{{ tr(request, 'config_conn.searxng_engines_hint', 'Hier legst du fest, wofuer dieses Profil gedacht ist, zum Beispiel YouTube fuer Videos oder Startpage fuer Buecher.') }}</span>
+        </div>
+        <div class="inline-actions">
+          {% for option in searxng_engine_options %}
+          <label class="inline-check" for="searxng_edit_engine_{{ option.value }}">
+            <input id="searxng_edit_engine_{{ option.value }}" type="checkbox" name="engines" value="{{ option.value }}" {% if option.checked %}checked{% endif %}>
+            {{ option.label }}
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+      {% set meta_prefix = 'searxng_edit' %}
+      {% set meta_values = selected_searxng %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request,'config_conn.searxng_save_profile','Save SearXNG profile') }}</button>
+    </form>
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'searxng' %}
+    {% set delete_ref = selected_searxng_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.searxng_recommended_flow_text','1) SearXNG im Stack starten. 2) Profil fuer eine Suchaufgabe anlegen. 3) ARIA testet die JSON-Suche automatisch. 4) Danach Websuche im Chat nutzen.') }}</span></div>
+    <form method="post" action="/config/connections/searxng/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      <label for="searxng_new_connection_ref">{{ tr(request, 'config_conn.profile_name', 'Profilname') }}</label>
+      <input id="searxng_new_connection_ref" name="connection_ref" type="text" value="" maxlength="48" required placeholder="z. B. web-allgemein">
+      <small class="hint-text">{{ tr(request, 'config_conn.ref_hint', 'Technischer Referenzname für Routing und interne Zuordnung.') }}</small>
+
+      <div class="skill-summary connection-flow-note">
+        <strong>{{ tr(request, 'config_conn.endpoint', 'Target') }}</strong>
+        <span>{{ tr(request, 'config_conn.searxng_fixed_base_url_hint', 'Die SearXNG-URL kommt fest aus dem Stack. Pro Profil konfigurierst du nur Suchverhalten und Routing-Metadaten.') }}</span>
+      </div>
+      <div class="connection-form-grid">
+        <div>
+          <label>{{ tr(request, 'config_conn.searxng_fixed_base_url', 'Feste Stack-URL') }}</label>
+          <input type="text" value="{{ searxng_default_base_url }}" readonly>
+        </div>
+        <div>
+          <label for="searxng_new_max_results">{{ tr(request, 'config_conn.searxng_max_results', 'Max. Treffer') }}</label>
+          <input id="searxng_new_max_results" name="max_results" type="number" min="1" max="20" value="{{ searxng_new_profile.max_results or 5 }}" required>
+          <small class="hint-text">{{ tr(request,'config_conn.searxng_max_results_hint','Wie viele Treffer standardmaessig in den Chat-Kontext uebernommen werden.') }}</small>
+        </div>
+      </div>
+
+      <div class="connection-form-grid">
+        <div>
+          <label for="searxng_new_language">{{ tr(request, 'config_conn.searxng_language', 'Sprache') }}</label>
+          <select id="searxng_new_language" name="language" required>
+            {% for option in searxng_language_options %}
+            <option value="{{ option }}" {% if (searxng_new_profile.language or 'de-CH') == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="searxng_new_safe_search">{{ tr(request, 'config_conn.searxng_safe_search', 'SafeSearch') }}</label>
+          <select id="searxng_new_safe_search" name="safe_search" required>
+            {% for option in searxng_safe_search_options %}
+            <option value="{{ option.value }}" {% if (searxng_new_profile.safe_search|string) == option.value %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label for="searxng_new_time_range">{{ tr(request, 'config_conn.searxng_time_range', 'Zeitraum') }}</label>
+      <select id="searxng_new_time_range" name="time_range">
+        {% for option in searxng_time_range_options %}
+        <option value="{{ option.value }}" {% if (searxng_new_profile.time_range or '') == option.value %}selected{% endif %}>{{ option.label }}</option>
+        {% endfor %}
+      </select>
+
+      <section class="connection-meta-block">
+        <div class="skill-summary connection-flow-note">
+          <strong>{{ tr(request, 'config_conn.searxng_categories', 'Kategorien') }}</strong>
+          <span>{{ tr(request, 'config_conn.searxng_categories_hint', 'Wenige sinnvolle Kategorien reichen meist. Wenn nichts passt, lass nur general aktiv.') }}</span>
+        </div>
+        <div class="inline-actions">
+          {% for option in searxng_new_category_options %}
+          <label class="inline-check" for="searxng_new_category_{{ option.value }}">
+            <input id="searxng_new_category_{{ option.value }}" type="checkbox" name="categories" value="{{ option.value }}" {% if option.checked %}checked{% endif %}>
+            {{ option.label }}
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="connection-meta-block">
+        <div class="skill-summary connection-flow-note">
+          <strong>{{ tr(request, 'config_conn.searxng_engines', 'Suchmaschinen') }}</strong>
+          <span>{{ tr(request, 'config_conn.searxng_engines_hint', 'Hier legst du fest, wofuer dieses Profil gedacht ist, zum Beispiel YouTube fuer Videos oder Startpage fuer Buecher.') }}</span>
+        </div>
+        <div class="inline-actions">
+          {% for option in searxng_new_engine_options %}
+          <label class="inline-check" for="searxng_new_engine_{{ option.value }}">
+            <input id="searxng_new_engine_{{ option.value }}" type="checkbox" name="engines" value="{{ option.value }}" {% if option.checked %}checked{% endif %}>
+            {{ option.label }}
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+      {% set meta_prefix = 'searxng_new' %}
+      {% set meta_values = {} %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request,'config_conn.searxng_save_profile','Save SearXNG profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

@@ -42,6 +42,7 @@ from aria.core.ssh_runtime import SSHRuntime
 from aria.core.usage_meter import UsageMeter
 from aria.skills.base import SkillResult
 from aria.skills.memory import MemorySkill
+from aria.skills.web_search import WebSearchSkill
 
 
 @dataclass
@@ -93,6 +94,9 @@ class Pipeline:
                 embeddings=settings.embeddings,
                 embedding_client=self.embedding_client,
             )
+        self.web_search_skill: WebSearchSkill | None = None
+        if isinstance(getattr(getattr(settings, "connections", object()), "searxng", {}), dict):
+            self.web_search_skill = WebSearchSkill(settings=self.settings)
         self._project_root = Path(__file__).resolve().parents[2]
         self._custom_skills_dir = self._project_root / "data" / "skills"
         self._config_path = self._project_root / "config" / "config.yaml"
@@ -110,9 +114,11 @@ class Pipeline:
             settings=self.settings,
             llm_client=self.llm_client,
             memory_skill_getter=lambda: self.memory_skill,
+            web_search_skill_getter=lambda: self.web_search_skill,
             execute_custom_ssh_command=self._execute_custom_ssh_command,
             extract_memory_store_text=self._extract_memory_store_text,
             extract_memory_recall_query=self._extract_memory_recall_query,
+            extract_web_search_query=self._extract_web_search_query,
             facts_collection_for_user=self._facts_collection_for_user,
             preferences_collection_for_user=self._preferences_collection_for_user,
             normalize_spaces=self._normalize_spaces,
@@ -240,6 +246,29 @@ class Pipeline:
         cleaned = re.sub(r"[?!.:,;]+", " ", cleaned)
         cleaned = self._normalize_spaces(cleaned)
         return cleaned or text
+
+    def _extract_web_search_query(
+        self,
+        message: str,
+        routing_profile: RoutingLanguageConfig | None = None,
+    ) -> str:
+        text = self._normalize_spaces(message)
+        lower = text.lower()
+        active_routing = routing_profile or self.settings.routing.for_language(None)
+
+        prefixes = [p.lower() for p in active_routing.web_search_prefixes if p.strip()]
+        for prefix in prefixes:
+            if lower.startswith(prefix):
+                extracted = text[len(prefix):].strip(" .,:;!?")
+                if extracted:
+                    return extracted
+
+        cleanup_keywords = [re.escape(k) for k in active_routing.web_search_cleanup_keywords if k.strip()]
+        if cleanup_keywords:
+            text = re.sub(r"\b(" + "|".join(cleanup_keywords) + r")\b", " ", text, flags=re.IGNORECASE)
+        text = re.sub(r"[?!.:,;]+", " ", text)
+        text = self._normalize_spaces(text)
+        return text or message
 
     @staticmethod
     def _sanitize_skill_id(value: str) -> str:
@@ -710,6 +739,47 @@ class Pipeline:
             auto_memory_enabled=auto_memory_enabled,
         )
         safe_fix_plan = self._build_safe_fix_plan(skill_results)
+        web_search_results = [result for result in skill_results if result.skill_name == "web_search"]
+        has_web_search_context = any(result.success and bool(str(result.content or "").strip()) for result in web_search_results)
+        if "web_search" in merged_intents and web_search_results and not has_web_search_context:
+            primary_error = next(
+                (str(result.error or "").strip() for result in web_search_results if str(result.error or "").strip()),
+                "Websuche fehlgeschlagen.",
+            )
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            await self.token_tracker.log(
+                request_id=request_id,
+                user_id=user_id,
+                intents=merged_intents,
+                router_level=decision.level,
+                usage=usage,
+                chat_model=self.settings.llm.model,
+                embedding_model=self.settings.embeddings.model,
+                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                duration_ms=duration_ms,
+                source=source,
+                skill_errors=[primary_error],
+                extraction_model="web_search_precheck",
+                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            )
+            return PipelineResult(
+                request_id=request_id,
+                text=primary_error,
+                usage=usage,
+                intents=merged_intents,
+                skill_errors=[primary_error],
+                router_level=decision.level,
+                duration_ms=duration_ms,
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                safe_fix_plan=safe_fix_plan,
+                detail_lines=self._collect_skill_detail_lines(skill_results),
+            )
 
         direct_chat_result = next(
             (

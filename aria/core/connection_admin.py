@@ -57,6 +57,11 @@ CONNECTION_ADMIN_SPECS: dict[str, dict[str, Any]] = {
         "secret_keys": [],
         "success_message": "RSS-Profil gelöscht",
     },
+    "searxng": {
+        "health_prefix": "searxng",
+        "secret_keys": [],
+        "success_message": "SearXNG-Profil gelöscht",
+    },
     "mqtt": {
         "health_prefix": "mqtt",
         "secret_keys": ["connections.mqtt.{ref}.password"],
@@ -99,6 +104,11 @@ CONNECTION_CREATE_SPECS: dict[str, dict[str, Any]] = {
         "section": "http_api",
         "required": ["base_url"],
         "success_message": "HTTP-API-Profil erstellt",
+    },
+    "searxng": {
+        "section": "searxng",
+        "required": ["base_url"],
+        "success_message": "SearXNG-Profil erstellt",
     },
     "mqtt": {
         "section": "mqtt",
@@ -145,6 +155,10 @@ CONNECTION_UPDATE_SPECS: dict[str, dict[str, Any]] = {
     "http_api": {
         "section": "http_api",
         "success_message": "HTTP-API-Profil aktualisiert",
+    },
+    "searxng": {
+        "section": "searxng",
+        "success_message": "SearXNG-Profil aktualisiert",
     },
     "mqtt": {
         "section": "mqtt",

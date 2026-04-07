@@ -101,6 +101,7 @@ class KeywordRouter:
         memory_store_keywords = self._normalize_keywords(active.memory_store_keywords)
         memory_recall_keywords = self._normalize_keywords(active.memory_recall_keywords)
         memory_forget_keywords = self._normalize_keywords(active.memory_forget_keywords)
+        web_search_keywords = self._normalize_keywords(active.web_search_keywords)
         intents: list[str] = []
 
         if self._contains_skill_status_intent(text):
@@ -114,6 +115,9 @@ class KeywordRouter:
 
         if any(keyword in text for keyword in memory_recall_keywords):
             intents.append("memory_recall")
+
+        if any(keyword in text for keyword in web_search_keywords):
+            intents.append("web_search")
 
         if not intents:
             intents = ["chat"]

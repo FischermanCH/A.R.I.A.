@@ -10,9 +10,14 @@ Zweck:
 
 Aktueller Release-Stand:
 - public: `0.1.0-alpha64`
-- lokal / intern: `0.1.0-alpha64`
+- lokal / intern: `0.1.0-alpha65`
 
 ## Offene Alpha-Punkte
+
+### Alpha65 Verifikation
+- [ ] SearXNG startet im internen Stack sauber als separater Dienst neben ARIA und Qdrant
+- [ ] `/config/connections/searxng` speichert und testet eine Connection gegen `http://searxng:8080`
+- [ ] explizite Websuche im Chat liefert Treffer mit Quellen in den Details
 
 ### Alpha64 Verifikation
 - [X] `/stats` zeigt den aktuellen internen Build korrekt
@@ -37,6 +42,7 @@ Bereits lokal geliefert oder im aktuellen Unreleased-Stand enthalten und deshalb
 - Update-Anzeige in `/stats` und verbesserter `/updates`-Fallback
 - Session-, Cookie- und Multi-Instanz-Logout-Fixes
 - RSS-UX- und Anzeigenamen-Fixes
+- pre-alpha Websuche via SearXNG als separatem Stack-Dienst, eigener Connection und Chat-Quellenanzeige
 - konfigurierbarer Embedding-Schutz fuer bestehendes Memory
 - zentrales Metering fuer alle LLM- und Embedding-Aufrufe
 - `aria --version`, `aria version-check`, Kontext-Hilfen und neue Sample-Skills
@@ -51,7 +57,6 @@ Siehe dafuer:
   - kein Blocker fuer den aktuellen Public-Release
 - Home Assistant Integration
 - semantischen Graph spaeter aus echten Beziehungen / Qdrant-Daten vertiefen
-- Websuche / Research-Flow mit SearXNG als separatem, unveraendertem API-Dienst
 - Streaming / SSE fuer Live-Antworten
 - volles Multi-User- / RBAC-Modell
 

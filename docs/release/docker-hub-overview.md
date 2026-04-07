@@ -18,12 +18,13 @@ Full repository and documentation:
 What you need:
 
 - Docker
-- a reachable LLM endpoint
 - a Qdrant API key for the bundled Qdrant container
+- a SearXNG secret for the bundled web search service
 
-Generate a suitable Qdrant key on Unix:
+Generate suitable keys on Unix:
 
 ```bash
+openssl rand -hex 32
 openssl rand -hex 32
 ```
 
@@ -43,56 +44,19 @@ After the first login:
 
 ## Docker Compose
 
-Use this minimal `compose.yml`:
+Use the included public compose file:
 
-```yaml
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    restart: unless-stopped
-    environment:
-      QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
-    volumes:
-      - qdrant_storage:/qdrant/storage
-
-  aria:
-    image: fischermanch/aria:alpha
-    restart: unless-stopped
-    depends_on:
-      - qdrant
-    ports:
-      - "${ARIA_HTTP_PORT:-8800}:8800"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    environment:
-      ARIA_QDRANT_URL: http://qdrant:6333
-      ARIA_QDRANT_API_KEY: ${ARIA_QDRANT_API_KEY}
-      ARIA_LLM_API_BASE: ${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}
-      ARIA_LLM_MODEL: ${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}
-      ARIA_EMBEDDINGS_API_BASE: ${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}
-      ARIA_EMBEDDINGS_MODEL: ${ARIA_EMBEDDINGS_MODEL:-ollama/nomic-embed-text}
-    volumes:
-      - aria_config:/app/config
-      - aria_prompts:/app/prompts
-      - aria_data:/app/data
-      - qdrant_storage:/qdrant/storage:ro
-
-volumes:
-  qdrant_storage:
-  aria_config:
-  aria_prompts:
-  aria_data:
-```
+- `docker-compose.public.yml`
+- `docker/searxng.settings.yml`
 
 Example `.env` values:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
+SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
-ARIA_LLM_API_BASE=http://host.docker.internal:11434
-ARIA_LLM_MODEL=ollama_chat/qwen3:8b
-ARIA_EMBEDDINGS_API_BASE=http://host.docker.internal:11434
-ARIA_EMBEDDINGS_MODEL=ollama/nomic-embed-text
+ARIA_PUBLIC_URL=http://localhost:8800
+SEARXNG_SETTINGS_FILE=./docker/searxng.settings.yml
 ```
 
 If you still need a key:
@@ -104,60 +68,39 @@ openssl rand -hex 32
 Start:
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.public.yml up -d
 ```
+
+This public stack starts:
+
+- `aria`
+- `qdrant`
+- `searxng`
+- `searxng-valkey`
+
+Inside ARIA, web search then talks to the in-stack SearXNG service via:
+
+- `http://searxng:8080`
 
 ## Portainer Stack
 
-Use this stack YAML:
+Use the included Portainer stack file:
 
-```yaml
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    restart: unless-stopped
-    environment:
-      QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
-    volumes:
-      - qdrant_storage:/qdrant/storage
-
-  aria:
-    image: fischermanch/aria:alpha
-    restart: unless-stopped
-    depends_on:
-      - qdrant
-    ports:
-      - "${ARIA_HTTP_PORT:-8800}:8800"
-    environment:
-      ARIA_QDRANT_URL: http://qdrant:6333
-      ARIA_QDRANT_API_KEY: ${ARIA_QDRANT_API_KEY}
-      ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
-    volumes:
-      - aria_config:/app/config
-      - aria_data:/app/data
-      - aria_prompts:/app/prompts
-      - qdrant_storage:/qdrant/storage:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-volumes:
-  aria_config:
-  aria_data:
-  aria_prompts:
-  qdrant_storage:
-```
+- `docker/portainer-stack.public.yml`
+- `docker/searxng.settings.yml`
 
 Recommended Portainer environment variables:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
-ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://<your-host>:8800
+SEARXNG_SECRET=replace-with-a-long-random-key
 ```
 
-If you still need a key:
+If you still need keys:
 
 ```bash
+openssl rand -hex 32
 openssl rand -hex 32
 ```
 
