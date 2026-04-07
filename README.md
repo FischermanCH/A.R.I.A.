@@ -139,6 +139,7 @@ Not the current target:
 - RAG v1 in `Memory` with document upload for `txt`, `md`, and `pdf` with embedded text
 - Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
 - Chat details now show document recall sources with file name, collection, and chunk reference
+- Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
 - `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
 - Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP, and MQTT
 - Custom Skills as JSON manifests with a browser wizard, import/export, and bundled sample skills
@@ -449,6 +450,7 @@ Aktuell **nicht** gedacht für:
 - Custom Skills als JSON-Manifeste mit Wizard, Import/Export und mitgelieferten Sample-Skills
 - `Statistiken` unter `/stats` mit Health, Token-/Kosten-Stats, Connection-Status, Aktivitäten und Reset
 - Read-only `/help` und `/product-info`
+- CLI-Schnellcheck via `aria --version` und `aria version-check`
 - OpenAI-kompatibler Endpoint `POST /v1/chat/completions`
 - Konfiguration über `config/config.yaml` plus `ARIA_*` ENV-Overrides
 - `/health` Endpoint

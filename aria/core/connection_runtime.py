@@ -56,6 +56,78 @@ def _value(row: Any, key: str, default: Any = "") -> Any:
     return getattr(row, key, default)
 
 
+def _xml_name(tag: str) -> str:
+    raw = str(tag or "").strip()
+    if "}" in raw:
+        raw = raw.split("}", 1)[1]
+    if ":" in raw:
+        raw = raw.split(":", 1)[1]
+    return raw.lower()
+
+
+def _extract_rss_preview_titles(xml_text: str, *, max_items: int = 3) -> tuple[str, list[str]]:
+    feed_title = ""
+    titles: list[str] = []
+    root = ET.fromstring(str(xml_text or "").strip())
+    root_name = _xml_name(root.tag)
+
+    if root_name == "rss":
+        channel = next((child for child in root if _xml_name(child.tag) == "channel"), None)
+        if channel is not None:
+            for child in channel:
+                name = _xml_name(child.tag)
+                if name == "title" and not feed_title:
+                    feed_title = str(child.text or "").strip()
+                    continue
+                if name != "item":
+                    continue
+                title = next(
+                    (str(node.text or "").strip() for node in child if _xml_name(node.tag) == "title" and str(node.text or "").strip()),
+                    "",
+                )
+                if title:
+                    titles.append(title)
+                if len(titles) >= max_items:
+                    break
+    elif root_name == "feed":
+        for child in root:
+            name = _xml_name(child.tag)
+            if name == "title" and not feed_title:
+                feed_title = str(child.text or "").strip()
+                continue
+            if name != "entry":
+                continue
+            title = next(
+                (str(node.text or "").strip() for node in child if _xml_name(node.tag) == "title" and str(node.text or "").strip()),
+                "",
+            )
+            if title:
+                titles.append(title)
+            if len(titles) >= max_items:
+                break
+    elif root_name == "rdf":
+        for child in root:
+            name = _xml_name(child.tag)
+            if name == "channel" and not feed_title:
+                feed_title = next(
+                    (str(node.text or "").strip() for node in child if _xml_name(node.tag) == "title" and str(node.text or "").strip()),
+                    "",
+                )
+                continue
+            if name != "item":
+                continue
+            title = next(
+                (str(node.text or "").strip() for node in child if _xml_name(node.tag) == "title" and str(node.text or "").strip()),
+                "",
+            )
+            if title:
+                titles.append(title)
+            if len(titles) >= max_items:
+                break
+
+    return feed_title, titles
+
+
 def _resolve_local_runtime_path(base_dir: Path | None, value: str) -> Path:
     root = base_dir or _project_root()
     path = Path(str(value or "").strip()).expanduser()
@@ -517,6 +589,23 @@ def _test_rss_connection(ref: str, row: Any, *, timeout_override: int | None = N
             ET.fromstring(text)
         except Exception as exc:  # noqa: BLE001
             raise ValueError(_msg(lang, f"RSS-Test fehlgeschlagen: ungültiges XML ({exc})", f"RSS test failed: invalid XML ({exc})")) from exc
+    try:
+        feed_title, preview_titles = _extract_rss_preview_titles(text, max_items=3)
+    except Exception:
+        feed_title, preview_titles = "", []
+    if preview_titles:
+        joined_titles = " | ".join(preview_titles)
+        if feed_title:
+            return _msg(
+                lang,
+                f"Feed geladen: {feed_title} · Neueste Artikel: {joined_titles}",
+                f"Feed loaded: {feed_title} · Latest articles: {joined_titles}",
+            )
+        return _msg(
+            lang,
+            f"Neueste Artikel: {joined_titles}",
+            f"Latest articles: {joined_titles}",
+        )
     return _msg(lang, f"RSS-Test erfolgreich für {ref}", f"RSS test successful for {ref}")
 
 

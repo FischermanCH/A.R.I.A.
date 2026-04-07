@@ -64,7 +64,8 @@ def test_resolve_custom_skill_intent_with_llm_returns_valid_skill_only() -> None
             self.content = content
 
     class FakeLLMClient:
-        async def chat(self, _messages):
+        async def chat(self, _messages, **kwargs):
+            _ = kwargs
             return FakeLLMResponse('{"id":"server-update-2nodes","confidence":"high","reason":"passt"}')
 
     intents = asyncio.run(
@@ -92,7 +93,8 @@ def test_resolve_custom_skill_intent_with_llm_rejects_unknown_skill() -> None:
             self.content = content
 
     class FakeLLMClient:
-        async def chat(self, _messages):
+        async def chat(self, _messages, **kwargs):
+            _ = kwargs
             return FakeLLMResponse('{"id":"does-not-exist","confidence":"high","reason":"falsch"}')
 
     intents = asyncio.run(

@@ -1,0 +1,9 @@
+<aside class="context-help-card">
+  <div class="context-help-head">
+    <strong>{{ heading }}</strong>
+    {% if help_doc %}
+    <a href="/help?doc={{ help_doc }}" class="context-help-link">{{ tr(request, 'context_help.open', 'Mehr dazu') }}</a>
+    {% endif %}
+  </div>
+  <p>{{ body }}</p>
+</aside>

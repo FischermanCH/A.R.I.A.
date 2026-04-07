@@ -38,6 +38,8 @@ class MemoryConfig(BaseModel):
     qdrant_url: str = "http://localhost:6334"
     qdrant_api_key: str = ""
     collection: str = "aria_memory"
+    embedding_fingerprint: str = ""
+    embedding_model: str = ""
     top_k: int = 3
     compression_summary_prompt: str = "prompts/skills/memory_compress.md"
     collections: "MemoryCollectionsConfig" = Field(default_factory=lambda: MemoryCollectionsConfig())

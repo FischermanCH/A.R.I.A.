@@ -1,0 +1,57 @@
+{
+  "id": "rss-headlines-to-chat-template",
+  "name": "RSS Headlines to Chat Template",
+  "version": "0.1.0",
+  "description": "Kompakter Beispielskill: liest einen RSS-Feed, fasst die wichtigsten Headlines kurz zusammen und gibt das Ergebnis direkt in den Chat zurueck.",
+  "category": "monitoring",
+  "router_keywords": [
+    "zeige mir die rss headlines",
+    "was sind die wichtigsten feed headlines",
+    "lies den rss feed und fasse zusammen",
+    "rss headlines in chat"
+  ],
+  "connections": [
+    "rss"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "RSS-Feed laden",
+      "type": "rss_read",
+      "params": {
+        "connection_ref": "news-main"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Headlines kurz zusammenfassen",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Formuliere aus dem RSS-Input eine kurze, natuerliche Zusammenfassung auf Deutsch. Beginne mit einem Einzeiler und liste danach 3-5 Headlines als knappe Bulletpoints. Keine Rohdaten oder JSON-Strukturen wiederholen. Technischer Input:\n\n{prev_output}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s3",
+      "name": "Ergebnis in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{s2_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine RSS-Connection mit Ref news-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

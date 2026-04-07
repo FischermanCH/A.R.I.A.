@@ -4,6 +4,10 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import FastAPI
+from fastapi.templating import Jinja2Templates
+from fastapi.testclient import TestClient
+
 from aria.core.config import Settings
 from aria.core import connection_runtime
 import aria.web.stats_routes as stats_routes
@@ -16,6 +20,7 @@ from aria.web.stats_routes import (
     _collapse_rss_rows,
     _directory_size_bytes,
     _extract_qdrant_telemetry_disk_bytes,
+    register_stats_routes,
 )
 
 
@@ -407,3 +412,66 @@ pricing:
     assert settings.pricing.enabled is True
     assert settings.pricing.chat_models["openai/gpt-4o-mini"].input_per_million == 0.15
     assert settings.pricing.embedding_models["openai/text-embedding-3-small"].input_per_million == 0.02
+
+
+def test_stats_pricing_refresh_htmx_returns_fragment(monkeypatch, tmp_path) -> None:
+    templates = Jinja2Templates(directory="/home/fischerman/ARIA/aria/templates")
+    templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def inject_state(request, call_next):  # type: ignore[no-untyped-def]
+        request.state.can_access_advanced_config = True
+        request.state.lang = "de"
+        request.state.release_meta = {}
+        request.state.update_status = {}
+        return await call_next(request)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "pricing": {
+                "enabled": True,
+                "currency": "USD",
+                "chat_models": {},
+                "embedding_models": {},
+                "default_source_name": "Test source",
+            },
+        }
+    )
+
+    class FakeTokenTracker:
+        async def get_stats(self, days: int = 7) -> dict[str, object]:
+            assert days == 7
+            return {
+                "chat_tokens_by_model": {},
+                "embedding_tokens_by_model": {},
+                "chat_cost_usd_by_model": {},
+                "embedding_cost_usd_by_model": {},
+                "cost_usd_by_source": {"rss_metadata": 0.123456},
+            }
+
+    pipeline = SimpleNamespace(token_tracker=FakeTokenTracker())
+
+    async def fake_refresh(_settings: object, _base_dir: Path) -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr(stats_routes, "_refresh_pricing_snapshot", fake_refresh)
+
+    register_stats_routes(
+        app,
+        templates=templates,
+        get_pipeline=lambda: pipeline,
+        get_settings=lambda: settings,
+        get_username_from_request=lambda _request: "neo",
+        resolve_pricing_entry=lambda entries, model: entries.get(model),
+        get_runtime_preflight=lambda: {},
+    )
+
+    client = TestClient(app)
+    response = client.post("/stats/pricing/refresh", headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    assert 'id="stats-pricing-panel"' in response.text
+    assert "rss_metadata" in response.text

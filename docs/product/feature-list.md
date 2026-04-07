@@ -70,12 +70,16 @@ Zweck:
   - Dokument-Chunks als eigener UI-Typ `document`
   - interner Dokument-Guide-Index mit Summary + Stichworten für gezielteren Chat-Recall
   - Chat-Details zeigen die verwendeten Dokument-Quellen mit Collection und Chunk-Referenz
+  - Embedding-Wechsel in `/config/embeddings` werden bei vorhandenem Memory bewusst bestätigt statt still übernommen
+  - Memory- und Dokumenteinträge tragen einen Embedding-Fingerprint, damit Recall und RAG keine alten und neuen Embedding-Generationen mischen
 - `Memory` gruppiert Einträge zusätzlich nach Typ und bietet klickbare Typ-Kacheln für schnellere Navigation bei vielen Einträgen
 - `Memory Map` zeigt Dokumente gruppiert nach Dokumentname:
   - Chunk-Anzahl
   - Ziel-Collection
   - Vorschau
   - ganzes Dokument aus Qdrant entfernen
+- Session-Rollups werden jetzt mit expliziten Metadaten fuer `week` und `month` erzeugt
+- `Memory Map` zeigt diese Rollups als eigene Wochen-/Monats-Sicht mit Zeitraum und Quellenanzahl
 - leere Qdrant-Collections werden nach UI-Löschung und Chat-Forget aufgeräumt
 - Qdrant-Status und Qdrant-DB-Größe werden in `Statistiken` angezeigt
 - Update-Check kann bei GitHub-API-Rate-Limits auf den öffentlichen Changelog als Fallback wechseln, damit `/updates` weiter nutzbar bleibt
@@ -107,6 +111,7 @@ Zweck:
   - `llm_transform`
   - `chat_send`
 - Sample-Skills für SSH/SFTP/SMB/Discord/RSS liegen unter `samples/skills`
+  - darunter jetzt auch kompakte Vorlagen für RSS-Headlines im Chat, SSH-Disk-Usage und SFTP-Config-Preview
 
 ## Connections
 

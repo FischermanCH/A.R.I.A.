@@ -89,6 +89,55 @@ def _extract_release_labels_from_changelog(changelog_text: str) -> list[str]:
     return labels
 
 
+def _tag_from_release_label(label: str) -> str:
+    normalized = normalize_release_label(label)
+    if not normalized:
+        return ""
+    return f"v{normalized.replace('-alpha', '-alpha.')}" if "-alpha" in normalized else f"v{normalized}"
+
+
+def extract_release_history(changelog_text: str, *, max_items: int = 6) -> list[dict[str, str]]:
+    lines = str(changelog_text or "").splitlines()
+    history: list[dict[str, str]] = []
+    current_label = ""
+    current_lines: list[str] = []
+
+    def flush_current() -> None:
+        nonlocal current_label, current_lines
+        if not current_label:
+            current_lines = []
+            return
+        section = "\n".join(current_lines).strip()
+        history.append(
+            {
+                "label": current_label,
+                "tag": _tag_from_release_label(current_label),
+                "notes": section,
+            }
+        )
+        current_label = ""
+        current_lines = []
+
+    for line in lines:
+        match = _CHANGELOG_HEADING_RE.match(line.strip())
+        if match:
+            normalized = normalize_release_label(match.group(1))
+            if normalized.lower() == "unreleased":
+                flush_current()
+                continue
+            if release_sort_key(normalized) == (0, 0, 0, -1, -1):
+                flush_current()
+                continue
+            flush_current()
+            current_label = normalized
+            current_lines = [line.rstrip()]
+            continue
+        if current_label:
+            current_lines.append(line.rstrip())
+    flush_current()
+    return history[: max(0, int(max_items or 0))]
+
+
 def _cache_path(base_dir: Path) -> Path:
     path = (base_dir / UPDATE_CHECK_CACHE).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +155,7 @@ def _default_status(current_label: str) -> dict[str, Any]:
         "source": "github-tags",
         "release_notes": "",
         "release_notes_source": GITHUB_CHANGELOG_RAW,
+        "recent_releases": [],
         "error": "",
     }
 
@@ -187,6 +237,8 @@ def refresh_update_status(base_dir: Path, *, current_label: str) -> dict[str, An
     status["latest_label"] = latest_label
     status["update_available"] = is_newer_release(latest_label, status["current_label"])
     status["release_notes"] = extract_changelog_section(changelog_text, latest_label)
+    history = extract_release_history(changelog_text, max_items=6)
+    status["recent_releases"] = history[1:6] if history and history[0]["label"] == latest_label else history[:5]
     status["checked_at"] = datetime.now(timezone.utc).isoformat()
     return status
 

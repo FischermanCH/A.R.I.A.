@@ -1,141 +1,67 @@
 # ARIA - Alpha Backlog
 
-Stand: 2026-04-03
+Stand: 2026-04-07
 
 Zweck:
-- harte Pre-Public-Alpha TODO-Liste
-- nur Punkte, die vor einem sauberen GitHub/Docker-Hub-Release noch erledigt oder bewusst final entschieden werden sollen
-- kein historischer Masterplan, sondern ein fokussierter Release-Backlog
+- schlanker Arbeits-Backlog fuer die laufende Alpha-Linie
+- hier stehen nur noch echte Restpunkte, Verifikation und direkte Release-Arbeit
+- bereits gelieferte Aenderungen stehen im `CHANGELOG.md`
+- groessere Zukunftsthemen stehen in `docs/backlog/future-features.md`
 
-## Must-Have vor Public Alpha
+Aktueller Release-Stand:
+- public: `0.1.0-alpha64`
+- lokal / intern: `0.1.0-alpha64`
 
-### Hilfe / Onboarding
-- [x] mitgelieferte Help-Doku bereitstellen
-  - `docs/help/help-system.md`
-  - thematische Help-Seiten für Memory, Pricing, Security
-- [x] Help-Seite im UI anbinden
-- [x] First-Run- und Admin/User-Modus in der UI klarer erklären
+## Offene Alpha-Punkte
 
-### Statistiken / Betrieb
-- [x] Statistik-Reset-Funktion definieren und umsetzen
-  - Tokens/Kosten/Activities gezielt zurücksetzen
-  - klare UI-Warnung, was dabei gelöscht wird und was nicht
-- [ ] Qdrant-Größenanzeige im separaten Container-Setup final gegen echten Prod-Betrieb prüfen
-- [ ] Preflight-/Statusanzeigen final auf Konsistenz und mobile Darstellung prüfen
-- [ ] Update-Info auch direkt in `/stats` anzeigen
+### Alpha64 Verifikation
+- [X] `/stats` zeigt den aktuellen internen Build korrekt
+- [X] `aria --version` funktioniert lokal und im Container sauber
+- [X] `aria version-check` zeigt den installierten und den neuesten oeffentlichen Stand korrekt
+- [X] `/stats` zeigt Modellnutzung plausibel auch nach Quellen wie `chat`, `rss_metadata`, `rss_grouping`, `rag_ingest` und `memory`
+- [X] RSS-Metadaten- und RSS-Gruppierungs-LLM-Aufrufe landen sichtbar in Kosten- und Token-Logs
+- [X] Dokument-Upload (`txt` / `md` / `pdf` mit eingebettetem Text) funktioniert weiterhin stabil
+- [X] Chat-Recall auf hochgeladene Dokumente funktioniert weiterhin stabil
+- [X] Chat-Details zeigen die Quelle mit Dokumentname / Collection / Chunk sauber an
+- [X] RSS-Verbindungen zeigen konsistent die Anzeigenamen statt alter `ref`-Profilnamen
+- [X] `Memory`, `Memory Map` und RSS-Seiten bleiben auf iPhone / Mobile lesbar
 
-### Memory
-- [x] gewichtetes Multi-Collection-Recall über Facts, Preferences, Sessions und Knowledge produktiv nutzen
-- [x] Memory-Export als JSON-Download für den aktuellen User und den aktuellen Filter/Suchkontext bereitstellen
-- [ ] Memory-Export auf `prod` live gegen echte Qdrant-Daten testen
+### Echte Restarbeiten in der Alpha-Linie
+- [X] `alpha64` geht als naechster Public-Release raus
 
-### Release / Git / Docker
-- [ ] finale Git-Versionierungsstrategie aktiv anwenden
-  - SemVer + Pre-Release-Tags wie `v0.1.0-alpha.N`
-  - Release-Notes nach `Added / Changed / Fixed / Security / Known Limitations / Upgrade Notes`
-- [ ] Docker-Image-Tags für Public Release festlegen
-  - versionierter Tag
-  - optional Alias-Tag `alpha`
-- [x] Root-`CHANGELOG.md` anlegen und Release-Schema dokumentieren
-- [x] Root-`CHANGELOG.md` pro Release konsequent pflegen
-- [ ] Stack-/Compose-Beispiele auf public-taugliche Image-Tags vorbereiten
+## Bewusst nicht mehr hier doppelt pflegen
 
-### README / Public Docs
-- [x] Root-`README.md` auf Public-Alpha-Struktur final glätten
-  - Quickstart
-  - klare ALPHA-Grenzen
-  - Setup-Links in `docs/`
-  - Support-/Known-Limitations-Hinweise
-- [x] `docs/product/*` und `docs/setup/*` strukturell konsolidieren
-- [x] `docs/product/*` und `docs/setup/*` final sprachlich glätten
-- [ ] Screenshots / UI-Bilder optional ergänzen, falls für Release sinnvoll
+Bereits lokal geliefert oder im aktuellen Unreleased-Stand enthalten und deshalb nicht mehr als offene Backlog-Punkte hier fuehren:
+- RAG v1 in `Memory` inklusive Dokument-Upload, Dokument-Guide, Recall und Quellenanzeige
+- `Memory Map` mit Dokumentverwaltung, Collection-Kacheln, Rollups und Graph-Sicht
+- Update-Anzeige in `/stats` und verbesserter `/updates`-Fallback
+- Session-, Cookie- und Multi-Instanz-Logout-Fixes
+- RSS-UX- und Anzeigenamen-Fixes
+- konfigurierbarer Embedding-Schutz fuer bestehendes Memory
+- zentrales Metering fuer alle LLM- und Embedding-Aufrufe
+- `aria --version`, `aria version-check`, Kontext-Hilfen und neue Sample-Skills
 
-### Security / Repo Sweep
-- [x] Lizenz final festlegen und im Repo ergänzen
-- [x] Third-Party-Notices für Qdrant und wichtige Dependencies ergänzen
-- [ ] Repo-/Privacy-Sweep vor Public Push
-  - keine lokalen Secrets
-  - keine internen IPs/Hosts in auszuliefernden Default-Dateien, sofern vermeidbar
-  - keine rein privaten Notizen außerhalb `project.docu/`
-- [x] `.gitignore` und Beispiel-Konfigs final gegenchecken
-- [x] Security-Hinweis für LAN/VPN statt Public Internet im README und in `docs/` klar stehen lassen
+Siehe dafuer:
+- `CHANGELOG.md`
 
-### Qualität / Release Smoke Test
-- [ ] frischen Host / frischen Container-Start einmal komplett durchspielen
-  - Bootstrap-User
-  - LLM + Embeddings
-  - Qdrant / Memory
-  - SSH/SFTP/SMB/RSS/Discord Beispielpfade
-  - Skill Import + Skill Run
-  - `/stats`, `/help`, mobile UI
-- [ ] Upgrade-Test mit bestehenden Volumes
-  - Config bleibt erhalten
-  - Secrets bleiben erhalten
-  - Skills bleiben erhalten
-  - Memories bleiben erhalten
+## Bewusst spaeter / kein Alpha-Blocker
 
-## Nice-to-Have, aber noch Alpha-nah
-
-- Hilfe-Icons zuerst nur an den wichtigsten Seiten und später breit ausrollen
-- Kontextsensitives Hilfe-System im UI umsetzen
-  - Info-Icon an erklärungsbedürftigen Feldern und Boxen
-  - kurze, zentral gepflegte Hilfetexte
-  - Mehrsprachigkeit DE/EN
-- kleines `aria --version` / Version-Check-Konzept ergänzen
-- bessere Release-Hinweise bei harten Browser-Caches nach UI/CSS-Updates
-- mehr Sample-Skills für typische Homelab-/RSS-/Admin-Flows
-- RAG-/Dokument-Chunks im `Memory`-UI sauber von normalem `Knowledge` / Rollup-Wissen trennen
-  - kein Durcheinander zwischen Dokument-Collections und normalen Memory-/Knowledge-Collections
-  - Dokument-Ingest soll im UI klar als Dokumentwissen erkennbar bleiben
-  - später sinnvoll:
-    - eigener Filter oder Marker `Dokument`
-    - klare Trennung von Rollup-Wissen vs. Dokument-Chunks
-- RAG v1 direkt in `Memory` integrieren
-  - kein neues Hauptmenü
-  - keine neue Top-Level-Seite
-  - Upload-/Import-Block in `/memories`
-  - Ziel-Collection auswählbar
-  - optional neue Collection direkt beim Upload anlegen
-  - zuerst nur Text-Dokumente:
-    - `txt`
-    - `md`
-    - `pdf`
-  - Ingest-Pipeline modular halten:
-    - Textextraktion
-    - Chunking
-    - Embeddings
-    - Qdrant-Import
-    - Quellen-Metadaten
-  - später erweiterbar auf:
-    - `docx`
-    - OCR
-    - Bilder
-  - Chat-Recall soll Quellen/Dateiherkunft sichtbar machen
-- `Memory` als natürlicher Ort für RAG nutzen
-  - User sucht Dokumentwissen dort
-  - kein zusätzliches Produkt-Tamtam
-  - Collection-Auswahl und Collection-Erstellung an bestehende Memory-Logik andocken
-
-## Bewusst nicht mehr Blocker für Public Alpha
-
-- Session-Rollup Tag -> Woche -> Monat weiter vertiefen
-- Embedding-Modellwechsel / Reindex-Flow absichern
-- volles Multi-User-/RBAC-Modell
-- Memory Map / Graph-Visualisierung
+- Memory-Export einmal live gegen echte `prod`-Qdrant-Daten testen
+  - bewusst in den naechsten Alpha-Zyklus verschoben
+  - kein Blocker fuer den aktuellen Public-Release
 - Home Assistant Integration
-- Dokument-Ingest / Knowledge Base
-  - siehe `RAG v1` in `Memory`
-- Websuche / Research-Flow
-  - SearXNG als separater Container im Docker-Compose-/Portainer-Stack
-  - SearXNG wird nicht modifiziert
-  - ARIA nutzt nur die HTTP-API
-  - `format=json` in der SearXNG-Instanz aktivieren
-  - kleine, produktnahe ARIA-Konfiguration statt voller SearXNG-Komplexitaet:
-    - Base URL
-    - SafeSearch
-    - Sprache
-    - Kategorien
-    - Engines
-  - SearXNG im README / Wiki / Docker-Docs klar nennen und dokumentieren
-  - spaeter als modularer Websearch-/Research-Baustein neben RAG
-- Streaming/SSE für Live-Antworten
+- semantischen Graph spaeter aus echten Beziehungen / Qdrant-Daten vertiefen
+- Websuche / Research-Flow mit SearXNG als separatem, unveraendertem API-Dienst
+- Streaming / SSE fuer Live-Antworten
+- volles Multi-User- / RBAC-Modell
+
+## Naechster groesserer Block nach Alpha-Cleanup
+
+- Home Assistant v1
+  - Verbindung
+  - Geraete / Entities sehen
+  - sichere Grundsteuerung
+- spaeter Home Assistant v2
+  - Verhalten lernen
+  - Muster erkennen
+  - Brain-fuer-HA-Richtung

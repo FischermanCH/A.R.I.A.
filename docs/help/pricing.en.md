@@ -7,6 +7,12 @@ Updated: 2026-04-06
 ARIA only calculates costs when it knows a price for the model in use.
 It does not guess prices for unknown models.
 
+Important:
+
+- normal chat requests are included in token and cost tracking
+- helper and admin-side LLM or embedding calls are also counted centrally
+- this includes, for example, RSS metadata generation, RSS grouping with LLM, runtime diagnostics, skill keyword generation, and RAG/memory embeddings
+
 ## Data sources
 
 ARIA currently uses a mixed approach:
@@ -65,6 +71,9 @@ If no price is found, that cost component remains `null`.
 
 - total and average cost
 - cost by model
+- requests and cost by source such as `chat`, `rss_metadata`, `rss_grouping`, or `rag_ingest`
 - pricing coverage (seen vs priced)
 - unpriced models
 - price sources including verification date
+
+This means the token and cost totals are not limited to visible chat answers. Internal model calls are also included as long as they use the central metering path.

@@ -5,6 +5,13 @@
   <section class="config-card">
     <div class="page-title-row"><span>{{ icon('llm', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_llm.title', 'Chat LLM Configuration') }}</h2></div>
     <p>{{ tr(request, 'config_llm.subtitle', 'LLM parameters are editable; sensitive fields (API key) are stored in the secure database.') }}</p>
+    {% with
+      heading=tr(request, 'context_help.llm_title', 'Kurz erklärt'),
+      body=tr(request, 'context_help.llm_body', 'Hier legst du API Base, Modell, Timeout und Limits für das Chat-Gehirn fest. Wenn Antworten abgeschnitten sind oder Modell-Loads scheitern, ist diese Seite der erste Prüfpunkt.'),
+      help_doc='pricing'
+    %}
+      {% include "_context_help.html" %}
+    {% endwith %}
 
     {% if saved %}
     <div class="alert ok">{{ tr(request, 'config_llm.saved', 'LLM configuration saved.') }}</div>

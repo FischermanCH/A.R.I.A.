@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ request.state.csrf_token if request and request.state else '' }}">
   <title>{{ agent_name(request, title) }}</title>
-  <script src="/static/vendor/htmx-1.9.12.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/htmx-1.9.12.min.js?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}"></script>
+  <link rel="stylesheet" href="/static/style.css?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
 </head>
 <body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}">
   {% from "_icons.html" import icon %}
@@ -14,7 +14,7 @@
     <header class="topbar">
       <a class="brand brand-home" href="/" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
         <div class="brand-mark">
-          <img src="/static/logo-aria-v01.png" alt="{{ agent_name(request, title) }} Logo" class="brand-logo">
+          <img src="/static/logo-aria-v01.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" alt="{{ agent_name(request, title) }} Logo" class="brand-logo">
           <span class="thinking-rings brand-thinking-rings" aria-hidden="true">
             <span class="ring ring-a"></span>
             <span class="ring ring-b"></span>
@@ -139,6 +139,15 @@
         }, 220);
       }
 
+      function beginBusyImmediate() {
+        busyCount += 1;
+        if (busyTimer) {
+          window.clearTimeout(busyTimer);
+          busyTimer = null;
+        }
+        setBusy(true);
+      }
+
       function endBusy() {
         busyCount = Math.max(0, busyCount - 1);
         if (busyCount > 0) return;
@@ -150,6 +159,7 @@
       }
 
       window.ariaBeginBusy = beginBusy;
+      window.ariaBeginBusyImmediate = beginBusyImmediate;
       window.ariaEndBusy = endBusy;
       window.ariaCookieNames = {{ (request.state.cookie_names or {})|tojson }};
       window.ariaCsrfCookieName = (window.ariaCookieNames && window.ariaCookieNames.csrf) || "aria_csrf_token";
@@ -252,6 +262,10 @@
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) return;
         if (form.id === "chat-form") return;
+        if (form.dataset.busyImmediate === "true") {
+          beginBusyImmediate();
+          return;
+        }
         beginBusy();
       });
 
@@ -265,6 +279,10 @@
           const url = new URL(href, window.location.origin);
           if (url.origin !== window.location.origin) return;
         } catch (error) {
+          return;
+        }
+        if (link.dataset.busyImmediate === "true") {
+          beginBusyImmediate();
           return;
         }
         beginBusy();

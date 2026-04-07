@@ -76,7 +76,8 @@
     "language": "Sprache",
     "bootstrap_locked": "Bootstrap ist aktuell gesperrt. Bitte durch einen bestehenden Admin freischalten.",
     "password_confirm": "Passwort wiederholen",
-    "password_confirm_hint": "Zur Sicherheit das Passwort bitte ein zweites Mal identisch eingeben."
+    "password_confirm_hint": "Zur Sicherheit das Passwort bitte ein zweites Mal identisch eingeben.",
+    "cache_hint": "Falls Farben oder Layout noch alt wirken: einmal hart neu laden."
   },
   "config_language": {
     "title": "Sprache",
@@ -209,7 +210,17 @@
     "js_load_error": "Fehler beim Laden",
     "js_models_loaded": "Modelle geladen. Auswahl übernimmt den Model-Wert.",
     "js_no_models": "Keine Modelle gefunden.",
-    "js_error_prefix": "Fehler:"
+    "js_error_prefix": "Fehler:",
+    "memory_guard_title": "Wichtig für bestehendes Memory",
+    "memory_guard_body": "Ein Wechsel von Embedding-Modell oder API Base kann bestehendes Memory und RAG unzuverlässig machen, bis neu indexiert wurde.",
+    "memory_guard_stats": "Aktuell erfasst für dieses Konto:",
+    "memory_guard_points": "Einträge",
+    "memory_guard_collections": "Collections",
+    "memory_guard_fingerprint": "Aktueller Memory-Fingerprint",
+    "memory_guard_export": "Vor Wechsel zuerst Memory exportieren",
+    "confirm_checkbox": "Ich verstehe, dass ein Embedding-Wechsel vorhandenes Memory und RAG unbrauchbar machen kann, bis neu indexiert wurde.",
+    "confirm_phrase_label": "Bestätigungsphrase",
+    "confirm_phrase_hint": "Nur nötig, wenn du wirklich auf einen anderen Embedding-Fingerprint wechselst. Phrase:"
   },
   "config_routing": {
     "title": "Routing & Memory Regeln",
@@ -771,7 +782,10 @@
     "rss_summary_title": "RSS-Feeds",
     "rss_summary_total_hint": "Anzahl konfigurierter RSS-Verbindungen.",
     "rss_summary_ok_hint": "RSS-Feeds mit erfolgreichem Abruf.",
-    "rss_summary_issue_hint": "RSS-Feeds mit aktuellem Fehlerstatus."
+    "rss_summary_issue_hint": "RSS-Feeds mit aktuellem Fehlerstatus.",
+    "release_cli_hint": "CLI-Schnellcheck",
+    "requests_by_source": "Requests nach Quelle",
+    "costs_by_source": "Kosten nach Quelle (USD)"
   },
   "activities": {
     "title": "Aktivitäten & Runs",
@@ -820,6 +834,7 @@
     "type_session": "Tages-Kontext",
     "type_document": "Dokumente",
     "type_knowledge": "Rollup-Wissen",
+    "log_suffix": " - Log",
     "sort": "Sortierung",
     "sort_newest": "Neueste zuerst",
     "sort_oldest": "Älteste zuerst",
@@ -875,8 +890,18 @@
     "upload_progress": "Dokument wird vorbereitet, gechunkt und nach Qdrant importiert. Das kann je nach PDF kurz dauern.",
     "documents_title": "Dokumente im Speicher",
     "documents_subtitle": "Hier siehst du importierte Dokumente gesammelt nach Dateiname statt nur als einzelne Chunks.",
+    "documents_collections_subtitle": "Jede Kachel steht fuer eine Dokument-Collection. Klappe sie auf, um die enthaltenen Dokumente zu sehen.",
+    "documents_in_store_title": "Dokumente im Store",
+    "documents_in_store_subtitle": "Klicke zuerst auf ein Dokument. Danach zeigt ARIA die zugehörigen Chunks aus genau diesem Store.",
+    "documents_count": "Dokumente",
     "document_chunks": "Chunks",
     "document_chunk_position": "Chunk",
+    "open_document_chunks": "Chunks ansehen",
+    "collections_title": "Collections im Speicher",
+    "collections_subtitle": "Öffne eine Collection in der Memory-Ansicht, um ihre Einträge direkt zu sehen.",
+    "collection_filter_label": "Collection",
+    "collection_filter_clear": "Collection-Filter entfernen",
+    "document_filter_clear": "Zurück zu den Dokumenten im Store",
     "delete_document": "Dokument entfernen",
     "document": "Dokument",
     "edit": "Bearbeiten",
@@ -946,7 +971,14 @@
     "col_type": "Typ",
     "col_points": "Punkte",
     "col_share": "Anteil",
-    "col_status": "Status"
+    "col_status": "Status",
+    "rollups_title": "Session-Rollups",
+    "rollups_subtitle": "Hier siehst du verdichteten Tages-Kontext als Wochen- und Monats-Rollups.",
+    "rollups_count": "Rollups",
+    "rollups_period": "Zeitraum",
+    "rollups_sources": "Quellen",
+    "graph_title": "Memory-Graph",
+    "graph_subtitle": "Ein einfacher Überblick über Typen, Collections, Dokumente und Rollups dieses Nutzers."
   },
   "config_memory": {
     "setup_title": "Memory-Setup (Qdrant)",
@@ -1100,6 +1132,7 @@
   "updates.manual_update_hint": "Die Installation bleibt bewusst manuell. Für interne Setups weiter aria-pull nutzen; für Public/Docker den neuen Tag aus GitHub oder Docker Hub übernehmen.",
   "updates.check_error_title": "Letzter Check mit Fallback",
   "updates.notes_missing": "Für diese Version wurden noch keine Release Notes gefunden.",
+  "updates.previous_versions_title": "Fünf vorherige Versionen",
   "product_info.kicker": "Produkt-Info",
   "product_info.title": "ARIA Produkt-Info",
   "product_info.subtitle": "Read-only Produkt-, Architektur- und Release-Doku direkt aus dem Repo.",
@@ -1165,6 +1198,8 @@
   "stats.total_tokens": "Tokens gesamt",
   "stats.avg_tokens_per_request": "Ø Tokens / Anfrage",
   "stats.costs_title": "Kosten",
+  "stats.cost_details_title": "Kosten Details",
+  "stats.cost_details_hint": "Zeigt Modellnutzung und Kosten nach Quelle, z. B. Chat, RSS, RAG oder Memory.",
   "stats.total_cost_usd": "USD gesamt",
   "stats.avg_cost_per_request": "Ø Kosten / Anfrage (USD)",
   "stats.priced_requests_tail": "bepreiste Anfragen",
@@ -1232,5 +1267,37 @@
   "base.restart_notice_reload": "Neu laden",
   "base.restart_notice_text": "ARIA war kurz nicht erreichbar. Die Seite könnte veraltet sein. Bitte bei Bedarf neu laden.",
   "base.restart_notice_title": "ARIA kurz nicht erreichbar",
-  "config_appearance.theme_cyberpunk_neo": "CyberPunk Neo"
+  "config_appearance.theme_cyberpunk_neo": "CyberPunk Neo",
+  "updates": {
+    "cache_hint_title": "Browser-Cache Hinweis",
+    "cache_hint_text": "Wenn nach einem UI- oder CSS-Update noch alte Farben oder Layouts sichtbar sind: Seite hart neu laden (Ctrl/Cmd+Shift+R). ARIA versieht statische Dateien zwar pro Release mit einer Versionskennung, einzelne Browser koennen trotzdem kurz alte Assets cachen.",
+    "cli_label": "CLI"
+  },
+  "context_help": {
+    "open": "Mehr dazu",
+    "llm_title": "Kurz erklaert",
+    "llm_body": "Hier legst du API Base, Modell, Timeout und Limits fuer das Chat-Gehirn fest. Wenn Antworten abgeschnitten sind oder Modell-Loads scheitern, ist diese Seite der erste Pruefpunkt.",
+    "embeddings_title": "Kurz erklaert",
+    "embeddings_body": "Embeddings steuern semantische Suche, Memory-Recall und RAG-Dokumente. Wenn Dokumente schlecht wiedergefunden werden, lohnt sich zuerst ein Blick auf dieses Profil.",
+    "memory_title": "Kurz erklaert",
+    "memory_body": "Dokumente laedst du hier hoch, gepflegt werden sie gesammelt in der Memory Map. Fuer grosse Sammlungen helfen Typ- und Collection-Filter, damit Fakten, Rollups und Dokument-Chunks nicht durcheinanderlaufen.",
+    "rss_title": "Kurz erklaert",
+    "rss_body": "Titel, Kurzbeschreibung, Aliase und Tags helfen ARIA beim Routing. Die Feed-Gruppen sind vor allem eine Arbeitsansicht; gute Anzeigenamen und Schlagworte verbessern spaeter Chat-Treffer deutlich."
+  },
+  "login.cache_hint": "Falls Farben oder Layout noch alt wirken: einmal hart neu laden.",
+  "updates.cache_hint_title": "Browser-Cache Hinweis",
+  "updates.cache_hint_text": "Wenn nach einem UI- oder CSS-Update noch alte Farben oder Layouts sichtbar sind: Seite hart neu laden (Ctrl/Cmd+Shift+R). ARIA versieht statische Dateien zwar pro Release mit einer Versionskennung, einzelne Browser koennen trotzdem kurz alte Assets cachen.",
+  "updates.cli_label": "CLI",
+  "context_help.open": "Mehr dazu",
+  "context_help.llm_title": "Kurz erklaert",
+  "context_help.llm_body": "Hier legst du API Base, Modell, Timeout und Limits fuer das Chat-Gehirn fest. Wenn Antworten abgeschnitten sind oder Modell-Loads scheitern, ist diese Seite der erste Pruefpunkt.",
+  "context_help.embeddings_title": "Kurz erklaert",
+  "context_help.embeddings_body": "Embeddings steuern semantische Suche, Memory-Recall und RAG-Dokumente. Wenn Dokumente schlecht wiedergefunden werden, lohnt sich zuerst ein Blick auf dieses Profil.",
+  "context_help.memory_title": "Kurz erklaert",
+  "context_help.memory_body": "Dokumente laedst du hier hoch, gepflegt werden sie gesammelt in der Memory Map. Fuer grosse Sammlungen helfen Typ- und Collection-Filter, damit Fakten, Rollups und Dokument-Chunks nicht durcheinanderlaufen.",
+  "context_help.rss_title": "Kurz erklaert",
+  "context_help.rss_body": "Titel, Kurzbeschreibung, Aliase und Tags helfen ARIA beim Routing. Die Feed-Gruppen sind vor allem eine Arbeitsansicht; gute Anzeigenamen und Schlagworte verbessern spaeter Chat-Treffer deutlich.",
+  "stats.release_cli_hint": "CLI-Schnellcheck",
+  "stats.requests_by_source": "Requests nach Quelle",
+  "stats.costs_by_source": "Kosten nach Quelle (USD)"
 }

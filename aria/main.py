@@ -112,6 +112,7 @@ from aria.core.release_meta import read_release_meta
 from aria.core.runtime_diagnostics import build_runtime_diagnostics
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 from aria.core.update_check import get_update_status
+from aria.core.usage_meter import UsageMeter
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -2030,28 +2031,32 @@ def _build_app() -> FastAPI:
     AUTH_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_AUTH_SIGNING_SECRET", CONFIG_PATH)
     FORGET_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_FORGET_SIGNING_SECRET", CONFIG_PATH)
     prompt_loader = PromptLoader(BASE_DIR / settings.prompts.persona)
-    llm_client = LLMClient(settings.llm)
+    usage_meter = UsageMeter(settings)
+    llm_client = LLMClient(settings.llm, usage_meter=usage_meter)
     capability_context_store = CapabilityContextStore(CAPABILITY_CONTEXT_PATH)
     pipeline = Pipeline(
         settings=settings,
         prompt_loader=prompt_loader,
         llm_client=llm_client,
         capability_context_store=capability_context_store,
+        usage_meter=usage_meter,
     )
     chat_history_store = FileChatHistoryStore(CHAT_HISTORY_DIR, max_messages=80)
 
     def _reload_runtime() -> None:
-        nonlocal settings, prompt_loader, llm_client, pipeline, startup_diagnostics
+        nonlocal settings, prompt_loader, llm_client, pipeline, startup_diagnostics, usage_meter
         global AUTH_SESSION_MAX_AGE_SECONDS
         try:
             new_settings = load_settings(CONFIG_PATH)
             new_prompt_loader = PromptLoader(BASE_DIR / new_settings.prompts.persona)
-            new_llm_client = LLMClient(new_settings.llm)
+            new_usage_meter = UsageMeter(new_settings)
+            new_llm_client = LLMClient(new_settings.llm, usage_meter=new_usage_meter)
             new_pipeline = Pipeline(
                 settings=new_settings,
                 prompt_loader=new_prompt_loader,
                 llm_client=new_llm_client,
                 capability_context_store=capability_context_store,
+                usage_meter=new_usage_meter,
             )
         except Exception as exc:
             LOGGER.exception("Runtime reload failed")
@@ -2063,6 +2068,7 @@ def _build_app() -> FastAPI:
         )
         prompt_loader = new_prompt_loader
         llm_client = new_llm_client
+        usage_meter = new_usage_meter
         pipeline = new_pipeline
         startup_diagnostics = {
             "status": "warn",
@@ -2137,7 +2143,12 @@ def _build_app() -> FastAPI:
         ]
         candidates: list[str] = []
         try:
-            response = await llm_client.chat(messages)
+            response = await llm_client.chat(
+                messages,
+                source="skill_keywords",
+                operation="generate_keywords",
+                user_id="system",
+            )
             candidates = _extract_keyword_candidates(response.content)
         except LLMClientError:
             candidates = []
@@ -2424,7 +2435,7 @@ def _build_app() -> FastAPI:
     async def _get_runtime_preflight_data(force_refresh: bool = False) -> dict[str, Any]:
         nonlocal startup_diagnostics
         if force_refresh or not startup_diagnostics.get("checked_at"):
-            startup_diagnostics = await build_runtime_diagnostics(BASE_DIR, settings)
+            startup_diagnostics = await build_runtime_diagnostics(BASE_DIR, settings, usage_meter=usage_meter)
         return startup_diagnostics
 
     @asynccontextmanager
@@ -2491,8 +2502,11 @@ def _build_app() -> FastAPI:
                     title=f"{_agent_name_value()} gestartet",
                     lines=[
                         runtime_host_line(settings),
+                        f"Version: {_read_release_meta(BASE_DIR).get('label', 'unknown')}",
                         f"Memory-Operationen beim Start: {memory_ops}",
-                        f"Model: {settings.llm.model}",
+                        f"LLM: {settings.llm.model}",
+                        f"Embeddings: {settings.embeddings.model}",
+                        f"Memory: {settings.memory.backend}",
                         f"Preflight: {startup_diagnostics.get('status', 'warn')}",
                     ],
                     level="info",

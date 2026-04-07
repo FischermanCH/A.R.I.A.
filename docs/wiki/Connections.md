@@ -24,7 +24,6 @@ Routing quality improves when connection metadata is maintained:
 
 Useful references:
 
-- `docs/help/help-system.md`
-- `docs/product/feature-list.md`
-- `docs/setup/setup-overview.md`
-
+- [`docs/help/help-system.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/help-system.md)
+- [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
+- [`docs/setup/setup-overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/setup-overview.md)

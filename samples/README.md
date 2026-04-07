@@ -15,6 +15,9 @@ Aktuelle Beispiele:
 - `smb-share-list-template.json`: SMB-Share lesen und im Chat zusammenfassen
 - `discord-broadcast-template.json`: einfache Discord-Nachricht aus einem Skill senden
 - `rss-digest-to-discord-template.json`: RSS laden, per LLM kuratieren und nach Discord senden
+- `rss-headlines-to-chat-template.json`: einen RSS-Feed lesen und die wichtigsten Headlines direkt in den Chat schreiben
+- `ssh-disk-usage-template.json`: Linux-Dateisysteme via SSH pruefen und kompakt zusammenfassen
+- `sftp-config-preview-template.json`: eine Konfigurationsdatei via SFTP lesen und die wichtigsten Punkte erklaeren
 
 ## Connections
 

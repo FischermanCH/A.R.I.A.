@@ -271,6 +271,7 @@ Neue Seite für operatives Memory-Management:
 - Manueller Button für Kontext-Rollup
 - Dokument-Upload direkt im bestehenden Memory-Bereich
 - Upload in bestehende oder neue Dokument-Collections
+- Embedding-Wechsel werden in `/config/embeddings` jetzt bewusst abgesichert; bei vorhandenem Memory verlangt ARIA eine explizite Bestätigung und empfiehlt vorher den JSON-Export
 
 RAG v1 im Alltag:
 
@@ -280,6 +281,27 @@ RAG v1 im Alltag:
   - `md`
   - `pdf` mit eingebettetem Text
 - Scan-/Bild-PDFs und OCR sind in v1 noch nicht enthalten
+- Memory- und Dokument-Einträge tragen jetzt einen Embedding-Fingerprint, damit Recall und Dokument-Routing keine alten und neuen Embedding-Generationen still mischen
+
+## Session-Rollups
+
+ARIA verdichtet aelteren Tages-Kontext jetzt stufenweise:
+
+- Tages-Collections bleiben der operative Kurzzeit-Kontext
+- aeltere Tages-Collections werden zu Wochen-Rollups verdichtet
+- Wochen-Rollups koennen spaeter zu Monats-Rollups verdichtet werden
+
+In der `Memory Map` gibt es dafuer jetzt einen eigenen Bereich:
+
+- `WOCHE`
+- `MONAT`
+
+Pro Rollup zeigt ARIA:
+
+- Bucket, z. B. `2026-W15` oder `2026-04`
+- Zeitraum
+- Anzahl der verdichteten Quellen
+- Vorschau des verdichteten Inhalts
 - während Chunking und Import zeigt ARIA einen sichtbaren Arbeitszustand im Upload-Block
 - Einträge werden in `Alle` zusätzlich nach Typ gruppiert, damit große Mengen nicht wie abgeschnitten oder zufällig gemischt wirken
 
@@ -294,6 +316,11 @@ Seit RAG v1 zeigt sie zusätzlich:
 - Ziel-Collection
 - kurze Vorschau
 - direktes Entfernen eines ganzen Dokuments aus Qdrant
+- einen einfachen read-only Graphen für:
+  - Memory-Typen
+  - Collections
+  - Dokument-Collections
+  - Session-Rollups
 
 Wichtig:
 
@@ -307,7 +334,7 @@ Hinweis:
   - Startup-Lauf (automatisch beim ARIA-Start)
   - CLI-Lauf: `./aria.sh maintenance`
   - täglicher Cron-Lauf via `./aria.sh autostart-install` (03:17)
-  - Prompt-basiertes Summary-Template aus Datei: `prompts/skills/memory_compress.md`
+  - Prompt-basiertes Summary-Template aus Datei: [`prompts/skills/memory_compress.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/prompts/skills/memory_compress.md)
 
 Wichtig für den Button im UI:
 

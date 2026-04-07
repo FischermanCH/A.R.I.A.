@@ -64,7 +64,8 @@ async def _run_compression() -> None:
     fake = FakeQdrantCompression()
     skill.qdrant = fake
 
-    async def fake_embed(_text: str):
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
         return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     skill._embed = fake_embed  # type: ignore[assignment]
@@ -116,6 +117,10 @@ async def _run_compression() -> None:
     assert any(str(p.get("source", "")) == "compression" for p in payloads)
     assert any(str(p.get("type", "")) == "knowledge" for p in payloads)
     assert any("Behalte nur wichtige Fakten" in str(p.get("text", "")) for p in payloads)
+    assert any(str(p.get("rollup_level", "")) == "week" for p in payloads)
+    assert any(str(p.get("rollup_level", "")) == "month" for p in payloads)
+    assert any(str(p.get("rollup_source_kind", "")) == "session_day" for p in payloads)
+    assert any(str(p.get("rollup_source_kind", "")) == "session_week" for p in payloads)
     assert week_collection not in fake.collections
     assert month_collection not in fake.collections
 
@@ -128,7 +133,8 @@ async def _run_compression_skips_recent() -> None:
     fake = FakeQdrantCompression()
     skill.qdrant = fake
 
-    async def fake_embed(_text: str):
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
         return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     skill._embed = fake_embed  # type: ignore[assignment]
@@ -169,7 +175,8 @@ async def _run_compress_all_users() -> None:
     fake = FakeQdrantCompression()
     skill.qdrant = fake
 
-    async def fake_embed(_text: str):
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
         return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     skill._embed = fake_embed  # type: ignore[assignment]

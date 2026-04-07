@@ -266,3 +266,48 @@ def test_get_stats_does_not_count_zero_cost_rows_as_priced(tmp_path: Path) -> No
     assert stats["priced_requests_count"] == 1
     assert stats["total_cost_usd"] == 0.001
     assert stats["avg_cost_usd_per_request"] == 0.001
+
+
+def test_get_stats_groups_requests_and_costs_by_source(tmp_path: Path) -> None:
+    log_path = tmp_path / "tokens.jsonl"
+    now = datetime.now(timezone.utc).isoformat()
+    entries = [
+        {
+            "timestamp": now,
+            "user_id": "u1",
+            "intents": ["chat"],
+            "source": "chat",
+            "total_tokens": 120,
+            "embedding_total_tokens": 0,
+            "extraction_total_tokens": 0,
+            "chat_model": "gpt-4.1",
+            "embedding_model": "",
+            "chat_cost_usd": 0.0012,
+            "embedding_cost_usd": 0.0,
+            "total_cost_usd": 0.0012,
+        },
+        {
+            "timestamp": now,
+            "user_id": "u1",
+            "intents": ["memory_recall"],
+            "source": "rag_ingest",
+            "total_tokens": 0,
+            "embedding_total_tokens": 320,
+            "extraction_total_tokens": 0,
+            "chat_model": "",
+            "embedding_model": "text-embedding-3-small",
+            "chat_cost_usd": 0.0,
+            "embedding_cost_usd": 0.0001,
+            "total_cost_usd": 0.0001,
+        },
+    ]
+    with log_path.open("w", encoding="utf-8") as file:
+        for entry in entries:
+            file.write(json.dumps(entry) + "\n")
+
+    tracker = TokenTracker(str(log_path), enabled=True)
+    stats = asyncio.run(tracker.get_stats(days=7))
+
+    assert stats["requests_by_source"] == {"chat": 1, "rag_ingest": 1}
+    assert stats["model_tokens_by_source"] == {"chat": 120, "rag_ingest": 320}
+    assert stats["cost_usd_by_source"] == {"chat": 0.0012, "rag_ingest": 0.0001}

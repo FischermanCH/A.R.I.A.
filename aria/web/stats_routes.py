@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
+from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
 import yaml
 
@@ -449,6 +450,45 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
     }
 
 
+def _build_source_usage_rows(stats: dict[str, Any]) -> list[dict[str, Any]]:
+    requests_by_source = dict(stats.get("requests_by_source", {}) or {})
+    tokens_by_source = dict(stats.get("model_tokens_by_source", {}) or {})
+    cost_by_source = dict(stats.get("cost_usd_by_source", {}) or {})
+
+    sources = {
+        str(source).strip()
+        for source in (
+            list(requests_by_source.keys()) + list(tokens_by_source.keys()) + list(cost_by_source.keys())
+        )
+        if str(source).strip()
+    }
+
+    rows: list[dict[str, Any]] = []
+    for source in sources:
+        request_count = int(requests_by_source.get(source, 0) or 0)
+        token_count = int(tokens_by_source.get(source, 0) or 0)
+        cost_usd = float(cost_by_source.get(source, 0.0) or 0.0)
+        rows.append(
+            {
+                "source": source,
+                "request_count": request_count,
+                "token_count": token_count,
+                "cost_usd": cost_usd,
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            row["cost_usd"],
+            row["token_count"],
+            row["request_count"],
+            row["source"],
+        ),
+        reverse=True,
+    )
+    return rows
+
+
 def _read_raw_config(base_dir: Path) -> dict[str, Any]:
     path = _config_path(base_dir)
     if not path.exists():
@@ -721,14 +761,26 @@ def register_stats_routes(
     get_runtime_preflight: PreflightGetter,
 ) -> None:
     @app.post("/stats/pricing/refresh")
-    async def stats_pricing_refresh(request: Request) -> RedirectResponse:
+    async def stats_pricing_refresh(request: Request) -> Response:
         can_access_advanced = bool(
             getattr(getattr(request, "state", object()), "can_access_advanced_config", False)
         )
+        settings = get_settings()
         if can_access_advanced:
-            settings = get_settings()
             await _refresh_pricing_snapshot(settings, _project_root())
-        return RedirectResponse("/stats", status_code=303)
+        if str(request.headers.get("HX-Request", "")).strip().lower() == "true":
+            pipeline = get_pipeline()
+            stats = await pipeline.token_tracker.get_stats(days=7)
+            pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
+            return templates.TemplateResponse(
+                request=request,
+                name="_stats_pricing_panel.html",
+                context={
+                    "stats": stats,
+                    "pricing_meta": pricing_meta,
+                },
+            )
+        return RedirectResponse("/stats#stats-pricing-details", status_code=303)
 
     @app.post("/stats/reset")
     async def stats_reset(request: Request, confirm_text: str = Form("")) -> RedirectResponse:
@@ -777,6 +829,7 @@ def register_stats_routes(
         qdrant_storage = await _build_qdrant_storage_meta(base_dir, settings)
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
         update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
+        source_usage_rows = _build_source_usage_rows(stats)
         activity_data = await pipeline.token_tracker.get_recent_activities(
             user_id=username,
             limit=18,
@@ -814,6 +867,7 @@ def register_stats_routes(
                 'qdrant_storage': qdrant_storage,
                 'release_meta': release_meta,
                 'update_status': update_status,
+                'source_usage_rows': source_usage_rows,
                 'activities': activity_data,
                 'connection_status_rows': connection_status_rows,
                 'reset_done': reset_done,

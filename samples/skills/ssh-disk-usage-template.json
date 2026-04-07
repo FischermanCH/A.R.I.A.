@@ -1,0 +1,59 @@
+{
+  "id": "ssh-disk-usage-template",
+  "name": "SSH Disk Usage Template",
+  "version": "0.1.0",
+  "description": "Read-only Beispielskill fuer Linux-Hosts: prueft belegte Dateisysteme via SSH und fasst kritische Auslastungen kompakt im Chat zusammen.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "pruefe die plattenbelegung",
+    "wie voll ist der server",
+    "disk usage check",
+    "df -h zusammenfassen"
+  ],
+  "connections": [
+    "ssh"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Dateisysteme pruefen",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "srv-main",
+        "timeout_seconds": 90,
+        "command": "h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; df -h -x tmpfs -x devtmpfs | sed -n '1,12p'"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Belegung bewerten",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Fasse die Dateisystem-Belegung auf Deutsch kurz zusammen. Beginne mit einer klaren Gesamteinschaetzung. Danach 2-4 Bulletpoints mit Host, auffaelligen Mountpoints und Prozentwerten. Wenn alles unkritisch aussieht, sag das klar. Technischer Input:\n\n{prev_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SSH-Connection mit Ref srv-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

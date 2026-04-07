@@ -171,6 +171,12 @@ def test_rss_connection_test_accepts_rdf_rss_feed(monkeypatch) -> None:
   <channel rdf:about=\"https://example.org/feed\">
     <title>Example RSS 1.0</title>
   </channel>
+  <item>
+    <title>Alpha headline</title>
+  </item>
+  <item>
+    <title>Beta headline</title>
+  </item>
 </rdf:RDF>
 """
     monkeypatch.setattr(connection_runtime, "urlopen", lambda _req, timeout=0: _FakeHttpResponse(payload, status=200))
@@ -181,12 +187,12 @@ def test_rss_connection_test_accepts_rdf_rss_feed(monkeypatch) -> None:
         lang="de",
     )
 
-    assert message == "RSS-Test erfolgreich für rdf-feed"
+    assert message == "Feed geladen: Example RSS 1.0 · Neueste Artikel: Alpha headline | Beta headline"
 
 
 def test_rss_connection_test_reads_beyond_initial_8kb_chunk(monkeypatch) -> None:
     entries = "".join(f"<item><title>Entry {idx}</title></item>" for idx in range(500))
-    payload = f"<?xml version=\"1.0\"?><source>{entries}</source>".encode("utf-8")
+    payload = f"<?xml version=\"1.0\"?><rss><channel><title>Long Feed</title>{entries}</channel></rss>".encode("utf-8")
     assert len(payload) > 8192
     monkeypatch.setattr(connection_runtime, "urlopen", lambda _req, timeout=0: _FakeHttpResponse(payload, status=200))
 
@@ -196,7 +202,22 @@ def test_rss_connection_test_reads_beyond_initial_8kb_chunk(monkeypatch) -> None
         lang="de",
     )
 
-    assert message == "RSS-Test erfolgreich für long-feed"
+    assert message == "Feed geladen: Long Feed · Neueste Artikel: Entry 0 | Entry 1 | Entry 2"
+
+
+def test_extract_rss_preview_titles_supports_atom_feed() -> None:
+    payload = """<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Feed</title>
+  <entry><title>First item</title></entry>
+  <entry><title>Second item</title></entry>
+</feed>
+"""
+
+    feed_title, titles = connection_runtime._extract_rss_preview_titles(payload, max_items=3)
+
+    assert feed_title == "Atom Feed"
+    assert titles == ["First item", "Second item"]
 
 
 def test_rss_connection_test_rejects_json_with_actionable_hint(monkeypatch) -> None:

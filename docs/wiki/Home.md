@@ -13,8 +13,8 @@ The same core docs are also intended to appear locally under `/help`, so ARIA an
 
 For the main repository entry point, start with:
 
-- `README.md`
-- `CONTRIBUTING.md`
+- [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
+- [`CONTRIBUTING.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CONTRIBUTING.md)
 
 Recommended first steps:
 
@@ -26,8 +26,8 @@ Recommended first steps:
 
 Core references still live in the main repo:
 
-- `README.md`
-- `CONTRIBUTING.md`
-- `docs/product/overview.md`
-- `docs/product/feature-list.md`
-- `docs/product/architecture-summary.md`
+- [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
+- [`CONTRIBUTING.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CONTRIBUTING.md)
+- [`docs/product/overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/overview.md)
+- [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
+- [`docs/product/architecture-summary.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/architecture-summary.md)

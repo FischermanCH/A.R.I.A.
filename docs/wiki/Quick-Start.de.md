@@ -15,9 +15,9 @@ Empfohlener Weg:
 
 Wichtige Deployment-Referenzen:
 
-- `README.md`
-- `docs/setup/setup-overview.md`
-- `docs/setup/portainer-deploy-checklist.md`
+- [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
+- [`docs/setup/setup-overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/setup-overview.md)
+- [`docs/setup/portainer-deploy-checklist.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/portainer-deploy-checklist.md)
 
 Hinweise:
 

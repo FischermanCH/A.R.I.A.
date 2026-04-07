@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from aria.core.config import LLMConfig
+from aria.core.config import EmbeddingsConfig, LLMConfig
+from aria.core.embedding_client import EmbeddingClient
 from aria.core.llm_client import LLMClient, LLMClientError
 
 
@@ -88,3 +89,10 @@ def test_llm_client_raises_without_choices(monkeypatch):
 
     with pytest.raises(LLMClientError, match="ohne Textinhalt"):
         asyncio.run(_client().chat([{"role": "user", "content": "Hallo"}]))
+
+
+def test_embedding_client_fingerprint_ignores_api_base_trailing_slash() -> None:
+    left = EmbeddingClient(EmbeddingsConfig(model="text-embedding-3-small", api_base="https://api.example.com/v1"))
+    right = EmbeddingClient(EmbeddingsConfig(model="text-embedding-3-small", api_base="https://api.example.com/v1/"))
+
+    assert left.fingerprint() == right.fingerprint()

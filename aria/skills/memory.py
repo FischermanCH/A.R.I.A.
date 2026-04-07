@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 import re
 
-from litellm import aembedding
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -20,6 +19,7 @@ from qdrant_client.models import (
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
 from aria.core.document_ingest import PreparedDocument
+from aria.core.embedding_client import EmbeddingClient
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.skills.base import BaseSkill, SkillResult
 
@@ -30,11 +30,19 @@ class MemorySkill(BaseSkill):
     max_context_chars = 1500
     CONTEXT_MEM_PREFIX = "aria_context-mem"
     DOCUMENT_GUIDE_PREFIX = "aria_doc_guides"
+    ROLLUP_LEVEL_WEEK = "week"
+    ROLLUP_LEVEL_MONTH = "month"
 
-    def __init__(self, memory: MemoryConfig, embeddings: EmbeddingsConfig):
+    def __init__(
+        self,
+        memory: MemoryConfig,
+        embeddings: EmbeddingsConfig,
+        embedding_client: EmbeddingClient | None = None,
+    ):
         self.memory = memory
         self.embeddings = embeddings
         self.timeout_seconds = embeddings.timeout_seconds
+        self.embedding_client = embedding_client or EmbeddingClient(embeddings)
         self.qdrant = create_async_qdrant_client(
             url=memory.qdrant_url,
             api_key=(memory.qdrant_api_key or None),
@@ -70,6 +78,23 @@ class MemorySkill(BaseSkill):
         if "/" not in model and not model.lower().startswith("ollama"):
             return f"openai/{model}"
         return model
+
+    def _active_embedding_fingerprint(self) -> str:
+        return str(self.embedding_client.fingerprint()).strip()
+
+    def _memory_embedding_fingerprint(self) -> str:
+        return str(getattr(self.memory, "embedding_fingerprint", "") or "").strip()
+
+    def _payload_embedding_compatible(self, payload: dict[str, Any] | None) -> bool:
+        data = payload or {}
+        payload_fingerprint = str(data.get("embedding_fingerprint", "")).strip()
+        active_fingerprint = self._active_embedding_fingerprint()
+        if payload_fingerprint:
+            return payload_fingerprint == active_fingerprint
+        legacy_fingerprint = self._memory_embedding_fingerprint()
+        if not legacy_fingerprint:
+            return True
+        return legacy_fingerprint == active_fingerprint
 
     @staticmethod
     def _extract_usage(response: Any) -> dict[str, int]:
@@ -158,10 +183,124 @@ class MemorySkill(BaseSkill):
     def _document_guide_collection_for_user(self, user_id: str) -> str:
         return f"{self.DOCUMENT_GUIDE_PREFIX}_{self._slug_user_id(user_id)}"
 
+    def _context_collection_for_user(self, user_id: str) -> str:
+        return f"{self.CONTEXT_MEM_PREFIX}_{self._slug_user_id(user_id)}"
+
+    def _is_rollup_payload(self, payload: dict[str, Any] | None) -> bool:
+        data = payload or {}
+        return (
+            str(data.get("source", "")).strip().lower() == "compression"
+            and str(data.get("rollup_level", "")).strip().lower() in {self.ROLLUP_LEVEL_WEEK, self.ROLLUP_LEVEL_MONTH}
+        )
+
+    @staticmethod
+    def _session_day_from_collection_name(collection_name: str) -> date | None:
+        raw = str(collection_name or "").strip()
+        if not raw:
+            return None
+        day_raw = raw.rsplit("_", 1)[-1]
+        if len(day_raw) != 6 or not day_raw.isdigit():
+            return None
+        try:
+            return datetime.strptime(day_raw, "%y%m%d").date()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _week_bucket_for_day(day_value: date) -> tuple[str, date, date]:
+        iso_year, iso_week, _ = day_value.isocalendar()
+        start = day_value - timedelta(days=day_value.weekday())
+        end = start + timedelta(days=6)
+        return f"{iso_year}-W{iso_week:02d}", start, end
+
+    @staticmethod
+    def _month_bucket_for_day(day_value: date) -> tuple[str, date, date]:
+        start = day_value.replace(day=1)
+        if start.month == 12:
+            next_month = start.replace(year=start.year + 1, month=1, day=1)
+        else:
+            next_month = start.replace(month=start.month + 1, day=1)
+        end = next_month - timedelta(days=1)
+        return start.strftime("%Y-%m"), start, end
+
     def _display_memory_type(self, collection: str, payload: dict[str, Any] | None) -> str:
         if self._is_document_payload(payload) or self._is_document_collection_name(collection):
             return "document"
         return self._normalize_memory_type(collection, (payload or {}).get("type"))
+
+    async def _store_rollup_summary(
+        self,
+        *,
+        user_id: str,
+        text: str,
+        base_collection: str,
+        rollup_level: str,
+        rollup_bucket: str,
+        period_start: date,
+        period_end: date,
+        source_kind: str,
+        source_collections: list[str],
+    ) -> SkillResult:
+        vector, usage = await self._embed(
+            text,
+            source="compression",
+            operation=f"{rollup_level}_rollup",
+            user_id=user_id,
+        )
+        target_collection = await self._get_collection_for_vector(len(vector), base_collection=base_collection)
+        point_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"{target_collection}|{user_id.strip()}|rollup|{rollup_level}|{rollup_bucket}",
+            )
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        point = PointStruct(
+            id=point_id,
+            vector=vector,
+            payload={
+                "text": text,
+                "user_id": user_id,
+                "timestamp": now_iso,
+                "type": "knowledge",
+                "source": "compression",
+                "rollup_level": rollup_level,
+                "rollup_bucket": rollup_bucket,
+                "rollup_period_start": period_start.isoformat(),
+                "rollup_period_end": period_end.isoformat(),
+                "rollup_source_kind": source_kind,
+                "rollup_source_count": len(source_collections),
+                "rollup_source_collections": list(source_collections),
+                "embedding_model": self._resolve_embedding_model(),
+                "embedding_fingerprint": self._active_embedding_fingerprint(),
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            },
+        )
+        await self.qdrant.upsert(collection_name=target_collection, points=[point])
+        return SkillResult(
+            skill_name=self.name,
+            content="Rollup gespeichert.",
+            success=True,
+            metadata={
+                "embedding_usage": usage,
+                "embedding_model": self._resolve_embedding_model(),
+                "rollup_level": rollup_level,
+                "rollup_bucket": rollup_bucket,
+                "collection": target_collection,
+                "point_id": point_id,
+            },
+        )
+
+    async def _list_rollup_rows(self, user_id: str, base_collection: str) -> list[dict[str, Any]]:
+        rows = await self._list_rows_from_collection(
+            collection=base_collection,
+            user_id=user_id,
+            memory_type="knowledge",
+            label=self._type_label("knowledge"),
+            limit=5000,
+        )
+        return [row for row in rows if str(row.get("source", "")).strip().lower() == "compression" and str(row.get("rollup_level", "")).strip()]
 
     def _combined_score(
         self,
@@ -343,7 +482,12 @@ class MemorySkill(BaseSkill):
         target_collection: str,
     ) -> tuple[str, PointStruct, dict[str, int]]:
         guide_text = self._build_document_guide_text(document, target_collection=target_collection)
-        vector, usage = await self._embed(guide_text)
+        vector, usage = await self._embed(
+            guide_text,
+            source="rag_ingest",
+            operation="document_guide",
+            user_id=user_id,
+        )
         guide_collection = await self._get_collection_for_vector(
             len(vector),
             base_collection=self._document_guide_collection_for_user(user_id),
@@ -371,6 +515,8 @@ class MemorySkill(BaseSkill):
                 "target_collection": target_collection,
                 "mime_type": document.mime_type,
                 "source_type": document.source_type,
+                "embedding_model": self._resolve_embedding_model(),
+                "embedding_fingerprint": self._active_embedding_fingerprint(),
                 "created_at": now_iso,
                 "updated_at": now_iso,
             },
@@ -463,6 +609,8 @@ class MemorySkill(BaseSkill):
         seen: set[tuple[str, str]] = set()
         for hit in self._extract_hits(query_result):
             payload = hit.payload or {}
+            if not self._payload_embedding_compatible(payload):
+                continue
             document_id = str(payload.get("document_id", "")).strip()
             target_collection = str(payload.get("target_collection", "")).strip()
             document_name = str(payload.get("document_name", "")).strip()
@@ -496,12 +644,33 @@ class MemorySkill(BaseSkill):
                     "document_name": document_name,
                     "collection": target_collection,
                     "guide_score": raw_score + (keyword_hits * 0.12) + (min(text_hits, 3) * 0.05),
+                    "raw_score": raw_score,
+                    "keyword_hits": keyword_hits,
+                    "text_hits": text_hits,
                 }
             )
         rows.sort(key=lambda row: float(row.get("guide_score", 0.0)), reverse=True)
         return rows[:max_hits]
 
     def _build_document_targets_from_guides(self, guide_hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if guide_hits:
+            max_keyword_hits = max(int(hit.get("keyword_hits", 0) or 0) for hit in guide_hits)
+            if max_keyword_hits > 0:
+                guide_hits = [
+                    hit
+                    for hit in guide_hits
+                    if int(hit.get("keyword_hits", 0) or 0) == max_keyword_hits
+                ]
+
+            if guide_hits:
+                best_score = max(float(hit.get("guide_score", 0.0) or 0.0) for hit in guide_hits)
+                threshold = max(best_score - 0.08, best_score * 0.9)
+                guide_hits = [
+                    hit
+                    for hit in guide_hits
+                    if float(hit.get("guide_score", 0.0) or 0.0) >= threshold
+                ]
+
         targets: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
         for hit in guide_hits:
@@ -621,6 +790,8 @@ class MemorySkill(BaseSkill):
         weighted: list[dict[str, Any]] = []
         for hit in self._extract_hits(query_result):
             payload = hit.payload or {}
+            if not self._payload_embedding_compatible(payload):
+                continue
             text = str(payload.get("text", "")).strip()
             if not text:
                 continue
@@ -639,6 +810,12 @@ class MemorySkill(BaseSkill):
                     "chunk_index": int(payload.get("chunk_index", 0) or 0),
                     "chunk_total": int(payload.get("chunk_total", 0) or 0),
                     "source": str(payload.get("source", "")).strip() or "n/a",
+                    "rollup_level": str(payload.get("rollup_level", "")).strip(),
+                    "rollup_bucket": str(payload.get("rollup_bucket", "")).strip(),
+                    "rollup_period_start": str(payload.get("rollup_period_start", "")).strip(),
+                    "rollup_period_end": str(payload.get("rollup_period_end", "")).strip(),
+                    "rollup_source_kind": str(payload.get("rollup_source_kind", "")).strip(),
+                    "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
                 }
             )
         return weighted
@@ -669,6 +846,8 @@ class MemorySkill(BaseSkill):
             if score < threshold:
                 continue
             payload = hit.payload or {}
+            if not self._payload_embedding_compatible(payload):
+                continue
             text = self._clean_fact_text(str(payload.get("text", "")).strip())
             if not text:
                 continue
@@ -689,6 +868,12 @@ class MemorySkill(BaseSkill):
                         or str(payload.get("timestamp", "")).strip()
                     ),
                     "source": str(payload.get("source", "")).strip() or "n/a",
+                    "rollup_level": str(payload.get("rollup_level", "")).strip(),
+                    "rollup_bucket": str(payload.get("rollup_bucket", "")).strip(),
+                    "rollup_period_start": str(payload.get("rollup_period_start", "")).strip(),
+                    "rollup_period_end": str(payload.get("rollup_period_end", "")).strip(),
+                    "rollup_source_kind": str(payload.get("rollup_source_kind", "")).strip(),
+                    "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
                     "document_id": str(payload.get("document_id", "")).strip(),
                     "document_name": str(payload.get("document_name", "")).strip(),
                     "chunk_index": int(payload.get("chunk_index", 0) or 0),
@@ -769,6 +954,8 @@ class MemorySkill(BaseSkill):
         scored: list[tuple[int, str]] = []
         for point in all_points:
             payload = point.payload or {}
+            if not self._payload_embedding_compatible(payload):
+                continue
             text = str(payload.get("text", "")).strip()
             if not text:
                 continue
@@ -812,19 +999,22 @@ class MemorySkill(BaseSkill):
         truncated, saved = self.truncate(content)
         return SkillResult(skill_name=self.name, content=truncated, success=True, tokens_saved=saved)
 
-    async def _embed(self, text: str) -> tuple[list[float], dict[str, int]]:
-        model_name = self._resolve_embedding_model()
-        response = await aembedding(
-            model=model_name,
-            input=[text],
-            api_base=self.embeddings.api_base,
-            api_key=self.embeddings.api_key or None,
-            timeout=self.timeout_seconds,
+    async def _embed(
+        self,
+        text: str,
+        *,
+        source: str = "",
+        operation: str = "",
+        user_id: str = "",
+    ) -> tuple[list[float], dict[str, int]]:
+        response = await self.embedding_client.embed(
+            [text],
+            source=source,
+            operation=operation,
+            user_id=user_id,
         )
-        item = response.data[0]
-        embedding = item["embedding"] if isinstance(item, dict) else item.embedding
-        usage = self._extract_usage(response)
-        return [float(v) for v in embedding], usage
+        embedding = response.vectors[0] if response.vectors else []
+        return [float(v) for v in embedding], dict(response.usage)
 
     async def _ensure_collection(self, vector_size: int, base_collection: str | None = None) -> None:
         _ = await self._get_collection_for_vector(vector_size, base_collection=base_collection)
@@ -915,7 +1105,12 @@ class MemorySkill(BaseSkill):
             except Exception:
                 continue
 
-        vector, usage = await self._embed(text)
+        vector, usage = await self._embed(
+            text,
+            source=source or "memory_store",
+            operation="store_memory",
+            user_id=user_id,
+        )
         base_name = (base_collection or self.memory.collection).strip() or self.memory.collection
         collection_name = await self._get_collection_for_vector(len(vector), base_collection=base_name)
 
@@ -935,6 +1130,8 @@ class MemorySkill(BaseSkill):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "type": memory_type,
                 "source": source,
+                "embedding_model": self._resolve_embedding_model(),
+                "embedding_fingerprint": self._active_embedding_fingerprint(),
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -970,7 +1167,12 @@ class MemorySkill(BaseSkill):
         now_iso = datetime.now(timezone.utc).isoformat()
 
         for chunk in document.chunks:
-            vector, usage = await self._embed(chunk.text)
+            vector, usage = await self._embed(
+                chunk.text,
+                source="rag_ingest",
+                operation="document_chunk",
+                user_id=user_id,
+            )
             for key in usage_total:
                 usage_total[key] += int(usage.get(key, 0) or 0)
             if not target_collection:
@@ -1000,6 +1202,8 @@ class MemorySkill(BaseSkill):
                         "chunk_total": int(chunk.total),
                         "mime_type": document.mime_type,
                         "source_type": document.source_type,
+                        "embedding_model": self._resolve_embedding_model(),
+                        "embedding_fingerprint": self._active_embedding_fingerprint(),
                         "created_at": now_iso,
                         "updated_at": now_iso,
                     },
@@ -1054,7 +1258,12 @@ class MemorySkill(BaseSkill):
         base_collection: str | None = None,
     ) -> SkillResult:
         try:
-            vector, usage = await self._embed(query)
+            vector, usage = await self._embed(
+                query,
+                source="memory_recall",
+                operation="recall_query",
+                user_id=user_id,
+            )
             recall_targets = await self._build_recall_targets(user_id=user_id, base_collection=base_collection)
             guide_hits = await self._query_document_guides(
                 vector=vector,
@@ -1157,7 +1366,12 @@ class MemorySkill(BaseSkill):
         max_hits: int = 5,
     ) -> SkillResult:
         try:
-            vector, usage = await self._embed(query)
+            vector, usage = await self._embed(
+                query,
+                source="memory_forget",
+                operation="forget_preview_query",
+                user_id=user_id,
+            )
             targets = await self._build_recall_targets(user_id=user_id)
             tasks = [
                 self._query_forget_hits(
@@ -1305,6 +1519,14 @@ class MemorySkill(BaseSkill):
                             "text": text,
                             "timestamp": timestamp,
                             "source": str(payload.get("source", "")).strip() or "n/a",
+                            "embedding_model": str(payload.get("embedding_model", "")).strip(),
+                            "embedding_fingerprint": str(payload.get("embedding_fingerprint", "")).strip(),
+                            "rollup_level": str(payload.get("rollup_level", "")).strip(),
+                            "rollup_bucket": str(payload.get("rollup_bucket", "")).strip(),
+                            "rollup_period_start": str(payload.get("rollup_period_start", "")).strip(),
+                            "rollup_period_end": str(payload.get("rollup_period_end", "")).strip(),
+                            "rollup_source_kind": str(payload.get("rollup_source_kind", "")).strip(),
+                            "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
                             "document_id": str(payload.get("document_id", "")).strip(),
                             "document_name": str(payload.get("document_name", "")).strip(),
                             "chunk_index": int(payload.get("chunk_index", 0) or 0),
@@ -1359,12 +1581,16 @@ class MemorySkill(BaseSkill):
         user_id: str,
         type_filter: str = "all",
         limit: int = 200,
+        collection_filter: str = "",
     ) -> list[dict[str, Any]]:
         filter_key = type_filter.strip().lower()
+        collection_key = str(collection_filter or "").strip()
         rows: list[dict[str, Any]] = []
         names = await self._list_collection_names()
         for collection in names:
             if self._is_document_guide_collection_name(collection):
+                continue
+            if collection_key and collection != collection_key:
                 continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
@@ -1403,6 +1629,14 @@ class MemorySkill(BaseSkill):
                                 "text": text,
                                 "timestamp": timestamp,
                                 "source": str(payload.get("source", "")).strip() or "n/a",
+                                "embedding_model": str(payload.get("embedding_model", "")).strip(),
+                                "embedding_fingerprint": str(payload.get("embedding_fingerprint", "")).strip(),
+                                "rollup_level": str(payload.get("rollup_level", "")).strip(),
+                                "rollup_bucket": str(payload.get("rollup_bucket", "")).strip(),
+                                "rollup_period_start": str(payload.get("rollup_period_start", "")).strip(),
+                                "rollup_period_end": str(payload.get("rollup_period_end", "")).strip(),
+                                "rollup_source_kind": str(payload.get("rollup_source_kind", "")).strip(),
+                                "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
                                 "document_id": str(payload.get("document_id", "")).strip(),
                                 "document_name": str(payload.get("document_name", "")).strip(),
                                 "chunk_index": int(payload.get("chunk_index", 0) or 0),
@@ -1648,7 +1882,12 @@ class MemorySkill(BaseSkill):
         type_filter: str = "all",
         top_k: int = 25,
     ) -> list[dict[str, Any]]:
-        vector, _usage = await self._embed(query)
+        vector, _usage = await self._embed(
+            query,
+            source="memory_search",
+            operation="search_query",
+            user_id=user_id,
+        )
         targets = await self._build_recall_targets(user_id=user_id)
         document_targets = await self._build_document_targets(user_id=user_id)
         filter_key = type_filter.strip().lower()
@@ -1690,6 +1929,14 @@ class MemorySkill(BaseSkill):
                         "score": float(row.get("score", 0.0) or 0.0),
                         "timestamp": str(row.get("timestamp", "")),
                         "source": str(row.get("source", "n/a")),
+                        "embedding_model": str(row.get("embedding_model", "")),
+                        "embedding_fingerprint": str(row.get("embedding_fingerprint", "")),
+                        "rollup_level": str(row.get("rollup_level", "")),
+                        "rollup_bucket": str(row.get("rollup_bucket", "")),
+                        "rollup_period_start": str(row.get("rollup_period_start", "")),
+                        "rollup_period_end": str(row.get("rollup_period_end", "")),
+                        "rollup_source_kind": str(row.get("rollup_source_kind", "")),
+                        "rollup_source_count": int(row.get("rollup_source_count", 0) or 0),
                         "document_id": str(row.get("document_id", "")),
                         "document_name": str(row.get("document_name", "")),
                         "chunk_index": int(row.get("chunk_index", 0) or 0),
@@ -1871,11 +2118,13 @@ class MemorySkill(BaseSkill):
             "skipped_recent": [],
             "skipped_empty": [],
             "failed_delete": [],
+            "week_rollups": [],
+            "month_rollups": [],
         }
         slug = self._slug_user_id(user_id)
         session_prefix = f"{self.memory.collections.sessions.prefix}_{slug}_"
         legacy_session_prefix = f"aria_memory_{slug}_session_"
-        context_mem_collection = f"{self.CONTEXT_MEM_PREFIX}_{slug}"
+        context_mem_collection = self._context_collection_for_user(user_id)
         now = datetime.now(timezone.utc)
 
         names = await self._list_collection_names()
@@ -1884,6 +2133,7 @@ class MemorySkill(BaseSkill):
             for name in names
             if name.startswith(session_prefix) or name.startswith(legacy_session_prefix)
         ]
+        weekly_groups: dict[str, dict[str, Any]] = {}
         for collection_name in session_names:
             rows = await self._list_rows_from_collection(
                 collection=collection_name,
@@ -1896,58 +2146,127 @@ class MemorySkill(BaseSkill):
                 summary["skipped_empty"].append(collection_name)
                 continue
 
-            age_days: int | None = None
-            if collection_name.startswith(session_prefix):
-                day_raw = collection_name.removeprefix(session_prefix)
-                try:
-                    day = datetime.strptime(day_raw, "%y%m%d").replace(tzinfo=timezone.utc)
-                    age_days = max(0, int((now - day).total_seconds() // 86400))
-                except ValueError:
-                    age_days = None
-
-            if age_days is None:
-                newest_ts: datetime | None = None
-                for row in rows:
-                    parsed = self._parse_timestamp(row.get("timestamp"))
-                    if parsed is None:
-                        continue
-                    if newest_ts is None or parsed > newest_ts:
-                        newest_ts = parsed
-                if newest_ts is None:
-                    # Unknown age: do not compress to avoid moving active context blindly.
+            session_day = self._session_day_from_collection_name(collection_name)
+            newest_ts: datetime | None = None
+            for row in rows:
+                parsed = self._parse_timestamp(row.get("timestamp"))
+                if parsed is None:
                     continue
+                if newest_ts is None or parsed > newest_ts:
+                    newest_ts = parsed
+
+            age_days: int | None = None
+            if session_day is not None:
+                age_days = max(0, int((now.date() - session_day).days))
+            elif newest_ts is not None:
                 age_days = max(0, int((now - newest_ts.astimezone(timezone.utc)).total_seconds() // 86400))
+                session_day = newest_ts.astimezone(timezone.utc).date()
+
+            if age_days is None or session_day is None:
+                continue
 
             if age_days < max(1, compress_after_days):
                 summary["skipped_recent"].append(collection_name)
                 continue
 
-            if age_days >= max(monthly_after_days, compress_after_days + 1):
-                kind = "month"
-                memory_type = "knowledge"
-                summary["compressed_month"] += 1
-            else:
-                kind = "week"
-                memory_type = "knowledge"
-                summary["compressed_week"] += 1
-
-            day_raw = collection_name.removeprefix(session_prefix) if collection_name.startswith(session_prefix) else "legacy"
-            text = self._build_compression_summary(kind=kind, day_raw=day_raw, rows=rows)
-            await self._store(
-                text=text,
-                user_id=user_id,
-                base_collection=context_mem_collection,
-                memory_type=memory_type,
-                source="compression",
+            week_bucket, week_start, week_end = self._week_bucket_for_day(session_day)
+            group = weekly_groups.setdefault(
+                week_bucket,
+                {
+                    "bucket": week_bucket,
+                    "period_start": week_start,
+                    "period_end": week_end,
+                    "rows": [],
+                    "collections": [],
+                },
             )
-            summary["compressed_collections"].append(collection_name)
-            try:
-                await self.qdrant.delete_collection(collection_name=collection_name)
-                summary["collections_removed"] += 1
-                summary["removed_collections"].append(collection_name)
-            except Exception:
-                summary["failed_delete"].append(collection_name)
+            group["rows"].extend(rows)
+            if collection_name not in group["collections"]:
+                group["collections"].append(collection_name)
+
+        for week_bucket, group in sorted(weekly_groups.items()):
+            rows = list(group.get("rows", []))
+            source_collections = list(group.get("collections", []))
+            if not rows or not source_collections:
                 continue
+            text = self._build_compression_summary(kind=self.ROLLUP_LEVEL_WEEK, day_raw=week_bucket, rows=rows)
+            await self._store_rollup_summary(
+                user_id=user_id,
+                text=text,
+                base_collection=context_mem_collection,
+                rollup_level=self.ROLLUP_LEVEL_WEEK,
+                rollup_bucket=week_bucket,
+                period_start=group["period_start"],
+                period_end=group["period_end"],
+                source_kind="session_day",
+                source_collections=source_collections,
+            )
+            summary["compressed_week"] += 1
+            summary["week_rollups"].append(week_bucket)
+            summary["compressed_collections"].extend(source_collections)
+            for collection_name in source_collections:
+                try:
+                    await self.qdrant.delete_collection(collection_name=collection_name)
+                    summary["collections_removed"] += 1
+                    summary["removed_collections"].append(collection_name)
+                except Exception:
+                    summary["failed_delete"].append(collection_name)
+
+        weekly_rollups = await self._list_rollup_rows(user_id, context_mem_collection)
+        monthly_groups: dict[str, dict[str, Any]] = {}
+        for row in weekly_rollups:
+            if str(row.get("rollup_level", "")).strip().lower() != self.ROLLUP_LEVEL_WEEK:
+                continue
+            period_end_raw = str(row.get("rollup_period_end", "")).strip()
+            if not period_end_raw:
+                continue
+            try:
+                period_end = datetime.fromisoformat(period_end_raw).date()
+            except ValueError:
+                continue
+            age_days = max(0, int((now.date() - period_end).days))
+            if age_days < max(monthly_after_days, compress_after_days + 1):
+                continue
+            period_start_raw = str(row.get("rollup_period_start", "")).strip()
+            try:
+                period_start = datetime.fromisoformat(period_start_raw).date() if period_start_raw else period_end
+            except ValueError:
+                period_start = period_end
+            month_bucket, month_start, month_end = self._month_bucket_for_day(period_start)
+            group = monthly_groups.setdefault(
+                month_bucket,
+                {
+                    "bucket": month_bucket,
+                    "period_start": month_start,
+                    "period_end": month_end,
+                    "rows": [],
+                    "collections": [],
+                },
+            )
+            group["rows"].append(row)
+            source_label = str(row.get("rollup_bucket", "")).strip() or str(row.get("collection", "")).strip()
+            if source_label and source_label not in group["collections"]:
+                group["collections"].append(source_label)
+
+        for month_bucket, group in sorted(monthly_groups.items()):
+            rows = list(group.get("rows", []))
+            source_collections = list(group.get("collections", []))
+            if not rows:
+                continue
+            text = self._build_compression_summary(kind=self.ROLLUP_LEVEL_MONTH, day_raw=month_bucket, rows=rows)
+            await self._store_rollup_summary(
+                user_id=user_id,
+                text=text,
+                base_collection=context_mem_collection,
+                rollup_level=self.ROLLUP_LEVEL_MONTH,
+                rollup_bucket=month_bucket,
+                period_start=group["period_start"],
+                period_end=group["period_end"],
+                source_kind="session_week",
+                source_collections=source_collections,
+            )
+            summary["compressed_month"] += 1
+            summary["month_rollups"].append(month_bucket)
         await self.cleanup_empty_collections_for_user(user_id)
         return summary
 

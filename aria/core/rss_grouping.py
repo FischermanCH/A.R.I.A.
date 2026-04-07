@@ -85,6 +85,24 @@ def _build_group_rows(status_rows: list[dict[str, Any]], group_map: dict[str, st
     return result
 
 
+def _group_map_from_cached_groups(groups: list[dict[str, Any]]) -> dict[str, str]:
+    group_map: dict[str, str] = {}
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        group_name = _normalize_group_name(str(group.get("name", "")).strip())
+        rows = group.get("rows", [])
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            ref = str(row.get("ref", "")).strip()
+            if ref:
+                group_map[ref] = group_name
+    return group_map
+
+
 async def build_rss_status_groups(status_rows: list[dict[str, Any]], llm_client: Any | None = None) -> list[dict[str, Any]]:
     rows = [row for row in status_rows if isinstance(row, dict) and str(row.get("ref", "")).strip()]
     if not rows:
@@ -131,7 +149,10 @@ async def build_rss_status_groups(status_rows: list[dict[str, Any]], llm_client:
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
+            source="rss_grouping",
+            operation="group_feeds",
+            user_id="system",
         )
         payload = _extract_json_object(getattr(response, "content", "") or "") or {}
         raw_groups = payload.get("groups", [])
@@ -191,7 +212,12 @@ def load_cached_rss_status_groups(cache_path: Path, status_rows: list[dict[str, 
     if str(payload.get("signature", "")).strip() != _rss_signature(status_rows):
         return None
     groups = payload.get("groups", [])
-    return groups if isinstance(groups, list) else None
+    if not isinstance(groups, list):
+        return None
+    cached_group_map = _group_map_from_cached_groups(groups)
+    if not cached_group_map:
+        return None
+    return _build_group_rows(status_rows, cached_group_map)
 
 
 def save_cached_rss_status_groups(cache_path: Path, status_rows: list[dict[str, Any]], groups: list[dict[str, Any]]) -> None:

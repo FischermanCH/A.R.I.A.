@@ -24,17 +24,20 @@ class TokenTracker:
     def _iter_log_items(self) -> tuple[str, dict]:
         if not self.log_path.exists():
             return
-        with self.log_path.open("r", encoding="utf-8") as file:
-            for line in file:
-                raw = line.strip()
-                if not raw:
-                    continue
-                try:
-                    item = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(item, dict):
-                    yield raw, item
+        try:
+            with self.log_path.open("r", encoding="utf-8") as file:
+                for line in file:
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    try:
+                        item = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(item, dict):
+                        yield raw, item
+        except OSError:
+            return
 
     @staticmethod
     def _empty_stats(days: int) -> dict:
@@ -45,6 +48,8 @@ class TokenTracker:
             "avg_tokens_per_request": 0,
             "requests_by_intent": {},
             "requests_by_router_level": {},
+            "requests_by_source": {},
+            "model_tokens_by_source": {},
             "chat_tokens_by_model": {},
             "embedding_tokens_by_model": {},
             "total_cost_usd": 0.0,
@@ -52,6 +57,7 @@ class TokenTracker:
             "priced_requests_count": 0,
             "chat_cost_usd_by_model": {},
             "embedding_cost_usd_by_model": {},
+            "cost_usd_by_source": {},
         }
 
     @staticmethod
@@ -152,8 +158,11 @@ class TokenTracker:
             "extraction_calls": int((extraction_usage or {}).get("calls", 0) or 0),
         }
 
-        with self.log_path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(entry, ensure_ascii=True) + "\n")
+        try:
+            with self.log_path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(entry, ensure_ascii=True) + "\n")
+        except OSError:
+            return
 
     async def get_stats(self, days: int = 7) -> dict:
         if not self.log_path.exists():
@@ -164,12 +173,15 @@ class TokenTracker:
         total_tokens = 0
         requests_by_intent: dict[str, int] = {}
         requests_by_router_level: dict[str, int] = {}
+        requests_by_source: dict[str, int] = {}
+        model_tokens_by_source: dict[str, int] = {}
         chat_tokens_by_model: dict[str, int] = {}
         embedding_tokens_by_model: dict[str, int] = {}
         total_cost_usd = 0.0
         priced_requests_count = 0
         chat_cost_usd_by_model: dict[str, float] = {}
         embedding_cost_usd_by_model: dict[str, float] = {}
+        cost_usd_by_source: dict[str, float] = {}
 
         for _, item in self._iter_log_items():
             parsed_ts = self._parse_timestamp(item.get("timestamp"))
@@ -181,6 +193,9 @@ class TokenTracker:
 
             level = str(item.get("router_level", "unknown"))
             requests_by_router_level[level] = requests_by_router_level.get(level, 0) + 1
+            raw_source = str(item.get("source", "")).strip().lower()
+            source_key = raw_source if raw_source not in {"", "web"} else "chat"
+            requests_by_source[source_key] = requests_by_source.get(source_key, 0) + 1
 
             intents = item.get("intents", [])
             if isinstance(intents, list):
@@ -190,28 +205,36 @@ class TokenTracker:
 
             chat_model = str(item.get("chat_model", "")).strip()
             chat_tokens = int(item.get("total_tokens", 0) or 0)
-            chat_tokens_by_model[chat_model] = chat_tokens_by_model.get(chat_model, 0) + chat_tokens
+            if chat_model or chat_tokens:
+                chat_tokens_by_model[chat_model] = chat_tokens_by_model.get(chat_model, 0) + chat_tokens
             chat_cost_raw = item.get("chat_cost_usd")
-            if isinstance(chat_cost_raw, (int, float)):
+            if chat_model and isinstance(chat_cost_raw, (int, float)):
                 chat_cost_usd_by_model[chat_model] = (
                     chat_cost_usd_by_model.get(chat_model, 0.0) + float(chat_cost_raw)
                 )
 
             embedding_model = str(item.get("embedding_model", "")).strip()
             embedding_tokens = int(item.get("embedding_total_tokens", 0) or 0)
-            embedding_tokens_by_model[embedding_model] = (
-                embedding_tokens_by_model.get(embedding_model, 0) + embedding_tokens
-            )
+            if embedding_model or embedding_tokens:
+                embedding_tokens_by_model[embedding_model] = (
+                    embedding_tokens_by_model.get(embedding_model, 0) + embedding_tokens
+                )
             embedding_cost_raw = item.get("embedding_cost_usd")
-            if isinstance(embedding_cost_raw, (int, float)):
+            if embedding_model and isinstance(embedding_cost_raw, (int, float)):
                 embedding_cost_usd_by_model[embedding_model] = (
                     embedding_cost_usd_by_model.get(embedding_model, 0.0) + float(embedding_cost_raw)
                 )
+
+            extraction_tokens = int(item.get("extraction_total_tokens", 0) or 0)
+            model_tokens_by_source[source_key] = (
+                model_tokens_by_source.get(source_key, 0) + chat_tokens + embedding_tokens + extraction_tokens
+            )
 
             total_cost_raw = item.get("total_cost_usd")
             if isinstance(total_cost_raw, (int, float)):
                 total_cost_value = float(total_cost_raw)
                 total_cost_usd += total_cost_value
+                cost_usd_by_source[source_key] = cost_usd_by_source.get(source_key, 0.0) + total_cost_value
                 if total_cost_value > 0.0:
                     priced_requests_count += 1
 
@@ -224,6 +247,8 @@ class TokenTracker:
             "avg_tokens_per_request": avg_tokens,
             "requests_by_intent": requests_by_intent,
             "requests_by_router_level": requests_by_router_level,
+            "requests_by_source": requests_by_source,
+            "model_tokens_by_source": model_tokens_by_source,
             "chat_tokens_by_model": chat_tokens_by_model,
             "embedding_tokens_by_model": embedding_tokens_by_model,
             "total_cost_usd": total_cost_usd,
@@ -231,6 +256,7 @@ class TokenTracker:
             "priced_requests_count": priced_requests_count,
             "chat_cost_usd_by_model": chat_cost_usd_by_model,
             "embedding_cost_usd_by_model": embedding_cost_usd_by_model,
+            "cost_usd_by_source": cost_usd_by_source,
         }
 
     async def prune_old_entries(self, retention_days: int) -> dict[str, int]:
@@ -243,38 +269,41 @@ class TokenTracker:
         removed = 0
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.log_path.open("r", encoding="utf-8") as source, NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=str(self.log_path.parent),
-            delete=False,
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-            for line in source:
-                total += 1
-                raw = line.strip()
-                if not raw:
-                    continue
-                try:
-                    item = json.loads(raw)
-                except json.JSONDecodeError:
+        try:
+            with self.log_path.open("r", encoding="utf-8") as source, NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=str(self.log_path.parent),
+                delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                for line in source:
+                    total += 1
+                    raw = line.strip()
+                    if not raw:
+                        continue
+                    try:
+                        item = json.loads(raw)
+                    except json.JSONDecodeError:
+                        tmp.write(line)
+                        kept += 1
+                        continue
+                    parsed_ts = self._parse_timestamp(item.get("timestamp")) if isinstance(item, dict) else None
+                    if not parsed_ts:
+                        tmp.write(line)
+                        kept += 1
+                        continue
+
+                    if parsed_ts[1] < cutoff:
+                        removed += 1
+                        continue
+
                     tmp.write(line)
                     kept += 1
-                    continue
-                parsed_ts = self._parse_timestamp(item.get("timestamp")) if isinstance(item, dict) else None
-                if not parsed_ts:
-                    tmp.write(line)
-                    kept += 1
-                    continue
 
-                if parsed_ts[1] < cutoff:
-                    removed += 1
-                    continue
-
-                tmp.write(line)
-                kept += 1
-
-        tmp_path.replace(self.log_path)
+            tmp_path.replace(self.log_path)
+        except OSError:
+            return {"total": 0, "kept": 0, "removed": 0}
         return {"total": total, "kept": kept, "removed": removed}
 
     async def clear_log(self) -> dict[str, int]:
@@ -283,7 +312,10 @@ class TokenTracker:
         removed = 0
         for _raw, _item in self._iter_log_items():
             removed += 1
-        self.log_path.unlink(missing_ok=True)
+        try:
+            self.log_path.unlink(missing_ok=True)
+        except OSError:
+            return {"removed": 0}
         return {"removed": removed}
 
     async def get_log_health(self) -> dict[str, object]:

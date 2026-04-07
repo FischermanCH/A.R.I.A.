@@ -18,6 +18,53 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 
+## [0.1.0-alpha.64] - 2026-04-07
+### Added
+- `aria --version` und `aria version-check` stehen jetzt als kleine CLI-Schnellchecks fuer installierte Version und oeffentlichen Release-Status bereit
+- an zentralen Stellen wie LLM, Embeddings, Memory und RSS gibt es jetzt kurze Kontext-Hinweise mit Direktlink zur passenden Help-Seite
+- neue Sample-Skills erweitern die mitgelieferte Sammlung um RSS-Headlines fuer Chat, SSH-Disk-Usage und eine SFTP-Config-Vorschau
+
+### Changed
+- LLM- und Embedding-Nutzung laeuft jetzt ueber eine zentrale Metering-Schicht statt nur ueber den Chat-/Pipeline-Pfad; damit koennen kuenftige Modellfunktionen konsistent ueber dieselbe Kosten- und Token-Erfassung laufen
+- direkte Hilfs- und Admin-Aufrufe wie RSS-Metadaten, RSS-Gruppierung, Runtime-Diagnostics, Skill-Keyword-Generierung, RAG-Ingest und Memory-Embeddings werden jetzt ebenfalls ueber denselben Token-/Kosten-Zaehler erfasst
+- Pipeline-/Chat-Logs aggregieren jetzt alle innerhalb eines Runs angefallenen LLM- und Embedding-Aufrufe zentral, statt nur den letzten Haupt-LLM-Call und separat gemeldete Teilmengen zu beruecksichtigen
+- statische Assets wie CSS, Logo und htmx werden jetzt pro Release mit einer Versionskennung ausgeliefert, damit Browser nach UI- und CSS-Updates weniger oft an alten Cache-Dateien haengen bleiben
+- `/stats` zeigt fuer den Release-Block jetzt auch die passenden CLI-Kommandos und fuehrt Modellnutzung zusaetzlich nach Quellen wie `chat`, `rss_metadata` oder `rag_ingest` auf
+- `/stats` zeigt die Quellen-Aufschluesselung fuer Requests, Tokens und Kosten jetzt zusaetzlich als eigene ausklappbare Kachel `Kosten Details`, statt die Source-Daten nur in tieferen Detailbloecken zu verstecken
+- `Preise aktualisieren` in `/stats` refresht den Pricing-Block jetzt per HTMX direkt an Ort und Stelle, statt die ganze Seite neu zu laden und Scroll-/Details-Zustand zu verlieren
+- auf der RSS-Seite aktivieren `Kategorien mit LLM aktualisieren`, `Jetzt pingen` und `Check mit LLM` jetzt sichtbar den globalen Busy-Zustand, damit das drehende Logo bei laengeren Aktionen klar zeigt, dass ARIA noch arbeitet
+- Klicks auf Collection-Kacheln und Collection-Nodes in der `Memory Map` fuehren jetzt direkt in den passenden Collection-Inhalt statt in eine unklare `all`-Sicht; bei aktivem Collection-Filter oeffnet `Memory` die betroffenen Gruppen ausserdem automatisch
+- Dokument-Stores verhalten sich in `Memory` jetzt hierarchisch: ein Klick auf eine Dokument-Collection zeigt zuerst die enthaltenen Dokumente, und erst ein Klick auf ein Dokument oeffnet die zugehoerigen Chunks
+- Dokument-Recall priorisiert bei klaren Dokument-Hinweisen jetzt die passendsten Guide-Treffer deutlich enger, damit Fragen zu einem hochgeladenen Manual nicht mehr so leicht mit Chunks aus anderen Dokumenten vermischt werden
+- ein Wechsel von Embedding-Modell oder API Base in `/config/embeddings` verlangt bei vorhandenem Memory jetzt eine explizite Bestaetigung und verweist direkt auf den JSON-Export, damit bestehendes Memory/RAG nicht versehentlich in einen unzuverlaessigen Zustand kippt
+- Memory- und Dokument-Payloads tragen jetzt einen Embedding-Fingerprint; Recall, Suche und Dokument-Guides mischen dadurch keine alten und neuen Embedding-Generationen mehr still miteinander
+- Session-Komprimierung baut jetzt echte Wochen- und Monats-Rollups mit eigener Metadatenstruktur statt nur unsichtbarem generischem Kontext-Wissen; damit wird der Weg fuer spaetere Graph-/Map-Beziehungen klarer
+- die `Memory Map` zeigt jetzt zusaetzlich einen einfachen read-only Graphen fuer Typen, Collections, Dokumente und Rollups, damit gespeichertes Memory schneller visuell erfassbar wird
+
+### Fixed
+- auf `/config/connections/rss` ist der Ruecksprung zur RSS-Uebersicht im Intro jetzt ein echter Button statt nur ein unauffaelliger Link
+- `/updates` zeigt jetzt unterhalb der aktuellen Release Notes auch die fuenf vorherigen Versionen als einklappbare Release-Historie mit ihren jeweiligen Release Notes
+- die `Memory Map` gruppiert importierte Dokumente jetzt pro Dokument-Collection in einklappbaren Kacheln, statt alle Dokumente in einem langen Block zu mischen
+- `Dokumente im Speicher` startet in der `Memory Map` jetzt standardmaessig eingeklappt, und einzelne Dokumentkarten verlinken direkt auf ihre Chunk-Ansicht
+- die alte zweite Bubble-/Kachel-Wiederholung unter `Collections im Speicher` ist aus der `Memory Map` entfernt, damit Collections nicht doppelt und verwirrend erscheinen
+- auf `/memories/map` gibt es jetzt zusaetzlich klickbare Collection-Kacheln fuer die vorhandenen Qdrant-Collections; ein Klick oeffnet die normale Memory-Ansicht direkt mit aktivem Collection-Filter, sodass die Eintraege dieser Collection gezielt durchgesehen, exportiert oder gepflegt werden koennen
+- Buttons auf Memory-/Config-Seiten laufen auf schmalen Mobile-Viewports nicht mehr pauschal ueber die ganze Breite und sind dadurch wieder klarer als Buttons erkennbar
+- auf der RSS-Verbindungsseite verwenden die Aktionsbuttons `Jetzt pingen` und `Check mit LLM` im Matrix-Theme jetzt denselben dunklen Button-Text wie die restlichen Buttons der Seite, statt schlecht lesbarer heller Schrift
+- die RSS-Verbindungsseite zeigt nach `Jetzt pingen` jetzt wieder echte Feed-Artikel bzw. Headlines aus dem Feed an, statt nur den Profilnamen bzw. eine generische Erfolgsmeldung
+- auf `/config/connections/rss` ist `Kategorien mit LLM aktualisieren` jetzt ebenfalls ein echter Button statt nur ein Link
+- gecachte RSS-Gruppen uebernehmen beim Laden jetzt wieder die aktuellen Anzeigenamen aus den Live-Statusdaten, statt alte `ref`-basierte Profilnamen weiter anzuzeigen, wenn sich nur der Display-Name geaendert hat
+- LLM-Kosten in `/stats` und den Token-Logs untererfassen jetzt nicht mehr still bestimmte Nebenpfade; auch nicht-interaktive Modellaufrufe ausserhalb des normalen Chat-Flows laufen jetzt durch denselben Metering- und Kostenpfad
+- `/stats`, Token-Log-Auswertung und Log-Pruning brechen bei einem unlesbaren oder root-owned Token-Log nicht mehr hart weg, sondern fallen fail-safe auf leere bzw. unveraenderte Log-Ausgaben zurueck
+- Login- und Update-Seiten geben bei neuen Releases jetzt klarere Hinweise fuer harte Browser-Reloads, falls nach UI/CSS-Aenderungen noch alte Assets sichtbar bleiben
+- bestehendes Memory bleibt bei einem spaeteren Embedding-Wechsel besser abgesichert, weil alte ungetaggte Legacy-Eintraege nur so lange kompatibel bleiben, wie der konfigurierte Memory-Fingerprint nicht auf eine neue Embedding-Generation umgestellt wurde
+- `Memory Map` zeigt Session-Rollups jetzt als eigene Wochen-/Monats-Sicht mit Zeitraum und Quellenanzahl, statt verdichteten Kontext nur indirekt ueber die Knowledge-Collection versteckt zu halten
+
+### Security
+
+### Known Limitations
+
+### Upgrade Notes
+
 ## [0.1.0-alpha.54] - 2026-04-06
 
 ### Added

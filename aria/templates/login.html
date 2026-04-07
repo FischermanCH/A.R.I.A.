@@ -22,6 +22,7 @@
       <div>
         <strong>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</strong>
         <small>{{ tr(request, 'login.update_available_hint', 'Installiert: {current} · Neu: {latest}. Release Notes ansehen.').format(current=request.state.release_meta.label, latest=request.state.update_status.latest_label) }}</small>
+        <small>{{ tr(request, 'login.cache_hint', 'Falls Farben oder Layout noch alt wirken: einmal hart neu laden.') }}</small>
       </div>
     </a>
     {% endif %}

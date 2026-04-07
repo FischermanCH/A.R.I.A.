@@ -1,0 +1,103 @@
+<div id="stats-pricing-panel" class="stats-details-content">
+  <section class="stat-card">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.price_status', 'Pricing status') }}</h2>
+        <p class="stat-sub">
+          {{ tr(request, 'stats.price_list', 'Price list') }}: {{ pricing_meta.last_updated }}
+          · {{ tr(request, 'stats.currency', 'Currency') }}: {{ pricing_meta.currency }}
+          · {{ pricing_meta.default_source_name }}
+        </p>
+      </div>
+      {% if request.state.can_access_advanced_config %}
+      <form
+        method="post"
+        action="/stats/pricing/refresh"
+        class="inline-form"
+        hx-post="/stats/pricing/refresh"
+        hx-target="#stats-pricing-panel"
+        hx-swap="outerHTML"
+      >
+        <button type="submit" class="nav-link">{{ tr(request, 'stats.refresh_pricing', 'Preise aktualisieren') }}</button>
+      </form>
+      {% endif %}
+    </div>
+    <p class="stat-sub">
+      Coverage: Chat {{ pricing_meta.chat_seen_count }}/{{ pricing_meta.priced_chat_count }}
+      · Embedding {{ pricing_meta.embedding_seen_count }}/{{ pricing_meta.priced_embedding_count }}
+    </p>
+  </section>
+
+  <section class="stat-card">
+    <h2>Pricing Coverage</h2>
+    <ul class="stats-list">
+      <li>
+        <span>{{ tr(request, 'stats.chat_seen_priced', 'Chat models seen / priced') }}</span>
+        <strong>{{ pricing_meta.chat_seen_count }} / {{ pricing_meta.priced_chat_count }}</strong>
+      </li>
+      <li>
+        <span>{{ tr(request, 'stats.embed_seen_priced', 'Embedding models seen / priced') }}</span>
+        <strong>{{ pricing_meta.embedding_seen_count }} / {{ pricing_meta.priced_embedding_count }}</strong>
+      </li>
+      <li>
+        <span>{{ tr(request, 'stats.chat_unpriced', 'Unpriced chat models') }}</span>
+        <strong>
+          {% if pricing_meta.unpriced_chat_models %}
+            {{ pricing_meta.unpriced_chat_models|join(", ") }}
+          {% else %}
+            {{ tr(request, 'stats.none', 'none') }}
+          {% endif %}
+        </strong>
+      </li>
+      <li>
+        <span>{{ tr(request, 'stats.embed_unpriced', 'Unpriced embedding models') }}</span>
+        <strong>
+          {% if pricing_meta.unpriced_embedding_models %}
+            {{ pricing_meta.unpriced_embedding_models|join(", ") }}
+          {% else %}
+            {{ tr(request, 'stats.none', 'none') }}
+          {% endif %}
+        </strong>
+      </li>
+    </ul>
+  </section>
+
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.chat_cost_by_model', 'ChatLLM cost by model (USD)') }}</h2>
+    {% if stats.chat_cost_usd_by_model %}
+      <ul class="stats-list">
+        {% for model, cost in stats.chat_cost_usd_by_model.items() %}
+          <li><span>{{ model }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>{{ tr(request, 'stats.no_priced_data', 'No priced data yet.') }}</p>
+    {% endif %}
+  </section>
+
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.embed_cost_by_model', 'Embedding cost by model (USD)') }}</h2>
+    {% if stats.embedding_cost_usd_by_model %}
+      <ul class="stats-list">
+        {% for model, cost in stats.embedding_cost_usd_by_model.items() %}
+          <li><span>{{ model }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>{{ tr(request, 'stats.no_priced_data', 'No priced data yet.') }}</p>
+    {% endif %}
+  </section>
+
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.costs_by_source', 'Costs by source (USD)') }}</h2>
+    {% if stats.cost_usd_by_source %}
+      <ul class="stats-list">
+        {% for source, cost in stats.cost_usd_by_source.items() %}
+          <li><span>{{ source }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>{{ tr(request, 'stats.no_priced_data', 'No priced data yet.') }}</p>
+    {% endif %}
+  </section>
+</div>

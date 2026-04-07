@@ -42,7 +42,7 @@ Hinweis:
 
 - Diese beiden Signatur-Secrets dürfen ebenfalls nicht im Code oder in Git landen.
 - Wenn sie nicht per Umgebung gesetzt sind, erzeugt ARIA beim ersten Start persistente Werte in `config/secrets.env`.
-- Die Auflösung erfolgt zentral über `aria/core/config.py` (keine direkten `os.environ`-Zugriffe in App-/Admin-Modulen).
+- Die Auflösung erfolgt zentral über [`aria/core/config.py`](https://github.com/FischermanCH/A.R.I.A./blob/main/aria/core/config.py) (keine direkten `os.environ`-Zugriffe in App-/Admin-Modulen).
 
 Dateirechte:
 
@@ -73,14 +73,14 @@ Für einen sauberen Public-Repo-/Container-Workflow bleiben folgende Dateien lok
 
 Im Repo bleiben nur Beispiel-/Vorlage-Dateien:
 
-- `config/config.example.yaml`
-- `config/secrets.env.example`
+- [`config/config.example.yaml`](https://github.com/FischermanCH/A.R.I.A./blob/main/config/config.example.yaml)
+- [`config/secrets.env.example`](https://github.com/FischermanCH/A.R.I.A./blob/main/config/secrets.env.example)
 
 Ziel:
 
 - keine Credentials im Code
 - keine Secrets in Git
-- alle ENV-/Secret-Zugriffe zentral in `aria/core/config.py`
+- alle ENV-/Secret-Zugriffe zentral in [`aria/core/config.py`](https://github.com/FischermanCH/A.R.I.A./blob/main/aria/core/config.py)
 
 ## Container-Hinweis
 
@@ -88,8 +88,8 @@ Der Docker-Startpfad lädt `config/secrets.env` beim Container-Start und startet
 
 Relevant:
 
-- `Dockerfile`
-- `docker/entrypoint.sh`
+- [`Dockerfile`](https://github.com/FischermanCH/A.R.I.A./blob/main/Dockerfile)
+- [`docker/entrypoint.sh`](https://github.com/FischermanCH/A.R.I.A./blob/main/docker/entrypoint.sh)
 - `docker-compose.yml`
 
 Dadurch bleiben Secrets auch im Container ausserhalb des Images und können per Volume oder Deployment-Secret bereitgestellt werden.

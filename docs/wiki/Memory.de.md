@@ -28,7 +28,7 @@ Wichtige aktuelle Punkte:
 
 Nuetzliche Referenzen:
 
-- `docs/help/memory.md`
-- `docs/product/feature-list.md`
-- `docs/product/architecture-summary.md`
-- `docs/product/rag-v1-plan.md`
+- [`docs/help/memory.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/memory.md)
+- [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
+- [`docs/product/architecture-summary.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/architecture-summary.md)
+- [`docs/product/rag-v1-plan.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/rag-v1-plan.md)

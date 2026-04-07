@@ -7,6 +7,13 @@
   <section class="config-card">
     <h2>{{ tr(request,'config_conn.rss_global_poll_title','Globales RSS-Ping-Intervall') }}</h2>
     <p>{{ tr(request,'config_conn.rss_global_poll_hint','Dieses Intervall gilt für alle RSS-Feeds. So musst du bei vielen Feeds nicht jedes Profil einzeln anfassen.') }}</p>
+    {% with
+      heading=tr(request, 'context_help.rss_title', 'Kurz erklärt'),
+      body=tr(request, 'context_help.rss_body', 'Titel, Kurzbeschreibung, Aliase und Tags helfen ARIA beim Routing. Die Feed-Gruppen sind vor allem eine Arbeitsansicht; gute Anzeigenamen und Schlagworte verbessern später Chat-Treffer deutlich.'),
+      help_doc='connections'
+    %}
+      {% include "_context_help.html" %}
+    {% endwith %}
     <form method="post" action="/config/connections/rss/poll-interval/save" class="editor-form">
       <label for="rss_global_poll_interval_minutes">{{ tr(request,'config_conn.rss_poll_interval_minutes','Ping-Intervall (Minuten)') }}</label>
       <input
@@ -50,7 +57,11 @@
       </div>
       {% if not rss_selected_explicit %}
       <div class="inline-actions">
-        <a class="button-link" href="/config/connections/rss?refresh_groups=1&mode=edit">{{ tr(request,'config_conn.rss_refresh_groups','Kategorien mit LLM aktualisieren') }}</a>
+        <form method="get" action="/config/connections/rss" class="inline-form" data-busy-immediate="true">
+          <input type="hidden" name="refresh_groups" value="1">
+          <input type="hidden" name="mode" value="edit">
+          <button type="submit">{{ tr(request,'config_conn.rss_refresh_groups','Kategorien mit LLM aktualisieren') }}</button>
+        </form>
       </div>
       <div class="editor-form">
         <label for="rss_feed_search">{{ tr(request,'config_conn.rss_search_label','RSS-Feeds durchsuchen') }}</label>
@@ -78,7 +89,7 @@
           {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
           {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
           <small>{{ item.message }}</small>
-          <form method="post" action="/config/connections/rss/ping-now" class="inline-form">
+          <form method="post" action="/config/connections/rss/ping-now" class="inline-form" data-busy-immediate="true">
             <input type="hidden" name="rss_ref" value="{{ item.ref }}">
             <button type="submit" class="button-link subtle-link">{{ tr(request,'config_conn.rss_ping_now','Jetzt pingen') }}</button>
           </form>
@@ -264,8 +275,13 @@
 
       const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Check mit LLM';
       const loadingLabel = button.dataset.loadingLabel || 'LLM denkt nach ...';
+      const beginBusy = (typeof window.ariaBeginBusyImmediate === 'function')
+        ? window.ariaBeginBusyImmediate
+        : (typeof window.ariaBeginBusy === 'function' ? window.ariaBeginBusy : null);
+      const endBusy = (typeof window.ariaEndBusy === 'function') ? window.ariaEndBusy : null;
       button.disabled = true;
       button.textContent = loadingLabel;
+      if (beginBusy) beginBusy();
       try {
         const response = await fetch(`/config/connections/rss/suggest-metadata?${params.toString()}`, {
           method: 'GET',
@@ -282,6 +298,7 @@
       } catch (error) {
         window.alert(String(error && error.message ? error.message : error));
       } finally {
+        if (endBusy) endBusy();
         button.disabled = false;
         button.textContent = defaultLabel;
       }

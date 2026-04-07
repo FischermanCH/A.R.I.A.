@@ -94,6 +94,47 @@
     <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ health.type_points.knowledge }}</code></span>
   </section>
 
+  {% if rollup_groups %}
+  <section class="memory-create-card">
+    <h2>{{ tr(request, 'memories_map.rollups_title', 'Session-Rollups') }}</h2>
+    <p>{{ tr(request, 'memories_map.rollups_subtitle', 'Hier siehst du verdichteten Tages-Kontext als Wochen- und Monats-Rollups.') }}</p>
+    <div class="memory-rollup-grid">
+      {% for group in rollup_groups %}
+      <details class="memory-group-card memory-rollup-group" {% if loop.first %}open{% endif %}>
+        <summary class="memory-group-summary">
+          <div>
+            <strong>{{ group.label }}</strong>
+            <small>{{ group.count }} {{ tr(request, 'memories_map.rollups_count', 'Rollups') }}</small>
+          </div>
+          <span class="chat-status">{{ group.level_label }}</span>
+        </summary>
+        <div class="memory-group-list">
+          {% for entry in group.entries %}
+          <article class="memory-card memory-card-empty">
+            <header class="memory-card-head">
+              <div>
+                <strong>{{ entry.bucket }}</strong>
+                <div class="memory-preview">{{ entry.preview }}</div>
+              </div>
+              <span class="status-badge">{{ entry.level_label }}</span>
+            </header>
+            <footer class="memory-card-foot">
+              <small>
+                {{ tr(request, 'memories_map.rollups_period', 'Zeitraum') }}:
+                {{ entry.period_start or "n/a" }} -> {{ entry.period_end or "n/a" }}
+                {% if entry.source_count %}· {{ tr(request, 'memories_map.rollups_sources', 'Quellen') }}: {{ entry.source_count }}{% endif %}
+                {% if entry.display_timestamp %}· {{ entry.display_timestamp }}{% endif %}
+              </small>
+            </footer>
+          </article>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   {% if cleanup_status and cleanup_status.timestamp %}
   <section class="memories-meta">
     <span class="chat-status">
@@ -111,56 +152,106 @@
   <div class="alert err">{{ error_message }}</div>
   {% endif %}
 
-  {% if document_entries %}
+  {% if document_groups %}
   <section class="memory-create-card">
     <h2>{{ tr(request, 'memories.documents_title', 'Dokumente im Speicher') }}</h2>
-    <p>{{ tr(request, 'memories.documents_subtitle', 'Hier siehst du importierte Dokumente gesammelt nach Dateiname statt nur als einzelne Chunks.') }}</p>
-    <div class="memories-list">
-      {% for doc in document_entries %}
-      <article class="memory-card memory-card-empty">
-        <header class="memory-card-head">
+    <p>{{ tr(request, 'memories.documents_collections_subtitle', 'Jede Kachel steht fuer eine Dokument-Collection. Klappe sie auf, um die enthaltenen Dokumente zu sehen.') }}</p>
+    <div class="memories-list memory-doc-group-list">
+      {% for group in document_groups %}
+      <details class="memory-group-card memory-doc-group">
+        <summary class="memory-group-summary">
           <div>
-            <strong>{{ doc.document_name }}</strong>
-            <div class="memory-preview">{{ doc.preview }}</div>
+            <strong><code>{{ group.collection }}</code></strong>
+            <small>
+              {{ group.document_count }} {{ tr(request, 'memories.documents_count', 'Dokumente') }}
+              · {{ tr(request, 'memories.document_chunks', 'Chunks') }}: {{ group.chunk_count }}
+              {% if group.display_timestamp %}· {{ group.display_timestamp }}{% endif %}
+            </small>
           </div>
-          <span class="status-badge">{{ tr(request, 'memories.type_document', 'Dokumente') }}</span>
-        </header>
-        <footer class="memory-card-foot">
-          <small>
-            {{ tr(request, 'memories.upload_collection', 'Bestehende Collection') }}: {{ doc.collection }}
-            · {{ tr(request, 'memories.document_chunks', 'Chunks') }}: {{ doc.chunk_count }}
-            {% if doc.display_timestamp %}· {{ doc.display_timestamp }}{% endif %}
-          </small>
-          <form method="post" action="/memories/delete-document">
-            <input type="hidden" name="collection" value="{{ doc.collection }}">
-            <input type="hidden" name="document_id" value="{{ doc.document_id }}">
-            <input type="hidden" name="document_name" value="{{ doc.document_name }}">
-            <input type="hidden" name="view" value="map">
-            <button type="submit" class="danger-btn">{{ tr(request, 'memories.delete_document', 'Dokument entfernen') }}</button>
-          </form>
-        </footer>
-      </article>
+          <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}</span>
+        </summary>
+        <div class="memory-group-list">
+          {% for doc in group.documents %}
+          <article class="memory-card memory-card-empty">
+            <header class="memory-card-head">
+              <div>
+                <strong><a class="memories-link" href="/memories?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}">{{ doc.document_name }}</a></strong>
+                <div class="memory-preview">{{ doc.preview }}</div>
+              </div>
+              <span class="status-badge">{{ tr(request, 'memories.type_document', 'Dokumente') }}</span>
+            </header>
+            <footer class="memory-card-foot">
+              <small>
+                {{ tr(request, 'memories.document_chunks', 'Chunks') }}: {{ doc.chunk_count }}
+                {% if doc.display_timestamp %}· {{ doc.display_timestamp }}{% endif %}
+              </small>
+              <div class="inline-actions">
+                <a class="chat-status memories-link" href="/memories?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}">{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}</a>
+                <form method="post" action="/memories/delete-document">
+                  <input type="hidden" name="collection" value="{{ doc.collection }}">
+                  <input type="hidden" name="document_id" value="{{ doc.document_id }}">
+                  <input type="hidden" name="document_name" value="{{ doc.document_name }}">
+                  <input type="hidden" name="view" value="map">
+                  <button type="submit" class="danger-btn">{{ tr(request, 'memories.delete_document', 'Dokument entfernen') }}</button>
+                </form>
+              </div>
+            </footer>
+          </article>
+          {% endfor %}
+        </div>
+      </details>
       {% endfor %}
     </div>
   </section>
   {% endif %}
 
-  <section class="memory-map-frame-wrap">
-    <div class="memory-map-canvas">
-      {% if map_rows %}
-        {% for row in map_rows %}
-        <article class="memory-node kind-{{ row.kind }}" style="--node-size: {{ row.node_size }}px;">
-          <strong>{{ row.name }}</strong>
-          <span>{{ row.points }} Punkte · {{ row.share_pct }}%</span>
-        </article>
+  {% if map_rows %}
+  <section class="memory-create-card">
+    <h2>{{ tr(request, 'memories_map.graph_title', 'Memory-Graph') }}</h2>
+    <p>{{ tr(request, 'memories_map.graph_subtitle', 'Ein einfacher Überblick über Typen, Collections, Dokumente und Rollups dieses Nutzers.') }}</p>
+    <div class="memory-map-frame-wrap memory-graph-wrap">
+      {% if memory_graph.has_graph %}
+      <div class="memory-graph-stage" style="--graph-width: {{ memory_graph.width }}px; --graph-height: {{ memory_graph.height }}px;">
+        <svg class="memory-graph-lines" viewBox="0 0 {{ memory_graph.width }} {{ memory_graph.height }}" aria-hidden="true" focusable="false">
+          {% for edge in memory_graph.edges %}
+          <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}"></line>
+          {% endfor %}
+        </svg>
+        {% for node in memory_graph.nodes %}
+          {% if node.href %}
+          <a class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}" href="{{ node.href }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
+            <strong>{{ node.label }}</strong>
+            <span>{{ node.meta }}</span>
+          </a>
+          {% else %}
+          <article class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
+            <strong>{{ node.label }}</strong>
+            <span>{{ node.meta }}</span>
+          </article>
+          {% endif %}
         {% endfor %}
+      </div>
       {% else %}
-        <article class="memory-card">
-          <p>{{ tr(request, 'memories_map.none_for_user', 'Für diesen Nutzer sind aktuell keine Collections vorhanden.') }}</p>
-        </article>
+      <article class="memory-card">
+        <p>{{ tr(request, 'memories_map.none_for_user', 'Für diesen Nutzer sind aktuell keine Collections vorhanden.') }}</p>
+      </article>
       {% endif %}
     </div>
   </section>
+
+  <section class="memory-create-card">
+    <h2>{{ tr(request, 'memories.collections_title', 'Collections im Speicher') }}</h2>
+    <p>{{ tr(request, 'memories.collections_subtitle', 'Öffne eine Collection in der Memory-Ansicht, um ihre Einträge direkt zu sehen.') }}</p>
+    <div class="memory-type-grid">
+      {% for row in map_rows %}
+      <a class="memory-type-card memory-collection-card" href="{{ row.browse_url }}">
+        <strong><code>{{ row.name }}</code></strong>
+        <span>{{ row.kind }} · {{ row.points }} {{ tr(request, 'memories_map.total_points', 'Total Points') }} · {{ row.share_pct }}%</span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   {% if map_rows %}
   <section class="prompt-table-wrap">

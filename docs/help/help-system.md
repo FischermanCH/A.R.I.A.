@@ -1,6 +1,6 @@
 # ARIA - Hilfe-System / Doku-Hub
 
-Stand: 2026-04-06
+Stand: 2026-04-07
 
 Zweck:
 - beschreibt die aktuelle Help-Richtung von ARIA
@@ -17,6 +17,7 @@ Der aktuelle Fokus ist:
 - dieselben Markdown-Quellen lokal und auf GitHub-Wiki nutzen
 - Hilfe nur einmal pflegen
 - praktische, eher produktnahe Doku statt vieler kleiner UI-Erklaerfetzen
+- an wenigen kritischen Stellen kurze, ruhige Kontext-Hinweise mit Link zur passenden Help-Seite anzeigen
 
 Das bringt fuer ARIA derzeit den groesseren Nutzen:
 - wenig Pflegeaufwand
@@ -37,8 +38,8 @@ Das bringt fuer ARIA derzeit den groesseren Nutzen:
 - Security
 
 Die Quellen dafuer liegen primaer in:
-- `docs/wiki/`
-- `docs/help/`
+- [`docs/wiki/`](https://github.com/FischermanCH/A.R.I.A./tree/main/docs/wiki)
+- [`docs/help/`](https://github.com/FischermanCH/A.R.I.A./tree/main/docs/help)
 
 Damit gilt:
 - GitHub-Wiki und lokale Hilfe greifen moeglichst auf dieselben Markdown-Dateien zu
@@ -53,6 +54,10 @@ Noch nicht aktueller Fokus:
 - KI-generierte Live-Hilfe
 - grosses Tutorial-System
 - separate Doku-Engine
+
+Bewusst jetzt schon sinnvoll:
+- kurze Kontext-Boxen bei LLM, Embeddings, Memory und RSS
+- immer mit Link auf `/help`, statt lange Hilfetexte direkt in Formularen zu duplizieren
 
 ## Denkbares Datenmodell
 
@@ -195,7 +200,7 @@ Preflight zeigt, ob zentrale Grundlagen wie Prompt-Dateien, Memory/Qdrant, Chat-
 Minimaler technischer Ansatz:
 - Help-Key pro Block/Feld im Template
 - zentraler Help-Loader liest Help-Texte aus JSON/YAML
-- kleines Jinja-Partial oder Makro rendert Info-Icon + toggelbare Help-Box
+- kleines Jinja-Partial oder Makro rendert eine knappe Kontext-Box mit Link zu `/help`
 - Texte pro Sprache getrennt pflegen
 
 Warum so:

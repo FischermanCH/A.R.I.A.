@@ -28,19 +28,35 @@
       </select>
       <label for="q">{{ tr(request, 'memories.search', 'Suche') }}</label>
       <input id="q" name="q" type="text" value="{{ query }}" placeholder="{{ tr(request, 'memories.search_placeholder', 'Memory Suche (semantisch)') }}">
+      {% if collection_filter %}
+      <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+      {% endif %}
+      {% if document_id_filter %}
+      <input type="hidden" name="document_id" value="{{ document_id_filter }}">
+      {% endif %}
+      {% if document_name_filter %}
+      <input type="hidden" name="document_name" value="{{ document_name_filter }}">
+      {% endif %}
       <input type="hidden" name="page" value="1">
       <button type="submit">{{ tr(request, 'memories.search_btn', 'Suchen') }}</button>
     </form>
     <div class="inline-actions">
       <a
         class="chat-status memories-link"
-        href="/memories/export?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}"
+        href="/memories/export?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}"
       >{{ tr(request, 'memories.export', 'Memory exportieren') }}</a>
       <a class="chat-status memories-link" href="/memories/map">{{ tr(request, 'memories.map', 'Memory Map') }}</a>
       {% if request.state.auth_role == "admin" %}
       <a class="chat-status memories-link" href="/memories/config">{{ tr(request, 'memories.setup', 'Memory-Setup') }}</a>
       {% endif %}
       <form method="post" action="/memories/maintenance" class="memories-maintenance-form">
+        <input type="hidden" name="type" value="{{ filter_type }}">
+        <input type="hidden" name="q" value="{{ query }}">
+        <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+        <input type="hidden" name="document_id" value="{{ document_id_filter }}">
+        <input type="hidden" name="document_name" value="{{ document_name_filter }}">
+        <input type="hidden" name="limit" value="{{ limit }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
         <button type="submit">{{ tr(request, 'memories.rollup', 'Kontext-Rollup') }}</button>
       </form>
     </div>
@@ -55,6 +71,14 @@
     <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ counts.session }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}: <code>{{ counts.document }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ counts.knowledge }}</code></span>
+    {% if collection_filter %}
+    <span class="chat-status">{{ tr(request, 'memories.collection_filter_label', 'Collection') }}: <code>{{ collection_filter }}</code></span>
+    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ tr(request, 'memories.collection_filter_clear', 'Collection-Filter entfernen') }}</a>
+    {% endif %}
+    {% if active_document_entry %}
+    <span class="chat-status">{{ tr(request, 'memories.document', 'Dokument') }}: <code>{{ active_document_entry.document_name }}</code></span>
+    <a class="chat-status memories-link" href="/memories?type=document&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ tr(request, 'memories.document_filter_clear', 'Zurück zu den Dokumenten im Store') }}</a>
+    {% endif %}
     {% if qdrant_dashboard_url and request.state.auth_role == "admin" and request.state.debug_mode %}
     <a class="chat-status memories-link" href="{{ qdrant_dashboard_url }}" target="_blank" rel="noopener noreferrer">Qdrant Dashboard</a>
     {% endif %}
@@ -62,8 +86,8 @@
 
   {% if total_pages > 1 %}
   <section class="memories-meta">
-    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ prev_page }}">← {{ tr(request, 'memories.back', 'Zurück') }}</a>
-    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ next_page }}">{{ tr(request, 'memories.next', 'Weiter') }} →</a>
+    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ prev_page }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">← {{ tr(request, 'memories.back', 'Zurück') }}</a>
+    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ next_page }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">{{ tr(request, 'memories.next', 'Weiter') }} →</a>
   </section>
   {% endif %}
 
@@ -73,29 +97,36 @@
   {% if error_message %}
   <div class="alert err">{{ error_message }}</div>
   {% endif %}
+  {% with
+    heading=tr(request, 'context_help.memory_title', 'Kurz erklärt'),
+    body=tr(request, 'context_help.memory_body', 'Dokumente lädst du hier hoch, gepflegt werden sie gesammelt in der Memory Map. Für große Sammlungen helfen Typ- und Collection-Filter, damit Fakten, Rollups und Dokument-Chunks nicht durcheinanderlaufen.'),
+    help_doc='memory'
+  %}
+    {% include "_context_help.html" %}
+  {% endwith %}
 
   <section class="memory-type-grid">
-    <a class="memory-type-card {% if filter_type == 'all' %}active{% endif %}" href="/memories?type=all&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'all' %}active{% endif %}" href="/memories?type=all&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_all', 'Alle') }}</strong>
       <span><code>{{ total_rows }}</code> {{ tr(request, 'memories.hits', 'Treffer') }}</span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'document' %}active{% endif %}" href="/memories?type=document&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'document' %}active{% endif %}" href="/memories?type=document&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_document', 'Dokumente') }}</strong>
       <span><code>{{ counts.document }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'knowledge' %}active{% endif %}" href="/memories?type=knowledge&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'knowledge' %}active{% endif %}" href="/memories?type=knowledge&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</strong>
       <span><code>{{ counts.knowledge }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'fact' %}active{% endif %}" href="/memories?type=fact&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'fact' %}active{% endif %}" href="/memories?type=fact&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_fact', 'Fakten') }}</strong>
       <span><code>{{ counts.fact }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'preference' %}active{% endif %}" href="/memories?type=preference&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'preference' %}active{% endif %}" href="/memories?type=preference&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</strong>
       <span><code>{{ counts.preference }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'session' %}active{% endif %}" href="/memories?type=session&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'session' %}active{% endif %}" href="/memories?type=session&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}</strong>
       <span><code>{{ counts.session }}</code></span>
     </a>
@@ -112,6 +143,9 @@
     <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data">
       <input type="hidden" name="type" value="{{ filter_type }}">
       <input type="hidden" name="q" value="{{ query }}">
+      <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+      <input type="hidden" name="document_id" value="{{ document_id_filter }}">
+      <input type="hidden" name="document_name" value="{{ document_name_filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="limit" value="{{ limit }}">
       <input type="hidden" name="sort" value="{{ sort }}">
@@ -158,6 +192,9 @@
     <form method="post" action="/memories/create" class="editor-form">
       <input type="hidden" name="type" value="{{ filter_type }}">
       <input type="hidden" name="q" value="{{ query }}">
+      <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+      <input type="hidden" name="document_id" value="{{ document_id_filter }}">
+      <input type="hidden" name="document_name" value="{{ document_name_filter }}">
       <input type="hidden" name="page" value="{{ page }}">
       <input type="hidden" name="limit" value="{{ limit }}">
       <input type="hidden" name="sort" value="{{ sort }}">
@@ -178,17 +215,41 @@
     </div>
   </details>
 
+  {% if filter_type == "document" and collection_filter and document_browser_entries %}
+  <section class="memory-create-card">
+    <h2>
+      {% if document_store_view %}
+      {{ tr(request, 'memories.documents_in_store_title', 'Dokumente im Store') }}
+      {% else %}
+      {{ tr(request, 'memories.documents_in_store_title', 'Dokumente im Store') }}
+      {% endif %}
+    </h2>
+    <p>{{ tr(request, 'memories.documents_in_store_subtitle', 'Klicke zuerst auf ein Dokument. Danach zeigt ARIA die zugehörigen Chunks aus genau diesem Store.') }}</p>
+    <div class="memory-type-grid">
+      {% for doc in document_browser_entries %}
+      <a class="memory-type-card memory-collection-card {% if active_document_entry and doc.document_id == active_document_entry.document_id %}active{% endif %}" href="{{ doc.browse_url }}">
+        <strong>{{ doc.document_name }}</strong>
+        <span>
+          {{ tr(request, 'memories.document_chunks', 'Chunks') }}: {{ doc.chunk_count }}
+          {% if doc.display_timestamp %} · {{ doc.display_timestamp }}{% endif %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <section class="memories-list">
     {% if grouped_rows %}
       {% for group in grouped_rows %}
-      <details class="memory-group-card" {% if filter_type != "all" or loop.first %}open{% endif %}>
+      <details class="memory-group-card" {% if filter_type != "all" or collection_filter %}open{% endif %}>
         <summary class="memory-group-summary">
           <div>
-            <strong>{{ group.label }}</strong>
+            <strong>{{ tr(request, 'memories.type_' ~ group.type, group.label) }}{{ tr(request, 'memories.log_suffix', ' - Log') }}</strong>
             <small>{{ group.count }} {{ tr(request, 'memories.hits', 'Treffer') }}</small>
           </div>
           {% if filter_type == "all" %}
-          <a class="chat-status memories-link" href="/memories?type={{ group.type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ tr(request, 'memories.show_type_only', 'Nur diesen Typ anzeigen') }}</a>
+          <a class="chat-status memories-link" href="/memories?type={{ group.type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">{{ tr(request, 'memories.show_type_only', 'Nur diesen Typ anzeigen') }}</a>
           {% endif %}
         </summary>
         <div class="memory-group-list">
@@ -225,6 +286,9 @@
                   <input type="hidden" name="point_id" value="{{ row.id }}">
                   <input type="hidden" name="type" value="{{ filter_type }}">
                   <input type="hidden" name="q" value="{{ query }}">
+                  <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+                  <input type="hidden" name="document_id" value="{{ document_id_filter }}">
+                  <input type="hidden" name="document_name" value="{{ document_name_filter }}">
                   <input type="hidden" name="page" value="{{ page }}">
                   <input type="hidden" name="limit" value="{{ limit }}">
                   <input type="hidden" name="sort" value="{{ sort }}">
@@ -238,6 +302,9 @@
                 <input type="hidden" name="point_id" value="{{ row.id }}">
                 <input type="hidden" name="type" value="{{ filter_type }}">
                 <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+                <input type="hidden" name="document_id" value="{{ document_id_filter }}">
+                <input type="hidden" name="document_name" value="{{ document_name_filter }}">
                 <input type="hidden" name="page" value="{{ page }}">
                 <input type="hidden" name="limit" value="{{ limit }}">
                 <input type="hidden" name="sort" value="{{ sort }}">
@@ -251,7 +318,7 @@
         </div>
       </details>
       {% endfor %}
-    {% else %}
+      {% elif not document_store_view %}
       <article class="memory-card memory-card-empty">
         <p>{{ tr(request, 'memories.empty', 'Keine Memory-Einträge gefunden.') }}</p>
       </article>

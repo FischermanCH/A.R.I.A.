@@ -29,9 +29,10 @@ class FakeLLMClient:
         self.calls = 0
         self.last_messages = []
 
-    async def chat(self, messages):
+    async def chat(self, messages, **kwargs):
         self.calls += 1
         self.last_messages = messages
+        _ = kwargs
         assert messages[0]["role"] == "system"
         return FakeLLMResponse("ok")
 
@@ -41,9 +42,10 @@ class FeedResolverLLMClient(FakeLLMClient):
         super().__init__()
         self.ref = ref
 
-    async def chat(self, messages):
+    async def chat(self, messages, **kwargs):
         self.calls += 1
         self.last_messages = messages
+        _ = kwargs
         assert messages[0]["role"] == "system"
         return FakeLLMResponse(json.dumps({"ref": self.ref, "confidence": "high", "reason": "host passt"}))
 
@@ -1032,9 +1034,10 @@ def test_pipeline_auto_memory_persists_declarative_user_context_to_session_and_f
 
 def test_pipeline_uses_llm_custom_skill_fallback_after_no_capability_match() -> None:
     class SkillPickerLLMClient(FakeLLMClient):
-        async def chat(self, messages):
+        async def chat(self, messages, **kwargs):
             self.calls += 1
             self.last_messages = messages
+            _ = kwargs
             assert messages[0]["role"] == "system"
             return FakeLLMResponse(
                 json.dumps(

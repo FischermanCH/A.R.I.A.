@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 
 import aria.core.update_check as update_check
 from aria.core.update_check import extract_changelog_section
+from aria.core.update_check import extract_release_history
 from aria.core.update_check import get_update_status
 from aria.core.update_check import is_newer_release
 from aria.core.update_check import normalize_release_label
@@ -46,6 +47,37 @@ def test_extract_changelog_section_returns_matching_version_block() -> None:
     assert "0.1.0-alpha.26" in section
     assert "fixed one" in section
     assert "older thing" not in section
+
+
+def test_extract_release_history_returns_newest_sections_in_order() -> None:
+    changelog = """
+## [Unreleased]
+
+## [0.1.0-alpha.54] - 2026-04-06
+
+### Fixed
+- newest
+
+## [0.1.0-alpha.53] - 2026-04-06
+
+### Added
+- older
+
+## [0.1.0-alpha.52] - 2026-04-06
+
+### Changed
+- oldest
+""".strip()
+
+    history = extract_release_history(changelog, max_items=3)
+
+    assert [entry["label"] for entry in history] == [
+        "0.1.0-alpha54",
+        "0.1.0-alpha53",
+        "0.1.0-alpha52",
+    ]
+    assert "newest" in history[0]["notes"]
+    assert history[0]["tag"] == "v0.1.0-alpha.54"
 
 
 def test_get_update_status_fetches_latest_tag_and_release_notes(monkeypatch, tmp_path) -> None:
@@ -89,6 +121,7 @@ def test_get_update_status_fetches_latest_tag_and_release_notes(monkeypatch, tmp
     assert status["update_available"] is True
     assert status["latest_label"] == "0.1.0-alpha27"
     assert "update hint" in status["release_notes"]
+    assert status["recent_releases"] == []
 
 
 def test_get_update_status_ignores_cache_if_cached_latest_is_older_than_current(monkeypatch, tmp_path) -> None:
@@ -257,3 +290,4 @@ def test_get_update_status_falls_back_to_changelog_when_github_tags_rate_limited
     assert status["source"] == "github-changelog-fallback"
     assert status["error"] == ""
     assert "memory map docs" in status["release_notes"]
+    assert [entry["label"] for entry in status["recent_releases"]] == ["0.1.0-alpha39"]

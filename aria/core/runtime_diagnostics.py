@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from litellm import aembedding
 from aria.core.config import EmbeddingsConfig, LLMConfig, MemoryConfig, PromptConfig, Settings
+from aria.core.embedding_client import EmbeddingClient
 from aria.core.llm_client import LLMClient, LLMClientError
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.usage_meter import UsageMeter
 
 
 def _now_iso() -> str:
@@ -82,7 +83,7 @@ async def probe_qdrant(memory: MemoryConfig) -> dict[str, Any]:
             pass
 
 
-async def probe_llm(llm: LLMConfig) -> dict[str, Any]:
+async def probe_llm(llm: LLMConfig, usage_meter: UsageMeter | None = None) -> dict[str, Any]:
     client = LLMClient(
         llm.model_copy(
             update={
@@ -90,11 +91,15 @@ async def probe_llm(llm: LLMConfig) -> dict[str, Any]:
                 "timeout_seconds": min(int(llm.timeout_seconds or 8), 8),
                 "temperature": 0.0,
             }
-        )
+        ),
+        usage_meter=usage_meter,
     )
     try:
         response = await client.chat(
-            [{"role": "user", "content": "Reply with OK only."}]
+            [{"role": "user", "content": "Reply with OK only."}],
+            source="runtime_diagnostics",
+            operation="probe_llm",
+            user_id="system",
         )
         content = str(response.content or "").strip()
         status = "ok" if content else "warn"
@@ -115,7 +120,10 @@ async def probe_llm(llm: LLMConfig) -> dict[str, Any]:
         }
 
 
-async def probe_embeddings(embeddings: EmbeddingsConfig) -> dict[str, Any]:
+async def probe_embeddings(
+    embeddings: EmbeddingsConfig,
+    usage_meter: UsageMeter | None = None,
+) -> dict[str, Any]:
     model = _resolve_embedding_model(embeddings.model)
     if not model:
         return {
@@ -126,14 +134,17 @@ async def probe_embeddings(embeddings: EmbeddingsConfig) -> dict[str, Any]:
             "detail": "",
         }
     try:
-        response = await aembedding(
-            model=model,
-            input=["healthcheck"],
-            api_base=embeddings.api_base,
-            api_key=embeddings.api_key or None,
-            timeout=min(int(embeddings.timeout_seconds or 8), 8),
+        client = EmbeddingClient(
+            embeddings.model_copy(update={"timeout_seconds": min(int(embeddings.timeout_seconds or 8), 8)}),
+            usage_meter=usage_meter,
         )
-        has_vector = _embedding_vector_present(response)
+        response = await client.embed(
+            ["healthcheck"],
+            source="runtime_diagnostics",
+            operation="probe_embeddings",
+            user_id="system",
+        )
+        has_vector = bool(response.vectors and response.vectors[0])
         return {
             "id": "embeddings",
             "status": "ok" if has_vector else "warn",
@@ -187,12 +198,16 @@ def probe_prompt_files(base_dir: Path, prompts: PromptConfig) -> dict[str, Any]:
     }
 
 
-async def build_runtime_diagnostics(base_dir: Path, settings: Settings) -> dict[str, Any]:
+async def build_runtime_diagnostics(
+    base_dir: Path,
+    settings: Settings,
+    usage_meter: UsageMeter | None = None,
+) -> dict[str, Any]:
     checks = [
         probe_prompt_files(base_dir, settings.prompts),
         await probe_qdrant(settings.memory),
-        await probe_llm(settings.llm),
-        await probe_embeddings(settings.embeddings),
+        await probe_llm(settings.llm, usage_meter=usage_meter),
+        await probe_embeddings(settings.embeddings, usage_meter=usage_meter),
     ]
     statuses = [str(row.get("status", "warn")) for row in checks]
     overall = "ok"

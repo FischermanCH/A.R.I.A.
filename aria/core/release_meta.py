@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+from importlib import metadata
 import os
 import tomllib
 from pathlib import Path
 
 
-DEFAULT_RELEASE_SUFFIX = "alpha54"
+DEFAULT_RELEASE_SUFFIX = "alpha64"
+
+
+def _read_installed_package_version(default: str = "0.1.0") -> str:
+    try:
+        return str(metadata.version("aria-agent") or default).strip() or default
+    except metadata.PackageNotFoundError:
+        return default
+    except Exception:
+        return default
 
 
 def read_release_meta(base_dir: Path) -> dict[str, str]:
-    version = "0.1.0"
+    version = _read_installed_package_version()
     try:
         pyproject = base_dir / "pyproject.toml"
         payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))

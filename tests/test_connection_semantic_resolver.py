@@ -73,7 +73,8 @@ def test_connection_semantic_resolver_can_use_llm_for_generic_connection_choice(
             self.content = content
 
     class FakeLLMClient:
-        async def chat(self, _messages):
+        async def chat(self, _messages, **kwargs):
+            _ = kwargs
             return FakeLLMResponse('{"kind":"webhook","ref":"n8n-demo","confidence":"high","reason":"automation passt"}')
 
     resolver = ConnectionSemanticResolver(llm_client=FakeLLMClient())

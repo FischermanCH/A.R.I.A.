@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
+from aria.core.embedding_client import EmbeddingClient
 from aria.skills.memory import MemorySkill
 
 
@@ -97,7 +98,8 @@ async def _run_memory() -> None:
     skill.qdrant = FakeQdrant()
     skill._collection_ready = True
 
-    async def fake_embed(_text: str):
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
         return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     skill._embed = fake_embed  # type: ignore[assignment]
@@ -136,7 +138,8 @@ async def _run_document_ingest_store() -> None:
     skill.qdrant = FakeQdrant()
     skill._collection_ready = True
 
-    async def fake_embed(_text: str):
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
         return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
 
     skill._embed = fake_embed  # type: ignore[assignment]
@@ -163,6 +166,8 @@ async def _run_document_ingest_store() -> None:
     assert any((p.payload or {}).get("source") == "rag_document_guide" for p in skill.qdrant.points)
     assert any((p.payload or {}).get("document_name") == "netzwerk-notizen.md" for p in skill.qdrant.points)
     assert all((p.payload or {}).get("type") == "knowledge" for p in skill.qdrant.points)
+    assert all((p.payload or {}).get("embedding_fingerprint") for p in skill.qdrant.points)
+    assert all((p.payload or {}).get("embedding_model") == "openai/fake-embeddings" for p in skill.qdrant.points)
 
     listed_documents = await skill.list_memories_global(user_id="u1", type_filter="document", limit=20)
     assert listed_documents
@@ -209,6 +214,39 @@ async def _run_document_ingest_store() -> None:
 
 def test_store_document_chunks_with_metadata() -> None:
     asyncio.run(_run_document_ingest_store())
+
+
+async def _run_embedding_fingerprint_switch_hides_old_memory() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    skill.qdrant = FakeQdrant()
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 10.0.0.1", "user_id": "u1"})
+    assert stored.success is True
+    assert any((p.payload or {}).get("embedding_fingerprint") for p in skill.qdrant.points)
+
+    new_embeddings = EmbeddingsConfig(model="text-embedding-3-small")
+    skill.embeddings = new_embeddings
+    skill.embedding_client = EmbeddingClient(new_embeddings)
+    skill.memory.embedding_fingerprint = skill.embedding_client.fingerprint()
+    skill.memory.embedding_model = skill.embedding_client._resolve_model()
+
+    recalled = await skill.execute("Gateway", {"action": "recall", "user_id": "u1", "top_k": 3})
+    assert recalled.success is True
+    assert "10.0.0.1" not in recalled.content
+
+
+def test_embedding_fingerprint_switch_hides_old_memory() -> None:
+    asyncio.run(_run_embedding_fingerprint_switch_hides_old_memory())
 
 
 def test_recall_source_entries_are_sorted_for_humans() -> None:
@@ -264,6 +302,67 @@ def test_recall_source_entries_are_sorted_for_humans() -> None:
     assert str(entries[0].get("detail", "")) == "Quelle: demo.pdf · aria_docs_demo_manuals · Chunk 3/12"
 
 
+def test_document_guide_targets_prefer_keyword_matched_document() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+
+    targets = skill._build_document_targets_from_guides(
+        [
+            {
+                "document_id": "mill-doc",
+                "document_name": "Mill Manual.pdf",
+                "collection": "aria_docs_fischerman",
+                "guide_score": 0.74,
+                "keyword_hits": 1,
+                "text_hits": 2,
+            },
+            {
+                "document_id": "arlo-doc",
+                "document_name": "Arlo Ultra.pdf",
+                "collection": "aria_docs_fischerman",
+                "guide_score": 0.71,
+                "keyword_hits": 0,
+                "text_hits": 2,
+            },
+        ]
+    )
+
+    assert len(targets) == 1
+    assert str(targets[0].get("document_id", "")) == "mill-doc"
+
+
+def test_document_guide_targets_keep_close_scored_same_keyword_matches() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+
+    targets = skill._build_document_targets_from_guides(
+        [
+            {
+                "document_id": "net-1",
+                "document_name": "Network Atlas.pdf",
+                "collection": "aria_docs_fischerman",
+                "guide_score": 0.82,
+                "keyword_hits": 1,
+                "text_hits": 2,
+            },
+            {
+                "document_id": "net-2",
+                "document_name": "Network Rack Notes.pdf",
+                "collection": "aria_docs_fischerman",
+                "guide_score": 0.78,
+                "keyword_hits": 1,
+                "text_hits": 1,
+            },
+        ]
+    )
+
+    assert {str(item.get("document_id", "")) for item in targets} == {"net-1", "net-2"}
+
+
 async def _run_session_vs_user_recall() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
@@ -312,7 +411,8 @@ async def _run_weighted_multi_collection_recall_prefers_fact_over_session() -> N
     fake = FakeQdrant()
     skill.qdrant = fake
 
-    async def fake_embed(_text: str):
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
         return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     skill._embed = fake_embed  # type: ignore[assignment]

@@ -18,6 +18,7 @@ def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -
             "source": "github-tags",
             "release_notes": "## [0.1.0-alpha.27] - 2026-04-05",
             "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
             "error": "",
         },
     )
@@ -28,6 +29,7 @@ def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -
     assert response.status_code == 200
     assert "0.1.0-alpha27" in response.text
     assert "/updates" in response.text
+    assert "hart neu laden" in response.text or "hard reload" in response.text
 
 
 def test_updates_page_renders_release_notes(monkeypatch) -> None:
@@ -51,6 +53,13 @@ def test_updates_page_renders_release_notes(monkeypatch) -> None:
             "source": "github-tags",
             "release_notes": "## [0.1.0-alpha.42] - 2026-04-05\n\n### Added\n- update hint",
             "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [
+                {
+                    "label": "0.1.0-alpha41",
+                    "tag": "v0.1.0-alpha.41",
+                    "notes": "## [0.1.0-alpha.41] - 2026-04-05\n\n### Fixed\n- older fix",
+                }
+            ],
             "error": "",
         },
     )
@@ -63,6 +72,9 @@ def test_updates_page_renders_release_notes(monkeypatch) -> None:
     assert "0.1.0-alpha42" in response.text
     assert "CHANGELOG.md" in response.text
     assert "update hint" in response.text
+    assert "0.1.0-alpha41" in response.text
+    assert "older fix" in response.text
+    assert "aria --version" in response.text
 
 
 def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -> None:
@@ -86,6 +98,7 @@ def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -
             "source": "github-tags",
             "release_notes": "## [0.1.0-alpha.42] - 2026-04-05",
             "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
             "error": "",
         },
     )
@@ -100,3 +113,4 @@ def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -
     assert "0.1.0-alpha41" in response.text
     assert "0.1.0-alpha42" in response.text
     assert "/updates" in response.text
+    assert "aria version-check" in response.text

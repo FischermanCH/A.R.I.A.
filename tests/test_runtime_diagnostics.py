@@ -20,9 +20,9 @@ class _FakeQdrantClient:
         return None
 
 
-async def _fake_embedding(*args, **kwargs):
-    _ = (args, kwargs)
-    return SimpleNamespace(data=[SimpleNamespace(embedding=[0.1, 0.2])])
+async def _fake_embedding(self, inputs, **kwargs):
+    _ = (self, inputs, kwargs)
+    return SimpleNamespace(vectors=[[0.1, 0.2]], usage={"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1})
 
 
 async def _build_ok_result(tmp_path: Path, monkeypatch) -> dict[str, object]:
@@ -32,10 +32,10 @@ async def _build_ok_result(tmp_path: Path, monkeypatch) -> dict[str, object]:
     (prompts_dir / "memory.md").write_text("# prompt\n", encoding="utf-8")
 
     monkeypatch.setattr(runtime_diagnostics, "create_async_qdrant_client", lambda **kwargs: _FakeQdrantClient(**kwargs))
-    monkeypatch.setattr(runtime_diagnostics, "aembedding", _fake_embedding)
+    monkeypatch.setattr(runtime_diagnostics.EmbeddingClient, "embed", _fake_embedding)
 
-    async def _fake_chat(self, messages):
-        _ = messages
+    async def _fake_chat(self, messages, **kwargs):
+        _ = (messages, kwargs)
         return SimpleNamespace(content="OK")
 
     monkeypatch.setattr(runtime_diagnostics.LLMClient, "chat", _fake_chat)
@@ -86,8 +86,8 @@ def test_probe_qdrant_skips_when_memory_is_disabled() -> None:
 
 
 def test_probe_llm_reports_error_when_request_fails(monkeypatch) -> None:
-    async def _failing_chat(self, messages):
-        _ = messages
+    async def _failing_chat(self, messages, **kwargs):
+        _ = (messages, kwargs)
         raise runtime_diagnostics.LLMClientError("boom")
 
     monkeypatch.setattr(runtime_diagnostics.LLMClient, "chat", _failing_chat)

@@ -13,8 +13,8 @@ Dieselben Kerninhalte sollen auch lokal unter `/help` erscheinen, damit ARIA und
 
 Für den Einstieg im Haupt-Repository:
 
-- `README.md`
-- `CONTRIBUTING.md`
+- [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
+- [`CONTRIBUTING.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CONTRIBUTING.md)
 
 Empfohlene erste Schritte:
 
@@ -26,8 +26,8 @@ Empfohlene erste Schritte:
 
 Wichtige Referenzen im Repo:
 
-- `README.md`
-- `CONTRIBUTING.md`
-- `docs/product/overview.md`
-- `docs/product/feature-list.md`
-- `docs/product/architecture-summary.md`
+- [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
+- [`CONTRIBUTING.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CONTRIBUTING.md)
+- [`docs/product/overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/overview.md)
+- [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
+- [`docs/product/architecture-summary.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/architecture-summary.md)

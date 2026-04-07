@@ -76,7 +76,8 @@
     "language": "Language",
     "bootstrap_locked": "Bootstrap is currently locked. Please ask an existing admin to unlock it.",
     "password_confirm": "Repeat password",
-    "password_confirm_hint": "For safety, enter the same password a second time."
+    "password_confirm_hint": "For safety, enter the same password a second time.",
+    "cache_hint": "If colors or layout still look old: do one hard reload."
   },
   "config_language": {
     "title": "Language",
@@ -209,7 +210,17 @@
     "js_load_error": "Failed to load",
     "js_models_loaded": "Models loaded. Selection will update the model value.",
     "js_no_models": "No models found.",
-    "js_error_prefix": "Error:"
+    "js_error_prefix": "Error:",
+    "memory_guard_title": "Important for existing memory",
+    "memory_guard_body": "Changing the embedding model or API base can make existing memory and RAG unreliable until it has been re-indexed.",
+    "memory_guard_stats": "Currently stored for this account:",
+    "memory_guard_points": "entries",
+    "memory_guard_collections": "collections",
+    "memory_guard_fingerprint": "Current memory fingerprint",
+    "memory_guard_export": "Export memory before switching",
+    "confirm_checkbox": "I understand that changing embeddings can make existing memory and RAG unusable until it is re-indexed.",
+    "confirm_phrase_label": "Confirmation phrase",
+    "confirm_phrase_hint": "Only needed if you really switch to a different embedding fingerprint. Phrase:"
   },
   "config_routing": {
     "title": "Routing & Memory Rules",
@@ -771,7 +782,10 @@
     "rss_summary_title": "RSS Feeds",
     "rss_summary_total_hint": "Number of configured RSS connections.",
     "rss_summary_ok_hint": "RSS feeds with successful fetch status.",
-    "rss_summary_issue_hint": "RSS feeds currently reporting an error."
+    "rss_summary_issue_hint": "RSS feeds currently reporting an error.",
+    "release_cli_hint": "CLI quick check",
+    "requests_by_source": "Requests by source",
+    "costs_by_source": "Costs by source (USD)"
   },
   "activities": {
     "title": "Activities & Runs",
@@ -820,6 +834,7 @@
     "type_session": "Day context",
     "type_document": "Documents",
     "type_knowledge": "Rollup knowledge",
+    "log_suffix": " - Log",
     "sort": "Sort",
     "sort_newest": "Newest first",
     "sort_oldest": "Oldest first",
@@ -875,8 +890,18 @@
     "upload_progress": "The document is being prepared, chunked, and imported into Qdrant. Depending on the PDF, this may take a moment.",
     "documents_title": "Documents in memory",
     "documents_subtitle": "Imported documents are grouped here by filename instead of appearing only as individual chunks.",
+    "documents_collections_subtitle": "Each tile represents a document collection. Expand it to see the documents inside.",
+    "documents_in_store_title": "Documents in store",
+    "documents_in_store_subtitle": "Click a document first. ARIA then shows the chunks that belong to exactly this store.",
+    "documents_count": "documents",
     "document_chunks": "Chunks",
     "document_chunk_position": "Chunk",
+    "open_document_chunks": "View chunks",
+    "collections_title": "Collections in memory",
+    "collections_subtitle": "Open a collection in the Memory view to inspect its entries directly.",
+    "collection_filter_label": "Collection",
+    "collection_filter_clear": "Clear collection filter",
+    "document_filter_clear": "Back to store documents",
     "delete_document": "Remove document",
     "document": "Document",
     "edit": "Edit",
@@ -946,7 +971,14 @@
     "col_type": "Type",
     "col_points": "Points",
     "col_share": "Share",
-    "col_status": "Status"
+    "col_status": "Status",
+    "rollups_title": "Session rollups",
+    "rollups_subtitle": "This shows condensed daily context as weekly and monthly rollups.",
+    "rollups_count": "rollups",
+    "rollups_period": "Period",
+    "rollups_sources": "Sources",
+    "graph_title": "Memory Graph",
+    "graph_subtitle": "A simple overview of this user's memory types, collections, documents, and rollups."
   },
   "config_memory": {
     "setup_title": "Memory setup (Qdrant)",
@@ -1100,6 +1132,7 @@
   "updates.manual_update_hint": "Installation intentionally stays manual. For internal setups keep using aria-pull; for public/Docker take the new tag from GitHub or Docker Hub.",
   "updates.check_error_title": "Last check with fallback",
   "updates.notes_missing": "No release notes were found for this version yet.",
+  "updates.previous_versions_title": "Five previous versions",
   "product_info.kicker": "Product Info",
   "product_info.title": "ARIA Product Info",
   "product_info.subtitle": "Read-only product, architecture, and release docs directly from the repo.",
@@ -1165,6 +1198,8 @@
   "stats.total_tokens": "Total tokens",
   "stats.avg_tokens_per_request": "Avg tokens / request",
   "stats.costs_title": "Costs",
+  "stats.cost_details_title": "Cost details",
+  "stats.cost_details_hint": "Shows model usage and costs by source, for example chat, RSS, RAG, or memory.",
   "stats.total_cost_usd": "Total USD",
   "stats.avg_cost_per_request": "Avg cost / request (USD)",
   "stats.priced_requests_tail": "priced requests",
@@ -1232,5 +1267,37 @@
   "base.restart_notice_reload": "Reload",
   "base.restart_notice_text": "ARIA was briefly unavailable. This page may be stale. Reload it if needed.",
   "base.restart_notice_title": "ARIA was briefly unavailable",
-  "config_appearance.theme_cyberpunk_neo": "CyberPunk Neo"
+  "config_appearance.theme_cyberpunk_neo": "CyberPunk Neo",
+  "updates": {
+    "cache_hint_title": "Browser cache hint",
+    "cache_hint_text": "If old colors or layouts still show up after a UI or CSS update: do a hard reload (Ctrl/Cmd+Shift+R). ARIA already versions static assets per release, but some browsers can still keep stale files around briefly.",
+    "cli_label": "CLI"
+  },
+  "context_help": {
+    "open": "Read more",
+    "llm_title": "Quick help",
+    "llm_body": "This is where you set API base, model, timeout, and limits for the chat brain. If answers get cut off or model loading fails, this page is the first place to check.",
+    "embeddings_title": "Quick help",
+    "embeddings_body": "Embeddings drive semantic search, memory recall, and RAG documents. If uploaded documents are not recalled well, this profile is worth checking first.",
+    "memory_title": "Quick help",
+    "memory_body": "Upload documents here, then manage them in the Memory Map. For larger knowledge sets, type and collection filters keep facts, rollups, and document chunks from blending together.",
+    "rss_title": "Quick help",
+    "rss_body": "Titles, short descriptions, aliases, and tags help ARIA route RSS-related prompts correctly. Feed groups are mainly a working view; good display names and keywords improve later chat matches."
+  },
+  "login.cache_hint": "If colors or layout still look old: do one hard reload.",
+  "updates.cache_hint_title": "Browser cache hint",
+  "updates.cache_hint_text": "If old colors or layouts still show up after a UI or CSS update: do a hard reload (Ctrl/Cmd+Shift+R). ARIA already versions static assets per release, but some browsers can still keep stale files around briefly.",
+  "updates.cli_label": "CLI",
+  "context_help.open": "Read more",
+  "context_help.llm_title": "Quick help",
+  "context_help.llm_body": "This is where you set API base, model, timeout, and limits for the chat brain. If answers get cut off or model loading fails, this page is the first place to check.",
+  "context_help.embeddings_title": "Quick help",
+  "context_help.embeddings_body": "Embeddings drive semantic search, memory recall, and RAG documents. If uploaded documents are not recalled well, this profile is worth checking first.",
+  "context_help.memory_title": "Quick help",
+  "context_help.memory_body": "Upload documents here, then manage them in the Memory Map. For larger knowledge sets, type and collection filters keep facts, rollups, and document chunks from blending together.",
+  "context_help.rss_title": "Quick help",
+  "context_help.rss_body": "Titles, short descriptions, aliases, and tags help ARIA route RSS-related prompts correctly. Feed groups are mainly a working view; good display names and keywords improve later chat matches.",
+  "stats.release_cli_hint": "CLI quick check",
+  "stats.requests_by_source": "Requests by source",
+  "stats.costs_by_source": "Costs by source (USD)"
 }

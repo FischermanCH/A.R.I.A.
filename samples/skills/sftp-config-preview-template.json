@@ -1,0 +1,58 @@
+{
+  "id": "sftp-config-preview-template",
+  "name": "SFTP Config Preview Template",
+  "version": "0.1.0",
+  "description": "Einfacher Read-only Beispielskill: liest eine Konfigurationsdatei via SFTP und fasst die wichtigsten Inhalte fuer den Chat zusammen.",
+  "category": "operations",
+  "router_keywords": [
+    "lies mir die config datei",
+    "sftp config preview",
+    "zeige die wichtigsten punkte aus der datei",
+    "konfig datei kurz zusammenfassen"
+  ],
+  "connections": [
+    "sftp"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Datei via SFTP lesen",
+      "type": "sftp_read",
+      "params": {
+        "connection_ref": "files-main",
+        "path": "/etc/app/config.yaml"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Inhalt kompakt erklaeren",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Lies den Dateiinhalt und erklaere kurz auf Deutsch, worum es in dieser Konfigurationsdatei geht. Liefere eine knappe Zusammenfassung und 3-5 zentrale Schluessel oder Auffaelligkeiten. Gib keine sensiblen Secrets wortwoertlich wieder. Technischer Input:\n\n{prev_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Ergebnis in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SFTP-Connection mit Ref files-main anlegen oder die Ref und den Pfad im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

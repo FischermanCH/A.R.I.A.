@@ -16,6 +16,7 @@ from aria.core.connection_semantic_resolver import ConnectionSemanticResolver
 from aria.core.connection_semantic_resolver import build_connection_aliases
 from aria.core.config import RoutingLanguageConfig, Settings
 from aria.core.context import ContextAssembler
+from aria.core.embedding_client import EmbeddingClient
 from aria.core.error_interpreter import ErrorInterpreter
 from aria.core.executor_registry import ExecutorRegistry
 from aria.core.llm_client import LLMClient
@@ -38,7 +39,7 @@ from aria.core.skill_runtime import (
     should_skip_auto_memory_persist,
 )
 from aria.core.ssh_runtime import SSHRuntime
-from aria.core.token_tracker import TokenTracker
+from aria.core.usage_meter import UsageMeter
 from aria.skills.base import SkillResult
 from aria.skills.memory import MemorySkill
 
@@ -68,25 +69,29 @@ class Pipeline:
         prompt_loader: PromptLoader,
         llm_client: LLMClient,
         capability_context_store: CapabilityContextStore | None = None,
+        usage_meter: UsageMeter | None = None,
+        embedding_client: EmbeddingClient | None = None,
     ):
         self.settings = settings
         self.prompt_loader = prompt_loader
         self.llm_client = llm_client
+        self.usage_meter = usage_meter or UsageMeter(settings)
+        if hasattr(self.llm_client, "usage_meter") and getattr(self.llm_client, "usage_meter", None) is None:
+            self.llm_client.usage_meter = self.usage_meter
+        self.embedding_client = embedding_client or EmbeddingClient(settings.embeddings, usage_meter=self.usage_meter)
 
         self.router = KeywordRouter(settings.routing.for_language(None))
         self.capability_router = CapabilityRouter()
         self.capability_context_store = capability_context_store
         self.context_assembler = ContextAssembler()
-        self.token_tracker = TokenTracker(
-            log_file=settings.token_tracking.log_file,
-            enabled=settings.token_tracking.enabled,
-        )
+        self.token_tracker = self.usage_meter.token_tracker
 
         self.memory_skill: MemorySkill | None = None
         if settings.memory.enabled and settings.memory.backend.lower() == "qdrant":
             self.memory_skill = MemorySkill(
                 memory=settings.memory,
                 embeddings=settings.embeddings,
+                embedding_client=self.embedding_client,
             )
         self._project_root = Path(__file__).resolve().parents[2]
         self._custom_skills_dir = self._project_root / "data" / "skills"
@@ -761,14 +766,17 @@ class Pipeline:
             user_message=message,
         )
 
-        llm_response = await self.llm_client.chat(prompts)
-        duration_ms = int((time.perf_counter() - start) * 1000)
+        with self.usage_meter.scope(
+            request_id=request_id,
+            user_id=user_id,
+            source=source,
+            router_level=decision.level,
+        ) as usage_scope:
+            llm_response = await self.llm_client.chat(prompts)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            usage_snapshot = self.usage_meter.snapshot_scope(usage_scope)
 
-        embedding_prompt_tokens = 0
-        embedding_completion_tokens = 0
-        embedding_total_tokens = 0
-        embedding_calls = 0
-        embedding_model = self.settings.embeddings.model
+        embedding_model = str(usage_snapshot.get("embedding_model", "")).strip() or self.settings.embeddings.model
         extraction_prompt_tokens = 0
         extraction_completion_tokens = 0
         extraction_total_tokens = 0
@@ -776,14 +784,6 @@ class Pipeline:
         extraction_model = "rule_based"
         for result in skill_results:
             meta = result.metadata or {}
-            usage = meta.get("embedding_usage")
-            if isinstance(usage, dict):
-                embedding_prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
-                embedding_completion_tokens += int(usage.get("completion_tokens", 0) or 0)
-                embedding_total_tokens += int(usage.get("total_tokens", 0) or 0)
-                embedding_calls += 1
-            if meta.get("embedding_model"):
-                embedding_model = str(meta["embedding_model"])
             extract_usage = meta.get("extraction_usage")
             if isinstance(extract_usage, dict):
                 extraction_prompt_tokens += int(extract_usage.get("prompt_tokens", 0) or 0)
@@ -793,11 +793,22 @@ class Pipeline:
             if meta.get("extraction_model"):
                 extraction_model = str(meta["extraction_model"])
 
-        chat_cost_usd: float | None = None
-        embedding_cost_usd: float | None = None
-        total_cost_usd: float | None = None
+        usage_total = usage_snapshot.get("usage", {}) if isinstance(usage_snapshot, dict) else {}
+        if not bool(getattr(llm_response, "metered", False)):
+            usage_total = {
+                "prompt_tokens": int(llm_response.usage.get("prompt_tokens", 0) or 0),
+                "completion_tokens": int(llm_response.usage.get("completion_tokens", 0) or 0),
+                "total_tokens": int(llm_response.usage.get("total_tokens", 0) or 0),
+            }
+        embedding_usage = usage_snapshot.get("embedding_usage", {}) if isinstance(usage_snapshot, dict) else {}
+        if not isinstance(embedding_usage, dict):
+            embedding_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
 
-        if self.settings.pricing.enabled:
+        chat_cost_usd = usage_snapshot.get("chat_cost_usd") if isinstance(usage_snapshot, dict) else None
+        embedding_cost_usd = usage_snapshot.get("embedding_cost_usd") if isinstance(usage_snapshot, dict) else None
+        total_cost_usd = usage_snapshot.get("total_cost_usd") if isinstance(usage_snapshot, dict) else None
+
+        if not bool(getattr(llm_response, "metered", False)) and self.settings.pricing.enabled:
             chat_price_cfg = self._resolve_pricing_entry(
                 self.settings.pricing.chat_models,
                 self.settings.llm.model,
@@ -809,35 +820,17 @@ class Pipeline:
                     (prompt_tokens * float(chat_price_cfg.input_per_million))
                     + (completion_tokens * float(chat_price_cfg.output_per_million))
                 ) / 1_000_000
-
-            embedding_price_cfg = self._resolve_pricing_entry(
-                self.settings.pricing.embedding_models,
-                embedding_model,
-            )
-            if embedding_price_cfg:
-                embedding_input_tokens = embedding_prompt_tokens or embedding_total_tokens
-                embedding_cost_usd = (
-                    embedding_input_tokens * float(embedding_price_cfg.input_per_million)
-                ) / 1_000_000
-
-            known_parts = [v for v in (chat_cost_usd, embedding_cost_usd) if v is not None]
-            if known_parts:
-                total_cost_usd = float(sum(known_parts))
+                total_cost_usd = chat_cost_usd if embedding_cost_usd is None else float(chat_cost_usd + float(embedding_cost_usd))
 
         await self.token_tracker.log(
             request_id=request_id,
             user_id=user_id,
             intents=merged_intents,
             router_level=decision.level,
-            usage=llm_response.usage,
-            chat_model=self.settings.llm.model,
+            usage=usage_total,
+            chat_model=str(usage_snapshot.get("chat_model", "")).strip() or self.settings.llm.model,
             embedding_model=embedding_model,
-            embedding_usage={
-                "prompt_tokens": embedding_prompt_tokens,
-                "completion_tokens": embedding_completion_tokens,
-                "total_tokens": embedding_total_tokens,
-                "calls": embedding_calls,
-            },
+            embedding_usage=embedding_usage,
             chat_cost_usd=chat_cost_usd,
             embedding_cost_usd=embedding_cost_usd,
             total_cost_usd=total_cost_usd,
@@ -858,7 +851,7 @@ class Pipeline:
         return PipelineResult(
             request_id=request_id,
             text=llm_response.content,
-            usage=llm_response.usage,
+            usage=usage_total,
             intents=merged_intents,
             skill_errors=[r.error for r in skill_results if not r.success and r.error],
             router_level=decision.level,

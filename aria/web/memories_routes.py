@@ -279,6 +279,311 @@ def _build_document_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return items
 
 
+def _build_document_collection_groups(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        collection = str(entry.get("collection", "")).strip()
+        if not collection:
+            continue
+        group = grouped.setdefault(
+            collection,
+            {
+                "collection": collection,
+                "document_count": 0,
+                "chunk_count": 0,
+                "latest_timestamp": "",
+                "documents": [],
+            },
+        )
+        group["document_count"] += 1
+        group["chunk_count"] += int(entry.get("chunk_count", 0) or 0)
+        timestamp = str(entry.get("latest_timestamp", "")).strip()
+        if timestamp and timestamp > str(group.get("latest_timestamp", "")):
+            group["latest_timestamp"] = timestamp
+        group["documents"].append(entry)
+
+    items = list(grouped.values())
+    items.sort(key=lambda item: str(item.get("latest_timestamp", "")), reverse=True)
+    for item in items:
+        item["display_timestamp"] = _format_display_timestamp(item.get("latest_timestamp"))
+        item["documents"].sort(key=lambda row: str(row.get("latest_timestamp", "")), reverse=True)
+    return items
+
+
+def _document_matches_filter(row: dict[str, Any], *, document_id: str = "", document_name: str = "") -> bool:
+    clean_document_id = str(document_id or "").strip()
+    clean_document_name = str(document_name or "").strip()
+    if clean_document_id and str(row.get("document_id", "")).strip() == clean_document_id:
+        return True
+    if clean_document_name and str(row.get("document_name", "")).strip() == clean_document_name:
+        return True
+    return False
+
+
+def _rollup_group_order(level: str) -> int:
+    order = {"week": 0, "month": 1}
+    return order.get(str(level or "").strip().lower(), 99)
+
+
+def _rollup_label(level: str) -> str:
+    normalized = str(level or "").strip().lower()
+    if normalized == "month":
+        return "MONAT"
+    return "WOCHE"
+
+
+def _build_rollup_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        if str(row.get("source", "")).strip().lower() != "compression":
+            continue
+        level = str(row.get("rollup_level", "")).strip().lower()
+        if level not in {"week", "month"}:
+            continue
+        bucket = str(row.get("rollup_bucket", "")).strip()
+        items.append(
+            {
+                "id": str(row.get("id", "")).strip(),
+                "collection": str(row.get("collection", "")).strip(),
+                "level": level,
+                "level_label": _rollup_label(level),
+                "bucket": bucket,
+                "period_start": str(row.get("rollup_period_start", "")).strip(),
+                "period_end": str(row.get("rollup_period_end", "")).strip(),
+                "source_kind": str(row.get("rollup_source_kind", "")).strip(),
+                "source_count": int(row.get("rollup_source_count", 0) or 0),
+                "timestamp": str(row.get("timestamp", "")).strip(),
+                "display_timestamp": _format_display_timestamp(row.get("timestamp")),
+                "preview": _memory_preview(str(row.get("text", "")).strip(), limit=160),
+                "title": _memory_title(str(row.get("text", "")).strip(), limit=96),
+            }
+        )
+    items.sort(key=lambda item: (str(item.get("period_end", "")), str(item.get("timestamp", ""))), reverse=True)
+    return items
+
+
+def _build_rollup_groups(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        level = str(entry.get("level", "")).strip().lower()
+        if not level:
+            continue
+        group = grouped.setdefault(
+            level,
+            {
+                "level": level,
+                "label": _rollup_label(level),
+                "count": 0,
+                "entries": [],
+            },
+        )
+        group["count"] += 1
+        group["entries"].append(entry)
+    items = list(grouped.values())
+    items.sort(key=lambda item: (_rollup_group_order(item.get("level", "")), str(item.get("label", ""))))
+    return items
+
+
+def _graph_kind_order(kind: str) -> int:
+    order = {
+        "fact": 0,
+        "preference": 1,
+        "session": 2,
+        "document": 3,
+        "knowledge": 4,
+    }
+    return order.get(str(kind or "").strip().lower(), 99)
+
+
+def _graph_kind_label(kind: str) -> str:
+    normalized = str(kind or "").strip().lower()
+    labels = {
+        "fact": "Fakten",
+        "preference": "Präferenzen",
+        "session": "Tages-Kontext",
+        "document": "Dokumente",
+        "knowledge": "Wissen",
+    }
+    return labels.get(normalized, normalized.upper() or "Memory")
+
+
+def _memory_graph_link(*, kind: str = "all", collection: str = "") -> str:
+    url = f"/memories?type={quote_plus(kind)}&q=&sort=updated_desc&limit=50&page=1"
+    if collection:
+        url += f"&collection_filter={quote_plus(collection)}"
+    return url
+
+
+def _memory_collection_link(*, kind: str = "all", collection: str = "") -> str:
+    normalized_kind = str(kind or "").strip().lower() or "all"
+    if normalized_kind not in {"all", "fact", "preference", "knowledge", "document", "session"}:
+        normalized_kind = "all"
+    return _memory_graph_link(kind=normalized_kind, collection=collection)
+
+
+def _memory_document_link(
+    *,
+    collection: str = "",
+    document_id: str = "",
+    document_name: str = "",
+) -> str:
+    url = _memory_graph_link(kind="document", collection=collection)
+    if document_id:
+        url += f"&document_id={quote_plus(document_id)}"
+    elif document_name:
+        url += f"&document_name={quote_plus(document_name)}"
+    return url
+
+
+def _build_memory_graph(
+    *,
+    username: str,
+    map_rows: list[dict[str, Any]],
+    kind_totals: dict[str, int],
+    document_groups: list[dict[str, Any]],
+    rollup_groups: list[dict[str, Any]],
+) -> dict[str, Any]:
+    kinds = [kind for kind, points in kind_totals.items() if int(points or 0) > 0]
+    if not kinds:
+        return {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
+
+    kinds.sort(key=_graph_kind_order)
+    collection_rows_by_kind: dict[str, list[dict[str, Any]]] = {kind: [] for kind in kinds}
+    for row in map_rows:
+        kind = str(row.get("kind", "")).strip().lower()
+        if kind in collection_rows_by_kind:
+            collection_rows_by_kind[kind].append(row)
+    for rows in collection_rows_by_kind.values():
+        rows.sort(key=lambda item: int(item.get("points", 0) or 0), reverse=True)
+
+    detail_nodes_by_kind: dict[str, list[dict[str, Any]]] = {kind: [] for kind in kinds}
+    for kind in kinds:
+        if kind == "document":
+            for group in document_groups[:4]:
+                detail_nodes_by_kind[kind].append(
+                    {
+                        "label": str(group.get("collection", "")).strip(),
+                        "meta": (
+                            f"{int(group.get('document_count', 0) or 0)} Dokumente"
+                            f" · {int(group.get('chunk_count', 0) or 0)} Chunks"
+                        ),
+                        "href": _memory_collection_link(
+                            kind="document",
+                            collection=str(group.get("collection", "")).strip(),
+                        ),
+                        "variant": "collection",
+                    }
+                )
+            continue
+        if kind == "knowledge":
+            for group in rollup_groups[:2]:
+                detail_nodes_by_kind[kind].append(
+                    {
+                        "label": str(group.get("label", "")).strip(),
+                        "meta": f"{int(group.get('count', 0) or 0)} Rollups",
+                        "href": _memory_graph_link(kind="knowledge"),
+                        "variant": "rollup",
+                    }
+                )
+        for row in collection_rows_by_kind.get(kind, [])[:2]:
+            detail_nodes_by_kind[kind].append(
+                {
+                    "label": str(row.get("name", "")).strip(),
+                    "meta": f"{int(row.get('points', 0) or 0)} Punkte · {int(row.get('share_pct', 0) or 0)}%",
+                    "href": _memory_collection_link(
+                        kind=kind,
+                        collection=str(row.get("name", "")).strip(),
+                    ),
+                    "variant": "collection",
+                }
+            )
+
+    column_gap = 220
+    root_y = 74
+    type_y = 214
+    detail_start_y = 364
+    detail_gap_y = 116
+    node_width = 188
+    stage_padding = 110
+    width = max(860, stage_padding * 2 + max(1, len(kinds) - 1) * column_gap + node_width)
+    start_x = width / 2 if len(kinds) == 1 else stage_padding + node_width / 2
+    step = 0 if len(kinds) == 1 else (width - stage_padding * 2 - node_width) / max(1, len(kinds) - 1)
+    max_detail_rows = max((len(items) for items in detail_nodes_by_kind.values()), default=0)
+    height = 460 + max(0, max_detail_rows - 1) * detail_gap_y
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, float]] = []
+    nodes.append(
+        {
+            "id": "graph-root",
+            "kind": "root",
+            "label": username,
+            "meta": f"{sum(int(value or 0) for value in kind_totals.values())} Punkte im Memory",
+            "left": round(width / 2 - 108, 2),
+            "top": 20,
+            "width": 216,
+            "href": _memory_graph_link(),
+            "variant": "root",
+        }
+    )
+
+    for index, kind in enumerate(kinds):
+        x_center = start_x + index * step
+        type_id = f"graph-kind-{kind}"
+        nodes.append(
+            {
+                "id": type_id,
+                "kind": kind,
+                "label": _graph_kind_label(kind),
+                "meta": f"{int(kind_totals.get(kind, 0) or 0)} Punkte",
+                "left": round(x_center - node_width / 2, 2),
+                "top": round(type_y - 42, 2),
+                "width": node_width,
+                "href": _memory_graph_link(kind=kind if kind != "knowledge" else "knowledge"),
+                "variant": "type",
+            }
+        )
+        edges.append(
+            {
+                "x1": round(width / 2, 2),
+                "y1": root_y + 38,
+                "x2": round(x_center, 2),
+                "y2": type_y - 8,
+            }
+        )
+        for detail_index, item in enumerate(detail_nodes_by_kind.get(kind, [])):
+            detail_y = detail_start_y + detail_index * detail_gap_y
+            nodes.append(
+                {
+                    "id": f"{type_id}-detail-{detail_index}",
+                    "kind": kind,
+                    "label": str(item.get("label", "")).strip(),
+                    "meta": str(item.get("meta", "")).strip(),
+                    "left": round(x_center - 98, 2),
+                    "top": round(detail_y - 36, 2),
+                    "width": 196,
+                    "href": str(item.get("href", "")).strip(),
+                    "variant": str(item.get("variant", "detail")).strip(),
+                }
+            )
+            edges.append(
+                {
+                    "x1": round(x_center, 2),
+                    "y1": type_y + 34,
+                    "x2": round(x_center, 2),
+                    "y2": round(detail_y - 6, 2),
+                }
+            )
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "width": int(width),
+        "height": int(height),
+        "has_graph": True,
+    }
+
+
 def _build_memory_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -313,6 +618,9 @@ def _memories_redirect(
     *,
     filter_type: str,
     query: str,
+    collection_filter: str,
+    document_id: str = "",
+    document_name: str = "",
     page: int,
     limit: int,
     sort: str,
@@ -321,8 +629,13 @@ def _memories_redirect(
 ) -> RedirectResponse:
     url = (
         f"/memories?type={quote_plus(filter_type)}&q={quote_plus(query)}"
+        f"&collection_filter={quote_plus(collection_filter)}"
         f"&page={_coerce_page_number(page)}&limit={_coerce_page_size(limit)}&sort={quote_plus(sort)}"
     )
+    if str(document_id or "").strip():
+        url += f"&document_id={quote_plus(str(document_id).strip())}"
+    if str(document_name or "").strip():
+        url += f"&document_name={quote_plus(str(document_name).strip())}"
     if info:
         url += f"&info={quote_plus(info)}"
     if error:
@@ -483,6 +796,9 @@ def register_memories_routes(
         request: Request,
         type: str = "all",
         q: str = "",
+        collection_filter: str = "",
+        document_id: str = "",
+        document_name: str = "",
         limit: int = 120,
         page: int = 1,
         sort: str = "updated_desc",
@@ -496,6 +812,9 @@ def register_memories_routes(
         sort_key = _normalize_memory_sort(sort)
         page_size = _coerce_page_size(limit)
         page_number = _coerce_page_number(page)
+        selected_collection = sanitize_collection_name(collection_filter)
+        selected_document_id = str(document_id or "").strip()
+        selected_document_name = str(document_name or "").strip()
         all_rows: list[dict[str, Any]] = []
         collection_stats: list[dict[str, Any]] = []
 
@@ -508,15 +827,60 @@ def register_memories_routes(
                         type_filter=type,
                         top_k=300,
                     )
+                    if selected_collection:
+                        all_rows = [
+                            row
+                            for row in all_rows
+                            if str(row.get("collection", "")).strip() == selected_collection
+                        ]
                 else:
                     all_rows = await pipeline.memory_skill.list_memories_global(
                         user_id=username,
                         type_filter=type,
-                        limit=600,
+                        limit=2000 if selected_collection else 600,
+                        collection_filter=selected_collection,
                     )
                 collection_stats = await pipeline.memory_skill.get_user_collection_stats(username)
             except Exception as exc:  # noqa: BLE001
                 error = error or str(exc)
+
+        counts = _build_memory_counts(all_rows)
+        document_browser_entries: list[dict[str, Any]] = []
+        active_document_entry: dict[str, Any] | None = None
+        document_store_view = False
+        if str(type or "").strip().lower() == "document" and all_rows:
+            document_browser_entries = _build_document_entries(all_rows)
+            for entry in document_browser_entries:
+                entry["browse_url"] = _memory_document_link(
+                    collection=str(entry.get("collection", "")).strip(),
+                    document_id=str(entry.get("document_id", "")).strip(),
+                    document_name=str(entry.get("document_name", "")).strip(),
+                )
+            if selected_document_id or selected_document_name:
+                active_document_entry = next(
+                    (
+                        entry
+                        for entry in document_browser_entries
+                        if _document_matches_filter(
+                            entry,
+                            document_id=selected_document_id,
+                            document_name=selected_document_name,
+                        )
+                    ),
+                    None,
+                )
+                all_rows = [
+                    row
+                    for row in all_rows
+                    if _document_matches_filter(
+                        row,
+                        document_id=selected_document_id,
+                        document_name=selected_document_name,
+                    )
+                ]
+            elif selected_collection and not q.strip():
+                document_store_view = True
+                all_rows = []
 
         _sort_memory_rows(all_rows, sort_key)
         total_rows = len(all_rows)
@@ -531,7 +895,13 @@ def register_memories_routes(
             row["title"] = _memory_title(str(row.get("text", "")))
             row["preview"] = _memory_preview(str(row.get("text", "")))
         grouped_rows = _build_memory_groups(rows)
-        counts = _build_memory_counts(all_rows)
+        if document_store_view:
+            total_rows = len(document_browser_entries)
+            total_pages = 1
+            page_number = 1
+            start = 0
+            end = total_rows
+            grouped_rows = []
         all_collection_names = [
             str(row.get("name", "")).strip()
             for row in overview.get("collections", [])
@@ -554,6 +924,12 @@ def register_memories_routes(
                 "grouped_rows": grouped_rows,
                 "filter_type": type,
                 "query": q,
+                "collection_filter": selected_collection,
+                "document_id_filter": selected_document_id,
+                "document_name_filter": selected_document_name,
+                "document_browser_entries": document_browser_entries,
+                "document_store_view": document_store_view,
+                "active_document_entry": active_document_entry,
                 "limit": page_size,
                 "page": page_number,
                 "sort": sort_key,
@@ -587,11 +963,13 @@ def register_memories_routes(
         request: Request,
         type: str = "all",
         q: str = "",
+        collection_filter: str = "",
         sort: str = "updated_desc",
     ) -> JSONResponse:
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         sort_key = _normalize_memory_sort(sort)
+        selected_collection = sanitize_collection_name(collection_filter)
         all_rows: list[dict[str, Any]] = []
         if pipeline.memory_skill:
             if q.strip():
@@ -601,11 +979,18 @@ def register_memories_routes(
                     type_filter=type,
                     top_k=5000,
                 )
+                if selected_collection:
+                    all_rows = [
+                        row
+                        for row in all_rows
+                        if str(row.get("collection", "")).strip() == selected_collection
+                    ]
             else:
                 all_rows = await pipeline.memory_skill.list_memories_global(
                     user_id=username,
                     type_filter=type,
                     limit=10000,
+                    collection_filter=selected_collection,
                 )
         _sort_memory_rows(all_rows, sort_key)
         payload = {
@@ -640,6 +1025,10 @@ def register_memories_routes(
         user_rows: list[dict[str, Any]] = []
         collection_stats: list[dict[str, Any]] = []
         document_entries: list[dict[str, Any]] = []
+        document_groups: list[dict[str, Any]] = []
+        rollup_entries: list[dict[str, Any]] = []
+        rollup_groups: list[dict[str, Any]] = []
+        memory_graph: dict[str, Any] = {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
         if pipeline.memory_skill:
             try:
                 stats = await pipeline.memory_skill.get_user_collection_stats(username)
@@ -650,12 +1039,14 @@ def register_memories_routes(
                 }
                 for row in stats:
                     name = str(row.get("name", "")).strip()
+                    kind = str(row.get("kind", "fact"))
                     user_rows.append(
                         {
                             "name": name,
                             "points": int(row.get("points", 0) or 0),
-                            "kind": str(row.get("kind", "fact")),
+                            "kind": kind,
                             "status": all_status.get(name, "ok"),
+                            "browse_url": _memory_collection_link(kind=kind, collection=name),
                         }
                     )
             except Exception:
@@ -667,8 +1058,21 @@ def register_memories_routes(
                     limit=5000,
                 )
                 document_entries = _build_document_entries(document_rows)
+                document_groups = _build_document_collection_groups(document_entries)
             except Exception:
                 document_entries = []
+                document_groups = []
+            try:
+                knowledge_rows = await pipeline.memory_skill.list_memories_global(
+                    user_id=username,
+                    type_filter="knowledge",
+                    limit=5000,
+                )
+                rollup_entries = _build_rollup_entries(knowledge_rows)
+                rollup_groups = _build_rollup_groups(rollup_entries)
+            except Exception:
+                rollup_entries = []
+                rollup_groups = []
 
         user_rows.sort(key=lambda row: int(row.get("points", 0) or 0), reverse=True)
         max_points = max((int(row.get("points", 0) or 0) for row in user_rows), default=0)
@@ -696,6 +1100,13 @@ def register_memories_routes(
             compress_after_days=int(settings.memory.collections.sessions.compress_after_days or 7),
             qdrant_reachable=bool(overview.get("reachable")),
         )
+        memory_graph = _build_memory_graph(
+            username=username,
+            map_rows=user_rows,
+            kind_totals=kind_totals,
+            document_groups=document_groups,
+            rollup_groups=rollup_groups,
+        )
 
         return templates.TemplateResponse(
             request=request,
@@ -710,6 +1121,10 @@ def register_memories_routes(
                 "map_total_points": total_points,
                 "map_kind_totals": kind_totals,
                 "document_entries": document_entries,
+                "document_groups": document_groups,
+                "rollup_entries": rollup_entries,
+                "rollup_groups": rollup_groups,
+                "memory_graph": memory_graph,
                 "health": health,
                 "cleanup_status": cleanup_status,
                 "info_message": info,
@@ -724,6 +1139,9 @@ def register_memories_routes(
         point_id: str = Form(...),
         type: str = Form("all"),
         q: str = Form(""),
+        collection_filter: str = Form(""),
+        document_id: str = Form(""),
+        document_name: str = Form(""),
         page: int = Form(1),
         limit: int = Form(50),
         sort: str = Form("updated_desc"),
@@ -741,6 +1159,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -749,6 +1170,9 @@ def register_memories_routes(
         return _memories_redirect(
             filter_type=type,
             query=q,
+            collection_filter=collection_filter,
+            document_id=document_id,
+            document_name=document_name,
             page=page,
             limit=limit,
             sort=sort,
@@ -764,6 +1188,9 @@ def register_memories_routes(
         view: str = Form(""),
         type: str = Form("all"),
         q: str = Form(""),
+        collection_filter: str = Form(""),
+        selected_document_id: str = Form(""),
+        selected_document_name: str = Form(""),
         page: int = Form(1),
         limit: int = Form(50),
         sort: str = Form("updated_desc"),
@@ -785,6 +1212,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type="document" if str(type).strip().lower() in {"all", "document"} else type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id="",
+                document_name="",
                 page=1,
                 limit=limit,
                 sort=sort,
@@ -795,6 +1225,9 @@ def register_memories_routes(
         return _memories_redirect(
             filter_type=type,
             query=q,
+            collection_filter=collection_filter,
+            document_id=selected_document_id,
+            document_name=selected_document_name,
             page=page,
             limit=limit,
             sort=sort,
@@ -809,6 +1242,9 @@ def register_memories_routes(
         text: str = Form(...),
         type: str = Form("all"),
         q: str = Form(""),
+        collection_filter: str = Form(""),
+        document_id: str = Form(""),
+        document_name: str = Form(""),
         page: int = Form(1),
         limit: int = Form(50),
         sort: str = Form("updated_desc"),
@@ -822,6 +1258,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -837,6 +1276,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -845,6 +1287,9 @@ def register_memories_routes(
         return _memories_redirect(
             filter_type=type,
             query=q,
+            collection_filter=collection_filter,
+            document_id=document_id,
+            document_name=document_name,
             page=page,
             limit=limit,
             sort=sort,
@@ -858,6 +1303,9 @@ def register_memories_routes(
         text: str = Form(...),
         type: str = Form("all"),
         q: str = Form(""),
+        collection_filter: str = Form(""),
+        document_id: str = Form(""),
+        document_name: str = Form(""),
         page: int = Form(1),
         limit: int = Form(50),
         sort: str = Form("updated_desc"),
@@ -876,6 +1324,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -900,6 +1351,9 @@ def register_memories_routes(
                 return _memories_redirect(
                     filter_type=type,
                     query=q,
+                    collection_filter=collection_filter,
+                    document_id=document_id,
+                    document_name=document_name,
                     page=1,
                     limit=limit,
                     sort=sort,
@@ -908,6 +1362,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -918,6 +1375,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -935,6 +1395,7 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type="all",
                 query="",
+                collection_filter="",
                 page=1,
                 limit=50,
                 sort="updated_desc",
@@ -949,6 +1410,9 @@ def register_memories_routes(
         new_collection_name = str(form.get("new_collection_name", "") or "")
         type = str(form.get("type", "all") or "all")
         q = str(form.get("q", "") or "")
+        collection_filter = str(form.get("collection_filter", "") or "")
+        document_id = str(form.get("document_id", "") or "")
+        document_name = str(form.get("document_name", "") or "")
         page = _coerce_form_int(form.get("page"), 1)
         limit = _coerce_form_int(form.get("limit"), 50)
         sort = _normalize_memory_sort(str(form.get("sort", "updated_desc") or "updated_desc"))
@@ -960,6 +1424,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -969,6 +1436,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -978,6 +1448,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -1017,6 +1490,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id="",
+                document_name="",
                 page=1,
                 limit=limit,
                 sort=sort,
@@ -1030,6 +1506,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -1039,6 +1518,9 @@ def register_memories_routes(
             return _memories_redirect(
                 filter_type=type,
                 query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
                 page=page,
                 limit=limit,
                 sort=sort,
@@ -1046,7 +1528,16 @@ def register_memories_routes(
             )
 
     @app.post("/memories/maintenance")
-    async def memories_maintenance(request: Request) -> RedirectResponse:
+    async def memories_maintenance(
+        request: Request,
+        type: str = Form("all"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        document_id: str = Form(""),
+        document_name: str = Form(""),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
         settings = get_settings()
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
@@ -1064,13 +1555,43 @@ def register_memories_routes(
                 },
             )
             if result.success:
-                return RedirectResponse(url=f"/memories?info={quote_plus(result.content)}", status_code=303)
+                return _memories_redirect(
+                    filter_type=type,
+                    query=q,
+                    collection_filter=collection_filter,
+                    document_id=document_id,
+                    document_name=document_name,
+                    page=1,
+                    limit=limit,
+                    sort=sort,
+                    info=result.content,
+                )
             message = result.error or "Komprimierung fehlgeschlagen"
-            return RedirectResponse(url=f"/memories?error={quote_plus(message)}", status_code=303)
+            return _memories_redirect(
+                filter_type=type,
+                query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
+                page=1,
+                limit=limit,
+                sort=sort,
+                error=message,
+            )
         except Exception as exc:  # noqa: BLE001
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_memory_error(lang, exc, "Komprimierung konnte nicht gestartet werden.", "Could not start compression.")
-            return RedirectResponse(url=f"/memories?error={quote_plus(error)}", status_code=303)
+            return _memories_redirect(
+                filter_type=type,
+                query=q,
+                collection_filter=collection_filter,
+                document_id=document_id,
+                document_name=document_name,
+                page=1,
+                limit=limit,
+                sort=sort,
+                error=error,
+            )
 
     @app.get("/memories/config", response_class=HTMLResponse)
     @app.get("/config/memory", response_class=HTMLResponse)

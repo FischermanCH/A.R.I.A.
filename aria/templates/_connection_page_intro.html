@@ -2,7 +2,13 @@
   <h2>{{ tr(request, connection_intro.title_key, connection_intro.title) }}</h2>
   <p>{{ tr(request, connection_intro.subtitle_key, connection_intro.subtitle) }}</p>
   <div class="inline-actions">
+    {% if connection_intro.back_label_key == 'config_conn.back_to_rss_overview' %}
+    <button type="button" class="nav-link nav-link-button" onclick="window.location.assign('{{ connection_intro.back_url or '/config' }}')">
+      {{ tr(request, connection_intro.back_label_key or 'config_conn.back_to_hub', connection_intro.back_label or 'Back to connection overview') }}
+    </button>
+    {% else %}
     <a class="button-link subtle-link" href="{{ connection_intro.back_url or '/config' }}">{{ tr(request, connection_intro.back_label_key or 'config_conn.back_to_hub', connection_intro.back_label or 'Back to connection overview') }}</a>
+    {% endif %}
   </div>
   {% if saved %}<div class="alert ok">{{ tr(request, 'config_conn.saved', 'Connection saved.') }}</div>{% endif %}
   {% if info_message %}<div class="alert ok">{{ info_message }}</div>{% endif %}

@@ -34,5 +34,8 @@ dev = [
     "httpx>=0.28",
 ]
 
+[project.scripts]
+aria = "aria.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["aria*"]

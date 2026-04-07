@@ -38,6 +38,11 @@
   </div>
   {% endif %}
 
+  <div class="alert info update-alert">
+    <strong>{{ tr(request, 'updates.cache_hint_title', 'Browser-Cache Hinweis') }}</strong>
+    <div>{{ tr(request, 'updates.cache_hint_text', 'Wenn nach einem UI- oder CSS-Update noch alte Farben oder Layouts sichtbar sind: Seite hart neu laden (Ctrl/Cmd+Shift+R). ARIA versieht statische Dateien zwar pro Release mit einer Versionskennung, einzelne Browser können trotzdem kurz alte Assets cachen.') }}</div>
+  </div>
+
   {% if update_status.error %}
   <div class="alert warn update-alert">
     <strong>{{ tr(request, 'updates.check_error_title', 'Letzter Check mit Fallback') }}</strong>
@@ -50,10 +55,37 @@
     <code>{{ update_status.source or 'github-tags' }} · {{ update_status.release_notes_source or 'CHANGELOG.md' }}</code>
   </div>
 
+  <div class="help-source-chip">
+    <span class="stat-label">{{ tr(request, 'updates.cli_label', 'CLI') }}</span>
+    <code>aria --version · aria version-check</code>
+  </div>
+
   {% if update_status.release_notes %}
   <pre class="help-document">{{ update_status.release_notes }}</pre>
   {% else %}
   <div class="empty-state">{{ tr(request, 'updates.notes_missing', 'Für diese Version wurden noch keine Release Notes gefunden.') }}</div>
+  {% endif %}
+
+  {% if update_status.recent_releases %}
+  <details class="stats-details updates-history">
+    <summary>{{ tr(request, 'updates.previous_versions_title', 'Fünf vorherige Versionen') }}</summary>
+    <div class="stats-details-content">
+      {% for release in update_status.recent_releases %}
+      <details class="stats-details">
+        <summary>{{ release.label }}</summary>
+        {% if release.notes %}
+        <div class="stats-details-content">
+          <pre class="help-document">{{ release.notes }}</pre>
+        </div>
+        {% else %}
+        <div class="stats-details-content">
+          <div class="empty-state">{{ tr(request, 'updates.notes_missing', 'Für diese Version wurden noch keine Release Notes gefunden.') }}</div>
+        </div>
+        {% endif %}
+      </details>
+      {% endfor %}
+    </div>
+  </details>
   {% endif %}
 </section>
 {% endblock %}

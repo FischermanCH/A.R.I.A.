@@ -5,6 +5,13 @@
   <section class="config-card">
     <div class="page-title-row"><span>{{ icon('embeddings', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_embed.title', 'Embeddings Configuration') }}</h2></div>
     <p>{{ tr(request, 'config_embed.subtitle', 'Embedding model configuration (memory & similarity). API keys are stored in the secure database.') }}</p>
+    {% with
+      heading=tr(request, 'context_help.embeddings_title', 'Kurz erklärt'),
+      body=tr(request, 'context_help.embeddings_body', 'Embeddings steuern semantische Suche, Memory-Recall und RAG-Dokumente. Wenn Dokumente schlecht wiedergefunden werden, lohnt sich zuerst ein Blick auf dieses Profil.'),
+      help_doc='memory'
+    %}
+      {% include "_context_help.html" %}
+    {% endwith %}
 
     {% if saved %}
     <div class="alert ok">{{ tr(request, 'config_embed.saved', 'Embeddings configuration saved.') }}</div>
@@ -22,6 +29,25 @@
       {{ tr(request, 'config_embed.save_help', 'Save updates the active profile. To create or overwrite a named profile, enter a profile name below and use "Save as profile".') }}
     </div>
 
+    {% if embedding_guard.memory_point_count > 0 %}
+    <div class="alert note">
+      <strong>{{ tr(request, 'config_embed.memory_guard_title', 'Wichtig für bestehendes Memory') }}</strong><br>
+      {{ tr(request, 'config_embed.memory_guard_body', 'Ein Wechsel von Embedding-Modell oder API Base kann bestehendes Memory und RAG unzuverlässig machen, bis neu indexiert wurde.') }}
+      <br>
+      {{ tr(request, 'config_embed.memory_guard_stats', 'Aktuell erfasst für dieses Konto:') }}
+      {{ embedding_guard.memory_point_count }} {{ tr(request, 'config_embed.memory_guard_points', 'Einträge') }}
+      / {{ embedding_guard.memory_collection_count }} {{ tr(request, 'config_embed.memory_guard_collections', 'Collections') }}.
+      <br>
+      {{ tr(request, 'config_embed.memory_guard_fingerprint', 'Aktueller Memory-Fingerprint') }}:
+      <code>{{ embedding_guard.memory_fingerprint_short }}</code>
+      {% if embedding_guard.memory_model %}
+      ({{ embedding_guard.memory_model }})
+      {% endif %}
+      <br>
+      <a class="subtle-link" href="{{ embedding_guard.export_url }}">{{ tr(request, 'config_embed.memory_guard_export', 'Vor Wechsel zuerst Memory exportieren') }}</a>
+    </div>
+    {% endif %}
+
     <form method="post" action="/config/embeddings/profile/load" class="editor-form">
       <label for="embedding_profile_name_load">{{ tr(request, 'config_embed.load_profile', 'Load profile') }}</label>
       <div class="inline-actions">
@@ -32,6 +58,15 @@
         </select>
         <button type="submit">{{ tr(request, 'config_embed.load_profile_btn', 'Load profile') }}</button>
       </div>
+      {% if embedding_guard.requires_switch_confirmation %}
+      <label class="checkbox-row">
+        <input type="checkbox" name="confirm_embedding_switch" value="1">
+        <span>{{ tr(request, 'config_embed.confirm_checkbox', 'Ich verstehe, dass ein Embedding-Wechsel vorhandenes Memory und RAG unbrauchbar machen kann, bis neu indexiert wurde.') }}</span>
+      </label>
+      <label for="embedding_profile_confirm_phrase">{{ tr(request, 'config_embed.confirm_phrase_label', 'Bestätigungsphrase') }}</label>
+      <input id="embedding_profile_confirm_phrase" name="confirm_embedding_phrase" type="text" placeholder="{{ embedding_guard.confirm_phrase }}">
+      <small class="hint-text">{{ tr(request, 'config_embed.confirm_phrase_hint', 'Nur nötig, wenn du wirklich auf einen anderen Embedding-Fingerprint wechselst. Phrase:') }} <code>{{ embedding_guard.confirm_phrase }}</code></small>
+      {% endif %}
     </form>
 
     <form method="post" action="/config/embeddings/profile/delete" class="editor-form">
@@ -83,6 +118,16 @@
       <label for="embedding_profile_name_save">{{ tr(request, 'config_embed.profile_name', 'Profile name (for save as profile)') }}</label>
       <input id="embedding_profile_name_save" name="profile_name" type="text" value="{{ active_embedding_profile }}" maxlength="48">
       <small class="hint-text">{{ tr(request, 'config_embed.profile_name_hint', 'Example: litellm-embeddings. The normal Save button keeps the current active profile and only updates its values.') }}</small>
+
+      {% if embedding_guard.requires_switch_confirmation %}
+      <label class="checkbox-row">
+        <input type="checkbox" name="confirm_embedding_switch" value="1">
+        <span>{{ tr(request, 'config_embed.confirm_checkbox', 'Ich verstehe, dass ein Embedding-Wechsel vorhandenes Memory und RAG unbrauchbar machen kann, bis neu indexiert wurde.') }}</span>
+      </label>
+      <label for="embedding_confirm_phrase">{{ tr(request, 'config_embed.confirm_phrase_label', 'Bestätigungsphrase') }}</label>
+      <input id="embedding_confirm_phrase" name="confirm_embedding_phrase" type="text" placeholder="{{ embedding_guard.confirm_phrase }}">
+      <small class="hint-text">{{ tr(request, 'config_embed.confirm_phrase_hint', 'Nur nötig, wenn du wirklich auf einen anderen Embedding-Fingerprint wechselst. Phrase:') }} <code>{{ embedding_guard.confirm_phrase }}</code></small>
+      {% endif %}
 
       <div class="inline-actions">
         <button type="submit">{{ tr(request, 'config_embed.save', 'Save') }}</button>

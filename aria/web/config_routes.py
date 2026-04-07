@@ -35,6 +35,7 @@ from aria.core.connection_catalog import (
     normalize_connection_kind,
 )
 from aria.core.config import (
+    EmbeddingsConfig,
     UI_BACKGROUND_OPTIONS,
     UI_THEME_OPTIONS,
     normalize_ui_background,
@@ -57,6 +58,7 @@ from aria.core.rss_grouping import build_rss_status_groups
 from aria.core.rss_grouping import load_cached_rss_status_groups, save_cached_rss_status_groups
 from aria.core.rss_opml import build_opml_document, parse_opml_feeds
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
+from aria.core.embedding_client import EmbeddingClient
 
 
 SettingsGetter = Callable[[], Any]
@@ -112,6 +114,7 @@ _RSS_METADATA_HEADERS = {
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
 }
 _SAMPLE_CONNECTIONS_DIR = Path(__file__).resolve().parents[2] / "samples" / "connections"
+EMBEDDING_SWITCH_CONFIRM_PHRASE = "EMBEDDINGS WECHSELN"
 
 
 def _sanitize_csrf_token_local(value: str | None) -> str:
@@ -232,6 +235,40 @@ def _format_session_timeout_label(total_minutes: int, lang: str = "de") -> str:
     if not parts:
         parts.append(f"{minutes} {units['minute_singular'] if minutes == 1 else units['minute_plural']}")
     return " ".join(parts)
+
+
+def _resolve_embedding_model_label(model: str, api_base: str | None = None) -> str:
+    config = EmbeddingsConfig(model=str(model or "").strip(), api_base=str(api_base or "").strip() or None)
+    return EmbeddingClient(config)._resolve_model()
+
+
+def _embedding_fingerprint_for_values(model: str, api_base: str | None = None) -> str:
+    config = EmbeddingsConfig(model=str(model or "").strip(), api_base=str(api_base or "").strip() or None)
+    return EmbeddingClient(config).fingerprint()
+
+
+def _short_fingerprint(value: str, length: int = 12) -> str:
+    clean = str(value or "").strip()
+    if not clean:
+        return ""
+    return clean[: max(6, int(length))]
+
+
+def _memory_point_totals(stats: list[dict[str, Any]] | None) -> tuple[int, int]:
+    rows = list(stats or [])
+    total_points = sum(int(row.get("points", 0) or 0) for row in rows)
+    return total_points, len(rows)
+
+
+def _embedding_switch_requires_confirmation(
+    current_memory_fingerprint: str,
+    new_fingerprint: str,
+    memory_point_count: int,
+) -> bool:
+    return (
+        int(memory_point_count or 0) > 0
+        and str(current_memory_fingerprint or "").strip() != str(new_fingerprint or "").strip()
+    )
 
 
 def _build_editor_entries_from_paths(base_dir: Path, rel_paths: list[str], resolver: FileResolver) -> list[dict[str, Any]]:
@@ -1006,6 +1043,62 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     def _friendly_ssh_setup_error(lang: str, exc: Exception) -> str:
         return _friendly_ssh_setup_error_impl(lang, exc)
 
+    async def _embedding_memory_guard_context(username: str) -> dict[str, Any]:
+        memory_stats: list[dict[str, Any]] = []
+        if getattr(pipeline, "memory_skill", None):
+            with suppress(Exception):
+                memory_stats = list(await pipeline.memory_skill.get_user_collection_stats(username))
+        memory_point_count, memory_collection_count = _memory_point_totals(memory_stats)
+        current_fingerprint = _embedding_fingerprint_for_values(
+            settings.embeddings.model,
+            settings.embeddings.api_base,
+        )
+        memory_fingerprint = str(getattr(settings.memory, "embedding_fingerprint", "") or "").strip() or current_fingerprint
+        memory_model = str(getattr(settings.memory, "embedding_model", "") or "").strip() or _resolve_embedding_model_label(
+            settings.embeddings.model,
+            settings.embeddings.api_base,
+        )
+        return {
+            "memory_stats": memory_stats,
+            "memory_point_count": memory_point_count,
+            "memory_collection_count": memory_collection_count,
+            "current_fingerprint": current_fingerprint,
+            "current_fingerprint_short": _short_fingerprint(current_fingerprint),
+            "memory_fingerprint": memory_fingerprint,
+            "memory_fingerprint_short": _short_fingerprint(memory_fingerprint),
+            "memory_model": memory_model,
+            "requires_switch_confirmation": memory_point_count > 0,
+            "confirm_phrase": EMBEDDING_SWITCH_CONFIRM_PHRASE,
+            "export_url": "/memories/export?type=all&sort=updated_desc",
+            "memory_fingerprint_tracked": bool(str(getattr(settings.memory, "embedding_fingerprint", "") or "").strip()),
+        }
+
+    async def _guard_embedding_switch(
+        *,
+        username: str,
+        new_model: str,
+        new_api_base: str,
+        confirm_switch: str,
+        confirm_phrase: str,
+    ) -> tuple[str, str]:
+        new_fingerprint = _embedding_fingerprint_for_values(new_model, new_api_base)
+        resolved_model = _resolve_embedding_model_label(new_model, new_api_base)
+        guard = await _embedding_memory_guard_context(username)
+        if _embedding_switch_requires_confirmation(
+            guard["memory_fingerprint"],
+            new_fingerprint,
+            guard["memory_point_count"],
+        ):
+            confirmed = str(confirm_switch or "").strip().lower() in {"1", "true", "yes", "on"}
+            typed_phrase = str(confirm_phrase or "").strip().upper()
+            if not confirmed or typed_phrase != EMBEDDING_SWITCH_CONFIRM_PHRASE:
+                raise ValueError(
+                    "Embedding-Wechsel blockiert: Vorhandenes Memory/RAG wurde mit einem anderen Embedding-Fingerprint erstellt. "
+                    f"Bitte zuerst exportieren ({guard['export_url']}) und den Wechsel bewusst bestaetigen "
+                    f"({EMBEDDING_SWITCH_CONFIRM_PHRASE})."
+                )
+        return new_fingerprint, resolved_model
+
     def _connection_saved_test_info(kind_label: str, lang: str, *, success: bool) -> str:
         if success:
             return _msg(
@@ -1177,7 +1270,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         error: str = "",
         info: str = "",
     ) -> HTMLResponse:
-        username = _get_username_from_request(request)
+        username = _get_username_from_request(request) or "web"
         lang = str(getattr(request.state, "lang", "de") or "de")
         error_message = ""
         if error == "admin_mode_required":
@@ -2075,7 +2168,10 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
-                ]
+                ],
+                source="rss_metadata",
+                operation="suggest_metadata",
+                user_id="system",
             )
         except Exception:
             response = None
@@ -5345,6 +5441,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             }
             for key, data in LLM_PROVIDER_PRESETS.items()
         ]
+        embedding_guard = await _embedding_memory_guard_context(username)
         return TEMPLATES.TemplateResponse(
             request=request,
             name="config_embeddings.html",
@@ -5357,11 +5454,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "providers": providers,
                 "embedding_profiles": sorted(embedding_profiles.keys()),
                 "active_embedding_profile": active_embedding_profile,
+                "embedding_guard": embedding_guard,
             },
         )
 
     @app.post("/config/embeddings/profile/load")
-    async def config_embeddings_profile_load(profile_name: str = Form(...)) -> RedirectResponse:
+    async def config_embeddings_profile_load(
+        request: Request,
+        profile_name: str = Form(...),
+        confirm_embedding_switch: str = Form(""),
+        confirm_embedding_phrase: str = Form(""),
+    ) -> RedirectResponse:
         try:
             raw = _read_raw_config()
             name = _sanitize_profile_name(profile_name)
@@ -5371,6 +5474,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             profile = profiles.get(name)
             if not profile:
                 raise ValueError("Embedding-Profil nicht gefunden.")
+            username = _get_username_from_request(request) or "web"
+            fingerprint, resolved_model = await _guard_embedding_switch(
+                username=username,
+                new_model=str(profile.get("model", "")).strip(),
+                new_api_base=str(profile.get("api_base", "")).strip(),
+                confirm_switch=confirm_embedding_switch,
+                confirm_phrase=confirm_embedding_phrase,
+            )
 
             raw.setdefault("embeddings", {})
             raw["embeddings"]["model"] = str(profile.get("model", "")).strip()
@@ -5385,6 +5496,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 store.set_secret("embeddings.api_key", profile_api_key)
                 raw["embeddings"]["api_key"] = ""
             _set_active_profile(raw, "embeddings", name)
+            raw.setdefault("memory", {})
+            raw["memory"]["embedding_fingerprint"] = fingerprint
+            raw["memory"]["embedding_model"] = resolved_model
             _write_raw_config(raw)
             _reload_runtime()
             return RedirectResponse(url="/config/embeddings?saved=1", status_code=303)
@@ -5393,11 +5507,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
 
     @app.post("/config/embeddings/profile/save")
     async def config_embeddings_profile_save(
+        request: Request,
         profile_name: str = Form(...),
         model: str = Form(...),
         api_base: str = Form(""),
         api_key: str = Form(""),
         timeout_seconds: int = Form(...),
+        confirm_embedding_switch: str = Form(""),
+        confirm_embedding_phrase: str = Form(""),
     ) -> RedirectResponse:
         try:
             name = _sanitize_profile_name(profile_name)
@@ -5413,6 +5530,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 raise ValueError("API Key ist für Nicht-Ollama-Embedding-Modelle erforderlich.")
             if timeout_seconds <= 0:
                 raise ValueError("timeout_seconds muss > 0 sein.")
+            username = _get_username_from_request(request) or "web"
+            fingerprint, resolved_model = await _guard_embedding_switch(
+                username=username,
+                new_model=cleaned_model,
+                new_api_base=api_base.strip(),
+                confirm_switch=confirm_embedding_switch,
+                confirm_phrase=confirm_embedding_phrase,
+            )
 
             raw = _read_raw_config()
             raw.setdefault("profiles", {})
@@ -5437,6 +5562,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     "timeout_seconds": int(timeout_seconds),
                 }
             )
+            raw.setdefault("memory", {})
+            raw["memory"]["embedding_fingerprint"] = fingerprint
+            raw["memory"]["embedding_model"] = resolved_model
             store = _get_secure_store(raw)
             if store and cleaned_api_key:
                 store.set_secret("embeddings.api_key", cleaned_api_key)
@@ -5473,11 +5601,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
 
     @app.post("/config/embeddings/save")
     async def config_embeddings_save(
+        request: Request,
         model: str = Form(...),
         api_base: str = Form(""),
         api_key: str = Form(""),
         timeout_seconds: int = Form(...),
         profile_name: str = Form(""),
+        confirm_embedding_switch: str = Form(""),
+        confirm_embedding_phrase: str = Form(""),
     ) -> RedirectResponse:
         try:
             cleaned_model = model.strip()
@@ -5490,6 +5621,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 raise ValueError("API Key ist für Nicht-Ollama-Embedding-Modelle erforderlich.")
             if timeout_seconds <= 0:
                 raise ValueError("timeout_seconds muss > 0 sein.")
+            username = _get_username_from_request(request) or "web"
+            fingerprint, resolved_model = await _guard_embedding_switch(
+                username=username,
+                new_model=cleaned_model,
+                new_api_base=api_base.strip(),
+                confirm_switch=confirm_embedding_switch,
+                confirm_phrase=confirm_embedding_phrase,
+            )
 
             raw = _read_raw_config()
             raw.setdefault("embeddings", {})
@@ -5511,6 +5650,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                         "api_key": "",
                         "timeout_seconds": int(timeout_seconds),
                     }
+            raw.setdefault("memory", {})
+            raw["memory"]["embedding_fingerprint"] = fingerprint
+            raw["memory"]["embedding_model"] = resolved_model
             store = _get_secure_store(raw)
             if store and cleaned_api_key:
                 store.set_secret("embeddings.api_key", cleaned_api_key)

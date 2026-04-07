@@ -4,8 +4,14 @@ Stand: 2026-03-17
 
 ## Ziel
 
-ARIA berechnet Kosten nur dann, wenn für das verwendete Modell ein Preis hinterlegt ist.
-Es gibt keine Schaetzung für unbekannte Modelle.
+ARIA berechnet Kosten nur dann, wenn fuer das verwendete Modell ein Preis hinterlegt ist.
+Es gibt keine Schaetzung fuer unbekannte Modelle.
+
+Wichtig:
+
+- alle normalen Chat-Aufrufe laufen in die Kosten- und Token-Erfassung
+- auch Hilfs- und Admin-Aufrufe ueber LLM oder Embeddings werden zentral mitgezaehlt
+- dazu gehoeren z. B. RSS-Metadaten, RSS-Gruppierung mit LLM, Runtime-Diagnostics, Skill-Keyword-Generierung sowie RAG-/Memory-Embeddings
 
 ## Datenquelle
 
@@ -65,6 +71,9 @@ Wenn kein Preis gefunden wird, bleibt der jeweilige Kostenanteil `null`.
 
 - Gesamt- und Durchschnittskosten
 - Kosten pro Modell
+- Requests und Kosten nach Quelle wie `chat`, `rss_metadata`, `rss_grouping` oder `rag_ingest`
 - Pricing Coverage (gesehen vs bepreist)
 - unbepreiste Modelle
 - Preisquellen inkl. Verifikationsdatum
+
+Die Token-/Kostenwerte decken nicht nur den sichtbaren Chat ab, sondern auch interne Modellaufrufe, sofern diese ueber die zentrale Metering-Schicht laufen.
