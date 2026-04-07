@@ -90,7 +90,8 @@ Relevant:
 
 - [`Dockerfile`](https://github.com/FischermanCH/A.R.I.A./blob/main/Dockerfile)
 - [`docker/entrypoint.sh`](https://github.com/FischermanCH/A.R.I.A./blob/main/docker/entrypoint.sh)
-- `docker-compose.yml`
+- `docker-compose.yml` (lokaler Repo-/Build-Stack)
+- `docker-compose.public.yml` (Public-/Registry-Stack mit `qdrant`, `searxng` und `searxng-valkey`)
 
 Dadurch bleiben Secrets auch im Container ausserhalb des Images und können per Volume oder Deployment-Secret bereitgestellt werden.
 

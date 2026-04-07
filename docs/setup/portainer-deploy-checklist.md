@@ -6,7 +6,7 @@ Ziel:
 - eine eigene ARIA auf einem separaten Host per Portainer Stack starten
 - mit persistenten Daten
 - mit Qdrant als zweitem Container
-- optional mit SearXNG + Valkey fuer Websuche als zusaetzlichen separaten Dienst
+- mit SearXNG + Valkey fuer Websuche als zusaetzlichen separaten Dienst
 - mit statischer `searxng.settings.yml` statt Compose-Shell-Bootstrap
 - mit möglichst wenig manuellem Gefrickel
 

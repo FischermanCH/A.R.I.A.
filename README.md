@@ -269,6 +269,16 @@ cd /path/to/ARIA
 cp .env.example .env
 ```
 
+For the public/registry path, use `docker-compose.public.yml`.
+
+- `docker-compose.yml` is the repo-local build/dev stack
+- `docker-compose.public.yml` is the public quick-start stack
+- the public stack already contains:
+  - `aria`
+  - `qdrant`
+  - `searxng`
+  - `searxng-valkey`
+
 Set at least this in `.env`:
 
 ```dotenv
@@ -573,6 +583,16 @@ cd /path/to/ARIA
 cd /path/to/ARIA
 cp .env.example .env
 ```
+
+Für den Public-/Registry-Weg nutzt du `docker-compose.public.yml`.
+
+- `docker-compose.yml` ist der lokale Repo-/Build-Stack
+- `docker-compose.public.yml` ist der Public-Quickstart-Stack
+- im Public-Stack sind bereits enthalten:
+  - `aria`
+  - `qdrant`
+  - `searxng`
+  - `searxng-valkey`
 
 In `.env` mindestens setzen:
 

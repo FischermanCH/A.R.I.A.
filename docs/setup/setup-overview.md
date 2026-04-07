@@ -47,12 +47,12 @@ Technischer Ablauf:
 2. `.env.example` nach `.env` kopieren
 3. `.env` setzen, mindestens Qdrant API Key + SearXNG Secret
 4. `docker compose -f docker-compose.public.yml up -d`
-5. optional SearXNG im selben Stack mitstarten
+5. der Public-Stack startet dabei bereits `aria`, `qdrant`, `searxng` und `searxng-valkey`
 6. ARIA im Browser öffnen und initialen Admin-User erstellen
 
 Zentrale Dateien:
 - `Dockerfile`
-- `docker-compose.yml`
+- `docker-compose.yml` (lokaler Repo-/Build-Stack)
 - `docker-compose.public.yml`
 - `docker/searxng.settings.yml`
 - `.env.example`
@@ -63,7 +63,7 @@ Zentrale Dateien:
 Technischer Ablauf:
 1. Portainer-Stack-YAML als Vorlage nehmen
 2. persistente Named Volumes für `config`, `prompts`, `data`, `qdrant_storage`
-3. optional zusaetzlich SearXNG/Valkey im selben Stack mitnehmen
+3. der Public-Portainer-Stack bringt `SearXNG` und `Valkey` bereits mit
 4. Environment-Werte setzen, mindestens `ARIA_QDRANT_API_KEY`
 5. Stack starten
 6. ARIA im Browser öffnen und Erstnutzer/LLM/Connections konfigurieren
@@ -91,7 +91,7 @@ Für Containerbetrieb sind diese Mounts/Volumes wichtig:
 - `/app/prompts`
 - `/app/data`
 - Qdrant Storage Volume für den Qdrant-Container
-- optional SearXNG Cache-Volume fuer den Search-Container
+- SearXNG Cache-Volume fuer den Search-Container
 - bei SearXNG zusaetzlich eine gemountete `settings.yml` nach `/etc/searxng/settings.yml`
 
 Wichtiges Verhalten:

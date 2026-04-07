@@ -49,6 +49,16 @@ Use the included public compose file:
 - `docker-compose.public.yml`
 - `docker/searxng.settings.yml`
 
+Do not use `docker-compose.yml` for the public quick start.
+
+- `docker-compose.yml` is the local repo/dev build stack
+- `docker-compose.public.yml` is the public stack for Docker Hub / registry deploys
+- the public stack already contains all four services:
+  - `aria`
+  - `qdrant`
+  - `searxng`
+  - `searxng-valkey`
+
 Example `.env` values:
 
 ```dotenv
@@ -71,6 +81,20 @@ Start:
 docker compose -f docker-compose.public.yml up -d
 ```
 
+Stack shape at a glance:
+
+```yaml
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+  searxng-valkey:
+    image: valkey/valkey:8-alpine
+  searxng:
+    image: searxng/searxng:latest
+  aria:
+    image: fischermanch/aria:alpha
+```
+
 This public stack starts:
 
 - `aria`
@@ -88,6 +112,13 @@ Use the included Portainer stack file:
 
 - `docker/portainer-stack.public.yml`
 - `docker/searxng.settings.yml`
+
+This Portainer stack also already contains:
+
+- `aria`
+- `qdrant`
+- `searxng`
+- `searxng-valkey`
 
 Recommended Portainer environment variables:
 
