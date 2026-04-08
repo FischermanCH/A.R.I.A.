@@ -252,6 +252,39 @@ openssl rand -hex 32
 openssl rand -hex 32
 ```
 
+## Existing Portainer Stack Delta
+
+If you already run an older ARIA Portainer stack from before `alpha69`, do **not** blindly replace it with the fresh public sample if your current stack already has working named volumes and a working custom network.
+
+Keep these parts from your existing stack:
+
+- your current volume names
+  - for example `aria2_config`, `aria2_data`, `aria2_prompts`, `aria2_qdrant`
+- your current network name
+  - for example `aria2-net`
+- your current ARIA host port
+  - for example `ARIA_HTTP_PORT=8810`
+- your current `ARIA_PUBLIC_URL`
+- your current Qdrant service + storage volume mapping
+
+The actual delta from an older stack to the new web-search-ready stack is only:
+
+1. add `searxng-valkey`
+2. add `searxng`
+3. add the new SearXNG cache/Valkey volumes
+4. extend `aria.depends_on` with `searxng`
+5. mount `searxng.settings.yml`
+6. set `SEARXNG_SECRET`
+
+In other words:
+
+- keep your existing ARIA/Qdrant data volumes
+- keep your existing network
+- keep your existing ARIA port
+- only add the SearXNG sidecar services as a delta
+
+For multi-instance hosts, the public sample already avoids fixed `container_name` values and does not publish Qdrant host ports by default. That keeps the default setup much safer for copy/paste deployment.
+
 ## Notes
 
 - ARIA is currently an ALPHA system
