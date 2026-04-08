@@ -1,6 +1,6 @@
 # ARIA — Portainer Deploy Checkliste
 
-Stand: 2026-04-07
+Stand: 2026-04-08
 
 Ziel:
 - eine eigene ARIA auf einem separaten Host per Portainer Stack starten
@@ -77,6 +77,46 @@ Warum zwei Dateien:
 - `portainer-stack.local.yml` nutzt direkt das lokal importierte Image:
   - `aria:alpha-local`
 - `portainer-stack.example.yml` ist für später gedacht, wenn das Image veröffentlicht ist
+
+## 4a. Delta fuer bestehende Portainer-Stacks vor `alpha69`
+
+Wenn bereits ein funktionierender ARIA-Stack ohne SearXNG existiert, **nicht** einfach blind den frischen Public-Sample mit neuen Volume-Namen einkopieren.
+
+Wichtig fuer bestehende Stacks:
+
+- bestehende Volume-Namen **beibehalten**
+  - z. B. `aria2_config`, `aria2_data`, `aria2_prompts`, `aria2_qdrant`
+- bestehendes Netzwerk **beibehalten**
+  - z. B. `aria2-net`
+- bestehenden ARIA-Host-Port **beibehalten**
+  - z. B. `ARIA_HTTP_PORT=8810`
+- bestehende `ARIA_PUBLIC_URL` **beibehalten** bzw. sauber auf den echten externen Port abstimmen
+- den bestehenden `qdrant`-Service **nicht** durch neue Volume-Namen ersetzen
+
+Der eigentliche Delta von einem alten Stack wie:
+
+- `qdrant`
+- `aria`
+
+auf den neuen Websearch-Stack ist nur:
+
+1. `searxng-valkey` **neu dazu**
+2. `searxng` **neu dazu**
+3. zwei neue Volumes fuer SearXNG:
+   - Cache
+   - Valkey-Daten
+4. `aria.depends_on` um `searxng` erweitern
+5. `searxng.settings.yml` read-only mounten
+6. `SEARXNG_SECRET` als neue Stack-Variable setzen
+
+Das heisst praktisch:
+
+- vorhandene ARIA-/Qdrant-Volumes bleiben
+- vorhandenes Netzwerk bleibt
+- vorhandener ARIA-Port bleibt
+- nur der Search-Teil kommt dazu
+
+Wenn du also bereits einen Stack wie `aria2_*` / `aria2-net` betreibst, sollte der neue Stack dieselben Namen weiterverwenden und nur um `searxng` / `searxng-valkey` ergänzt werden.
 
 ## 5. Vor dem Stack in Portainer klären
 

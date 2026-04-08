@@ -332,6 +332,7 @@ Important notes:
 - the public Portainer stack intentionally uses no fixed `container_name` values, so multiple ARIA stacks can run on the same host if their host ports differ
 - Qdrant is intentionally not published to host ports in the public samples; expose it only if you explicitly need direct host access
 - on Linux, `host.docker.internal` is wired through `host-gateway` in the compose setup
+- for an existing pre-`alpha69` Portainer stack, keep your current volume names and network names and add only the `searxng` / `searxng-valkey` part as a delta; do not replace working `aria2_*` volumes with the generic sample names
 
 ## Friend tester quickstart
 
@@ -650,6 +651,7 @@ Wichtige Hinweise:
 - der Public-Portainer-Stack nutzt absichtlich keine festen `container_name`-Werte, damit mehrere ARIA-Stacks auf demselben Host mit unterschiedlichen Host-Ports sauber nebeneinander laufen können
 - Qdrant wird im Public-Sample absichtlich nicht auf Host-Ports veröffentlicht; direkten Host-Zugriff nur bei Bedarf bewusst ergänzen
 - unter Linux ist `host.docker.internal` im Compose-Setup über `host-gateway` verdrahtet
+- für bestehende Portainer-Stacks vor `alpha69` sollten vorhandene Volume- und Netzwerk-Namen beibehalten und nur `searxng` / `searxng-valkey` als Delta ergänzt werden; funktionierende `aria2_*`-Volumes nicht blind durch generische Beispielnamen ersetzen
 
 ## Friend-Tester-Quickstart
 

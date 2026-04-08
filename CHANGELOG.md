@@ -35,6 +35,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Upgrade Notes
 - fuer interne ARIA-Stacks wird SearXNG jetzt standardmaessig ohne API-Limiter betrieben (`SEARXNG_LIMITER=false`), weil ARIA sonst schnell in `HTTP 429 Too Many Requests` fuer die JSON-API laufen kann
+- fuer bestehende Portainer-Stacks aus der Zeit vor `alpha69` gilt: vorhandene Volume- und Netzwerk-Namen weiterverwenden und nur den neuen `searxng`-/`searxng-valkey`-Teil als Delta ergaenzen; den frischen Public-Sample nicht blind ueber funktionierende `aria2_*`-Volumes legen
 
 ## [0.1.0-alpha.64] - 2026-04-07
 ### Added
