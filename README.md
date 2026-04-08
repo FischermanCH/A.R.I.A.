@@ -290,8 +290,6 @@ Optional:
 
 ```dotenv
 ARIA_HTTP_PORT=8800
-QDRANT_HTTP_PORT=6333
-QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
@@ -304,8 +302,8 @@ docker compose -f docker-compose.public.yml up -d
 Open:
 
 - ARIA: `http://localhost:8800`
-- Qdrant: `http://localhost:6333`
 - SearXNG is internal in the stack and is used from ARIA via `http://searxng:8080`
+- Qdrant is internal in the stack by default and is not published to a host port in the public sample
 
 First start flow:
 
@@ -320,8 +318,6 @@ For Portainer, use `docker/portainer-stack.public.yml` as a base and set stack v
 
 - `ARIA_QDRANT_API_KEY`
 - `ARIA_HTTP_PORT`
-- `QDRANT_HTTP_PORT`
-- `QDRANT_GRPC_PORT`
 - `ARIA_PUBLIC_URL`
 - `SEARXNG_SECRET`
 
@@ -334,6 +330,7 @@ Important notes:
 - SearXNG and Valkey run as separate services next to ARIA and Qdrant
 - `docker/searxng.settings.yml` is mounted read-only into the SearXNG container
 - the public Portainer stack intentionally uses no fixed `container_name` values, so multiple ARIA stacks can run on the same host if their host ports differ
+- Qdrant is intentionally not published to host ports in the public samples; expose it only if you explicitly need direct host access
 - on Linux, `host.docker.internal` is wired through `host-gateway` in the compose setup
 
 ## Friend tester quickstart
@@ -611,8 +608,6 @@ Optional:
 
 ```dotenv
 ARIA_HTTP_PORT=8800
-QDRANT_HTTP_PORT=6333
-QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
@@ -625,8 +620,8 @@ docker compose -f docker-compose.public.yml up -d
 Im Browser öffnen:
 
 - ARIA: `http://localhost:8800`
-- Qdrant: `http://localhost:6333`
 - SearXNG läuft intern im Stack und wird in ARIA über `http://searxng:8080` genutzt
+- Qdrant bleibt im Public-Sample standardmäßig intern und wird nicht auf einen Host-Port veröffentlicht
 
 First-Run-Flow:
 
@@ -641,8 +636,6 @@ Für Portainer kannst du `docker/portainer-stack.public.yml` als Basis nehmen un
 
 - `ARIA_QDRANT_API_KEY`
 - `ARIA_HTTP_PORT`
-- `QDRANT_HTTP_PORT`
-- `QDRANT_GRPC_PORT`
 - `ARIA_PUBLIC_URL`
 - `SEARXNG_SECRET`
 
@@ -655,6 +648,7 @@ Wichtige Hinweise:
 - SearXNG und Valkey laufen als eigene Dienste neben ARIA und Qdrant
 - `docker/searxng.settings.yml` wird read-only in den SearXNG-Container gemountet
 - der Public-Portainer-Stack nutzt absichtlich keine festen `container_name`-Werte, damit mehrere ARIA-Stacks auf demselben Host mit unterschiedlichen Host-Ports sauber nebeneinander laufen können
+- Qdrant wird im Public-Sample absichtlich nicht auf Host-Ports veröffentlicht; direkten Host-Zugriff nur bei Bedarf bewusst ergänzen
 - unter Linux ist `host.docker.internal` im Compose-Setup über `host-gateway` verdrahtet
 
 ## Friend-Tester-Quickstart

@@ -65,11 +65,11 @@ Example `.env` values:
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
 SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
-QDRANT_HTTP_PORT=6333
-QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://localhost:8800
 SEARXNG_SETTINGS_FILE=./docker/searxng.settings.yml
 ```
+
+By default, the public sample does not publish Qdrant on host ports. ARIA talks to Qdrant internally inside the stack, which avoids port conflicts when another ARIA/Qdrant stack already exists on the same host.
 
 Copy/paste-ready `docker-compose.public.yml`:
 
@@ -80,9 +80,6 @@ services:
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
-    ports:
-      - "${QDRANT_HTTP_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
 
@@ -179,13 +176,11 @@ Recommended Portainer environment variables:
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
-QDRANT_HTTP_PORT=6333
-QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://<your-host>:8800
 SEARXNG_SECRET=replace-with-a-long-random-key
 ```
 
-If you already run another ARIA stack on the same host, set different host ports here. The public Portainer stack intentionally avoids fixed `container_name` values so multiple stacks can coexist cleanly.
+If you already run another ARIA stack on the same host, set a different `ARIA_HTTP_PORT` here. The public Portainer stack intentionally avoids fixed `container_name` values so multiple stacks can coexist cleanly, and it does not publish Qdrant host ports by default.
 
 Copy/paste-ready `docker/portainer-stack.public.yml`:
 
@@ -196,9 +191,6 @@ services:
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
-    ports:
-      - "${QDRANT_HTTP_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
 
