@@ -87,6 +87,8 @@ Du brauchst mindestens diese Werte:
 Optional:
 
 - `ARIA_HTTP_PORT`
+- `QDRANT_HTTP_PORT`
+- `QDRANT_GRPC_PORT`
 - `ARIA_PUBLIC_URL`
 - `SEARXNG_SECRET`
 - `SEARXNG_LIMITER=false`
@@ -122,8 +124,12 @@ Typischer Start zusätzlich:
 
 ```text
 ARIA_HTTP_PORT=8800
+QDRANT_HTTP_PORT=6333
+QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://dein-hostname
 ```
+
+Wenn auf demselben Host bereits eine andere ARIA-Instanz läuft, müssen diese Host-Ports abweichen. Der Public-Portainer-Stack nutzt absichtlich keine festen `container_name`-Werte, damit mehrere Stacks nebeneinander laufen können.
 
 Danach in ARIA selbst als erster Schritt:
 

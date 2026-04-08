@@ -1,26 +1,23 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: aria-qdrant
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
 
   searxng-valkey:
     image: valkey/valkey:8-alpine
-    container_name: aria-searxng-valkey
     restart: unless-stopped
     volumes:
       - searxng_valkey:/data
 
   searxng:
     image: searxng/searxng:latest
-    container_name: aria-searxng
     restart: unless-stopped
     depends_on:
       - searxng-valkey
@@ -35,12 +32,11 @@ services:
 
   aria:
     image: fischermanch/aria:alpha
-    container_name: aria
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "80:8800"
+      - "${ARIA_HTTP_PORT:-8800}:8800"
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"

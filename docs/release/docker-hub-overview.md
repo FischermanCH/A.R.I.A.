@@ -65,6 +65,8 @@ Example `.env` values:
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
 SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
+QDRANT_HTTP_PORT=6333
+QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://localhost:8800
 SEARXNG_SETTINGS_FILE=./docker/searxng.settings.yml
 ```
@@ -79,8 +81,8 @@ services:
     environment:
       QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
 
@@ -176,9 +178,14 @@ Recommended Portainer environment variables:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
+ARIA_HTTP_PORT=8800
+QDRANT_HTTP_PORT=6333
+QDRANT_GRPC_PORT=6334
 ARIA_PUBLIC_URL=http://<your-host>:8800
 SEARXNG_SECRET=replace-with-a-long-random-key
 ```
+
+If you already run another ARIA stack on the same host, set different host ports here. The public Portainer stack intentionally avoids fixed `container_name` values so multiple stacks can coexist cleanly.
 
 Copy/paste-ready `docker/portainer-stack.public.yml`:
 
@@ -186,26 +193,23 @@ Copy/paste-ready `docker/portainer-stack.public.yml`:
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: aria-qdrant
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-LONG-RANDOM-QDRANT-KEY}"
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
 
   searxng-valkey:
     image: valkey/valkey:8-alpine
-    container_name: aria-searxng-valkey
     restart: unless-stopped
     volumes:
       - searxng_valkey:/data
 
   searxng:
     image: searxng/searxng:latest
-    container_name: aria-searxng
     restart: unless-stopped
     depends_on:
       - searxng-valkey
@@ -220,12 +224,11 @@ services:
 
   aria:
     image: fischermanch/aria:alpha
-    container_name: aria
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "80:8800"
+      - "${ARIA_HTTP_PORT:-8800}:8800"
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
