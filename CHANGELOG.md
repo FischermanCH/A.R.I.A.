@@ -6,6 +6,14 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.86] - 2026-04-09
+
+### Fixed
+- `aria-setup` respects explicitly passed install values better during interactive runs instead of prompting for the same `--stack-name`, `--install-dir`, `--http-port`, or `--public-url` again
+- the managed install health check now verifies ARIA locally through `127.0.0.1:<ARIA_HTTP_PORT>/health` instead of depending on the public/browser URL during first start
+- first-start health checks for managed installs now retry until ARIA is really ready, instead of failing too early on a short startup race directly after `docker compose up -d`
+- the public `aria-setup` download flow works again end to end when it has to fetch its helper from GitHub on demand
+
 ## [0.1.0-alpha.85] - 2026-04-09
 
 ### Added

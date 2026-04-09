@@ -55,6 +55,8 @@ chmod +x aria-setup
 sudo ./aria-setup
 ```
 
+If you already know the target values and want an unattended install, use explicit flags plus `--non-interactive`.
+
 Default result:
 
 - `/opt/aria/aria/docker-compose.yml`

@@ -223,6 +223,17 @@ chmod +x aria-setup
 sudo ./aria-setup
 ```
 
+If you already know the target values and want a fully unattended run:
+
+```bash
+sudo ./aria-setup \
+  --stack-name aria-main \
+  --install-dir /opt/aria/aria-main \
+  --http-port 8800 \
+  --public-url http://localhost:8800 \
+  --non-interactive
+```
+
 Default result:
 
 - `/opt/aria/aria/docker-compose.yml`

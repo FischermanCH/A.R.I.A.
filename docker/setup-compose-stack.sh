@@ -89,7 +89,7 @@ compose_cmd() {
     docker compose "$@"
     return 0
   fi
-  if command -v docker-compose >/dev/null 2>&1; then
+  if command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
     docker-compose "$@"
     return 0
   fi
@@ -211,9 +211,44 @@ services:
       SEARXNG_SECRET: ${SEARXNG_SECRET}
       SEARXNG_LIMITER: "false"
       SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
-    configs:
-      - source: searxng_settings
-        target: /etc/searxng/settings.yml
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        umask 077
+        mkdir -p /etc/searxng
+        python - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        secret = os.environ.get("SEARXNG_SECRET", "ultrasecretkey")
+        valkey_url = os.environ.get("SEARXNG_VALKEY_URL", "valkey://searxng-valkey:6379/0")
+        lines = [
+            "use_default_settings: true",
+            "",
+            "general:",
+            '  instance_name: "ARIA Search"',
+            "",
+            "search:",
+            "  safe_search: 1",
+            '  autocomplete: ""',
+            "  formats:",
+            "    - html",
+            "    - json",
+            "",
+            "server:",
+            f"  secret_key: {json.dumps(secret)}",
+            "  limiter: false",
+            "  image_proxy: true",
+            "",
+            "valkey:",
+            f"  url: {json.dumps(valkey_url)}",
+            "",
+        ]
+        Path("/etc/searxng/settings.yml").write_text("\n".join(lines), encoding="utf-8")
+        PY
+        exec /usr/local/searxng/entrypoint.sh
     volumes:
       - ./storage/searxng-cache:/var/cache/searxng
 
@@ -274,24 +309,6 @@ services:
       - -m
       - aria.update_helper
 
-configs:
-  searxng_settings:
-    content: |
-      use_default_settings: true
-      general:
-        instance_name: "ARIA Search"
-      search:
-        safe_search: 1
-        autocomplete: ""
-        formats:
-          - html
-          - json
-      server:
-        secret_key: "ultrasecretkey"
-        limiter: false
-        image_proxy: true
-      valkey:
-        url: valkey://searxng-valkey:6379/0
 EOF
 }
 
@@ -344,7 +361,7 @@ compose_cmd() {
     docker compose "$@"
     return 0
   fi
-  if command -v docker-compose >/dev/null 2>&1; then
+  if command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
     docker-compose "$@"
     return 0
   fi
@@ -356,14 +373,19 @@ run_compose() {
 }
 
 health_url() {
+  local http_port
   local public_url
-  public_url="$(sed -n 's/^ARIA_PUBLIC_URL=//p' "$ENV_FILE" | head -n1)"
-  if [[ -z "$public_url" ]]; then
-    local http_port
-    http_port="$(sed -n 's/^ARIA_HTTP_PORT=//p' "$ENV_FILE" | head -n1)"
-    public_url="http://127.0.0.1:${http_port:-8800}"
+  http_port="$(sed -n 's/^ARIA_HTTP_PORT=//p' "$ENV_FILE" | head -n1)"
+  if [[ -n "$http_port" ]]; then
+    printf 'http://127.0.0.1:%s/health\n' "$http_port"
+    return 0
   fi
-  printf '%s/health\n' "${public_url%/}"
+  public_url="$(sed -n 's/^ARIA_PUBLIC_URL=//p' "$ENV_FILE" | head -n1)"
+  if [[ -n "$public_url" ]]; then
+    printf '%s/health\n' "${public_url%/}"
+    return 0
+  fi
+  printf 'http://127.0.0.1:8800/health\n'
 }
 
 wait_for_health() {
@@ -436,12 +458,7 @@ main() {
       run_compose config
       ;;
     health)
-      if command -v curl >/dev/null 2>&1; then
-        curl -fsS "$(health_url)"
-        printf '\n'
-      else
-        die "curl nicht vorhanden"
-      fi
+      wait_for_health
       ;;
     pull)
       run_compose pull aria

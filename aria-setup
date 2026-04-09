@@ -851,24 +851,32 @@ fi
 if [[ "$NON_INTERACTIVE" != "true" ]]; then
   ensure_interactive_possible
   if [[ "$MODE" == "install" ]]; then
-    STACK_NAME="$(prompt_value "Stack-Name" "$STACK_NAME")"
+    if [[ "$STACK_NAME_EXPLICIT" != "true" ]]; then
+      STACK_NAME="$(prompt_value "Stack-Name" "$STACK_NAME")"
+    fi
     if [[ -z "$INSTALL_DIR" || "$INSTALL_DIR" == "$DEFAULT_INSTALL_BASE/$DEFAULT_STACK_NAME" ]]; then
       INSTALL_DIR="$DEFAULT_INSTALL_BASE/$STACK_NAME"
     fi
-    INSTALL_DIR="$(prompt_value "Installationsverzeichnis" "$INSTALL_DIR")"
+    if [[ "$INSTALL_DIR_EXPLICIT" != "true" ]]; then
+      INSTALL_DIR="$(prompt_value "Installationsverzeichnis" "$INSTALL_DIR")"
+    fi
 
     if port_in_use "$HTTP_PORT"; then
       log "Host-Port $HTTP_PORT ist bereits belegt."
       HTTP_PORT="$(next_free_port "$HTTP_PORT")"
       log "Ich schlage stattdessen Port $HTTP_PORT vor."
     fi
-    HTTP_PORT="$(prompt_value "Host-Port" "$HTTP_PORT")"
+    if [[ "$HTTP_PORT_EXPLICIT" != "true" ]]; then
+      HTTP_PORT="$(prompt_value "Host-Port" "$HTTP_PORT")"
+    fi
     [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || die "Host-Port muss numerisch sein."
 
     if [[ -z "$PUBLIC_URL" || "$PUBLIC_URL" == http://localhost:* || "$PUBLIC_URL" == http://$(guess_host_name):* ]]; then
       PUBLIC_URL="http://$(guess_host_name):$HTTP_PORT"
     fi
-    PUBLIC_URL="$(prompt_value "Browser-URL" "$PUBLIC_URL")"
+    if [[ "$PUBLIC_URL_EXPLICIT" != "true" ]]; then
+      PUBLIC_URL="$(prompt_value "Browser-URL" "$PUBLIC_URL")"
+    fi
   else
     log "Upgrade-Modus: bestehende Werte aus $INSTALL_DIR/.env werden uebernommen."
   fi
