@@ -256,6 +256,8 @@ def _run_managed_update_worker() -> None:
 
         _update_state(current_step="healthcheck")
         _wait_for_health()
+        _update_state(current_step="validate_runtime")
+        _run_logged([str(INSTALL_DIR / "aria-stack.sh"), "validate"], step="Validate managed services")
         _write_log_line(f"[{_now_iso()}] ARIA managed update completed successfully.")
         _update_state(
             status="ok",

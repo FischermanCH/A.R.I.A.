@@ -415,6 +415,106 @@ wait_for_health() {
   die "Healthcheck nicht erfolgreich: $url"
 }
 
+service_present() {
+  local service="$1"
+  run_compose config --services 2>/dev/null | grep -Fxq "$service"
+}
+
+service_container_id() {
+  run_compose ps -q "$1" 2>/dev/null | head -n1
+}
+
+wait_for_service_health() {
+  local service="$1"
+  local container_id=""
+  local state=""
+  local idx
+  container_id="$(service_container_id "$service")"
+  [[ -n "$container_id" ]] || die "Container fuer Service nicht gefunden: $service"
+  for idx in $(seq 1 45); do
+    state="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || true)"
+    case "$state" in
+      healthy|running)
+        log "$service bereit: $state"
+        return 0
+        ;;
+      unhealthy|exited|dead)
+        die "$service nicht gesund: $state"
+        ;;
+    esac
+    sleep 2
+  done
+  die "Healthcheck fuer Service nicht erfolgreich: $service"
+}
+
+qdrant_storage_dir() {
+  printf '%s\n' "$STACK_DIR/storage/qdrant-storage"
+}
+
+qdrant_local_collection_count() {
+  local dir
+  dir="$(qdrant_storage_dir)/collections"
+  [[ -d "$dir" ]] || {
+    printf '0\n'
+    return 0
+  }
+  find "$dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | awk '{print $1}'
+}
+
+qdrant_api_collection_count() {
+  local output=""
+  if ! output="$(
+    run_compose exec -T aria python -c '
+import json
+import os
+import urllib.request
+
+key = os.environ.get("ARIA_QDRANT_API_KEY", "")
+req = urllib.request.Request("http://qdrant:6333/collections")
+if key:
+    req.add_header("api-key", key)
+with urllib.request.urlopen(req, timeout=10) as response:
+    payload = json.loads(response.read().decode("utf-8"))
+collections = payload.get("result", {}).get("collections", [])
+print(len(collections))
+' 2>/dev/null
+  )"; then
+    printf '%s\n' "-1"
+    return 0
+  fi
+  output="$(printf '%s' "$output" | tail -n1 | tr -dc '0-9-')"
+  if [[ -z "$output" ]]; then
+    printf '%s\n' "-1"
+  else
+    printf '%s\n' "$output"
+  fi
+}
+
+validate_runtime() {
+  local storage_count="0"
+  local api_count="0"
+  wait_for_health
+  if service_present "aria-updater"; then
+    wait_for_service_health "aria-updater"
+  fi
+  storage_count="$(qdrant_local_collection_count)"
+  if [[ "$storage_count" =~ ^[0-9]+$ ]] && (( storage_count > 0 )); then
+    api_count="$(qdrant_api_collection_count)"
+    if [[ ! "$api_count" =~ ^-?[0-9]+$ ]]; then
+      api_count="-1"
+    fi
+    if (( api_count < 0 )); then
+      log "WARN: Qdrant-Postcheck konnte nicht ausgefuehrt werden."
+    elif (( api_count == 0 )); then
+      die "Qdrant-Postcheck fehlgeschlagen: auf Platte liegen ${storage_count} Collection(s), aber die Live-API meldet 0. Bitte Storage-Mount, Dateirechte und Qdrant-Logs pruefen."
+    elif (( api_count < storage_count )); then
+      log "WARN: Qdrant-Postcheck meldet nur ${api_count}/${storage_count} Collection(s) ueber die API. Bitte Qdrant-Logs und Storage-Mount pruefen."
+    else
+      log "Qdrant-Postcheck ok: API meldet ${api_count} Collection(s)."
+    fi
+  fi
+}
+
 runtime_update_services() {
   local services=("aria")
   local line=""
@@ -439,6 +539,7 @@ Usage:
   ./aria-stack.sh logs [service]
   ./aria-stack.sh config
   ./aria-stack.sh health
+  ./aria-stack.sh validate
   ./aria-stack.sh pull
   ./aria-stack.sh pull-all
   ./aria-stack.sh update
@@ -464,7 +565,7 @@ main() {
   case "$command" in
     up|start)
       run_compose up -d
-      wait_for_health
+      validate_runtime
       ;;
     stop)
       run_compose stop
@@ -474,7 +575,7 @@ main() {
       ;;
     restart)
       run_compose up -d --no-deps --force-recreate "${runtime_services[@]}"
-      wait_for_health
+      validate_runtime
       ;;
     ps|status)
       run_compose ps
@@ -486,7 +587,10 @@ main() {
       run_compose config
       ;;
     health)
-      wait_for_health
+      validate_runtime
+      ;;
+    validate)
+      validate_runtime
       ;;
     pull)
       run_compose pull "${runtime_services[@]}"
@@ -497,12 +601,12 @@ main() {
     update)
       run_compose pull "${runtime_services[@]}"
       run_compose up -d --no-deps --force-recreate "${runtime_services[@]}"
-      wait_for_health
+      validate_runtime
       ;;
     update-all)
       run_compose pull
       run_compose up -d
-      wait_for_health
+      validate_runtime
       ;;
     -h|--help|help)
       usage
@@ -535,6 +639,7 @@ Common commands:
   ./aria-stack.sh logs
   ./aria-stack.sh update
   ./aria-stack.sh update-all
+  ./aria-stack.sh validate
   aria-setup upgrade --install-dir $INSTALL_DIR
   ./aria-stack.sh health
 
@@ -711,7 +816,7 @@ compose_cmd --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" 
 if [[ "$START_STACK" == "true" ]]; then
   log "Starte den Stack"
   compose_cmd --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" up -d
-  "$INSTALL_DIR/aria-stack.sh" health >/dev/null
+  "$INSTALL_DIR/aria-stack.sh" validate
   log "ARIA ist erreichbar: $PUBLIC_URL"
 else
   log "Stack-Dateien geschrieben, Start uebersprungen (--no-start)"
@@ -729,6 +834,7 @@ Wichtige Befehle:
   ./aria-stack.sh ps
   ./aria-stack.sh logs
   ./aria-stack.sh update
+  ./aria-stack.sh validate
   aria-setup upgrade --install-dir $INSTALL_DIR
   ./aria-stack.sh health
 

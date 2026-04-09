@@ -85,6 +85,30 @@ def test_probe_qdrant_skips_when_memory_is_disabled() -> None:
     assert result["status"] == "skipped"
 
 
+def test_probe_qdrant_warns_when_local_storage_has_missing_collections(tmp_path, monkeypatch) -> None:
+    storage_dir = tmp_path / "data" / "qdrant" / "collections" / "aria_facts_whity"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+
+    class EmptyClient:
+        async def get_collections(self):
+            return SimpleNamespace(collections=[])
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(runtime_diagnostics, "create_async_qdrant_client", lambda **kwargs: EmptyClient())
+
+    result = asyncio.run(
+        runtime_diagnostics.probe_qdrant(
+            SimpleNamespace(enabled=True, backend="qdrant", qdrant_url="http://localhost:6333", qdrant_api_key=""),
+            base_dir=tmp_path,
+        )
+    )
+
+    assert result["status"] == "warn"
+    assert result["summary_key"] == "qdrant_storage_warning"
+
+
 def test_probe_llm_reports_error_when_request_fails(monkeypatch) -> None:
     async def _failing_chat(self, messages, **kwargs):
         _ = (messages, kwargs)

@@ -34,6 +34,9 @@ from aria.core.config import get_master_key
 from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import build_pricing_catalog_snapshot
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
+from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
+from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.release_meta import read_release_meta
 from aria.core.runtime_endpoint import resolve_runtime_url
 from aria.core.update_helper_client import fetch_update_helper_status
@@ -292,32 +295,14 @@ async def _build_qdrant_storage_meta(base_dir: Path, settings: Any) -> dict[str,
             except Exception:
                 pass
 
-    shared_qdrant_mount = Path("/qdrant/storage")
-    candidate_paths = [shared_qdrant_mount]
-
-    if host in {"", "localhost", "127.0.0.1", "host.docker.internal"}:
-        candidate_paths.extend(
-            [
-                base_dir / "data" / "qdrant",
-                base_dir / "qdrant" / "storage",
-                Path("/var/lib/qdrant/storage"),
-                Path("/var/lib/qdrant"),
-                Path("/root/.local/share/qdrant/storage"),
-            ]
-        )
-
-    for path in candidate_paths:
-        try:
-            if not path.exists() or not path.is_dir():
-                continue
-        except OSError:
-            continue
-        size_bytes = _directory_size_bytes(path)
+    storage_path = resolve_qdrant_storage_path(base_dir, qdrant_url)
+    if storage_path is not None:
+        size_bytes = _directory_size_bytes(storage_path)
         if size_bytes <= 0 and telemetry_fallback_meta is not None:
-            continue
+            return telemetry_fallback_meta
         return {
             "size_human": _size_human(size_bytes),
-            "path": str(path),
+            "path": str(storage_path),
             "available": True,
         }
 
@@ -670,13 +655,34 @@ async def _build_health_meta(
             if inspect.isawaitable(result):
                 result = await result
             collections = getattr(result, "collections", []) or []
-            memory_status = "ok"
-            memory_summary = _pick_text(
-                language,
-                f"Qdrant erreichbar ({len(collections)} Collections).",
-                f"Qdrant reachable ({len(collections)} collections).",
+            collection_names = [
+                str(getattr(row, "name", "") or "").strip()
+                for row in collections
+                if str(getattr(row, "name", "") or "").strip()
+            ]
+            storage_path = resolve_qdrant_storage_path(base_dir, qdrant_url)
+            local_collection_names = list_local_qdrant_collection_names(storage_path)
+            storage_warning = build_qdrant_storage_warning(
+                storage_path=storage_path,
+                local_collection_names=local_collection_names,
+                api_collection_names=collection_names,
             )
-            memory_detail = qdrant_url or "-"
+            if storage_warning:
+                memory_status = "warn"
+                memory_summary = _pick_text(
+                    language,
+                    "Qdrant erreichbar, aber gespeicherte Collections fehlen in der API.",
+                    "Qdrant reachable, but stored collections are missing from the API.",
+                )
+                memory_detail = str(storage_warning.get("message", "") or qdrant_url or "-")
+            else:
+                memory_status = "ok"
+                memory_summary = _pick_text(
+                    language,
+                    f"Qdrant erreichbar ({len(collections)} Collections).",
+                    f"Qdrant reachable ({len(collections)} collections).",
+                )
+                memory_detail = qdrant_url or "-"
         except Exception as exc:  # noqa: BLE001
             memory_status = "error"
             memory_summary = _pick_text(language, "Qdrant/Memories nicht erreichbar.", "Qdrant/memory unavailable.")

@@ -1006,6 +1006,8 @@
     "qdrant_dashboard": "Qdrant Dashboard",
     "qdrant_admin_only": "Qdrant-Link sichtbar nur im Admin-Modus (On).",
     "qdrant_error": "Qdrant Fehler",
+    "qdrant_storage_warning": "Qdrant-Speicher und API sind aktuell nicht synchron",
+    "qdrant_storage_missing": "Fehlt in der API",
     "collections": "Collections",
     "total_points": "Gesamt-Punkte",
     "max_points_per_collection": "Max Punkte / Collection",

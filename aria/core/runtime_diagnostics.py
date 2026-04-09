@@ -8,6 +8,9 @@ from aria.core.config import EmbeddingsConfig, LLMConfig, MemoryConfig, PromptCo
 from aria.core.embedding_client import EmbeddingClient
 from aria.core.llm_client import LLMClient, LLMClientError
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
+from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
+from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.usage_meter import UsageMeter
 
 
@@ -34,7 +37,7 @@ def _embedding_vector_present(response: Any) -> bool:
     return bool(getattr(first, "embedding", None))
 
 
-async def probe_qdrant(memory: MemoryConfig) -> dict[str, Any]:
+async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) -> dict[str, Any]:
     if not bool(memory.enabled):
         return {
             "id": "qdrant",
@@ -60,6 +63,29 @@ async def probe_qdrant(memory: MemoryConfig) -> dict[str, Any]:
     try:
         response = await client.get_collections()
         collections = list(getattr(response, "collections", []) or [])
+        collection_names = [
+            str(getattr(row, "name", "") or "").strip()
+            for row in collections
+            if str(getattr(row, "name", "") or "").strip()
+        ]
+        storage_warning: dict[str, Any] = {}
+        if base_dir is not None:
+            storage_path = resolve_qdrant_storage_path(base_dir, str(memory.qdrant_url or ""))
+            local_collection_names = list_local_qdrant_collection_names(storage_path)
+            storage_warning = build_qdrant_storage_warning(
+                storage_path=storage_path,
+                local_collection_names=local_collection_names,
+                api_collection_names=collection_names,
+            )
+        if storage_warning:
+            return {
+                "id": "qdrant",
+                "status": "warn",
+                "summary_key": "qdrant_storage_warning",
+                "summary": "Qdrant erreichbar, aber gespeicherte Collections fehlen in der API.",
+                "detail": str(storage_warning.get("message", "") or str(memory.qdrant_url or "").strip() or "-"),
+                "collection_count": len(collections),
+            }
         return {
             "id": "qdrant",
             "status": "ok",
@@ -205,7 +231,7 @@ async def build_runtime_diagnostics(
 ) -> dict[str, Any]:
     checks = [
         probe_prompt_files(base_dir, settings.prompts),
-        await probe_qdrant(settings.memory),
+        await probe_qdrant(settings.memory, base_dir=base_dir),
         await probe_llm(settings.llm, usage_meter=usage_meter),
         await probe_embeddings(settings.embeddings, usage_meter=usage_meter),
     ]

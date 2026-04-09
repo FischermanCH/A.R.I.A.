@@ -30,6 +30,18 @@
     {% if qdrant_overview.error %}
     <div class="alert err">{{ tr(request, 'config_memory.qdrant_error', 'Qdrant error') }}: {{ qdrant_overview.error }}</div>
     {% endif %}
+    {% if qdrant_overview.storage_warning %}
+    <div class="alert warn">
+      {{ tr(request, 'config_memory.qdrant_storage_warning', 'Qdrant storage and API are currently out of sync.') }}:
+      {{ qdrant_overview.storage_warning }}
+      {% if qdrant_overview.storage_path %}
+      <div class="hint-text"><code>{{ qdrant_overview.storage_path }}</code></div>
+      {% endif %}
+      {% if qdrant_overview.storage_warning_missing %}
+      <div class="hint-text">{{ tr(request, 'config_memory.qdrant_storage_missing', 'Missing in API') }}: <code>{{ qdrant_overview.storage_warning_missing|join(', ') }}</code></div>
+      {% endif %}
+    </div>
+    {% endif %}
 
     <div class="qdrant-overview-grid">
       <article class="qdrant-stat">

@@ -420,6 +420,14 @@ copy_container_tree() {
   run_host_docker_cp "$container:$source_path/." "$target_dir"
 }
 
+normalize_qdrant_storage_permissions() {
+  local target_dir="$1"
+  [[ -d "$target_dir" ]] || return 0
+  if ! run_host_cmd chown -R 1000:1000 "$target_dir"; then
+    log "WARN: Konnte Eigentumsrechte fuer Qdrant-Speicher nicht automatisch anpassen: $target_dir"
+  fi
+}
+
 discover_source_project_defaults() {
   local aria_container=""
   local qdrant_container=""
@@ -558,6 +566,7 @@ perform_migration() {
   copy_container_tree "$SOURCE_ARIA_CONTAINER" "/app/data" "$INSTALL_DIR/storage/aria-data"
   log "Kopiere Qdrant-Speicher."
   copy_container_tree "$SOURCE_QDRANT_CONTAINER" "/qdrant/storage" "$INSTALL_DIR/storage/qdrant-storage"
+  normalize_qdrant_storage_permissions "$INSTALL_DIR/storage/qdrant-storage"
 
   if [[ "$START_STACK" == "true" ]]; then
     log "Starte den neuen Managed-Stack."

@@ -111,6 +111,9 @@ from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import resolve_litellm_pricing_entry
 from aria.core.prompt_loader import PromptLoader, PromptLoadError
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
+from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
+from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.release_meta import read_release_meta
 from aria.core.runtime_diagnostics import build_runtime_diagnostics
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
@@ -2557,6 +2560,8 @@ def _build_app() -> FastAPI:
             return []
 
     async def _qdrant_overview(request: Request) -> dict[str, Any]:
+        storage_path = resolve_qdrant_storage_path(BASE_DIR, settings.memory.qdrant_url)
+        local_collection_names = list_local_qdrant_collection_names(storage_path)
         empty = {
             "enabled": settings.memory.enabled and settings.memory.backend.lower() == "qdrant",
             "qdrant_url": _qdrant_base_url(request),
@@ -2567,6 +2572,10 @@ def _build_app() -> FastAPI:
             "max_points": 0,
             "reachable": False,
             "error": "",
+            "storage_path": str(storage_path) if storage_path else "",
+            "storage_collection_count": len(local_collection_names),
+            "storage_warning": "",
+            "storage_warning_missing": [],
         }
         if not empty["enabled"]:
             return empty
@@ -2611,6 +2620,11 @@ def _build_app() -> FastAPI:
             for row in rows:
                 row["points_bar_pct"] = int((row["points"] / max_points) * 100) if max_points > 0 else 0
 
+            storage_warning = build_qdrant_storage_warning(
+                storage_path=storage_path,
+                local_collection_names=local_collection_names,
+                api_collection_names=names,
+            )
             return {
                 "enabled": True,
                 "qdrant_url": _qdrant_base_url(request),
@@ -2621,9 +2635,20 @@ def _build_app() -> FastAPI:
                 "max_points": max_points,
                 "reachable": True,
                 "error": "",
+                "storage_path": str(storage_path) if storage_path else "",
+                "storage_collection_count": len(local_collection_names),
+                "storage_warning": str(storage_warning.get("message", "") or ""),
+                "storage_warning_missing": list(storage_warning.get("missing_from_api", []) or []),
             }
         except Exception as exc:
             empty["error"] = str(exc)
+            storage_warning = build_qdrant_storage_warning(
+                storage_path=storage_path,
+                local_collection_names=local_collection_names,
+                api_collection_names=[],
+            )
+            empty["storage_warning"] = str(storage_warning.get("message", "") or "")
+            empty["storage_warning_missing"] = list(storage_warning.get("missing_from_api", []) or [])
             return empty
 
     def _list_prompt_files() -> list[dict[str, Any]]:

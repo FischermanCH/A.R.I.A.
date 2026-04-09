@@ -6,6 +6,16 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.89] - 2026-04-10
+
+### Changed
+- managed compose installs now run a deeper post-start validation through `./aria-stack.sh validate`, so fresh installs, upgrades, and GUI-triggered managed updates confirm both ARIA health and the `aria-updater` sidecar before they report success
+- managed update helpers now validate the refreshed stack after the recreate step, instead of stopping at a plain web healthcheck
+
+### Fixed
+- ARIA now compares local Qdrant storage against the live Qdrant API and surfaces a clear warning when collections exist on disk but are missing from the API; that makes partial or unloaded memory stores much easier to diagnose from `/memories/config` and `/stats`
+- `aria-setup migrate` now normalizes ownership on copied Qdrant storage, which reduces the risk that migrated collections stay on disk but are not loaded by the new managed Qdrant service
+
 ## [0.1.0-alpha.88] - 2026-04-10
 
 ### Fixed

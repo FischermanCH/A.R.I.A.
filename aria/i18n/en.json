@@ -1006,6 +1006,8 @@
     "qdrant_dashboard": "Qdrant dashboard",
     "qdrant_admin_only": "Qdrant link visible in admin mode only (On).",
     "qdrant_error": "Qdrant error",
+    "qdrant_storage_warning": "Qdrant storage and API are currently out of sync",
+    "qdrant_storage_missing": "Missing in API",
     "collections": "Collections",
     "total_points": "Total points",
     "max_points_per_collection": "Max points / collection",
