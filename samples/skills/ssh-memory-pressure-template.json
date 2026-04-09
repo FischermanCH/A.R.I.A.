@@ -1,0 +1,59 @@
+{
+  "id": "ssh-memory-pressure-template",
+  "name": "SSH Memory Pressure Template",
+  "version": "0.1.0",
+  "description": "Read-only Beispielskill fuer Linux-Hosts: sammelt Speicherlage und die groessten Prozesse via SSH und fasst Engpaesse kompakt zusammen.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "pruefe speicherdruck",
+    "wie sieht der ram aus",
+    "memory pressure check",
+    "top prozesse auf server"
+  ],
+  "connections": [
+    "ssh"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "RAM und Top-Prozesse lesen",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "srv-main",
+        "timeout_seconds": 90,
+        "command": "h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; echo; free -m; echo; ps -eo pid,comm,%mem,%cpu --sort=-%mem | sed -n '1,8p'"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "RAM-Lage einordnen",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Analysiere die Speicherlage eines Linux-Hosts und antworte auf Deutsch. Beginne mit einer kurzen Gesamteinschaetzung. Danach 2-4 Bulletpoints mit Host, freiem/verfuegbarem RAM, auffaelligen Prozessen und einer knappen Empfehlung, falls etwas kritisch aussieht. Keine Rohdaten-Rubriken wiederholen. Technischer Input:\\n\\n{prev_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SSH-Connection mit Ref srv-main anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

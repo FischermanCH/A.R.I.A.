@@ -44,8 +44,10 @@ detect_image_ref() {
 
   docker images --format '{{.Repository}}:{{.Tag}}' \
     | awk '
-        match($0, /^fischermanch\/aria:0\.1\.0-alpha\.([0-9]+)$/, m) {
-          printf "%012d %s\n", m[1], $0
+        $0 ~ /^fischermanch\/aria:0\.1\.0-alpha\.[0-9]+$/ {
+          version = $0
+          sub(/^fischermanch\/aria:0\.1\.0-alpha\./, "", version)
+          printf "%012d %s\n", version + 0, $0
         }
       ' \
     | sort \
@@ -90,7 +92,13 @@ prune_old_tars() {
     find "$target_dir" -maxdepth 1 -type f -name 'aria-alpha*-local.tar' \
       | sed 's#^.*/##' \
       | awk '
-          match($0, /^aria-alpha([0-9]+)-local\.tar$/, m) { printf "%012d %s\n", m[1], $0; next }
+          $0 ~ /^aria-alpha[0-9]+-local\.tar$/ {
+            version = $0
+            sub(/^aria-alpha/, "", version)
+            sub(/-local\.tar$/, "", version)
+            printf "%012d %s\n", version + 0, $0
+            next
+          }
         ' \
       | sort \
       | head -n "-$keep_count" \
@@ -125,12 +133,16 @@ docker save -o "$TARGET_TAR_PATH" "$TARGET_IMAGE_REF"
 log "TAR geschrieben: $TARGET_TAR_PATH"
 
 copy_if_exists "$DOCKER_HELPER_DIR/update-local-aria.sh" "$TARGET_DIR"
+copy_if_exists "$DOCKER_HELPER_DIR/aria-host-update.sh" "$TARGET_DIR"
+copy_if_exists "$DOCKER_HELPER_DIR/aria-host-update.env.example" "$TARGET_DIR"
+copy_if_exists "$DOCKER_HELPER_DIR/setup-compose-stack.sh" "$TARGET_DIR"
+copy_if_exists "$REPO_ROOT/aria-setup" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/pull-from-dev.sh" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/aria-pull-shortcut.sh" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/aria-pull.env.example" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/portainer-stack.alpha3.local.yml" "$TARGET_DIR"
-copy_if_exists "$DOCKER_HELPER_DIR/searxng.settings.yml" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/aria-stack.env.example" "$TARGET_DIR"
+copy_if_exists "$REPO_ROOT/docker-compose.managed.yml" "$TARGET_DIR"
 copy_dir_if_exists "$SAMPLES_DIR" "$TARGET_DIR"
 prune_old_tars "$TARGET_DIR" "$KEEP_TARS"
 

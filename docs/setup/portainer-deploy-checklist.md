@@ -1,392 +1,197 @@
-# ARIA — Portainer Deploy Checkliste
+# ARIA Portainer Deploy Checklist
 
-Stand: 2026-04-08
+Updated: 2026-04-09
 
-Ziel:
-- eine eigene ARIA auf einem separaten Host per Portainer Stack starten
-- mit persistenten Daten
-- mit Qdrant als zweitem Container
-- mit SearXNG + Valkey fuer Websuche als zusaetzlichen separaten Dienst
-- mit statischer `searxng.settings.yml` statt Compose-Shell-Bootstrap
-- mit möglichst wenig manuellem Gefrickel
+This guide explains the Portainer path in plain English.
 
-Wichtig:
-- Diese Checkliste ist für den aktuellen `ALPHA`-Stand gedacht
-- ARIA ist dabei noch **kein Multi-User-System**
-- empfohlen ist ein Betrieb im:
-  - LAN
-  - VPN
-  - Home-Lab
-- nicht als offen ins Internet gestellter Dienst
+Important first:
 
-## 1. Voraussetzungen auf dem Zielhost
+- Portainer still works well for ARIA
+- Portainer is no longer the recommended default for new installs
+- if you want the simplest install and the simplest future updates, use `aria-setup` instead
+- use Portainer when you already rely on Portainer and want to stay there on purpose
 
-- Docker läuft
-- Portainer läuft
-- der Host kann:
-- `qdrant/qdrant:latest` ziehen
-- `searxng/searxng:latest` ziehen
-- `valkey/valkey:8-alpine` ziehen
-  - das lokale ARIA-Image per `docker load` importieren
-- das LLM-/Embedding-Ziel ist vom Host bzw. Container aus erreichbar
+## 1. What this Portainer stack contains
 
-## 2. Dateien, die du auf den Zielhost mitnimmst
+The public Portainer stack already includes all required runtime services:
 
-Für den aktuellen lokalen ALPHA-Weg brauchst du diese Dateien:
-
-- `dist/aria-alpha-local.tar`
-- `docker/portainer-stack.local.yml`
-- `docker/searxng.settings.yml`
-
-Optional zur Referenz:
-
-- `README.md`
-- `docs/setup/portainer-deploy-checklist.md`
-- `docker/portainer-stack.public.yml` fuer den spaeteren Public-/Registry-Weg
-
-## 3. Lokales ARIA-Image auf dem Zielhost importieren
-
-Auf dem Zielhost:
-
-```bash
-docker load -i /pfad/zu/aria-alpha-local.tar
-```
-
-Danach kurz prüfen:
-
-```bash
-docker images | grep aria
-```
-
-Erwartung:
-
-- ein Image `aria:alpha-local` ist vorhanden
-
-## 4. Welche Stack-Datei du jetzt verwenden sollst
-
-Für **den aktuellen Import-Fall mit TAR-Datei**:
-
-- `docker/portainer-stack.local.yml`
-
-Für **einen späteren Registry-/Docker-Hub-/GHCR-Fall**:
-
-- `docker/portainer-stack.example.yml`
-
-Warum zwei Dateien:
-
-- `portainer-stack.local.yml` nutzt direkt das lokal importierte Image:
-  - `aria:alpha-local`
-- `portainer-stack.example.yml` ist für später gedacht, wenn das Image veröffentlicht ist
-
-## 4a. Delta fuer bestehende Portainer-Stacks vor `alpha69`
-
-Wenn bereits ein funktionierender ARIA-Stack ohne SearXNG existiert, **nicht** einfach blind den frischen Public-Sample mit neuen Volume-Namen einkopieren.
-
-Wichtig fuer bestehende Stacks:
-
-- bestehende Volume-Namen **beibehalten**
-  - z. B. `aria2_config`, `aria2_data`, `aria2_prompts`, `aria2_qdrant`
-- bestehendes Netzwerk **beibehalten**
-  - z. B. `aria2-net`
-- bestehenden ARIA-Host-Port **beibehalten**
-  - z. B. `ARIA_HTTP_PORT=8810`
-- bestehende `ARIA_PUBLIC_URL` **beibehalten** bzw. sauber auf den echten externen Port abstimmen
-- den bestehenden `qdrant`-Service **nicht** durch neue Volume-Namen ersetzen
-
-Der eigentliche Delta von einem alten Stack wie:
-
-- `qdrant`
 - `aria`
+- `qdrant`
+- `searxng`
+- `searxng-valkey`
 
-auf den neuen Websearch-Stack ist nur:
+The SearXNG settings are embedded directly into the stack through Docker `configs`.
 
-1. `searxng-valkey` **neu dazu**
-2. `searxng` **neu dazu**
-3. zwei neue Volumes fuer SearXNG:
-   - Cache
-   - Valkey-Daten
-4. `aria.depends_on` um `searxng` erweitern
-5. `searxng.settings.yml` read-only mounten
-6. `SEARXNG_SECRET` als neue Stack-Variable setzen
+That means:
 
-Das heisst praktisch:
+- no separate host-side `searxng.settings.yml` is needed for the normal public Portainer path
 
-- vorhandene ARIA-/Qdrant-Volumes bleiben
-- vorhandenes Netzwerk bleibt
-- vorhandener ARIA-Port bleibt
-- nur der Search-Teil kommt dazu
+## 2. Before you start
 
-Wenn du also bereits einen Stack wie `aria2_*` / `aria2-net` betreibst, sollte der neue Stack dieselben Namen weiterverwenden und nur um `searxng` / `searxng-valkey` ergänzt werden.
+Make sure the target host already has:
 
-## 5. Vor dem Stack in Portainer klären
+- Docker
+- Portainer
+- access to pull these images:
+  - `fischermanch/aria:alpha`
+  - `qdrant/qdrant:latest`
+  - `searxng/searxng:latest`
+  - `valkey/valkey:8-alpine`
 
-Du brauchst mindestens diese Werte:
+ARIA is currently best suited for:
 
-- `ARIA_QDRANT_API_KEY`
+- LAN
+- VPN
+- homelab
+- trusted internal environments
 
-Optional:
+It is not the recommended path for direct public internet exposure.
 
-- `ARIA_HTTP_PORT`
-- `ARIA_PUBLIC_URL`
-- `SEARXNG_SECRET`
-- `SEARXNG_LIMITER=false`
+## 3. Which file to use
 
-Wichtig:
+For the public Portainer path use:
 
-- `LLM` und `Embeddings` werden im aktuellen ALPHA-Weg bewusst erst nach dem ersten Login in der ARIA-Oberfläche konfiguriert
-- der Stack muss dafür nicht schon vorab eine LLM-URL mitbringen
+- `docker/portainer-stack.public.yml`
 
-Empfehlung:
+If you are working with internal local TAR builds instead of public registry images, that is a different path and uses:
 
-- `ARIA_QDRANT_API_KEY` als langen zufälligen Wert setzen
-- denselben Wert für `aria` und `qdrant` verwenden
-- `SEARXNG_SECRET` ebenfalls als langen zufaelligen Wert setzen
+- `docker/portainer-stack.alpha3.local.yml`
 
-## 6. In Portainer setzen
+Do not mix the public and internal-local files.
 
-### Stack-Datei
+## 4. Environment values to set in Portainer
 
-- Inhalt von `docker/portainer-stack.local.yml`
+Set at least these values:
 
-### Environment-Variablen
-
-Mindestens setzen:
-
-```text
-ARIA_QDRANT_API_KEY=<langer-zufälliger-key>
-SEARXNG_SECRET=<langer-zufaelliger-searxng-key>
-SEARXNG_LIMITER=false
-```
-
-Typischer Start zusätzlich:
-
-```text
+```dotenv
+ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
+SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
-ARIA_PUBLIC_URL=http://dein-hostname
+ARIA_PUBLIC_URL=http://your-hostname:8800
 ```
 
-Wenn auf demselben Host bereits eine andere ARIA-Instanz läuft, muss vor allem `ARIA_HTTP_PORT` abweichen. Der Public-Portainer-Stack nutzt absichtlich keine festen `container_name`-Werte, damit mehrere Stacks nebeneinander laufen können. Qdrant wird dort standardmäßig nicht auf Host-Ports veröffentlicht.
-
-Danach in ARIA selbst als erster Schritt:
-
-1. `LLM` konfigurieren
-2. `Embeddings` konfigurieren
-3. `/stats` öffnen und `Startup Preflight` prüfen
-4. optional SearXNG-Connection anlegen:
-   - die Stack-URL ist intern fest `http://searxng:8080`
-   - pro Profil nur Sprache / SafeSearch / Kategorien / Engines / Tags setzen
-
-## 7. Was beim ersten Start automatisch passiert
-
-Der aktuelle Container-Start ist dafür vorbereitet:
-
-- leere `config`-Volumes werden automatisch mit Defaults befüllt
-- leere `prompts`-Volumes werden automatisch mit Defaults befüllt
-- `config.yaml` wird automatisch aus `config.example.yaml` erzeugt, falls noch nicht vorhanden
-- `secrets.env` wird automatisch aus `secrets.env.example` erzeugt, falls noch nicht vorhanden
-
-Das heißt:
-
-- ein leerer Erststart über Portainer ist möglich
-- ohne dass du manuell zuerst in das Volume schreiben musst
-
-## 8. Erster Browser-Check
-
-Nach dem Deploy prüfen:
-
-1. ARIA öffnen
-   - `http://<host>:<ARIA_HTTP_PORT>`
-
-2. Qdrant optional prüfen
-   - `http://<host>:6333`
-
-3. Login-Seite muss im Bootstrap-Fall zeigen:
-   - es existiert noch kein User
-   - der erste User wird automatisch Admin
-
-4. ersten User anlegen
-
-5. danach prüfen:
-   - Login klappt
-   - Admin-Modus ist direkt aktiv
-   - `Config` ist sichtbar
-
-## 9. Quick Start nach dem ersten Login
-
-Empfohlene Reihenfolge:
-
-1. `LLM` konfigurieren
-2. `Embeddings` konfigurieren
-3. `/stats` öffnen
-   - Preflight prüfen
-4. `/memories` öffnen
-5. ersten einfachen Chat-Test machen
-
-Dann erst:
-
-6. Connections hinzufügen
-7. Guardrails setzen
-8. operative Skills nutzen
-
-## 10. Wenn etwas nicht klappt
-
-### ARIA startet nicht
-
-Prüfen:
-
-- Port-Konflikt auf `8800`
-- Stack-Logs in Portainer
-
-## 11. Lokale Update-Pipe auf dem Zielhost
-
-Wenn du auf dem Zielhost mit lokal geladenen TAR-Dateien arbeitest, kannst du den Stack fuer Updates gleich lassen.
-
-Der empfohlene Weg:
-
-1. neues TAR nach `/mnt/NAS/aria-images/` kopieren
-2. `docker/update-local-aria.sh` auf den Zielhost legen
-3. dort die lokale Stack-Datei neben die TAR-Dateien nach `/mnt/NAS/aria-images/portainer-stack.alpha3.local.yml` legen
-4. `searxng.settings.yml` ebenfalls nach `/mnt/NAS/aria-images/` legen
-5. optional eine Env-Datei nach `/mnt/NAS/aria-images/aria-stack.env` legen
-
-Beispiel fuer die Env-Datei:
-
-```text
-ARIA_QDRANT_API_KEY=<dein-qdrant-key>
-SEARXNG_SECRET=<dein-searxng-secret>
-SEARXNG_LIMITER=false
-```
-
-Dann auf dem Zielhost:
+Generate good secrets on Unix:
 
 ```bash
-chmod +x /mnt/NAS/aria-images/update-local-aria.sh
-/mnt/NAS/aria-images/update-local-aria.sh
+openssl rand -hex 32
+openssl rand -hex 32
 ```
 
-Standardannahmen des Scripts:
+Notes:
 
-- TAR-Verzeichnis: `/mnt/NAS/aria-images`
-- Stack-Datei: `/mnt/NAS/aria-images/portainer-stack.alpha3.local.yml`
-- Env-Datei: `/mnt/NAS/aria-images/aria-stack.env`
-- Image-Name: `aria:alpha-local`
+- `ARIA_QDRANT_API_KEY` must be the same key for both ARIA and Qdrant
+- `SEARXNG_SECRET` is for the in-stack SearXNG service
+- `ARIA_HTTP_PORT` is the host port for the ARIA web UI
+- `ARIA_PUBLIC_URL` should match the real browser URL that users will open
 
-Wichtig:
+## 5. Deploy the stack in Portainer
 
-- das Script erstellt nur den Service `aria` neu
-- `qdrant` bleibt laufen
-- `searxng` und `searxng-valkey` bleiben ebenfalls als eigene Dienste im Stack
-- die Volumes bleiben erhalten
-- der Stack-Inhalt bleibt gleich
+Use the content of:
 
-Wenn keine Env-Datei vorhanden ist, versucht das Script den aktuell laufenden Qdrant-Key aus den vorhandenen Containern zu uebernehmen.
+- `docker/portainer-stack.public.yml`
 
-Neu fuer den Dev-Host:
+Then:
 
-- Build-Artefakte sollten bevorzugt direkt nach `/mnt/NAS/aria-images` exportiert werden
-- wenn der NAS-Mount nicht verfuegbar ist, bleibt `dist/` der lokale Fallback
-- dafuer gibt es den Helper:
+1. create or open the target stack in Portainer
+2. paste the stack YAML
+3. set the environment values
+4. deploy the stack
 
-```bash
-docker/export-local-build.sh
-```
+After deployment, the browser UI should be available at:
 
-## 12. Alternative: Update per SSH-Pull vom Dev-Host
+- `http://<host>:<ARIA_HTTP_PORT>`
 
-Wenn der Zielhost den Dev-Host im lokalen Netz per SSH erreichen kann, ist das oft bequemer als manuelles Kopieren.
+## 6. First login and first checks
 
-Dann liegt auf dem Zielhost z. B. in `/mnt/NAS/aria-images`:
+After the stack comes up:
 
-- `pull-from-dev.sh`
-- `update-local-aria.sh`
-- `portainer-stack.alpha3.local.yml`
-- `aria-stack.env`
+1. open ARIA in the browser
+2. create the first user
+3. the first user becomes admin
+4. configure `LLM`
+5. configure `Embeddings`
+6. open `/stats`
+7. verify the startup preflight
+8. run a first chat prompt
 
-Der Ablauf:
+## 7. How to update a Portainer install
 
-1. auf dem Dev-Host ein neues TAR bauen
-2. auf dem Zielhost `pull-from-dev.sh` starten
-3. das Script holt:
-   - das neueste `aria-alpha*-local.tar`
-   - `portainer-stack.alpha3.local.yml`
-   - `searxng.settings.yml`
-   - `update-local-aria.sh`
-   - `aria-stack.env.example`
-   - optional `samples/`
-4. danach startet es automatisch `update-local-aria.sh`
+For a normal update:
 
-Wichtig:
+1. open the existing stack in Portainer
+2. keep the same stack
+3. keep the same volume names
+4. keep the same network names
+5. keep the same public port unless you intentionally change it
+6. update the stack
 
-- `aria-stack.env` bleibt lokal auf dem Zielhost
-- dort bleibt dein echter `ARIA_QDRANT_API_KEY`
-- Secrets werden nicht vom Dev-Host uebernommen
+Important:
 
-Beispiel auf dem Zielhost:
+- do not create a second fresh stack unless that is intentional
+- do not rename your data volumes casually
+- do not assume a copy/pasted fresh sample will magically reuse old data if the stack name, network, or volume names changed
 
-```bash
-cd /mnt/NAS/aria-images
-chmod +x pull-from-dev.sh
-DEV_SSH=<dev-user>@<dev-host> ./pull-from-dev.sh
-```
+## 8. Existing Portainer stack delta
 
-Wichtige Standardwerte des Scripts:
+If you already have an older ARIA Portainer stack that was created before the SearXNG integration, do not blindly replace it with the fresh public sample if the old stack already has working data.
 
-- Remote-Basis: `/home/aria/ARIA`
-- Lokal: `/mnt/NAS/aria-images`
+Keep these parts from the existing stack:
 
-Bei Bedarf ueberschreibbar:
+- your current ARIA data volumes
+- your current Qdrant storage volume
+- your current custom network name
+- your current host port
+- your current public URL
 
-```bash
-DEV_SSH=<dev-user>@<dev-host> \
-REMOTE_BASE_DIR=/home/aria/ARIA \
-LOCAL_DIR=/mnt/NAS/aria-images \
-./pull-from-dev.sh
-```
-- `ARIA_QDRANT_API_KEY` gesetzt?
-- wurde das Image wirklich importiert?
-  - `docker images | grep aria`
+The actual delta to reach the newer web-search-ready stack is usually only:
 
-### Qdrant ok, aber LLM nicht
+1. add `searxng-valkey`
+2. add `searxng`
+3. add the SearXNG cache volume and Valkey data volume
+4. extend `aria.depends_on` with `searxng`
+5. keep the embedded `searxng_settings` Docker config
+6. add `SEARXNG_SECRET`
 
-Prüfen:
+That means in practice:
 
-- wurde `LLM` in ARIA bereits konfiguriert?
-- wurde `Embeddings` in ARIA bereits konfiguriert?
-- ist die eingetragene LiteLLM-URL vom ARIA-Container aus erreichbar?
+- keep your current ARIA and Qdrant data
+- keep your current network
+- keep your current port
+- add only the missing SearXNG services and settings
 
-### Login da, aber Chat antwortet nicht sinnvoll
+## 9. Multi-instance hosts
 
-Prüfen:
+If the same host already runs another ARIA instance:
 
-- LLM-Config
-- Embeddings-Config
-- `/stats` -> `Startup Preflight`
+- give this stack a different `ARIA_HTTP_PORT`
+- keep its volume names separate from the other ARIA instance
+- keep its stack name separate from the other ARIA instance
 
-## 11. Für spätere Updates
+The public Portainer sample intentionally:
 
-Der geplante Weg bleibt:
+- avoids fixed `container_name` values
+- does not publish Qdrant on host ports by default
 
-1. Änderungen in `dev`
-2. neues Image bauen
-3. neues TAR exportieren oder später in Registry pushen
-4. auf dem Zielhost neues Image laden / ziehen
-5. Stack neu deployen
-6. Daten und Konfiguration bleiben in den Volumes erhalten
+That makes multi-instance hosts much safer.
 
-Portainer passt dafür gut, weil:
+## 10. What the Portainer path does not do automatically
 
-- Volumes erhalten bleiben
-- Stack-Variablen erhalten bleiben
-- Image-Wechsel klar kontrollierbar ist
+The normal public Portainer stack does not automatically create a managed install directory like `aria-setup` does.
 
-## 12. Minimaler Zielzustand
+That means:
 
-Damit die eigene ARIA auf dem fremden Host als “einsatzbereit” gilt:
+- Portainer is a valid runtime path
+- but future updates are less controlled than the managed `aria-setup` path
+- the browser update button on `/updates` should not be assumed for generic public Portainer installs unless you intentionally wire in a matching helper path
 
-- Stack läuft stabil
-- erster User wurde erfolgreich angelegt
-- Admin-Modus aktiv
-- LLM erreichbar
-- Qdrant erreichbar
-- `/health` ok
-- `/stats` Preflight ohne grobe Fehler
+## 11. When should you choose `aria-setup` instead?
+
+Choose `aria-setup` when you want:
+
+- the simplest install path
+- visible bind-mounted storage
+- a predictable update helper
+- an easier future migration path
+- the cleanest `/updates` browser update story
+
+Choose Portainer when you already want Portainer specifically.

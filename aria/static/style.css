@@ -2864,6 +2864,126 @@ button.danger-btn:hover {
   margin-top: 0.9rem;
 }
 
+.update-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.34rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(141, 233, 194, 0.2);
+  background: rgba(12, 32, 23, 0.72);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.update-status-chip.status-ok {
+  border-color: rgba(141, 233, 194, 0.35);
+  background: rgba(17, 53, 34, 0.82);
+}
+
+.update-status-chip.status-warn {
+  border-color: rgba(255, 196, 92, 0.38);
+  background: rgba(58, 38, 9, 0.84);
+}
+
+.update-status-chip.status-error {
+  border-color: rgba(255, 136, 136, 0.35);
+  background: rgba(69, 16, 16, 0.86);
+}
+
+.update-live-card {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  background: rgba(5, 9, 9, 0.62);
+  backdrop-filter: blur(9px);
+}
+
+.update-live-card.is-hidden {
+  display: none;
+}
+
+.update-live-card__panel {
+  width: min(100%, 52rem);
+  padding: 1.15rem 1.1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 196, 92, 0.4);
+  background:
+    radial-gradient(circle at top right, rgba(255, 194, 61, 0.18), transparent 42%),
+    linear-gradient(155deg, rgba(36, 24, 7, 0.96), rgba(17, 14, 9, 0.94));
+  box-shadow: 0 26px 58px rgba(0, 0, 0, 0.4);
+  display: grid;
+  gap: 0.95rem;
+}
+
+.update-live-card__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.update-live-card__lamp {
+  margin-top: 0.18rem;
+  box-shadow: 0 0 0 0 rgba(255, 194, 61, 0.35);
+  animation: update-live-pulse 1.45s ease-in-out infinite;
+}
+
+.update-live-card__subtitle {
+  margin-top: 0.25rem;
+  color: var(--text);
+  opacity: 0.9;
+  max-width: 62ch;
+}
+
+.update-live-card__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.55rem 0.8rem;
+  font-size: 0.96rem;
+}
+
+.update-live-card__meta strong {
+  color: var(--text);
+}
+
+.update-live-card__hint {
+  border-top: 1px solid rgba(255, 196, 92, 0.18);
+  padding-top: 0.8rem;
+  font-weight: 700;
+  color: #ffe9b5;
+}
+
+.update-live-card__hint[data-state="ok"] {
+  color: #b8f5da;
+}
+
+.update-live-card__hint[data-state="warn"] {
+  color: #ffd6b3;
+}
+
+.update-live-card .update-status-chip {
+  margin-left: 0.35rem;
+}
+
+@keyframes update-live-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 194, 61, 0.35);
+  }
+  70% {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 10px rgba(255, 194, 61, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 194, 61, 0);
+  }
+}
+
 .stats-details {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -3226,6 +3346,40 @@ button.danger-btn:hover {
   color: #ff8c8c;
 }
 
+.skill-state.is-warn {
+  border-color: rgba(255, 186, 59, 0.7);
+  color: #ffd36e;
+}
+
+.plain-list {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.button-like {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.4rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.button-like:hover,
+.button-like:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(49, 255, 143, 0.25);
+  transform: translateY(-1px);
+}
+
 .skill-card.is-future {
   opacity: 0.88;
 }
@@ -3348,6 +3502,19 @@ body[data-theme="cyberpunk"] .config-section-content {
     0 12px 26px color-mix(in srgb, var(--accent-strong) 20%, transparent);
 }
 
+.config-submenu-item.is-disabled {
+  opacity: 0.82;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.config-submenu-item.is-disabled:hover {
+  border-color: rgba(43, 109, 66, 0.82);
+  transform: none;
+  box-shadow: none;
+}
+
 .submenu-icon-wrap {
   width: 2rem;
   height: 2rem;
@@ -3384,6 +3551,12 @@ body[data-theme="cyberpunk"] .config-section-content {
   color: #cbffd8;
 }
 
+.submenu-status-text {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 .alpha-flag {
   display: inline-flex;
   align-items: center;
@@ -3397,6 +3570,12 @@ body[data-theme="cyberpunk"] .config-section-content {
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.warn-flag {
+  border-color: rgba(126, 176, 255, 0.45);
+  background: rgba(13, 33, 58, 0.85);
+  color: #b8dbff;
 }
 
 .submenu-desc {

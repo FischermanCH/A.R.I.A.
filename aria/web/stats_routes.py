@@ -36,6 +36,9 @@ from aria.core.pricing_catalog import build_pricing_catalog_snapshot
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.release_meta import read_release_meta
 from aria.core.runtime_endpoint import resolve_runtime_url
+from aria.core.update_helper_client import fetch_update_helper_status
+from aria.core.update_helper_client import helper_status_visual
+from aria.core.update_helper_client import resolve_update_helper_config
 from aria.web.activities_routes import _decorate_activity_rows
 
 
@@ -44,6 +47,7 @@ UsernameResolver = Callable[[Request], str]
 SettingsGetter = Callable[[], Any]
 PipelineGetter = Callable[[], Pipeline]
 PreflightGetter = Callable[[], Any]
+SecureStoreGetter = Callable[[], Any]
 
 
 def _size_human(size_bytes: int) -> str:
@@ -604,7 +608,14 @@ def _build_preflight_meta(payload: dict[str, Any], language: str) -> dict[str, A
     }
 
 
-async def _build_health_meta(settings: Any, pipeline: Pipeline, language: str, request: Request | None = None) -> dict[str, Any]:
+async def _build_health_meta(
+    settings: Any,
+    pipeline: Pipeline,
+    language: str,
+    request: Request | None = None,
+    *,
+    get_secure_store: SecureStoreGetter | None = None,
+) -> dict[str, Any]:
     base_dir = _project_root()
     services: list[dict[str, Any]] = []
     runtime_url = resolve_runtime_url(settings, request)
@@ -738,6 +749,77 @@ async def _build_health_meta(settings: Any, pipeline: Pipeline, language: str, r
         }
     )
 
+    helper_store = None
+    if get_secure_store is not None:
+        try:
+            helper_store = get_secure_store()
+        except Exception:
+            helper_store = None
+    helper_config = resolve_update_helper_config(secure_store=helper_store)
+    helper_status = "warn"
+    helper_summary = _pick_text(
+        language,
+        "Kein GUI-Update-Helper konfiguriert.",
+        "No GUI update helper configured.",
+    )
+    helper_detail = _pick_text(
+        language,
+        "Managed-Installationen und interne aria-pull-Setups koennen hier ihren Update-Helper melden.",
+        "Managed installations and internal aria-pull setups can expose their update helper here.",
+    )
+    if helper_config.enabled:
+        try:
+            helper_payload = fetch_update_helper_status(helper_config, timeout=1.2)
+            helper_status = helper_status_visual(
+                str(helper_payload.get("status", "") or ""),
+                running=bool(helper_payload.get("running", False)),
+                configured=True,
+                reachable=bool(helper_payload.get("reachable", True)),
+                last_error=str(helper_payload.get("last_error", "") or helper_payload.get("error", "") or ""),
+            )
+            if bool(helper_payload.get("running", False)):
+                helper_summary = _pick_text(
+                    language,
+                    "Update-Helper arbeitet gerade an einem Lauf.",
+                    "Update helper is currently processing a run.",
+                )
+            elif helper_status == "ok":
+                helper_summary = _pick_text(
+                    language,
+                    "GUI-Update-Helper erreichbar und bereit.",
+                    "GUI update helper reachable and ready.",
+                )
+            elif helper_status == "error":
+                helper_summary = _pick_text(
+                    language,
+                    "GUI-Update-Helper meldet einen Fehler.",
+                    "GUI update helper reports an error.",
+                )
+            else:
+                helper_summary = _pick_text(
+                    language,
+                    "GUI-Update-Helper erreichbar, aber mit Hinweisstatus.",
+                    "GUI update helper reachable with a warning state.",
+                )
+            helper_detail = str(helper_payload.get("current_step", "") or helper_payload.get("last_result", "") or helper_payload.get("last_error", "") or "/updates").strip() or "/updates"
+        except RuntimeError as exc:
+            helper_status = "error"
+            helper_summary = _pick_text(
+                language,
+                "GUI-Update-Helper nicht erreichbar.",
+                "GUI update helper not reachable.",
+            )
+            helper_detail = str(exc)
+    services.append(
+        {
+            "name": "Update Helper",
+            "status": helper_status,
+            "summary": helper_summary,
+            "detail": helper_detail,
+            "url": "/updates",
+        }
+    )
+
     overall_status = _overall_status(services)
     for service in services:
         service["visual_status"] = str(service.get("status", "warn")).strip().lower() or "warn"
@@ -759,6 +841,7 @@ def register_stats_routes(
     get_username_from_request: UsernameResolver,
     resolve_pricing_entry: PricingResolver,
     get_runtime_preflight: PreflightGetter,
+    get_secure_store: SecureStoreGetter | None = None,
 ) -> None:
     @app.post("/stats/pricing/refresh")
     async def stats_pricing_refresh(request: Request) -> Response:
@@ -820,7 +903,7 @@ def register_stats_routes(
         username = get_username_from_request(request)
         pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
         language = str(getattr(getattr(request, "state", object()), "lang", "") or settings.ui.language or "de")
-        health_meta = await _build_health_meta(settings, pipeline, language, request)
+        health_meta = await _build_health_meta(settings, pipeline, language, request, get_secure_store=get_secure_store)
         preflight_payload = get_runtime_preflight() or {}
         if inspect.isawaitable(preflight_payload):
             preflight_payload = await preflight_payload

@@ -79,8 +79,14 @@ LATEST_REMOTE_TAR="$(
     elif [ -d '$REMOTE_DIST_DIR' ]; then artifact_dir='$REMOTE_DIST_DIR'; fi; \
     [ -n \"\$artifact_dir\" ] || exit 0; \
     find \"\$artifact_dir\" -maxdepth 1 -type f -name 'aria-alpha*-local.tar' | sed 's#^.*/##' | awk '
-      match(\$0, /^aria-alpha([0-9]+)-local\\.tar$/, m) { printf \"%012d %s\\n\", m[1], \$0; next }
       \$0 == \"aria-alpha-local.tar\" { printf \"%012d %s\\n\", 0, \$0; next }
+      \$0 ~ /^aria-alpha[0-9]+-local\\.tar$/ {
+        version = \$0
+        sub(/^aria-alpha/, \"\", version)
+        sub(/-local\\.tar$/, \"\", version)
+        printf \"%012d %s\\n\", version + 0, \$0
+        next
+      }
     ' | sort | tail -n1 | cut -d' ' -f2- | sed \"s#^#\$artifact_dir/#\""
 )"
 
@@ -91,12 +97,16 @@ copy_file "$LATEST_REMOTE_TAR" "$LOCAL_DIR/"
 
 log "Hole Stack-Datei"
 copy_file "$REMOTE_DOCKER_DIR/portainer-stack.alpha3.local.yml" "$LOCAL_DIR/"
-
-log "Hole SearXNG-Settings"
-copy_file "$REMOTE_DOCKER_DIR/searxng.settings.yml" "$LOCAL_DIR/"
+copy_file "$REMOTE_BASE_DIR/docker-compose.managed.yml" "$LOCAL_DIR/"
 
 log "Hole lokales Update-Script"
 copy_file "$REMOTE_DOCKER_DIR/update-local-aria.sh" "$LOCAL_DIR/"
+
+log "Hole Host-Update-Helper"
+copy_file "$REMOTE_DOCKER_DIR/aria-host-update.sh" "$LOCAL_DIR/"
+copy_file "$REMOTE_DOCKER_DIR/aria-host-update.env.example" "$LOCAL_DIR/"
+copy_file "$REMOTE_DOCKER_DIR/setup-compose-stack.sh" "$LOCAL_DIR/"
+copy_file "$REMOTE_BASE_DIR/aria-setup" "$LOCAL_DIR/"
 
 log "Hole Env-Vorlage"
 copy_file "$REMOTE_DOCKER_DIR/aria-stack.env.example" "$LOCAL_DIR/"
@@ -107,6 +117,7 @@ if ssh -i "$SSH_KEY_PATH" "$DEV_SSH" "[ -d '$REMOTE_SAMPLES_DIR' ]"; then
 fi
 
 chmod +x "$LOCAL_UPDATE_SCRIPT" 2>/dev/null || true
+chmod +x "$LOCAL_DIR/aria-host-update.sh" 2>/dev/null || true
 
 if [[ ! -f "$LOCAL_DIR/aria-stack.env" && -f "$LOCAL_DIR/aria-stack.env.example" ]]; then
   log "Lokale aria-stack.env fehlt, lege Vorlage an"

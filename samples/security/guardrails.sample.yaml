@@ -39,3 +39,16 @@ security:
         - "POST"
         - "DELETE"
         - "http://"
+    mqtt-status-only:
+      kind: mqtt_publish
+      title: "MQTT Status Only"
+      description: "Erlaubt nur Status- und Alert-Messages auf freigegebene MQTT-Themen"
+      allow_terms:
+        - "homelab/status"
+        - "homelab/alerts"
+        - "warning"
+        - "ok"
+      deny_terms:
+        - "factory-reset"
+        - "shutdown"
+        - "delete"

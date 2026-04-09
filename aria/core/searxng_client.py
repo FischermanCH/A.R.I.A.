@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request as URLRequest, urlopen
 
 
@@ -35,6 +35,17 @@ class SearXNGClientError(RuntimeError):
 class SearXNGClient:
     def __init__(self, *, user_agent: str = "ARIA/1.0") -> None:
         self.user_agent = user_agent
+
+    def _request_headers(self, base_url: str) -> dict[str, str]:
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "application/json",
+        }
+        host = str(urlparse(str(base_url or "").strip()).hostname or "").strip().lower()
+        if host in {"searxng", "aria-searxng", "localhost", "127.0.0.1", "::1"}:
+            headers["X-Forwarded-For"] = "127.0.0.1"
+            headers["X-Real-IP"] = "127.0.0.1"
+        return headers
 
     @staticmethod
     def _normalize_list(values: Any) -> list[str]:
@@ -167,10 +178,7 @@ class SearXNGClient:
         target_url = f"{clean_base_url}/search?{urlencode(params)}"
         request = URLRequest(
             target_url,
-            headers={
-                "User-Agent": self.user_agent,
-                "Accept": "application/json",
-            },
+            headers=self._request_headers(clean_base_url),
             method="GET",
         )
         try:

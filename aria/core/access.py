@@ -16,6 +16,7 @@ ADVANCED_CONFIG_PREFIXES: tuple[str, ...] = (
     "/config/security",
     "/config/files",
     "/config/logs",
+    "/config/backup",
     "/config/error-interpreter",
 )
 

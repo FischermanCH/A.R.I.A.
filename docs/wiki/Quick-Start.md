@@ -4,7 +4,7 @@ ARIA is designed to get from container to usable web UI quickly.
 
 Recommended path:
 
-1. start ARIA with Docker Compose or Portainer
+1. start ARIA with `aria-setup` or manual Docker Compose
 2. open the web UI
 3. create the first bootstrap user
 4. configure:
@@ -17,7 +17,6 @@ Core deployment references:
 
 - [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
 - [`docs/setup/setup-overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/setup-overview.md)
-- [`docs/setup/portainer-deploy-checklist.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/portainer-deploy-checklist.md)
 
 Notes:
 

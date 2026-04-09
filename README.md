@@ -121,7 +121,7 @@ Good fit:
 
 - people who want a personal AI workspace
 - self-hosters and homelab users
-- tinkerers comfortable with Docker / Portainer
+- tinkerers comfortable with Docker and self-hosting basics
 - small private tests with 1-2 trusted users
 
 Not the current target:
@@ -140,6 +140,7 @@ Not the current target:
 - Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
 - Chat details now show document recall sources with file name, collection, and chunk reference
 - pre-alpha web search via self-hosted `SearXNG`, with a fixed in-stack target URL, slim search profiles, and source lines in chat details
+- Chat toolbox includes direct phrases for web search, stats, activities, controlled updates, and config-backup helpers; the same actions can now also be triggered from chat instead of only through the respective pages
 - Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
 - `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
 - Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, SearXNG, Webhook, SMTP, IMAP, and MQTT
@@ -173,13 +174,197 @@ Not the current target:
 - Roadmap: `docs/product/roadmap.md`
 - Contributing guide: `CONTRIBUTING.md`
 - Setup overview: `docs/setup/setup-overview.md`
-- Portainer deploy checklist: `docs/setup/portainer-deploy-checklist.md`
 - Alpha help (DE): `docs/help/alpha-help-system.de.md`
 - Alpha help (EN): `docs/help/alpha-help-system.en.md`
 - Memory help: `docs/help/memory.md`
 - Pricing help: `docs/help/pricing.md`
 - Security help: `docs/help/security.md`
 - Changelog: `CHANGELOG.md`
+
+## Docker Install and Update Paths
+
+ARIA supports two main Docker paths:
+
+1. `aria-setup`  
+   Best choice for most people. One command, one managed directory, predictable updates later.
+2. `docker-compose.public.yml`  
+   Good if you want a manual Docker Compose setup but still want the official public sample.
+
+The recommended path is still:
+
+- `aria-setup`
+
+### Option 1: `aria-setup` (recommended)
+
+`aria-setup` is the easiest controlled install path.
+
+It:
+
+- asks only for the few values it cannot safely guess
+- creates one managed install directory
+- writes a ready-to-use `docker-compose.yml`
+- writes a matching `.env`
+- creates persistent bind-mounted storage folders
+- adds `aria-stack.sh` for status, logs, updates, and health checks
+
+Managed installs also include the internal `aria-updater` helper. That means admins can later start a controlled update directly from `/updates` in the browser.
+
+Admins can also use the same helper path from chat, for example:
+
+- `zeige update status`
+- `starte update`
+- `bestätige update <token>`
+
+Install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/aria-setup -o aria-setup
+chmod +x aria-setup
+sudo ./aria-setup
+```
+
+Default result:
+
+- `/opt/aria/aria/docker-compose.yml`
+- `/opt/aria/aria/.env`
+- `/opt/aria/aria/aria-stack.sh`
+- `/opt/aria/aria/storage/`
+
+Useful commands afterwards:
+
+```bash
+cd /opt/aria/aria
+./aria-stack.sh ps
+./aria-stack.sh logs
+./aria-stack.sh health
+./aria-stack.sh update
+```
+
+Managed update rules:
+
+- normal image update:
+  - `./aria-stack.sh update`
+- stack layout change, for example a new sidecar service:
+  - `aria-setup upgrade --install-dir /opt/aria/aria`
+- admin-triggered browser update:
+  - `/updates`
+
+If a managed ARIA install already exists, `aria-setup` detects that and upgrades it instead of creating an accidental second install.
+
+### Option 2: manual Docker Compose
+
+Use this when you want the public sample but prefer to manage the compose directory yourself.
+
+Use:
+
+- `docker-compose.public.yml`
+
+Do not use:
+
+- `docker-compose.yml`
+
+Reason:
+
+- `docker-compose.yml` is the local repo/dev stack
+- `docker-compose.public.yml` is the public runtime stack
+
+Example manual setup:
+
+```bash
+mkdir -p /opt/aria-manual
+cd /opt/aria-manual
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docker-compose.public.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/.env.example -o .env
+```
+
+Minimal `.env`:
+
+```dotenv
+ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
+SEARXNG_SECRET=replace-with-a-long-random-key
+ARIA_HTTP_PORT=8800
+ARIA_PUBLIC_URL=http://localhost:8800
+```
+
+Start:
+
+```bash
+docker compose up -d
+```
+
+This starts:
+
+- `aria`
+- `qdrant`
+- `searxng`
+- `searxng-valkey`
+
+Manual Compose update rules:
+
+- before larger upgrades, export a config snapshot from `/config/backup`
+- normal ARIA release update:
+
+  ```bash
+  docker compose pull aria
+  docker compose up -d --no-deps aria
+  ```
+
+- if the release notes say the compose file changed:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docker-compose.public.yml -o docker-compose.yml
+  docker compose up -d
+  ```
+
+Important:
+
+- keep the same compose project
+- keep the same volumes
+- do not rename the stack casually between updates
+- the browser `/updates` button and chat-driven update flow are designed for managed installs; for a plain manual Compose install, use the documented host-side `docker compose` commands
+
+### Which update path should you use?
+
+- managed install from `aria-setup`:
+  - `./aria-stack.sh update`
+  - or `/updates` in the UI
+  - or a controlled update directly from chat for admin users
+- manual `docker-compose.public.yml`:
+  - `docker compose pull aria`
+  - `docker compose up -d --no-deps aria`
+  - replace the compose file only when the release notes say the stack layout changed
+
+### Helpful chat shortcuts
+
+Recent admin and operator shortcuts that now work directly from chat:
+
+- `suche im internet nach <topic>`
+- `zeige stats`
+- `zeige aktivitäten`
+- `zeige update status`
+- `starte update`
+- `exportiere config backup`
+
+The backup export includes:
+
+- connection profiles from `config.yaml`
+- connection secrets from the secure store
+
+It does not include local SSH key files under `data/ssh_keys`.
+
+### Internal local TAR builds
+
+Internal local TAR builds still exist for faster private testing.
+
+That path uses:
+
+- `aria-pull`
+- `docker/update-local-aria.sh`
+- the local helper-enabled stack files
+
+It is useful for internal testing, but it is not the preferred public install path.
+
+If you want the cleanest public setup and the easiest future updates, use `aria-setup`.
 
 ## Quickstart
 
@@ -293,10 +478,19 @@ ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
+One simple manual setup path:
+
+```bash
+mkdir -p /opt/aria-manual
+cd /opt/aria-manual
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docker-compose.public.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/.env.example -o .env
+```
+
 Start:
 
 ```bash
-docker compose -f docker-compose.public.yml up -d
+docker compose up -d
 ```
 
 Open:
@@ -312,33 +506,28 @@ First start flow:
 3. Admin mode is active
 4. configure LLMs, embeddings, connections, and skills
 
-## Portainer
+Update:
 
-For Portainer, use `docker/portainer-stack.public.yml` as a base and set stack variables such as:
+```bash
+docker compose pull aria
+docker compose up -d --no-deps aria
+```
 
-- `ARIA_QDRANT_API_KEY`
-- `ARIA_HTTP_PORT`
-- `ARIA_PUBLIC_URL`
-- `SEARXNG_SECRET`
+Before larger upgrades, create a config snapshot in ARIA under:
 
-Important notes:
+- `/config/backup`
 
-- stack examples use named volumes
-- empty `config` / `prompts` volumes are initialized from built-in defaults on first container start
-- `config.yaml` and `secrets.env` are generated in the volume if missing
-- keep the same Qdrant API key for both `aria` and `qdrant`
-- SearXNG and Valkey run as separate services next to ARIA and Qdrant
-- `docker/searxng.settings.yml` is mounted read-only into the SearXNG container
-- the public Portainer stack intentionally uses no fixed `container_name` values, so multiple ARIA stacks can run on the same host if their host ports differ
-- Qdrant is intentionally not published to host ports in the public samples; expose it only if you explicitly need direct host access
-- on Linux, `host.docker.internal` is wired through `host-gateway` in the compose setup
-- for an existing pre-`alpha69` Portainer stack, keep your current volume names and network names and add only the `searxng` / `searxng-valkey` part as a delta; do not replace working `aria2_*` volumes with the generic sample names
+If a future release changes the compose layout itself, download the latest `docker-compose.public.yml` again and then run:
+
+```bash
+docker compose up -d
+```
 
 ## Friend tester quickstart
 
 If you want 1-2 trusted people to test ARIA:
 
-1. run ARIA on a separate host via Docker or Portainer
+1. run ARIA on a separate host via Docker
 2. keep access inside LAN / VPN
 3. let the tester create the first user and configure their own LLM
 4. collect feedback on first-run setup, chat quality, connections, memories, and rough UI edges
@@ -447,7 +636,7 @@ Gut geeignet für:
 
 - Menschen, die einen eigenen AI-Workspace wollen
 - Self-Hoster und Homelab-User
-- Bastler, die mit Docker / Portainer umgehen können
+- Bastler, die mit Docker und Self-Hosting-Grundlagen umgehen können
 - kleine private Tests mit 1-2 vertrauenswürdigen Personen
 
 Aktuell **nicht** gedacht für:
@@ -492,7 +681,6 @@ Aktuell **nicht** gedacht für:
 - Architektur: `docs/product/architecture-summary.md`
 - Roadmap: `docs/product/roadmap.md`
 - Setup-Überblick: `docs/setup/setup-overview.md`
-- Portainer-Deploy-Checkliste: `docs/setup/portainer-deploy-checklist.md`
 - Alpha-Hilfe DE: `docs/help/alpha-help-system.de.md`
 - Alpha-Hilfe EN: `docs/help/alpha-help-system.en.md`
 - Memory-Hilfe: `docs/help/memory.md`
@@ -612,10 +800,19 @@ ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
+Ein einfacher manueller Setup-Weg:
+
+```bash
+mkdir -p /opt/aria-manual
+cd /opt/aria-manual
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docker-compose.public.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/.env.example -o .env
+```
+
 Starten:
 
 ```bash
-docker compose -f docker-compose.public.yml up -d
+docker compose up -d
 ```
 
 Im Browser öffnen:
@@ -631,33 +828,26 @@ First-Run-Flow:
 3. Admin-Modus ist aktiv
 4. danach LLMs, Embeddings, Connections und Skills konfigurieren
 
-## Portainer
+Update:
 
-Für Portainer kannst du `docker/portainer-stack.public.yml` als Basis nehmen und Stack-Variablen setzen, z. B.:
+```bash
+docker compose pull aria
+docker compose up -d --no-deps aria
+```
 
-- `ARIA_QDRANT_API_KEY`
-- `ARIA_HTTP_PORT`
-- `ARIA_PUBLIC_URL`
-- `SEARXNG_SECRET`
+Vor groesseren Upgrades zuerst in ARIA unter `/config/backup` einen Konfig-Snapshot ziehen.
 
-Wichtige Hinweise:
+Wenn ein spaeteres Release das Compose-Layout selbst aendert, die aktuelle `docker-compose.public.yml` erneut herunterladen und danach ausfuehren:
 
-- die Stack-Beispiele nutzen named volumes
-- leere `config`- und `prompts`-Volumes werden beim ersten Start automatisch mit eingebauten Defaults befüllt
-- `config.yaml` und `secrets.env` werden im Volume erzeugt, wenn sie noch fehlen
-- denselben Qdrant API Key für `aria` und `qdrant` verwenden
-- SearXNG und Valkey laufen als eigene Dienste neben ARIA und Qdrant
-- `docker/searxng.settings.yml` wird read-only in den SearXNG-Container gemountet
-- der Public-Portainer-Stack nutzt absichtlich keine festen `container_name`-Werte, damit mehrere ARIA-Stacks auf demselben Host mit unterschiedlichen Host-Ports sauber nebeneinander laufen können
-- Qdrant wird im Public-Sample absichtlich nicht auf Host-Ports veröffentlicht; direkten Host-Zugriff nur bei Bedarf bewusst ergänzen
-- unter Linux ist `host.docker.internal` im Compose-Setup über `host-gateway` verdrahtet
-- für bestehende Portainer-Stacks vor `alpha69` sollten vorhandene Volume- und Netzwerk-Namen beibehalten und nur `searxng` / `searxng-valkey` als Delta ergänzt werden; funktionierende `aria2_*`-Volumes nicht blind durch generische Beispielnamen ersetzen
+```bash
+docker compose up -d
+```
 
 ## Friend-Tester-Quickstart
 
 Wenn du ARIA an 1-2 vertraute Tester geben willst:
 
-1. ARIA auf einem separaten Host über Docker oder Portainer betreiben
+1. ARIA auf einem separaten Host über Docker betreiben
 2. Zugriff auf LAN / VPN beschränken
 3. Tester den ersten User selbst anlegen und das eigene LLM konfigurieren lassen
 4. Feedback zu First-Run, Chatqualität, Connections, Memories und UI-Reibung sammeln

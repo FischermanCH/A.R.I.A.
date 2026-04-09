@@ -182,6 +182,15 @@ def test_capability_router_detects_short_news_phrase_with_typo_as_rss_request() 
     assert draft.explicit_connection_ref == ""
 
 
+def test_capability_router_does_not_steal_explicit_internet_search_as_feed_read() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "suche in internet nach den letzten news über den aibi bot",
+        available_connection_refs_by_kind={"rss": ["heise-news"]},
+    )
+    assert draft is None
+
+
 def test_capability_router_detects_webhook_send() -> None:
     router = CapabilityRouter()
     draft = router.classify(

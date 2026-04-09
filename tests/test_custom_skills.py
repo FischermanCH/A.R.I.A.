@@ -96,3 +96,63 @@ def test_delete_custom_skill_manifest_removes_file_and_default_prompt(monkeypatc
     assert result["prompt_removed"] is True
     assert not skill_path.exists()
     assert not prompt_path.exists()
+
+
+def test_load_custom_skill_manifests_uses_cache_and_invalidates_on_change(monkeypatch, tmp_path) -> None:
+    base_dir = tmp_path
+    skills_dir = base_dir / "data" / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(custom_skills, "BASE_DIR", base_dir)
+    monkeypatch.setattr(custom_skills, "SKILLS_STORE_DIR", skills_dir)
+    monkeypatch.setattr(custom_skills, "SKILL_TRIGGER_INDEX_FILE", skills_dir / "_trigger_index.json")
+    custom_skills._invalidate_custom_skill_manifest_cache()
+
+    skill_path = skills_dir / "ops-report.json"
+    skill_path.write_text(
+        json.dumps(
+            {
+                "id": "ops-report",
+                "name": "Ops Report",
+                "steps": [{"id": "s1", "type": "chat_send", "params": {"chat_message": "ok"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    original_json_loads = custom_skills.json.loads
+    call_count = {"value": 0}
+
+    def _counting_loads(raw: str) -> object:
+        call_count["value"] += 1
+        return original_json_loads(raw)
+
+    monkeypatch.setattr(custom_skills.json, "loads", _counting_loads)
+
+    rows_first, errors_first = custom_skills._load_custom_skill_manifests()
+    rows_second, errors_second = custom_skills._load_custom_skill_manifests()
+
+    assert errors_first == []
+    assert errors_second == []
+    assert rows_first[0]["name"] == "Ops Report"
+    assert rows_second[0]["name"] == "Ops Report"
+    assert call_count["value"] == 1
+
+    rows_first[0]["name"] = "Mutated in test"
+    rows_third, _ = custom_skills._load_custom_skill_manifests()
+    assert rows_third[0]["name"] == "Ops Report"
+
+    skill_path.write_text(
+        json.dumps(
+            {
+                "id": "ops-report",
+                "name": "Ops Report Updated",
+                "steps": [{"id": "s1", "type": "chat_send", "params": {"chat_message": "ok"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    rows_after_change, _ = custom_skills._load_custom_skill_manifests()
+    assert rows_after_change[0]["name"] == "Ops Report Updated"
+    assert call_count["value"] == 2

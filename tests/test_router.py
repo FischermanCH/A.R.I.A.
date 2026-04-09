@@ -27,6 +27,12 @@ def test_router_web_search_intent() -> None:
     assert "web_search" in decision.intents
 
 
+def test_router_internet_search_phrase_maps_to_web_search() -> None:
+    router = KeywordRouter(RoutingConfig())
+    decision = router.classify("Suche in Internet nach den letzten News über den aibi bot")
+    assert "web_search" in decision.intents
+
+
 def test_router_vergiss_nicht_maps_to_store_not_forget() -> None:
     router = KeywordRouter(RoutingConfig())
     decision = router.classify("Vergiss nicht, dass mein NAS 10.0.10.100 hat")

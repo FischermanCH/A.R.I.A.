@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 from datetime import datetime, timezone
@@ -18,6 +19,12 @@ SKILL_CATEGORY_DEFAULTS = [
     "knowledge",
     "utility",
 ]
+
+_CUSTOM_SKILL_MANIFEST_CACHE: dict[str, Any] = {
+    "sign": None,
+    "rows": [],
+    "errors": [],
+}
 
 
 def _sanitize_skill_id(value: str | None) -> str:
@@ -185,12 +192,16 @@ def _validate_custom_skill_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def _load_custom_skill_manifests() -> tuple[list[dict[str, Any]], list[str]]:
+    snapshot = _custom_skill_manifest_snapshot()
+    if snapshot == _CUSTOM_SKILL_MANIFEST_CACHE.get("sign"):
+        return (
+            copy.deepcopy(_CUSTOM_SKILL_MANIFEST_CACHE.get("rows", [])),
+            copy.deepcopy(_CUSTOM_SKILL_MANIFEST_CACHE.get("errors", [])),
+        )
+
     rows: list[dict[str, Any]] = []
     errors: list[str] = []
-    SKILLS_STORE_DIR.mkdir(parents=True, exist_ok=True)
-    for path in sorted(SKILLS_STORE_DIR.glob("*.json")):
-        if path.name.startswith("_"):
-            continue
+    for path in _iter_custom_skill_manifest_paths():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
@@ -198,7 +209,32 @@ def _load_custom_skill_manifests() -> tuple[list[dict[str, Any]], list[str]]:
             rows.append(_validate_custom_skill_manifest(raw))
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{path.name}: {exc}")
+    _CUSTOM_SKILL_MANIFEST_CACHE["sign"] = snapshot
+    _CUSTOM_SKILL_MANIFEST_CACHE["rows"] = copy.deepcopy(rows)
+    _CUSTOM_SKILL_MANIFEST_CACHE["errors"] = copy.deepcopy(errors)
     return rows, errors
+
+
+def _invalidate_custom_skill_manifest_cache() -> None:
+    _CUSTOM_SKILL_MANIFEST_CACHE["sign"] = None
+    _CUSTOM_SKILL_MANIFEST_CACHE["rows"] = []
+    _CUSTOM_SKILL_MANIFEST_CACHE["errors"] = []
+
+
+def _iter_custom_skill_manifest_paths() -> list[Path]:
+    SKILLS_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    return [path for path in sorted(SKILLS_STORE_DIR.glob("*.json")) if not path.name.startswith("_")]
+
+
+def _custom_skill_manifest_snapshot() -> tuple[tuple[str, int, int], ...]:
+    rows: list[tuple[str, int, int]] = []
+    for path in _iter_custom_skill_manifest_paths():
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        rows.append((path.name, int(stat.st_mtime_ns), int(stat.st_size)))
+    return tuple(rows)
 
 
 def _build_skill_trigger_index(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -266,6 +302,7 @@ def _save_custom_skill_manifest(manifest: dict[str, Any], previous_id: str | Non
     target.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if previous_target and previous_target.exists() and previous_target != target:
         previous_target.unlink()
+    _invalidate_custom_skill_manifest_cache()
     _refresh_skill_trigger_index()
     return clean
 
@@ -302,6 +339,7 @@ def _delete_custom_skill_manifest(skill_id: str) -> dict[str, Any]:
             candidate.unlink()
             removed_prompt = True
 
+    _invalidate_custom_skill_manifest_cache()
     _refresh_skill_trigger_index()
     return {"id": clean_id, "prompt_removed": removed_prompt}
 

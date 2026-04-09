@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import html
 import json
 import re
@@ -89,6 +90,8 @@ from aria.core.config import (
     normalize_ui_background,
     normalize_ui_theme,
 )
+from aria.core.config_backup import build_config_backup_payload
+from aria.core.config_backup import summarize_config_backup_payload
 from aria.core.custom_skills import (
     SKILL_TRIGGER_INDEX_FILE,
     _collect_skill_categories,
@@ -112,12 +115,22 @@ from aria.core.release_meta import read_release_meta
 from aria.core.runtime_diagnostics import build_runtime_diagnostics
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 from aria.core.update_check import get_update_status
+from aria.core.update_helper_client import fetch_update_helper_status
+from aria.core.update_helper_client import helper_status_visual
+from aria.core.update_helper_client import resolve_update_helper_config
+from aria.core.update_helper_client import trigger_update_helper_run
 from aria.core.usage_meter import UsageMeter
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CHAT_HISTORY_DIR = BASE_DIR / "data" / "chat_history"
 CAPABILITY_CONTEXT_PATH = BASE_DIR / "data" / "runtime" / "capability_context.json"
+_RAW_CONFIG_CACHE: dict[str, Any] = {
+    "path": "",
+    "mtime_ns": -1,
+    "size": -1,
+    "data": None,
+}
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "aria" / "templates"))
 USERNAME_COOKIE = "aria_username"
 MEMORY_COLLECTION_COOKIE = "aria_memory_collection"
@@ -128,6 +141,7 @@ SAFE_FIX_PENDING_COOKIE = "aria_safe_fix_pending"
 CONNECTION_DELETE_PENDING_COOKIE = "aria_connection_delete_pending"
 CONNECTION_CREATE_PENDING_COOKIE = "aria_connection_create_pending"
 CONNECTION_UPDATE_PENDING_COOKIE = "aria_connection_update_pending"
+UPDATE_PENDING_COOKIE = "aria_update_pending"
 AUTH_COOKIE = "aria_auth_session"
 CSRF_COOKIE = "aria_csrf_token"
 LANG_COOKIE = "aria_lang"
@@ -141,6 +155,7 @@ COOKIE_NAME_BASES: dict[str, str] = {
     "connection_delete_pending": CONNECTION_DELETE_PENDING_COOKIE,
     "connection_create_pending": CONNECTION_CREATE_PENDING_COOKIE,
     "connection_update_pending": CONNECTION_UPDATE_PENDING_COOKIE,
+    "update_pending": UPDATE_PENDING_COOKIE,
     "auth": AUTH_COOKIE,
     "csrf": CSRF_COOKIE,
     "lang": LANG_COOKIE,
@@ -680,7 +695,7 @@ def _format_skill_routing_info(lang: str, raw_info: str) -> str:
     return value
 
 
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:https?://|/)[^\s)]+)\)")
 
 
 def _render_assistant_message_html(text: str) -> Markup:
@@ -941,10 +956,80 @@ def _build_admin_chat_command_entries(lang: str, connection_catalog: dict[str, l
     return entries
 
 
+def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    general_entries: list[dict[str, Any]] = [
+        {
+            "group": "commands",
+            "icon": "🌐",
+            "label": _toolbox_label(lang, "tool_web_search", "Web search"),
+            "insert": "suche im internet nach ",
+            "hint": _toolbox_label(lang, "tool_web_search_hint", "Startet eine explizite Websuche mit Quellen."),
+            "keywords": ["internet", "web", "search", "websuche", "news", "neuigkeiten", "recherche"],
+        },
+        {
+            "group": "commands",
+            "icon": "📊",
+            "label": _toolbox_label(lang, "tool_open_stats", "Stats öffnen"),
+            "insert": "zeige stats",
+            "hint": _toolbox_label(lang, "tool_open_stats_hint", "Zeigt Statistik- und Statusseiten direkt über den Chat an."),
+            "keywords": ["stats", "statistik", "statistiken", "status", "metrics"],
+        },
+        {
+            "group": "commands",
+            "icon": "🧾",
+            "label": _toolbox_label(lang, "tool_open_activities", "Aktivitäten öffnen"),
+            "insert": "zeige aktivitäten",
+            "hint": _toolbox_label(lang, "tool_open_activities_hint", "Öffnet Aktivitäten & Runs direkt aus dem Chat."),
+            "keywords": ["aktivitäten", "aktivitaeten", "activities", "runs", "logs"],
+        },
+    ]
+    admin_entries: list[dict[str, Any]] = [
+        {
+            "group": "admin",
+            "icon": "🚀",
+            "label": _toolbox_label(lang, "tool_update_run", "Kontrolliertes Update starten"),
+            "insert": "starte update",
+            "hint": _toolbox_label(lang, "tool_update_run_hint", "Startet den konfigurierten Update-Pfad mit Bestätigungscode."),
+            "keywords": ["update", "upgrade", "release", "deploy", "helper"],
+        },
+        {
+            "group": "admin",
+            "icon": "🩺",
+            "label": _toolbox_label(lang, "tool_update_status", "Update-Status prüfen"),
+            "insert": "zeige update status",
+            "hint": _toolbox_label(lang, "tool_update_status_hint", "Fragt den GUI-Update-Helper direkt aus dem Chat ab."),
+            "keywords": ["update", "status", "helper", "deploy"],
+        },
+    ]
+    if advanced_mode:
+        admin_entries.extend(
+            [
+                {
+                    "group": "admin",
+                    "icon": "📦",
+                    "label": _toolbox_label(lang, "tool_backup_export", "Config-Backup exportieren"),
+                    "insert": "exportiere config backup",
+                    "hint": _toolbox_label(lang, "tool_backup_export_hint", "Erstellt einen Download-Link für das aktuelle Konfigurations-Backup."),
+                    "keywords": ["backup", "export", "config", "konfig", "restore"],
+                },
+                {
+                    "group": "admin",
+                    "icon": "♻️",
+                    "label": _toolbox_label(lang, "tool_backup_import", "Config-Backup importieren"),
+                    "insert": "importiere config backup",
+                    "hint": _toolbox_label(lang, "tool_backup_import_hint", "Öffnet den Restore-Weg für ein vorhandenes Config-Backup."),
+                    "keywords": ["backup", "import", "restore", "config", "konfig"],
+                },
+            ]
+        )
+    return general_entries, admin_entries
+
+
 def _build_chat_command_catalog(
     *,
     lang: str,
     auth_role: str,
+    advanced_mode: bool,
     recall_templates: list[str],
     store_templates: list[str],
     skill_trigger_hints: list[str],
@@ -952,6 +1037,7 @@ def _build_chat_command_catalog(
     connection_catalog: dict[str, list[str]] | None = None,
     recent_messages: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]:
+    system_entries, admin_system_entries = _build_system_chat_command_entries(lang, advanced_mode=advanced_mode)
     entries: list[dict[str, Any]] = [
         {
             "group": "commands",
@@ -969,6 +1055,7 @@ def _build_chat_command_catalog(
             "hint": _toolbox_label(lang, "slash_cls_hint", "Lokalen Chatverlauf löschen"),
             "keywords": ["clear", "cls", "chat löschen", "verlauf löschen", "chat reset"],
         },
+        *system_entries,
     ]
 
     for item in recall_templates:
@@ -1042,6 +1129,7 @@ def _build_chat_command_catalog(
             )
 
     if auth_role == "admin":
+        entries.extend(admin_system_entries)
         entries.extend(_build_admin_chat_command_entries(lang, connection_catalog or {}))
 
     group_titles = {
@@ -1202,6 +1290,7 @@ def _clear_auth_related_cookies(response: Response, request: Request | None = No
     _delete_response_cookie_variants(response, request, CONNECTION_DELETE_PENDING_COOKIE)
     _delete_response_cookie_variants(response, request, CONNECTION_CREATE_PENDING_COOKIE)
     _delete_response_cookie_variants(response, request, CONNECTION_UPDATE_PENDING_COOKIE)
+    _delete_response_cookie_variants(response, request, UPDATE_PENDING_COOKIE)
     if clear_preferences:
         _delete_response_cookie_variants(response, request, LANG_COOKIE)
         _delete_response_cookie_variants(response, request, AUTO_MEMORY_COOKIE)
@@ -1564,6 +1653,125 @@ def _parse_connection_update_confirm_token(message: str) -> str | None:
     return match.group(1)
 
 
+def _normalize_chat_command_text(message: str) -> str:
+    return re.sub(r"\s+", " ", str(message or "")).strip().lower()
+
+
+def _matches_chat_phrase(message: str, phrases: tuple[str, ...]) -> bool:
+    text = _normalize_chat_command_text(message)
+    if not text:
+        return False
+    return any(phrase in text for phrase in phrases)
+
+
+def _parse_update_run_request(message: str) -> bool:
+    return _matches_chat_phrase(
+        message,
+        (
+            "starte update",
+            "start update",
+            "führe update aus",
+            "fuehre update aus",
+            "run update",
+            "installiere update",
+            "update jetzt",
+            "jetzt updaten",
+            "kontrolliertes update starten",
+        ),
+    )
+
+
+def _parse_update_status_request(message: str) -> bool:
+    return _matches_chat_phrase(
+        message,
+        (
+            "zeige update status",
+            "show update status",
+            "update status",
+            "status vom update",
+            "status des updates",
+            "läuft ein update",
+            "laeuft ein update",
+            "läuft gerade ein update",
+            "laeuft gerade ein update",
+            "update helper status",
+            "öffne update seite",
+            "oeffne update seite",
+            "open update page",
+        ),
+    )
+
+
+def _parse_update_confirm_token(message: str) -> str | None:
+    text = _normalize_chat_command_text(message)
+    match = re.search(
+        r"(?:bestätige|bestaetige|confirm)\s+(?:kontrolliertes\s+)?(?:update\s+)?([a-z0-9]{6,16})",
+        text,
+    )
+    if not match:
+        return None
+    return match.group(1)
+
+
+def _parse_backup_export_request(message: str) -> bool:
+    return _matches_chat_phrase(
+        message,
+        (
+            "exportiere config backup",
+            "export config backup",
+            "erstelle config backup",
+            "create config backup",
+            "download config backup",
+            "sichere aria config",
+            "backup der config",
+            "backup der konfig",
+        ),
+    )
+
+
+def _parse_backup_import_request(message: str) -> bool:
+    return _matches_chat_phrase(
+        message,
+        (
+            "importiere config backup",
+            "import config backup",
+            "restore config backup",
+            "spiele config backup ein",
+            "backup wiederherstellen",
+            "restore backup",
+        ),
+    )
+
+
+def _parse_stats_request(message: str) -> bool:
+    return _matches_chat_phrase(
+        message,
+        (
+            "zeige stats",
+            "show stats",
+            "zeige statistiken",
+            "show statistics",
+            "öffne stats",
+            "oeffne stats",
+        ),
+    )
+
+
+def _parse_activities_request(message: str) -> bool:
+    return _matches_chat_phrase(
+        message,
+        (
+            "zeige aktivitäten",
+            "zeige aktivitaeten",
+            "show activities",
+            "zeige runs",
+            "show runs",
+            "öffne aktivitäten",
+            "oeffne aktivitaeten",
+        ),
+    )
+
+
 def _encode_forget_pending(data: dict[str, Any]) -> str:
     candidates = data.get("candidates", [])
     if not isinstance(candidates, list):
@@ -1775,6 +1983,43 @@ def _decode_connection_update_pending(raw: str | None) -> dict[str, Any] | None:
     return _decode_connection_create_pending(raw)
 
 
+def _encode_update_pending(data: dict[str, Any]) -> str:
+    payload = {
+        "token": str(data.get("token", "")).strip()[:24].lower(),
+        "user_id": _sanitize_username(str(data.get("user_id", ""))),
+        "issued_at": int(time.time()),
+    }
+    raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
+    signature = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def _decode_update_pending(raw: str | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        encoded, signature = str(raw).split(".", 1)
+        decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
+        expected = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        payload = json.loads(decoded.decode("utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        token = str(payload.get("token", "")).strip().lower()
+        user_id = _sanitize_username(str(payload.get("user_id", "")))
+        issued_at = int(payload.get("issued_at", 0) or 0)
+        if not token or not user_id or issued_at <= 0:
+            return None
+        if int(time.time()) - issued_at > CONNECTION_PENDING_MAX_AGE_SECONDS:
+            return None
+        return {"token": token, "user_id": user_id, "issued_at": issued_at}
+    except Exception:
+        return None
+    return None
+
+
 def _list_file_editor_entries() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for raw in FILE_EDITOR_CATALOG:
@@ -1847,19 +2092,51 @@ def _resolve_prompt_file(rel_path: str) -> Path:
     return candidate
 
 
+def _clear_raw_config_cache() -> None:
+    _RAW_CONFIG_CACHE["path"] = ""
+    _RAW_CONFIG_CACHE["mtime_ns"] = -1
+    _RAW_CONFIG_CACHE["size"] = -1
+    _RAW_CONFIG_CACHE["data"] = None
+
+
 def _read_raw_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         raise ValueError(f"Konfigurationsdatei fehlt: {CONFIG_PATH}")
+    try:
+        stat = CONFIG_PATH.stat()
+    except OSError as exc:
+        raise ValueError(f"Konfigurationsdatei fehlt: {CONFIG_PATH}") from exc
+    resolved_path = str(CONFIG_PATH.resolve())
+    if (
+        _RAW_CONFIG_CACHE.get("data") is not None
+        and _RAW_CONFIG_CACHE.get("path") == resolved_path
+        and int(_RAW_CONFIG_CACHE.get("mtime_ns", -1)) == int(stat.st_mtime_ns)
+        and int(_RAW_CONFIG_CACHE.get("size", -1)) == int(stat.st_size)
+    ):
+        return copy.deepcopy(_RAW_CONFIG_CACHE["data"])
     with CONFIG_PATH.open("r", encoding="utf-8") as file:
         data = yaml.safe_load(file) or {}
     if not isinstance(data, dict):
         raise ValueError("config.yaml muss ein Mapping/Objekt enthalten.")
-    return data
+    _RAW_CONFIG_CACHE["path"] = resolved_path
+    _RAW_CONFIG_CACHE["mtime_ns"] = int(stat.st_mtime_ns)
+    _RAW_CONFIG_CACHE["size"] = int(stat.st_size)
+    _RAW_CONFIG_CACHE["data"] = copy.deepcopy(data)
+    return copy.deepcopy(data)
 
 
 def _write_raw_config(data: dict[str, Any]) -> None:
     with CONFIG_PATH.open("w", encoding="utf-8") as file:
         yaml.safe_dump(data, file, sort_keys=False, allow_unicode=True)
+    try:
+        stat = CONFIG_PATH.stat()
+    except OSError:
+        _clear_raw_config_cache()
+        return
+    _RAW_CONFIG_CACHE["path"] = str(CONFIG_PATH.resolve())
+    _RAW_CONFIG_CACHE["mtime_ns"] = int(stat.st_mtime_ns)
+    _RAW_CONFIG_CACHE["size"] = int(stat.st_size)
+    _RAW_CONFIG_CACHE["data"] = copy.deepcopy(data)
 
 
 def _enable_bootstrap_admin_mode_in_raw_config(raw: dict[str, Any]) -> dict[str, Any]:
@@ -3095,6 +3372,7 @@ def _build_app() -> FastAPI:
         chat_command_entries, chat_command_group_titles, chat_toolbox_groups = _build_chat_command_catalog(
             lang=lang,
             auth_role=auth_role,
+            advanced_mode=bool(getattr(request.state, "can_access_advanced_config", False)),
             recall_templates=list(recall_templates),
             store_templates=list(store_templates),
             skill_trigger_hints=sorted(skill_trigger_hints, key=len, reverse=True),
@@ -3185,11 +3463,77 @@ def _build_app() -> FastAPI:
             },
         )
 
+    def _build_update_control_payload(request: Request) -> dict[str, Any]:
+        update_notice = str(request.query_params.get("notice", "") or "").strip().lower()
+        update_control = {
+            "visible": str(getattr(request.state, "auth_role", "") or "").strip().lower() == "admin",
+            "configured": False,
+            "reachable": False,
+            "running": False,
+            "status": "disabled",
+            "status_visual": "warn",
+            "last_result": "",
+            "last_error": "",
+            "current_step": "",
+            "log_tail": [],
+            "helper_error": "",
+        }
+        if update_control["visible"]:
+            store = _get_secure_store()
+            helper_config = resolve_update_helper_config(secure_store=store)
+            update_control["configured"] = helper_config.enabled
+            if helper_config.enabled:
+                try:
+                    helper_status = fetch_update_helper_status(helper_config)
+                    update_control.update(helper_status)
+                except RuntimeError as exc:
+                    update_control["helper_error"] = str(exc)
+                    update_control["status"] = "error"
+                    update_control["status_visual"] = "error"
+            update_control["status_visual"] = helper_status_visual(
+                str(update_control.get("status", "") or ""),
+                running=bool(update_control.get("running", False)),
+                configured=bool(update_control.get("configured", False)),
+                reachable=not bool(update_control.get("helper_error", "")),
+                last_error=str(update_control.get("last_error", "") or update_control.get("helper_error", "") or ""),
+            )
+        if update_notice == "update_started" and not update_control["running"]:
+            update_control["running"] = True
+            update_control["status"] = "requested"
+            update_control["status_visual"] = "warn"
+        return update_control
+
+    def _render_updates_running_page(
+        request: Request,
+        *,
+        release_meta: dict[str, Any] | None = None,
+        update_status: dict[str, Any] | None = None,
+        update_control: dict[str, Any] | None = None,
+    ) -> HTMLResponse:
+        username = _get_username_from_request(request)
+        release_payload = dict(release_meta or getattr(request.state, "release_meta", {}) or _read_release_meta(BASE_DIR))
+        update_payload = dict(update_status or _get_update_status(str(release_payload.get("label", "") or ""), ttl_seconds=0))
+        control_payload = dict(update_control or _build_update_control_payload(request))
+        return TEMPLATES.TemplateResponse(
+            request=request,
+            name="updates_running.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "release_meta": release_payload,
+                "update_status": update_payload,
+                "update_control": control_payload,
+            },
+        )
+
     @app.get("/updates", response_class=HTMLResponse)
     async def updates_page(request: Request) -> HTMLResponse:
         username = _get_username_from_request(request)
         release_meta = dict(getattr(request.state, "release_meta", {}) or _read_release_meta(BASE_DIR))
         update_status = _get_update_status(str(release_meta.get("label", "") or ""), ttl_seconds=0)
+        update_notice = str(request.query_params.get("notice", "") or "").strip().lower()
+        update_error = str(request.query_params.get("error", "") or "").strip().lower()
+        update_control = _build_update_control_payload(request)
         return TEMPLATES.TemplateResponse(
             request=request,
             name="updates.html",
@@ -3198,8 +3542,122 @@ def _build_app() -> FastAPI:
                 "username": username,
                 "release_meta": release_meta,
                 "update_status": update_status,
+                "update_control": update_control,
+                "update_notice": update_notice,
+                "update_error": update_error,
             },
         )
+
+    @app.get("/updates/running", response_class=HTMLResponse)
+    async def updates_running_page(request: Request) -> HTMLResponse:
+        auth_role = str(getattr(request.state, "auth_role", "") or "").strip().lower()
+        if auth_role != "admin":
+            return RedirectResponse(url="/updates", status_code=303)
+        return _render_updates_running_page(request)
+
+    @app.post("/updates/run")
+    async def run_updates_from_ui(request: Request, csrf_token: str = Form("")) -> Response:  # noqa: ARG001
+        wants_json = str(request.headers.get("x-requested-with", "") or "").strip() == "ARIA-Update-UI"
+        auth_role = str(getattr(request.state, "auth_role", "") or "").strip().lower()
+        if auth_role != "admin":
+            if wants_json:
+                return JSONResponse(status_code=403, content={"detail": "Admin rights required."})
+            return RedirectResponse(url="/updates?error=no_admin", status_code=303)
+        store = _get_secure_store()
+        helper_config = resolve_update_helper_config(secure_store=store)
+        if not helper_config.enabled:
+            if wants_json:
+                return JSONResponse(status_code=409, content={"detail": "GUI update helper is not enabled."})
+            return RedirectResponse(url="/updates?error=update_helper_disabled", status_code=303)
+        try:
+            result = trigger_update_helper_run(helper_config)
+        except RuntimeError as exc:
+            error_text = str(exc).strip().lower()
+            if "already running" in error_text:
+                if wants_json:
+                    return JSONResponse(status_code=409, content={"detail": str(exc), "error": "already_running"})
+                return RedirectResponse(url="/updates?error=update_running", status_code=303)
+            if wants_json:
+                return JSONResponse(status_code=502, content={"detail": str(exc)})
+            return RedirectResponse(url=f"/updates?error={quote_plus(str(exc))}", status_code=303)
+        status = str(result.get("status", "") or "").strip().lower()
+        if wants_json:
+            return JSONResponse(
+                content={
+                    "status": status or "accepted",
+                    "message": "Update helper accepted the run." if status == "accepted" else "Update request forwarded.",
+                    "reload_url": "/updates",
+                    "status_url": "/updates/status",
+                    "running_url": "/updates/running",
+                }
+            )
+        if status == "accepted":
+            release_meta = dict(getattr(request.state, "release_meta", {}) or _read_release_meta(BASE_DIR))
+            update_status = _get_update_status(str(release_meta.get("label", "") or ""), ttl_seconds=0)
+            update_control = _build_update_control_payload(request)
+            update_control["running"] = True
+            update_control["status"] = "requested"
+            update_control["status_visual"] = "warn"
+            return _render_updates_running_page(
+                request,
+                release_meta=release_meta,
+                update_status=update_status,
+                update_control=update_control,
+            )
+        return RedirectResponse(url="/updates?notice=update_requested", status_code=303)
+
+    @app.get("/updates/status")
+    async def updates_status_api(request: Request) -> JSONResponse:
+        auth_role = str(getattr(request.state, "auth_role", "") or "").strip().lower()
+        if auth_role != "admin":
+            return JSONResponse(status_code=403, content={"detail": "Admin rights required."})
+        store = _get_secure_store()
+        helper_config = resolve_update_helper_config(secure_store=store)
+        if not helper_config.enabled:
+            return JSONResponse(
+                content={
+                    "configured": False,
+                    "reachable": False,
+                    "running": False,
+                    "status": "disabled",
+                    "visual_status": "warn",
+                    "current_step": "",
+                    "last_started_at": "",
+                    "last_finished_at": "",
+                    "last_result": "",
+                    "last_error": "",
+                    "log_tail": [],
+                }
+            )
+        try:
+            payload = fetch_update_helper_status(helper_config)
+        except RuntimeError as exc:
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "configured": True,
+                    "reachable": False,
+                    "running": False,
+                    "status": "error",
+                    "visual_status": "error",
+                    "current_step": "",
+                    "last_started_at": "",
+                    "last_finished_at": "",
+                    "last_result": "",
+                    "last_error": str(exc),
+                    "helper_error": str(exc),
+                    "log_tail": [],
+                },
+            )
+        payload["configured"] = True
+        payload["visual_status"] = helper_status_visual(
+            str(payload.get("status", "") or ""),
+            running=bool(payload.get("running", False)),
+            configured=True,
+            reachable=True,
+            last_error=str(payload.get("last_error", "") or payload.get("helper_error", "") or ""),
+        )
+        return JSONResponse(content=payload)
 
     @app.get("/product-info", response_class=HTMLResponse)
     async def product_info_page(request: Request, doc: str = "overview") -> HTMLResponse:
@@ -3246,6 +3704,7 @@ def _build_app() -> FastAPI:
         get_username_from_request=_get_username_from_request,
         resolve_pricing_entry=_resolve_pricing_entry,
         get_runtime_preflight=_get_runtime_preflight_data,
+        get_secure_store=_get_secure_store,
     )
     register_activities_routes(
         app,
@@ -3462,6 +3921,7 @@ def _build_app() -> FastAPI:
         total_tokens = 0
         cost_usd = "n/a"
         duration_s = "0.0"
+        badge_details: list[str] = []
         forget_cookie_value = _request_cookie_value(request, FORGET_PENDING_COOKIE)
         forget_pending = _decode_forget_pending(forget_cookie_value)
         safe_fix_cookie_value = _request_cookie_value(request, SAFE_FIX_PENDING_COOKIE)
@@ -3472,6 +3932,8 @@ def _build_app() -> FastAPI:
         connection_create_pending = _decode_connection_create_pending(connection_create_cookie_value)
         connection_update_cookie_value = _request_cookie_value(request, CONNECTION_UPDATE_PENDING_COOKIE)
         connection_update_pending = _decode_connection_update_pending(connection_update_cookie_value)
+        update_cookie_value = _request_cookie_value(request, UPDATE_PENDING_COOKIE)
+        update_pending = _decode_update_pending(update_cookie_value)
         forget_decision = pipeline.router.classify(clean_message)
         safe_fix_confirm_token = _parse_safe_fix_confirm_token(clean_message)
         connection_delete_confirm_token = _parse_connection_delete_confirm_token(clean_message)
@@ -3480,7 +3942,15 @@ def _build_app() -> FastAPI:
         connection_create_request = _parse_connection_create_request(clean_message)
         connection_update_confirm_token = _parse_connection_update_confirm_token(clean_message)
         connection_update_request = _parse_connection_update_request(clean_message)
+        update_confirm_token = _parse_update_confirm_token(clean_message)
+        update_run_request = _parse_update_run_request(clean_message)
+        update_status_request = _parse_update_status_request(clean_message)
+        backup_export_request = _parse_backup_export_request(clean_message)
+        backup_import_request = _parse_backup_import_request(clean_message)
+        stats_request = _parse_stats_request(clean_message)
+        activities_request = _parse_activities_request(clean_message)
         auth_role = _sanitize_role(getattr(request.state, "auth_role", ""))
+        advanced_mode = bool(getattr(request.state, "can_access_advanced_config", False))
 
         assistant_text = ""
         set_forget_cookie: str | None = None
@@ -3493,6 +3963,8 @@ def _build_app() -> FastAPI:
         clear_connection_create_cookie = False
         set_connection_update_cookie: str | None = None
         clear_connection_update_cookie = False
+        set_update_cookie: str | None = None
+        clear_update_cookie = False
 
         if safe_fix_confirm_token and safe_fix_pending:
             pending_user = str(safe_fix_pending.get("user_id", "")).strip()
@@ -3747,6 +4219,158 @@ def _build_app() -> FastAPI:
                     assistant_text = f"Connection-Aktualisieren nicht vorbereitet: {detail}"
                     icon = "⚠"
                     intent_label = "connection_update_error"
+        elif update_confirm_token and update_pending:
+            pending_user = str(update_pending.get("user_id", "")).strip()
+            pending_token = str(update_pending.get("token", "")).strip().lower()
+            if auth_role != "admin":
+                assistant_text = "Kontrollierte Updates per Chat sind aktuell nur für Admins erlaubt."
+                icon = "⚠"
+                intent_label = "update_denied"
+                clear_update_cookie = True
+            elif pending_user == username and pending_token and pending_token == update_confirm_token.lower():
+                helper_config = resolve_update_helper_config(secure_store=_get_secure_store())
+                if not helper_config.enabled:
+                    assistant_text = (
+                        "Der GUI-Update-Helper ist für diese Instanz nicht aktiviert.\n\n"
+                        "[Update-Seite öffnen](/updates)"
+                    )
+                    icon = "⚠"
+                    intent_label = "update_disabled"
+                else:
+                    try:
+                        result = trigger_update_helper_run(helper_config)
+                        status = str(result.get("status", "")).strip().lower() or "accepted"
+                        assistant_text = (
+                            "Kontrolliertes Update gestartet.\n\n"
+                            f"Status: `{status}`\n"
+                            "[Live-Status öffnen](/updates/running)\n"
+                            "[Update-Seite öffnen](/updates)"
+                        )
+                        icon = "🚀"
+                        intent_label = "update_started"
+                    except RuntimeError as exc:
+                        assistant_text = (
+                            f"Update konnte nicht gestartet werden: {exc}\n\n"
+                            "[Update-Seite öffnen](/updates)"
+                        )
+                        icon = "⚠"
+                        intent_label = "update_error"
+                clear_update_cookie = True
+            else:
+                assistant_text = "Der Bestätigungscode für das Update ist ungültig oder abgelaufen."
+                icon = "⚠"
+                intent_label = "update_invalid_token"
+                clear_update_cookie = True
+        elif update_run_request:
+            if auth_role != "admin":
+                assistant_text = "Kontrollierte Updates per Chat sind aktuell nur für Admins erlaubt."
+                icon = "⚠"
+                intent_label = "update_denied"
+                clear_update_cookie = True
+            else:
+                token = uuid4().hex[:8].lower()
+                set_update_cookie = _encode_update_pending({"token": token, "user_id": username})
+                assistant_text = (
+                    "Ich starte das Update nicht blind.\n\n"
+                    f"Zum Bestätigen sende: `bestätige update {token}`\n\n"
+                    "[Update-Seite öffnen](/updates)"
+                )
+                icon = "🚀"
+                intent_label = "update_pending"
+        elif update_status_request:
+            if auth_role != "admin":
+                assistant_text = "[Update-Seite öffnen](/updates)"
+                icon = "🩺"
+                intent_label = "update_page"
+            else:
+                helper_config = resolve_update_helper_config(secure_store=_get_secure_store())
+                if not helper_config.enabled:
+                    assistant_text = (
+                        "Der GUI-Update-Helper ist aktuell nicht aktiviert.\n\n"
+                        "[Update-Seite öffnen](/updates)"
+                    )
+                    icon = "⚠"
+                    intent_label = "update_disabled"
+                else:
+                    try:
+                        helper_status = fetch_update_helper_status(helper_config)
+                        visual = helper_status_visual(
+                            str(helper_status.get("status", "") or ""),
+                            running=bool(helper_status.get("running", False)),
+                            configured=True,
+                            reachable=True,
+                            last_error=str(helper_status.get("last_error", "") or helper_status.get("helper_error", "") or ""),
+                        )
+                        lamp = {"ok": "🟢", "warn": "🟡", "error": "🔴"}.get(visual, "🟡")
+                        lines = [
+                            f"Update-Helper: {lamp} `{str(helper_status.get('status', 'unknown') or 'unknown')}`",
+                        ]
+                        if str(helper_status.get("current_step", "")).strip():
+                            lines.append(f"Aktueller Schritt: {helper_status['current_step']}")
+                        if str(helper_status.get("last_result", "")).strip():
+                            lines.append(f"Letztes Ergebnis: {helper_status['last_result']}")
+                        if str(helper_status.get("last_error", "")).strip():
+                            lines.append(f"Letzter Fehler: {helper_status['last_error']}")
+                        lines.append("[Update-Seite öffnen](/updates)")
+                        if bool(helper_status.get("running", False)):
+                            lines.append("[Live-Status öffnen](/updates/running)")
+                        assistant_text = "\n".join(lines)
+                        icon = "🩺"
+                        intent_label = "update_status"
+                    except RuntimeError as exc:
+                        assistant_text = (
+                            f"Update-Helper nicht erreichbar: {exc}\n\n"
+                            "[Update-Seite öffnen](/updates)"
+                        )
+                        icon = "⚠"
+                        intent_label = "update_error"
+        elif backup_export_request:
+            if not advanced_mode:
+                assistant_text = "Config-Backups per Chat brauchen aktuell Admin Mode.\n\n[Backup-Seite öffnen](/config/backup)"
+                icon = "⚠"
+                intent_label = "backup_denied"
+            else:
+                raw = _read_raw_config()
+                payload = build_config_backup_payload(
+                    base_dir=BASE_DIR,
+                    raw_config=raw,
+                    secure_store=_get_secure_store(raw),
+                    error_interpreter_path=BASE_DIR / "config" / "error_interpreter.yaml",
+                )
+                summary = summarize_config_backup_payload(payload)
+                assistant_text = (
+                    "Config-Backup ist bereit.\n\n"
+                    f"- Secrets: `{summary.get('secret_count', 0)}`\n"
+                    f"- Benutzer: `{summary.get('user_count', 0)}`\n"
+                    f"- Custom Skills: `{summary.get('custom_skill_count', 0)}`\n"
+                    f"- Prompt-Dateien: `{summary.get('prompt_file_count', 0)}`\n\n"
+                    "Connections werden über `config.yaml` plus Secure-Store-Secrets mitgesichert. "
+                    "Lokale SSH-Key-Dateien bleiben bewusst außerhalb des Backups.\n\n"
+                    "[Config-Backup herunterladen](/config/backup/export)\n"
+                    "[Backup-Seite öffnen](/config/backup)"
+                )
+                icon = "📦"
+                intent_label = "backup_export"
+        elif backup_import_request:
+            if not advanced_mode:
+                assistant_text = "Config-Backups wiederherstellen braucht aktuell Admin Mode.\n\n[Backup-Seite öffnen](/config/backup)"
+                icon = "⚠"
+                intent_label = "backup_denied"
+            else:
+                assistant_text = (
+                    "Den Config-Backup-Import führe ich aktuell nicht blind im Chat aus, weil dafür eine Datei hochgeladen werden muss.\n\n"
+                    "[Backup-Seite öffnen](/config/backup)"
+                )
+                icon = "♻️"
+                intent_label = "backup_import"
+        elif stats_request:
+            assistant_text = "Hier sind die Stats.\n\n[Stats öffnen](/stats)"
+            icon = "📊"
+            intent_label = "stats"
+        elif activities_request:
+            assistant_text = "Hier sind Aktivitäten & Runs.\n\n[Aktivitäten öffnen](/activities)"
+            icon = "🧾"
+            intent_label = "activities"
         elif "memory_forget" in forget_decision.intents and pipeline.memory_skill:
             confirm_token = _parse_forget_confirm_token(clean_message)
             if confirm_token and forget_pending:
@@ -3981,6 +4605,18 @@ def _build_app() -> FastAPI:
                 request,
                 CONNECTION_UPDATE_PENDING_COOKIE,
                 set_connection_update_cookie,
+                max_age=60 * 10,
+                secure=secure_cookie,
+                httponly=False,
+            )
+        if clear_update_cookie:
+            _delete_response_cookie(response, request, UPDATE_PENDING_COOKIE)
+        elif set_update_cookie:
+            _set_response_cookie(
+                response,
+                request,
+                UPDATE_PENDING_COOKIE,
+                set_update_cookie,
                 max_age=60 * 10,
                 secure=secure_cookie,
                 httponly=False,

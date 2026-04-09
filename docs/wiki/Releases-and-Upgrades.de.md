@@ -13,6 +13,7 @@ Aktuelle Release-Prinzipien:
 - Docker-Tags folgen den oeffentlichen Alpha-Tags
 - interne Builds koennen schneller laufen als Public-Tags
 - ein direktes In-App-Update ist bewusst noch nicht eingebaut
+- der bevorzugte frische Docker-Installationsweg ist jetzt `aria-setup`, das ein kontrolliertes Compose-Verzeichnis mit vorhersagbaren Update-Befehlen anlegt
 
 Nuetzliche Referenzen:
 
@@ -25,3 +26,14 @@ Schnelle Checks:
 - `aria --version` zeigt die lokal installierte ARIA-Release-Kennung
 - `aria version-check` vergleicht die installierte Version mit dem neuesten oeffentlichen Release
 - nach staerkeren UI-/CSS-Updates kann ein harter Browser-Reload sinnvoll sein, falls ein Browser noch alte Assets aus dem Cache zeigt
+
+Host-seitiger Upgrade-Helper:
+
+- `docker/aria-host-update.sh detect` listet Compose-basierte ARIA-Stacks auf dem Host, inklusive Projektname, Port, Health und Modus (`internal-local` oder Registry)
+- `docker/aria-host-update.sh update --project <name> --dry-run` zeigt den geplanten Update-Weg ohne Aenderungen
+- `docker/aria-host-update.sh update --project <name>` aktualisiert gezielt nur den `aria`-Service dieses Projekts
+- der Helper laesst `qdrant`, `searxng`, `valkey` und bestehende Volumes bewusst unangetastet
+- fuer `aria:alpha-local` laedt er das neueste interne TAR; fuer Registry-Stacks nutzt er `docker compose pull aria`
+- wenn ein Portainer-Stack seine Compose-Datei nicht hostseitig freigibt, kann der Helper optional ueber `PORTAINER_URL` und `PORTAINER_API_KEY` direkt mit der Portainer-API reden
+- dafuer kann neben dem Script eine optionale `aria-host-update.env` liegen; Vorlage: `docker/aria-host-update.env.example`
+- wenn weder lokale Stack-Datei noch Portainer-API verfuegbar sind, sollte die Compose-/Portainer-Stack-Datei explizit per `--stack-file <pfad>` angegeben werden

@@ -1,0 +1,124 @@
+name: ${ARIA_STACK_NAME:-aria}
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${ARIA_QDRANT_API_KEY}
+    volumes:
+      - ./storage/qdrant-storage:/qdrant/storage
+
+  searxng-valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    volumes:
+      - ./storage/searxng-valkey:/data
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    depends_on:
+      - searxng-valkey
+    environment:
+      FORCE_OWNERSHIP: "false"
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_LIMITER: "false"
+      SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        umask 077
+        mkdir -p /etc/searxng
+        python - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        secret = os.environ.get("SEARXNG_SECRET", "ultrasecretkey")
+        valkey_url = os.environ.get("SEARXNG_VALKEY_URL", "valkey://searxng-valkey:6379/0")
+        lines = [
+            "use_default_settings: true",
+            "",
+            "general:",
+            '  instance_name: "ARIA Search"',
+            "",
+            "search:",
+            "  safe_search: 1",
+            '  autocomplete: ""',
+            "  formats:",
+            "    - html",
+            "    - json",
+            "",
+            "server:",
+            f"  secret_key: {json.dumps(secret)}",
+            "  limiter: false",
+            "  image_proxy: true",
+            "",
+            "valkey:",
+            f"  url: {json.dumps(valkey_url)}",
+            "",
+        ]
+        Path("/etc/searxng/settings.yml").write_text("\n".join(lines), encoding="utf-8")
+        PY
+        exec /usr/local/searxng/entrypoint.sh
+    volumes:
+      - ./storage/searxng-cache:/var/cache/searxng
+
+  aria:
+    image: ${ARIA_IMAGE:-fischermanch/aria:alpha}
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+      - searxng
+    ports:
+      - "${ARIA_HTTP_PORT:-8800}:8800"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ARIA_ARIA_HOST: "0.0.0.0"
+      ARIA_ARIA_PORT: "8800"
+      ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
+      ARIA_QDRANT_URL: http://qdrant:6333
+      ARIA_QDRANT_API_KEY: ${ARIA_QDRANT_API_KEY}
+      ARIA_UPDATE_MODE: ${ARIA_UPDATE_MODE:-managed-helper}
+      ARIA_UPDATER_URL: ${ARIA_UPDATER_URL:-http://aria-updater:8094}
+      ARIA_UPDATER_TOKEN: ${ARIA_UPDATER_TOKEN}
+      ARIA_LLM_API_BASE: ${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}
+      ARIA_LLM_MODEL: ${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}
+      ARIA_EMBEDDINGS_API_BASE: ${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}
+      ARIA_EMBEDDINGS_MODEL: ${ARIA_EMBEDDINGS_MODEL:-ollama/nomic-embed-text}
+    volumes:
+      - ./storage/aria-config:/app/config
+      - ./storage/aria-prompts:/app/prompts
+      - ./storage/aria-data:/app/data
+      - ./storage/qdrant-storage:/qdrant/storage:ro
+
+  aria-updater:
+    image: ${ARIA_IMAGE:-fischermanch/aria:alpha}
+    restart: unless-stopped
+    depends_on:
+      - aria
+    environment:
+      ARIA_UPDATE_TOKEN: ${ARIA_UPDATER_TOKEN}
+      ARIA_UPDATE_INSTALL_DIR: /managed
+      ARIA_UPDATE_HELPER_PORT: "8094"
+      ARIA_UPDATE_HEALTH_URL: http://aria:8800/health
+    volumes:
+      - ./:/managed
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8094/health', timeout=5)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    command:
+      - python
+      - -m
+      - aria.update_helper

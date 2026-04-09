@@ -6,6 +6,47 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.85] - 2026-04-09
+
+### Added
+- die Chat-Toolbox kennt jetzt auch Websuche, Stats, Aktivitäten, Config-Backups und kontrollierte Updates; Admins koennen damit neue Systemfunktionen direkt aus dem Chat starten oder als Link/Statusauskunft anstossen, statt nur ueber die jeweiligen UI-Seiten zu gehen
+- `/updates` zeigt jetzt zusaetzlich eine konkrete sichere Update-Sequenz fuer interne `aria-pull`-Setups, Docker Compose und Portainer, damit der Update-Weg direkt in der GUI sichtbar ist
+- Managed-Compose-Installationen bringen jetzt einen separaten `aria-updater`-Helper mit; Admins koennen dadurch auf `/updates` ein kontrolliertes GUI-Update mit Status und Log-Auszug anstossen, statt fuer jeden normalen Release wieder auf den Host zu wechseln
+- der interne lokale `aria-pull`-/Portainer-Stack kann denselben `/updates`-Button jetzt ebenfalls ueber einen eigenen `aria-updater`-Sidecar nutzen; damit bleibt der gewohnte TAR-/NAS-Update-Weg erhalten, wird fuer Admins aber direkt aus ARIA heraus startbar
+- neuer Host-Helper `docker/aria-host-update.sh` erkennt Compose-basierte ARIA-Stacks auf einem Host und aktualisiert gezielt nur den `aria`-Service eines gewaelten Projekts; damit gibt es fuer Multi-Setup-/Portainer-Hosts einen sichereren Update-Weg ausserhalb des Containers
+- fuer Host-Updates gibt es jetzt zusaetzlich eine optionale Vorlage `docker/aria-host-update.env.example`, damit Portainer-Zugangsdaten spaeter sauber aus einem dedizierten Host-Update-Kontext oder aus einer kuenftigen UI/DB-Schiene in denselben Helper fliessen koennen
+- neues Setup-Script `docker/setup-compose-stack.sh` erstellt jetzt einen kontrollierten ARIA-Compose-Stack in einem eigenen Verzeichnis inklusive `.env`, bind-mount-basiertem `storage/` und lokalem `aria-stack.sh` fuer Start/Status/Updates
+- neues Top-Level-Script `aria-setup` dient jetzt als benutzerfreundlicher Ein-Befehl-Einstieg fuer Docker-Installationen, fragt nur fehlende Werte interaktiv ab und kann den niedrigeren Compose-Setup-Helper bei Bedarf auch direkt von GitHub nachladen
+- `aria-setup upgrade` aktualisiert jetzt bestehende verwaltete Compose-Installationen auf neue Stack-Layouts, behaelt vorhandene `.env`-Werte und Secrets bei und ergaenzt fehlende Dienste wie `searxng` ohne Neuaufbau des kompletten Hosts
+- `aria-setup` erkennt jetzt bestehende verwaltete ARIA-Installationen automatisch und schaltet bei genau einem passenden Fund selbststaendig vom Neuinstallations- in den Upgrade-Pfad um; bei mehreren Funden wird interaktiv ausgewaehlt oder im non-interactive Modus sauber abgebrochen
+- `/config/backup` kann jetzt die komplette ARIA-Konfiguration als einzelne JSON-Datei exportieren und spaeter wieder importieren; enthalten sind `config.yaml`, Secure-Store-Secrets und Benutzer, Prompt-Dateien, der Error-Interpreter sowie Custom-Skill-Manifeste
+- `/config/security` zeigt jetzt ein direkt importierbares Guardrail-Starter-Pack aus `samples/security`, damit neue Installationen schneller mit wiederverwendbaren SSH-, Datei-, HTTP- und MQTT-Guardrails starten koennen
+- die mitgelieferten Skill-Samples wurden um neue Vorlagen fuer Service-Status via SSH, Memory-Pressure via SSH und eine kuratierte RSS-Security-Watchlist erweitert; sie tauchen wie die bestehenden Samples direkt im Skills-UI auf
+
+### Changed
+- die Docker-/Compose- und lokalen Stack-Samples schreiben die benoetigte SearXNG-Konfiguration jetzt direkt beim Containerstart nach `/etc/searxng/settings.yml`; damit bleibt der Setup-Weg ohne manuelles Host-File robust, auch wenn Compose-/Portainer-Umgebungen Docker-`configs` nicht sauber bis in den Container durchreichen
+- `docker-compose.managed.yml` und `docker/setup-compose-stack.sh` erzeugen jetzt zusaetzlich den internen `aria-updater`-Dienst, hinterlegen dafuer ein eigenes Update-Token in `.env` und geben Managed-Stacks damit einen standardisierten GUI-faehigen Update-Endpunkt
+- die lokalen Portainer-/`aria-pull`-Stack-Dateien bringen jetzt ebenfalls einen `aria-updater`-Dienst samt eigenem Healthcheck mit; der ARIA-Container und der Helper teilen sich damit denselben kontrollierten Update-Button, ohne dass der bestehende Qdrant-/Volume-Pfad angeruehrt wird
+- die lokalen Helper-Skripte fuer `aria-pull`/Build-Export muessen keine separate SearXNG-Settings-Datei mehr neben das TAR kopieren, weil die Stack-Dateien die Konfiguration jetzt selbst mitbringen
+- `docker/export-local-build.sh` und `docker/pull-from-dev.sh` liefern jetzt sowohl den neuen Host-Update-Helper als auch `aria-setup` zusammen mit den bestehenden lokalen Update-Artefakten aus, damit Zielhosts den kompletten verwalteten Setup-/Update-Weg ohne zusaetzliches Nachziehen direkt nutzen koennen
+- der Host-Update-Helper kann Registry-/Public-Portainer-Stacks jetzt optional direkt ueber die Portainer-API aktualisieren, wenn `PORTAINER_URL` und `PORTAINER_API_KEY` gesetzt sind; damit muessen Portainer-Stacks nicht mehr ueber wegkopierte YAML-Dateien gepflegt werden
+- `docker-compose.managed.yml` bildet jetzt zusammen mit `aria-setup` den neuen kontrollierten Standard fuer Compose-Installationen mit sichtbaren Bind-Mounts statt anonymen Volumes; Portainer bleibt moeglich, ist aber nicht mehr der bevorzugte Setup-Weg
+- die GitHub-/Docker-Dokumentation erklaert den Install- und Update-Prozess jetzt klarer in Englisch und trennt sauber zwischen `aria-setup`, manuellem Compose, Portainer und internem `aria-pull`
+- GitHub-README, Setup-Doku und Docker-Hub-Overview fokussieren den Oeffentlichkeitsweg jetzt auf `aria-setup` und manuelles Docker Compose; Portainer bleibt nur noch als Legacy-Hinweis im Hintergrund statt als gleichberechtigter Hauptpfad
+- `/updates` startet den GUI-Update-Lauf jetzt ohne harten Seitenwechsel direkt in-place, zeigt den Running-State prominenter als eigene Live-Karte und verbindet sich nach einem kurzen ARIA-Recreate ueber Helper-/Health-Polling automatisch wieder
+- die Chat-/Config-Schiene liest Custom-Skill-Manifeste und rohe `config.yaml`-Daten jetzt ueber mtime-basierte In-Memory-Caches, statt dieselben Dateien pro Seitenaufruf immer wieder komplett neu zu parsen
+
+### Fixed
+- Chat-Antworten koennen jetzt auch sichere interne Markdown-Links wie `/updates` oder `/config/backup/export` rendern; dadurch funktionieren neue Chat-Hilfen fuer Backup, Update, Stats und Aktivitäten als echte klickbare Aktionen statt nur als Text
+- auf `/config` und `/config/connections/searxng` zeigt ARIA jetzt klar, wenn der SearXNG-Stackdienst fehlt oder nur mit Warnstatus antwortet, statt die Websearch-Connection kommentarlos wie einen normal verfuegbaren Dienst wirken zu lassen
+- ein `HTTP 403` vom internen SearXNG-Stack wird nicht mehr faelschlich als "Stackdienst nicht erreichbar" dargestellt; ARIA markiert den Dienst jetzt als erreichbar mit Warnstatus und erklaert, dass meist `format=json` oder eine Limiter-/Zugriffsregel die JSON-Probe blockiert
+- der interne GUI-Update-Pfad fuer `aria-pull`-Setups prueft nach dem Recreate jetzt auch ohne `curl` zuverlaessig per Container-Python auf `/health`, statt den Lauf nur mit einem uebersprungenen Host-Healthcheck enden zu lassen
+- die lokalen Update-Helfer (`update-local-aria.sh`, `pull-from-dev.sh`, `aria-host-update.sh`, `export-local-build.sh`) verwenden jetzt portable TAR-Auswahl-Logik statt GNU-awk-spezifischer `match(..., ..., array)`-Muster; dadurch bricht der GUI-Update-Flow in schlankeren Runtime-Umgebungen nicht mehr mit `awk`-Syntaxfehlern ab
+- der `/updates`-Button kann den Update-Helper jetzt auch per AJAX anstossen und faellt fuer Admins bei kurzen Container-Restarts nicht mehr so leicht auf eine leere Browser-Fehlerseite zurueck
+- der neue Raw-Config-Cache liefert isolierte Kopien zurueck und aktualisiert sich beim Schreiben selbst, damit Config-Seiten weniger YAML parsen muessen, ohne veraltete In-Memory-Mutationen zu riskieren
+- der neue Konfig-Import versucht bei Fehlern automatisch auf den vorherigen Snapshot zurueckzugehen, statt die Instanz in einem halb importierten Zustand stehen zu lassen
+- die Backup-Seite erklaert jetzt ausdruecklich, dass Connection-Profile und Connection-Secrets mitgesichert werden, lokale SSH-Key-Dateien unter `data/ssh_keys` aber bewusst ausserhalb des Exports bleiben
+
 ## [0.1.0-alpha.69] - 2026-04-08
 
 ### Added
@@ -27,6 +68,9 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - SearXNG-Connection-Tests und Websuche geben bei `HTTP 429 Too Many Requests` jetzt einen klaren Hinweis auf den internen Stack-Fix mit `SEARXNG_LIMITER=false`, statt nur den rohen Fehler weiterzureichen
 - der interne `aria-pull`-/`update-local-aria`-Flow ueberfaehrt den laufenden Qdrant-Key nicht mehr still mit einem veralteten Wert aus `aria-stack.env`; bei Abweichungen nutzt ARIA fuer den reinen Service-Recreate jetzt den aktiven Live-Key des laufenden Stacks und vermeidet dadurch `HTTP 401 Unauthorized` gegen Qdrant nach Key-Rotationen im Portainer-Stack
 - Websuche uebergibt erkannte Trefferdaten jetzt sichtbarer in den Chat-Kontext: Treffer mit publiziertem Datum zeigen ihr Datum in den Details, und bei klaren Recency-/Release-Anfragen werden datierte Ergebnisse fuer die Antwortvorbereitung staerker nach oben sortiert
+- explizite Formulierungen wie `suche im internet ...` oder `recherchiere im internet ...` werden jetzt sauber als Websuche erkannt und nicht mehr von der Feed-/RSS-Heuristik als `feed_read` uebernommen
+- interne SearXNG-Probes und die eigentliche Websuche senden fuer Stack-Ziele jetzt zusaetzlich lokale Proxy-/IP-Header mit; das macht den internen JSON-API-Pfad robuster gegen Bot-Detection/Proxy-Pruefungen, solange der Dienst ueber `http://searxng:8080` im Stack angesprochen wird
+- die Websuche filtert generische Treffer ohne sinnvollen Query-Bezug jetzt haerter weg und priorisiert thematisch passende Ergebnisse vor bloessen `news`-/SEO-Treffern; dadurch rutschen irrelevante Quellen wie fachfremde Sammelseiten bei Produkt-News deutlich seltener in die Antwort
 
 ### Security
 

@@ -131,8 +131,21 @@ class RoutingConfig(BaseModel):
         default_factory=lambda: [
             "websuche",
             "suche im web",
+            "suche in web",
             "recherchiere im web",
+            "recherchiere in web",
             "such im web",
+            "such in web",
+            "suche im internet",
+            "suche in internet",
+            "recherchiere im internet",
+            "recherchiere in internet",
+            "such im internet",
+            "such in internet",
+            "internet suche",
+            "internet search",
+            "suche online",
+            "recherchiere online",
             "search the web",
             "web search",
             "search web",
@@ -142,8 +155,19 @@ class RoutingConfig(BaseModel):
         default_factory=lambda: [
             "websuche ",
             "suche im web ",
+            "suche in web ",
             "recherchiere im web ",
+            "recherchiere in web ",
             "such im web ",
+            "such in web ",
+            "suche im internet ",
+            "suche in internet ",
+            "recherchiere im internet ",
+            "recherchiere in internet ",
+            "such im internet ",
+            "such in internet ",
+            "suche online ",
+            "recherchiere online ",
             "search the web ",
             "web search ",
             "search web ",
@@ -152,8 +176,10 @@ class RoutingConfig(BaseModel):
     web_search_cleanup_keywords: list[str] = Field(
         default_factory=lambda: [
             "im web",
+            "in web",
             "online",
             "im internet",
+            "in internet",
         ]
     )
     default: RoutingLanguageConfig | None = None

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from aria.core.config import resolve_searxng_base_url
 from aria.core.searxng_client import SearXNGClient, SearXNGClientError
@@ -16,6 +18,58 @@ class WebSearchSkill(BaseSkill):
     def __init__(self, *, settings: Any, client: SearXNGClient | None = None):
         self.settings = settings
         self.client = client or SearXNGClient()
+
+    _QUERY_STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "auf",
+        "bot",
+        "das",
+        "den",
+        "der",
+        "die",
+        "ein",
+        "eine",
+        "einen",
+        "einer",
+        "es",
+        "for",
+        "gibt",
+        "gibts",
+        "im",
+        "in",
+        "internet",
+        "ist",
+        "last",
+        "latest",
+        "letzten",
+        "letzter",
+        "letztes",
+        "mit",
+        "nach",
+        "neu",
+        "neueste",
+        "neuesten",
+        "neuigkeiten",
+        "news",
+        "online",
+        "release",
+        "releases",
+        "search",
+        "suche",
+        "the",
+        "ueber",
+        "update",
+        "updates",
+        "vom",
+        "von",
+        "was",
+        "web",
+        "wie",
+        "what",
+        "zu",
+    }
 
     @staticmethod
     def _profile_rows(settings: Any) -> dict[str, Any]:
@@ -115,18 +169,93 @@ class WebSearchSkill(BaseSkill):
         except ValueError:
             return 0.0
 
+    @classmethod
+    def _query_terms(cls, query: str) -> list[str]:
+        tokens = re.findall(r"[a-z0-9]+", str(query or "").lower())
+        kept: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            if token in cls._QUERY_STOPWORDS:
+                continue
+            if len(token) < 3 and not any(char.isdigit() for char in token):
+                continue
+            if token not in seen:
+                seen.add(token)
+                kept.append(token)
+        return kept
+
+    @classmethod
+    def _query_phrases(cls, query: str) -> list[str]:
+        terms = cls._query_terms(query)
+        if len(terms) < 2:
+            return []
+        return [" ".join(terms[idx : idx + 2]) for idx in range(0, len(terms) - 1)]
+
+    @classmethod
+    def _result_relevance_score(cls, query: str, result: Any) -> tuple[int, int]:
+        terms = cls._query_terms(query)
+        title = str(getattr(result, "title", "") or "").lower()
+        snippet = str(getattr(result, "snippet", "") or "").lower()
+        url = str(getattr(result, "url", "") or "").lower()
+        parsed = urlparse(url)
+        domain = str(parsed.netloc or "").lower()
+        path = str(parsed.path or "").lower()
+
+        score = 0
+        matches = 0
+        for term in terms:
+            matched = False
+            if term in title:
+                score += 6
+                matched = True
+            elif term in domain or term in path:
+                score += 4
+                matched = True
+            elif term in snippet:
+                score += 3
+                matched = True
+            if matched:
+                matches += 1
+
+        combined = " ".join(part for part in (title, snippet, url) if part)
+        for phrase in cls._query_phrases(query):
+            if phrase and phrase in combined:
+                score += 5
+
+        return score, matches
+
     def _prepare_results(self, query: str, results: list[Any]) -> list[Any]:
         prepared = list(results)
-        if not self._is_recency_query(query):
-            return prepared
-        prepared.sort(
-            key=lambda item: (
-                self._published_sort_value(getattr(item, "published_at", "")),
-                1 if "news" in str(getattr(item, "engine", "") or "").lower() else 0,
+        recency_query = self._is_recency_query(query)
+        scored: list[tuple[int, int, float, int, Any]] = []
+        has_relevant_match = False
+        for item in prepared:
+            score, matches = self._result_relevance_score(query, item)
+            if matches > 0:
+                has_relevant_match = True
+            scored.append(
+                (
+                    score,
+                    matches,
+                    self._published_sort_value(getattr(item, "published_at", "")),
+                    1 if "news" in str(getattr(item, "engine", "") or "").lower() else 0,
+                    item,
+                )
+            )
+
+        if has_relevant_match:
+            scored = [row for row in scored if row[1] > 0]
+
+        scored.sort(
+            key=lambda row: (
+                row[1],
+                row[0],
+                row[2] if recency_query else 0.0,
+                row[3] if recency_query else 0,
             ),
             reverse=True,
         )
-        return prepared
+        return [row[4] for row in scored]
 
     async def execute(self, query: str, params: dict) -> SkillResult:
         selected = self._select_profile(query, explicit_ref=str(params.get("connection_ref", "")))

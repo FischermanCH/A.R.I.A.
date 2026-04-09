@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import copy
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+_HEALTH_CACHE_LOCK = threading.RLock()
+_HEALTH_CACHE: dict[str, Any] = {
+    "mtime_ns": -1,
+    "size": -1,
+    "payload": {"connections": {}},
+}
 
 
 def _health_store_path() -> Path:
@@ -14,8 +24,20 @@ def _health_store_path() -> Path:
 
 def _read_health_store() -> dict[str, Any]:
     path = _health_store_path()
-    if not path.exists():
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        with _HEALTH_CACHE_LOCK:
+            _HEALTH_CACHE["mtime_ns"] = -1
+            _HEALTH_CACHE["size"] = -1
+            _HEALTH_CACHE["payload"] = {"connections": {}}
         return {"connections": {}}
+    except OSError:
+        return {"connections": {}}
+    with _HEALTH_CACHE_LOCK:
+        if int(_HEALTH_CACHE.get("mtime_ns", -1)) == int(stat.st_mtime_ns) and int(_HEALTH_CACHE.get("size", -1)) == int(stat.st_size):
+            payload = _HEALTH_CACHE.get("payload", {"connections": {}})
+            return copy.deepcopy(payload if isinstance(payload, dict) else {"connections": {}})
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -25,7 +47,11 @@ def _read_health_store() -> dict[str, Any]:
     connections = data.get("connections", {})
     if not isinstance(connections, dict):
         data["connections"] = {}
-    return data
+    with _HEALTH_CACHE_LOCK:
+        _HEALTH_CACHE["mtime_ns"] = int(stat.st_mtime_ns)
+        _HEALTH_CACHE["size"] = int(stat.st_size)
+        _HEALTH_CACHE["payload"] = copy.deepcopy(data)
+    return copy.deepcopy(data)
 
 
 def record_connection_health(ref: str, *, status: str, target: str, message: str) -> dict[str, str]:
@@ -49,6 +75,15 @@ def record_connection_health(ref: str, *, status: str, target: str, message: str
     tmp_path = path.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp_path.replace(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        stat = None
+    if stat is not None:
+        with _HEALTH_CACHE_LOCK:
+            _HEALTH_CACHE["mtime_ns"] = int(stat.st_mtime_ns)
+            _HEALTH_CACHE["size"] = int(stat.st_size)
+            _HEALTH_CACHE["payload"] = copy.deepcopy(data)
     previous_status = str(existing.get("last_status", "")).strip().lower()
     status_changed = bool(previous_status) and previous_status != entry["last_status"]
     entry["previous_status"] = previous_status
@@ -109,3 +144,12 @@ def delete_connection_health(ref: str) -> None:
     tmp_path = path.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp_path.replace(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        stat = None
+    if stat is not None:
+        with _HEALTH_CACHE_LOCK:
+            _HEALTH_CACHE["mtime_ns"] = int(stat.st_mtime_ns)
+            _HEALTH_CACHE["size"] = int(stat.st_size)
+            _HEALTH_CACHE["payload"] = copy.deepcopy(data)

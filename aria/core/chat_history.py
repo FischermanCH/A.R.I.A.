@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,8 @@ class FileChatHistoryStore:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.max_messages = max(2, int(max_messages))
+        self._cache_lock = threading.RLock()
+        self._history_cache: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _safe_user_id(user_id: str) -> str:
@@ -23,10 +27,29 @@ class FileChatHistoryStore:
     def _history_file(self, user_id: str) -> Path:
         return self.base_dir / f"{self._safe_user_id(user_id)}.json"
 
-    def load_history(self, user_id: str) -> list[dict[str, Any]]:
+    def _read_cached_history(self, user_id: str) -> list[dict[str, Any]]:
         path = self._history_file(user_id)
-        if not path.exists():
+        cache_key = str(path)
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            with self._cache_lock:
+                self._history_cache.pop(cache_key, None)
             return []
+        except OSError:
+            with self._cache_lock:
+                self._history_cache.pop(cache_key, None)
+            return []
+
+        with self._cache_lock:
+            cached = self._history_cache.get(cache_key)
+            if (
+                cached
+                and int(cached.get("mtime_ns", -1)) == int(stat.st_mtime_ns)
+                and int(cached.get("size", -1)) == int(stat.st_size)
+            ):
+                return copy.deepcopy(cached.get("rows", []))
+
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -54,7 +77,17 @@ class FileChatHistoryStore:
                     "timestamp": str(item.get("timestamp", "")).strip(),
                 }
             )
-        return rows[-self.max_messages :]
+        rows = rows[-self.max_messages :]
+        with self._cache_lock:
+            self._history_cache[cache_key] = {
+                "mtime_ns": int(stat.st_mtime_ns),
+                "size": int(stat.st_size),
+                "rows": copy.deepcopy(rows),
+            }
+        return copy.deepcopy(rows)
+
+    def load_history(self, user_id: str) -> list[dict[str, Any]]:
+        return self._read_cached_history(user_id)
 
     def append_exchange(
         self,
@@ -101,6 +134,8 @@ class FileChatHistoryStore:
             path.unlink(missing_ok=True)
         except OSError:
             pass
+        with self._cache_lock:
+            self._history_cache.pop(str(path), None)
 
     def _write_history(self, user_id: str, history: list[dict[str, Any]]) -> None:
         path = self._history_file(user_id)
@@ -108,3 +143,13 @@ class FileChatHistoryStore:
         tmp_path = path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         tmp_path.replace(path)
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        with self._cache_lock:
+            self._history_cache[str(path)] = {
+                "mtime_ns": int(stat.st_mtime_ns),
+                "size": int(stat.st_size),
+                "rows": copy.deepcopy(history[-self.max_messages :]),
+            }

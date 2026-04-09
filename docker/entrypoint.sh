@@ -44,4 +44,7 @@ HOST="${ARIA_ARIA_HOST:-0.0.0.0}"
 PORT="${ARIA_ARIA_PORT:-8800}"
 
 cd "${APP_DIR}"
+if [[ "$#" -gt 0 ]]; then
+  exec "$@"
+fi
 exec python -m uvicorn aria.main:app --host "${HOST}" --port "${PORT}"

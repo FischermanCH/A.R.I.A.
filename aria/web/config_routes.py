@@ -42,10 +42,18 @@ from aria.core.config import (
     normalize_ui_theme,
     resolve_searxng_base_url,
 )
+from aria.core.config_backup import (
+    backup_filename,
+    build_config_backup_payload,
+    parse_config_backup_payload,
+    restore_config_backup_payload,
+    summarize_config_backup_payload,
+)
 from aria.core.connection_health import delete_connection_health
 from aria.core.connection_runtime import (
     build_connection_status_row,
     build_connection_status_rows,
+    probe_searxng_stack_service,
 )
 from aria.core.guardrails import (
     guardrail_is_compatible,
@@ -115,6 +123,7 @@ _RSS_METADATA_HEADERS = {
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
 }
 _SAMPLE_CONNECTIONS_DIR = Path(__file__).resolve().parents[2] / "samples" / "connections"
+_SAMPLE_GUARDRAILS_DIR = Path(__file__).resolve().parents[2] / "samples" / "security"
 EMBEDDING_SWITCH_CONFIRM_PHRASE = "EMBEDDINGS WECHSELN"
 _SEARXNG_CATEGORY_OPTIONS: list[tuple[str, str]] = [
     ("general", "General"),
@@ -141,6 +150,13 @@ def _sanitize_csrf_token_local(value: str | None) -> str:
     token = str(value or "").strip()
     token = re.sub(r"[^A-Za-z0-9_-]", "", token)
     return token[:256]
+
+
+def _sanitize_reference_name_local(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    raw = re.sub(r"[^a-z0-9_-]", "-", raw)
+    raw = re.sub(r"-+", "-", raw).strip("-")
+    return raw[:48]
 
 
 def _is_valid_csrf_submission(submitted_token: str | None, expected_token: str | None) -> bool:
@@ -611,6 +627,56 @@ def _build_sample_connection_rows() -> list[dict[str, str]]:
                 "ref": ref,
                 "title": str(profile.get("title", "")).strip() or ref or path.stem,
                 "description": str(profile.get("description", "")).strip(),
+            }
+        )
+    return rows
+
+
+def _build_sample_guardrail_rows() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if not _SAMPLE_GUARDRAILS_DIR.exists():
+        return rows
+    for path in sorted(_SAMPLE_GUARDRAILS_DIR.glob("*.sample.yaml")):
+        try:
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        security = payload.get("security")
+        if not isinstance(security, dict):
+            continue
+        guardrails = security.get("guardrails")
+        if not isinstance(guardrails, dict) or not guardrails:
+            continue
+        valid_refs: list[str] = []
+        kind_labels: list[str] = []
+        for raw_ref, value in guardrails.items():
+            ref = _sanitize_reference_name_local(str(raw_ref).strip())
+            if not ref or not isinstance(value, dict):
+                continue
+            clean_kind = normalize_guardrail_kind(str(value.get("kind", "")).strip() or "ssh_command")
+            if clean_kind not in guardrail_kind_options():
+                continue
+            valid_refs.append(ref)
+            kind_label = guardrail_kind_label(clean_kind)
+            if kind_label not in kind_labels:
+                kind_labels.append(kind_label)
+        if not valid_refs:
+            continue
+        title = str(payload.get("title", "")).strip() or str(payload.get("name", "")).strip() or "Guardrail Starter Pack"
+        description = (
+            str(payload.get("description", "")).strip()
+            or f"{len(valid_refs)} sample guardrails for common ARIA connections."
+        )
+        rows.append(
+            {
+                "file_name": path.name,
+                "title": title,
+                "description": description,
+                "profile_count": str(len(valid_refs)),
+                "profile_refs": ", ".join(valid_refs[:4]),
+                "kind_labels": ", ".join(kind_labels),
             }
         )
     return rows
@@ -1152,6 +1218,15 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 f"Sample-Connection importiert: {kind} · neu: {imported_count} · übersprungen: {skipped_count}",
                 f"Sample connection imported: {kind} · new: {imported_count} · skipped: {skipped_count}",
             )
+        if clean.startswith("guardrail_sample_imported:"):
+            parts = clean.split(":")
+            imported_count = str(parts[1] if len(parts) > 1 else "").strip() or "0"
+            skipped_count = str(parts[2] if len(parts) > 2 else "").strip() or "0"
+            return _msg(
+                lang,
+                f"Guardrail-Samples importiert: neu {imported_count} · übersprungen {skipped_count}",
+                f"Guardrail samples imported: new {imported_count} · skipped {skipped_count}",
+            )
         return clean
 
     def _import_sample_connection_manifest(sample_file: str) -> tuple[str, int, int]:
@@ -1203,6 +1278,70 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         _write_raw_config(raw)
         _reload_runtime()
         return primary_kind, imported_count, skipped_count
+
+    def _import_sample_guardrail_manifest(sample_file: str) -> tuple[int, int]:
+        clean_name = Path(str(sample_file or "").strip()).name
+        if not clean_name or not clean_name.endswith(".sample.yaml"):
+            raise ValueError("Unknown sample guardrail pack.")
+        sample_path = _SAMPLE_GUARDRAILS_DIR / clean_name
+        if not sample_path.exists() or not sample_path.is_file():
+            raise ValueError("Sample guardrail pack not found.")
+        payload = yaml.safe_load(sample_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Sample guardrail import expects a YAML object.")
+
+        security = payload.get("security")
+        if not isinstance(security, dict):
+            raise ValueError("Sample guardrail file does not contain a security section.")
+        sample_guardrails = security.get("guardrails")
+        if not isinstance(sample_guardrails, dict) or not sample_guardrails:
+            raise ValueError("Sample guardrail file does not contain guardrails.")
+
+        raw = _read_raw_config()
+        raw.setdefault("security", {})
+        if not isinstance(raw["security"], dict):
+            raw["security"] = {}
+        raw["security"].setdefault("guardrails", {})
+        if not isinstance(raw["security"]["guardrails"], dict):
+            raw["security"]["guardrails"] = {}
+
+        existing = raw["security"]["guardrails"]
+        imported_count = 0
+        skipped_count = 0
+        for raw_ref, profile in sample_guardrails.items():
+            ref = _sanitize_reference_name_local(str(raw_ref).strip())
+            if not ref or not isinstance(profile, dict):
+                skipped_count += 1
+                continue
+            if ref in existing:
+                skipped_count += 1
+                continue
+            clean_kind = normalize_guardrail_kind(str(profile.get("kind", "")).strip() or "ssh_command")
+            if clean_kind not in guardrail_kind_options():
+                skipped_count += 1
+                continue
+            existing[ref] = {
+                "kind": clean_kind,
+                "title": str(profile.get("title", "")).strip(),
+                "description": str(profile.get("description", "")).strip(),
+                "allow_terms": [
+                    str(item).strip()[:160]
+                    for item in (profile.get("allow_terms", []) or [])
+                    if str(item).strip()
+                ][:40],
+                "deny_terms": [
+                    str(item).strip()[:160]
+                    for item in (profile.get("deny_terms", []) or [])
+                    if str(item).strip()
+                ][:40],
+            }
+            imported_count += 1
+
+        if imported_count <= 0 and skipped_count <= 0:
+            raise ValueError("Sample guardrail file contains no importable profiles.")
+        _write_raw_config(raw)
+        _reload_runtime()
+        return imported_count, skipped_count
 
     def _ssh_keys_dir() -> Path:
         return _ssh_keys_dir_impl(BASE_DIR)
@@ -1303,6 +1442,24 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             error_message = "Admin-Modus aktivieren, um diesen Bereich zu sehen." if lang.startswith("de") else "Enable admin mode to access this area."
         elif error == "no_admin":
             error_message = "Nur Admins dürfen diesen Bereich öffnen." if lang.startswith("de") else "Only admins can open this area."
+        connection_rows = connection_menu_rows()
+        searxng_stack = probe_searxng_stack_service(lang=lang)
+        searxng_profiles = _read_searxng_connections()
+        for row in connection_rows:
+            if row.get("kind") != "searxng":
+                continue
+            row["availability_status"] = str(searxng_stack.get("status", "")).strip() or "ok"
+            row["availability_message"] = (
+                str(searxng_stack.get("message", "")).strip()
+                if row["availability_status"] != "ok"
+                else ""
+            )
+            row["disabled"] = not bool(searxng_stack.get("available")) and not bool(searxng_profiles)
+            row["warning_badge"] = (
+                _msg(lang, "Stack fehlt", "Stack missing")
+                if row["disabled"]
+                else (_msg(lang, "Prüfen", "Check") if row["availability_status"] == "warn" else "")
+            )
         return TEMPLATES.TemplateResponse(
             request=request,
             name="config.html",
@@ -1312,7 +1469,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "saved": bool(saved),
                 "info_message": _format_config_info_message(lang, info),
                 "error_message": error_message,
-                "connection_menu_rows": connection_menu_rows(),
+                "connection_menu_rows": connection_rows,
                 "sample_connection_rows": _build_sample_connection_rows(),
             },
         )
@@ -1330,6 +1487,113 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             return RedirectResponse(url=f"/config?saved=1&info={info}", status_code=303)
         except (OSError, ValueError, yaml.YAMLError) as exc:
             return RedirectResponse(url=f"/config?error={quote_plus(str(exc))}", status_code=303)
+
+    @app.get("/config/backup", response_class=HTMLResponse)
+    async def config_backup_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+    ) -> HTMLResponse:
+        username = _get_username_from_request(request)
+        raw = _read_raw_config()
+        secure_store = _get_secure_store(raw)
+        backup_payload = build_config_backup_payload(
+            base_dir=BASE_DIR,
+            raw_config=raw,
+            secure_store=secure_store,
+            error_interpreter_path=ERROR_INTERPRETER_PATH,
+        )
+        backup_summary = summarize_config_backup_payload(backup_payload)
+        info_message = ""
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        if info == "backup_imported":
+            info_message = (
+                "Konfigurations-Backup erfolgreich wiederhergestellt."
+                if lang.startswith("de")
+                else "Configuration backup restored successfully."
+            )
+        return TEMPLATES.TemplateResponse(
+            request=request,
+            name="config_backup.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "saved": bool(saved),
+                "error_message": error,
+                "info_message": info_message,
+                "backup_summary": backup_summary,
+            },
+        )
+
+    @app.get("/config/backup/export")
+    async def config_backup_export(request: Request) -> Response:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
+        raw = _read_raw_config()
+        payload = build_config_backup_payload(
+            base_dir=BASE_DIR,
+            raw_config=raw,
+            secure_store=_get_secure_store(raw),
+            error_interpreter_path=ERROR_INTERPRETER_PATH,
+        )
+        body = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{backup_filename()}"',
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.post("/config/backup/import")
+    async def config_backup_import(request: Request, backup_file: UploadFile = File(...)) -> RedirectResponse:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
+        previous_raw = _read_raw_config()
+        previous_snapshot = build_config_backup_payload(
+            base_dir=BASE_DIR,
+            raw_config=previous_raw,
+            secure_store=_get_secure_store(previous_raw),
+            error_interpreter_path=ERROR_INTERPRETER_PATH,
+        )
+        rollback_restored = False
+        try:
+            data = await backup_file.read()
+            if not data:
+                raise ValueError("Backup-Datei ist leer.")
+            payload = parse_config_backup_payload(data)
+            restore_config_backup_payload(
+                base_dir=BASE_DIR,
+                payload=payload,
+                write_raw_config=_write_raw_config,
+                get_secure_store=_get_secure_store,
+                error_interpreter_path=ERROR_INTERPRETER_PATH,
+            )
+            _refresh_skill_trigger_index()
+            _reload_runtime()
+            return RedirectResponse(url="/config/backup?saved=1&info=backup_imported", status_code=303)
+        except Exception as exc:  # noqa: BLE001
+            with suppress(Exception):
+                restore_config_backup_payload(
+                    base_dir=BASE_DIR,
+                    payload=previous_snapshot,
+                    write_raw_config=_write_raw_config,
+                    get_secure_store=_get_secure_store,
+                    error_interpreter_path=ERROR_INTERPRETER_PATH,
+                )
+                _refresh_skill_trigger_index()
+                _reload_runtime()
+                rollback_restored = True
+            message = str(exc).strip() or "Backup-Import fehlgeschlagen."
+            if rollback_restored:
+                message = (
+                    f"{message} Vorheriger Stand wurde wiederhergestellt."
+                    if str(getattr(request.state, 'lang', 'de') or 'de').startswith("de")
+                    else f"{message} Previous configuration was restored."
+                )
+            return RedirectResponse(url=f"/config/backup?error={quote_plus(message)}", status_code=303)
 
     @app.get("/config/appearance", response_class=HTMLResponse)
     async def config_appearance_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
@@ -1507,6 +1771,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         request: Request,
         saved: int = 0,
         error: str = "",
+        info: str = "",
         guardrail_ref: str = "",
     ) -> HTMLResponse:
         username = _get_username_from_request(request)
@@ -1527,6 +1792,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "username": username,
                 "saved": bool(saved),
                 "error_message": error,
+                "info_message": _format_config_info_message(lang, info),
                 "security_cfg": settings.security,
                 "security_session_timeout_minutes": timeout_minutes,
                 "security_session_timeout_display": _format_session_timeout_label(timeout_minutes, lang=lang),
@@ -1535,6 +1801,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "selected_guardrail_ref": selected_guardrail_ref,
                 "selected_guardrail": selected_guardrail,
                 "guardrail_kind_options": [{"value": kind, "label": guardrail_kind_label(kind)} for kind in guardrail_kind_options()],
+                "sample_guardrail_rows": _build_sample_guardrail_rows(),
             },
         )
 
@@ -1628,6 +1895,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_route_error(lang, exc, "Guardrail konnte nicht gelöscht werden.", "Could not delete guardrail.")
             return RedirectResponse(url=f"/config/security?error={quote_plus(error)}", status_code=303)
+
+    @app.post("/config/security/guardrails/import-sample")
+    async def config_security_guardrail_import_sample(request: Request, sample_file: str = Form("")) -> RedirectResponse:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
+        try:
+            imported_count, skipped_count = _import_sample_guardrail_manifest(sample_file)
+            info = quote_plus(f"guardrail_sample_imported:{imported_count}:{skipped_count}")
+            return RedirectResponse(url=f"/config/security?saved=1&info={info}", status_code=303)
+        except (OSError, ValueError, yaml.YAMLError) as exc:
+            return RedirectResponse(url=f"/config/security?error={quote_plus(str(exc))}", status_code=303)
 
     @app.get("/config/logs", response_class=HTMLResponse)
     async def config_logs_page(
@@ -3028,6 +3306,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             issue_key="searxng_issue_count",
             test_status_key="searxng_test_status",
         )
+        context["searxng_stack_status"] = probe_searxng_stack_service(lang=lang)
         selected_profile = dict(context.get("selected_searxng", {}))
         selected_categories = {
             str(item).strip()

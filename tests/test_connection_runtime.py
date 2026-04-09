@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from aria.core import connection_runtime
+from aria.core.searxng_client import SearXNGClient
 
 
 class _FakeHttpResponse:
@@ -212,6 +213,21 @@ def test_cached_only_connection_status_without_cache_returns_warn_placeholder(mo
     assert status["message"] == "Noch kein Status im Cache. Nutze den Test-Button fuer eine Live-Pruefung."
 
 
+def test_searxng_probe_adds_internal_ip_headers_for_internal_stack() -> None:
+    headers = connection_runtime._searxng_request_headers("http://searxng:8080")  # type: ignore[attr-defined]
+
+    assert headers["X-Forwarded-For"] == "127.0.0.1"
+    assert headers["X-Real-IP"] == "127.0.0.1"
+
+
+def test_searxng_client_adds_internal_ip_headers_for_internal_stack() -> None:
+    client = SearXNGClient()
+    headers = client._request_headers("http://searxng:8080")  # type: ignore[attr-defined]
+
+    assert headers["X-Forwarded-For"] == "127.0.0.1"
+    assert headers["X-Real-IP"] == "127.0.0.1"
+
+
 def test_rss_connection_test_accepts_rdf_rss_feed(monkeypatch) -> None:
     payload = b"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns=\"http://purl.org/rss/1.0/\">
@@ -317,6 +333,46 @@ def test_searxng_connection_test_shows_actionable_hint_on_rate_limit(monkeypatch
         assert "HTTP 429" in str(exc)
     else:
         raise AssertionError("429 rate limit should return actionable SearXNG hint")
+
+
+def test_probe_searxng_stack_service_marks_rate_limit_as_warning(monkeypatch) -> None:
+    def _fail(_request, timeout=0):
+        raise HTTPError("http://searxng:8080/search?q=aria", 429, "Too Many Requests", hdrs=None, fp=None)
+
+    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
+
+    result = connection_runtime.probe_searxng_stack_service(lang="de")
+
+    assert result["available"] is True
+    assert result["status"] == "warn"
+    assert "SEARXNG_LIMITER=false" in result["message"]
+
+
+def test_probe_searxng_stack_service_marks_http_403_as_reachable_warning(monkeypatch) -> None:
+    def _fail(_request, timeout=0):
+        raise HTTPError("http://searxng:8080/search?q=aria", 403, "Forbidden", hdrs=None, fp=None)
+
+    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
+
+    result = connection_runtime.probe_searxng_stack_service(lang="de")
+
+    assert result["available"] is True
+    assert result["status"] == "warn"
+    assert "HTTP 403" in result["message"]
+    assert "json" in result["message"].lower()
+
+
+def test_probe_searxng_stack_service_marks_unreachable_service_as_error(monkeypatch) -> None:
+    def _fail(_request, timeout=0):
+        raise URLError("Connection refused")
+
+    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
+
+    result = connection_runtime.probe_searxng_stack_service(lang="de")
+
+    assert result["available"] is False
+    assert result["status"] == "error"
+    assert "nicht erreichbar" in result["message"]
 
 
 def test_rss_connection_test_rejects_json_with_actionable_hint(monkeypatch) -> None:

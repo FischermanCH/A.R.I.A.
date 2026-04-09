@@ -1,0 +1,57 @@
+{
+  "id": "rss-security-watch-template",
+  "name": "RSS Security Watch Template",
+  "version": "0.1.0",
+  "description": "Beispielskill fuer einen kleinen Security-/Ops-Watchfeed: liest einen RSS-Feed, filtert Relevantes und liefert eine kompakte Watchlist direkt im Chat.",
+  "category": "monitoring",
+  "router_keywords": [
+    "security watch aus rss",
+    "wichtige security headlines",
+    "rss risiko watchlist",
+    "feed fuer ops zusammenfassen"
+  ],
+  "connections": [
+    "rss"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "RSS-Feed laden",
+      "type": "rss_read",
+      "params": {
+        "connection_ref": "news-security"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Relevante Risiken kuratieren",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Erstelle aus dem RSS-Input eine kompakte Security-/Ops-Watchlist auf Deutsch. Wähle nur 3-6 wirklich relevante Meldungen für Security, Infrastruktur, Linux, Container oder Homelab aus. Pro Punkt: kurzer Titel und ein Satz warum das wichtig ist. Wenn wenig Relevantes dabei ist, sage das klar. Keine Rohdaten-Rubriken wiederholen. Technischer Input:\\n\\n{prev_output}"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s3",
+      "name": "Watchlist in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine RSS-Connection mit Ref news-security anlegen oder die Ref im JSON anpassen."
+  },
+  "schema_version": "1.1"
+}

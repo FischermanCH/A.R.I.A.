@@ -31,10 +31,39 @@
     </li>
   </div>
 
+  {% if update_notice == "update_started" %}
+  <div class="alert ok update-alert">
+    <strong>{{ tr(request, 'updates.run_started_title', 'Kontrolliertes Update gestartet') }}</strong>
+    <div>{{ tr(request, 'updates.run_started_body', 'ARIA startet jetzt den konfigurierten Update-Pfad und aktualisiert diese Seite waehrend des Laufs selbst.') }}</div>
+  </div>
+  {% elif update_notice == "update_requested" %}
+  <div class="alert info update-alert">
+    <strong>{{ tr(request, 'updates.run_requested_title', 'Update angefordert') }}</strong>
+    <div>{{ tr(request, 'updates.run_requested_body', 'Der Update-Helper hat den Lauf angenommen. Bitte Status und Log unten kurz beobachten.') }}</div>
+  </div>
+  {% endif %}
+
+  {% if update_error %}
+  <div class="alert warn update-alert">
+    <strong>{{ tr(request, 'updates.run_error_title', 'Update konnte nicht gestartet werden') }}</strong>
+    <div>
+      {% if update_error == "no_admin" %}
+        {{ tr(request, 'auth.no_admin', 'Admin-Rechte erforderlich.') }}
+      {% elif update_error == "update_helper_disabled" %}
+        {{ tr(request, 'updates.helper_disabled', 'Diese Installation hat keinen aktiven GUI-Update-Helper.') }}
+      {% elif update_error == "update_running" %}
+        {{ tr(request, 'updates.helper_already_running', 'Es laeuft bereits ein Update.') }}
+      {% else %}
+        {{ update_error }}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   {% if update_status.update_available %}
   <div class="alert warn update-alert">
     <strong>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</strong>
-    <div>{{ tr(request, 'updates.manual_update_hint', 'Die Installation bleibt bewusst manuell. Für interne Setups weiter aria-pull nutzen; für Public/Docker den neuen Tag aus GitHub oder Docker Hub übernehmen.') }}</div>
+    <div>{{ tr(request, 'updates.manual_update_hint', 'Fuer Managed-Compose-Installationen und interne aria-pull-Setups mit aktivem Helper kann der Admin das Update unten direkt anstossen. Freie Docker- oder Portainer-Wege bleiben bewusst manuell.') }}</div>
   </div>
   {% endif %}
 
@@ -59,6 +88,124 @@
     <span class="stat-label">{{ tr(request, 'updates.cli_label', 'CLI') }}</span>
     <code>aria --version · aria version-check</code>
   </div>
+
+  {% if update_control.visible %}
+  <div class="update-live-card{% if not update_control.running and update_notice != 'update_started' %} is-hidden{% endif %}" id="update-live-card" data-health-url="/health" data-reload-url="/updates" data-status-url="/updates/status" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
+    <div class="update-live-card__panel">
+      <div class="update-live-card__head">
+        <span class="health-lamp status-warn update-live-card__lamp"></span>
+        <div>
+          <strong>{{ tr(request, 'updates.live_running_title', 'Update in progress') }}</strong>
+          <div class="update-live-card__subtitle">{{ tr(request, 'updates.live_running_body', 'ARIA is currently recreating the running service. Keep this page open. It will reconnect automatically as soon as the health check is back.') }}</div>
+        </div>
+      </div>
+      <div class="update-live-card__meta">
+        <span>
+          <strong>{{ tr(request, 'updates.helper_status', 'Helper-Status') }}:</strong>
+          <span class="update-status-chip status-{{ update_control.status_visual }}" id="update-live-helper-chip">
+            <span class="health-lamp status-{{ update_control.status_visual }}" id="update-live-helper-lamp"></span>
+            <span id="update-live-helper-status">{{ update_control.status or 'running' }}</span>
+          </span>
+        </span>
+        <span><strong>{{ tr(request, 'updates.helper_step', 'Aktueller Schritt') }}:</strong> <span id="update-live-current-step">{{ update_control.current_step or tr(request, 'updates.live_waiting_step', 'Waiting for ARIA to come back') }}</span></span>
+        <span><strong>{{ tr(request, 'updates.helper_last_started', 'Zuletzt gestartet') }}:</strong> <span id="update-live-last-started">{{ update_control.last_started_at or '-' }}</span></span>
+      </div>
+      <div class="update-live-card__hint" id="update-live-state">
+        {{ tr(request, 'updates.live_polling_hint', 'No manual reload needed. This page is polling /health and will refresh itself when ARIA is reachable again.') }}
+      </div>
+    </div>
+  </div>
+  <details class="stats-details updates-history" {% if update_control.running %}open{% endif %}>
+    <summary>{{ tr(request, 'updates.managed_title', 'Kontrolliertes Update') }}</summary>
+    <div class="stats-details-content">
+      {% if not update_control.configured %}
+      <div class="alert info update-alert">
+        <strong>{{ tr(request, 'updates.helper_disabled_title', 'Kein GUI-Update aktiv') }}</strong>
+        <div>{{ tr(request, 'updates.helper_disabled_body', 'Dieser Bereich erscheint nur auf Installationen mit aktivem aria-updater-Helper.') }}</div>
+      </div>
+      {% elif update_control.helper_error %}
+      <div class="alert warn update-alert">
+        <strong>{{ tr(request, 'updates.helper_unreachable_title', 'Update-Helper nicht erreichbar') }}</strong>
+        <div>{{ update_control.helper_error }}</div>
+      </div>
+      {% else %}
+      <div class="stats-list">
+        <li>
+          <span>{{ tr(request, 'updates.helper_status', 'Helper-Status') }}</span>
+          <strong class="update-status-inline update-status-chip status-{{ update_control.status_visual }}" id="update-panel-helper-chip">
+            <span class="health-lamp status-{{ update_control.status_visual }}" id="update-panel-helper-lamp"></span>
+            <span id="update-panel-helper-status">{{ update_control.status or 'idle' }}</span>
+          </strong>
+        </li>
+        <li>
+          <span>{{ tr(request, 'updates.helper_step', 'Aktueller Schritt') }}</span>
+          <strong>{{ update_control.current_step or '-' }}</strong>
+        </li>
+        <li>
+          <span>{{ tr(request, 'updates.helper_last_started', 'Zuletzt gestartet') }}</span>
+          <strong>{{ update_control.last_started_at or '-' }}</strong>
+        </li>
+        <li>
+          <span>{{ tr(request, 'updates.helper_last_finished', 'Zuletzt beendet') }}</span>
+          <strong>{{ update_control.last_finished_at or '-' }}</strong>
+        </li>
+      </div>
+
+      {% if update_control.last_result %}
+      <div class="alert {{ 'warn' if update_control.status == 'error' else 'info' }} update-alert">
+        <strong>{{ tr(request, 'updates.helper_last_result', 'Letztes Ergebnis') }}</strong>
+        <div>{{ update_control.last_result }}</div>
+      </div>
+      {% endif %}
+
+      {% if update_control.last_error %}
+      <div class="alert warn update-alert">
+        <strong>{{ tr(request, 'updates.helper_last_error', 'Letzter Fehler') }}</strong>
+        <div>{{ update_control.last_error }}</div>
+      </div>
+      {% endif %}
+
+      <form method="post" action="/updates/run" class="connection-test-form" id="update-run-form" data-status-url="/updates/status" data-reload-url="/updates">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <button type="submit" class="btn-primary" id="update-run-button" {% if update_control.running %}disabled{% endif %}>
+          {{ tr(request, 'updates.run_button', 'Update starten') }}
+        </button>
+      </form>
+
+      {% if update_control.log_tail %}
+      <details class="stats-details" {% if update_control.running %}open{% endif %}>
+        <summary>{{ tr(request, 'updates.helper_log', 'Update-Log') }}</summary>
+        <div class="stats-details-content">
+          <pre class="help-document">{{ update_control.log_tail | join('\n') }}</pre>
+        </div>
+      </details>
+      {% endif %}
+      {% endif %}
+    </div>
+  </details>
+  {% endif %}
+
+  <details class="stats-details updates-history">
+    <summary>{{ tr(request, 'updates.sequence_title', 'Sichere Update-Sequenz') }}</summary>
+    <div class="stats-details-content">
+      <div class="skill-summary connection-flow-note">
+        <strong>{{ tr(request, 'updates.sequence_internal_title', 'Interner TAR-/aria-pull-Weg') }}</strong>
+        <span>{{ tr(request, 'updates.sequence_internal_body', '1) Neues internes TAR bereitstellen. 2) Auf dem Zielhost aria-pull ausführen. 3) Danach /stats und /updates kurz prüfen.') }}</span>
+      </div>
+      <div class="skill-summary connection-flow-note">
+        <strong>{{ tr(request, 'updates.sequence_compose_title', 'Docker Compose') }}</strong>
+        <span>{{ tr(request, 'updates.sequence_compose_body', '1) Neues Image-Tag ziehen. 2) docker compose pull ausführen. 3) Stack mit denselben Volumes wieder hochfahren. 4) Danach Preflight und Websuche prüfen.') }}</span>
+      </div>
+      <div class="skill-summary connection-flow-note">
+        <strong>{{ tr(request, 'updates.sequence_portainer_title', 'Portainer') }}</strong>
+        <span>{{ tr(request, 'updates.sequence_portainer_body', 'Bestehenden Stack aktualisieren, Volume- und Netzwerknamen beibehalten und nur den Delta-Teil ergänzen. Keine neue leere Instanz nebenbei anlegen.') }}</span>
+      </div>
+      <div class="alert info update-alert">
+        <strong>{{ tr(request, 'updates.sequence_gui_note_title', 'GUI-Update-Button') }}</strong>
+        <div>{{ tr(request, 'updates.sequence_gui_note_body', 'Managed-Compose-Installationen und interne aria-pull-Setups koennen Updates jetzt direkt hier anstossen. Freie Host- oder Portainer-Wege ohne Helper bleiben bewusst beim manuellen Ablauf.') }}</div>
+      </div>
+    </div>
+  </details>
 
   {% if update_status.release_notes %}
   <pre class="help-document">{{ update_status.release_notes }}</pre>
@@ -88,4 +235,242 @@
   </details>
   {% endif %}
 </section>
+{% if update_control.visible %}
+<script>
+  (function () {
+    const liveCard = document.getElementById('update-live-card');
+    const liveState = document.getElementById('update-live-state');
+    const liveHelperChip = document.getElementById('update-live-helper-chip');
+    const liveHelperLamp = document.getElementById('update-live-helper-lamp');
+    const liveStatus = document.getElementById('update-live-helper-status');
+    const liveCurrentStep = document.getElementById('update-live-current-step');
+    const liveLastStarted = document.getElementById('update-live-last-started');
+    const panelHelperChip = document.getElementById('update-panel-helper-chip');
+    const panelHelperLamp = document.getElementById('update-panel-helper-lamp');
+    const panelHelperStatus = document.getElementById('update-panel-helper-status');
+    const form = document.getElementById('update-run-form');
+    const submitButton = document.getElementById('update-run-button');
+    const detailsBlock = document.querySelector('.updates-history');
+    const healthUrl = liveCard ? liveCard.dataset.healthUrl : '/health';
+    const reloadUrl = form ? form.dataset.reloadUrl : (liveCard ? liveCard.dataset.reloadUrl : '/updates');
+    const statusUrl = form ? form.dataset.statusUrl : (liveCard ? liveCard.dataset.statusUrl : '/updates/status');
+    let activationStartedAt = liveCard ? String(liveCard.dataset.startedAt || '') : '';
+    let statusTimer = null;
+    let healthTimer = null;
+    let statusRequestInFlight = false;
+    let healthRequestInFlight = false;
+    let observedRun = {{ 'true' if update_control.running else 'false' }};
+
+    function revealLiveCard() {
+      if (!liveCard) return;
+      liveCard.classList.remove('is-hidden');
+    }
+
+    function helperVisual(statusValue, isRunning) {
+      const normalized = String(statusValue || '').trim().toLowerCase();
+      if (isRunning) return 'warn';
+      if (normalized === 'ok' || normalized === 'idle' || normalized === 'accepted' || normalized === 'success') {
+        return 'ok';
+      }
+      if (normalized === 'error' || normalized === 'failed' || normalized === 'unreachable') {
+        return 'error';
+      }
+      return 'warn';
+    }
+
+    function applyHelperVisual(chip, lamp, labelNode, statusValue, visual) {
+      if (chip) {
+        chip.classList.remove('status-ok', 'status-warn', 'status-error');
+        chip.classList.add(`status-${visual}`);
+      }
+      if (lamp) {
+        lamp.classList.remove('status-ok', 'status-warn', 'status-error');
+        lamp.classList.add(`status-${visual}`);
+      }
+      if (labelNode) {
+        labelNode.textContent = statusValue;
+      }
+    }
+
+    function setState(message, kind) {
+      if (!liveState) return;
+      liveState.textContent = message;
+      liveState.dataset.state = kind || 'running';
+    }
+
+    function setMeta(payload) {
+      const statusValue = payload.status || 'running';
+      const visual = payload.visual_status || helperVisual(statusValue, !!payload.running);
+      applyHelperVisual(liveHelperChip, liveHelperLamp, liveStatus, statusValue, visual);
+      applyHelperVisual(panelHelperChip, panelHelperLamp, panelHelperStatus, statusValue, visual);
+      if (liveCurrentStep) {
+        liveCurrentStep.textContent = payload.current_step || "{{ tr(request, 'updates.live_waiting_step', 'Waiting for ARIA to come back') }}";
+      }
+      if (liveLastStarted) {
+        liveLastStarted.textContent = payload.last_started_at || '-';
+      }
+    }
+
+    function stopPolling() {
+      if (statusTimer) {
+        window.clearInterval(statusTimer);
+        statusTimer = null;
+      }
+      if (healthTimer) {
+        window.clearInterval(healthTimer);
+        healthTimer = null;
+      }
+    }
+
+    function startHealthPolling() {
+      if (healthTimer) return;
+      healthTimer = window.setInterval(pollHealth, 2000);
+      window.setTimeout(pollHealth, 700);
+    }
+
+    function startStatusPolling() {
+      if (statusTimer) return;
+      statusTimer = window.setInterval(pollStatus, 1500);
+      window.setTimeout(pollStatus, 250);
+    }
+
+    function shouldTreatAsFinished(payload) {
+      const lastStartedAt = String(payload.last_started_at || '');
+      if (!activationStartedAt || !lastStartedAt) return false;
+      return lastStartedAt >= activationStartedAt && !payload.running;
+    }
+
+    async function pollHealth() {
+      if (healthRequestInFlight) return;
+      healthRequestInFlight = true;
+      try {
+        const response = await fetch(healthUrl, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { 'X-Requested-With': 'ARIA-Update-UI' },
+        });
+        const text = await response.text();
+        if (response.ok && text.toLowerCase().includes('ok')) {
+          setState("{{ tr(request, 'updates.live_reconnected_hint', 'ARIA is reachable again. Reloading the update page now.') }}", 'ok');
+          stopPolling();
+          window.location.replace(reloadUrl);
+          return;
+        }
+        setState("{{ tr(request, 'updates.live_waiting_hint', 'ARIA is still restarting. This page will keep waiting and reconnect automatically.') }}", 'running');
+      } catch (_error) {
+        setState("{{ tr(request, 'updates.live_unreachable_hint', 'ARIA is temporarily unreachable while the service is being recreated. Please keep this tab open.') }}", 'running');
+      } finally {
+        healthRequestInFlight = false;
+      }
+    }
+
+    async function pollStatus() {
+      if (statusRequestInFlight) return;
+      statusRequestInFlight = true;
+      try {
+        const response = await fetch(statusUrl, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { 'X-Requested-With': 'ARIA-Update-UI' },
+        });
+        if (!response.ok) {
+          throw new Error('status-not-ok');
+        }
+        const payload = await response.json();
+        setMeta(payload);
+        if (payload.running) {
+          observedRun = true;
+          if (payload.last_started_at) {
+            activationStartedAt = String(payload.last_started_at);
+          }
+          setState("{{ tr(request, 'updates.live_waiting_hint', 'ARIA is still restarting. This page will keep waiting and reconnect automatically.') }}", 'running');
+          return;
+        }
+        if (observedRun && shouldTreatAsFinished(payload)) {
+          setState(payload.last_result || "{{ tr(request, 'updates.live_reconnected_hint', 'ARIA is reachable again. Reloading the update page now.') }}", payload.status === 'error' ? 'warn' : 'ok');
+          stopPolling();
+          window.location.replace(reloadUrl);
+          return;
+        }
+        setState("{{ tr(request, 'updates.live_requested_hint', 'Update request accepted. Waiting for the helper to switch into the running state.') }}", 'running');
+      } catch (_error) {
+        if (observedRun) {
+          startHealthPolling();
+          setState("{{ tr(request, 'updates.live_unreachable_hint', 'ARIA is temporarily unreachable while the service is being recreated. Please keep this tab open.') }}", 'running');
+          return;
+        }
+        setState("{{ tr(request, 'updates.live_requested_hint', 'Update request accepted. Waiting for the helper to switch into the running state.') }}", 'running');
+      } finally {
+        statusRequestInFlight = false;
+      }
+    }
+
+    if (form) {
+      form.addEventListener('submit', async function (event) {
+        if (!window.fetch) {
+          return;
+        }
+        event.preventDefault();
+        if (submitButton) {
+          submitButton.disabled = true;
+        }
+        revealLiveCard();
+        if (detailsBlock) {
+          detailsBlock.open = true;
+        }
+        activationStartedAt = new Date().toISOString();
+        observedRun = true;
+        if (liveLastStarted) {
+          liveLastStarted.textContent = activationStartedAt;
+        }
+        applyHelperVisual(liveHelperChip, liveHelperLamp, liveStatus, 'requested', 'warn');
+        applyHelperVisual(panelHelperChip, panelHelperLamp, panelHelperStatus, 'requested', 'warn');
+        if (liveCurrentStep) {
+          liveCurrentStep.textContent = "{{ tr(request, 'updates.live_requesting_step', 'Request sent to update helper') }}";
+        }
+        setState("{{ tr(request, 'updates.live_requested_hint', 'Update request accepted. Waiting for the helper to switch into the running state.') }}", 'running');
+        const formData = new FormData(form);
+        try {
+          const response = await fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            cache: 'no-store',
+            headers: {
+              'Accept': 'application/json',
+              'X-Requested-With': 'ARIA-Update-UI',
+            },
+          });
+          if (!response.ok) {
+            let message = "Update could not be started.";
+            try {
+              const payload = await response.json();
+              message = payload.detail || payload.error || message;
+            } catch (_error) {
+              // ignore JSON parse problems and keep fallback text
+            }
+            applyHelperVisual(liveHelperChip, liveHelperLamp, liveStatus, 'error', 'error');
+            applyHelperVisual(panelHelperChip, panelHelperLamp, panelHelperStatus, 'error', 'error');
+            setState(message, 'warn');
+            if (submitButton) {
+              submitButton.disabled = false;
+            }
+            return;
+          }
+          startStatusPolling();
+        } catch (_error) {
+          applyHelperVisual(liveHelperChip, liveHelperLamp, liveStatus, 'requested', 'warn');
+          applyHelperVisual(panelHelperChip, panelHelperLamp, panelHelperStatus, 'requested', 'warn');
+          setState("{{ tr(request, 'updates.live_submit_failed_hint', 'The request could not be sent cleanly. ARIA will keep trying to reconnect if the helper already started the update.') }}", 'warn');
+          startHealthPolling();
+        }
+      });
+    }
+
+    if ({{ 'true' if update_control.running else 'false' }}) {
+      revealLiveCard();
+      startStatusPolling();
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}

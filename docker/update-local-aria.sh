@@ -15,7 +15,9 @@ ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/aria-stack.env}"
 IMAGE_REF="${IMAGE_REF:-aria:alpha-local}"
 SERVICE_NAME="${SERVICE_NAME:-aria}"
 QDRANT_SERVICE_NAME="${QDRANT_SERVICE_NAME:-aria-qdrant}"
+UPDATER_SERVICE_NAME="${UPDATER_SERVICE_NAME:-aria-updater}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1/health}"
+CONTAINER_HEALTH_URL="${CONTAINER_HEALTH_URL:-http://127.0.0.1:8800/health}"
 COMPOSE_PROJECT_NAME_OVERRIDE="${COMPOSE_PROJECT_NAME_OVERRIDE:-}"
 
 log() {
@@ -29,6 +31,18 @@ die() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Kommando fehlt: $1"
+}
+
+compose_cmd() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return 0
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return 0
+  fi
+  die "Weder 'docker compose' noch 'docker-compose' ist verfuegbar"
 }
 
 read_env_from_container() {
@@ -52,8 +66,36 @@ read_env_from_file() {
   sed -n "s/^${key}=//p" "$env_file" | head -n1
 }
 
+wait_for_host_health() {
+  local attempts="${1:-30}"
+  local delay_seconds="${2:-2}"
+  local idx
+
+  for idx in $(seq 1 "$attempts"); do
+    if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay_seconds"
+  done
+  return 1
+}
+
+wait_for_container_health() {
+  local attempts="${1:-30}"
+  local delay_seconds="${2:-2}"
+  local idx
+
+  for idx in $(seq 1 "$attempts"); do
+    if docker exec "$SERVICE_NAME" python -c "import urllib.request; r=urllib.request.urlopen('$CONTAINER_HEALTH_URL', timeout=3); body=r.read().decode('utf-8','replace'); raise SystemExit(0 if r.status == 200 and 'ok' in body.lower() else 1)" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$delay_seconds"
+  done
+  return 1
+}
+
 require_cmd docker
-docker compose version >/dev/null 2>&1 || die "docker compose ist nicht verfügbar"
+compose_cmd version >/dev/null 2>&1
 
 [[ -d "$TAR_DIR" ]] || die "TAR-Verzeichnis nicht gefunden: $TAR_DIR"
 if [[ ! -f "$STACK_FILE" && -f "$TAR_DIR/portainer-stack.alpha3.local.yml" ]]; then
@@ -74,8 +116,14 @@ LATEST_TAR="$(
   find "$TAR_DIR" -maxdepth 1 -type f -name 'aria-alpha*-local.tar' \
     | sed 's#^.*/##' \
     | awk '
-        match($0, /^aria-alpha([0-9]+)-local\.tar$/, m) { printf "%012d %s\n", m[1], $0; next }
         $0 == "aria-alpha-local.tar" { printf "%012d %s\n", 0, $0; next }
+        $0 ~ /^aria-alpha[0-9]+-local\.tar$/ {
+          version = $0
+          sub(/^aria-alpha/, "", version)
+          sub(/-local\.tar$/, "", version)
+          printf "%012d %s\n", version + 0, $0
+          next
+        }
       ' \
     | sort \
     | tail -n1 \
@@ -116,6 +164,11 @@ if [[ -z "$CURRENT_QDRANT_KEY" ]]; then
   CURRENT_QDRANT_KEY="$(read_env_from_container "$SERVICE_NAME" "ARIA_QDRANT_API_KEY" || true)"
 fi
 
+CURRENT_UPDATER_TOKEN="$(read_env_from_container "$UPDATER_SERVICE_NAME" "ARIA_UPDATE_TOKEN" || true)"
+if [[ -z "$CURRENT_UPDATER_TOKEN" ]]; then
+  CURRENT_UPDATER_TOKEN="$(read_env_from_container "$SERVICE_NAME" "ARIA_UPDATER_TOKEN" || true)"
+fi
+
 COMPOSE_ARGS=()
 if [[ -f "$ENV_FILE" ]]; then
   log "Nutze Env-Datei: $ENV_FILE"
@@ -129,12 +182,25 @@ if [[ -f "$ENV_FILE" ]]; then
       log "Env-Datei ohne Qdrant-Key, nutze fuer das ARIA-Recreate den aktiven Live-Key"
     fi
   fi
+  ENV_FILE_UPDATER_TOKEN="$(read_env_from_file "$ENV_FILE" "ARIA_UPDATER_TOKEN" || true)"
+  if [[ -n "$CURRENT_UPDATER_TOKEN" && "$ENV_FILE_UPDATER_TOKEN" != "$CURRENT_UPDATER_TOKEN" ]]; then
+    export ARIA_UPDATER_TOKEN="$CURRENT_UPDATER_TOKEN"
+    if [[ -n "$ENV_FILE_UPDATER_TOKEN" ]]; then
+      log "Env-Datei-Updater-Token weicht vom laufenden Helper-Token ab, nutze fuer das ARIA-Recreate den aktiven Live-Token"
+    else
+      log "Env-Datei ohne Updater-Token, nutze fuer das ARIA-Recreate den aktiven Live-Token"
+    fi
+  fi
 else
   if [[ -n "$CURRENT_QDRANT_KEY" ]]; then
     export ARIA_QDRANT_API_KEY="$CURRENT_QDRANT_KEY"
     log "Keine Env-Datei gefunden, nutze vorhandenen Qdrant-Key aus laufendem Container"
   else
     log "Keine Env-Datei und kein bestehender Qdrant-Key gefunden, Compose-Fallback aus dem Stack wird verwendet"
+  fi
+  if [[ -n "$CURRENT_UPDATER_TOKEN" ]]; then
+    export ARIA_UPDATER_TOKEN="$CURRENT_UPDATER_TOKEN"
+    log "Keine Env-Datei gefunden, nutze vorhandenen Updater-Token aus laufendem Container"
   fi
 fi
 
@@ -153,18 +219,20 @@ else
 fi
 
 log "Erstelle nur den Service '$SERVICE_NAME' neu. Qdrant und Volumes bleiben unberuehrt."
-docker compose "${COMPOSE_ARGS[@]}" -f "$STACK_FILE" up -d --no-deps --force-recreate "$SERVICE_NAME"
+compose_cmd "${COMPOSE_ARGS[@]}" -f "$STACK_FILE" up -d --no-deps --force-recreate "$SERVICE_NAME"
 
+log "Pruefe Health auf $HEALTH_URL"
 if command -v curl >/dev/null 2>&1; then
-  log "Pruefe Health auf $HEALTH_URL"
-  for _ in $(seq 1 30); do
-    if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-      log "Healthcheck ok"
-      exit 0
-    fi
-    sleep 2
-  done
-  die "Healthcheck nicht erfolgreich. Bitte 'docker compose -f $STACK_FILE logs $SERVICE_NAME' pruefen."
+  if wait_for_host_health 30 2; then
+    log "Healthcheck ok"
+    exit 0
+  fi
+  log "Host-Healthcheck ueber curl nicht erfolgreich, pruefe direkt im Container weiter"
 fi
 
-log "Update fertig. Healthcheck wurde uebersprungen, weil curl nicht installiert ist."
+if wait_for_container_health 30 2; then
+  log "Container-Healthcheck ok"
+  exit 0
+fi
+
+die "Healthcheck nicht erfolgreich. Bitte 'docker compose -f $STACK_FILE logs $SERVICE_NAME' pruefen."

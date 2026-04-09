@@ -1,0 +1,59 @@
+{
+  "id": "ssh-service-status-template",
+  "name": "SSH Service Status Template",
+  "version": "0.1.0",
+  "description": "Read-only Beispielskill fuer Linux-Hosts: prueft den Status eines Systemd-Dienstes via SSH und fasst die Lage im Chat kurz zusammen.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "pruefe den dienst status",
+    "systemctl status check",
+    "laeuft mein docker dienst",
+    "service status auf server"
+  ],
+  "connections": [
+    "ssh"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Dienststatus via SSH lesen",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "srv-main",
+        "timeout_seconds": 90,
+        "command": "svc=docker; h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; echo \"Service: $svc\"; systemctl is-active \"$svc\" 2>/dev/null || true; systemctl status --no-pager --full \"$svc\" 2>/dev/null | sed -n '1,25p'"
+      },
+      "on_error": "stop"
+    },
+    {
+      "id": "s2",
+      "name": "Status kurz einordnen",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA. Formuliere aus dem technischen Service-Status eine kurze, natuerliche Antwort auf Deutsch. Beginne mit einer klaren Einschätzung wie 'Der Dienst wirkt gesund' oder 'Der Dienst braucht Aufmerksamkeit'. Danach 2-4 kurze Bulletpoints mit Host, Dienstname, Aktiv-Status und den wichtigsten Hinweisen aus dem Statusblock. Keine Rohsektionen wiederholen. Technischer Input:\\n\\n{prev_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Ergebnis in Chat",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "{prev_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher eine SSH-Connection mit Ref srv-main anlegen oder die Ref im JSON anpassen. Im Command ist aktuell der Dienst docker hinterlegt; passe svc=docker bei Bedarf an."
+  },
+  "schema_version": "1.1"
+}

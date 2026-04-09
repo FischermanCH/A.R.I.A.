@@ -1170,11 +1170,15 @@ def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
     entries, group_titles, toolbox_groups = _build_chat_command_catalog(
         lang="de",
         auth_role="admin",
+        advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
         skill_trigger_hints=["server update"],
         connection_catalog={"ssh": ["mgmt-ssh"], "sftp": ["mgmt-sftp"], "smb": ["nas-share"], "rss": ["heise-news"], "discord": ["alerts-bot"], "mqtt": ["event-bus"], "email": ["alerts-mail"], "imap": ["ops-inbox"]},
     )
+    assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "starte update" for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "exportiere config backup" for entry in entries)
     assert any(entry["group"] == "admin" and "erstelle ssh mgmt-ssh" in entry["insert"] for entry in entries)
     assert any(entry["group"] == "admin" and "erstelle sftp mgmt-sftp" in entry["insert"] for entry in entries)
     assert any(entry["group"] == "admin" and "erstelle smb nas-share" in entry["insert"] for entry in entries)
@@ -1191,6 +1195,7 @@ def test_build_chat_command_catalog_adds_suggested_group_for_recent_context() ->
     _entries, group_titles, toolbox_groups = _build_chat_command_catalog(
         lang="de",
         auth_role="admin",
+        advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
         skill_trigger_hints=["server update"],
@@ -1207,6 +1212,7 @@ def test_build_chat_command_catalog_omits_suggested_group_without_recent_context
     _entries, _group_titles, toolbox_groups = _build_chat_command_catalog(
         lang="de",
         auth_role="admin",
+        advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
         skill_trigger_hints=["server update"],
@@ -1220,10 +1226,12 @@ def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
     entries, _group_titles, toolbox_groups = _build_chat_command_catalog(
         lang="de",
         auth_role="user",
+        advanced_mode=False,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
         skill_trigger_hints=["server update"],
         connection_catalog={"rss": ["heise-news"], "discord": ["alerts-bot"]},
     )
+    assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
     assert not any(entry["group"] == "admin" for entry in entries)
     assert not any(group["key"] == "admin" for group in toolbox_groups)

@@ -14,6 +14,22 @@
       {% include "_context_help.html" %}
     {% endwith %}
 
+    {% if searxng_stack_status and searxng_stack_status.status != 'ok' %}
+    <article class="connection-test-card status-{{ searxng_stack_status.status }}">
+      <div class="connection-test-head">
+        <span class="health-lamp status-{{ searxng_stack_status.status }}"></span>
+        <strong>
+          {% if searxng_stack_status.status == 'warn' %}
+          {{ tr(request, 'config_conn.searxng_stack_warn_title', 'SearXNG stack antwortet, aber sollte geprüft werden') }}
+          {% else %}
+          {{ tr(request, 'config_conn.searxng_stack_missing_title', 'SearXNG im Stack nicht erreichbar') }}
+          {% endif %}
+        </strong>
+      </div>
+      <small>{{ searxng_stack_status.message }}</small>
+    </article>
+    {% endif %}
+
     {% if selected_searxng_ref %}
     {% if searxng_test_status == 'ok' or searxng_test_status == 'error' %}
     <article class="connection-test-card status-{{ searxng_test_status }}">
@@ -118,6 +134,27 @@
   <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
     <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    {% if searxng_stack_status and searxng_stack_status.status != 'ok' %}
+    <article class="connection-test-card status-{{ searxng_stack_status.status }}">
+      <div class="connection-test-head">
+        <span class="health-lamp status-{{ searxng_stack_status.status }}"></span>
+        <strong>
+          {% if searxng_stack_status.status == 'warn' %}
+          {{ tr(request, 'config_conn.searxng_stack_warn_title', 'SearXNG stack antwortet, aber sollte geprüft werden') }}
+          {% else %}
+          {{ tr(request, 'config_conn.searxng_stack_missing_title', 'SearXNG im Stack nicht erreichbar') }}
+          {% endif %}
+        </strong>
+      </div>
+      <small>
+        {% if searxng_stack_status.status == 'warn' %}
+        {{ searxng_stack_status.message }}
+        {% else %}
+        {{ tr(request, 'config_conn.searxng_stack_missing_body', 'Starte zuerst den SearXNG-Dienst im Stack. Solange er fehlt, werden Verbindungstest und Websuche nicht funktionieren.') }}
+        {% endif %}
+      </small>
+    </article>
+    {% endif %}
     <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.searxng_recommended_flow_text','1) SearXNG im Stack starten. 2) Profil fuer eine Suchaufgabe anlegen. 3) ARIA testet die JSON-Suche automatisch. 4) Danach Websuche im Chat nutzen.') }}</span></div>
     <form method="post" action="/config/connections/searxng/save" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">

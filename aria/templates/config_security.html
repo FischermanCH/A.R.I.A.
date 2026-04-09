@@ -9,6 +9,9 @@
     {% if saved %}
     <div class="alert ok">{{ tr(request, 'config_security.saved', 'Security-Konfiguration gespeichert.') }}</div>
     {% endif %}
+    {% if info_message %}
+    <div class="alert ok">{{ info_message }}</div>
+    {% endif %}
     {% if error_message %}
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
@@ -103,6 +106,39 @@
       </div>
       <button type="submit">{{ tr(request, 'config_security.save_guardrail', 'Guardrail speichern') }}</button>
     </form>
+  </section>
+
+  <section class="config-card">
+    <h2>{{ tr(request, 'config_security.sample_guardrails_title', 'Mitgelieferte Sample-Guardrails') }}</h2>
+    <p>{{ tr(request, 'config_security.sample_guardrails_subtitle', 'Starter-Pakete aus /app/samples/security, die direkt nach security.guardrails importiert werden können.') }}</p>
+    <div class="config-group-grid">
+      {% for sample in sample_guardrail_rows %}
+      <article class="config-group-card">
+        <div class="skill-card-head">
+          <h3>{{ sample.title }}</h3>
+          <span class="skill-state is-off">{{ sample.profile_count }} {{ tr(request, 'config_security.sample_guardrails_profiles', 'Profile') }}</span>
+        </div>
+        {% if sample.description %}
+        <p>{{ sample.description }}</p>
+        {% endif %}
+        {% if sample.kind_labels %}
+        <p class="hint-text">{{ sample.kind_labels }}</p>
+        {% endif %}
+        {% if sample.profile_refs %}
+        <p class="hint-text">{{ sample.profile_refs }}</p>
+        {% endif %}
+        <form method="post" action="/config/security/guardrails/import-sample" class="inline-form">
+          <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
+          <button type="submit">{{ tr(request, 'config_security.sample_guardrails_import_btn', 'Sample-Paket importieren') }}</button>
+        </form>
+      </article>
+      {% else %}
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config_security.sample_guardrails_empty_title', 'Keine Sample-Guardrails gefunden') }}</h3>
+        <p>{{ tr(request, 'config_security.sample_guardrails_empty_desc', 'Im Container wurde kein samples/security-Verzeichnis gefunden.') }}</p>
+      </article>
+      {% endfor %}
+    </div>
   </section>
 </main>
 {% endblock %}

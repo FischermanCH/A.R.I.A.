@@ -222,6 +222,7 @@ def test_advanced_config_path_covers_connections_prompts_and_language() -> None:
     assert is_advanced_config_path("/config/prompts") is True
     assert is_advanced_config_path("/config/language") is True
     assert is_advanced_config_path("/config/appearance") is True
+    assert is_advanced_config_path("/config/backup") is True
 
 
 def test_is_admin_mode_request_requires_advanced_mode_not_only_admin_role() -> None:

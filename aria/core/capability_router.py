@@ -77,6 +77,27 @@ class CapabilityRouter:
             "latest entries",
             "latest posts",
         )
+        self._explicit_web_search_terms = (
+            "websuche",
+            "suche im web",
+            "suche in web",
+            "such im web",
+            "such in web",
+            "recherchiere im web",
+            "recherchiere in web",
+            "suche im internet",
+            "suche in internet",
+            "such im internet",
+            "such in internet",
+            "recherchiere im internet",
+            "recherchiere in internet",
+            "suche online",
+            "recherchiere online",
+            "search the web",
+            "web search",
+            "search web",
+            "internet search",
+        )
         self._webhook_send_terms = (
             "webhook",
             "per webhook",
@@ -572,6 +593,7 @@ class CapabilityRouter:
         has_feed_hint = self._contains_any(lower, self._rss_hints)
         has_feed_request = self._contains_any(lower, self._feed_read_terms)
         has_feed_subject = self._has_feed_subject_terms(lower)
+        has_explicit_web_search_hint = self._contains_any(lower, self._explicit_web_search_terms)
         has_api_hint = self._contains_any(lower, self._api_hints)
         has_discord_hint = self._contains_any(lower, self._discord_hints)
         has_email_hint = self._contains_any(lower, self._email_hints)
@@ -606,7 +628,11 @@ class CapabilityRouter:
         elif (has_mqtt_hint or explicit_kind == "mqtt") and self._contains_any(lower, self._mqtt_action_terms):
             capability = "mqtt_publish"
             confidence = 0.76
-        elif has_feed_request and (has_feed_hint or explicit_kind == "rss" or ("rss" in available_kinds and has_feed_subject)):
+        elif (
+            has_feed_request
+            and not has_explicit_web_search_hint
+            and (has_feed_hint or explicit_kind == "rss" or ("rss" in available_kinds and has_feed_subject))
+        ):
             capability = "feed_read"
             confidence = 0.8
         elif self._contains_any(lower, self._list_terms):

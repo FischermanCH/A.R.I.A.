@@ -1,0 +1,948 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_SETUP_SCRIPT="$SCRIPT_DIR/docker/setup-compose-stack.sh"
+LOCAL_SIBLING_SETUP_SCRIPT="$SCRIPT_DIR/setup-compose-stack.sh"
+REMOTE_SETUP_SCRIPT_URL="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docker/setup-compose-stack.sh"
+DEFAULT_STACK_NAME="aria"
+DEFAULT_INSTALL_BASE="${ARIA_INSTALL_BASE:-/opt/aria}"
+DEFAULT_HTTP_PORT="8800"
+DEFAULT_IMAGE="fischermanch/aria:alpha"
+DEFAULT_LLM_API_BASE="http://host.docker.internal:11434"
+DEFAULT_LLM_MODEL="ollama_chat/qwen3:8b"
+DEFAULT_EMBEDDINGS_API_BASE="http://host.docker.internal:11434"
+DEFAULT_EMBEDDINGS_MODEL="ollama/nomic-embed-text"
+MODE="install"
+AUTO_DETECTED_UPGRADE="false"
+AUTO_DETECTED_MESSAGE=""
+SOURCE_PROJECT=""
+SOURCE_PROJECT_EXPLICIT="false"
+ARIA_QDRANT_API_KEY=""
+SEARXNG_SECRET=""
+QDRANT_KEY_EXPLICIT="false"
+SEARXNG_SECRET_EXPLICIT="false"
+NEED_SUDO_CACHE=""
+
+STACK_NAME="${ARIA_STACK_NAME:-$DEFAULT_STACK_NAME}"
+INSTALL_DIR="${ARIA_INSTALL_DIR:-}"
+HTTP_PORT="${ARIA_HTTP_PORT:-$DEFAULT_HTTP_PORT}"
+PUBLIC_URL="${ARIA_PUBLIC_URL:-}"
+ARIA_IMAGE="${ARIA_IMAGE:-$DEFAULT_IMAGE}"
+LLM_API_BASE="${ARIA_LLM_API_BASE:-$DEFAULT_LLM_API_BASE}"
+LLM_MODEL="${ARIA_LLM_MODEL:-$DEFAULT_LLM_MODEL}"
+EMBEDDINGS_API_BASE="${ARIA_EMBEDDINGS_API_BASE:-$DEFAULT_EMBEDDINGS_API_BASE}"
+EMBEDDINGS_MODEL="${ARIA_EMBEDDINGS_MODEL:-$DEFAULT_EMBEDDINGS_MODEL}"
+START_STACK="true"
+FORCE="false"
+NON_INTERACTIVE="false"
+ASSUME_YES="false"
+TMP_SETUP_SCRIPT=""
+
+STACK_NAME_EXPLICIT="false"
+INSTALL_DIR_EXPLICIT="false"
+HTTP_PORT_EXPLICIT="false"
+PUBLIC_URL_EXPLICIT="false"
+ARIA_IMAGE_EXPLICIT="false"
+LLM_API_BASE_EXPLICIT="false"
+LLM_MODEL_EXPLICIT="false"
+EMBEDDINGS_API_BASE_EXPLICIT="false"
+EMBEDDINGS_MODEL_EXPLICIT="false"
+
+log() {
+  printf '[aria-setup] %s\n' "$*"
+}
+
+die() {
+  printf '[aria-setup] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup() {
+  if [[ -n "$TMP_SETUP_SCRIPT" && -f "$TMP_SETUP_SCRIPT" ]]; then
+    rm -f "$TMP_SETUP_SCRIPT"
+  fi
+}
+
+trap cleanup EXIT
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  aria-setup [options]
+  aria-setup upgrade [options]
+  aria-setup migrate --project <compose-project> [options]
+
+What it does:
+  - prepares a full ARIA docker-compose install in one directory
+  - creates persistent storage folders automatically
+  - generates Qdrant and SearXNG secrets for you
+  - writes a ready-to-use docker-compose.yml, .env and aria-stack.sh
+  - starts the stack unless you explicitly disable that
+
+Friendly mode:
+  Run without arguments and aria-setup will guide you through the missing values.
+  Run `aria-setup upgrade` to refresh an existing managed install without losing its current env values.
+  Run `aria-setup migrate --project ...` to move an existing Portainer/Compose stack into the managed ARIA layout.
+
+Options:
+  --stack-name NAME           Stack name. Default: aria
+  --install-dir PATH          Install dir. Default: /opt/aria/<stack-name>
+  --http-port PORT            Host port. Default: 8800
+  --public-url URL            Browser URL. Default: guessed from host + port
+  --aria-image IMAGE          ARIA image tag. Default: fischermanch/aria:alpha
+  --llm-api-base URL          Default LLM API base inside the container
+  --llm-model MODEL           Default LLM model
+  --embeddings-api-base URL   Default embeddings API base inside the container
+  --embeddings-model MODEL    Default embeddings model
+  --project NAME              Source compose project for migration
+  --qdrant-key VALUE          Explicit Qdrant API key override
+  --searxng-secret VALUE      Explicit SearXNG secret override
+  --no-start                  Only create files, do not start containers
+  --force                     Allow overwrite in an existing target directory
+  --yes                       Accept the shown plan without asking again
+  --non-interactive           Fail instead of asking questions
+  -h, --help                  Show this help
+
+Examples:
+  ./aria-setup
+  ./aria-setup upgrade --install-dir /opt/aria/aria
+  ./aria-setup migrate --project white-aria
+  ./aria-setup --stack-name aria-main --http-port 8810
+  curl -fsSL https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/aria-setup -o aria-setup && chmod +x aria-setup && sudo ./aria-setup
+USAGE
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "Kommando fehlt: $1"
+}
+
+download_file() {
+  local url="$1"
+  local target="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$target"
+    return 0
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO "$target" "$url"
+    return 0
+  fi
+  die "Weder curl noch wget verfuegbar, kann das Setup-Script nicht herunterladen."
+}
+
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"
+    return $?
+  fi
+  return 1
+}
+
+next_free_port() {
+  local candidate="$1"
+  while port_in_use "$candidate"; do
+    candidate="$((candidate + 1))"
+  done
+  printf '%s\n' "$candidate"
+}
+
+guess_host_name() {
+  local guessed=""
+  if command -v hostname >/dev/null 2>&1; then
+    guessed="$(hostname -f 2>/dev/null || true)"
+    if [[ -z "$guessed" ]]; then
+      guessed="$(hostname 2>/dev/null || true)"
+    fi
+  fi
+  if [[ -z "$guessed" || "$guessed" == "localhost" || "$guessed" == "localhost.localdomain" ]]; then
+    guessed="localhost"
+  fi
+  printf '%s\n' "$guessed"
+}
+
+is_yes() {
+  case "$1" in
+    y|Y|yes|YES|Yes|j|J|ja|JA|Ja)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+prompt_value() {
+  local label="$1"
+  local current="$2"
+  local answer=""
+  printf '%s [%s]: ' "$label" "$current" >&2
+  read -r answer || true
+  if [[ -z "$answer" ]]; then
+    printf '%s\n' "$current"
+  else
+    printf '%s\n' "$answer"
+  fi
+}
+
+prompt_yes_no() {
+  local label="$1"
+  local default_answer="$2"
+  local prompt_suffix="[Y/n]"
+  local answer=""
+  if [[ "$default_answer" == "false" ]]; then
+    prompt_suffix="[y/N]"
+  fi
+  printf '%s %s: ' "$label" "$prompt_suffix" >&2
+  read -r answer || true
+  if [[ -z "$answer" ]]; then
+    [[ "$default_answer" == "true" ]]
+    return
+  fi
+  is_yes "$answer"
+}
+
+ensure_interactive_possible() {
+  [[ -t 0 ]] || die "Interaktive Fragen sind hier nicht moeglich. Bitte Werte per Parameter setzen oder in einem Terminal starten."
+}
+
+is_managed_install_dir() {
+  local dir="$1"
+  [[ -d "$dir" ]] || return 1
+  [[ -f "$dir/docker-compose.yml" ]] || return 1
+  [[ -f "$dir/.env" ]] || return 1
+  [[ -x "$dir/aria-stack.sh" ]] || return 1
+  return 0
+}
+
+collect_managed_installs() {
+  local base_dir="$1"
+  [[ -d "$base_dir" ]] || return 0
+  find "$base_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] || continue
+    if is_managed_install_dir "$candidate"; then
+      printf '%s\n' "$candidate"
+    fi
+  done
+}
+
+select_existing_install_interactive() {
+  local installs=("$@")
+  local idx=1
+  local answer=""
+  local install_dir=""
+  local public_url=""
+  local port=""
+
+  ensure_interactive_possible
+  printf '\n[aria-setup] Ich habe mehrere bestehende ARIA-Installationen gefunden:\n' >&2
+  for install_dir in "${installs[@]}"; do
+    public_url="$(read_env_value "$install_dir/.env" "ARIA_PUBLIC_URL")"
+    port="$(read_env_value "$install_dir/.env" "ARIA_HTTP_PORT")"
+    printf '  %s) %s' "$idx" "$install_dir" >&2
+    if [[ -n "$public_url" || -n "$port" ]]; then
+      printf '  (%s%s%s)' "${public_url:-}" "${public_url:+, }" "${port:+port $port}" >&2
+    fi
+    printf '\n' >&2
+    idx="$((idx + 1))"
+  done
+  printf '  0) Neue Installation anlegen\n' >&2
+  printf 'Bitte waehlen [0-%s]: ' "$((idx - 1))" >&2
+  read -r answer || true
+  [[ "$answer" =~ ^[0-9]+$ ]] || die "Bitte eine gueltige Zahl eingeben."
+  if [[ "$answer" -eq 0 ]]; then
+    printf '__new__\n'
+    return 0
+  fi
+  if (( answer < 1 || answer >= idx )); then
+    die "Auswahl ausserhalb des gueltigen Bereichs."
+  fi
+  printf '%s\n' "${installs[$((answer - 1))]}"
+}
+
+auto_detect_existing_install() {
+  local -a installs=()
+  local selected=""
+
+  if [[ "$MODE" == "upgrade" ]]; then
+    return 0
+  fi
+
+  if [[ "$INSTALL_DIR_EXPLICIT" == "true" ]]; then
+    if is_managed_install_dir "$INSTALL_DIR"; then
+      MODE="upgrade"
+      FORCE="true"
+      AUTO_DETECTED_UPGRADE="true"
+      AUTO_DETECTED_MESSAGE="Bestehende ARIA-Installation erkannt in $INSTALL_DIR"
+    fi
+    return 0
+  fi
+
+  if is_managed_install_dir "$INSTALL_DIR"; then
+    MODE="upgrade"
+    FORCE="true"
+    AUTO_DETECTED_UPGRADE="true"
+    AUTO_DETECTED_MESSAGE="Bestehende ARIA-Installation erkannt in $INSTALL_DIR"
+    return 0
+  fi
+
+  mapfile -t installs < <(collect_managed_installs "$DEFAULT_INSTALL_BASE")
+  if [[ "${#installs[@]}" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "${#installs[@]}" -eq 1 ]]; then
+    INSTALL_DIR="${installs[0]}"
+    MODE="upgrade"
+    FORCE="true"
+    AUTO_DETECTED_UPGRADE="true"
+    AUTO_DETECTED_MESSAGE="Genau eine bestehende ARIA-Installation erkannt in $INSTALL_DIR"
+    return 0
+  fi
+
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    printf '[aria-setup] ERROR: Mehrere bestehende ARIA-Installationen gefunden unter %s. Bitte --install-dir angeben.\n' "$DEFAULT_INSTALL_BASE" >&2
+    printf '[aria-setup] Gefunden:\n' >&2
+    printf '  %s\n' "${installs[@]}" >&2
+    exit 1
+  fi
+
+  selected="$(select_existing_install_interactive "${installs[@]}")"
+  if [[ "$selected" == "__new__" ]]; then
+    return 0
+  fi
+
+  INSTALL_DIR="$selected"
+  MODE="upgrade"
+  FORCE="true"
+  AUTO_DETECTED_UPGRADE="true"
+  AUTO_DETECTED_MESSAGE="Bestehende ARIA-Installation fuer Upgrade gewaehlt: $INSTALL_DIR"
+}
+
+read_env_value() {
+  local env_file="$1"
+  local key="$2"
+  sed -n "s/^${key}=//p" "$env_file" | head -n1
+}
+
+docker_env_value() {
+  local container="$1"
+  local key="$2"
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" \
+    | sed -n "s/^${key}=//p" \
+    | head -n1
+}
+
+first_container_for_project_service() {
+  local project="$1"
+  local service="$2"
+  docker ps -a \
+    --filter "label=com.docker.compose.project=$project" \
+    --filter "label=com.docker.compose.service=$service" \
+    --format '{{.Names}}' \
+    | head -n1
+}
+
+container_image_ref() {
+  docker inspect --format '{{.Config.Image}}' "$1"
+}
+
+container_published_port() {
+  local container="$1"
+  local port_spec="$2"
+  docker port "$container" "$port_spec" 2>/dev/null | head -n1 | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p'
+}
+
+needs_host_sudo() {
+  local existing_path="${INSTALL_DIR:-$DEFAULT_INSTALL_BASE}"
+  if [[ -n "$NEED_SUDO_CACHE" ]]; then
+    [[ "$NEED_SUDO_CACHE" == "true" ]]
+    return
+  fi
+
+  while [[ ! -e "$existing_path" && "$existing_path" != "/" ]]; do
+    existing_path="$(dirname "$existing_path")"
+  done
+
+  NEED_SUDO_CACHE="false"
+  if [[ $EUID -eq 0 ]]; then
+    NEED_SUDO_CACHE="false"
+    return 1
+  fi
+  if [[ ! -w "$existing_path" ]]; then
+    NEED_SUDO_CACHE="true"
+    return 0
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    NEED_SUDO_CACHE="true"
+    return 0
+  fi
+  return 1
+}
+
+run_host_cmd() {
+  if [[ $EUID -eq 0 ]]; then
+    "$@"
+    return
+  fi
+  if needs_host_sudo; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo --preserve-env=PATH "$@"
+    else
+      die "Bitte als root starten oder sudo installieren."
+    fi
+  else
+    "$@"
+  fi
+}
+
+run_host_docker_cp() {
+  run_host_cmd docker cp "$@"
+}
+
+run_host_docker_stop() {
+  local containers=("$@")
+  [[ "${#containers[@]}" -gt 0 ]] || return 0
+  run_host_cmd docker stop "${containers[@]}"
+}
+
+run_host_docker_start() {
+  local containers=("$@")
+  [[ "${#containers[@]}" -gt 0 ]] || return 0
+  run_host_cmd docker start "${containers[@]}"
+}
+
+copy_container_tree() {
+  local container="$1"
+  local source_path="$2"
+  local target_dir="$3"
+  run_host_cmd mkdir -p "$target_dir"
+  run_host_docker_cp "$container:$source_path/." "$target_dir"
+}
+
+discover_source_project_defaults() {
+  local aria_container=""
+  local qdrant_container=""
+  local searxng_container=""
+  local valkey_container=""
+  local value=""
+
+  [[ -n "$SOURCE_PROJECT" ]] || die "Bitte --project <compose-projekt> fuer die Migration angeben."
+
+  aria_container="$(first_container_for_project_service "$SOURCE_PROJECT" "aria")"
+  qdrant_container="$(first_container_for_project_service "$SOURCE_PROJECT" "qdrant")"
+  searxng_container="$(first_container_for_project_service "$SOURCE_PROJECT" "searxng")"
+  valkey_container="$(first_container_for_project_service "$SOURCE_PROJECT" "searxng-valkey")"
+
+  [[ -n "$aria_container" ]] || die "Kein ARIA-Container fuer Compose-Projekt gefunden: $SOURCE_PROJECT"
+  [[ -n "$qdrant_container" ]] || die "Kein Qdrant-Container fuer Compose-Projekt gefunden: $SOURCE_PROJECT"
+
+  SOURCE_ARIA_CONTAINER="$aria_container"
+  SOURCE_QDRANT_CONTAINER="$qdrant_container"
+  SOURCE_SEARXNG_CONTAINER="$searxng_container"
+  SOURCE_VALKEY_CONTAINER="$valkey_container"
+
+  if [[ "$STACK_NAME_EXPLICIT" != "true" ]]; then
+    STACK_NAME="${SOURCE_PROJECT}-managed"
+  fi
+  if [[ "$INSTALL_DIR_EXPLICIT" != "true" ]]; then
+    INSTALL_DIR="$DEFAULT_INSTALL_BASE/$STACK_NAME"
+  fi
+  if [[ "$ARIA_IMAGE_EXPLICIT" != "true" ]]; then
+    ARIA_IMAGE="$(container_image_ref "$SOURCE_ARIA_CONTAINER")"
+  fi
+  if [[ "$HTTP_PORT_EXPLICIT" != "true" ]]; then
+    value="$(container_published_port "$SOURCE_ARIA_CONTAINER" "8800/tcp")"
+    [[ -n "$value" ]] && HTTP_PORT="$value"
+  fi
+  if [[ "$PUBLIC_URL_EXPLICIT" != "true" ]]; then
+    value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_PUBLIC_URL")"
+    if [[ -n "$value" ]]; then
+      PUBLIC_URL="$value"
+    elif [[ -n "$HTTP_PORT" ]]; then
+      PUBLIC_URL="http://$(guess_host_name):$HTTP_PORT"
+    fi
+  fi
+  if [[ "$LLM_API_BASE_EXPLICIT" != "true" ]]; then
+    value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_LLM_API_BASE")"
+    [[ -n "$value" ]] && LLM_API_BASE="$value"
+  fi
+  if [[ "$LLM_MODEL_EXPLICIT" != "true" ]]; then
+    value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_LLM_MODEL")"
+    [[ -n "$value" ]] && LLM_MODEL="$value"
+  fi
+  if [[ "$EMBEDDINGS_API_BASE_EXPLICIT" != "true" ]]; then
+    value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_EMBEDDINGS_API_BASE")"
+    [[ -n "$value" ]] && EMBEDDINGS_API_BASE="$value"
+  fi
+  if [[ "$EMBEDDINGS_MODEL_EXPLICIT" != "true" ]]; then
+    value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_EMBEDDINGS_MODEL")"
+    [[ -n "$value" ]] && EMBEDDINGS_MODEL="$value"
+  fi
+  if [[ "$QDRANT_KEY_EXPLICIT" != "true" ]]; then
+    value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_QDRANT_API_KEY")"
+    [[ -n "$value" ]] && ARIA_QDRANT_API_KEY="$value"
+  fi
+  if [[ "$SEARXNG_SECRET_EXPLICIT" != "true" && -n "$SOURCE_SEARXNG_CONTAINER" ]]; then
+    value="$(docker_env_value "$SOURCE_SEARXNG_CONTAINER" "SEARXNG_SECRET")"
+    [[ -n "$value" ]] && SEARXNG_SECRET="$value"
+  fi
+}
+
+perform_migration() {
+  local -a source_containers=()
+  local target_runner=""
+  local setup_script=""
+  local -a setup_args=()
+
+  discover_source_project_defaults
+
+  if [[ -e "$INSTALL_DIR" && ! -d "$INSTALL_DIR" ]]; then
+    die "Zielpfad existiert bereits, ist aber kein Verzeichnis: $INSTALL_DIR"
+  fi
+  if [[ -d "$INSTALL_DIR" && "$FORCE" != "true" && "$INSTALL_DIR_EXPLICIT" == "true" ]]; then
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+      die "Zielverzeichnis existiert bereits. Bitte anderen --install-dir oder --force verwenden: $INSTALL_DIR"
+    fi
+    ensure_interactive_possible
+    printf '\nZielverzeichnis existiert bereits:\n  %s\n\n' "$INSTALL_DIR" >&2
+    if prompt_yes_no "Dateien im Zielverzeichnis sichern und fuer die Migration aktualisieren?" "false"; then
+      FORCE="true"
+    else
+      die "Migration abgebrochen."
+    fi
+  fi
+
+  if [[ -z "$PUBLIC_URL" ]]; then
+    PUBLIC_URL="http://$(guess_host_name):$HTTP_PORT"
+  fi
+
+  confirm_plan
+
+  setup_script="$(resolve_setup_script)"
+  setup_args=(
+    --stack-name "$STACK_NAME"
+    --install-dir "$INSTALL_DIR"
+    --http-port "$HTTP_PORT"
+    --public-url "$PUBLIC_URL"
+    --aria-image "$ARIA_IMAGE"
+    --llm-api-base "$LLM_API_BASE"
+    --llm-model "$LLM_MODEL"
+    --embeddings-api-base "$EMBEDDINGS_API_BASE"
+    --embeddings-model "$EMBEDDINGS_MODEL"
+    --qdrant-key "$ARIA_QDRANT_API_KEY"
+  )
+  if [[ -n "$SEARXNG_SECRET" ]]; then
+    setup_args+=(--searxng-secret "$SEARXNG_SECRET")
+  fi
+  setup_args+=(--no-start --force)
+
+  run_setup_script "$setup_script" "${setup_args[@]}"
+
+  source_containers=("$SOURCE_ARIA_CONTAINER" "$SOURCE_QDRANT_CONTAINER")
+  if [[ -n "${SOURCE_SEARXNG_CONTAINER:-}" ]]; then
+    source_containers+=("$SOURCE_SEARXNG_CONTAINER")
+  fi
+  if [[ -n "${SOURCE_VALKEY_CONTAINER:-}" ]]; then
+    source_containers+=("$SOURCE_VALKEY_CONTAINER")
+  fi
+
+  log "Stoppe Quell-Stack als Sicherheitsmassnahme fuer die Datenkopie."
+  run_host_docker_stop "${source_containers[@]}"
+
+  log "Kopiere ARIA-Config."
+  copy_container_tree "$SOURCE_ARIA_CONTAINER" "/app/config" "$INSTALL_DIR/storage/aria-config"
+  log "Kopiere ARIA-Prompts."
+  copy_container_tree "$SOURCE_ARIA_CONTAINER" "/app/prompts" "$INSTALL_DIR/storage/aria-prompts"
+  log "Kopiere ARIA-Daten."
+  copy_container_tree "$SOURCE_ARIA_CONTAINER" "/app/data" "$INSTALL_DIR/storage/aria-data"
+  log "Kopiere Qdrant-Speicher."
+  copy_container_tree "$SOURCE_QDRANT_CONTAINER" "/qdrant/storage" "$INSTALL_DIR/storage/qdrant-storage"
+
+  if [[ "$START_STACK" == "true" ]]; then
+    log "Starte den neuen Managed-Stack."
+    target_runner="$INSTALL_DIR/aria-stack.sh"
+    if ! run_host_cmd "$target_runner" up; then
+      log "Neuer Managed-Stack konnte nicht gestartet werden. Versuche, die Quelle wieder zu starten."
+      run_host_docker_start "${source_containers[@]}" || true
+      die "Migration fehlgeschlagen. Der Quell-Stack wurde nach Moeglichkeit wieder gestartet."
+    fi
+  else
+    log "Neue Managed-Installation vorbereitet, Start uebersprungen (--no-start)."
+  fi
+
+  cat <<EOF
+
+Migration abgeschlossen.
+
+Quelle:
+  Projekt: $SOURCE_PROJECT
+  Container bleiben gestoppt als Rueckfalloption.
+
+Neues Managed-Ziel:
+  $INSTALL_DIR
+
+Naechste Schritte:
+  cd $INSTALL_DIR
+  ./aria-stack.sh ps
+  ./aria-stack.sh logs
+  ./aria-stack.sh health
+
+Wenn alles sauber aussieht, kannst du den alten Portainer-Stack spaeter entfernen.
+EOF
+}
+
+load_existing_install_env() {
+  local env_file="$1/.env"
+  local value=""
+
+  [[ -f "$env_file" ]] || die "Bestehende ARIA-Installation nicht gefunden oder unvollstaendig: $1"
+
+  if [[ "$STACK_NAME_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_STACK_NAME")"
+    [[ -n "$value" ]] && STACK_NAME="$value"
+  fi
+  if [[ "$HTTP_PORT_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_HTTP_PORT")"
+    [[ -n "$value" ]] && HTTP_PORT="$value"
+  fi
+  if [[ "$PUBLIC_URL_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_PUBLIC_URL")"
+    [[ -n "$value" ]] && PUBLIC_URL="$value"
+  fi
+  if [[ "$ARIA_IMAGE_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_IMAGE")"
+    [[ -n "$value" ]] && ARIA_IMAGE="$value"
+  fi
+  if [[ "$LLM_API_BASE_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_LLM_API_BASE")"
+    [[ -n "$value" ]] && LLM_API_BASE="$value"
+  fi
+  if [[ "$LLM_MODEL_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_LLM_MODEL")"
+    [[ -n "$value" ]] && LLM_MODEL="$value"
+  fi
+  if [[ "$EMBEDDINGS_API_BASE_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_EMBEDDINGS_API_BASE")"
+    [[ -n "$value" ]] && EMBEDDINGS_API_BASE="$value"
+  fi
+  if [[ "$EMBEDDINGS_MODEL_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_EMBEDDINGS_MODEL")"
+    [[ -n "$value" ]] && EMBEDDINGS_MODEL="$value"
+  fi
+}
+
+confirm_plan() {
+  if [[ "$ASSUME_YES" == "true" || "$NON_INTERACTIVE" == "true" ]]; then
+    return 0
+  fi
+  ensure_interactive_possible
+  printf '\n' >&2
+  printf 'ARIA wird so eingerichtet:\n' >&2
+  printf '  Modus: %s\n' "$MODE" >&2
+  printf '  Stack-Name: %s\n' "$STACK_NAME" >&2
+  printf '  Installationsverzeichnis: %s\n' "$INSTALL_DIR" >&2
+  printf '  Host-Port: %s\n' "$HTTP_PORT" >&2
+  printf '  Browser-URL: %s\n' "$PUBLIC_URL" >&2
+  printf '  Image: %s\n' "$ARIA_IMAGE" >&2
+  printf '  Start danach: %s\n' "$START_STACK" >&2
+  printf '\n' >&2
+  prompt_yes_no "So fortfahren?" "true" || die "Setup abgebrochen."
+}
+
+resolve_setup_script() {
+  if [[ -f "$LOCAL_SETUP_SCRIPT" ]]; then
+    printf '%s\n' "$LOCAL_SETUP_SCRIPT"
+    return 0
+  fi
+  if [[ -f "$LOCAL_SIBLING_SETUP_SCRIPT" ]]; then
+    printf '%s\n' "$LOCAL_SIBLING_SETUP_SCRIPT"
+    return 0
+  fi
+
+  TMP_SETUP_SCRIPT="$(mktemp /tmp/aria-setup-compose.XXXXXX.sh)"
+  log "Hole den ARIA-Setup-Unterbau von GitHub." >&2
+  if ! download_file "$REMOTE_SETUP_SCRIPT_URL" "$TMP_SETUP_SCRIPT"; then
+    die "Konnte Setup-Unterbau nicht laden: $REMOTE_SETUP_SCRIPT_URL"
+  fi
+  chmod +x "$TMP_SETUP_SCRIPT"
+  printf '%s\n' "$TMP_SETUP_SCRIPT"
+}
+
+run_setup_script() {
+  local script_path="$1"
+  shift
+  local existing_path="$INSTALL_DIR"
+  local need_sudo="false"
+
+  while [[ ! -e "$existing_path" && "$existing_path" != "/" ]]; do
+    existing_path="$(dirname "$existing_path")"
+  done
+
+  if [[ $EUID -eq 0 ]]; then
+    bash "$script_path" "$@"
+    return 0
+  fi
+
+  if [[ ! -w "$existing_path" ]]; then
+    need_sudo="true"
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    need_sudo="true"
+  fi
+
+  if [[ "$need_sudo" == "true" ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      log "Wechsle fuer die Installation auf sudo."
+      sudo --preserve-env=PATH bash "$script_path" "$@"
+    else
+      die "Bitte als root starten oder sudo installieren."
+    fi
+  else
+    bash "$script_path" "$@"
+  fi
+}
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    install|upgrade|migrate)
+      MODE="$1"
+      shift
+      ;;
+  esac
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --stack-name)
+      STACK_NAME="${2:-}"
+      STACK_NAME_EXPLICIT="true"
+      shift 2
+      ;;
+    --install-dir)
+      INSTALL_DIR="${2:-}"
+      INSTALL_DIR_EXPLICIT="true"
+      shift 2
+      ;;
+    --http-port)
+      HTTP_PORT="${2:-}"
+      HTTP_PORT_EXPLICIT="true"
+      shift 2
+      ;;
+    --public-url)
+      PUBLIC_URL="${2:-}"
+      PUBLIC_URL_EXPLICIT="true"
+      shift 2
+      ;;
+    --aria-image)
+      ARIA_IMAGE="${2:-}"
+      ARIA_IMAGE_EXPLICIT="true"
+      shift 2
+      ;;
+    --llm-api-base)
+      LLM_API_BASE="${2:-}"
+      LLM_API_BASE_EXPLICIT="true"
+      shift 2
+      ;;
+    --llm-model)
+      LLM_MODEL="${2:-}"
+      LLM_MODEL_EXPLICIT="true"
+      shift 2
+      ;;
+    --embeddings-api-base)
+      EMBEDDINGS_API_BASE="${2:-}"
+      EMBEDDINGS_API_BASE_EXPLICIT="true"
+      shift 2
+      ;;
+    --embeddings-model)
+      EMBEDDINGS_MODEL="${2:-}"
+      EMBEDDINGS_MODEL_EXPLICIT="true"
+      shift 2
+      ;;
+    --project)
+      SOURCE_PROJECT="${2:-}"
+      SOURCE_PROJECT_EXPLICIT="true"
+      shift 2
+      ;;
+    --qdrant-key)
+      ARIA_QDRANT_API_KEY="${2:-}"
+      QDRANT_KEY_EXPLICIT="true"
+      shift 2
+      ;;
+    --searxng-secret)
+      SEARXNG_SECRET="${2:-}"
+      SEARXNG_SECRET_EXPLICIT="true"
+      shift 2
+      ;;
+    --no-start)
+      START_STACK="false"
+      shift
+      ;;
+    --force)
+      FORCE="true"
+      shift
+      ;;
+    --yes)
+      ASSUME_YES="true"
+      shift
+      ;;
+    --non-interactive)
+      NON_INTERACTIVE="true"
+      ASSUME_YES="true"
+      shift
+      ;;
+    -h|--help|help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unbekannte Option: $1"
+      ;;
+  esac
+done
+
+require_cmd docker
+docker compose version >/dev/null 2>&1 || die "docker compose ist nicht verfuegbar"
+
+if [[ "$MODE" == "migrate" ]]; then
+  if [[ -z "$SOURCE_PROJECT" && "$NON_INTERACTIVE" != "true" ]]; then
+    ensure_interactive_possible
+    SOURCE_PROJECT="$(prompt_value "Compose-/Portainer-Projektname" "$SOURCE_PROJECT")"
+  fi
+  perform_migration
+  exit 0
+fi
+
+if [[ -z "$STACK_NAME" ]]; then
+  STACK_NAME="$DEFAULT_STACK_NAME"
+fi
+if [[ ! "$HTTP_PORT" =~ ^[0-9]+$ ]]; then
+  die "--http-port muss numerisch sein"
+fi
+
+if [[ -z "$INSTALL_DIR" ]]; then
+  INSTALL_DIR="$DEFAULT_INSTALL_BASE/$STACK_NAME"
+fi
+
+auto_detect_existing_install
+
+if [[ "$MODE" == "upgrade" && "$NON_INTERACTIVE" != "true" ]]; then
+  ensure_interactive_possible
+  INSTALL_DIR="$(prompt_value "Bestehendes Installationsverzeichnis" "$INSTALL_DIR")"
+fi
+
+if [[ "$MODE" == "upgrade" ]]; then
+  load_existing_install_env "$INSTALL_DIR"
+fi
+
+if [[ ! "$HTTP_PORT" =~ ^[0-9]+$ ]]; then
+  die "Host-Port muss numerisch sein."
+fi
+
+if [[ -z "$PUBLIC_URL" ]]; then
+  PUBLIC_URL="http://$(guess_host_name):$HTTP_PORT"
+fi
+
+if [[ "$AUTO_DETECTED_UPGRADE" == "true" ]]; then
+  log "$AUTO_DETECTED_MESSAGE"
+fi
+
+if [[ "$NON_INTERACTIVE" != "true" ]]; then
+  ensure_interactive_possible
+  if [[ "$MODE" == "install" ]]; then
+    STACK_NAME="$(prompt_value "Stack-Name" "$STACK_NAME")"
+    if [[ -z "$INSTALL_DIR" || "$INSTALL_DIR" == "$DEFAULT_INSTALL_BASE/$DEFAULT_STACK_NAME" ]]; then
+      INSTALL_DIR="$DEFAULT_INSTALL_BASE/$STACK_NAME"
+    fi
+    INSTALL_DIR="$(prompt_value "Installationsverzeichnis" "$INSTALL_DIR")"
+
+    if port_in_use "$HTTP_PORT"; then
+      log "Host-Port $HTTP_PORT ist bereits belegt."
+      HTTP_PORT="$(next_free_port "$HTTP_PORT")"
+      log "Ich schlage stattdessen Port $HTTP_PORT vor."
+    fi
+    HTTP_PORT="$(prompt_value "Host-Port" "$HTTP_PORT")"
+    [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || die "Host-Port muss numerisch sein."
+
+    if [[ -z "$PUBLIC_URL" || "$PUBLIC_URL" == http://localhost:* || "$PUBLIC_URL" == http://$(guess_host_name):* ]]; then
+      PUBLIC_URL="http://$(guess_host_name):$HTTP_PORT"
+    fi
+    PUBLIC_URL="$(prompt_value "Browser-URL" "$PUBLIC_URL")"
+  else
+    log "Upgrade-Modus: bestehende Werte aus $INSTALL_DIR/.env werden uebernommen."
+  fi
+
+  if prompt_yes_no "Container nach dem Setup direkt starten?" "$START_STACK"; then
+    START_STACK="true"
+  else
+    START_STACK="false"
+  fi
+fi
+
+if [[ -e "$INSTALL_DIR/docker-compose.yml" && "$FORCE" != "true" ]]; then
+  if [[ "$MODE" == "upgrade" ]]; then
+    FORCE="true"
+  fi
+fi
+
+if [[ "$MODE" == "install" && -e "$INSTALL_DIR/docker-compose.yml" && "$FORCE" != "true" ]]; then
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    die "Im Zielverzeichnis existiert bereits ein Stack. Bitte anderes --install-dir, --force oder 'aria-setup upgrade' verwenden: $INSTALL_DIR"
+  fi
+  ensure_interactive_possible
+  printf '\nIm Zielverzeichnis existiert bereits eine ARIA-Installation:\n  %s\n\n' "$INSTALL_DIR" >&2
+  if prompt_yes_no "Bestehende Installation stattdessen upgraden?" "true"; then
+    MODE="upgrade"
+    load_existing_install_env "$INSTALL_DIR"
+    FORCE="true"
+  elif prompt_yes_no "Bestehende Dateien sichern und ueberschreiben?" "false"; then
+    FORCE="true"
+  else
+    die "Setup abgebrochen, vorhandene Installation bleibt unveraendert."
+  fi
+fi
+
+if [[ "$START_STACK" == "true" && "$MODE" != "upgrade" ]] && port_in_use "$HTTP_PORT"; then
+  if [[ "$NON_INTERACTIVE" == "true" ]]; then
+    die "Host-Port $HTTP_PORT ist bereits belegt. Bitte anderen --http-port setzen."
+  fi
+  ensure_interactive_possible
+  printf '\nHost-Port %s ist bereits belegt.\n' "$HTTP_PORT" >&2
+  HTTP_PORT="$(prompt_value "Anderen Host-Port waehlen" "$(next_free_port "$HTTP_PORT")")"
+  [[ "$HTTP_PORT" =~ ^[0-9]+$ ]] || die "Host-Port muss numerisch sein."
+  PUBLIC_URL="http://$(guess_host_name):$HTTP_PORT"
+fi
+
+confirm_plan
+
+SETUP_SCRIPT="$(resolve_setup_script)"
+SETUP_ARGS=(
+  --stack-name "$STACK_NAME"
+  --install-dir "$INSTALL_DIR"
+  --http-port "$HTTP_PORT"
+  --public-url "$PUBLIC_URL"
+  --aria-image "$ARIA_IMAGE"
+  --llm-api-base "$LLM_API_BASE"
+  --llm-model "$LLM_MODEL"
+  --embeddings-api-base "$EMBEDDINGS_API_BASE"
+  --embeddings-model "$EMBEDDINGS_MODEL"
+)
+if [[ -n "$ARIA_QDRANT_API_KEY" ]]; then
+  SETUP_ARGS+=(--qdrant-key "$ARIA_QDRANT_API_KEY")
+fi
+if [[ -n "$SEARXNG_SECRET" ]]; then
+  SETUP_ARGS+=(--searxng-secret "$SEARXNG_SECRET")
+fi
+
+if [[ "$START_STACK" != "true" ]]; then
+  SETUP_ARGS+=(--no-start)
+fi
+if [[ "$FORCE" == "true" ]]; then
+  SETUP_ARGS+=(--force)
+fi
+if [[ "$MODE" == "upgrade" ]]; then
+  SETUP_ARGS+=(--upgrade-existing)
+fi
+
+run_setup_script "$SETUP_SCRIPT" "${SETUP_ARGS[@]}"

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="page-head">
+    <div>
+      <p class="section-kicker">{{ tr(request, 'base.nav_updates', 'Updates') }}</p>
+      <h2>{{ tr(request, 'updates.live_running_title', 'Update in progress') }}</h2>
+      <p>{{ tr(request, 'updates.live_running_body', 'ARIA is currently recreating the running service. Keep this page open. It will reconnect automatically as soon as the health check is back.') }}</p>
+    </div>
+  </div>
+
+  <div class="alert info update-alert">
+    <strong>{{ tr(request, 'updates.run_started_title', 'Kontrolliertes Update gestartet') }}</strong>
+    <div>{{ tr(request, 'updates.live_polling_hint', 'No manual reload needed. This page is polling /health and will refresh itself when ARIA is reachable again.') }}</div>
+  </div>
+</section>
+
+<div class="update-live-card" id="update-live-card" data-health-url="/health" data-reload-url="/updates" data-status-url="/updates/status" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
+  <div class="update-live-card__panel">
+    <div class="update-live-card__head">
+      <span class="health-lamp status-warn update-live-card__lamp" id="update-live-helper-lamp"></span>
+      <div>
+        <strong>{{ tr(request, 'updates.live_running_title', 'Update in progress') }}</strong>
+        <div class="update-live-card__subtitle">{{ tr(request, 'updates.live_running_body', 'ARIA is currently recreating the running service. Keep this page open. It will reconnect automatically as soon as the health check is back.') }}</div>
+      </div>
+    </div>
+    <div class="update-live-card__meta">
+      <span>
+        <strong>{{ tr(request, 'updates.helper_status', 'Helper-Status') }}:</strong>
+        <span class="update-status-chip status-{{ update_control.status_visual }}" id="update-live-helper-chip">
+          <span class="health-lamp status-{{ update_control.status_visual }}"></span>
+          <span id="update-live-helper-status">{{ update_control.status or 'requested' }}</span>
+        </span>
+      </span>
+      <span><strong>{{ tr(request, 'updates.helper_step', 'Aktueller Schritt') }}:</strong> <span id="update-live-current-step">{{ update_control.current_step or tr(request, 'updates.live_waiting_step', 'Waiting for ARIA to come back') }}</span></span>
+      <span><strong>{{ tr(request, 'updates.helper_last_started', 'Zuletzt gestartet') }}:</strong> <span id="update-live-last-started">{{ update_control.last_started_at or '-' }}</span></span>
+    </div>
+    <div class="update-live-card__hint" id="update-live-state">
+      {{ tr(request, 'updates.live_polling_hint', 'No manual reload needed. This page is polling /health and will refresh itself when ARIA is reachable again.') }}
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const liveCard = document.getElementById('update-live-card');
+    const liveState = document.getElementById('update-live-state');
+    const liveHelperChip = document.getElementById('update-live-helper-chip');
+    const liveHelperLamp = document.getElementById('update-live-helper-lamp');
+    const liveStatus = document.getElementById('update-live-helper-status');
+    const liveCurrentStep = document.getElementById('update-live-current-step');
+    const liveLastStarted = document.getElementById('update-live-last-started');
+    const healthUrl = liveCard.dataset.healthUrl;
+    const reloadUrl = liveCard.dataset.reloadUrl;
+    const statusUrl = liveCard.dataset.statusUrl;
+    let activationStartedAt = String(liveCard.dataset.startedAt || '');
+    let observedRun = true;
+    let statusTimer = null;
+    let healthTimer = null;
+    let statusRequestInFlight = false;
+    let healthRequestInFlight = false;
+
+    function helperVisual(statusValue, isRunning) {
+      const normalized = String(statusValue || '').trim().toLowerCase();
+      if (isRunning) return 'warn';
+      if (normalized === 'ok' || normalized === 'idle' || normalized === 'accepted' || normalized === 'success') {
+        return 'ok';
+      }
+      if (normalized === 'error' || normalized === 'failed' || normalized === 'unreachable') {
+        return 'error';
+      }
+      return 'warn';
+    }
+
+    function applyHelperVisual(statusValue, visual) {
+      if (liveHelperChip) {
+        liveHelperChip.classList.remove('status-ok', 'status-warn', 'status-error');
+        liveHelperChip.classList.add(`status-${visual}`);
+      }
+      if (liveHelperLamp) {
+        liveHelperLamp.classList.remove('status-ok', 'status-warn', 'status-error');
+        liveHelperLamp.classList.add(`status-${visual}`);
+      }
+      if (liveStatus) {
+        liveStatus.textContent = statusValue;
+      }
+    }
+
+    function setState(message, kind) {
+      if (!liveState) return;
+      liveState.textContent = message;
+      liveState.dataset.state = kind || 'running';
+    }
+
+    function stopPolling() {
+      if (statusTimer) {
+        window.clearInterval(statusTimer);
+        statusTimer = null;
+      }
+      if (healthTimer) {
+        window.clearInterval(healthTimer);
+        healthTimer = null;
+      }
+    }
+
+    function startHealthPolling() {
+      if (healthTimer) return;
+      healthTimer = window.setInterval(pollHealth, 2000);
+      window.setTimeout(pollHealth, 700);
+    }
+
+    function startStatusPolling() {
+      if (statusTimer) return;
+      statusTimer = window.setInterval(pollStatus, 1500);
+      window.setTimeout(pollStatus, 250);
+    }
+
+    function shouldTreatAsFinished(payload) {
+      const lastStartedAt = String(payload.last_started_at || '');
+      if (!activationStartedAt || !lastStartedAt) return false;
+      return lastStartedAt >= activationStartedAt && !payload.running;
+    }
+
+    async function pollHealth() {
+      if (healthRequestInFlight) return;
+      healthRequestInFlight = true;
+      try {
+        const response = await fetch(healthUrl, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { 'X-Requested-With': 'ARIA-Update-UI' },
+        });
+        const text = await response.text();
+        if (response.ok && text.toLowerCase().includes('ok')) {
+          setState("{{ tr(request, 'updates.live_reconnected_hint', 'ARIA is reachable again. Reloading the update page now.') }}", 'ok');
+          stopPolling();
+          window.location.replace(reloadUrl);
+          return;
+        }
+        setState("{{ tr(request, 'updates.live_waiting_hint', 'ARIA is still restarting. This page will keep waiting and reconnect automatically.') }}", 'running');
+      } catch (_error) {
+        setState("{{ tr(request, 'updates.live_unreachable_hint', 'ARIA is temporarily unreachable while the service is being recreated. Please keep this tab open.') }}", 'running');
+      } finally {
+        healthRequestInFlight = false;
+      }
+    }
+
+    async function pollStatus() {
+      if (statusRequestInFlight) return;
+      statusRequestInFlight = true;
+      try {
+        const response = await fetch(statusUrl, {
+          method: 'GET',
+          cache: 'no-store',
+          headers: { 'X-Requested-With': 'ARIA-Update-UI' },
+        });
+        if (!response.ok) {
+          throw new Error('status-not-ok');
+        }
+        const payload = await response.json();
+        const statusValue = payload.status || 'running';
+        const visual = payload.visual_status || helperVisual(statusValue, !!payload.running);
+        applyHelperVisual(statusValue, visual);
+        if (liveCurrentStep) {
+          liveCurrentStep.textContent = payload.current_step || "{{ tr(request, 'updates.live_waiting_step', 'Waiting for ARIA to come back') }}";
+        }
+        if (liveLastStarted) {
+          liveLastStarted.textContent = payload.last_started_at || '-';
+        }
+        if (payload.running) {
+          if (payload.last_started_at) {
+            activationStartedAt = String(payload.last_started_at);
+          }
+          setState("{{ tr(request, 'updates.live_waiting_hint', 'ARIA is still restarting. This page will keep waiting and reconnect automatically.') }}", 'running');
+          return;
+        }
+        if (observedRun && shouldTreatAsFinished(payload)) {
+          setState(payload.last_result || "{{ tr(request, 'updates.live_reconnected_hint', 'ARIA is reachable again. Reloading the update page now.') }}", payload.status === 'error' ? 'warn' : 'ok');
+          stopPolling();
+          window.location.replace(reloadUrl);
+          return;
+        }
+        setState("{{ tr(request, 'updates.live_requested_hint', 'Update request accepted. Waiting for the helper to switch into the running state.') }}", 'running');
+      } catch (_error) {
+        startHealthPolling();
+        setState("{{ tr(request, 'updates.live_unreachable_hint', 'ARIA is temporarily unreachable while the service is being recreated. Please keep this tab open.') }}", 'running');
+      } finally {
+        statusRequestInFlight = false;
+      }
+    }
+
+    startStatusPolling();
+  })();
+</script>
+{% endblock %}

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request as URLRequest, urlopen
 
 from aria.core.connection_health import get_connection_health
@@ -53,6 +53,18 @@ def _searxng_rate_limit_hint(lang: str) -> str:
         "SearXNG-Test fehlgeschlagen: HTTP 429 Too Many Requests. Wahrscheinlich ist der SearXNG-Limiter aktiv. Fuer den internen ARIA-Stack `SEARXNG_LIMITER=false` setzen und den Stack neu deployen.",
         "SearXNG test failed: HTTP 429 Too Many Requests. The SearXNG limiter is likely still active. Set `SEARXNG_LIMITER=false` for the internal ARIA stack and redeploy the stack.",
     )
+
+
+def _searxng_request_headers(base_url: str, *, user_agent: str = "ARIA/1.0") -> dict[str, str]:
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": "application/json",
+    }
+    host = str(urlparse(str(base_url or "").strip()).hostname or "").strip().lower()
+    if host in {"searxng", "aria-searxng", "localhost", "127.0.0.1", "::1"}:
+        headers["X-Forwarded-For"] = "127.0.0.1"
+        headers["X-Real-IP"] = "127.0.0.1"
+    return headers
 
 
 def _project_root() -> Path:
@@ -639,10 +651,7 @@ def _test_searxng_connection(ref: str, row: Any, *, timeout_override: int | None
     target_url = f"{base_url.rstrip('/')}/search?{urlencode(params)}"
     req = URLRequest(
         target_url,
-        headers={
-            "User-Agent": "ARIA/1.0",
-            "Accept": "application/json",
-        },
+        headers=_searxng_request_headers(base_url),
         method="GET",
     )
     try:
@@ -666,6 +675,95 @@ def _test_searxng_connection(ref: str, row: Any, *, timeout_override: int | None
     if not isinstance(data, dict) or "results" not in data:
         raise ValueError(_msg(lang, "SearXNG-Test lieferte kein erwartetes Search-JSON.", "SearXNG test did not return the expected search JSON."))
     return _msg(lang, f"SearXNG-Test erfolgreich für {ref}", f"SearXNG test successful for {ref}")
+
+
+def probe_searxng_stack_service(*, lang: str = "de", timeout_seconds: int = 4) -> dict[str, Any]:
+    base_url = resolve_searxng_base_url("")
+    params = {
+        "q": "aria stack health",
+        "format": "json",
+        "pageno": 1,
+        "safesearch": 1,
+    }
+    target_url = f"{base_url.rstrip('/')}/search?{urlencode(params)}"
+    req = URLRequest(
+        target_url,
+        headers=_searxng_request_headers(base_url),
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=max(3, timeout_seconds)) as resp:  # noqa: S310
+            payload = resp.read()
+            status_code = int(getattr(resp, "status", 200) or 200)
+    except HTTPError as exc:
+        status_code = int(getattr(exc, "code", 0) or 0)
+        if status_code == 429:
+            return {
+                "available": True,
+                "status": "warn",
+                "target": base_url,
+                "message": _searxng_rate_limit_hint(lang),
+            }
+        if status_code == 403:
+            return {
+                "available": True,
+                "status": "warn",
+                "target": base_url,
+                "message": _msg(
+                    lang,
+                    "SearXNG-Stackdienst antwortet, lehnt die JSON-Probe aber mit HTTP 403 ab. Das bedeutet meist: `format=json` ist im SearXNG-Setup nicht freigeschaltet oder eine Access-/Limiter-Regel blockiert die Anfrage. Bitte `search.formats` inkl. `json` und die Limiter-/Zugriffsregeln pruefen.",
+                    "SearXNG stack service responds, but rejects the JSON probe with HTTP 403. This usually means `format=json` is not enabled in the SearXNG setup or an access/limiter rule blocks the request. Please check `search.formats` includes `json` and review limiter/access rules.",
+                ),
+            }
+        return {
+            "available": False,
+            "status": "error",
+            "target": base_url,
+            "message": _msg(lang, f"SearXNG-Stackdienst nicht erreichbar: {exc}", f"SearXNG stack service is not reachable: {exc}"),
+        }
+    except URLError as exc:
+        return {
+            "available": False,
+            "status": "error",
+            "target": base_url,
+            "message": _msg(lang, f"SearXNG-Stackdienst nicht erreichbar: {exc}", f"SearXNG stack service is not reachable: {exc}"),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "available": False,
+            "status": "error",
+            "target": base_url,
+            "message": _msg(lang, f"SearXNG-Stackdienst nicht erreichbar: {exc}", f"SearXNG stack service is not reachable: {exc}"),
+        }
+    if status_code >= 400:
+        return {
+            "available": False,
+            "status": "error",
+            "target": base_url,
+            "message": _msg(lang, f"SearXNG-Stackdienst antwortete mit HTTP {status_code}.", f"SearXNG stack service returned HTTP {status_code}."),
+        }
+    try:
+        data = json.loads(payload.decode("utf-8", errors="replace"))
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "available": False,
+            "status": "error",
+            "target": base_url,
+            "message": _msg(lang, f"SearXNG-Stackdienst liefert kein JSON: {exc}", f"SearXNG stack service did not return JSON: {exc}"),
+        }
+    if not isinstance(data, dict) or "results" not in data:
+        return {
+            "available": False,
+            "status": "error",
+            "target": base_url,
+            "message": _msg(lang, "SearXNG-Stackdienst liefert noch keine erwartete JSON-Suche.", "SearXNG stack service does not return the expected JSON search yet."),
+        }
+    return {
+        "available": True,
+        "status": "ok",
+        "target": base_url,
+        "message": _msg(lang, "SearXNG-Stackdienst ist erreichbar.", "SearXNG stack service is reachable."),
+    }
 
 
 def _cached_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> dict[str, str] | None:

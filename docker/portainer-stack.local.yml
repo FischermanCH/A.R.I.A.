@@ -29,8 +29,45 @@ services:
       SEARXNG_SECRET: "${SEARXNG_SECRET:-CHANGE-ME-LONG-RANDOM-SEARXNG-SECRET}"
       SEARXNG_LIMITER: "false"
       SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        umask 077
+        mkdir -p /etc/searxng
+        python - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+
+        secret = os.environ.get("SEARXNG_SECRET", "ultrasecretkey")
+        valkey_url = os.environ.get("SEARXNG_VALKEY_URL", "valkey://searxng-valkey:6379/0")
+        lines = [
+            "use_default_settings: true",
+            "",
+            "general:",
+            '  instance_name: "ARIA Search"',
+            "",
+            "search:",
+            "  safe_search: 1",
+            '  autocomplete: ""',
+            "  formats:",
+            "    - html",
+            "    - json",
+            "",
+            "server:",
+            f"  secret_key: {json.dumps(secret)}",
+            "  limiter: false",
+            "  image_proxy: true",
+            "",
+            "valkey:",
+            f"  url: {json.dumps(valkey_url)}",
+            "",
+        ]
+        Path("/etc/searxng/settings.yml").write_text("\n".join(lines), encoding="utf-8")
+        PY
+        exec /usr/local/searxng/entrypoint.sh
     volumes:
-      - "${SEARXNG_SETTINGS_FILE:-/mnt/NAS/aria-images/searxng.settings.yml}:/etc/searxng/settings.yml:ro"
       - searxng_cache:/var/cache/searxng
 
   aria:
@@ -48,6 +85,9 @@ services:
       ARIA_PUBLIC_URL: "${ARIA_PUBLIC_URL:-}"
       ARIA_QDRANT_URL: "http://qdrant:6333"
       ARIA_QDRANT_API_KEY: "${ARIA_QDRANT_API_KEY:-CHANGE-ME-TEST-QDRANT-KEY}"
+      ARIA_UPDATE_MODE: "${ARIA_UPDATE_MODE:-internal-local-helper}"
+      ARIA_UPDATER_URL: "${ARIA_UPDATER_URL:-http://aria-updater:8094}"
+      ARIA_UPDATER_TOKEN: "${ARIA_UPDATER_TOKEN:-CHANGE-ME-LONG-RANDOM-UPDATER-TOKEN}"
     volumes:
       - aria_config:/app/config
       - aria_prompts:/app/prompts
@@ -56,6 +96,45 @@ services:
     depends_on:
       - qdrant
       - searxng
+
+  aria-updater:
+    image: aria:alpha-local
+    pull_policy: never
+    container_name: aria-updater
+    restart: unless-stopped
+    depends_on:
+      - aria
+    environment:
+      ARIA_UPDATE_HELPER_MODE: "internal-local"
+      ARIA_UPDATE_TOKEN: "${ARIA_UPDATER_TOKEN:-CHANGE-ME-LONG-RANDOM-UPDATER-TOKEN}"
+      ARIA_UPDATE_HELPER_PORT: "8094"
+      ARIA_UPDATE_HEALTH_URL: "http://aria:8800/health"
+      ARIA_UPDATE_LOCAL_SCRIPT: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/update-local-aria.sh"
+      ARIA_UPDATE_LOCAL_TAR_DIR: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}"
+      ARIA_UPDATE_LOCAL_STACK_FILE: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/portainer-stack.alpha3.local.yml"
+      ARIA_UPDATE_LOCAL_ENV_FILE: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/aria-stack.env"
+      ARIA_UPDATE_LOCAL_IMAGE_REF: "aria:alpha-local"
+      ARIA_UPDATE_LOCAL_SERVICE_NAME: "aria"
+      ARIA_UPDATE_LOCAL_QDRANT_SERVICE_NAME: "aria-qdrant"
+      ARIA_UPDATE_LOCAL_PROJECT_NAME: "${ARIA_COMPOSE_PROJECT_NAME:-}"
+      ARIA_UPDATE_STATE_DIR: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/.aria-updater"
+    volumes:
+      - "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}:${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}"
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8094/health', timeout=5)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    command:
+      - python
+      - -m
+      - aria.update_helper
 
 volumes:
   qdrant_storage:

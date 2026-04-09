@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from aria.core.chat_history import FileChatHistoryStore
@@ -49,3 +50,33 @@ def test_chat_history_trim_and_clear(tmp_path: Path) -> None:
 
     store.clear_history("DemoUser")
     assert store.load_history("DemoUser") == []
+
+
+def test_chat_history_cache_refreshes_after_external_file_change(tmp_path: Path) -> None:
+    store = FileChatHistoryStore(tmp_path, max_messages=6)
+    history_path = tmp_path / "DemoUser.json"
+    history_path.write_text(
+        json.dumps(
+            [
+                {"role": "user", "text": "one"},
+                {"role": "assistant", "text": "two"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    first = store.load_history("DemoUser")
+    assert [item["text"] for item in first] == ["one", "two"]
+
+    history_path.write_text(
+        json.dumps(
+            [
+                {"role": "user", "text": "three"},
+                {"role": "assistant", "text": "four"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    second = store.load_history("DemoUser")
+    assert [item["text"] for item in second] == ["three", "four"]

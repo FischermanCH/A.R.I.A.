@@ -14,7 +14,7 @@ Diese Doku ist für alles gedacht, was mit ARIA als Produkt/Release mitgeliefert
 ## Setup / Betrieb
 
 - Setup-Überblick: `docs/setup/setup-overview.md`
-- Portainer-Checkliste: `docs/setup/portainer-deploy-checklist.md`
+- Der öffentliche Docker-Setup-Weg läuft über `aria-setup` oder manuelles Docker Compose
 
 ## Hilfe
 

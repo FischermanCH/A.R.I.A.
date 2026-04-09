@@ -186,6 +186,14 @@ class SecureConfigStore:
             for row in rows
         ]
 
+    def delete_user(self, username: str) -> None:
+        user = str(username).strip()
+        if not user:
+            return
+        with self._connect() as conn:
+            conn.execute("DELETE FROM users WHERE username = ?", (user,))
+            conn.commit()
+
     def set_user_role(self, username: str, role: str) -> None:
         user = str(username).strip()
         clean_role = str(role).strip().lower()

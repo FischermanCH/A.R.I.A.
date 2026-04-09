@@ -104,20 +104,36 @@
   ) %}
     <div class="config-submenu">
       {% for row in connection_menu_rows %}
+      {% if row.disabled %}
+      <div class="config-submenu-item is-disabled" aria-disabled="true">
+      {% else %}
       <a class="config-submenu-item" href="{{ row.url }}">
+      {% endif %}
         <span class="submenu-icon-wrap">{{ icon(row.icon, 'submenu-icon') }}</span>
         <span class="submenu-copy">
-          {% if row.alpha %}
+          {% if row.alpha or row.warning_badge %}
           <span class="submenu-title-row">
             <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+            {% if row.alpha %}
             <span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>
+            {% endif %}
+            {% if row.warning_badge %}
+            <span class="alpha-flag warn-flag">{{ row.warning_badge }}</span>
+            {% endif %}
           </span>
           {% else %}
           <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
           {% endif %}
           <span class="submenu-desc">{{ tr(request, row.desc_key, '') }}</span>
+          {% if row.availability_message %}
+          <span class="submenu-status-text">{{ row.availability_message }}</span>
+          {% endif %}
         </span>
+      {% if row.disabled %}
+      </div>
+      {% else %}
       </a>
+      {% endif %}
       {% endfor %}
     </div>
   {% endcall %}
@@ -176,7 +192,7 @@
   {% call config_section(
     tr(request, 'config.workbench_title', 'Workbench (Advanced)'),
     tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.'),
-    4
+    5
   ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/security">
@@ -194,6 +210,10 @@
       <a class="config-submenu-item" href="/config/error-interpreter">
         <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/backup">
+        <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.backup_title', 'Backup & Restore') }}</span><span class="submenu-desc">{{ tr(request, 'config.backup_desc', 'Export your full ARIA configuration or restore it from a backup file.') }}</span></span>
       </a>
     </div>
   {% endcall %}
