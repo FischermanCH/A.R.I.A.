@@ -1107,6 +1107,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 return candidate
         return fallback
 
+    def _cookie_scope_for_request(request: Request) -> str:
+        return str(getattr(request.state, "cookie_scope_source", "") or "").strip()
+
     prompts_root = (BASE_DIR / "prompts").resolve()
     skills_root = (BASE_DIR / "aria" / "skills").resolve()
 
@@ -5353,7 +5356,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
                 response.set_cookie(
                     key=_cookie_name_for_request(request, "auth", AUTH_COOKIE),
-                    value=_encode_auth_session(clean_username, clean_role),
+                    value=_encode_auth_session(clean_username, clean_role, scope=_cookie_scope_for_request(request)),
                     max_age=AUTH_SESSION_MAX_AGE_SECONDS,
                     samesite="lax",
                     secure=secure_cookie,

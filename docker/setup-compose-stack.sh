@@ -415,6 +415,19 @@ wait_for_health() {
   die "Healthcheck nicht erfolgreich: $url"
 }
 
+runtime_update_services() {
+  local services=("aria")
+  local line=""
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ "$line" == "aria-updater" ]]; then
+      services+=("aria-updater")
+      break
+    fi
+  done < <(run_compose config --services 2>/dev/null || true)
+  printf '%s\n' "${services[@]}"
+}
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -440,7 +453,13 @@ main() {
   [[ -f "$ENV_FILE" ]] || die "Env-Datei nicht gefunden: $ENV_FILE"
 
   local command="${1:-ps}"
+  local runtime_services=()
   shift || true
+
+  readarray -t runtime_services < <(runtime_update_services)
+  if [[ "${#runtime_services[@]}" -eq 0 ]]; then
+    runtime_services=("aria")
+  fi
 
   case "$command" in
     up|start)
@@ -454,7 +473,7 @@ main() {
       run_compose down
       ;;
     restart)
-      run_compose up -d --no-deps --force-recreate aria
+      run_compose up -d --no-deps --force-recreate "${runtime_services[@]}"
       wait_for_health
       ;;
     ps|status)
@@ -470,14 +489,14 @@ main() {
       wait_for_health
       ;;
     pull)
-      run_compose pull aria
+      run_compose pull "${runtime_services[@]}"
       ;;
     pull-all)
       run_compose pull
       ;;
     update)
-      run_compose pull aria
-      run_compose up -d --no-deps --force-recreate aria
+      run_compose pull "${runtime_services[@]}"
+      run_compose up -d --no-deps --force-recreate "${runtime_services[@]}"
       wait_for_health
       ;;
     update-all)

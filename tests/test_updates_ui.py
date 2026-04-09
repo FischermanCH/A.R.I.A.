@@ -13,6 +13,14 @@ def _scoped_cookie(base_name: str) -> str:
     return main_mod._cookie_name(base_name, public_url="http://testserver")
 
 
+def _scoped_auth(username: str, role: str) -> str:
+    return main_mod._encode_auth_session(
+        username,
+        role,
+        scope=main_mod._cookie_scope_source(public_url="http://testserver"),
+    )
+
+
 def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,
@@ -130,7 +138,7 @@ def test_updates_page_shows_managed_update_controls_for_admin(monkeypatch) -> No
     )
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     response = client.get("/updates")
 
     assert response.status_code == 200
@@ -182,7 +190,7 @@ def test_updates_page_shows_prominent_live_card_while_update_is_running(monkeypa
     )
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     response = client.get("/updates")
 
     assert response.status_code == 200
@@ -236,7 +244,7 @@ def test_updates_run_renders_running_wait_page_for_regular_form_posts(monkeypatc
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     client.get("/updates")
     csrf_token = client.cookies.get(_scoped_cookie(main_mod.CSRF_COOKIE), "")
     response = client.post("/updates/run", data={"csrf_token": csrf_token})
@@ -254,7 +262,7 @@ def test_updates_run_returns_json_for_ajax_requests(monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     client.get("/updates")
     csrf_token = client.cookies.get(_scoped_cookie(main_mod.CSRF_COOKIE), "")
     response = client.post(
@@ -277,7 +285,7 @@ def test_updates_run_rejects_non_admin(monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "user"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "user"))
     client.get("/updates")
     csrf_token = client.cookies.get(_scoped_cookie(main_mod.CSRF_COOKIE), "")
     response = client.post("/updates/run", data={"csrf_token": csrf_token}, follow_redirects=False)
@@ -305,7 +313,7 @@ def test_updates_status_returns_helper_payload_for_admin(monkeypatch) -> None:
     )
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     response = client.get("/updates/status")
 
     assert response.status_code == 200
@@ -336,7 +344,7 @@ def test_updates_running_page_renders_reconnect_shell(monkeypatch) -> None:
     )
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     response = client.get("/updates/running")
 
     assert response.status_code == 200
@@ -372,7 +380,7 @@ def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -
     )
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
     response = client.get("/stats")
@@ -421,7 +429,7 @@ def test_stats_page_includes_update_helper_health_row(monkeypatch) -> None:
     )
 
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     response = client.get("/stats")
 
     assert response.status_code == 200

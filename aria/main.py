@@ -385,14 +385,6 @@ def _cookie_scope_source(request: Request | None = None, *, public_url: str = ""
     if explicit_namespace:
         return explicit_namespace
 
-    configured_public_url = str(public_url or "").strip()
-    if configured_public_url:
-        parsed = urlparse(configured_public_url)
-        host = str(parsed.netloc or "").strip().lower()
-        path = str(parsed.path or "").strip().rstrip("/")
-        if host:
-            return f"{host}{path}"
-
     if request is not None:
         headers = getattr(request, "headers", {}) or {}
         forwarded_host = str(headers.get("x-forwarded-host", "") or "").strip()
@@ -410,6 +402,14 @@ def _cookie_scope_source(request: Request | None = None, *, public_url: str = ""
         root_path = str(getattr(request, "scope", {}).get("root_path", "") or "").strip().rstrip("/")
         if host:
             return f"{host}{root_path}"
+
+    configured_public_url = str(public_url or "").strip()
+    if configured_public_url:
+        parsed = urlparse(configured_public_url)
+        host = str(parsed.netloc or "").strip().lower()
+        path = str(parsed.path or "").strip().rstrip("/")
+        if host:
+            return f"{host}{path}"
 
     return "default"
 
@@ -1233,11 +1233,18 @@ def _sanitize_role(value: str | None) -> str:
     return role
 
 
-def _encode_auth_session(username: str, role: str, issued_at: int | None = None) -> str:
+def _encode_auth_session(
+    username: str,
+    role: str,
+    issued_at: int | None = None,
+    *,
+    scope: str = "",
+) -> str:
     payload = {
         "username": _sanitize_username(username),
         "role": _sanitize_role(role),
         "iat": int(issued_at if issued_at is not None else time.time()),
+        "scope": str(scope or "").strip(),
     }
     raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     encoded = base64.urlsafe_b64encode(raw).decode("ascii")
@@ -1245,12 +1252,16 @@ def _encode_auth_session(username: str, role: str, issued_at: int | None = None)
     return f"{encoded}.{signature}"
 
 
-def _decode_auth_session(raw: str | None) -> dict[str, Any] | None:
-    payload, _ = _decode_auth_session_with_reason(raw)
+def _decode_auth_session(raw: str | None, *, expected_scope: str = "") -> dict[str, Any] | None:
+    payload, _ = _decode_auth_session_with_reason(raw, expected_scope=expected_scope)
     return payload
 
 
-def _decode_auth_session_with_reason(raw: str | None) -> tuple[dict[str, Any] | None, str]:
+def _decode_auth_session_with_reason(
+    raw: str | None,
+    *,
+    expected_scope: str = "",
+) -> tuple[dict[str, Any] | None, str]:
     if not raw:
         return None, "no_cookie"
     try:
@@ -1265,23 +1276,37 @@ def _decode_auth_session_with_reason(raw: str | None) -> tuple[dict[str, Any] | 
         username = _sanitize_username(str(payload.get("username", "")))
         role = _sanitize_role(payload.get("role"))
         issued_at = int(payload.get("iat", 0) or 0)
+        scope = str(payload.get("scope", "") or "").strip()
         if not username or issued_at <= 0:
             return None, "payload_invalid"
+        if expected_scope:
+            if not scope:
+                return None, "scope_missing"
+            if not hmac.compare_digest(scope, expected_scope):
+                return None, "scope_mismatch"
         if int(time.time()) - issued_at > AUTH_SESSION_MAX_AGE_SECONDS:
             return None, "expired"
-        return {"username": username, "role": role, "iat": issued_at}, "ok"
+        return {"username": username, "role": role, "iat": issued_at, "scope": scope}, "ok"
     except Exception:
         return None, "decode_failed"
 
 
 def _get_auth_session_from_request(request: Request) -> dict[str, Any] | None:
     raw = _request_cookie_value(request, AUTH_COOKIE)
-    return _decode_auth_session(raw)
+    expected_scope = _cookie_scope_source(
+        request,
+        public_url=str(getattr(getattr(request, "state", object()), "cookie_public_url", "") or ""),
+    )
+    return _decode_auth_session(raw, expected_scope=expected_scope)
 
 
 def _get_auth_session_from_request_with_reason(request: Request) -> tuple[dict[str, Any] | None, str]:
     raw = _request_cookie_value(request, AUTH_COOKIE)
-    return _decode_auth_session_with_reason(raw)
+    expected_scope = _cookie_scope_source(
+        request,
+        public_url=str(getattr(getattr(request, "state", object()), "cookie_public_url", "") or ""),
+    )
+    return _decode_auth_session_with_reason(raw, expected_scope=expected_scope)
 
 
 def _clear_auth_related_cookies(response: Response, request: Request | None = None, *, clear_preferences: bool = False) -> None:
@@ -2849,6 +2874,7 @@ def _build_app() -> FastAPI:
         secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         cookie_public_url = str(settings.aria.public_url or "")
         request.state.cookie_public_url = cookie_public_url
+        request.state.cookie_scope_source = _cookie_scope_source(request, public_url=cookie_public_url)
         request.state.cookie_names = _cookie_names_for_request(request, public_url=cookie_public_url)
         accept_header = str(request.headers.get("accept", "") or "").lower()
         requested_with = str(request.headers.get("x-requested-with", "") or "").lower()
@@ -3096,7 +3122,11 @@ def _build_app() -> FastAPI:
                 ),
             )
             if auth and path != "/logout":
-                refreshed = _encode_auth_session(auth["username"], auth["role"])
+                refreshed = _encode_auth_session(
+                    auth["username"],
+                    auth["role"],
+                    scope=str(getattr(request.state, "cookie_scope_source", "") or ""),
+                )
                 _set_response_cookie(
                     response,
                     request,
@@ -3252,7 +3282,11 @@ def _build_app() -> FastAPI:
                 response,
                 request,
                 AUTH_COOKIE,
-                _encode_auth_session(canonical_username, role),
+                _encode_auth_session(
+                    canonical_username,
+                    role,
+                    scope=str(getattr(request.state, "cookie_scope_source", "") or ""),
+                ),
                 max_age=AUTH_SESSION_MAX_AGE_SECONDS,
                 secure=secure_cookie,
                 httponly=True,

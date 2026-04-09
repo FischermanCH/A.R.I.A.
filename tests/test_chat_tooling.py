@@ -12,12 +12,20 @@ def _scoped_cookie(base_name: str) -> str:
     return main_mod._cookie_name(base_name, public_url="http://testserver")
 
 
+def _scoped_auth(username: str, role: str) -> str:
+    return main_mod._encode_auth_session(
+        username,
+        role,
+        scope=main_mod._cookie_scope_source(public_url="http://testserver"),
+    )
+
+
 def _admin_client(monkeypatch, *, advanced_mode: bool = False) -> TestClient:
     monkeypatch.setattr(main_mod.FileChatHistoryStore, "append_exchange", lambda self, *args, **kwargs: None)
     monkeypatch.setattr(main_mod, "can_access_advanced_config", lambda role, debug_mode: advanced_mode)  # noqa: ARG005
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
     client = TestClient(main_mod.app)
-    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
     csrf_token = main_mod._new_csrf_token()
     client.cookies.set(_scoped_cookie(main_mod.CSRF_COOKIE), csrf_token)
     client.headers.update({"x-csrf-token": csrf_token})
