@@ -6,6 +6,12 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.87] - 2026-04-09
+
+### Fixed
+- auth and session cookies now stay isolated more reliably across multiple ARIA instances on the same host because legacy shared cookies are no longer reused for login/session state after scoped cookies are active
+- managed compose installs now write an explicit `ARIA_COOKIE_NAMESPACE`, so browser-side state remains instance-local even if multiple ARIAs share one hostname
+
 ## [0.1.0-alpha.86] - 2026-04-09
 
 ### Fixed

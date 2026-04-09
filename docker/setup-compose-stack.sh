@@ -19,6 +19,7 @@ EMBEDDINGS_MODEL="ollama/nomic-embed-text"
 ARIA_QDRANT_API_KEY=""
 SEARXNG_SECRET=""
 ARIA_UPDATER_TOKEN=""
+ARIA_COOKIE_NAMESPACE=""
 START_STACK="true"
 FORCE="false"
 UPGRADE_EXISTING="false"
@@ -35,6 +36,7 @@ EMBEDDINGS_MODEL_EXPLICIT="false"
 ARIA_QDRANT_API_KEY_EXPLICIT="false"
 SEARXNG_SECRET_EXPLICIT="false"
 ARIA_UPDATER_TOKEN_EXPLICIT="false"
+ARIA_COOKIE_NAMESPACE_EXPLICIT="false"
 
 log() {
   printf '[aria-setup] %s\n' "$*"
@@ -69,6 +71,7 @@ Options:
   --qdrant-key VALUE          Explicit Qdrant API key. Default: generated
   --searxng-secret VALUE      Explicit SearXNG secret. Default: generated
   --updater-token VALUE       Explicit token for the managed GUI update helper. Default: generated
+  --cookie-namespace VALUE    Explicit browser-cookie namespace. Default: managed:<stack-name>:<port>
   --upgrade-existing          Reuse an existing install dir and keep its current env values unless explicitly overridden
   --no-start                  Only write files, do not start docker compose
   --force                     Overwrite existing stack files in the target dir
@@ -179,6 +182,10 @@ load_existing_env_defaults() {
     value="$(read_env_value "$env_file" "ARIA_UPDATER_TOKEN")"
     [[ -n "$value" ]] && ARIA_UPDATER_TOKEN="$value"
   fi
+  if [[ "$ARIA_COOKIE_NAMESPACE_EXPLICIT" != "true" ]]; then
+    value="$(read_env_value "$env_file" "ARIA_COOKIE_NAMESPACE")"
+    [[ -n "$value" ]] && ARIA_COOKIE_NAMESPACE="$value"
+  fi
 }
 
 write_compose_file() {
@@ -265,6 +272,7 @@ services:
     environment:
       ARIA_ARIA_HOST: "0.0.0.0"
       ARIA_ARIA_PORT: "8800"
+      ARIA_COOKIE_NAMESPACE: ${ARIA_COOKIE_NAMESPACE:-}
       ARIA_PUBLIC_URL: ${ARIA_PUBLIC_URL:-http://localhost:8800}
       ARIA_QDRANT_URL: http://qdrant:6333
       ARIA_QDRANT_API_KEY: ${ARIA_QDRANT_API_KEY}
@@ -322,6 +330,7 @@ SEARXNG_SECRET=$SEARXNG_SECRET
 ARIA_UPDATE_MODE=managed-helper
 ARIA_UPDATER_URL=http://aria-updater:8094
 ARIA_UPDATER_TOKEN=$ARIA_UPDATER_TOKEN
+ARIA_COOKIE_NAMESPACE=$ARIA_COOKIE_NAMESPACE
 
 ARIA_HTTP_PORT=$HTTP_PORT
 ARIA_PUBLIC_URL=$PUBLIC_URL
@@ -581,6 +590,11 @@ while [[ $# -gt 0 ]]; do
       ARIA_UPDATER_TOKEN_EXPLICIT="true"
       shift 2
       ;;
+    --cookie-namespace)
+      ARIA_COOKIE_NAMESPACE="${2:-}"
+      ARIA_COOKIE_NAMESPACE_EXPLICIT="true"
+      shift 2
+      ;;
     --upgrade-existing)
       UPGRADE_EXISTING="true"
       shift
@@ -627,6 +641,9 @@ if [[ -z "$SEARXNG_SECRET" ]]; then
 fi
 if [[ -z "$ARIA_UPDATER_TOKEN" ]]; then
   ARIA_UPDATER_TOKEN="$(generate_secret)"
+fi
+if [[ -z "$ARIA_COOKIE_NAMESPACE" ]]; then
+  ARIA_COOKIE_NAMESPACE="managed:${STACK_NAME}:${HTTP_PORT}"
 fi
 
 if [[ -e "$INSTALL_DIR/docker-compose.yml" && "$FORCE" != "true" && "$UPGRADE_EXISTING" != "true" ]]; then

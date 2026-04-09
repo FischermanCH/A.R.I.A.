@@ -161,6 +161,9 @@ COOKIE_NAME_BASES: dict[str, str] = {
     "lang": LANG_COOKIE,
 }
 COOKIE_KEY_BY_BASE = {value: key for key, value in COOKIE_NAME_BASES.items()}
+LEGACY_COOKIE_FALLBACK_BASES: set[str] = {
+    LANG_COOKIE,
+}
 FILE_EDITOR_CATALOG: tuple[dict[str, str], ...] = (
     {
         "path": "prompts/persona.md",
@@ -440,13 +443,15 @@ def _request_cookie_value(
     request: Request,
     base_name: str,
     *,
-    allow_legacy: bool = True,
+    allow_legacy: bool | None = None,
     public_url: str = "",
 ) -> str:
     current_name = _request_cookie_name(request, base_name, public_url=public_url)
     current_value = request.cookies.get(current_name)
     if current_value not in {None, ""}:
         return str(current_value)
+    if allow_legacy is None:
+        allow_legacy = base_name in LEGACY_COOKIE_FALLBACK_BASES
     if allow_legacy and current_name != base_name:
         legacy_value = request.cookies.get(base_name)
         if legacy_value not in {None, ""}:

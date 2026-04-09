@@ -13,7 +13,7 @@ def _current_cookie_name(base_name: str, host: str = "testserver") -> str:
 
 def test_protected_route_with_invalid_auth_cookie_redirects_to_session_expired_and_clears_session() -> None:
     client = TestClient(app)
-    client.cookies.set(AUTH_COOKIE, "invalid.session.cookie")
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
 
     response = client.get("/", follow_redirects=False)
 
@@ -25,7 +25,7 @@ def test_protected_route_with_invalid_auth_cookie_redirects_to_session_expired_a
 
 def test_session_expired_page_clears_auth_and_pending_cookies() -> None:
     client = TestClient(app)
-    client.cookies.set(AUTH_COOKIE, "invalid.session.cookie")
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
     client.cookies.set(FORGET_PENDING_COOKIE, "pending")
     client.cookies.set(CONNECTION_CREATE_PENDING_COOKIE, "pending")
 
@@ -59,8 +59,8 @@ def test_json_fetch_on_protected_route_returns_login_required_json() -> None:
 
 def test_json_fetch_with_invalid_auth_cookie_returns_session_expired_json_and_clears_auth() -> None:
     client = TestClient(app)
-    client.cookies.set(AUTH_COOKIE, "invalid.session.cookie")
-    client.cookies.set(CSRF_COOKIE, "dummy")
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
 
     response = client.post(
         "/config/llm/models",
@@ -83,7 +83,7 @@ def test_json_fetch_with_invalid_auth_cookie_returns_session_expired_json_and_cl
 
 def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkeypatch) -> None:
     client = TestClient(app)
-    client.cookies.set(AUTH_COOKIE, main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
 
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
@@ -94,8 +94,8 @@ def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkey
 
 def test_json_fetch_with_temporary_auth_store_unavailability_keeps_auth_cookie(monkeypatch) -> None:
     client = TestClient(app)
-    client.cookies.set(AUTH_COOKIE, main_mod._encode_auth_session("neo", "admin"))
-    client.cookies.set(CSRF_COOKIE, "dummy")
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), main_mod._encode_auth_session("neo", "admin"))
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
 
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
@@ -117,7 +117,7 @@ def test_json_fetch_with_temporary_auth_store_unavailability_keeps_auth_cookie(m
 
 def test_public_health_request_with_invalid_auth_cookie_does_not_delete_cookie() -> None:
     client = TestClient(app)
-    client.cookies.set(AUTH_COOKIE, "invalid.session.cookie")
+    client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
 
     response = client.get("/health", follow_redirects=False)
 
@@ -213,3 +213,28 @@ def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() ->
     request.state.cookie_names = main_mod._cookie_names_for_request(request, public_url="")
 
     assert main_mod._request_cookie_value(request, AUTH_COOKIE) == valid_cookie
+
+
+def test_legacy_auth_cookie_is_ignored_when_no_namespaced_cookie_exists() -> None:
+    host = "aria.black.lan:8810"
+    legacy_cookie = main_mod._encode_auth_session("neo", "admin")
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/stats",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [
+                (b"host", host.encode("utf-8")),
+                (b"cookie", f"{AUTH_COOKIE}={legacy_cookie}".encode("utf-8")),
+            ],
+            "client": ("127.0.0.1", 1234),
+            "server": ("aria.black.lan", 8810),
+        }
+    )
+    request.state.cookie_public_url = f"http://{host}"
+    request.state.cookie_names = main_mod._cookie_names_for_request(request, public_url=f"http://{host}")
+
+    assert main_mod._request_cookie_value(request, AUTH_COOKIE) == ""
