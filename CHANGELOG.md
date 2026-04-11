@@ -6,6 +6,11 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.106] - 2026-04-11
+
+### Fixed
+- `/config/llm` and `/config/embeddings` no longer show the wrong provider preset list; the LLM page now uses chat-model presets again and the embeddings page now uses embedding-specific presets again
+
 ## [0.1.0-alpha.105] - 2026-04-11
 
 ### Fixed

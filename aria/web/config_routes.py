@@ -6055,7 +6055,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "default_model": data["default_model"],
                 "default_api_base": data["default_api_base"],
             }
-            for key, data in EMBEDDING_PROVIDER_PRESETS.items()
+            for key, data in LLM_PROVIDER_PRESETS.items()
         ]
         return TEMPLATES.TemplateResponse(
             request=request,
@@ -6332,7 +6332,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "default_model": data["default_model"],
                 "default_api_base": data["default_api_base"],
             }
-            for key, data in LLM_PROVIDER_PRESETS.items()
+            for key, data in EMBEDDING_PROVIDER_PRESETS.items()
         ]
         embedding_guard = await _embedding_memory_guard_context(username)
         return TEMPLATES.TemplateResponse(

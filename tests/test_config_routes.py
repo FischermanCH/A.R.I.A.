@@ -163,11 +163,21 @@ def _build_profile_config_app(tmp_path: Path) -> TestClient:
         base_dir=tmp_path,
         error_interpreter_path=tmp_path / 'config' / 'error_interpreter.yaml',
         llm_provider_presets={
+            "openai": {
+                "label": "OpenAI",
+                "default_model": "openai/gpt-4o-mini",
+                "default_api_base": "",
+            },
             "litellm": {
                 "label": "LiteLLM Proxy",
                 "default_model": "openai/<modellname>",
                 "default_api_base": "http://localhost:4000",
-            }
+            },
+            "anthropic": {
+                "label": "Anthropic",
+                "default_model": "anthropic/claude-3-5-sonnet-latest",
+                "default_api_base": "",
+            },
         },
         embedding_provider_presets={
             "litellm": {
@@ -254,6 +264,17 @@ def test_llm_config_page_shows_active_profile_runtime_meta(tmp_path: Path) -> No
     assert 'openai/gpt-4.1-mini' in response.text
     assert 'action="/config/llm/test"' in response.text
     assert "const logical='/config';" in response.text
+
+
+def test_llm_page_uses_llm_specific_provider_presets(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/llm')
+
+    assert response.status_code == 200
+    assert 'Anthropic' in response.text
+    assert 'openai/gpt-4o-mini' in response.text
+    assert 'text-embedding-3-small' not in response.text
 
 
 def test_embeddings_page_uses_embedding_specific_provider_presets(tmp_path: Path) -> None:
