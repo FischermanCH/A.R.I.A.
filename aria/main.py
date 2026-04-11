@@ -1859,6 +1859,24 @@ def _build_app() -> FastAPI:
         base = str(text or fallback or "")
         return _replace_agent_name(base, _agent_name(request, fallback))
 
+    def _update_finished_after_session(request: Request, update_control: dict[str, Any]) -> bool:
+        auth = _get_auth_session_from_request(request)
+        if not auth:
+            return False
+        if bool(update_control.get("running", False)):
+            return False
+        finished_raw = str(update_control.get("last_finished_at", "") or "").strip()
+        if not finished_raw:
+            return False
+        try:
+            finished_at = datetime.fromisoformat(finished_raw.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return False
+        issued_at = int(auth.get("iat", 0) or 0)
+        if issued_at <= 0:
+            return False
+        return finished_at > (issued_at + 1)
+
     TEMPLATES.env.globals["tr"] = _tr
     TEMPLATES.env.globals["agent_name"] = _agent_name
     TEMPLATES.env.globals["agent_text"] = _agent_text
@@ -2571,6 +2589,8 @@ def _build_app() -> FastAPI:
         update_notice = str(request.query_params.get("notice", "") or "").strip().lower()
         update_error = str(request.query_params.get("error", "") or "").strip().lower()
         update_control = _build_update_control_payload(request)
+        if _update_finished_after_session(request, update_control):
+            return RedirectResponse(url="/updates/relogin?next=%2Fupdates", status_code=303)
         return TEMPLATES.TemplateResponse(
             request=request,
             name="updates.html",

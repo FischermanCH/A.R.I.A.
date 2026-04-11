@@ -297,6 +297,62 @@ def test_updates_relogin_clears_current_instance_cookies() -> None:
     assert any(header.startswith(f"{_scoped_cookie(main_mod.SESSION_COOKIE)}=") for header in set_cookie_headers)
 
 
+def test_updates_page_forces_relogin_when_helper_finished_after_session(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main_mod,
+        "_read_release_meta",
+        lambda _base_dir: {
+            "version": "0.1.0",
+            "label": "0.1.0-alpha107",
+        },
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "_get_update_status",
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
+            "current_label": "0.1.0-alpha107",
+            "latest_label": "0.1.0-alpha107",
+            "latest_tag": "v0.1.0-alpha.107",
+            "update_available": False,
+            "checked_at": "2026-04-11T22:00:00+00:00",
+            "source": "github-tags",
+            "release_notes": "## [0.1.0-alpha.107] - 2026-04-11",
+            "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        main_mod,
+        "fetch_update_helper_status",
+        lambda _config: {
+            "status": "ok",
+            "running": False,
+            "current_step": "",
+            "last_started_at": "2026-04-11T22:05:00Z",
+            "last_finished_at": "2026-04-11T22:06:00Z",
+            "last_result": "Update completed successfully.",
+            "last_error": "",
+            "log_tail": [],
+        },
+    )
+
+    client = TestClient(main_mod.app)
+    old_auth = main_mod._encode_auth_session(
+        "whity",
+        "admin",
+        issued_at=1775944800,
+        scope=main_mod._cookie_scope_source(public_url="http://testserver"),
+    )
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), old_auth)
+    response = client.get("/updates", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/updates/relogin?next=%2Fupdates"
+
+
 def test_updates_run_rejects_non_admin(monkeypatch) -> None:
     monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
     monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005

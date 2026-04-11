@@ -6,6 +6,12 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.108] - 2026-04-11
+
+### Fixed
+- `/updates` now also performs the post-update re-login check server-side, so even an update that was started from an older browser tab or an older UI build cannot fall back into a stale pre-update session after ARIA comes back
+- managed GUI updates now clear the current instance auth boundary more reliably in multi-instance setups on the same domain, reducing the chance that `white`, `neo`, or similar stacks reopen with the wrong session after pressing the update button
+
 ## [0.1.0-alpha.107] - 2026-04-11
 
 ### Fixed
