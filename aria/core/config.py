@@ -614,6 +614,22 @@ def _convert_env_value(raw: str) -> Any:
         return raw
 
 
+def _has_active_profile_config(data: dict[str, Any], kind: str) -> bool:
+    profiles = data.get("profiles", {})
+    if not isinstance(profiles, dict):
+        return False
+    active = profiles.get("active", {})
+    if not isinstance(active, dict):
+        return False
+    active_name = str(active.get(kind, "") or "").strip()
+    if not active_name:
+        return False
+    section = profiles.get(kind, {})
+    if not isinstance(section, dict):
+        return False
+    return isinstance(section.get(active_name), dict)
+
+
 def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     mapping = {
         "ARIA_ARIA_HOST": ("aria", "host"),
@@ -657,15 +673,25 @@ def _apply_env_overrides(data: dict[str, Any]) -> dict[str, Any]:
     }
 
     merged = dict(data)
+    llm_profile_active = _has_active_profile_config(data, "llm")
+    embeddings_profile_active = _has_active_profile_config(data, "embeddings")
     for env_name, path in mapping.items():
         if env_name not in os.environ:
+            continue
+        raw_value = str(os.environ[env_name])
+        if not raw_value.strip():
+            continue
+        top_level = path[0]
+        if top_level == "llm" and llm_profile_active:
+            continue
+        if top_level == "embeddings" and embeddings_profile_active:
             continue
 
         cursor = merged
         for section in path[:-1]:
             cursor.setdefault(section, {})
             cursor = cursor[section]
-        cursor[path[-1]] = _convert_env_value(os.environ[env_name])
+        cursor[path[-1]] = _convert_env_value(raw_value)
 
     return merged
 

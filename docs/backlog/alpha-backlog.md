@@ -10,7 +10,7 @@ Zweck:
 
 Aktueller Release-Stand:
 - public: `0.1.0-alpha89`
-- lokal / intern: `0.1.0-alpha101`
+- lokal / intern: `0.1.0-alpha102`
 
 ## Offene Alpha-Punkte
 

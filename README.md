@@ -561,6 +561,8 @@ curl -X POST http://localhost:8800/v1/chat/completions \
 
 ## Environment override examples
 
+These overrides force the live runtime inside the container. Use them only when you intentionally want environment-driven runtime settings. If you manage saved LLM or embedding profiles inside ARIA, leave these unset.
+
 ```bash
 export ARIA_LLM_MODEL="ollama_chat/qwen3:8b"
 export ARIA_LLM_API_BASE="http://localhost:11434"
@@ -880,6 +882,8 @@ curl -X POST http://localhost:8800/v1/chat/completions \
 ```
 
 ## ENV-Override-Beispiele
+
+Diese Overrides erzwingen die Live-Runtime direkt im Container. Nur setzen, wenn du die Runtime bewusst per Umgebung steuern willst. Wenn du gespeicherte LLM- oder Embedding-Profile in ARIA pflegst, diese Werte leer lassen.
 
 ```bash
 export ARIA_LLM_MODEL="ollama_chat/qwen3:8b"

@@ -12,10 +12,10 @@ HTTP_PORT="$DEFAULT_HTTP_PORT"
 PUBLIC_URL=""
 INSTALL_DIR=""
 ARIA_IMAGE="$DEFAULT_IMAGE"
-LLM_API_BASE="http://host.docker.internal:11434"
-LLM_MODEL="ollama_chat/qwen3:8b"
-EMBEDDINGS_API_BASE="http://host.docker.internal:11434"
-EMBEDDINGS_MODEL="ollama/nomic-embed-text"
+LLM_API_BASE=""
+LLM_MODEL=""
+EMBEDDINGS_API_BASE=""
+EMBEDDINGS_MODEL=""
 ARIA_QDRANT_API_KEY=""
 SEARXNG_SECRET=""
 ARIA_UPDATER_TOKEN=""
@@ -279,10 +279,10 @@ services:
       ARIA_UPDATE_MODE: ${ARIA_UPDATE_MODE:-managed-helper}
       ARIA_UPDATER_URL: ${ARIA_UPDATER_URL:-http://aria-updater:8094}
       ARIA_UPDATER_TOKEN: ${ARIA_UPDATER_TOKEN}
-      ARIA_LLM_API_BASE: ${ARIA_LLM_API_BASE:-http://host.docker.internal:11434}
-      ARIA_LLM_MODEL: ${ARIA_LLM_MODEL:-ollama_chat/qwen3:8b}
-      ARIA_EMBEDDINGS_API_BASE: ${ARIA_EMBEDDINGS_API_BASE:-http://host.docker.internal:11434}
-      ARIA_EMBEDDINGS_MODEL: ${ARIA_EMBEDDINGS_MODEL:-ollama/nomic-embed-text}
+      ARIA_LLM_API_BASE: ${ARIA_LLM_API_BASE:-}
+      ARIA_LLM_MODEL: ${ARIA_LLM_MODEL:-}
+      ARIA_EMBEDDINGS_API_BASE: ${ARIA_EMBEDDINGS_API_BASE:-}
+      ARIA_EMBEDDINGS_MODEL: ${ARIA_EMBEDDINGS_MODEL:-}
     volumes:
       - ./storage/aria-config:/app/config
       - ./storage/aria-prompts:/app/prompts

@@ -146,6 +146,8 @@ ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
+Optional LLM / embedding environment overrides should usually stay empty when you manage saved provider profiles inside ARIA. Only set them if you deliberately want Docker to force the live runtime values.
+
 ### 4. Start the stack
 
 ```bash
