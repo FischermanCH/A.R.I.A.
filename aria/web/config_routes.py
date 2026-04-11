@@ -1185,9 +1185,15 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         query = urlencode(pairs)
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
 
-    def _redirect_with_return_to(url: str, request: Request, *, fallback: str) -> RedirectResponse:
-        return_to = _resolve_return_to(request, fallback=fallback)
-        return RedirectResponse(url=_attach_return_to(url, return_to), status_code=303)
+    def _redirect_with_return_to(
+        url: str,
+        request: Request,
+        *,
+        fallback: str,
+        return_to: str | None = None,
+    ) -> RedirectResponse:
+        target = _sanitize_return_to(return_to) or _resolve_return_to(request, fallback=fallback)
+        return RedirectResponse(url=_attach_return_to(url, target), status_code=303)
 
     def _set_logical_back_url(request: Request, *, fallback: str) -> str:
         target = _resolve_return_to(request, fallback=fallback)

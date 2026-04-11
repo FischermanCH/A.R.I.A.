@@ -347,6 +347,24 @@ def test_config_prompts_save_preserves_return_to(tmp_path: Path) -> None:
     assert 'return_to=%2Fconfig' in response.headers['location']
 
 
+def test_config_appearance_save_preserves_return_to(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        '/config/appearance/save',
+        data={
+            'theme': 'sunset',
+            'background': 'aurora',
+            'return_to': '/config',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers['location'].startswith('/config/appearance?saved=1')
+    assert 'return_to=%2Fconfig' in response.headers['location']
+
+
 def test_additional_config_pages_set_logical_back_url(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 

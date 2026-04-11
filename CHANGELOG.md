@@ -6,6 +6,11 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.104] - 2026-04-11
+
+### Fixed
+- config save flows that were switched to the new logical `return_to` handling no longer break on pages such as `/config/appearance/save`; affected config forms redirect cleanly again instead of ending on a blank POST result page
+- the shared config redirect helper now accepts an explicit `return_to` target consistently, aligning it with the skills redirect behavior and preventing silent regressions across config forms
 ## [0.1.0-alpha.103] - 2026-04-11
 
 ### Fixed
