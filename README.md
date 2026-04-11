@@ -9,7 +9,10 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 **GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
 **Wiki:** [GitHub Wiki](https://github.com/FischermanCH/A.R.I.A./wiki)  
+**Product Homepage:** [Fischerman.ch]([https://github.com/FischermanCH/A.R.I.A./wiki](https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/nggallery/image/01-aria-login-de?preview_id=537664&#aria-en))  
+
 **Languages:** [English](#english) · [Deutsch](#deutsch)
+
 
 ---
 ## Screenshots
