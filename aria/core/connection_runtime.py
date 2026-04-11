@@ -1055,7 +1055,14 @@ def build_connection_status_rows(
     return rows
 
 
-def build_settings_connection_status_rows(settings: Any, *, page_probe: bool = True, base_dir: Path | None = None, lang: str = "de") -> list[dict[str, str]]:
+def build_settings_connection_status_rows(
+    settings: Any,
+    *,
+    page_probe: bool = True,
+    cached_only_threshold: int | None = None,
+    base_dir: Path | None = None,
+    lang: str = "de",
+) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     connections = getattr(settings, "connections", None)
     if connections is None:
@@ -1067,9 +1074,21 @@ def build_settings_connection_status_rows(settings: Any, *, page_probe: bool = T
                 items = dict(items)
             except Exception:
                 items = {}
-        for ref in sorted(items.keys()):
+        refs = sorted(items.keys())
+        use_cached_only = bool(page_probe) and cached_only_threshold is not None and len(refs) >= max(1, int(cached_only_threshold))
+        for ref in refs:
             row = items.get(ref)
             if row is None:
                 continue
-            rows.append(build_connection_status_row(kind, ref, row, page_probe=page_probe, base_dir=base_dir, lang=lang))
+            rows.append(
+                build_connection_status_row(
+                    kind,
+                    ref,
+                    row,
+                    page_probe=page_probe and not use_cached_only,
+                    cached_only=use_cached_only,
+                    base_dir=base_dir,
+                    lang=lang,
+                )
+            )
     return rows

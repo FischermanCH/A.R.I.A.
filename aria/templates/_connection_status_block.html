@@ -5,6 +5,19 @@
       <small>{{ tr(request, connection_status_block.hint_key, connection_status_block.hint) }}</small>
     </div>
     {% if connection_status_block.rows %}
+    {% if connection_status_block.collapsed %}
+    <details class="connection-status-collapsed">
+      <summary class="connection-status-summary">
+        <span class="connection-status-summary-title">{{ connection_status_block.total_count }} {{ tr(request, 'config_conn.profiles', 'Profiles') }}</span>
+        <span class="connection-status-summary-meters">
+          <span class="health-meter status-ok"><span class="health-lamp status-ok"></span><span>{{ connection_status_block.ok_count }}</span></span>
+          {% if connection_status_block.warn_count %}
+          <span class="health-meter status-warn"><span class="health-lamp status-warn"></span><span>{{ connection_status_block.warn_count }}</span></span>
+          {% endif %}
+          <span class="health-meter status-error"><span class="health-lamp status-error"></span><span>{{ connection_status_block.error_count }}</span></span>
+        </span>
+      </summary>
+    {% endif %}
     <div class="connection-status-grid">
       {% for item in connection_status_block.rows %}
       {% if item.edit_url %}
@@ -24,6 +37,9 @@
       {% endif %}
       {% endfor %}
     </div>
+    {% if connection_status_block.collapsed %}
+    </details>
+    {% endif %}
     {% else %}
     <div class="skill-summary"><span>{{ tr(request, connection_status_block.empty_key, connection_status_block.empty_text) }}</span></div>
     {% endif %}

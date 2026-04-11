@@ -17,31 +17,6 @@ class KeywordRouter:
 
     def __init__(self, routing: RoutingLanguageConfig):
         self._default_routing = routing
-        self.skill_status_keywords = (
-            "welche skills",
-            "skills aktiv",
-            "aktive skills",
-            "aktuelle skills",
-            "aktuellen skills",
-            "installierte skills",
-            "vorhandene skills",
-            "deine skills",
-            "deine fähigkeiten",
-            "deine fähigkeiten",
-            "skill status",
-            "skills überprüfen",
-            "skills überprüfen",
-            "was kannst du aktuell ausführen",
-            "was kannst du ausführen",
-        )
-        self.skill_status_patterns = (
-            re.compile(r"\bwas\s+f(?:ü|ue)r\s+skills\b"),
-            re.compile(r"\bwas\s+sind\s+deine(?:r|n)?\s+.*skills\b"),
-            re.compile(r"\bwelche\s+skills\b"),
-            re.compile(r"\bskills?\s+hast\s+du\b"),
-            re.compile(r"\bwelche\s+f(?:ä|ae)higkeiten\b"),
-            re.compile(r"\bf(?:ä|ae)higkeiten\s+hast\s+du\b"),
-        )
 
     @staticmethod
     def _contains_guarded_store_phrase(text: str) -> bool:
@@ -57,38 +32,32 @@ class KeywordRouter:
                 return True
         return False
 
-    def _contains_skill_status_intent(self, text: str) -> bool:
-        if any(keyword in text for keyword in self.skill_status_keywords):
+    @staticmethod
+    def _compile_patterns(values: list[str]) -> tuple[re.Pattern[str], ...]:
+        rows: list[re.Pattern[str]] = []
+        for value in values:
+            clean = str(value or "").strip()
+            if not clean:
+                continue
+            try:
+                rows.append(re.compile(clean))
+            except re.error:
+                continue
+        return tuple(rows)
+
+    def _contains_skill_status_intent(self, text: str, active: RoutingLanguageConfig) -> bool:
+        skill_status_keywords = self._normalize_keywords(active.skill_status_keywords)
+        if any(keyword in text for keyword in skill_status_keywords):
             return True
 
-        if any(pattern.search(text) for pattern in self.skill_status_patterns):
-            has_status_hint = any(
-                token in text
-                for token in ("aktiv", "aktiviert", "status", "übersicht", "überblick", "liste", "enabled")
-            )
+        skill_status_patterns = self._compile_patterns(active.skill_status_patterns)
+        if any(pattern.search(text) for pattern in skill_status_patterns):
+            has_status_hint = any(token in text for token in self._normalize_keywords(active.skill_status_status_terms))
             if has_status_hint:
                 return True
 
-        has_skill_word = any(
-            token in text for token in ("skill", "skills", "fähigkeit", "fähigkeiten", "fähigkeit", "fähigkeiten")
-        )
-        has_status_word = any(
-            token in text
-            for token in (
-                "aktiv",
-                "aktiviert",
-                "status",
-                "welche",
-                "was für",
-                "was für",
-                "was sind",
-                "hast du",
-                "liste",
-                "aktuell",
-                "installiert",
-                "vorhanden",
-            )
-        )
+        has_skill_word = any(token in text for token in self._normalize_keywords(active.skill_status_skill_terms))
+        has_status_word = any(token in text for token in self._normalize_keywords(active.skill_status_status_terms))
         return has_skill_word and has_status_word
 
     @staticmethod
@@ -104,7 +73,7 @@ class KeywordRouter:
         web_search_keywords = self._normalize_keywords(active.web_search_keywords)
         intents: list[str] = []
 
-        if self._contains_skill_status_intent(text):
+        if self._contains_skill_status_intent(text, active):
             return RouterDecision(intents=["skill_status"], level=1)
 
         if self._contains_forget_intent(text, memory_forget_keywords):

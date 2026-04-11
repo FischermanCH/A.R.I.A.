@@ -39,6 +39,14 @@ _RSS_HTTP_HEADERS = {
 }
 
 
+def _is_english(language: str | None) -> bool:
+    return str(language or "").strip().lower().startswith("en")
+
+
+def _msg(language: str | None, de: str, en: str) -> str:
+    return en if _is_english(language) else de
+
+
 def sanitize_skill_id(value: str) -> str:
     raw = str(value or "").strip().lower()
     raw = re.sub(r"[^a-z0-9_-]", "-", raw)
@@ -255,7 +263,7 @@ def normalize_skill_steps(value: Any) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             continue
         step_type = str(raw.get("type", "")).strip().lower()
-        if step_type not in {"ssh_run", "llm_transform", "discord_send", "chat_send", "sftp_read", "sftp_write", "smb_read", "smb_write"}:
+        if step_type not in {"ssh_run", "llm_transform", "discord_send", "chat_send", "sftp_read", "sftp_write", "smb_read", "smb_write", "rss_read"}:
             continue
         step_id = str(raw.get("id", "")).strip().lower() or f"s{idx + 1}"
         step_name = str(raw.get("name", "")).strip()[:80]
@@ -263,16 +271,64 @@ def normalize_skill_steps(value: Any) -> list[dict[str, Any]]:
         if not isinstance(params, dict):
             params = {}
         norm_params = {str(k).strip(): str(v).strip() for k, v in params.items() if str(k).strip()}
-        steps.append(
-            {
-                "id": step_id[:20],
-                "name": step_name,
-                "type": step_type,
-                "params": norm_params,
-                "on_error": str(raw.get("on_error", "stop")).strip().lower() or "stop",
-            }
-        )
+        condition = raw.get("condition", {})
+        norm_condition: dict[str, Any] | None = None
+        if isinstance(condition, dict):
+            source = str(condition.get("source", "")).strip().lower()
+            operator = str(condition.get("operator", "")).strip().lower()
+            if operator in {"equals", "not_equals", "contains", "not_contains", "regex", "is_empty", "not_empty"}:
+                norm_condition = {
+                    "source": re.sub(r"[^a-z0-9_-]", "", source)[:40],
+                    "operator": operator,
+                    "value": str(condition.get("value", "")).strip()[:1200],
+                    "ignore_case": bool(condition.get("ignore_case", False)),
+                }
+        row = {
+            "id": step_id[:20],
+            "name": step_name,
+            "type": step_type,
+            "params": norm_params,
+            "on_error": str(raw.get("on_error", "stop")).strip().lower() or "stop",
+        }
+        if norm_condition:
+            row["condition"] = norm_condition
+        steps.append(row)
     return steps
+
+
+def _evaluate_skill_step_condition(condition: dict[str, Any], values: dict[str, str]) -> bool:
+    source = str(condition.get("source", "")).strip().lower()
+    operator = str(condition.get("operator", "")).strip().lower()
+    expected = str(condition.get("value", ""))
+    ignore_case = bool(condition.get("ignore_case", False))
+    actual = str(values.get(source, "")) if source else ""
+
+    if ignore_case:
+        actual_cmp = actual.lower()
+        expected_cmp = expected.lower()
+    else:
+        actual_cmp = actual
+        expected_cmp = expected
+
+    if operator == "equals":
+        return actual_cmp == expected_cmp
+    if operator == "not_equals":
+        return actual_cmp != expected_cmp
+    if operator == "contains":
+        return expected_cmp in actual_cmp
+    if operator == "not_contains":
+        return expected_cmp not in actual_cmp
+    if operator == "regex":
+        flags = re.IGNORECASE if ignore_case else 0
+        try:
+            return re.search(expected, actual, flags=flags) is not None
+        except re.error:
+            return False
+    if operator == "is_empty":
+        return not actual.strip()
+    if operator == "not_empty":
+        return bool(actual.strip())
+    return True
 
 
 def render_step_template(template: str, values: dict[str, str]) -> str:
@@ -632,10 +688,11 @@ class CustomSkillRuntime:
             label="Datei",
         )
 
-    def _format_directory_listing(self, transport: str, resolved_path: str, names: list[str]) -> str:
+    def _format_directory_listing(self, transport: str, resolved_path: str, names: list[str], *, language: str = "de") -> str:
         if not names:
-            return f"{transport}-Verzeichnis leer: {resolved_path}"
-        return self.truncate_text(f"Inhalt von {resolved_path}:\n- " + "\n- ".join(names), 1400)
+            return _msg(language, f"{transport}-Verzeichnis leer: {resolved_path}", f"{transport} directory is empty: {resolved_path}")
+        prefix = _msg(language, f"Inhalt von {resolved_path}:", f"Contents of {resolved_path}:")
+        return self.truncate_text(prefix + "\n- " + "\n- ".join(names), 1400)
 
     @staticmethod
     def _xml_name(tag: str) -> str:
@@ -692,27 +749,27 @@ class CustomSkillRuntime:
         short = text[:limit].rsplit(" ", 1)[0].strip()
         return (short or text[:limit]).rstrip(".,;:") + "…"
 
-    def _run_rss_read_step(self, connection_ref: str) -> str:
+    def _run_rss_read_step(self, connection_ref: str, *, language: str = "de") -> str:
         connection = self._get_connection_profile("rss", connection_ref)
         feed_url = str(getattr(connection, "feed_url", "")).strip()
         timeout_seconds = int(getattr(connection, "timeout_seconds", 10) or 10)
         if not feed_url:
-            raise ValueError("RSS-Feed-URL fehlt im Profil.")
+            raise ValueError(_msg(language, "RSS-Feed-URL fehlt im Profil.", "RSS feed URL is missing in the profile."))
 
         req = URLRequest(feed_url, headers=_RSS_HTTP_HEADERS, method="GET")
         try:
             with urlopen(req, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
                 payload = resp.read(1024 * 512)
         except URLError as exc:
-            raise ValueError(f"RSS-Abruf fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"RSS-Abruf fehlgeschlagen: {exc}", f"RSS fetch failed: {exc}")) from exc
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"RSS-Abruf fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"RSS-Abruf fehlgeschlagen: {exc}", f"RSS fetch failed: {exc}")) from exc
 
         text = payload.decode("utf-8", errors="replace").strip()
         try:
             root = ET.fromstring(text)
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"RSS-Feed ist kein gültiges XML: {exc}") from exc
+            raise ValueError(_msg(language, f"RSS-Feed ist kein gültiges XML: {exc}", f"RSS feed is not valid XML: {exc}")) from exc
 
         entries: list[dict[str, str]] = []
         feed_title = ""
@@ -769,11 +826,18 @@ class CustomSkillRuntime:
                     entries.append({"title": title, "link": link, "published": published, "summary": summary})
 
         if not entries:
-            return self.truncate_text(f"Feed `{connection_ref}` wurde geladen, aber es wurden keine Einträge gefunden.", 1400)
+            return self.truncate_text(
+                _msg(
+                    language,
+                    f"Feed `{connection_ref}` wurde geladen, aber es wurden keine Einträge gefunden.",
+                    f"Feed `{connection_ref}` was loaded, but no entries were found.",
+                ),
+                1400,
+            )
 
-        lines = [f"Neueste Einträge aus {feed_title or connection_ref}:"]
+        lines = [_msg(language, f"Neueste Einträge aus {feed_title or connection_ref}:", f"Latest entries from {feed_title or connection_ref}:")]
         for idx, item in enumerate(entries[:5], start=1):
-            title = item.get("title", "").strip() or "(ohne Titel)"
+            title = item.get("title", "").strip() or _msg(language, "(ohne Titel)", "(untitled)")
             link = self._clean_feed_url(item.get("link", ""))
             published = self._format_feed_timestamp(item.get("published", ""))
             summary = self._clean_feed_summary(item.get("summary", ""))
@@ -1074,8 +1138,46 @@ class CustomSkillRuntime:
     def execute_sftp_write(self, connection_ref: str, remote_path: str, content: str) -> str:
         return self._run_sftp_write_step(connection_ref, remote_path, content)
 
-    def execute_sftp_list(self, connection_ref: str, remote_path: str) -> str:
-        return self._run_sftp_list_step(connection_ref, remote_path)
+    def execute_sftp_list(self, connection_ref: str, remote_path: str, *, language: str = "de") -> str:
+        connection = self._get_connection_profile("sftp", connection_ref)
+
+        connect_kwargs = self._build_sftp_connect_kwargs(connection)
+        resolved_path = self._resolve_sftp_target_path(connection, remote_path or ".")
+        self._enforce_file_guardrail(connection=connection, operation="list", resolved_path=resolved_path)
+
+        try:
+            import paramiko  # type: ignore[import-not-found]
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError("Python-Modul 'paramiko' fehlt. Bitte installieren und ARIA neu starten.") from exc
+
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(**connect_kwargs)
+            sftp = client.open_sftp()
+            try:
+                entries = sftp.listdir_attr(resolved_path)
+            finally:
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+
+        names: list[str] = []
+        for entry in entries[:40]:
+            filename = str(getattr(entry, "filename", "")).strip()
+            if not filename:
+                continue
+            if hasattr(entry, "st_mode") and int(getattr(entry, "st_mode", 0) or 0) & 0o040000:
+                names.append(filename + "/")
+            else:
+                names.append(filename)
+        return self._format_directory_listing("SFTP", resolved_path, names, language=language)
 
     def execute_smb_read(self, connection_ref: str, remote_path: str) -> str:
         return self._run_smb_read_step(connection_ref, remote_path)
@@ -1083,23 +1185,45 @@ class CustomSkillRuntime:
     def execute_smb_write(self, connection_ref: str, remote_path: str, content: str) -> str:
         return self._run_smb_write_step(connection_ref, remote_path, content)
 
-    def execute_smb_list(self, connection_ref: str, remote_path: str) -> str:
-        return self._run_smb_list_step(connection_ref, remote_path)
+    def execute_smb_list(self, connection_ref: str, remote_path: str, *, language: str = "de") -> str:
+        connection = self._get_connection_profile("smb", connection_ref)
 
-    def execute_rss_read(self, connection_ref: str) -> str:
-        return self._run_rss_read_step(connection_ref)
+        resolved_path = self._resolve_smb_target_path(connection, remote_path or ".")
+        self._enforce_file_guardrail(connection=connection, operation="list", resolved_path=resolved_path)
+        conn, share = self._build_smb_connection(connection)
+        try:
+            entries = conn.listPath(share, resolved_path)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
-    def execute_webhook_send(self, connection_ref: str, content: str) -> str:
+        names: list[str] = []
+        for entry in entries[:40]:
+            filename = str(getattr(entry, "filename", "")).strip()
+            if not filename or filename in {".", ".."}:
+                continue
+            if bool(getattr(entry, "isDirectory", False)):
+                names.append(filename + "/")
+            else:
+                names.append(filename)
+        return self._format_directory_listing("SMB", resolved_path, names, language=language)
+
+    def execute_rss_read(self, connection_ref: str, *, language: str = "de") -> str:
+        return self._run_rss_read_step(connection_ref, language=language)
+
+    def execute_webhook_send(self, connection_ref: str, content: str, *, language: str = "de") -> str:
         connection = self._get_connection_profile("webhook", connection_ref)
         webhook_url = str(getattr(connection, "url", "")).strip()
         if not webhook_url:
-            raise ValueError(f"Webhook-URL fehlt im Profil: {connection_ref}")
+            raise ValueError(_msg(language, f"Webhook-URL fehlt im Profil: {connection_ref}", f"Webhook URL is missing in profile: {connection_ref}"))
         timeout_seconds = int(getattr(connection, "timeout_seconds", 10) or 10)
         method = str(getattr(connection, "method", "POST")).strip().upper() or "POST"
         content_type = str(getattr(connection, "content_type", "application/json")).strip() or "application/json"
         payload_text = str(content or "").strip()
         if not payload_text:
-            raise ValueError("Webhook-Inhalt fehlt.")
+            raise ValueError(_msg(language, "Webhook-Inhalt fehlt.", "Webhook content is missing."))
         self._enforce_connection_guardrail(
             connection=connection,
             connection_ref=connection_ref,
@@ -1136,23 +1260,27 @@ class CustomSkillRuntime:
                 status_code = int(getattr(resp, "status", 200) or 200)
                 _ = resp.read()
         except URLError as exc:
-            raise ValueError(f"Webhook-Senden fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"Webhook-Senden fehlgeschlagen: {exc}", f"Webhook send failed: {exc}")) from exc
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Webhook-Senden fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"Webhook-Senden fehlgeschlagen: {exc}", f"Webhook send failed: {exc}")) from exc
         if status_code >= 400:
-            raise ValueError(f"Webhook-Senden fehlgeschlagen: HTTP {status_code}")
-        return f"Webhook gesendet via `{connection_ref}` ({method}, {status_code})"
+            raise ValueError(_msg(language, f"Webhook-Senden fehlgeschlagen: HTTP {status_code}", f"Webhook send failed: HTTP {status_code}"))
+        return _msg(
+            language,
+            f"Webhook gesendet via `{connection_ref}` ({method}, {status_code})",
+            f"Webhook sent via `{connection_ref}` ({method}, {status_code})",
+        )
 
-    def execute_discord_send(self, connection_ref: str, content: str) -> str:
+    def execute_discord_send(self, connection_ref: str, content: str, *, language: str = "de") -> str:
         connection = self._get_connection_profile("discord", connection_ref)
         if not bool(getattr(connection, "allow_skill_messages", True)):
-            raise ValueError("Discord-Profil erlaubt aktuell keine Skill-/Chat-Nachrichten.")
+            raise ValueError(_msg(language, "Discord-Profil erlaubt aktuell keine Skill-/Chat-Nachrichten.", "Discord profile currently does not allow skill/chat messages."))
         webhook_url = str(getattr(connection, "webhook_url", "")).strip()
         if not webhook_url:
-            raise ValueError(f"Discord-Webhook fehlt im Profil: {connection_ref}")
+            raise ValueError(_msg(language, f"Discord-Webhook fehlt im Profil: {connection_ref}", f"Discord webhook is missing in profile: {connection_ref}"))
         payload_text = str(content or "").strip()
         if not payload_text:
-            raise ValueError("Discord-Inhalt fehlt.")
+            raise ValueError(_msg(language, "Discord-Inhalt fehlt.", "Discord content is missing."))
         payload = json.dumps({"content": payload_text[:1900]}, ensure_ascii=False).encode("utf-8")
         req = URLRequest(
             webhook_url,
@@ -1168,18 +1296,18 @@ class CustomSkillRuntime:
                 status_code = int(getattr(resp, "status", 204) or 204)
                 _ = resp.read()
         except URLError as exc:
-            raise ValueError(f"Discord-Senden fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"Discord-Senden fehlgeschlagen: {exc}", f"Discord send failed: {exc}")) from exc
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Discord-Senden fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"Discord-Senden fehlgeschlagen: {exc}", f"Discord send failed: {exc}")) from exc
         if status_code >= 400:
-            raise ValueError(f"Discord-Senden fehlgeschlagen: HTTP {status_code}")
-        return f"Discord gesendet via `{connection_ref}`"
+            raise ValueError(_msg(language, f"Discord-Senden fehlgeschlagen: HTTP {status_code}", f"Discord send failed: HTTP {status_code}"))
+        return _msg(language, f"Discord gesendet via `{connection_ref}`", f"Discord message sent via `{connection_ref}`")
 
-    def execute_http_api_request(self, connection_ref: str, request_path: str = "", content: str = "") -> str:
+    def execute_http_api_request(self, connection_ref: str, request_path: str = "", content: str = "", *, language: str = "de") -> str:
         connection = self._get_connection_profile("http_api", connection_ref)
         base_url = str(getattr(connection, "base_url", "")).strip()
         if not base_url:
-            raise ValueError(f"Base URL fehlt im HTTP-API-Profil: {connection_ref}")
+            raise ValueError(_msg(language, f"Base URL fehlt im HTTP-API-Profil: {connection_ref}", f"Base URL is missing in the HTTP API profile: {connection_ref}"))
         timeout_seconds = int(getattr(connection, "timeout_seconds", 10) or 10)
         method = str(getattr(connection, "method", "GET")).strip().upper() or "GET"
         health_path = str(getattr(connection, "health_path", "/")).strip() or "/"
@@ -1224,11 +1352,11 @@ class CustomSkillRuntime:
                 status_code = int(getattr(resp, "status", 200) or 200)
                 content_type = str(getattr(resp, "headers", {}).get("Content-Type", "") if getattr(resp, "headers", None) else "")
         except URLError as exc:
-            raise ValueError(f"HTTP-API-Aufruf fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"HTTP-API-Aufruf fehlgeschlagen: {exc}", f"HTTP API request failed: {exc}")) from exc
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"HTTP-API-Aufruf fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"HTTP-API-Aufruf fehlgeschlagen: {exc}", f"HTTP API request failed: {exc}")) from exc
         if status_code >= 400:
-            raise ValueError(f"HTTP-API-Aufruf fehlgeschlagen: HTTP {status_code}")
+            raise ValueError(_msg(language, f"HTTP-API-Aufruf fehlgeschlagen: HTTP {status_code}", f"HTTP API request failed: HTTP {status_code}"))
 
         text = body.decode("utf-8", errors="replace").strip()
         if text:
@@ -1239,9 +1367,9 @@ class CustomSkillRuntime:
                 except Exception:
                     pass
             return self.truncate_text(text, 1400)
-        return f"HTTP API ausgeführt via `{connection_ref}` ({method}, {status_code})"
+        return _msg(language, f"HTTP API ausgeführt via `{connection_ref}` ({method}, {status_code})", f"HTTP API executed via `{connection_ref}` ({method}, {status_code})")
 
-    def execute_email_send(self, connection_ref: str, content: str) -> str:
+    def execute_email_send(self, connection_ref: str, content: str, *, language: str = "de") -> str:
         connection = self._get_connection_profile("email", connection_ref)
         host = str(getattr(connection, "smtp_host", "")).strip()
         user = str(getattr(connection, "user", "")).strip()
@@ -1254,20 +1382,20 @@ class CustomSkillRuntime:
         starttls = bool(getattr(connection, "starttls", True))
         body = str(content or "").strip()
         if not host:
-            raise ValueError("SMTP-Host fehlt im Profil.")
+            raise ValueError(_msg(language, "SMTP-Host fehlt im Profil.", "SMTP host is missing in the profile."))
         if not user:
-            raise ValueError("SMTP-User fehlt im Profil.")
+            raise ValueError(_msg(language, "SMTP-User fehlt im Profil.", "SMTP user is missing in the profile."))
         if not password:
-            raise ValueError("SMTP-Passwort fehlt im Profil.")
+            raise ValueError(_msg(language, "SMTP-Passwort fehlt im Profil.", "SMTP password is missing in the profile."))
         if not to_email:
-            raise ValueError("Standard-Empfänger fehlt im SMTP-Profil.")
+            raise ValueError(_msg(language, "Standard-Empfänger fehlt im SMTP-Profil.", "Default recipient is missing in the SMTP profile."))
         if not body:
-            raise ValueError("Mail-Inhalt fehlt.")
+            raise ValueError(_msg(language, "Mail-Inhalt fehlt.", "Email content is missing."))
 
         msg = EmailMessage()
         msg["From"] = from_email
         msg["To"] = to_email
-        msg["Subject"] = "ARIA Nachricht"
+        msg["Subject"] = _msg(language, "ARIA Nachricht", "ARIA message")
         msg.set_content(body)
 
         try:
@@ -1283,8 +1411,8 @@ class CustomSkillRuntime:
                 server.login(user, password)
                 server.send_message(msg)
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"SMTP-Senden fehlgeschlagen: {exc}") from exc
-        return f"Mail gesendet via `{connection_ref}` an {to_email}"
+            raise ValueError(_msg(language, f"SMTP-Senden fehlgeschlagen: {exc}", f"SMTP send failed: {exc}")) from exc
+        return _msg(language, f"Mail gesendet via `{connection_ref}` an {to_email}", f"Email sent via `{connection_ref}` to {to_email}")
 
     @staticmethod
     def _decode_mail_header(value: str) -> str:
@@ -1296,7 +1424,7 @@ class CustomSkillRuntime:
         except Exception:
             return raw
 
-    def _open_imap_connection(self, connection_ref: str) -> tuple[imaplib.IMAP4, str]:
+    def _open_imap_connection(self, connection_ref: str, *, language: str = "de") -> tuple[imaplib.IMAP4, str]:
         connection = self._get_connection_profile("imap", connection_ref)
         host = str(getattr(connection, "host", "")).strip()
         user = str(getattr(connection, "user", "")).strip()
@@ -1305,33 +1433,33 @@ class CustomSkillRuntime:
         port = int(getattr(connection, "port", 993) or 993)
         use_ssl = bool(getattr(connection, "use_ssl", True))
         if not host:
-            raise ValueError("IMAP-Host fehlt im Profil.")
+            raise ValueError(_msg(language, "IMAP-Host fehlt im Profil.", "IMAP host is missing in the profile."))
         if not user:
-            raise ValueError("IMAP-User fehlt im Profil.")
+            raise ValueError(_msg(language, "IMAP-User fehlt im Profil.", "IMAP user is missing in the profile."))
         if not password:
-            raise ValueError("IMAP-Passwort fehlt im Profil.")
+            raise ValueError(_msg(language, "IMAP-Passwort fehlt im Profil.", "IMAP password is missing in the profile."))
         try:
             client = imaplib.IMAP4_SSL(host, max(1, port)) if use_ssl else imaplib.IMAP4(host, max(1, port))
             status, _ = client.login(user, password)
             if status != "OK":
-                raise ValueError("IMAP-Login fehlgeschlagen.")
+                raise ValueError(_msg(language, "IMAP-Login fehlgeschlagen.", "IMAP login failed."))
             status, _ = client.select(mailbox, readonly=True)
             if status != "OK":
-                raise ValueError(f"IMAP-Mailbox nicht erreichbar: {mailbox}")
+                raise ValueError(_msg(language, f"IMAP-Mailbox nicht erreichbar: {mailbox}", f"IMAP mailbox not reachable: {mailbox}"))
             return client, mailbox
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"IMAP-Verbindung fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"IMAP-Verbindung fehlgeschlagen: {exc}", f"IMAP connection failed: {exc}")) from exc
 
-    def execute_imap_read(self, connection_ref: str) -> str:
-        client, mailbox = self._open_imap_connection(connection_ref)
+    def execute_imap_read(self, connection_ref: str, *, language: str = "de") -> str:
+        client, mailbox = self._open_imap_connection(connection_ref, language=language)
         try:
             status, data = client.search(None, "ALL")
             if status != "OK":
-                raise ValueError("IMAP-Suche fehlgeschlagen.")
+                raise ValueError(_msg(language, "IMAP-Suche fehlgeschlagen.", "IMAP search failed."))
             ids = [item for item in (data[0].split() if data and data[0] else [])][-5:]
             if not ids:
-                return f"Mailbox leer: {mailbox}"
-            lines = [f"Neueste Mails aus {mailbox}:"]
+                return _msg(language, f"Mailbox leer: {mailbox}", f"Mailbox is empty: {mailbox}")
+            lines = [_msg(language, f"Latest emails from {mailbox}:", f"Latest emails from {mailbox}:")]
             for idx, msg_id in enumerate(reversed(ids), start=1):
                 status, payload = client.fetch(msg_id, "(RFC822.HEADER)")
                 if status != "OK" or not payload:
@@ -1344,32 +1472,32 @@ class CustomSkillRuntime:
                 if not header_bytes:
                     continue
                 msg = message_from_bytes(header_bytes)
-                subject = self._decode_mail_header(msg.get("Subject", "")) or "(ohne Betreff)"
+                subject = self._decode_mail_header(msg.get("Subject", "")) or _msg(language, "(ohne Betreff)", "(no subject)")
                 sender = self._decode_mail_header(msg.get("From", "")) or "-"
                 date = self._format_feed_timestamp(msg.get("Date", ""))
                 line = f"{idx}. {subject}"
                 if date:
                     line += f" [{date}]"
                 lines.append(line)
-                lines.append(f"   Von: {sender}")
+                lines.append(f"   {_msg(language, 'From', 'From')}: {sender}")
             return self.truncate_text("\n".join(lines), 1400)
         finally:
             with contextlib.suppress(Exception):
                 client.logout()
 
-    def execute_imap_search(self, connection_ref: str, query: str) -> str:
+    def execute_imap_search(self, connection_ref: str, query: str, *, language: str = "de") -> str:
         term = str(query or "").strip()
         if not term:
-            raise ValueError("Suchbegriff für Mail-Suche fehlt.")
-        client, mailbox = self._open_imap_connection(connection_ref)
+            raise ValueError(_msg(language, "Suchbegriff für Mail-Suche fehlt.", "Search term for mail search is missing."))
+        client, mailbox = self._open_imap_connection(connection_ref, language=language)
         try:
             status, data = client.search(None, "TEXT", f'"{term}"')
             if status != "OK":
-                raise ValueError("IMAP-Suche fehlgeschlagen.")
+                raise ValueError(_msg(language, "IMAP-Suche fehlgeschlagen.", "IMAP search failed."))
             ids = [item for item in (data[0].split() if data and data[0] else [])][-5:]
             if not ids:
-                return f"Keine Treffer in {mailbox} für „{term}“."
-            lines = [f"Treffer in {mailbox} für „{term}“:"]
+                return _msg(language, f"Keine Treffer in {mailbox} für „{term}“.", f"No matches in {mailbox} for “{term}”.")
+            lines = [_msg(language, f"Treffer in {mailbox} für „{term}“:", f"Matches in {mailbox} for “{term}”:")]
             for idx, msg_id in enumerate(reversed(ids), start=1):
                 status, payload = client.fetch(msg_id, "(RFC822.HEADER)")
                 if status != "OK" or not payload:
@@ -1382,20 +1510,20 @@ class CustomSkillRuntime:
                 if not header_bytes:
                     continue
                 msg = message_from_bytes(header_bytes)
-                subject = self._decode_mail_header(msg.get("Subject", "")) or "(ohne Betreff)"
+                subject = self._decode_mail_header(msg.get("Subject", "")) or _msg(language, "(ohne Betreff)", "(no subject)")
                 sender = self._decode_mail_header(msg.get("From", "")) or "-"
                 date = self._format_feed_timestamp(msg.get("Date", ""))
                 line = f"{idx}. {subject}"
                 if date:
                     line += f" [{date}]"
                 lines.append(line)
-                lines.append(f"   Von: {sender}")
+                lines.append(f"   {_msg(language, 'From', 'From')}: {sender}")
             return self.truncate_text("\n".join(lines), 1400)
         finally:
             with contextlib.suppress(Exception):
                 client.logout()
 
-    def execute_mqtt_publish(self, connection_ref: str, topic: str, content: str) -> str:
+    def execute_mqtt_publish(self, connection_ref: str, topic: str, content: str, *, language: str = "de") -> str:
         connection = self._get_connection_profile("mqtt", connection_ref)
         host = str(getattr(connection, "host", "")).strip()
         user = str(getattr(connection, "user", "")).strip()
@@ -1407,19 +1535,19 @@ class CustomSkillRuntime:
         use_tls = bool(getattr(connection, "use_tls", False))
         payload = str(content or "").strip()
         if not host:
-            raise ValueError("MQTT-Host fehlt im Profil.")
+            raise ValueError(_msg(language, "MQTT-Host fehlt im Profil.", "MQTT host is missing in the profile."))
         if not user:
-            raise ValueError("MQTT-User fehlt im Profil.")
+            raise ValueError(_msg(language, "MQTT-User fehlt im Profil.", "MQTT user is missing in the profile."))
         if not password:
-            raise ValueError("MQTT-Passwort fehlt im Profil.")
+            raise ValueError(_msg(language, "MQTT-Passwort fehlt im Profil.", "MQTT password is missing in the profile."))
         if not resolved_topic:
-            raise ValueError("MQTT-Topic fehlt. Entweder im Profil hinterlegen oder im Prompt angeben.")
+            raise ValueError(_msg(language, "MQTT-Topic fehlt. Entweder im Profil hinterlegen oder im Prompt angeben.", "MQTT topic is missing. Configure it in the profile or provide it in the prompt."))
         if not payload:
-            raise ValueError("MQTT-Nachricht fehlt.")
+            raise ValueError(_msg(language, "MQTT-Nachricht fehlt.", "MQTT message is missing."))
         try:
             import paho.mqtt.client as mqtt  # type: ignore[import-not-found]
         except Exception as exc:
-            raise ValueError("Python-Modul 'paho-mqtt' fehlt. Bitte installieren und ARIA neu starten.") from exc
+            raise ValueError(_msg(language, "Python-Modul 'paho-mqtt' fehlt. Bitte installieren und ARIA neu starten.", "Python module 'paho-mqtt' is missing. Please install it and restart ARIA.")) from exc
 
         result: dict[str, Any] = {"published": False, "rc": None}
         client = mqtt.Client()
@@ -1445,17 +1573,17 @@ class CustomSkillRuntime:
             while not result["published"] and result["rc"] is None and time.time() < deadline:
                 time.sleep(0.1)
             if result["rc"] is not None and int(result["rc"]) != 0:
-                raise ValueError(f"MQTT-Connect fehlgeschlagen (rc={result['rc']}).")
+                raise ValueError(_msg(language, f"MQTT-Connect fehlgeschlagen (rc={result['rc']}).", f"MQTT connect failed (rc={result['rc']})."))
             if not result["published"]:
-                raise ValueError("MQTT-Publish fehlgeschlagen oder Timeout.")
+                raise ValueError(_msg(language, "MQTT-Publish fehlgeschlagen oder Timeout.", "MQTT publish failed or timed out."))
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"MQTT-Publish fehlgeschlagen: {exc}") from exc
+            raise ValueError(_msg(language, f"MQTT-Publish fehlgeschlagen: {exc}", f"MQTT publish failed: {exc}")) from exc
         finally:
             with contextlib.suppress(Exception):
                 client.loop_stop()
             with contextlib.suppress(Exception):
                 client.disconnect()
-        return f"MQTT gesendet via `{connection_ref}` auf Topic `{resolved_topic}`"
+        return _msg(language, f"MQTT gesendet via `{connection_ref}` auf Topic `{resolved_topic}`", f"MQTT published via `{connection_ref}` on topic `{resolved_topic}`")
 
     async def execute_custom_steps(self, row: dict[str, Any], message: str, language: str = "de") -> SkillResult:
         skill_id = str(row.get("id", "")).strip() or "custom"
@@ -1477,6 +1605,7 @@ class CustomSkillRuntime:
         error_interpretations: dict[str, dict[str, str]] = {}
         ssh_run_summaries: list[dict[str, Any]] = []
         direct_chat = False
+        skipped: list[str] = []
         prompt_tokens = 0
         completion_tokens = 0
         total_tokens = 0
@@ -1498,6 +1627,13 @@ class CustomSkillRuntime:
             for key, val in outputs.items():
                 values[f"{key}_output"] = val
                 values[key] = val
+            condition = step.get("condition", {})
+            if isinstance(condition, dict) and condition:
+                if not _evaluate_skill_step_condition(condition, values):
+                    outputs[step_id] = ""
+                    skipped.append(step_id)
+                    executed.append(f"{idx}.{step_type}(skipped)")
+                    continue
 
             if step_type == "ssh_run":
                 configured_connection_ref = str(params.get("connection_ref", "")).strip()
@@ -1821,6 +1957,7 @@ class CustomSkillRuntime:
             "custom_skill_name": skill_name,
             "custom_execution": "steps",
             "custom_steps_executed": executed,
+            "custom_steps_skipped": skipped,
             "direct_chat_response": direct_chat,
             "custom_ssh_run_summary": ssh_summary,
             "custom_held_packages_by_connection": held_by_connection,
@@ -1930,6 +2067,7 @@ class CustomSkillRuntime:
                     {
                         "action": "search",
                         "user_id": user_id,
+                        "language": language,
                     },
                 )
                 web_result.skill_name = "web_search"

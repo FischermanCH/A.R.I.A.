@@ -69,3 +69,24 @@ def test_router_cls_stays_chat_intent() -> None:
     assert router.classify("/cls").intents == ["chat"]
     assert router.classify("clear").intents == ["chat"]
     assert router.classify("/clear").intents == ["chat"]
+
+
+def test_router_english_memory_store_intent() -> None:
+    routing = RoutingConfig().for_language("en")
+    router = KeywordRouter(routing)
+    decision = router.classify("Remember this: my NAS has the new backup share")
+    assert "memory_store" in decision.intents
+
+
+def test_router_english_web_search_intent() -> None:
+    routing = RoutingConfig().for_language("en")
+    router = KeywordRouter(routing)
+    decision = router.classify("Search the web for the latest rabbit r1 news")
+    assert "web_search" in decision.intents
+
+
+def test_router_english_skill_status_intent() -> None:
+    routing = RoutingConfig().for_language("en")
+    router = KeywordRouter(routing)
+    decision = router.classify("What skills are active right now?")
+    assert decision.intents == ["skill_status"]

@@ -4220,6 +4220,34 @@ button.button-link.subtle-link:hover {
   gap: 0.65rem;
 }
 
+.connection-status-collapsed {
+  margin-top: 0.65rem;
+}
+
+.connection-status-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.2rem 0;
+}
+
+.connection-status-summary::-webkit-details-marker {
+  display: none;
+}
+
+.connection-status-summary-title {
+  font-weight: 700;
+}
+
+.connection-status-summary-meters {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .stats-rss-summary-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

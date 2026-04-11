@@ -29,3 +29,15 @@ def test_build_capability_detail_lines_uses_catalog_detail_metadata() -> None:
     assert api_details[-1] == "Pfad: /health"
     assert mqtt_details[-1] == "Topic: aria/events"
     assert search_details[-1] == "Suche: backup failed"
+
+
+def test_build_capability_detail_lines_supports_english_labels() -> None:
+    details = build_capability_detail_lines(
+        ActionPlan(capability="api_request", connection_kind="http_api", connection_ref="inventory-api", path="/health"),
+        lambda kind: kind.upper(),
+        language="en",
+    )
+    assert details == [
+        "Executed via HTTP_API profile `inventory-api`",
+        "Path: /health",
+    ]

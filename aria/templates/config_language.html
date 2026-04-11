@@ -12,6 +12,7 @@
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
     <form method="post" action="/config/language/save" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
         {{ tr(request, 'config_language.default_language', 'Standardsprache') }}
         <select name="default_language">
@@ -30,6 +31,7 @@
       <summary>{{ tr(request, 'config_language.advanced_summary', 'Erweitert: Sprachdatei editieren') }}</summary>
       <div class="skill-details-content">
         <form method="get" action="/config/language" class="editor-form">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label>
             {{ tr(request, 'config_language.select_file', 'Datei auswählen') }}
             <select name="file" onchange="this.form.submit()">
@@ -42,6 +44,7 @@
         </form>
         <form method="post" action="/config/language/file/save" class="editor-form">
           <input type="hidden" name="file_name" value="{{ selected_file }}">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label>
             {{ tr(request, 'config_language.content', 'Inhalt (JSON)') }}
             <textarea name="content" rows="16" spellcheck="false">{{ editor_content }}</textarea>

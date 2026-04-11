@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aria.core.searxng_client import SearXNGClient, SearXNGSearchResult
 from aria.skills.web_search import WebSearchSkill
+from aria.skills.base import SkillResult
 
 
 def test_searxng_client_extracts_published_date_from_result_item() -> None:
@@ -69,3 +70,66 @@ def test_web_search_skill_filters_results_without_meaningful_query_overlap() -> 
     ordered = skill._prepare_results("suche im internet, was für neuigkeiten gibt es vom rabbit r1", results)  # type: ignore[attr-defined]
 
     assert [item.title for item in ordered] == ["Rabbit R1 wird zum Android-Agent"]
+
+
+def test_web_search_skill_localizes_english_output() -> None:
+    class FakeClient:
+        async def search(self, **kwargs):
+            _ = kwargs
+            return type(
+                "Resp",
+                (),
+                {
+                    "query": "rabbit r1 latest news",
+                    "results": [
+                        SearXNGSearchResult(
+                            title="Rabbit R1 turns into Android agent",
+                            url="https://example.org/rabbit",
+                            snippet="Rabbit shifts from device to Android app.",
+                            engine="startpage news",
+                            published_at="2025-02-27T09:00:00+00:00",
+                            published_label="2025-02-27",
+                        )
+                    ],
+                },
+            )()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "www-search": {
+                            "title": "www-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient())
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "rabbit r1 latest news",
+            {
+                "language": "en",
+            },
+        )
+    )
+
+    assert isinstance(result, SkillResult)
+    assert result.success is True
+    assert "[Web Search via www-search]" in result.content
+    assert "Search: rabbit r1 latest news" in result.content
+    assert "Date: 2025-02-27" in result.content
+    assert result.metadata["detail_lines"] == [
+        "Source: Rabbit R1 turns into Android agent · https://example.org/rabbit · startpage news · 2025-02-27"
+    ]

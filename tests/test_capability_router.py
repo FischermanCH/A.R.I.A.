@@ -345,3 +345,55 @@ def test_capability_router_detects_mqtt_publish() -> None:
     assert draft.explicit_connection_ref == "event-bus"
     assert draft.path == "aria/events"
     assert draft.content == "Backup fertig"
+
+
+def test_capability_router_detects_english_file_read_phrase() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Show me the contents of /etc/hosts on server-main",
+        language="en",
+        available_connection_refs=["server-main"],
+    )
+    assert draft is not None
+    assert draft.capability == "file_read"
+    assert draft.explicit_connection_ref == "server-main"
+    assert draft.path == "/etc/hosts"
+
+
+def test_capability_router_detects_english_feed_request() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "what's new on heise online news",
+        language="en",
+        available_connection_refs_by_kind={"rss": ["heise-online-news"]},
+    )
+    assert draft is not None
+    assert draft.capability == "feed_read"
+    assert draft.connection_kind == "rss"
+    assert draft.explicit_connection_ref == "heise-online-news"
+
+
+def test_capability_router_keeps_unknown_explicit_discord_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+
+    draft = router.classify(
+        'Send a test message to Discord alerts-discord "ARIA lives"',
+        language="en",
+        available_connection_refs_by_kind={"discord": ["fischerman-aria-messages"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "discord_send"
+    assert draft.connection_kind == "discord"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "alerts-discord"
+
+
+def test_capability_router_does_not_steal_english_web_search_as_feed_read() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "search the web for the latest news about the rabbit r1",
+        language="en",
+        available_connection_refs_by_kind={"rss": ["heise-news"]},
+    )
+    assert draft is None

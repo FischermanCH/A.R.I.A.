@@ -71,6 +71,28 @@ def _config_path(base_dir: Path) -> Path:
     return base_dir / "config" / "config.yaml"
 
 
+def _load_active_runtime_profiles(base_dir: Path) -> dict[str, str]:
+    path = _config_path(base_dir)
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    profiles = payload.get("profiles", {})
+    if not isinstance(profiles, dict):
+        return {}
+    active = profiles.get("active", {})
+    if not isinstance(active, dict):
+        return {}
+    result: dict[str, str] = {}
+    for kind in ("llm", "embeddings"):
+        value = str(active.get(kind, "") or "").strip()
+        if value:
+            result[kind] = value
+    return result
+
+
 def _build_release_meta(base_dir: Path) -> dict[str, str]:
     return read_release_meta(base_dir)
 
@@ -352,6 +374,89 @@ def _collapse_rss_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     return collapsed
 
 
+def _collapse_connection_kind_rows(
+    rows: list[dict[str, Any]],
+    *,
+    kind_key: str,
+    threshold: int,
+    language: str = "de",
+) -> list[dict[str, Any]]:
+    normalized_kind = normalize_connection_kind(kind_key)
+    matching_rows = [row for row in rows if normalize_connection_kind(str(row.get("kind_key", "") or row.get("kind", ""))) == normalized_kind]
+    if len(matching_rows) < max(1, int(threshold or 0)):
+        return rows
+
+    total = len(matching_rows)
+    healthy = sum(1 for row in matching_rows if str(row.get("status", "")).strip().lower() == "ok")
+    issues = sum(1 for row in matching_rows if str(row.get("status", "")).strip().lower() == "error")
+    warns = sum(1 for row in matching_rows if str(row.get("status", "")).strip().lower() == "warn")
+    status = "error" if issues else ("warn" if warns else "ok")
+    kind_label = connection_kind_label(normalized_kind)
+    item_label_de = "Feeds" if normalized_kind == "rss" else f"{kind_label}-Profile"
+    item_label_en = "feeds" if normalized_kind == "rss" else f"{kind_label} profiles"
+    target = _pick_text(
+        language,
+        f"{total} konfigurierte {item_label_de}",
+        f"{total} configured {item_label_en}",
+    )
+    parts = [f"{healthy} grün" if str(language).lower().startswith("de") else f"{healthy} ok"]
+    if warns:
+        parts.append(f"{warns} warn")
+    parts.append(f"{issues} rot" if str(language).lower().startswith("de") else f"{issues} error")
+    summary_card = {
+        "kind_key": normalized_kind,
+        "kind": kind_label,
+        "kind_icon": connection_icon_name(normalized_kind),
+        "kind_alpha": connection_is_alpha(normalized_kind),
+        "ref": kind_label,
+        "display_name": kind_label,
+        "title": kind_label,
+        "target": target,
+        "status": status,
+        "message": " · ".join(parts),
+        "last_success_at": "",
+        "edit_url": connection_edit_page(normalized_kind),
+        "chat_icon": connection_chat_emoji(normalized_kind),
+        "grouped_refs": [str(row.get("ref", "")).strip() for row in matching_rows if str(row.get("ref", "")).strip()],
+    }
+
+    collapsed: list[dict[str, Any]] = []
+    inserted = False
+    for row in rows:
+        row_kind = normalize_connection_kind(str(row.get("kind_key", "") or row.get("kind", "")))
+        if row_kind == normalized_kind:
+            if not inserted:
+                collapsed.append(summary_card)
+                inserted = True
+            continue
+        collapsed.append(row)
+    if not inserted:
+        collapsed.append(summary_card)
+    return collapsed
+
+
+def _collapse_large_connection_groups(
+    rows: list[dict[str, Any]],
+    *,
+    threshold: int,
+    language: str = "de",
+) -> list[dict[str, Any]]:
+    collapsed_rows = list(rows)
+    seen_kinds: set[str] = set()
+    for row in rows:
+        normalized_kind = normalize_connection_kind(str(row.get("kind_key", "") or row.get("kind", "")))
+        if not normalized_kind or normalized_kind in seen_kinds:
+            continue
+        seen_kinds.add(normalized_kind)
+        collapsed_rows = _collapse_connection_kind_rows(
+            collapsed_rows,
+            kind_key=normalized_kind,
+            threshold=threshold,
+            language=language,
+        )
+    return collapsed_rows
+
+
 def _connection_edit_url(row: dict[str, Any]) -> str:
     kind = normalize_connection_kind(str(row.get("kind", "")).strip().replace(" ", "_"))
     ref = str(row.get("ref", "")).strip()
@@ -532,7 +637,8 @@ async def _refresh_pricing_snapshot(settings: Any, base_dir: Path) -> dict[str, 
     return snapshot
 
 
-def _build_preflight_meta(payload: dict[str, Any], language: str) -> dict[str, Any]:
+def _build_preflight_meta(payload: dict[str, Any], language: str, active_profiles: dict[str, str] | None = None) -> dict[str, Any]:
+    active_profiles = active_profiles or {}
     labels = {
         "prompts": _pick_text(language, "Prompt-Dateien", "Prompt files"),
         "qdrant": _pick_text(language, "Memory / Qdrant", "Memory / Qdrant"),
@@ -570,10 +676,14 @@ def _build_preflight_meta(payload: dict[str, Any], language: str) -> dict[str, A
         summary = str(row.get("summary", "")).strip()
         if summary_key in summary_labels:
             summary = str(summary_labels[summary_key](row)).strip()
+        active_profile = str(active_profiles.get(check_id, "") or "").strip()
+        display_name = labels.get(check_id, check_id or "-")
+        if active_profile:
+            display_name = f"{display_name} ({active_profile})"
         checks.append(
             {
                 "id": check_id,
-                "name": labels.get(check_id, check_id or "-"),
+                "name": display_name,
                 "status": status,
                 "visual_status": "warn" if status == "skipped" else status,
                 "summary": summary,
@@ -913,7 +1023,12 @@ def register_stats_routes(
         preflight_payload = get_runtime_preflight() or {}
         if inspect.isawaitable(preflight_payload):
             preflight_payload = await preflight_payload
-        preflight_meta = _build_preflight_meta(preflight_payload if isinstance(preflight_payload, dict) else {}, language)
+        active_profiles = _load_active_runtime_profiles(base_dir)
+        preflight_meta = _build_preflight_meta(
+            preflight_payload if isinstance(preflight_payload, dict) else {},
+            language,
+            active_profiles=active_profiles,
+        )
         runtime_memory = _build_runtime_memory_meta(language)
         qdrant_storage = await _build_qdrant_storage_meta(base_dir, settings)
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
@@ -934,10 +1049,15 @@ def register_stats_routes(
             connection_status_rows = build_settings_connection_status_rows(
                 settings,
                 page_probe=True,
+                cached_only_threshold=4,
                 base_dir=base_dir,
                 lang=language,
             )
-            connection_status_rows = _collapse_rss_rows(connection_status_rows)
+            connection_status_rows = _collapse_large_connection_groups(
+                connection_status_rows,
+                threshold=4,
+                language=language,
+            )
             connection_status_rows = _attach_connection_edit_urls(connection_status_rows)
             _save_cached_stats_connections(base_dir, connection_status_rows, language=language)
         else:

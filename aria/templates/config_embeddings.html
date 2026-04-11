@@ -21,13 +21,39 @@
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
 
+    {% if info_message %}
+    <div class="alert ok">{{ info_message }}</div>
+    {% endif %}
+
     <div class="meta-row">
       <span class="meta-badge">{{ tr(request, 'config_embed.active_profile', 'Active profile') }}: {{ active_embedding_profile }}</span>
+    </div>
+
+    {% if test_status == 'ok' or test_status == 'error' %}
+    <article class="connection-test-card status-{{ test_status }}">
+      <div class="connection-test-head">
+        <span class="health-lamp status-{{ test_status }}"></span>
+        <strong>{% if test_status == 'ok' %}{{ tr(request, 'config_conn.test_ok', 'Connection test successful') }}{% else %}{{ tr(request, 'config_conn.test_error', 'Connection test failed') }}{% endif %}</strong>
+      </div>
+      <small>{% if test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+
+    <div class="alert info">
+      <strong>{{ tr(request, 'config_embed.active_profile', 'Active profile') }}:</strong> <code>{{ active_embedding_meta.active_name }}</code><br>
+      <strong>Model:</strong> <code>{{ active_embedding_meta.model or '-' }}</code><br>
+      <strong>API Base:</strong> <code>{{ active_embedding_meta.api_base or '-' }}</code>
     </div>
 
     <div class="alert info">
       {{ tr(request, 'config_embed.save_help', 'Save updates the active profile. To create or overwrite a named profile, enter a profile name below and use "Save as profile".') }}
     </div>
+
+    <form method="post" action="/config/embeddings/test" class="editor-form">
+      <div class="inline-actions">
+        <button type="submit">{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</button>
+      </div>
+    </form>
 
     {% if embedding_guard.memory_point_count > 0 %}
     <div class="alert note">

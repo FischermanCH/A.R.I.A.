@@ -4,6 +4,9 @@
 
 {% if rows %}
   <form method="get" action="{{ picker_action }}" class="file-picker-form">
+    {% if return_to %}
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    {% endif %}
     <label for="{{ picker_id }}">{{ picker_label }}</label>
     <select id="{{ picker_id }}" name="file" onchange="this.form.submit()">
       {% for row in rows %}
@@ -30,6 +33,9 @@
 
   <form method="post" action="{{ save_action }}" class="editor-form">
     <input type="hidden" name="file" value="{{ selected_file }}">
+    {% if return_to %}
+    <input type="hidden" name="return_to" value="{{ return_to }}">
+    {% endif %}
     <label for="{{ textarea_id }}">{{ content_label }}{% if selected_file %}: <code>{{ selected_file }}</code>{% endif %}</label>
     <textarea id="{{ textarea_id }}" name="content" class="editor-textarea{% if selected_row and selected_row.mode|default('edit') == 'readonly' %} is-readonly{% endif %}" spellcheck="false" {% if selected_row and selected_row.mode|default('edit') == 'readonly' %}readonly{% endif %}>{{ file_content }}</textarea>
     <div class="inline-actions">
@@ -39,7 +45,7 @@
       <span class="meta-chip">{{ tr(request, 'config_files.save_disabled', 'Speichern für diese Datei deaktiviert.') }}</span>
       {% endif %}
       {% if selected_file %}
-      <a class="nav-link" href="{{ picker_action }}?file={{ selected_file|urlencode }}">{{ tr(request, 'editor.reload_selected', 'Neu laden') }}</a>
+      <a class="nav-link" href="{{ picker_action }}?file={{ selected_file|urlencode }}{% if return_to %}&return_to={{ return_to|urlencode }}{% endif %}">{{ tr(request, 'editor.reload_selected', 'Neu laden') }}</a>
       {% endif %}
     </div>
   </form>

@@ -8,18 +8,8 @@ from aria.core.connection_admin import (
     resolve_connection_target,
     update_connection_profile,
 )
-from aria.main import (
-    _build_chat_command_catalog,
-    _decode_connection_create_pending,
-    _decode_connection_delete_pending,
-    _encode_connection_create_pending,
-    _encode_connection_delete_pending,
-    _extract_connection_create_metadata,
-    _parse_connection_create_confirm_token,
-    _parse_connection_create_request,
-    _parse_connection_update_confirm_token,
-    _parse_connection_update_request,
-)
+from aria.web import chat_admin_actions
+from aria.web.chat_catalog import build_chat_command_catalog
 from aria.web.config_routes import _normalize_rss_feed_url_for_dedupe
 
 
@@ -898,7 +888,7 @@ def test_update_connection_profile_updates_smtp_and_imap_fields(tmp_path, monkey
 
 
 def test_parse_connection_create_request_supports_rss() -> None:
-    parsed = _parse_connection_create_request(
+    parsed = chat_admin_actions._parse_connection_create_request(
         "Erstelle RSS heise-online-news https://www.heise.de/rss/heise-atom.xml"
     )
     assert parsed is not None
@@ -908,7 +898,7 @@ def test_parse_connection_create_request_supports_rss() -> None:
 
 
 def test_parse_connection_create_request_supports_webhook_and_http_api() -> None:
-    ssh = _parse_connection_create_request(
+    ssh = chat_admin_actions._parse_connection_create_request(
         'erstelle ssh mgmt-ssh 10.0.1.1 user aria key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519 allow "uptime; df -h"'
     )
     assert ssh is not None
@@ -918,7 +908,7 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
     assert ssh["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
     assert ssh["payload"]["allow_commands"] == ["uptime", "df -h"]
 
-    sftp = _parse_connection_create_request(
+    sftp = chat_admin_actions._parse_connection_create_request(
         "erstelle sftp mgmt-sftp 10.0.1.1 user aria pfad /data key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
     )
     assert sftp is not None
@@ -928,7 +918,7 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
     assert sftp["payload"]["root_path"] == "/data"
     assert sftp["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
 
-    smb = _parse_connection_create_request(
+    smb = chat_admin_actions._parse_connection_create_request(
         "erstelle smb nas-share nas-demo share docker user aria pfad /docker"
     )
     assert smb is not None
@@ -937,21 +927,21 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
     assert smb["payload"]["share"] == "docker"
     assert smb["payload"]["root_path"] == "/docker"
 
-    discord = _parse_connection_create_request(
+    discord = chat_admin_actions._parse_connection_create_request(
         "erstelle discord alerts-bot https://discord.example/webhook"
     )
     assert discord is not None
     assert discord["kind"] == "discord"
     assert discord["payload"]["webhook_url"] == "https://discord.example/webhook"
 
-    webhook = _parse_connection_create_request(
+    webhook = chat_admin_actions._parse_connection_create_request(
         "erstelle webhook n8n-test-webhook https://example.org/webhook"
     )
     assert webhook is not None
     assert webhook["kind"] == "webhook"
     assert webhook["ref"] == "n8n-test-webhook"
 
-    http_api = _parse_connection_create_request(
+    http_api = chat_admin_actions._parse_connection_create_request(
         "erstelle http api inventory-api https://example.org/api /health"
     )
     assert http_api is not None
@@ -959,7 +949,7 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
     assert http_api["payload"]["base_url"] == "https://example.org/api"
     assert http_api["payload"]["health_path"] == "/health"
 
-    mqtt = _parse_connection_create_request(
+    mqtt = chat_admin_actions._parse_connection_create_request(
         "erstelle mqtt event-bus mqtt.example.local topic aria/events"
     )
     assert mqtt is not None
@@ -967,7 +957,7 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
     assert mqtt["payload"]["host"] == "mqtt.example.local"
     assert mqtt["payload"]["topic"] == "aria/events"
 
-    smtp = _parse_connection_create_request(
+    smtp = chat_admin_actions._parse_connection_create_request(
         "erstelle smtp alerts-mail smtp.example.local user ops@example.local from ops@example.local to admin@example.local"
     )
     assert smtp is not None
@@ -976,7 +966,7 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
     assert smtp["payload"]["from_email"] == "ops@example.local"
     assert smtp["payload"]["to_email"] == "admin@example.local"
 
-    imap = _parse_connection_create_request(
+    imap = chat_admin_actions._parse_connection_create_request(
         "erstelle imap ops-inbox imap.example.local user ops@example.local mailbox INBOX"
     )
     assert imap is not None
@@ -986,12 +976,12 @@ def test_parse_connection_create_request_supports_webhook_and_http_api() -> None
 
 
 def test_parse_connection_create_confirm_token_supports_german_and_ascii() -> None:
-    assert _parse_connection_create_confirm_token("bestätige verbindung erstellen abc123") == "abc123"
-    assert _parse_connection_create_confirm_token("bestaetige verbindung erstellen abc123") == "abc123"
+    assert chat_admin_actions._parse_connection_create_confirm_token("bestätige verbindung erstellen abc123") == "abc123"
+    assert chat_admin_actions._parse_connection_create_confirm_token("bestaetige verbindung erstellen abc123") == "abc123"
 
 
 def test_extract_connection_create_metadata_parses_optional_fields() -> None:
-    payload = _extract_connection_create_metadata(
+    payload = chat_admin_actions._extract_connection_create_metadata(
         'erstelle rss heise-news https://example.org/feed.xml titel "Heise News" '
         'beschreibung "Aktuelle Tech-News" tags "news, tech" aliases "heise online; headlines"'
     )
@@ -1002,7 +992,7 @@ def test_extract_connection_create_metadata_parses_optional_fields() -> None:
 
 
 def test_parse_connection_create_request_merges_optional_metadata() -> None:
-    parsed = _parse_connection_create_request(
+    parsed = chat_admin_actions._parse_connection_create_request(
         'erstelle webhook n8n-demo https://example.org/hook titel "n8n Demo" tags "automation, webhook"'
     )
     assert parsed is not None
@@ -1011,14 +1001,14 @@ def test_parse_connection_create_request_merges_optional_metadata() -> None:
 
 
 def test_parse_connection_request_supports_generic_passwords_and_tokens() -> None:
-    http_api = _parse_connection_create_request(
+    http_api = chat_admin_actions._parse_connection_create_request(
         "erstelle http api inventory-api https://example.org/api /health token secret-token"
     )
     assert http_api is not None
     assert http_api["kind"] == "http_api"
     assert http_api["payload"]["auth_token"] == "secret-token"
 
-    sftp = _parse_connection_update_request(
+    sftp = chat_admin_actions._parse_connection_update_request(
         "aktualisiere sftp mgmt-sftp password sftp-secret"
     )
     assert sftp is not None
@@ -1027,14 +1017,14 @@ def test_parse_connection_request_supports_generic_passwords_and_tokens() -> Non
 
 
 def test_parse_connection_request_supports_catalog_driven_explicit_field_forms() -> None:
-    webhook = _parse_connection_update_request(
+    webhook = chat_admin_actions._parse_connection_update_request(
         "aktualisiere webhook n8n-demo url https://example.org/new-hook"
     )
     assert webhook is not None
     assert webhook["kind"] == "webhook"
     assert webhook["payload"]["url"] == "https://example.org/new-hook"
 
-    smtp = _parse_connection_update_request(
+    smtp = chat_admin_actions._parse_connection_update_request(
         "aktualisiere smtp alerts-mail host smtp.example.local from ops@example.local"
     )
     assert smtp is not None
@@ -1044,7 +1034,7 @@ def test_parse_connection_request_supports_catalog_driven_explicit_field_forms()
 
 
 def test_parse_connection_update_request_supports_metadata_only_and_url_updates() -> None:
-    ssh = _parse_connection_update_request(
+    ssh = chat_admin_actions._parse_connection_update_request(
         'aktualisiere ssh mgmt-ssh 10.0.1.1 user aria key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519 allow "uptime; df -h"'
     )
     assert ssh is not None
@@ -1054,7 +1044,7 @@ def test_parse_connection_update_request_supports_metadata_only_and_url_updates(
     assert ssh["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
     assert ssh["payload"]["allow_commands"] == ["uptime", "df -h"]
 
-    sftp = _parse_connection_update_request(
+    sftp = chat_admin_actions._parse_connection_update_request(
         "aktualisiere sftp mgmt-sftp 10.0.1.1 user aria pfad /data key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
     )
     assert sftp is not None
@@ -1064,41 +1054,41 @@ def test_parse_connection_update_request_supports_metadata_only_and_url_updates(
     assert sftp["payload"]["root_path"] == "/data"
     assert sftp["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
 
-    smb = _parse_connection_update_request("aktualisiere smb nas-share nas-demo share docker pfad /docker")
+    smb = chat_admin_actions._parse_connection_update_request("aktualisiere smb nas-share nas-demo share docker pfad /docker")
     assert smb is not None
     assert smb["kind"] == "smb"
     assert smb["payload"]["host"] == "nas-demo"
     assert smb["payload"]["share"] == "docker"
     assert smb["payload"]["root_path"] == "/docker"
 
-    discord = _parse_connection_update_request("aktualisiere discord alerts-bot https://discord.example/new-webhook")
+    discord = chat_admin_actions._parse_connection_update_request("aktualisiere discord alerts-bot https://discord.example/new-webhook")
     assert discord is not None
     assert discord["kind"] == "discord"
     assert discord["payload"]["webhook_url"] == "https://discord.example/new-webhook"
 
-    rss = _parse_connection_update_request('aktualisiere rss heise-news titel "Heise News" tags "news, tech"')
+    rss = chat_admin_actions._parse_connection_update_request('aktualisiere rss heise-news titel "Heise News" tags "news, tech"')
     assert rss is not None
     assert rss["kind"] == "rss"
     assert rss["ref"] == "heise-news"
     assert rss["payload"]["title"] == "Heise News"
     assert rss["payload"]["tags"] == ["news", "tech"]
 
-    webhook = _parse_connection_update_request("update webhook n8n-demo https://example.org/new-hook")
+    webhook = chat_admin_actions._parse_connection_update_request("update webhook n8n-demo https://example.org/new-hook")
     assert webhook is not None
     assert webhook["payload"]["url"] == "https://example.org/new-hook"
 
-    http_api = _parse_connection_update_request("ändere http api inventory-api https://example.org/api /health")
+    http_api = chat_admin_actions._parse_connection_update_request("ändere http api inventory-api https://example.org/api /health")
     assert http_api is not None
     assert http_api["payload"]["base_url"] == "https://example.org/api"
     assert http_api["payload"]["health_path"] == "/health"
 
-    mqtt = _parse_connection_update_request("aktualisiere mqtt event-bus mqtt.example.local topic aria/events")
+    mqtt = chat_admin_actions._parse_connection_update_request("aktualisiere mqtt event-bus mqtt.example.local topic aria/events")
     assert mqtt is not None
     assert mqtt["kind"] == "mqtt"
     assert mqtt["payload"]["host"] == "mqtt.example.local"
     assert mqtt["payload"]["topic"] == "aria/events"
 
-    smtp = _parse_connection_update_request(
+    smtp = chat_admin_actions._parse_connection_update_request(
         "aktualisiere smtp alerts-mail smtp.example.local from ops@example.local to admin@example.local"
     )
     assert smtp is not None
@@ -1107,7 +1097,7 @@ def test_parse_connection_update_request_supports_metadata_only_and_url_updates(
     assert smtp["payload"]["from_email"] == "ops@example.local"
     assert smtp["payload"]["to_email"] == "admin@example.local"
 
-    imap = _parse_connection_update_request(
+    imap = chat_admin_actions._parse_connection_update_request(
         "aktualisiere imap ops-inbox imap.example.local mailbox INBOX"
     )
     assert imap is not None
@@ -1117,13 +1107,12 @@ def test_parse_connection_update_request_supports_metadata_only_and_url_updates(
 
 
 def test_parse_connection_update_confirm_token_supports_german_and_ascii() -> None:
-    assert _parse_connection_update_confirm_token("bestätige verbindung aktualisieren abc123") == "abc123"
-    assert _parse_connection_update_confirm_token("bestaetige verbindung aktualisieren abc123") == "abc123"
+    assert chat_admin_actions._parse_connection_update_confirm_token("bestätige verbindung aktualisieren abc123") == "abc123"
+    assert chat_admin_actions._parse_connection_update_confirm_token("bestaetige verbindung aktualisieren abc123") == "abc123"
 
 
 def test_connection_create_pending_roundtrip_keeps_complex_ssh_fields(monkeypatch) -> None:
-    monkeypatch.setattr("aria.main.time.time", lambda: 1000)
-    raw = _encode_connection_create_pending(
+    raw = chat_admin_actions._encode_connection_create_pending(
         {
             "token": "abc123",
             "user_id": "admin",
@@ -1137,10 +1126,19 @@ def test_connection_create_pending_roundtrip_keeps_complex_ssh_fields(monkeypatc
                 "allow_commands": ["uptime", "df -h"],
                 "ignored_field": "nope",
             },
-        }
+        },
+        signing_secret="test-secret",
+        sanitize_username=lambda value: str(value or "").strip(),
+        now_provider=lambda: 1000,
     )
 
-    decoded = _decode_connection_create_pending(raw)
+    decoded = chat_admin_actions._decode_connection_create_pending(
+        raw,
+        signing_secret="test-secret",
+        sanitize_username=lambda value: str(value or "").strip(),
+        max_age_seconds=60 * 10,
+        now_provider=lambda: 1000,
+    )
 
     assert decoded is not None
     assert decoded["kind"] == "ssh"
@@ -1151,23 +1149,34 @@ def test_connection_create_pending_roundtrip_keeps_complex_ssh_fields(monkeypatc
 
 
 def test_connection_delete_pending_expires_after_max_age(monkeypatch) -> None:
-    monkeypatch.setattr("aria.main.time.time", lambda: 1000)
-    raw = _encode_connection_delete_pending(
+    raw = chat_admin_actions._encode_connection_delete_pending(
         {
             "token": "abc123",
             "user_id": "admin",
             "kind": "rss",
             "ref": "heise-news",
-        }
+        },
+        signing_secret="test-secret",
+        sanitize_username=lambda value: str(value or "").strip(),
+        sanitize_connection_name=lambda value: str(value or "").strip(),
+        now_provider=lambda: 1000,
     )
 
-    monkeypatch.setattr("aria.main.time.time", lambda: 1000 + (60 * 10) + 1)
-
-    assert _decode_connection_delete_pending(raw) is None
+    assert (
+        chat_admin_actions._decode_connection_delete_pending(
+            raw,
+            signing_secret="test-secret",
+            sanitize_username=lambda value: str(value or "").strip(),
+            sanitize_connection_name=lambda value: str(value or "").strip(),
+            max_age_seconds=60 * 10,
+            now_provider=lambda: 1000 + (60 * 10) + 1,
+        )
+        is None
+    )
 
 
 def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
-    entries, group_titles, toolbox_groups = _build_chat_command_catalog(
+    entries, group_titles, toolbox_groups = build_chat_command_catalog(
         lang="de",
         auth_role="admin",
         advanced_mode=True,
@@ -1177,8 +1186,8 @@ def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
         connection_catalog={"ssh": ["mgmt-ssh"], "sftp": ["mgmt-sftp"], "smb": ["nas-share"], "rss": ["heise-news"], "discord": ["alerts-bot"], "mqtt": ["event-bus"], "email": ["alerts-mail"], "imap": ["ops-inbox"]},
     )
     assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "starte update" for entry in entries)
-    assert any(entry["group"] == "admin" and entry["insert"] == "exportiere config backup" for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "starte update " for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "exportiere config backup " for entry in entries)
     assert any(entry["group"] == "admin" and "erstelle ssh mgmt-ssh" in entry["insert"] for entry in entries)
     assert any(entry["group"] == "admin" and "erstelle sftp mgmt-sftp" in entry["insert"] for entry in entries)
     assert any(entry["group"] == "admin" and "erstelle smb nas-share" in entry["insert"] for entry in entries)
@@ -1192,7 +1201,7 @@ def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
 
 
 def test_build_chat_command_catalog_adds_suggested_group_for_recent_context() -> None:
-    _entries, group_titles, toolbox_groups = _build_chat_command_catalog(
+    _entries, group_titles, toolbox_groups = build_chat_command_catalog(
         lang="de",
         auth_role="admin",
         advanced_mode=True,
@@ -1209,7 +1218,7 @@ def test_build_chat_command_catalog_adds_suggested_group_for_recent_context() ->
 
 
 def test_build_chat_command_catalog_omits_suggested_group_without_recent_context() -> None:
-    _entries, _group_titles, toolbox_groups = _build_chat_command_catalog(
+    _entries, _group_titles, toolbox_groups = build_chat_command_catalog(
         lang="de",
         auth_role="admin",
         advanced_mode=True,
@@ -1223,7 +1232,7 @@ def test_build_chat_command_catalog_omits_suggested_group_without_recent_context
 
 
 def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
-    entries, _group_titles, toolbox_groups = _build_chat_command_catalog(
+    entries, _group_titles, toolbox_groups = build_chat_command_catalog(
         lang="de",
         auth_role="user",
         advanced_mode=False,
@@ -1235,3 +1244,26 @@ def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
     assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
     assert not any(entry["group"] == "admin" for entry in entries)
     assert not any(group["key"] == "admin" for group in toolbox_groups)
+
+
+def test_build_chat_command_catalog_localizes_visible_inserts_for_english() -> None:
+    entries, _group_titles, _toolbox_groups = build_chat_command_catalog(
+        lang="en",
+        auth_role="admin",
+        advanced_mode=True,
+        recall_templates=["erinnerst du dich an"],
+        store_templates=["merk dir"],
+        skill_trigger_hints=["server update"],
+        connection_catalog={"ssh": ["mgmt-ssh"], "discord": ["alerts-bot"]},
+    )
+    assert any(entry["group"] == "read" and entry["insert"] == "what do you know about " for entry in entries)
+    assert any(entry["group"] == "store" and entry["insert"] == "remember this: " for entry in entries)
+    assert any(entry["group"] == "commands" and entry["insert"] == "search the web for " for entry in entries)
+    assert any(entry["group"] == "commands" and entry["insert"] == "show stats " for entry in entries)
+    assert any(entry["group"] == "commands" and entry["insert"] == "show activities " for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "start update " for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "show update status " for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "export config backup " for entry in entries)
+    assert any(entry["group"] == "admin" and entry["insert"] == "import config backup " for entry in entries)
+    assert any(entry["group"] == "admin" and "create ssh mgmt-ssh" in entry["insert"] for entry in entries)
+    assert any(entry["group"] == "admin" and "update discord alerts-bot" in entry["insert"] for entry in entries)

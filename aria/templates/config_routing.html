@@ -15,6 +15,7 @@
     {% endif %}
 
     <form method="get" action="/config/routing" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label for="scope">{{ tr(request, 'config_routing.scope', 'Language scope') }}</label>
       <select id="scope" name="scope" onchange="this.form.submit()">
         {% for option in scope_options %}
@@ -32,6 +33,7 @@
 
     <form method="post" action="/config/routing/save" class="editor-form">
       <input type="hidden" name="scope" value="{{ selected_scope }}">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label for="memory_store_keywords">memory_store_keywords</label>
       <textarea id="memory_store_keywords" name="memory_store_keywords" class="editor-textarea short" spellcheck="false">{{ store_keywords_text }}</textarea>
 

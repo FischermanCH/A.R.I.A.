@@ -21,6 +21,7 @@
 
   <section class="floating-card">
     <form method="post" action="/config/error-interpreter/save" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label for="content">{{ tr(request, 'config_error_interpreter.content', 'Rules (YAML)') }}</label>
       <textarea id="content" name="content" class="editor-textarea" spellcheck="false">{{ file_content }}</textarea>
       <button type="submit">{{ tr(request, 'config_error_interpreter.save', 'Save rules') }}</button>

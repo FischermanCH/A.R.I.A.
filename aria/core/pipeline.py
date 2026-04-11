@@ -149,6 +149,23 @@ class Pipeline:
     def _connection_kind_label(kind: str) -> str:
         return connection_kind_label(kind)
 
+    @staticmethod
+    def _is_english(language: str | None) -> bool:
+        return str(language or "").strip().lower().startswith("en")
+
+    @classmethod
+    def _msg(cls, language: str | None, de: str, en: str) -> str:
+        return en if cls._is_english(language) else de
+
+    @staticmethod
+    def _call_with_optional_language(func: Any, *args: Any, language: str = "de") -> Any:
+        try:
+            return func(*args, language=language)
+        except TypeError as exc:
+            if "unexpected keyword argument 'language'" not in str(exc):
+                raise
+            return func(*args)
+
     def _default_mqtt_topic(self, connection_ref: str) -> str:
         connection_rows = getattr(getattr(self.settings, "connections", object()), "mqtt", {})
         if not isinstance(connection_rows, dict):
@@ -158,13 +175,13 @@ class Pipeline:
             return str(row.get("topic", "")).strip()
         return str(getattr(row, "topic", "")).strip()
 
-    def _build_capability_detail_lines(self, plan: ActionPlan) -> list[str]:
+    def _build_capability_detail_lines(self, plan: ActionPlan, *, language: str | None = None) -> list[str]:
         effective_plan = plan
         if str(plan.capability or "").strip().lower() == "mqtt_publish" and not str(plan.path or "").strip():
             effective_plan = replace(plan, path=self._default_mqtt_topic(plan.connection_ref))
         elif str(plan.capability or "").strip().lower() == "mail_search" and str(plan.content or "").strip():
             effective_plan = replace(plan, content=self._truncate_text(plan.content, 160))
-        return build_capability_detail_lines(effective_plan, self._connection_kind_label)
+        return build_capability_detail_lines(effective_plan, self._connection_kind_label, language=language)
 
     @staticmethod
     def _collect_skill_detail_lines(skill_results: list[SkillResult]) -> list[str]:
@@ -424,107 +441,173 @@ class Pipeline:
             auto_memory_enabled=auto_memory_enabled,
         )
 
-    async def _execute_file_read(self, plan: ActionPlan) -> str:
+    async def _execute_file_read(self, plan: ActionPlan, *, language: str = "de") -> str:
         if plan.connection_kind == "smb":
             return self._skill_runtime.execute_smb_read(plan.connection_ref, plan.path)
         return self._skill_runtime.execute_sftp_read(plan.connection_ref, plan.path)
 
-    async def _execute_file_write(self, plan: ActionPlan) -> str:
+    async def _execute_file_write(self, plan: ActionPlan, *, language: str = "de") -> str:
         if plan.connection_kind == "smb":
             return self._skill_runtime.execute_smb_write(plan.connection_ref, plan.path, plan.content)
         return self._skill_runtime.execute_sftp_write(plan.connection_ref, plan.path, plan.content)
 
-    async def _execute_file_list(self, plan: ActionPlan) -> str:
+    async def _execute_file_list(self, plan: ActionPlan, *, language: str = "de") -> str:
         if plan.connection_kind == "smb":
-            return self._skill_runtime.execute_smb_list(plan.connection_ref, plan.path or ".")
-        return self._skill_runtime.execute_sftp_list(plan.connection_ref, plan.path or ".")
+            return self._call_with_optional_language(
+                self._skill_runtime.execute_smb_list,
+                plan.connection_ref,
+                plan.path or ".",
+                language=language,
+            )
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_sftp_list,
+            plan.connection_ref,
+            plan.path or ".",
+            language=language,
+        )
 
-    async def _execute_feed_read(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_rss_read(plan.connection_ref)
+    async def _execute_feed_read(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(self._skill_runtime.execute_rss_read, plan.connection_ref, language=language)
 
-    async def _execute_webhook_send(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_webhook_send(plan.connection_ref, plan.content)
+    async def _execute_webhook_send(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_webhook_send,
+            plan.connection_ref,
+            plan.content,
+            language=language,
+        )
 
-    async def _execute_discord_send(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_discord_send(plan.connection_ref, plan.content)
+    async def _execute_discord_send(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_discord_send,
+            plan.connection_ref,
+            plan.content,
+            language=language,
+        )
 
-    async def _execute_api_request(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_http_api_request(plan.connection_ref, plan.path, plan.content)
+    async def _execute_api_request(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_http_api_request,
+            plan.connection_ref,
+            plan.path,
+            plan.content,
+            language=language,
+        )
 
-    async def _execute_email_send(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_email_send(plan.connection_ref, plan.content)
+    async def _execute_email_send(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_email_send,
+            plan.connection_ref,
+            plan.content,
+            language=language,
+        )
 
-    async def _execute_mail_read(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_imap_read(plan.connection_ref)
+    async def _execute_mail_read(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(self._skill_runtime.execute_imap_read, plan.connection_ref, language=language)
 
-    async def _execute_mail_search(self, plan: ActionPlan) -> str:
-        return self._skill_runtime.execute_imap_search(plan.connection_ref, plan.content)
+    async def _execute_mail_search(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_imap_search,
+            plan.connection_ref,
+            plan.content,
+            language=language,
+        )
 
-    async def _execute_mqtt_publish(self, plan: ActionPlan) -> str:
+    async def _execute_mqtt_publish(self, plan: ActionPlan, *, language: str = "de") -> str:
         topic = str(plan.path or "").strip() or self._default_mqtt_topic(plan.connection_ref)
-        return self._skill_runtime.execute_mqtt_publish(plan.connection_ref, topic, plan.content)
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_mqtt_publish,
+            plan.connection_ref,
+            topic,
+            plan.content,
+            language=language,
+        )
 
-    def _format_capability_missing_message(self, plan: ActionPlan) -> str:
+    def _format_capability_missing_message(self, plan: ActionPlan, *, language: str | None = None) -> str:
         connection_rows = getattr(getattr(self.settings, "connections", object()), plan.connection_kind, {})
         available_refs = sorted(connection_rows.keys()) if isinstance(connection_rows, dict) else []
         kind_label = self._connection_kind_label(plan.connection_kind)
-        labels = {
-            "connection_ref": f"welches {kind_label}-Profil / welches Ziel ich verwenden soll",
-            "path": "welchen Dateipfad ich verwenden soll",
-            "content": "welchen Inhalt ich schreiben soll",
-        }
+        if plan.requested_connection_ref:
+            text = self._msg(
+                language,
+                f"Ich habe das gewünschte {kind_label}-Profil `{plan.requested_connection_ref}` nicht gefunden.",
+                f"I could not find the requested {kind_label} profile `{plan.requested_connection_ref}`.",
+            )
+            if available_refs:
+                text += self._msg(
+                    language,
+                    f" Verfügbare {kind_label}-Profile: ",
+                    f" Available {kind_label} profiles: ",
+                ) + ", ".join(available_refs) + "."
+            return text
+        if self._is_english(language):
+            labels = {
+                "connection_ref": f"which {kind_label} profile / target I should use",
+                "path": "which file path I should use",
+                "content": "which content I should send or write",
+            }
+        else:
+            labels = {
+                "connection_ref": f"welches {kind_label}-Profil / welches Ziel ich verwenden soll",
+                "path": "welchen Dateipfad ich verwenden soll",
+                "content": "welchen Inhalt ich schreiben soll",
+            }
         missing = [labels.get(item, item) for item in plan.missing_fields]
-        intro = f"Ich kann das über {kind_label} erledigen"
+        intro = self._msg(language, f"Ich kann das über {kind_label} erledigen", f"I can do this via {kind_label}")
         if plan.capability == "feed_read":
-            intro = "Ich kann diesen Feed lesen"
+            intro = self._msg(language, "Ich kann diesen Feed lesen", "I can read this feed")
         if plan.capability == "webhook_send":
-            intro = "Ich kann das per Webhook senden"
+            intro = self._msg(language, "Ich kann das per Webhook senden", "I can send this via webhook")
         if plan.capability == "discord_send":
-            intro = "Ich kann das nach Discord senden"
+            intro = self._msg(language, "Ich kann das nach Discord senden", "I can send this to Discord")
         if plan.capability == "api_request":
-            intro = "Ich kann diese HTTP-API ansprechen"
+            intro = self._msg(language, "Ich kann diese HTTP-API ansprechen", "I can call this HTTP API")
         if plan.capability == "email_send":
-            intro = "Ich kann diese Nachricht per Mail senden"
+            intro = self._msg(language, "Ich kann diese Nachricht per Mail senden", "I can send this message by email")
         if plan.capability == "mail_read":
-            intro = "Ich kann die Mailbox lesen"
+            intro = self._msg(language, "Ich kann die Mailbox lesen", "I can read the mailbox")
         if plan.capability == "mail_search":
-            intro = "Ich kann die Mailbox durchsuchen"
+            intro = self._msg(language, "Ich kann die Mailbox durchsuchen", "I can search the mailbox")
         if plan.capability == "mqtt_publish":
-            intro = "Ich kann diese Nachricht per MQTT veröffentlichen"
-        text = intro + ", brauche aber noch: " + "; ".join(missing) + "."
+            intro = self._msg(language, "Ich kann diese Nachricht per MQTT veröffentlichen", "I can publish this message via MQTT")
+        text = intro + self._msg(language, ", brauche aber noch: ", ", but I still need: ") + "; ".join(missing) + "."
         if "connection_ref" in plan.missing_fields and available_refs:
-            text += f" Verfügbare {kind_label}-Profile: " + ", ".join(available_refs) + "."
+            text += self._msg(language, f" Verfügbare {kind_label}-Profile: ", f" Available {kind_label} profiles: ") + ", ".join(available_refs) + "."
         return text
 
-    @staticmethod
-    def _sanitize_capability_error(exc: Exception) -> str:
+    def _sanitize_capability_error(self, exc: Exception, *, language: str | None = None) -> str:
         if isinstance(exc, ValueError):
-            return str(exc).strip() or "Ungültige Eingabe."
+            return str(exc).strip() or self._msg(language, "Ungültige Eingabe.", "Invalid input.")
         raw = str(exc).strip()
         if raw:
             return raw[:220]
-        return "Unerwarteter Laufzeitfehler."
+        return self._msg(language, "Unerwarteter Laufzeitfehler.", "Unexpected runtime error.")
 
-    def _format_capability_execution_error(self, plan: ActionPlan, exc: Exception) -> str:
+    def _format_capability_execution_error(self, plan: ActionPlan, exc: Exception, *, language: str | None = None) -> str:
         labels = {
-            "feed_read": "Der Feed konnte nicht gelesen werden.",
-            "webhook_send": "Der Webhook konnte nicht gesendet werden.",
-            "discord_send": "Die Discord-Nachricht konnte nicht gesendet werden.",
-            "api_request": "Die HTTP-API-Anfrage konnte nicht ausgeführt werden.",
-            "email_send": "Die Mail konnte nicht gesendet werden.",
-            "mail_read": "Die Mailbox konnte nicht gelesen werden.",
-            "mail_search": "Die Mailbox konnte nicht durchsucht werden.",
-            "mqtt_publish": "Die MQTT-Nachricht konnte nicht veröffentlicht werden.",
+            "feed_read": self._msg(language, "Der Feed konnte nicht gelesen werden.", "The feed could not be read."),
+            "webhook_send": self._msg(language, "Der Webhook konnte nicht gesendet werden.", "The webhook could not be sent."),
+            "discord_send": self._msg(language, "Die Discord-Nachricht konnte nicht gesendet werden.", "The Discord message could not be sent."),
+            "api_request": self._msg(language, "Die HTTP-API-Anfrage konnte nicht ausgeführt werden.", "The HTTP API request could not be executed."),
+            "email_send": self._msg(language, "Die Mail konnte nicht gesendet werden.", "The email could not be sent."),
+            "mail_read": self._msg(language, "Die Mailbox konnte nicht gelesen werden.", "The mailbox could not be read."),
+            "mail_search": self._msg(language, "Die Mailbox konnte nicht durchsucht werden.", "The mailbox could not be searched."),
+            "mqtt_publish": self._msg(language, "Die MQTT-Nachricht konnte nicht veröffentlicht werden.", "The MQTT message could not be published."),
         }
-        default_label = f"Die {self._connection_kind_label(plan.connection_kind)}-Aktion konnte nicht ausgeführt werden."
+        default_label = self._msg(
+            language,
+            f"Die {self._connection_kind_label(plan.connection_kind)}-Aktion konnte nicht ausgeführt werden.",
+            f"The {self._connection_kind_label(plan.connection_kind)} action could not be executed.",
+        )
         base = labels.get(str(plan.capability or "").strip().lower(), default_label)
-        reason = self._sanitize_capability_error(exc)
-        return f"{base} Grund: {reason}"
+        reason = self._sanitize_capability_error(exc, language=language)
+        return self._msg(language, f"{base} Grund: {reason}", f"{base} Reason: {reason}")
 
     async def _try_capability_action(
         self,
         message: str,
         user_id: str,
+        language: str | None = None,
     ) -> tuple[list[str], str, list[str], ActionPlan, list[str]] | None:
         connection_pools: dict[str, dict[str, Any]] = {}
         for kind in ("sftp", "smb", "rss", "webhook", "discord", "http_api", "email", "imap", "mqtt"):
@@ -547,6 +630,7 @@ class Pipeline:
 
         draft = self.capability_router.classify(
             message,
+            language=language,
             available_connection_refs_by_kind={kind: rows.keys() for kind, rows in connection_pools.items()},
             available_connection_aliases_by_kind=connection_aliases_by_kind,
         )
@@ -604,16 +688,52 @@ class Pipeline:
         plan = build_action_plan(draft, hints, available_connection_refs=sorted(candidate_connections.keys()))
         intent = [f"capability:{plan.capability}"]
         if not plan.is_complete:
-            return intent, self._format_capability_missing_message(plan), [], plan, []
+            return intent, self._format_capability_missing_message(plan, language=language), [], plan, []
 
-        details = self._build_capability_detail_lines(plan)
+        details = self._build_capability_detail_lines(plan, language=language)
         try:
-            result_text = await self._executor_registry.execute(plan)
+            result_text = await self._executor_registry.execute(plan, language=str(language or "de"))
         except Exception as exc:
-            error_text = self._format_capability_execution_error(plan, exc)
+            error_text = self._format_capability_execution_error(plan, exc, language=language)
             error_code = f"capability_{plan.capability}_error:{type(exc).__name__}"
             return intent, error_text, details, plan, [error_code]
         return intent, result_text, details, plan, []
+
+    def _classify_capability_draft(
+        self,
+        message: str,
+        *,
+        language: str | None = None,
+    ) -> Any | None:
+        connection_pools: dict[str, dict[str, Any]] = {}
+        for kind in ("sftp", "smb", "rss", "webhook", "discord", "http_api", "email", "imap", "mqtt"):
+            rows = getattr(getattr(self.settings, "connections", object()), kind, {})
+            if isinstance(rows, dict) and rows:
+                connection_pools[kind] = rows
+        if not connection_pools:
+            return None
+
+        connection_aliases_by_kind: dict[str, dict[str, list[str]]] = {}
+        for kind, rows in connection_pools.items():
+            alias_rows: dict[str, list[str]] = {}
+            for ref, row in rows.items():
+                clean_ref = str(ref).strip()
+                if not clean_ref:
+                    continue
+                alias_rows[clean_ref] = build_connection_aliases(kind, clean_ref, row)
+            if alias_rows:
+                connection_aliases_by_kind[kind] = alias_rows
+
+        return self.capability_router.classify(
+            message,
+            language=language,
+            available_connection_refs_by_kind={kind: rows.keys() for kind, rows in connection_pools.items()},
+            available_connection_aliases_by_kind=connection_aliases_by_kind,
+        )
+
+    def classify_routing(self, message: str, *, language: str | None = None) -> RouterDecision:
+        routing_profile = self.settings.routing.for_language(language)
+        return self.router.classify(message, routing=routing_profile)
 
     async def process(
         self,
@@ -630,7 +750,7 @@ class Pipeline:
 
         persona = self.prompt_loader.get_persona()
         routing_profile = self.settings.routing.for_language(language)
-        decision = self.router.classify(message, routing=routing_profile)
+        decision = self.classify_routing(message, language=language)
         runtime_custom_skills = self._load_custom_skill_runtime()
         if "skill_status" in decision.intents:
             duration_ms = int((time.perf_counter() - start) * 1000)
@@ -669,57 +789,109 @@ class Pipeline:
             )
 
         custom_intents: list[str] = []
+        capability_result = None
         if decision.intents in (["chat"], ["memory_recall"]):
-            custom_intents = self._match_custom_skill_intents(message, runtime_custom_skills)
-        if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents:
-            capability_result = await self._try_capability_action(message, user_id)
+            capability_draft = self._classify_capability_draft(message, language=language)
+            if capability_draft is not None and str(getattr(capability_draft, "explicit_connection_ref", "")).strip():
+                capability_result = await self._try_capability_action(message, user_id, language=language)
             if capability_result is not None:
                 capability_intents, capability_text, capability_details, capability_plan, capability_errors = capability_result
-                duration_ms = int((time.perf_counter() - start) * 1000)
-                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                await self.token_tracker.log(
-                    request_id=request_id,
-                    user_id=user_id,
-                    intents=capability_intents,
-                    router_level=decision.level,
-                    usage=usage,
-                    chat_model=self.settings.llm.model,
-                    embedding_model=self.settings.embeddings.model,
-                    embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                    chat_cost_usd=None,
-                    embedding_cost_usd=None,
-                    total_cost_usd=None,
-                    duration_ms=duration_ms,
-                    source=source,
-                    skill_errors=capability_errors,
-                    extraction_model="capability_router",
-                    extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                )
-                if self.capability_context_store is not None and capability_plan.is_complete:
-                    try:
-                        self.capability_context_store.remember_action(
-                            user_id,
-                            capability=capability_plan.capability,
-                            connection_kind=capability_plan.connection_kind,
-                            connection_ref=capability_plan.connection_ref,
-                            path=capability_plan.path,
-                        )
-                    except Exception:
-                        pass
-                return PipelineResult(
-                    request_id=request_id,
-                    text=capability_text,
-                    usage=usage,
-                    intents=capability_intents,
-                    skill_errors=capability_errors,
-                    router_level=decision.level,
-                    duration_ms=duration_ms,
-                    chat_cost_usd=None,
-                    embedding_cost_usd=None,
-                    total_cost_usd=None,
-                    safe_fix_plan=None,
-                    detail_lines=capability_details,
-                )
+                if capability_plan.is_complete and capability_plan.resolution_source == "explicit":
+                    duration_ms = int((time.perf_counter() - start) * 1000)
+                    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                    await self.token_tracker.log(
+                        request_id=request_id,
+                        user_id=user_id,
+                        intents=capability_intents,
+                        router_level=decision.level,
+                        usage=usage,
+                        chat_model=self.settings.llm.model,
+                        embedding_model=self.settings.embeddings.model,
+                        embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                        chat_cost_usd=None,
+                        embedding_cost_usd=None,
+                        total_cost_usd=None,
+                        duration_ms=duration_ms,
+                        source=source,
+                        skill_errors=capability_errors,
+                        extraction_model="capability_router",
+                        extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                    )
+                    if self.capability_context_store is not None and capability_plan.is_complete:
+                        try:
+                            self.capability_context_store.remember_action(
+                                user_id,
+                                capability=capability_plan.capability,
+                                connection_kind=capability_plan.connection_kind,
+                                connection_ref=capability_plan.connection_ref,
+                                path=capability_plan.path,
+                            )
+                        except Exception:
+                            pass
+                    return PipelineResult(
+                        request_id=request_id,
+                        text=capability_text,
+                        usage=usage,
+                        intents=capability_intents,
+                        skill_errors=capability_errors,
+                        router_level=decision.level,
+                        duration_ms=duration_ms,
+                        chat_cost_usd=None,
+                        embedding_cost_usd=None,
+                        total_cost_usd=None,
+                        safe_fix_plan=None,
+                        detail_lines=capability_details,
+                    )
+            custom_intents = self._match_custom_skill_intents(message, runtime_custom_skills)
+        if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents and capability_result is None:
+            capability_result = await self._try_capability_action(message, user_id, language=language)
+        if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents and capability_result is not None:
+            capability_intents, capability_text, capability_details, capability_plan, capability_errors = capability_result
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            await self.token_tracker.log(
+                request_id=request_id,
+                user_id=user_id,
+                intents=capability_intents,
+                router_level=decision.level,
+                usage=usage,
+                chat_model=self.settings.llm.model,
+                embedding_model=self.settings.embeddings.model,
+                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                duration_ms=duration_ms,
+                source=source,
+                skill_errors=capability_errors,
+                extraction_model="capability_router",
+                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            )
+            if self.capability_context_store is not None and capability_plan.is_complete:
+                try:
+                    self.capability_context_store.remember_action(
+                        user_id,
+                        capability=capability_plan.capability,
+                        connection_kind=capability_plan.connection_kind,
+                        connection_ref=capability_plan.connection_ref,
+                        path=capability_plan.path,
+                    )
+                except Exception:
+                    pass
+            return PipelineResult(
+                request_id=request_id,
+                text=capability_text,
+                usage=usage,
+                intents=capability_intents,
+                skill_errors=capability_errors,
+                router_level=decision.level,
+                duration_ms=duration_ms,
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                safe_fix_plan=None,
+                detail_lines=capability_details,
+            )
         if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents:
             custom_intents = await self._resolve_custom_skill_intent_with_llm(message, runtime_custom_skills)
 
@@ -834,6 +1006,7 @@ class Pipeline:
             persona=persona,
             skill_results=skill_results,
             user_message=message,
+            language=str(language or "de"),
         )
 
         with self.usage_meter.scope(

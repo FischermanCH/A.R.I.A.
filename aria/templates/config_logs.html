@@ -28,6 +28,7 @@
     {% endif %}
 
     <form method="post" action="/config/logs/save" class="config-form-grid">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label class="checkbox-row" for="logs-enabled">
         <input
           id="logs-enabled"
@@ -64,6 +65,7 @@
     </form>
 
     <form method="post" action="/config/logs/cleanup" class="config-actions" style="margin-top: 1rem;">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <button type="submit">{{ tr(request, 'config_logs.cleanup_now', 'Clean up now') }}</button>
     </form>
 
@@ -75,6 +77,7 @@
       {% endif %}
       <p class="hint-text">{{ tr(request, 'config_logs.reset_confirm_hint', 'Type RESET to confirm the reset deliberately.') }}</p>
       <form method="post" action="/config/logs/reset" class="config-form-grid">
+        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <label for="confirm-reset">{{ tr(request, 'config_logs.reset_confirm_label', 'Confirmation') }}</label>
         <input id="confirm-reset" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
         <div class="config-actions">
@@ -88,6 +91,7 @@
       <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes user data, memories, connections, guardrails, custom skills, chat history, SSH keys, and local runtime caches. Runtime secrets and prompts remain intact.') }}</p>
       <p class="hint-text">{{ tr(request, 'config_logs.factory_reset_confirm_hint', 'Type FACTORY RESET to wipe this ARIA instance deliberately.') }}</p>
       <form method="post" action="/config/logs/factory-reset" class="config-form-grid">
+        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <label for="confirm-factory-reset">{{ tr(request, 'config_logs.factory_reset_confirm_label', 'Confirmation') }}</label>
         <input id="confirm-factory-reset" name="confirm_text" type="text" value="" placeholder="FACTORY RESET" autocomplete="off">
         <div class="config-actions">

@@ -155,7 +155,7 @@
     <h2 id="rollup">{{ tr(request, 'config_memory.rollup_title', 'Context rollup (Qdrant)') }}</h2>
     <p>{{ tr(request, 'config_memory.rollup_subtitle_before', 'Moves old') }} <strong>{{ tr(request, 'config_memory.rollup_day_collections', 'Qdrant day-context collections') }}</strong> {{ tr(request, 'config_memory.rollup_subtitle_after', 'automatically into') }} <code>aria_context-mem_{{ username|lower }}</code> {{ tr(request, 'config_memory.rollup_subtitle_delete', 'and deletes the old day collections afterwards.') }}</p>
     <div class="inline-actions">
-      <a class="nav-link" href="/config/prompts?file={{ memory_cfg.compression_summary_prompt|urlencode }}">
+      <a class="nav-link" href="/config/prompts?file={{ memory_cfg.compression_summary_prompt|urlencode }}&return_to=%2Fmemories%2Fconfig">
         {{ tr(request, 'config_memory.edit_summary_prompt', 'Edit summary prompt') }}
       </a>
       <span class="hint-text">{{ tr(request, 'config_memory.summary_prompt_hint', 'Prompt text is managed in Prompt Studio, not as a file path in end-user UI.') }}</span>

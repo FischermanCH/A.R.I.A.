@@ -22,6 +22,7 @@
     <p>{{ tr(request, 'config_security.guardrails_subtitle', 'Wiederverwendbare Sicherheitsprofile für einzelne Dienste. Guardrails lassen sich an kompatible Verbindungen anhängen und später modular erweitern.') }}</p>
 
     <form method="get" action="/config/security" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label for="guardrail_ref">{{ tr(request, 'config_security.load_existing', 'Bestehendes Guardrail laden') }}</label>
       <div class="inline-actions">
         <select id="guardrail_ref" name="guardrail_ref">
@@ -36,6 +37,7 @@
     <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_security.current_guardrail', 'Geladenes Guardrail') }}</strong><span>{{ selected_guardrail_ref }}</span></div>
     <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_guardrail_ref }}">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label for="guardrail_ref_edit">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }}</label>
       <input id="guardrail_ref_edit" name="guardrail_ref" type="text" value="{{ selected_guardrail_ref }}" maxlength="64" required>
       <label for="guardrail_kind_edit">{{ tr(request, 'config_security.guardrail_kind', 'Guardrail-Typ') }}</label>
@@ -67,6 +69,7 @@
     <p>{{ tr(request, 'config_security.delete_guardrail_hint', 'Löscht das Profil und entfernt die Zuordnung aus SSH-Verbindungen, die es verwendet haben.') }}</p>
     <form method="post" action="/config/security/guardrails/delete" class="editor-form">
       <input type="hidden" name="guardrail_ref" value="{{ selected_guardrail_ref }}">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <button type="submit" class="danger">{{ tr(request, 'config_security.delete_guardrail_action', 'Guardrail löschen') }}</button>
     </form>
     {% else %}
@@ -79,6 +82,7 @@
     <p>{{ tr(request, 'config_security.create_guardrail_hint', 'Ein Guardrail ist ein wiederverwendbares Sicherheitsprofil für einen bestimmten Diensttyp. Danach kannst du es an kompatible Verbindungen anhängen.') }}</p>
     <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label for="guardrail_ref_new">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }}</label>
       <input id="guardrail_ref_new" name="guardrail_ref" type="text" value="" maxlength="64" required placeholder="{{ tr(request, 'config_security.ref_placeholder', 'z. B. readonly-linux') }}">
       <label for="guardrail_kind_new">{{ tr(request, 'config_security.guardrail_kind', 'Guardrail-Typ') }}</label>
@@ -128,6 +132,7 @@
         <p class="hint-text">{{ sample.profile_refs }}</p>
         {% endif %}
         <form method="post" action="/config/security/guardrails/import-sample" class="inline-form">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
           <button type="submit">{{ tr(request, 'config_security.sample_guardrails_import_btn', 'Sample-Paket importieren') }}</button>
         </form>

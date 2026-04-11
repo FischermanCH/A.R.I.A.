@@ -5,11 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ request.state.csrf_token if request and request.state else '' }}">
   <title>{{ agent_name(request, title) }}</title>
+  <link rel="icon" type="image/png" href="/favicon.ico?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
+  <link rel="shortcut icon" href="/favicon.ico?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
+  <link rel="apple-touch-icon" href="/static/logo-aria-v01.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
   <script src="/static/vendor/htmx-1.9.12.min.js?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}"></script>
   <link rel="stylesheet" href="/static/style.css?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
 </head>
 <body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}">
   {% from "_icons.html" import icon %}
+  {% set logical_back_url = request.state.logical_back_url if request and request.state and request.state.logical_back_url else '' %}
   <div class="app-shell">
     <header class="topbar">
       <a class="brand brand-home" href="/" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
@@ -49,7 +53,7 @@
             <button
               type="button"
               class="user-menu-link user-menu-link-icon user-menu-button mobile-only"
-              onclick="(function(){ if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
+              onclick="(function(){ const logical='{{ logical_back_url|e }}'; if (logical) { window.location.assign(logical); return; } if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
             >{{ icon('more') }}<span>{{ tr(request, 'base.nav_back', 'Zurück') }}</span></button>
             {% endif %}
             <a href="/memories" class="user-menu-link user-menu-link-icon">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
@@ -86,7 +90,7 @@
         class="nav-back-button desktop-only"
         aria-label="{{ tr(request, 'base.nav_back', 'Zurück') }}"
         title="{{ tr(request, 'base.nav_back', 'Zurück') }}"
-        onclick="(function(){ if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
+        onclick="(function(){ const logical='{{ logical_back_url|e }}'; if (logical) { window.location.assign(logical); return; } if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
       >←</button>
       {% endif %}
     </header>

@@ -8,6 +8,9 @@ from typing import Any, Callable
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
+from aria.core.routing_lexicon import get_default_routing_languages
+from aria.core.routing_lexicon import get_default_routing_profile
+
 DEFAULT_SEARXNG_BASE_URL = "http://searxng:8080"
 
 
@@ -73,130 +76,73 @@ class RoutingLanguageConfig(BaseModel):
     web_search_keywords: list[str] = Field(default_factory=list)
     web_search_prefixes: list[str] = Field(default_factory=list)
     web_search_cleanup_keywords: list[str] = Field(default_factory=list)
+    skill_status_keywords: list[str] = Field(default_factory=list)
+    skill_status_patterns: list[str] = Field(default_factory=list)
+    skill_status_skill_terms: list[str] = Field(default_factory=list)
+    skill_status_status_terms: list[str] = Field(default_factory=list)
 
 
 class RoutingConfig(BaseModel):
     memory_store_keywords: list[str] = Field(
-        default_factory=lambda: ["merk", "speicher", "vergiss nicht", "notier"]
+        default_factory=lambda: get_default_routing_profile()["memory_store_keywords"]
     )
     memory_recall_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "erinnerst",
-            "weisst du noch",
-            "weisst du noch",
-            "was weisst du",
-            "was weisst du",
-            "letztes mal",
-            "gespeichert",
-            "was weisst du über",
-            "was weisst du über",
-        ]
+        default_factory=lambda: get_default_routing_profile()["memory_recall_keywords"]
     )
     memory_store_prefixes: list[str] = Field(
-        default_factory=lambda: [
-            "merk dir, dass ",
-            "merk dir dass ",
-            "merk dir ",
-            "speichere, dass ",
-            "speichere dass ",
-            "speichere ",
-            "notier dir, dass ",
-            "notier dir dass ",
-            "notier dir ",
-            "vergiss nicht, dass ",
-            "vergiss nicht dass ",
-            "vergiss nicht ",
-        ]
+        default_factory=lambda: get_default_routing_profile()["memory_store_prefixes"]
     )
     memory_recall_cleanup_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "erinnerst du dich",
-            "weisst du noch",
-            "weisst du noch",
-            "gespeichert",
-            "letztes mal",
-        ]
+        default_factory=lambda: get_default_routing_profile()["memory_recall_cleanup_keywords"]
     )
     memory_forget_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "vergiss",
-            "lösch",
-            "lösch",
-            "entfern",
-            "delete",
-            "remove",
-        ]
+        default_factory=lambda: get_default_routing_profile()["memory_forget_keywords"]
     )
     web_search_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "websuche",
-            "suche im web",
-            "suche in web",
-            "recherchiere im web",
-            "recherchiere in web",
-            "such im web",
-            "such in web",
-            "suche im internet",
-            "suche in internet",
-            "recherchiere im internet",
-            "recherchiere in internet",
-            "such im internet",
-            "such in internet",
-            "internet suche",
-            "internet search",
-            "suche online",
-            "recherchiere online",
-            "search the web",
-            "web search",
-            "search web",
-        ]
+        default_factory=lambda: get_default_routing_profile()["web_search_keywords"]
     )
     web_search_prefixes: list[str] = Field(
-        default_factory=lambda: [
-            "websuche ",
-            "suche im web ",
-            "suche in web ",
-            "recherchiere im web ",
-            "recherchiere in web ",
-            "such im web ",
-            "such in web ",
-            "suche im internet ",
-            "suche in internet ",
-            "recherchiere im internet ",
-            "recherchiere in internet ",
-            "such im internet ",
-            "such in internet ",
-            "suche online ",
-            "recherchiere online ",
-            "search the web ",
-            "web search ",
-            "search web ",
-        ]
+        default_factory=lambda: get_default_routing_profile()["web_search_prefixes"]
     )
     web_search_cleanup_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "im web",
-            "in web",
-            "online",
-            "im internet",
-            "in internet",
-        ]
+        default_factory=lambda: get_default_routing_profile()["web_search_cleanup_keywords"]
+    )
+    skill_status_keywords: list[str] = Field(
+        default_factory=lambda: get_default_routing_profile()["skill_status_keywords"]
+    )
+    skill_status_patterns: list[str] = Field(
+        default_factory=lambda: get_default_routing_profile()["skill_status_patterns"]
+    )
+    skill_status_skill_terms: list[str] = Field(
+        default_factory=lambda: get_default_routing_profile()["skill_status_skill_terms"]
+    )
+    skill_status_status_terms: list[str] = Field(
+        default_factory=lambda: get_default_routing_profile()["skill_status_status_terms"]
     )
     default: RoutingLanguageConfig | None = None
-    languages: dict[str, RoutingLanguageConfig] = Field(default_factory=dict)
+    languages: dict[str, RoutingLanguageConfig] = Field(
+        default_factory=lambda: {
+            language: RoutingLanguageConfig(**profile)
+            for language, profile in get_default_routing_languages().items()
+        }
+    )
 
     def _base_profile(self) -> RoutingLanguageConfig:
         if self.default is not None:
             return RoutingLanguageConfig(
                 memory_store_keywords=list(self.default.memory_store_keywords),
                 memory_recall_keywords=list(self.default.memory_recall_keywords),
-            memory_store_prefixes=list(self.default.memory_store_prefixes),
-            memory_recall_cleanup_keywords=list(self.default.memory_recall_cleanup_keywords),
-            memory_forget_keywords=list(self.default.memory_forget_keywords),
-            web_search_keywords=list(self.default.web_search_keywords),
-            web_search_prefixes=list(self.default.web_search_prefixes),
-            web_search_cleanup_keywords=list(self.default.web_search_cleanup_keywords),
-        )
+                memory_store_prefixes=list(self.default.memory_store_prefixes),
+                memory_recall_cleanup_keywords=list(self.default.memory_recall_cleanup_keywords),
+                memory_forget_keywords=list(self.default.memory_forget_keywords),
+                web_search_keywords=list(self.default.web_search_keywords),
+                web_search_prefixes=list(self.default.web_search_prefixes),
+                web_search_cleanup_keywords=list(self.default.web_search_cleanup_keywords),
+                skill_status_keywords=list(self.default.skill_status_keywords),
+                skill_status_patterns=list(self.default.skill_status_patterns),
+                skill_status_skill_terms=list(self.default.skill_status_skill_terms),
+                skill_status_status_terms=list(self.default.skill_status_status_terms),
+            )
         return RoutingLanguageConfig(
             memory_store_keywords=list(self.memory_store_keywords),
             memory_recall_keywords=list(self.memory_recall_keywords),
@@ -206,6 +152,10 @@ class RoutingConfig(BaseModel):
             web_search_keywords=list(self.web_search_keywords),
             web_search_prefixes=list(self.web_search_prefixes),
             web_search_cleanup_keywords=list(self.web_search_cleanup_keywords),
+            skill_status_keywords=list(self.skill_status_keywords),
+            skill_status_patterns=list(self.skill_status_patterns),
+            skill_status_skill_terms=list(self.skill_status_skill_terms),
+            skill_status_status_terms=list(self.skill_status_status_terms),
         )
 
     def for_language(self, language: str | None) -> RoutingLanguageConfig:
@@ -231,6 +181,10 @@ class RoutingConfig(BaseModel):
             web_search_cleanup_keywords=list(
                 override.web_search_cleanup_keywords or base.web_search_cleanup_keywords
             ),
+            skill_status_keywords=list(override.skill_status_keywords or base.skill_status_keywords),
+            skill_status_patterns=list(override.skill_status_patterns or base.skill_status_patterns),
+            skill_status_skill_terms=list(override.skill_status_skill_terms or base.skill_status_skill_terms),
+            skill_status_status_terms=list(override.skill_status_status_terms or base.skill_status_status_terms),
         )
 
 

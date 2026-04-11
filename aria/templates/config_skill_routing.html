@@ -31,9 +31,11 @@
     </div>
 
     <form method="post" action="/config/skill-routing/rebuild" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <button type="submit">{{ tr(request, 'config_skill_routing.rebuild', 'Rebuild trigger index') }}</button>
     </form>
     <form method="post" action="/config/skill-routing/suggest-all" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <button type="submit">{{ tr(request, 'config_skill_routing.suggest_all', 'Suggest keywords for all skills (LLM)') }}</button>
     </form>
   </section>
@@ -47,12 +49,14 @@
         <p class="hint-text"><code>{{ row.json_path }}</code></p>
         <form method="post" action="/config/skill-routing/save" class="editor-form">
           <input type="hidden" name="skill_id" value="{{ row.id }}">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label>{{ tr(request, 'config_skill_routing.keywords', 'Trigger keywords (comma separated)') }}</label>
           <textarea name="router_keywords" class="editor-textarea short" spellcheck="false">{{ row.router_keywords_text }}</textarea>
           <button type="submit">{{ tr(request, 'config_skill_routing.save', 'Save trigger keywords') }}</button>
         </form>
         <form method="post" action="/config/skill-routing/suggest" class="editor-form">
           <input type="hidden" name="skill_id" value="{{ row.id }}">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <button type="submit">{{ tr(request, 'config_skill_routing.suggest_one', 'Suggest keywords via LLM') }}</button>
         </form>
       </article>

@@ -42,11 +42,11 @@
     2
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/llm">
+      <a class="config-submenu-item" href="/config/llm?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.llm_title', 'Chat Brain (LLM)') }}</span><span class="submenu-desc">{{ tr(request, 'config.llm_desc', 'Provider, API base, API key, model, temperature, tokens, timeout.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/embeddings">
+      <a class="config-submenu-item" href="/config/embeddings?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('embeddings', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.embed_title', 'Embedding Radar') }}</span><span class="submenu-desc">{{ tr(request, 'config.embed_desc', 'Separate model for memory, search, and similarity.') }}</span></span>
       </a>
@@ -61,11 +61,11 @@
     2
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/routing">
+      <a class="config-submenu-item" href="/config/routing?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.memory_routing_title', 'Memory Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.memory_routing_desc', 'Adjust keywords like “remember this” and “do you remember”.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/skill-routing">
+      <a class="config-submenu-item" href="/config/skill-routing?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.skill_routing_title', 'Skill Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.skill_routing_desc', 'Central trigger map for all custom skills with direct JSON linkage.') }}</span></span>
       </a>
@@ -80,15 +80,15 @@
     3
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/prompts">
+      <a class="config-submenu-item" href="/config/prompts?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.prompt_title', 'Prompt Studio') }}</span><span class="submenu-desc">{{ tr(request, 'config.prompt_desc', 'Edit persona and skill prompts directly in the browser.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/appearance">
+      <a class="config-submenu-item" href="/config/appearance?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('appearance', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.appearance_title', 'Appearance & Theme') }}</span><span class="submenu-desc">{{ tr(request, 'config.appearance_desc', 'Choose the visual style, accent palette, and background atmosphere for your ARIA.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/language">
+      <a class="config-submenu-item" href="/config/language?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('language', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.language_title', 'Language & Translation') }}</span><span class="submenu-desc">{{ tr(request, 'config.language_desc', 'Set default language and edit language files in Advanced mode.') }}</span></span>
       </a>
@@ -107,7 +107,7 @@
       {% if row.disabled %}
       <div class="config-submenu-item is-disabled" aria-disabled="true">
       {% else %}
-      <a class="config-submenu-item" href="{{ row.url }}">
+      <a class="config-submenu-item" href="{{ row.url }}{% if '?' in row.url %}&{% else %}?{% endif %}return_to=%2Fconfig">
       {% endif %}
         <span class="submenu-icon-wrap">{{ icon(row.icon, 'submenu-icon') }}</span>
         <span class="submenu-copy">
@@ -177,7 +177,7 @@
     True
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/users">
+      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
         <span class="submenu-copy">
           <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Users & Access') }}</span>
@@ -195,23 +195,23 @@
     5
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/security">
+      <a class="config-submenu-item" href="/config/security?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/logs">
+      <a class="config-submenu-item" href="/config/logs?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/files">
+      <a class="config-submenu-item" href="/config/files?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.files_title', 'File Editor') }}</span><span class="submenu-desc">{{ tr(request, 'config.files_desc', 'Direct access to relevant text files without an IDE.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/error-interpreter">
+      <a class="config-submenu-item" href="/config/error-interpreter?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/backup">
+      <a class="config-submenu-item" href="/config/backup?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.backup_title', 'Backup & Restore') }}</span><span class="submenu-desc">{{ tr(request, 'config.backup_desc', 'Export your full ARIA configuration or restore it from a backup file.') }}</span></span>
       </a>

@@ -31,6 +31,7 @@
     </p>
     <p class="hint-text">{{ tr(request, 'config_users.admin_toggle_effect', 'This controls advanced areas such as LLM, Embeddings, Security, Logs and the File Editor.') }}</p>
     <form class="editor-form" method="post" action="/config/users/debug-save">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label class="inline-check">
         <input type="checkbox" name="debug_mode" value="1" {% if debug_mode %}checked{% endif %}>
         {{ tr(request, 'config_users.enable_admin_mode', 'Enable admin mode') }}
@@ -46,6 +47,7 @@
     <p class="hint-text">{{ tr(request, 'config_users.login_bootstrap_hint', 'Persönliche Login- und Erststart-Einstellungen für diese ARIA-Instanz.') }}</p>
     <p class="hint-text">{{ tr(request, 'config_users.bootstrap_explainer', 'Solange noch kein Benutzer existiert, kann ARIA den ersten Login als Bootstrap-Admin anlegen. Nach dem ersten Setup sollte Bootstrap gesperrt bleiben, damit auf einer leeren oder fehlerhaften User-DB nicht versehentlich wieder ein neuer Admin erzeugt wird.') }}</p>
     <form class="editor-form" method="post" action="/config/users/security-save">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label class="inline-check">
         <input type="checkbox" name="bootstrap_locked" value="1" {% if security_cfg.bootstrap_locked %}checked{% endif %}>
         {{ tr(request, 'config_users.bootstrap_lock', 'Bootstrap sperren (empfohlen)') }}
@@ -77,6 +79,7 @@
     <h3>{{ tr(request, 'config_users.create_user', 'Create new user') }}</h3>
     <p class="hint-text">{{ tr(request, 'config_users.create_user_hint', 'Neue Benutzer starten mit der gewählten Rolle. Für den aktuellen ALPHA-Stand ist ARIA trotzdem primär als Personal-Single-User-System gedacht; geteilte Ownership/RBAC kommen später als separater Architekturblock.') }}</p>
     <form class="editor-form" method="post" action="/config/users/create">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <div class="inline-actions">
         <input type="text" name="create_username" maxlength="40" placeholder="Username" required>
         <input type="password" name="create_password" minlength="8" placeholder="{{ tr(request, 'config_users.password_placeholder', 'Password (min. 8)') }}" required>
@@ -97,6 +100,7 @@
         <h4><code>{{ row.username }}</code></h4>
         <form class="editor-form" method="post" action="/config/users/update">
           <input type="hidden" name="username_value" value="{{ row.username }}">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label>{{ tr(request, 'config_users.username_new', 'Username (new)') }}
             <input type="text" name="new_username_value" maxlength="40" value="{{ row.username }}" required>
           </label>

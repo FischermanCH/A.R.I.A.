@@ -82,7 +82,7 @@
         </div>
         <p class="hint-text">{{ tr(request, 'config.backup_export_hint', 'Tip: create a fresh backup before larger upgrades or before importing a file from another instance.') }}</p>
         <p>
-          <a class="button-like" href="/config/backup/export">{{ tr(request, 'config.backup_export_btn', 'Download config backup') }}</a>
+          <a class="button-like" href="/config/backup/export{% if return_to %}?return_to={{ return_to|urlencode }}{% endif %}">{{ tr(request, 'config.backup_export_btn', 'Download config backup') }}</a>
         </p>
       </article>
 
@@ -96,6 +96,7 @@
           {{ tr(request, 'config.backup_import_warn', 'Import replaces the active configuration snapshot, secure-store entries, and custom skill manifests with the contents of the backup file.') }}
         </div>
         <form method="post" action="/config/backup/import" enctype="multipart/form-data">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label for="backup_file">{{ tr(request, 'config.backup_file_label', 'Backup file (.json)') }}</label>
           <input id="backup_file" type="file" name="backup_file" accept="application/json,.json" required>
           <button type="submit">{{ tr(request, 'config.backup_import_btn', 'Restore backup') }}</button>

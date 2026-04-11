@@ -12,6 +12,7 @@
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
     <form method="post" action="/config/appearance/save" class="editor-form">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
         {{ tr(request, 'config_appearance.theme_label', 'Theme palette') }}
         <select name="theme">

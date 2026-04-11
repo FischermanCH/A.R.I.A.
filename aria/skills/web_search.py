@@ -19,6 +19,14 @@ class WebSearchSkill(BaseSkill):
         self.settings = settings
         self.client = client or SearXNGClient()
 
+    @staticmethod
+    def _is_english(language: str | None) -> bool:
+        return str(language or "").strip().lower().startswith("en")
+
+    @classmethod
+    def _msg(cls, language: str | None, de: str, en: str) -> str:
+        return en if cls._is_english(language) else de
+
     _QUERY_STOPWORDS = {
         "a",
         "an",
@@ -121,9 +129,9 @@ class WebSearchSkill(BaseSkill):
         first_ref = sorted(rows.keys())[0]
         return first_ref, rows[first_ref]
 
-    @staticmethod
-    def _detail_line(title: str, url: str, engine: str, published_label: str = "") -> str:
-        parts = [f"Quelle: {title}"]
+    @classmethod
+    def _detail_line(cls, language: str | None, title: str, url: str, engine: str, published_label: str = "") -> str:
+        parts = [f"{cls._msg(language, 'Quelle', 'Source')}: {title}"]
         if url:
             parts.append(url)
         if engine:
@@ -258,13 +266,14 @@ class WebSearchSkill(BaseSkill):
         return [row[4] for row in scored]
 
     async def execute(self, query: str, params: dict) -> SkillResult:
+        language = str(params.get("language", "") or "").strip().lower()
         selected = self._select_profile(query, explicit_ref=str(params.get("connection_ref", "")))
         if selected is None:
             return SkillResult(
                 skill_name=self.name,
                 content="",
                 success=False,
-                error="Keine SearXNG-Verbindung konfiguriert.",
+                error=self._msg(language, "Keine SearXNG-Verbindung konfiguriert.", "No SearXNG connection configured."),
             )
         ref, profile = selected
         display_name = str(self._profile_value(profile, "title", "")).strip() or ref
@@ -285,7 +294,7 @@ class WebSearchSkill(BaseSkill):
                 skill_name=self.name,
                 content="",
                 success=False,
-                error=f"Websuche fehlgeschlagen: {exc}",
+                error=self._msg(language, f"Websuche fehlgeschlagen: {exc}", f"Web search failed: {exc}"),
             )
 
         ordered_results = self._prepare_results(query, response.results)
@@ -293,14 +302,28 @@ class WebSearchSkill(BaseSkill):
         if not ordered_results:
             return SkillResult(
                 skill_name=self.name,
-                content="[Web Search]\nKeine Web-Treffer gefunden.",
+                content=self._msg(language, "[Web Search]\nKeine Web-Treffer gefunden.", "[Web Search]\nNo web results found."),
                 success=True,
-                metadata={"detail_lines": [f"Websuche via {display_name} · 0 Treffer"]},
+                metadata={
+                    "detail_lines": [
+                        self._msg(
+                            language,
+                            f"Websuche via {display_name} · 0 Treffer",
+                            f"Web search via {display_name} · 0 results",
+                        )
+                    ]
+                },
             )
 
-        lines = [f"[Web Search via {display_name}]", f"Suche: {response.query}"]
+        lines = [f"[Web Search via {display_name}]", f"{self._msg(language, 'Suche', 'Search')}: {response.query}"]
         if self._is_recency_query(query):
-            lines.append("Hinweis: Treffer mit erkannten Datumsangaben werden zuerst gezeigt.")
+            lines.append(
+                self._msg(
+                    language,
+                    "Hinweis: Treffer mit erkannten Datumsangaben werden zuerst gezeigt.",
+                    "Note: results with recognized publication dates are shown first.",
+                )
+            )
         detail_lines: list[str] = []
         source_entries: list[dict[str, Any]] = []
         for index, result in enumerate(ordered_results, start=1):
@@ -310,11 +333,11 @@ class WebSearchSkill(BaseSkill):
             if result.engine:
                 entry += f"\n  Engine: {result.engine}"
             if result.published_label:
-                entry += f"\n  Datum: {result.published_label}"
+                entry += f"\n  {self._msg(language, 'Datum', 'Date')}: {result.published_label}"
             if result.snippet:
                 entry += f"\n  Snippet: {result.snippet}"
             lines.append(entry)
-            detail = self._detail_line(result.title, result.url, result.engine, result.published_label)
+            detail = self._detail_line(language, result.title, result.url, result.engine, result.published_label)
             detail_lines.append(detail)
             source_entries.append(
                 {

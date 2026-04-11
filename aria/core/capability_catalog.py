@@ -7,6 +7,19 @@ from aria.core.action_plan import ActionPlan
 
 CapabilityLabelResolver = Callable[[str], str]
 
+_CAPABILITY_DETAIL_I18N: dict[str, dict[str, str]] = {
+    "de": {
+        "executed_via": "Ausgeführt via {kind}-Profil `{ref}`",
+        "detail_path": "Pfad",
+        "detail_search": "Suche",
+    },
+    "en": {
+        "executed_via": "Executed via {kind} profile `{ref}`",
+        "detail_path": "Path",
+        "detail_search": "Search",
+    },
+}
+
 
 CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
     "file_read": {
@@ -66,12 +79,36 @@ def capability_badge(capability: str) -> tuple[str, str] | None:
     return str(spec.get("icon", "💬")), str(spec.get("badge", capability)).strip()
 
 
-def build_capability_detail_lines(plan: ActionPlan, connection_kind_label: CapabilityLabelResolver) -> list[str]:
+def _capability_detail_text(language: str | None, key: str, fallback: str) -> str:
+    lang_key = str(language or "").strip().lower()
+    if lang_key:
+        value = _CAPABILITY_DETAIL_I18N.get(lang_key, {}).get(key)
+        if value:
+            return value
+    return _CAPABILITY_DETAIL_I18N["de"].get(key, fallback)
+
+
+def build_capability_detail_lines(
+    plan: ActionPlan,
+    connection_kind_label: CapabilityLabelResolver,
+    *,
+    language: str | None = None,
+) -> list[str]:
     capability = str(plan.capability or "").strip().lower()
-    details = [f"Ausgeführt via {connection_kind_label(plan.connection_kind)}-Profil `{plan.connection_ref}`"]
+    executed_via_template = _capability_detail_text(language, "executed_via", "Ausgeführt via {kind}-Profil `{ref}`")
+    details = [
+        executed_via_template.format(
+            kind=connection_kind_label(plan.connection_kind),
+            ref=plan.connection_ref,
+        )
+    ]
     spec = CAPABILITY_CATALOG.get(capability, {})
     detail_attr = str(spec.get("detail_attr") or "").strip()
     detail_label = str(spec.get("detail_label") or "").strip()
+    if detail_label == "Pfad":
+        detail_label = _capability_detail_text(language, "detail_path", detail_label)
+    elif detail_label == "Suche":
+        detail_label = _capability_detail_text(language, "detail_search", detail_label)
     if detail_attr and detail_label:
         value = str(getattr(plan, detail_attr, "") or "").strip()
         if value:

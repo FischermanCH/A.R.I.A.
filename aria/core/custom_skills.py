@@ -75,18 +75,33 @@ def _normalize_skill_steps_manifest(raw_steps: Any) -> list[dict[str, Any]]:
             if not clean_key:
                 continue
             clean_params[clean_key] = str(val).strip()[:1200]
+        condition = item.get("condition", {})
+        clean_condition: dict[str, Any] | None = None
+        if isinstance(condition, dict):
+            source = str(condition.get("source", "")).strip().lower()
+            operator = str(condition.get("operator", "")).strip().lower()
+            value = str(condition.get("value", "")).strip()[:1200]
+            ignore_case = bool(condition.get("ignore_case", False))
+            if operator in {"equals", "not_equals", "contains", "not_contains", "regex", "is_empty", "not_empty"}:
+                clean_condition = {
+                    "source": re.sub(r"[^a-z0-9_-]", "", source)[:40],
+                    "operator": operator,
+                    "value": value,
+                    "ignore_case": ignore_case,
+                }
         on_error = str(item.get("on_error", "stop")).strip().lower() or "stop"
         if on_error not in {"stop", "continue"}:
             on_error = "stop"
-        rows.append(
-            {
-                "id": re.sub(r"[^a-z0-9_-]", "", step_id)[:20] or f"s{index + 1}",
-                "name": step_name,
-                "type": step_type,
-                "params": clean_params,
-                "on_error": on_error,
-            }
-        )
+        row = {
+            "id": re.sub(r"[^a-z0-9_-]", "", step_id)[:20] or f"s{index + 1}",
+            "name": step_name,
+            "type": step_type,
+            "params": clean_params,
+            "on_error": on_error,
+        }
+        if clean_condition:
+            row["condition"] = clean_condition
+        rows.append(row)
     return rows
 
 

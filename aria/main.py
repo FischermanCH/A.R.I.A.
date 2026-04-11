@@ -27,7 +27,7 @@ from uuid import uuid4
 
 import yaml
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
@@ -37,7 +37,9 @@ except ModuleNotFoundError:  # pragma: no cover - runtime dependency fallback
     markdown_lib = None
 
 from aria.channels.api import register_api_routes
+import aria.web.chat_admin_actions as chat_admin_actions
 from aria.web.activities_routes import register_activities_routes
+from aria.web.chat_catalog import build_chat_command_catalog
 from aria.web.config_routes import ConfigRouteDeps, register_config_routes
 from aria.web.memories_routes import register_memories_routes
 from aria.web.skills_routes import register_skills_routes
@@ -55,8 +57,6 @@ from aria.core.capability_context import CapabilityContextStore
 from aria.core.capability_catalog import capability_badge
 from aria.core.connection_admin import (
     CONNECTION_ADMIN_SPECS,
-    CONNECTION_CREATE_SPECS,
-    CONNECTION_UPDATE_SPECS,
     create_connection_profile,
     delete_connection_profile,
     friendly_connection_admin_error_text,
@@ -66,21 +66,7 @@ from aria.core.connection_admin import (
     update_connection_profile,
 )
 from aria.core.connection_catalog import (
-    connection_chat_aliases,
-    connection_chat_defaults,
-    connection_chat_field_specs,
-    connection_chat_primary_field,
-    connection_example_ref,
-    connection_field_labels,
-    connection_field_specs,
-    connection_chat_emoji,
-    connection_icon_name,
-    connection_insert_template,
-    connection_kind_label,
-    connection_summary_fields,
-    connection_toolbox_keywords,
     sanitize_connection_payload,
-    normalize_connection_kind,
 )
 from aria.core.config import (
     Settings,
@@ -809,380 +795,6 @@ def _exception_response(request: Request, *, detail: str, status_code: int = 500
     return JSONResponse(status_code=status_code, content={"detail": clean_detail})
 
 
-def _toolbox_label(lang: str, key: str, default: str) -> str:
-    return I18N.t(lang, f"chat.{key}", default)
-
-
-def _chat_connection_kind_label(kind: str) -> str:
-    return connection_kind_label(kind)
-
-
-def _chat_connection_example_ref(kind: str, connection_catalog: dict[str, list[str]]) -> str:
-    return connection_example_ref(kind, connection_catalog)
-
-
-def _chat_connection_create_insert(kind: str, ref: str) -> str:
-    return connection_insert_template(kind, "create", ref)
-
-
-def _chat_connection_update_insert(kind: str, ref: str) -> str:
-    return connection_insert_template(kind, "update", ref)
-
-
-def _connection_toolbox_keywords(kind: str, refs: list[str]) -> list[str]:
-    return connection_toolbox_keywords(kind, refs)
-
-
-def _chat_connection_kind_icon(kind: str) -> str:
-    return connection_chat_emoji(kind)
-
-
-def _score_chat_command_entry(
-    entry: dict[str, Any],
-    *,
-    recent_text: str,
-) -> int:
-    haystack = str(recent_text or "").strip().lower()
-    if not haystack:
-        return 0
-    score = 0
-    for keyword in entry.get("keywords", []):
-        value = str(keyword or "").strip().lower()
-        if not value or len(value) < 2:
-            continue
-        if value in haystack:
-            score += 3 if len(value) >= 6 else 2
-    label = str(entry.get("label", "")).strip().lower()
-    hint = str(entry.get("hint", "")).strip().lower()
-    if label and label in haystack:
-        score += 2
-    elif hint and hint in haystack:
-        score += 1
-    return score
-
-
-def _build_suggested_toolbox_group(
-    lang: str,
-    entries: list[dict[str, Any]],
-    recent_messages: list[str] | None,
-) -> dict[str, Any] | None:
-    recent_text = " \n".join(str(row or "").strip().lower() for row in (recent_messages or [])[-8:] if str(row or "").strip())
-    if not recent_text:
-        return None
-    scored: list[tuple[int, dict[str, Any]]] = []
-    seen_inserts: set[str] = set()
-    for entry in entries:
-        insert = str(entry.get("insert", "")).strip()
-        if not insert:
-            continue
-        score = _score_chat_command_entry(entry, recent_text=recent_text)
-        if score <= 0:
-            continue
-        if insert in seen_inserts:
-            continue
-        seen_inserts.add(insert)
-        scored.append((score, entry))
-    if not scored:
-        return None
-    scored.sort(key=lambda item: (-item[0], str(item[1].get("group", "")), str(item[1].get("label", ""))))
-    return {
-        "key": "suggested",
-        "title": _toolbox_label(lang, "slash_suggested", "Passend jetzt"),
-        "items": [row for _, row in scored[:5]],
-    }
-
-
-def _build_admin_chat_command_entries(lang: str, connection_catalog: dict[str, list[str]]) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-
-    for kind in sorted(CONNECTION_CREATE_SPECS.keys()):
-        label_kind = _chat_connection_kind_label(kind)
-        example_ref = _chat_connection_example_ref(kind, connection_catalog)
-        refs = connection_catalog.get(normalize_connection_kind(kind), [])
-        entries.append(
-            {
-                "group": "admin",
-                "kind": kind,
-                "icon": _chat_connection_kind_icon(kind),
-                "label": f"{_toolbox_label(lang, 'tool_create_connection', 'Verbindung erstellen')} · {label_kind}",
-                "insert": _chat_connection_create_insert(kind, example_ref),
-                "hint": _toolbox_label(
-                    lang,
-                    "tool_create_connection_hint",
-                    "Erstellt eine einfache Connection per Chat mit Confirm-Step.",
-                ),
-                "keywords": _connection_toolbox_keywords(kind, refs),
-            }
-        )
-
-    for kind in sorted(CONNECTION_UPDATE_SPECS.keys()):
-        label_kind = _chat_connection_kind_label(kind)
-        example_ref = _chat_connection_example_ref(kind, connection_catalog)
-        refs = connection_catalog.get(normalize_connection_kind(kind), [])
-        entries.append(
-            {
-                "group": "admin",
-                "kind": kind,
-                "icon": _chat_connection_kind_icon(kind),
-                "label": f"{_toolbox_label(lang, 'tool_update_connection', 'Verbindung aktualisieren')} · {label_kind}",
-                "insert": _chat_connection_update_insert(kind, example_ref),
-                "hint": _toolbox_label(
-                    lang,
-                    "tool_update_connection_hint",
-                    "Aktualisiert einfache Connections oder nur Metadaten per Chat.",
-                ),
-                "keywords": _connection_toolbox_keywords(kind, refs),
-            }
-        )
-
-    delete_kind = ""
-    delete_ref = ""
-    for kind in sorted(connection_catalog.keys()):
-        refs = connection_catalog.get(kind, [])
-        if refs:
-            delete_kind = kind
-            delete_ref = refs[0]
-            break
-    if not delete_kind:
-        delete_kind = "rss"
-        delete_ref = _chat_connection_example_ref(delete_kind, connection_catalog)
-    entries.append(
-        {
-            "group": "admin",
-            "icon": _chat_connection_kind_icon(delete_kind),
-            "kind": delete_kind,
-            "label": f"{_toolbox_label(lang, 'tool_delete_connection', 'Verbindung löschen')} · {_chat_connection_kind_label(delete_kind)}",
-            "insert": f"lösche {delete_kind} {delete_ref} ",
-            "hint": _toolbox_label(
-                lang,
-                "tool_delete_connection_hint",
-                "Löscht ein Connection-Profil mit Confirm-Step.",
-            ),
-            "keywords": _connection_toolbox_keywords(delete_kind, [delete_ref]),
-        }
-    )
-    return entries
-
-
-def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    general_entries: list[dict[str, Any]] = [
-        {
-            "group": "commands",
-            "icon": "🌐",
-            "label": _toolbox_label(lang, "tool_web_search", "Web search"),
-            "insert": "suche im internet nach ",
-            "hint": _toolbox_label(lang, "tool_web_search_hint", "Startet eine explizite Websuche mit Quellen."),
-            "keywords": ["internet", "web", "search", "websuche", "news", "neuigkeiten", "recherche"],
-        },
-        {
-            "group": "commands",
-            "icon": "📊",
-            "label": _toolbox_label(lang, "tool_open_stats", "Stats öffnen"),
-            "insert": "zeige stats",
-            "hint": _toolbox_label(lang, "tool_open_stats_hint", "Zeigt Statistik- und Statusseiten direkt über den Chat an."),
-            "keywords": ["stats", "statistik", "statistiken", "status", "metrics"],
-        },
-        {
-            "group": "commands",
-            "icon": "🧾",
-            "label": _toolbox_label(lang, "tool_open_activities", "Aktivitäten öffnen"),
-            "insert": "zeige aktivitäten",
-            "hint": _toolbox_label(lang, "tool_open_activities_hint", "Öffnet Aktivitäten & Runs direkt aus dem Chat."),
-            "keywords": ["aktivitäten", "aktivitaeten", "activities", "runs", "logs"],
-        },
-    ]
-    admin_entries: list[dict[str, Any]] = [
-        {
-            "group": "admin",
-            "icon": "🚀",
-            "label": _toolbox_label(lang, "tool_update_run", "Kontrolliertes Update starten"),
-            "insert": "starte update",
-            "hint": _toolbox_label(lang, "tool_update_run_hint", "Startet den konfigurierten Update-Pfad mit Bestätigungscode."),
-            "keywords": ["update", "upgrade", "release", "deploy", "helper"],
-        },
-        {
-            "group": "admin",
-            "icon": "🩺",
-            "label": _toolbox_label(lang, "tool_update_status", "Update-Status prüfen"),
-            "insert": "zeige update status",
-            "hint": _toolbox_label(lang, "tool_update_status_hint", "Fragt den GUI-Update-Helper direkt aus dem Chat ab."),
-            "keywords": ["update", "status", "helper", "deploy"],
-        },
-    ]
-    if advanced_mode:
-        admin_entries.extend(
-            [
-                {
-                    "group": "admin",
-                    "icon": "📦",
-                    "label": _toolbox_label(lang, "tool_backup_export", "Config-Backup exportieren"),
-                    "insert": "exportiere config backup",
-                    "hint": _toolbox_label(lang, "tool_backup_export_hint", "Erstellt einen Download-Link für das aktuelle Konfigurations-Backup."),
-                    "keywords": ["backup", "export", "config", "konfig", "restore"],
-                },
-                {
-                    "group": "admin",
-                    "icon": "♻️",
-                    "label": _toolbox_label(lang, "tool_backup_import", "Config-Backup importieren"),
-                    "insert": "importiere config backup",
-                    "hint": _toolbox_label(lang, "tool_backup_import_hint", "Öffnet den Restore-Weg für ein vorhandenes Config-Backup."),
-                    "keywords": ["backup", "import", "restore", "config", "konfig"],
-                },
-            ]
-        )
-    return general_entries, admin_entries
-
-
-def _build_chat_command_catalog(
-    *,
-    lang: str,
-    auth_role: str,
-    advanced_mode: bool,
-    recall_templates: list[str],
-    store_templates: list[str],
-    skill_trigger_hints: list[str],
-    skill_toolbox_rows: list[dict[str, Any]] | None = None,
-    connection_catalog: dict[str, list[str]] | None = None,
-    recent_messages: list[str] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]:
-    system_entries, admin_system_entries = _build_system_chat_command_entries(lang, advanced_mode=advanced_mode)
-    entries: list[dict[str, Any]] = [
-        {
-            "group": "commands",
-            "icon": "⌨",
-            "label": "/cls",
-            "insert": "/cls",
-            "hint": _toolbox_label(lang, "slash_cls_hint", "Lokalen Chatverlauf löschen"),
-            "keywords": ["clear", "cls", "chat löschen", "verlauf löschen", "chat reset"],
-        },
-        {
-            "group": "commands",
-            "icon": "⌨",
-            "label": "/clear",
-            "insert": "/clear",
-            "hint": _toolbox_label(lang, "slash_cls_hint", "Lokalen Chatverlauf löschen"),
-            "keywords": ["clear", "cls", "chat löschen", "verlauf löschen", "chat reset"],
-        },
-        *system_entries,
-    ]
-
-    for item in recall_templates:
-        value = str(item or "").strip()
-        if not value:
-            continue
-        entries.append(
-            {
-                "group": "read",
-                "icon": "📖",
-                "label": _toolbox_label(lang, "slash_read_cmd", "/lesen"),
-                "insert": value if value.endswith(" ") else value + " ",
-                "hint": value,
-                "keywords": [value, "lesen", "erinnern", "memory", "wissen"],
-            }
-        )
-    for item in store_templates:
-        value = str(item or "").strip()
-        if not value:
-            continue
-        entries.append(
-            {
-                "group": "store",
-                "icon": "💾",
-                "label": _toolbox_label(lang, "slash_store_cmd", "/merken"),
-                "insert": value if value.endswith(" ") else value + " ",
-                "hint": value,
-                "keywords": [value, "merken", "speichern", "memory", "wissen"],
-            }
-        )
-    if skill_toolbox_rows:
-        for row in skill_toolbox_rows[:40]:
-            insert_text = str(row.get("insert", "") or "").strip()
-            label = str(row.get("label", "") or "").strip()
-            hint = str(row.get("hint", "") or "").strip()
-            keywords = [str(item or "").strip().lower() for item in row.get("keywords", []) if str(item or "").strip()]
-            if not insert_text:
-                insert_text = label or hint
-            if not label:
-                label = insert_text or _toolbox_label(lang, "slash_skill_cmd", "/skill")
-            if not hint:
-                hint = insert_text or label
-            if not insert_text:
-                continue
-            entries.append(
-                {
-                    "group": "skills",
-                    "icon": "🧩",
-                    "label": label,
-                    "badge": _toolbox_label(lang, "slash_skill_cmd", "/skill"),
-                    "insert": insert_text if insert_text.endswith(" ") else insert_text + " ",
-                    "hint": hint,
-                    "keywords": list(dict.fromkeys(keywords + [label.lower(), hint.lower(), insert_text.lower(), "skill", "automation", "aktion"])),
-                }
-            )
-    else:
-        for value in skill_trigger_hints[:40]:
-            hint = str(value or "").strip()
-            if not hint:
-                continue
-            entries.append(
-                {
-                    "group": "skills",
-                    "icon": "🧩",
-                    "label": hint,
-                    "badge": _toolbox_label(lang, "slash_skill_cmd", "/skill"),
-                    "insert": hint if hint.endswith(" ") else hint + " ",
-                    "hint": _toolbox_label(lang, "slash_skill_cmd", "/skill"),
-                    "keywords": [hint, "skill", "automation", "aktion"],
-                }
-            )
-
-    if auth_role == "admin":
-        entries.extend(admin_system_entries)
-        entries.extend(_build_admin_chat_command_entries(lang, connection_catalog or {}))
-
-    group_titles = {
-        "suggested": _toolbox_label(lang, "slash_suggested", "Passend jetzt"),
-        "commands": _toolbox_label(lang, "slash_commands", "Commands"),
-        "read": _toolbox_label(lang, "slash_read", "Memory lesen"),
-        "store": _toolbox_label(lang, "slash_store", "Memory speichern"),
-        "skills": _toolbox_label(lang, "slash_skills", "Skills"),
-        "admin": _toolbox_label(lang, "slash_admin", "Admin"),
-    }
-    group_icons = {
-        "suggested": "✨",
-        "commands": "⌨",
-        "read": "📖",
-        "store": "💾",
-        "skills": "🧩",
-        "admin": "🛠",
-    }
-
-    grouped: dict[str, list[dict[str, Any]]] = {key: [] for key in group_titles.keys()}
-    for row in entries:
-        grouped.setdefault(str(row.get("group", "commands")), []).append(row)
-
-    order = ["commands", "read", "store", "skills", "admin"]
-    toolbox_groups: list[dict[str, Any]] = []
-    suggested_group = _build_suggested_toolbox_group(lang, entries, recent_messages)
-    if suggested_group:
-        suggested_group["icon"] = group_icons["suggested"]
-        toolbox_groups.append(suggested_group)
-    for group_key in order:
-        rows = grouped.get(group_key, [])
-        if not rows:
-            continue
-        limit = 6 if group_key in {"skills", "read", "store"} else 12
-        toolbox_groups.append(
-            {
-                "key": group_key,
-                "title": group_titles.get(group_key, group_key),
-                "icon": group_icons.get(group_key, "•"),
-                "items": rows[:limit],
-            }
-        )
-    return entries, group_titles, toolbox_groups
-
-
 def _sanitize_username(value: str | None) -> str:
     if not value:
         return ""
@@ -1382,675 +994,6 @@ def _parse_collection_day_suffix(name: str) -> datetime | None:
         return None
 
 
-def _parse_forget_query(message: str) -> str:
-    text = re.sub(r"\s+", " ", message).strip()
-    pattern = re.compile(r"^(vergiss|lösch|lösch|entfern|delete|remove)\s+", re.IGNORECASE)
-    return pattern.sub("", text).strip(" .,:;!?") or text
-
-
-def _parse_forget_confirm_token(message: str) -> str | None:
-    text = message.strip().lower()
-    # Examples:
-    # "bestätige 1a2b3c"
-    # "lösche jetzt 1a2b3c"
-    match = re.search(
-        r"(?:bestätige|bestätige|lösche|lösche|delete)\s+(?:jetzt\s+)?([a-z0-9]{6,16})",
-        text,
-    )
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _parse_safe_fix_confirm_token(message: str) -> str | None:
-    text = message.strip().lower()
-    match = re.search(
-        r"(?:bestätige|bestätige|confirm)\s+(?:safe-?fix\s+|fix\s+)?([a-z0-9]{6,16})",
-        text,
-    )
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _parse_connection_delete_request(message: str) -> tuple[str, str] | None:
-    text = re.sub(r"\s+", " ", str(message or "")).strip()
-    match = re.search(
-        r"(?:lösche|loesche|entferne|delete|remove)\s+(?:die\s+|das\s+|den\s+)?(?:(ssh|discord|sftp|smb|webhook|smtp|email|imap|http api|http-api|rss|mqtt)\s+)?(?:verbindung|profil)?\s*([a-z0-9._-]+)",
-        text,
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-    kind = str(match.group(1) or "").strip().lower()
-    ref = str(match.group(2) or "").strip()
-    return kind, ref
-
-
-def _parse_connection_delete_confirm_token(message: str) -> str | None:
-    text = message.strip().lower()
-    match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:verbindung\s+)?(?:(?:löschen|loeschen|delete)\s+)?([a-z0-9]{6,16})",
-        text,
-    )
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _extract_connection_create_metadata(text: str) -> dict[str, Any]:
-    def _extract(pattern: str) -> str:
-        match = re.search(pattern, text, re.IGNORECASE)
-        return str(match.group(1)).strip() if match else ""
-
-    title = _extract(r'(?:titel|title)\s+"([^"]+)"')
-    description = _extract(r'(?:beschreibung|description)\s+"([^"]+)"')
-    tags_raw = _extract(r'(?:tags|tag)\s+"([^"]+)"')
-    aliases_raw = _extract(r'(?:aliase|aliases|alias)\s+"([^"]+)"')
-
-    payload: dict[str, Any] = {}
-    if title:
-        payload["title"] = title[:120]
-    if description:
-        payload["description"] = description[:280]
-    if tags_raw:
-        payload["tags"] = [item.strip() for item in re.split(r"[;,]", tags_raw) if item.strip()][:12]
-    if aliases_raw:
-        payload["aliases"] = [item.strip() for item in re.split(r"[;,]", aliases_raw) if item.strip()][:12]
-    return payload
-
-
-def _extract_connection_field(text: str, pattern: str) -> str:
-    match = re.search(pattern, text, re.IGNORECASE)
-    return str(match.group(1)).strip() if match else ""
-
-
-_CONNECTION_ACTION_VERBS: dict[str, str] = {
-    "create": r"(?:erstelle|erzeuge|lege an|erfasse|create)",
-    "update": r"(?:aktualisiere|update|ändere|aendere|bearbeite)",
-}
-
-_CONNECTION_URL_FIELDS = {"webhook_url", "feed_url", "url", "base_url"}
-_CONNECTION_LEADING_VALUE_KEYWORDS = {
-    "host",
-    "user",
-    "key",
-    "key_path",
-    "schluesselpfad",
-    "keypfad",
-    "share",
-    "pfad",
-    "path",
-    "root",
-    "root_path",
-    "from",
-    "to",
-    "mailbox",
-    "topic",
-    "port",
-    "timeout",
-    "passwort",
-    "password",
-    "token",
-    "auth_token",
-    "auth-token",
-    "method",
-    "methode",
-    "strict",
-    "checking",
-    "host-key",
-    "allow",
-    "commands",
-    "titel",
-    "title",
-    "beschreibung",
-    "description",
-    "tags",
-    "tag",
-    "aliase",
-    "aliases",
-    "alias",
-}
-
-def _build_connection_chat_alias_map() -> dict[str, str]:
-    alias_map: dict[str, str] = {}
-    for kind in CONNECTION_ADMIN_SPECS:
-        clean_kind = normalize_connection_kind(kind)
-        for alias in connection_chat_aliases(clean_kind):
-            token = str(alias).strip().lower()
-            if token:
-                alias_map[token] = clean_kind
-    return alias_map
-
-
-def _match_connection_request_header(text: str, action: str) -> tuple[str, str, str] | None:
-    alias_map = _build_connection_chat_alias_map()
-    alias_pattern = "|".join(sorted((re.escape(alias) for alias in alias_map), key=len, reverse=True))
-    if not alias_pattern:
-        return None
-    verbs = _CONNECTION_ACTION_VERBS.get(action, "")
-    if not verbs:
-        return None
-    match = re.search(
-        rf"^{verbs}\s+(?:eine\s+|ein\s+)?(?P<alias>{alias_pattern})(?:\s+verbindung|\s+profil)?\s+(?P<ref>[a-z0-9._-]+)(?P<rest>.*)$",
-        text,
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-    alias = str(match.group("alias") or "").strip().lower()
-    ref = str(match.group("ref") or "").strip()
-    rest = str(match.group("rest") or "").strip()
-    kind = alias_map.get(alias, "")
-    if not kind or not ref:
-        return None
-    return kind, ref, rest
-
-
-def _extract_connection_primary_value(kind: str, rest: str) -> tuple[str, str]:
-    primary_field = connection_chat_primary_field(kind)
-    clean_rest = str(rest or "").strip()
-    if not primary_field or not clean_rest:
-        return "", clean_rest
-    if primary_field in _CONNECTION_URL_FIELDS:
-        match = re.match(r"(https?://\S+)(?:\s+(.*))?$", clean_rest, re.IGNORECASE)
-        if not match:
-            return "", clean_rest
-        primary_value = str(match.group(1) or "").strip()
-        remaining = str(match.group(2) or "").strip()
-        if primary_field == "base_url":
-            primary_value = primary_value.rstrip("/")
-        return primary_value, remaining
-    token, _, remaining = clean_rest.partition(" ")
-    lowered = token.strip().lower()
-    if not token or lowered in _CONNECTION_LEADING_VALUE_KEYWORDS or token.startswith('"'):
-        return "", clean_rest
-    return token.strip(), remaining.strip()
-
-
-def _extract_connection_field_value(text: str, kind: str, field: str) -> Any:
-    chat_spec = connection_chat_field_specs(kind).get(field, {})
-    patterns = chat_spec.get("patterns", [])
-    if not isinstance(patterns, list) or not patterns:
-        return None
-    value = ""
-    for pattern in patterns:
-        value = _extract_connection_field(text, str(pattern))
-        if value:
-            break
-    if not value:
-        return None
-    field_spec = connection_field_specs(kind).get(field, {})
-    field_type = str(field_spec.get("type", "str")).strip().lower()
-    if field_type == "list":
-        split_pattern = str(chat_spec.get("split_pattern") or r"[;,]")
-        return [item.strip() for item in re.split(split_pattern, value) if item.strip()]
-    if field_type == "int":
-        try:
-            return int(value)
-        except ValueError:
-            return None
-    if field == "base_url":
-        return value.rstrip("/")
-    return value
-
-
-def _parse_catalog_connection_request(message: str, action: str) -> dict[str, Any] | None:
-    text = re.sub(r"\s+", " ", str(message or "")).strip()
-    if not text:
-        return None
-    header = _match_connection_request_header(text, action)
-    if not header:
-        return None
-    kind, ref, rest = header
-    payload: dict[str, Any] = connection_chat_defaults(kind) if action == "create" else {}
-    payload.update(_extract_connection_create_metadata(text))
-
-    primary_field = connection_chat_primary_field(kind)
-    primary_value, remaining = _extract_connection_primary_value(kind, rest)
-    if primary_field and primary_value:
-        payload[primary_field] = primary_value
-
-    if kind == "http_api" and remaining.startswith("/"):
-        inline_path, _, remaining = remaining.partition(" ")
-        if inline_path.strip():
-            payload["health_path"] = inline_path.strip()
-
-    for field in connection_field_specs(kind):
-        if field in {"title", "description", "tags", "aliases"}:
-            continue
-        if field == primary_field and field in payload:
-            continue
-        extracted = _extract_connection_field_value(text, kind, field)
-        if extracted in (None, "", []):
-            continue
-        payload[field] = extracted
-
-    clean_payload = sanitize_connection_payload(kind, payload)
-    if action == "create" and primary_field and primary_field not in clean_payload:
-        return None
-    if action == "update" and not clean_payload:
-        return None
-    return {"kind": kind, "ref": ref, "payload": clean_payload}
-
-
-def _parse_connection_create_request(message: str) -> dict[str, Any] | None:
-    return _parse_catalog_connection_request(message, "create")
-
-
-def _format_connection_payload_summary(kind: str, payload: dict[str, Any]) -> list[str]:
-    labels = connection_field_labels(kind)
-    lines: list[str] = []
-    specs = connection_field_specs(kind)
-    for key in connection_summary_fields(kind):
-        spec = specs.get(key, {})
-        value = payload.get(key)
-        field_type = str(spec.get("type", "str")).strip().lower()
-        if field_type == "list":
-            if isinstance(value, list) and value:
-                joined = ", ".join(str(item).strip() for item in value if str(item).strip())
-                if joined:
-                    lines.append(f"{labels.get(key, key)}: `{joined}`")
-            continue
-        if field_type == "bool":
-            continue
-        text = str(value or "").strip()
-        if text:
-            lines.append(f"{labels.get(key, key)}: `{text}`")
-    return lines
-
-
-def _parse_connection_create_confirm_token(message: str) -> str | None:
-    text = message.strip().lower()
-    match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:verbindung\s+)?(?:(?:erstellen|erfassen|create)\s+)?([a-z0-9]{6,16})",
-        text,
-    )
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _parse_connection_update_request(message: str) -> dict[str, Any] | None:
-    return _parse_catalog_connection_request(message, "update")
-
-
-def _parse_connection_update_confirm_token(message: str) -> str | None:
-    text = message.strip().lower()
-    match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:verbindung\s+)?(?:(?:aktualisieren|update|aendern|ändern)\s+)?([a-z0-9]{6,16})",
-        text,
-    )
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _normalize_chat_command_text(message: str) -> str:
-    return re.sub(r"\s+", " ", str(message or "")).strip().lower()
-
-
-def _matches_chat_phrase(message: str, phrases: tuple[str, ...]) -> bool:
-    text = _normalize_chat_command_text(message)
-    if not text:
-        return False
-    return any(phrase in text for phrase in phrases)
-
-
-def _parse_update_run_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "starte update",
-            "start update",
-            "führe update aus",
-            "fuehre update aus",
-            "run update",
-            "installiere update",
-            "update jetzt",
-            "jetzt updaten",
-            "kontrolliertes update starten",
-        ),
-    )
-
-
-def _parse_update_status_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "zeige update status",
-            "show update status",
-            "update status",
-            "status vom update",
-            "status des updates",
-            "läuft ein update",
-            "laeuft ein update",
-            "läuft gerade ein update",
-            "laeuft gerade ein update",
-            "update helper status",
-            "öffne update seite",
-            "oeffne update seite",
-            "open update page",
-        ),
-    )
-
-
-def _parse_update_confirm_token(message: str) -> str | None:
-    text = _normalize_chat_command_text(message)
-    match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:kontrolliertes\s+)?(?:update\s+)?([a-z0-9]{6,16})",
-        text,
-    )
-    if not match:
-        return None
-    return match.group(1)
-
-
-def _parse_backup_export_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "exportiere config backup",
-            "export config backup",
-            "erstelle config backup",
-            "create config backup",
-            "download config backup",
-            "sichere aria config",
-            "backup der config",
-            "backup der konfig",
-        ),
-    )
-
-
-def _parse_backup_import_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "importiere config backup",
-            "import config backup",
-            "restore config backup",
-            "spiele config backup ein",
-            "backup wiederherstellen",
-            "restore backup",
-        ),
-    )
-
-
-def _parse_stats_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "zeige stats",
-            "show stats",
-            "zeige statistiken",
-            "show statistics",
-            "öffne stats",
-            "oeffne stats",
-        ),
-    )
-
-
-def _parse_activities_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "zeige aktivitäten",
-            "zeige aktivitaeten",
-            "show activities",
-            "zeige runs",
-            "show runs",
-            "öffne aktivitäten",
-            "oeffne aktivitaeten",
-        ),
-    )
-
-
-def _encode_forget_pending(data: dict[str, Any]) -> str:
-    candidates = data.get("candidates", [])
-    if not isinstance(candidates, list):
-        candidates = []
-    cleaned_candidates: list[dict[str, Any]] = []
-    for row in candidates[:10]:
-        if not isinstance(row, dict):
-            continue
-        collection = _sanitize_collection_name(str(row.get("collection", "")).strip())
-        point_id = str(row.get("id", "")).strip()[:128]
-        label = str(row.get("label", "")).strip()[:64]
-        text = str(row.get("text", "")).strip()[:240]
-        if not collection or not point_id:
-            continue
-        cleaned_candidates.append(
-            {
-                "collection": collection,
-                "id": point_id,
-                "label": label,
-                "text": text,
-            }
-        )
-
-    payload = {
-        "token": str(data.get("token", "")).strip()[:24].lower(),
-        "user_id": _sanitize_username(str(data.get("user_id", ""))),
-        "candidates": cleaned_candidates,
-    }
-    raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
-    signature = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return f"{encoded}.{signature}"
-
-
-def _decode_forget_pending(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    try:
-        encoded, signature = str(raw).split(".", 1)
-        decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
-        expected = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(decoded.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return None
-        token = str(payload.get("token", "")).strip().lower()
-        user_id = _sanitize_username(str(payload.get("user_id", "")))
-        candidates = payload.get("candidates", [])
-        if not token or not user_id or not isinstance(candidates, list):
-            return None
-        return {
-            "token": token,
-            "user_id": user_id,
-            "candidates": candidates,
-        }
-    except Exception:
-        return None
-    return None
-
-
-def _encode_safe_fix_pending(data: dict[str, Any]) -> str:
-    fixes = data.get("fixes", [])
-    if not isinstance(fixes, list):
-        fixes = []
-    clean_fixes: list[dict[str, Any]] = []
-    for row in fixes[:20]:
-        if not isinstance(row, dict):
-            continue
-        conn_ref = _sanitize_connection_name(str(row.get("connection_ref", "")))
-        packages = row.get("packages", [])
-        if not conn_ref or not isinstance(packages, list):
-            continue
-        clean_packages: list[str] = []
-        for pkg in packages:
-            name = str(pkg).strip().lower()
-            if re.fullmatch(r"[a-z0-9][a-z0-9+_.-]*", name):
-                clean_packages.append(name)
-        clean_packages = sorted(set(clean_packages))[:30]
-        if not clean_packages:
-            continue
-        clean_fixes.append({"connection_ref": conn_ref, "packages": clean_packages})
-
-    payload = {
-        "token": str(data.get("token", "")).strip()[:24].lower(),
-        "user_id": _sanitize_username(str(data.get("user_id", ""))),
-        "fixes": clean_fixes,
-    }
-    raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
-    signature = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return f"{encoded}.{signature}"
-
-
-def _decode_safe_fix_pending(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    try:
-        encoded, signature = str(raw).split(".", 1)
-        decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
-        expected = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(decoded.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return None
-        token = str(payload.get("token", "")).strip().lower()
-        user_id = _sanitize_username(str(payload.get("user_id", "")))
-        fixes = payload.get("fixes", [])
-        if not token or not user_id or not isinstance(fixes, list):
-            return None
-        return {"token": token, "user_id": user_id, "fixes": fixes}
-    except Exception:
-        return None
-    return None
-
-
-def _encode_connection_delete_pending(data: dict[str, Any]) -> str:
-    payload = {
-        "token": str(data.get("token", "")).strip()[:24].lower(),
-        "user_id": _sanitize_username(str(data.get("user_id", ""))),
-        "kind": str(data.get("kind", "")).strip().lower().replace("-", "_")[:32],
-        "ref": _sanitize_connection_name(str(data.get("ref", "")))[:64],
-        "issued_at": int(time.time()),
-    }
-    raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
-    signature = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return f"{encoded}.{signature}"
-
-
-def _decode_connection_delete_pending(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    try:
-        encoded, signature = str(raw).split(".", 1)
-        decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
-        expected = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(decoded.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return None
-        token = str(payload.get("token", "")).strip().lower()
-        user_id = _sanitize_username(str(payload.get("user_id", "")))
-        kind = str(payload.get("kind", "")).strip().lower().replace("-", "_")
-        ref = _sanitize_connection_name(str(payload.get("ref", "")))
-        issued_at = int(payload.get("issued_at", 0) or 0)
-        if not token or not user_id or not kind or not ref or issued_at <= 0:
-            return None
-        if int(time.time()) - issued_at > CONNECTION_PENDING_MAX_AGE_SECONDS:
-            return None
-        return {"token": token, "user_id": user_id, "kind": kind, "ref": ref, "issued_at": issued_at}
-    except Exception:
-        return None
-    return None
-
-
-def _encode_connection_create_pending(data: dict[str, Any]) -> str:
-    kind = normalize_connection_kind(str(data.get("kind", "")))
-    payload = sanitize_connection_payload(kind, data.get("payload", {}))
-    packed = {
-        "token": str(data.get("token", "")).strip()[:24].lower(),
-        "user_id": _sanitize_username(str(data.get("user_id", ""))),
-        "kind": kind[:32],
-        "ref": sanitize_connection_ref(str(data.get("ref", "")))[:64],
-        "issued_at": int(time.time()),
-        "payload": payload,
-    }
-    raw = json.dumps(packed, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
-    signature = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return f"{encoded}.{signature}"
-
-
-def _decode_connection_create_pending(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    try:
-        encoded, signature = str(raw).split(".", 1)
-        decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
-        expected = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(decoded.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return None
-        token = str(payload.get("token", "")).strip().lower()
-        user_id = _sanitize_username(str(payload.get("user_id", "")))
-        kind = str(payload.get("kind", "")).strip().lower().replace("-", "_")
-        ref = sanitize_connection_ref(str(payload.get("ref", "")))
-        issued_at = int(payload.get("issued_at", 0) or 0)
-        create_payload = sanitize_connection_payload(kind, payload.get("payload", {}))
-        if not token or not user_id or not kind or not ref or issued_at <= 0:
-            return None
-        if int(time.time()) - issued_at > CONNECTION_PENDING_MAX_AGE_SECONDS:
-            return None
-        return {"token": token, "user_id": user_id, "kind": kind, "ref": ref, "payload": create_payload, "issued_at": issued_at}
-    except Exception:
-        return None
-    return None
-
-
-def _encode_connection_update_pending(data: dict[str, Any]) -> str:
-    return _encode_connection_create_pending(data)
-
-
-def _decode_connection_update_pending(raw: str | None) -> dict[str, Any] | None:
-    return _decode_connection_create_pending(raw)
-
-
-def _encode_update_pending(data: dict[str, Any]) -> str:
-    payload = {
-        "token": str(data.get("token", "")).strip()[:24].lower(),
-        "user_id": _sanitize_username(str(data.get("user_id", ""))),
-        "issued_at": int(time.time()),
-    }
-    raw = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii")
-    signature = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return f"{encoded}.{signature}"
-
-
-def _decode_update_pending(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    try:
-        encoded, signature = str(raw).split(".", 1)
-        decoded = base64.urlsafe_b64decode(encoded.encode("ascii"))
-        expected = hmac.new(FORGET_SIGNING_SECRET.encode("utf-8"), decoded, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            return None
-        payload = json.loads(decoded.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return None
-        token = str(payload.get("token", "")).strip().lower()
-        user_id = _sanitize_username(str(payload.get("user_id", "")))
-        issued_at = int(payload.get("issued_at", 0) or 0)
-        if not token or not user_id or issued_at <= 0:
-            return None
-        if int(time.time()) - issued_at > CONNECTION_PENDING_MAX_AGE_SECONDS:
-            return None
-        return {"token": token, "user_id": user_id, "issued_at": issued_at}
-    except Exception:
-        return None
-    return None
 
 
 def _list_file_editor_entries() -> list[dict[str, str]]:
@@ -2857,6 +1800,13 @@ def _build_app() -> FastAPI:
 
     app = FastAPI(title=prompt_loader.get_persona_name(default=settings.ui.title or "ARIA"), lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "aria" / "static")), name="static")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse(
+            BASE_DIR / "aria" / "static" / "logo-aria-v01.png",
+            media_type="image/png",
+        )
     if settings.channels.api.enabled:
         register_api_routes(app, pipeline=pipeline, auth_token=settings.channels.api.auth_token)
 
@@ -3433,7 +2383,7 @@ def _build_app() -> FastAPI:
             for kind in CONNECTION_ADMIN_SPECS.keys()
             if isinstance(getattr(settings.connections, kind, {}), dict)
         }
-        chat_command_entries, chat_command_group_titles, chat_toolbox_groups = _build_chat_command_catalog(
+        chat_command_entries, chat_command_group_titles, chat_toolbox_groups = build_chat_command_catalog(
             lang=lang,
             auth_role=auth_role,
             advanced_mode=bool(getattr(request.state, "can_access_advanced_config", False)),
@@ -3987,32 +2937,64 @@ def _build_app() -> FastAPI:
         duration_s = "0.0"
         badge_details: list[str] = []
         forget_cookie_value = _request_cookie_value(request, FORGET_PENDING_COOKIE)
-        forget_pending = _decode_forget_pending(forget_cookie_value)
+        forget_pending = chat_admin_actions._decode_forget_pending(
+            forget_cookie_value,
+            signing_secret=FORGET_SIGNING_SECRET,
+            sanitize_username=_sanitize_username,
+        )
         safe_fix_cookie_value = _request_cookie_value(request, SAFE_FIX_PENDING_COOKIE)
-        safe_fix_pending = _decode_safe_fix_pending(safe_fix_cookie_value)
+        safe_fix_pending = chat_admin_actions._decode_safe_fix_pending(
+            safe_fix_cookie_value,
+            signing_secret=FORGET_SIGNING_SECRET,
+            sanitize_username=_sanitize_username,
+        )
         connection_delete_cookie_value = _request_cookie_value(request, CONNECTION_DELETE_PENDING_COOKIE)
-        connection_delete_pending = _decode_connection_delete_pending(connection_delete_cookie_value)
+        connection_delete_pending = chat_admin_actions._decode_connection_delete_pending(
+            connection_delete_cookie_value,
+            signing_secret=FORGET_SIGNING_SECRET,
+            sanitize_username=_sanitize_username,
+            sanitize_connection_name=_sanitize_connection_name,
+            max_age_seconds=CONNECTION_PENDING_MAX_AGE_SECONDS,
+        )
         connection_create_cookie_value = _request_cookie_value(request, CONNECTION_CREATE_PENDING_COOKIE)
-        connection_create_pending = _decode_connection_create_pending(connection_create_cookie_value)
+        connection_create_pending = chat_admin_actions._decode_connection_create_pending(
+            connection_create_cookie_value,
+            signing_secret=FORGET_SIGNING_SECRET,
+            sanitize_username=_sanitize_username,
+            max_age_seconds=CONNECTION_PENDING_MAX_AGE_SECONDS,
+        )
         connection_update_cookie_value = _request_cookie_value(request, CONNECTION_UPDATE_PENDING_COOKIE)
-        connection_update_pending = _decode_connection_update_pending(connection_update_cookie_value)
+        connection_update_pending = chat_admin_actions._decode_connection_update_pending(
+            connection_update_cookie_value,
+            signing_secret=FORGET_SIGNING_SECRET,
+            sanitize_username=_sanitize_username,
+            max_age_seconds=CONNECTION_PENDING_MAX_AGE_SECONDS,
+        )
         update_cookie_value = _request_cookie_value(request, UPDATE_PENDING_COOKIE)
-        update_pending = _decode_update_pending(update_cookie_value)
-        forget_decision = pipeline.router.classify(clean_message)
-        safe_fix_confirm_token = _parse_safe_fix_confirm_token(clean_message)
-        connection_delete_confirm_token = _parse_connection_delete_confirm_token(clean_message)
-        connection_delete_request = _parse_connection_delete_request(clean_message)
-        connection_create_confirm_token = _parse_connection_create_confirm_token(clean_message)
-        connection_create_request = _parse_connection_create_request(clean_message)
-        connection_update_confirm_token = _parse_connection_update_confirm_token(clean_message)
-        connection_update_request = _parse_connection_update_request(clean_message)
-        update_confirm_token = _parse_update_confirm_token(clean_message)
-        update_run_request = _parse_update_run_request(clean_message)
-        update_status_request = _parse_update_status_request(clean_message)
-        backup_export_request = _parse_backup_export_request(clean_message)
-        backup_import_request = _parse_backup_import_request(clean_message)
-        stats_request = _parse_stats_request(clean_message)
-        activities_request = _parse_activities_request(clean_message)
+        update_pending = chat_admin_actions._decode_update_pending(
+            update_cookie_value,
+            signing_secret=FORGET_SIGNING_SECRET,
+            sanitize_username=_sanitize_username,
+            max_age_seconds=CONNECTION_PENDING_MAX_AGE_SECONDS,
+        )
+        forget_decision = pipeline.classify_routing(
+            clean_message,
+            language=str(getattr(request.state, "lang", "de") or "de"),
+        )
+        safe_fix_confirm_token = chat_admin_actions._parse_safe_fix_confirm_token(clean_message)
+        connection_delete_confirm_token = chat_admin_actions._parse_connection_delete_confirm_token(clean_message)
+        connection_delete_request = chat_admin_actions._parse_connection_delete_request(clean_message)
+        connection_create_confirm_token = chat_admin_actions._parse_connection_create_confirm_token(clean_message)
+        connection_create_request = chat_admin_actions._parse_connection_create_request(clean_message)
+        connection_update_confirm_token = chat_admin_actions._parse_connection_update_confirm_token(clean_message)
+        connection_update_request = chat_admin_actions._parse_connection_update_request(clean_message)
+        update_confirm_token = chat_admin_actions._parse_update_confirm_token(clean_message)
+        update_run_request = chat_admin_actions._parse_update_run_request(clean_message)
+        update_status_request = chat_admin_actions._parse_update_status_request(clean_message)
+        backup_export_request = chat_admin_actions._parse_backup_export_request(clean_message)
+        backup_import_request = chat_admin_actions._parse_backup_import_request(clean_message)
+        stats_request = chat_admin_actions._parse_stats_request(clean_message)
+        activities_request = chat_admin_actions._parse_activities_request(clean_message)
         auth_role = _sanitize_role(getattr(request.state, "auth_role", ""))
         advanced_mode = bool(getattr(request.state, "can_access_advanced_config", False))
 
@@ -4118,13 +3100,16 @@ def _build_app() -> FastAPI:
                     catalog = list_connection_refs(BASE_DIR)
                     resolved_kind, resolved_ref = resolve_connection_target(catalog, ref_hint=ref_hint, kind_hint=kind_hint)
                     token = uuid4().hex[:8].lower()
-                    set_connection_delete_cookie = _encode_connection_delete_pending(
+                    set_connection_delete_cookie = chat_admin_actions._encode_connection_delete_pending(
                         {
                             "token": token,
                             "user_id": username,
                             "kind": resolved_kind,
                             "ref": resolved_ref,
-                        }
+                        },
+                        signing_secret=FORGET_SIGNING_SECRET,
+                        sanitize_username=_sanitize_username,
+                        sanitize_connection_name=_sanitize_connection_name,
                     )
                     assistant_text = (
                         f"Ich lösche das Profil `{resolved_ref}` vom Typ `{resolved_kind}` nicht blind.\n\n"
@@ -4188,16 +3173,22 @@ def _build_app() -> FastAPI:
                     if not kind or not ref or not isinstance(payload, dict):
                         raise ValueError("Connection-Daten unvollständig.")
                     token = uuid4().hex[:8].lower()
-                    set_connection_create_cookie = _encode_connection_create_pending(
+                    set_connection_create_cookie = chat_admin_actions._encode_connection_create_pending(
                         {
                             "token": token,
                             "user_id": username,
                             "kind": kind,
                             "ref": ref,
                             "payload": payload,
-                        }
+                        },
+                        signing_secret=FORGET_SIGNING_SECRET,
+                        sanitize_username=_sanitize_username,
                     )
-                    summary_lines = [f"Typ: `{kind}`", f"Ref: `{ref}`", *_format_connection_payload_summary(kind, payload)]
+                    summary_lines = [
+                        f"Typ: `{kind}`",
+                        f"Ref: `{ref}`",
+                        *chat_admin_actions._format_connection_payload_summary(kind, payload),
+                    ]
                     assistant_text = (
                         "Ich habe die neue Connection vorbereitet:\n\n- "
                         + "\n- ".join(summary_lines)
@@ -4261,16 +3252,22 @@ def _build_app() -> FastAPI:
                     if not kind or not ref or not isinstance(payload, dict) or not payload:
                         raise ValueError("Connection-Daten unvollständig.")
                     token = uuid4().hex[:8].lower()
-                    set_connection_update_cookie = _encode_connection_update_pending(
+                    set_connection_update_cookie = chat_admin_actions._encode_connection_update_pending(
                         {
                             "token": token,
                             "user_id": username,
                             "kind": kind,
                             "ref": ref,
                             "payload": payload,
-                        }
+                        },
+                        signing_secret=FORGET_SIGNING_SECRET,
+                        sanitize_username=_sanitize_username,
                     )
-                    summary_lines = [f"Typ: `{kind}`", f"Ref: `{ref}`", *_format_connection_payload_summary(kind, payload)]
+                    summary_lines = [
+                        f"Typ: `{kind}`",
+                        f"Ref: `{ref}`",
+                        *chat_admin_actions._format_connection_payload_summary(kind, payload),
+                    ]
                     assistant_text = (
                         "Ich habe die Connection-Aktualisierung vorbereitet:\n\n- "
                         + "\n- ".join(summary_lines)
@@ -4333,7 +3330,11 @@ def _build_app() -> FastAPI:
                 clear_update_cookie = True
             else:
                 token = uuid4().hex[:8].lower()
-                set_update_cookie = _encode_update_pending({"token": token, "user_id": username})
+                set_update_cookie = chat_admin_actions._encode_update_pending(
+                    {"token": token, "user_id": username},
+                    signing_secret=FORGET_SIGNING_SECRET,
+                    sanitize_username=_sanitize_username,
+                )
                 assistant_text = (
                     "Ich starte das Update nicht blind.\n\n"
                     f"Zum Bestätigen sende: `bestätige update {token}`\n\n"
@@ -4436,7 +3437,7 @@ def _build_app() -> FastAPI:
             icon = "🧾"
             intent_label = "activities"
         elif "memory_forget" in forget_decision.intents and pipeline.memory_skill:
-            confirm_token = _parse_forget_confirm_token(clean_message)
+            confirm_token = chat_admin_actions._parse_forget_confirm_token(clean_message)
             if confirm_token and forget_pending:
                 pending_user = str(forget_pending.get("user_id", "")).strip()
                 pending_token = str(forget_pending.get("token", "")).strip().lower()
@@ -4472,7 +3473,7 @@ def _build_app() -> FastAPI:
                     intent_label = "memory_forget"
                     clear_forget_cookie = True
             else:
-                forget_query = _parse_forget_query(clean_message)
+                forget_query = chat_admin_actions._parse_forget_query(clean_message)
                 forget_preview = await pipeline.memory_skill.execute(
                     query=forget_query,
                     params={
@@ -4494,12 +3495,15 @@ def _build_app() -> FastAPI:
                         f"{forget_preview.content}\n\n"
                         f"Zum Löschen bestätige mit: 'bestätige {token}'"
                     )
-                    set_forget_cookie = _encode_forget_pending(
+                    set_forget_cookie = chat_admin_actions._encode_forget_pending(
                         {
                             "token": token,
                             "user_id": username,
                             "candidates": candidates,
-                        }
+                        },
+                        signing_secret=FORGET_SIGNING_SECRET,
+                        sanitize_username=_sanitize_username,
+                        sanitize_collection_name=_sanitize_collection_name,
                     )
                     icon = "🧹"
                     intent_label = "memory_forget_pending"
@@ -4547,12 +3551,15 @@ def _build_app() -> FastAPI:
                     )
                 if isinstance(result.safe_fix_plan, list) and result.safe_fix_plan:
                     token = uuid4().hex[:8].lower()
-                    set_safe_fix_cookie = _encode_safe_fix_pending(
+                    set_safe_fix_cookie = chat_admin_actions._encode_safe_fix_pending(
                         {
                             "token": token,
                             "user_id": username,
                             "fixes": result.safe_fix_plan,
-                        }
+                        },
+                        signing_secret=FORGET_SIGNING_SECRET,
+                        sanitize_username=_sanitize_username,
+                        sanitize_connection_name=_sanitize_connection_name,
                     )
                     assistant_text = (
                         f"{assistant_text}\n\n"

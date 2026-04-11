@@ -18,6 +18,7 @@
   <section class="floating-card">
     <form class="editor-form" method="post" action="/skills/wizard/save" id="skill-wizard-form">
       <input type="hidden" name="original_skill_id" value="{{ skill.id or '' }}">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <div class="config-form-grid">
         <label>
           Name *
@@ -324,7 +325,7 @@
           onclick="return confirm('{{ tr(request, 'skills.delete_confirm', 'Skill wirklich löschen?') }}');"
         >{{ tr(request, 'skills.delete', 'Löschen') }}</button>
         {% endif %}
-        <a class="nav-link" href="/skills">Zurück zu Skills</a>
+        <a class="nav-link" href="{{ return_to or '/skills' }}">Zurück zu Skills</a>
       </div>
     </form>
   </section>

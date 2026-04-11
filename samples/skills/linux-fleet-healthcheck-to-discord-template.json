@@ -1,0 +1,100 @@
+{
+  "id": "linux-fleet-healthcheck-to-discord-template",
+  "name": "Linux Fleet Healthcheck to Discord Template",
+  "version": "0.1.0",
+  "description": "Read-only Beispielskill fuer mehrere Linux-Hosts. Fuehrt alle 4 Stunden kleine SSH-Healthchecks aus, laesst ein LLM ueber die Alarmwuerdigkeit entscheiden und bereitet eine Discord-Meldung fuer auffaellige Hosts vor.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "linux fleet healthcheck",
+    "linux healthcheck discord",
+    "linux server alarm",
+    "ssh fleet check",
+    "healthcheck nach discord",
+    "server health alarm"
+  ],
+  "connections": [
+    "ssh",
+    "discord"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Healthcheck auf linux-main",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "linux-main",
+        "timeout_seconds": 90,
+        "command": "h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; echo \"Time: $(date -Is 2>/dev/null||date)\"; echo; echo \"== UPTIME ==\"; uptime || true; echo; echo \"== FAILED_UNITS ==\"; systemctl --failed --no-pager --plain --no-legend 2>/dev/null | sed -n '1,12p' || echo \"none\"; echo; echo \"== DISK_HOTSPOTS ==\"; df -h -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85' || true; echo; echo \"== INODE_HOTSPOTS ==\"; df -ih -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85' || true; echo; echo \"== MEMORY ==\"; free -m || true; echo; echo \"== TOP_MEMORY ==\"; ps -eo comm,%mem,%cpu --sort=-%mem | sed -n '1,6p' || true; echo; echo \"== REBOOT_REQUIRED ==\"; [ -f /var/run/reboot-required ] && echo yes || echo no"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s2",
+      "name": "Healthcheck auf linux-db",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "linux-db",
+        "timeout_seconds": 90,
+        "command": "h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; echo \"Time: $(date -Is 2>/dev/null||date)\"; echo; echo \"== UPTIME ==\"; uptime || true; echo; echo \"== FAILED_UNITS ==\"; systemctl --failed --no-pager --plain --no-legend 2>/dev/null | sed -n '1,12p' || echo \"none\"; echo; echo \"== DISK_HOTSPOTS ==\"; df -h -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85' || true; echo; echo \"== INODE_HOTSPOTS ==\"; df -ih -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85' || true; echo; echo \"== MEMORY ==\"; free -m || true; echo; echo \"== TOP_MEMORY ==\"; ps -eo comm,%mem,%cpu --sort=-%mem | sed -n '1,6p' || true; echo; echo \"== REBOOT_REQUIRED ==\"; [ -f /var/run/reboot-required ] && echo yes || echo no"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Healthcheck auf linux-edge",
+      "type": "ssh_run",
+      "params": {
+        "connection_ref": "linux-edge",
+        "timeout_seconds": 90,
+        "command": "h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; echo \"Time: $(date -Is 2>/dev/null||date)\"; echo; echo \"== UPTIME ==\"; uptime || true; echo; echo \"== FAILED_UNITS ==\"; systemctl --failed --no-pager --plain --no-legend 2>/dev/null | sed -n '1,12p' || echo \"none\"; echo; echo \"== DISK_HOTSPOTS ==\"; df -h -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85' || true; echo; echo \"== INODE_HOTSPOTS ==\"; df -ih -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85' || true; echo; echo \"== MEMORY ==\"; free -m || true; echo; echo \"== TOP_MEMORY ==\"; ps -eo comm,%mem,%cpu --sort=-%mem | sed -n '1,6p' || true; echo; echo \"== REBOOT_REQUIRED ==\"; [ -f /var/run/reboot-required ] && echo yes || echo no"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s4",
+      "name": "LLM entscheidet ueber Alarm",
+      "type": "llm_transform",
+      "params": {
+        "prompt": "Du bist ARIA und bewertest technische Linux-Healthchecks fuer Discord. Du bekommst drei Host-Outputs. Entscheide streng, ob eine Alarmmeldung noetig ist. Alarmwürdig sind insbesondere: fehlgeschlagene Systemd-Units, Dateisysteme oder Inodes ab etwa 85 Prozent, klarer Memory-Druck, auffaellige Last, SSH-Fehler oder reboot required. Wenn alles unauffaellig ist, antworte EXAKT mit NO_ALERT. Wenn etwas relevant ist, schreibe eine kurze Discord-Meldung auf Deutsch im Format: erste Zeile 'A.R.I.A. // linux healthcheck', danach 1-5 Bulletpoints nur fuer betroffene Hosts, dann eine letzte Zeile mit einer klaren Prio-Einschaetzung wie 'Bitte Host pruefen.' oder 'Heute beobachten, noch nicht akut.'. Keine Rohsektionen, keine Vollstaende, kein Markdown-Codeblock.\\n\\n--- linux-main ---\\n{s1_output}\\n\\n--- linux-db ---\\n{s2_output}\\n\\n--- linux-edge ---\\n{s3_output}"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s5",
+      "name": "Discord-Meldung senden",
+      "type": "discord_send",
+      "params": {
+        "connection_ref": "alerts-main",
+        "message": "{s4_output}"
+      },
+      "condition": {
+        "source": "s4_output",
+        "operator": "not_equals",
+        "value": "NO_ALERT",
+        "ignore_case": true
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s6",
+      "name": "Entscheidung in Chat protokollieren",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "Linux-Fleet-Healthcheck abgeschlossen. Discord-Entscheidung:\\n\\n{s4_output}"
+      },
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "0 */4 * * *",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/skills",
+    "hint": "Vorher SSH-Connections mit Ref `linux-main`, `linux-db`, `linux-edge` und eine Discord-Connection `alerts-main` anlegen oder die Refs anpassen. Der LLM-Schritt entscheidet ueber die Alarmwuerdigkeit. Der Discord-Schritt wird nur ausgefuehrt, wenn das LLM nicht exakt `NO_ALERT` zurueckgibt."
+  },
+  "schema_version": "1.1"
+}

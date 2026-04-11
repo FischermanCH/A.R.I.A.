@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from aria.core.action_plan import ActionPlan
 
 
-Executor = Callable[[ActionPlan], Awaitable[str]]
+Executor = Callable[..., Awaitable[str]]
 
 
 @dataclass(slots=True)
@@ -20,9 +20,9 @@ class ExecutorRegistry:
         key = (str(connection_kind).strip().lower(), str(capability).strip().lower())
         self._executors[key] = executor
 
-    async def execute(self, plan: ActionPlan) -> str:
+    async def execute(self, plan: ActionPlan, **kwargs: Any) -> str:
         key = (plan.connection_kind.strip().lower(), plan.capability.strip().lower())
         executor = self._executors.get(key)
         if executor is None:
             raise ValueError(f"Kein Executor registriert für {plan.connection_kind}:{plan.capability}")
-        return await executor(plan)
+        return await executor(plan, **kwargs)

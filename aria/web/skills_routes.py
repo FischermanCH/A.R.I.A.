@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable
-from urllib.parse import quote_plus
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -40,6 +40,71 @@ DailyTimeFromCron = Callable[[str], str]
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 SAMPLE_SKILLS_DIR = BASE_DIR / "samples" / "skills"
+
+
+def _sanitize_return_to(value: str | None) -> str:
+    candidate = str(value or "").strip()
+    if not candidate or not candidate.startswith("/"):
+        return ""
+    if candidate.startswith("//"):
+        return ""
+    parsed = urlparse(candidate)
+    if parsed.scheme or parsed.netloc:
+        return ""
+    path = parsed.path or "/"
+    return f"{path}?{parsed.query}" if parsed.query else path
+
+
+def _referer_return_to(request: Request) -> str:
+    referer = str(request.headers.get("referer", "") or "").strip()
+    if not referer:
+        return ""
+    parsed = urlparse(referer)
+    if parsed.scheme or parsed.netloc:
+        current = urlparse(str(request.url))
+        if parsed.netloc and parsed.netloc != current.netloc:
+            return ""
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    candidate = _sanitize_return_to(query.get("return_to"))
+    if candidate:
+        return candidate
+    path = parsed.path or "/"
+    current_path = request.url.path or "/"
+    if path == current_path:
+        return ""
+    return _sanitize_return_to(f"{path}?{parsed.query}" if parsed.query else path)
+
+
+def _resolve_return_to(request: Request, *, fallback: str) -> str:
+    candidate = _sanitize_return_to(request.query_params.get("return_to"))
+    current_path = request.url.path or "/"
+    if candidate and urlparse(candidate).path != current_path:
+        return candidate
+    referer_target = _referer_return_to(request)
+    if referer_target and urlparse(referer_target).path != current_path:
+        return referer_target
+    return _sanitize_return_to(fallback) or "/"
+
+
+def _attach_return_to(url: str, return_to: str) -> str:
+    target = _sanitize_return_to(return_to)
+    if not target:
+        return url
+    parsed = urlparse(url)
+    pairs = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "return_to"]
+    pairs.append(("return_to", target))
+    return urlunparse(parsed._replace(query=urlencode(pairs)))
+
+
+def _redirect_with_return_to(url: str, request: Request, *, fallback: str, return_to: str | None = None) -> RedirectResponse:
+    target = _sanitize_return_to(return_to) or _resolve_return_to(request, fallback=fallback)
+    return RedirectResponse(url=_attach_return_to(url, target), status_code=303)
+
+
+def _set_logical_back_url(request: Request, *, fallback: str) -> str:
+    target = _resolve_return_to(request, fallback=fallback)
+    request.state.logical_back_url = target
+    return target
 
 
 def _sanitize_csrf_token_local(value: str | None) -> str:
@@ -347,6 +412,7 @@ def register_skills_routes(
         settings = get_settings()
         username = get_username_from_request(request)
         lang = str(getattr(request.state, "lang", "de") or "de")
+        return_to = _set_logical_back_url(request, fallback="/")
         custom_cfg = _normalize_custom_cfg(read_raw_config())
         custom_manifests, custom_errors = _load_custom_skill_manifests()
         advanced_mode = bool(getattr(request.state, "can_access_advanced_config", False))
@@ -370,6 +436,7 @@ def register_skills_routes(
                 "sample_skill_rows": _build_sample_skill_rows(),
                 "custom_errors": custom_errors,
                 "skills_readonly": not advanced_mode,
+                "return_to": return_to,
             },
         )
 
@@ -378,9 +445,10 @@ def register_skills_routes(
         request: Request,
         memory_enabled: str = Form("0"),
         auto_memory_enabled: str = Form("0"),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/skills?error=readonly", status_code=303)
+            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
         try:
             form = await request.form()
             raw = read_raw_config()
@@ -417,9 +485,14 @@ def register_skills_routes(
 
             write_raw_config(raw)
             reload_runtime()
-            return RedirectResponse(url="/skills?saved=1", status_code=303)
+            return _redirect_with_return_to("/skills?saved=1", request, fallback="/", return_to=return_to)
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/skills?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills?error={quote_plus(str(exc))}",
+                request,
+                fallback="/",
+                return_to=return_to,
+            )
 
     @app.get("/skills/wizard", response_class=HTMLResponse)
     async def skills_wizard_page(
@@ -430,10 +503,11 @@ def register_skills_routes(
         info: str = "",
     ) -> HTMLResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/skills?error=readonly", status_code=303)
+            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/skills")
         settings = get_settings()
         username = get_username_from_request(request)
         lang = str(getattr(request.state, "lang", "de") or "de")
+        return_to = _set_logical_back_url(request, fallback="/skills")
         loaded: dict[str, Any] | None = None
         clean_id = _sanitize_skill_id(skill_id)
         if clean_id:
@@ -485,6 +559,7 @@ def register_skills_routes(
                 "connections_text": connections_text,
                 "step_forms": _build_step_forms(loaded),
                 "schedule": loaded_schedule,
+                "return_to": return_to,
             },
         )
 
@@ -509,9 +584,10 @@ def register_skills_routes(
         skill_ui_config_path: str = Form(""),
         skill_ui_hint: str = Form(""),
         enabled_default: str = Form("0"),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/skills?error=readonly", status_code=303)
+            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/skills", return_to=return_to)
         try:
             form = await request.form()
             keywords = [item.strip() for item in str(skill_router_keywords).split(",") if item.strip()]
@@ -591,45 +667,64 @@ def register_skills_routes(
             info_suffix = ""
             if auto_generate and keywords:
                 info_suffix = f"&info={quote_plus(f'keywords:auto:{len(keywords)}')}"
-            return RedirectResponse(
-                url=f"/skills/wizard?skill_id={quote_plus(clean['id'])}&saved=1{info_suffix}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/skills/wizard?skill_id={quote_plus(clean['id'])}&saved=1{info_suffix}",
+                request,
+                fallback="/skills",
+                return_to=return_to,
             )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/skills/wizard?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills/wizard?error={quote_plus(str(exc))}",
+                request,
+                fallback="/skills",
+                return_to=return_to,
+            )
 
     @app.post("/skills/import")
     async def skills_import(
         request: Request,
         csrf_token: str = Form(""),
         skill_file: UploadFile = File(...),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/skills?error=readonly", status_code=303)
+            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return RedirectResponse(url="/skills?error=csrf_failed", status_code=303)
+            return _redirect_with_return_to("/skills?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             payload = await skill_file.read()
             raw = json.loads(payload.decode("utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError("Import erwartet ein JSON-Objekt.")
             clean = _save_custom_skill_manifest(raw)
-            return RedirectResponse(url=f"/skills?saved=1&info=imported:{quote_plus(clean['id'])}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills?saved=1&info=imported:{quote_plus(clean['id'])}",
+                request,
+                fallback="/",
+                return_to=return_to,
+            )
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
-            return RedirectResponse(url=f"/skills?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills?error={quote_plus(str(exc))}",
+                request,
+                fallback="/",
+                return_to=return_to,
+            )
 
     @app.post("/skills/import-sample")
     async def skills_import_sample(
         request: Request,
         sample_file: str = Form(""),
         csrf_token: str = Form(""),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/skills?error=readonly", status_code=303)
+            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return RedirectResponse(url="/skills?error=csrf_failed", status_code=303)
+            return _redirect_with_return_to("/skills?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             clean_name = Path(str(sample_file or "").strip()).name
             if not clean_name or not clean_name.endswith(".json"):
@@ -641,21 +736,32 @@ def register_skills_routes(
             if not isinstance(raw, dict):
                 raise ValueError("Import erwartet ein JSON-Objekt.")
             clean = _save_custom_skill_manifest(raw)
-            return RedirectResponse(url=f"/skills?saved=1&info=imported:{quote_plus(clean['id'])}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills?saved=1&info=imported:{quote_plus(clean['id'])}",
+                request,
+                fallback="/",
+                return_to=return_to,
+            )
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
-            return RedirectResponse(url=f"/skills?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills?error={quote_plus(str(exc))}",
+                request,
+                fallback="/",
+                return_to=return_to,
+            )
 
     @app.post("/skills/delete")
     async def skills_delete(
         request: Request,
         skill_id: str = Form(""),
         csrf_token: str = Form(""),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/skills?error=readonly", status_code=303)
+            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return RedirectResponse(url="/skills?error=csrf_failed", status_code=303)
+            return _redirect_with_return_to("/skills?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             result = _delete_custom_skill_manifest(skill_id)
             raw = read_raw_config()
@@ -663,12 +769,19 @@ def register_skills_routes(
             write_raw_config(raw)
             reload_runtime()
             info_value = quote_plus(f"deleted:{result['id']}")
-            return RedirectResponse(
-                url=f"/skills?saved=1&info={info_value}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/skills?saved=1&info={info_value}",
+                request,
+                fallback="/",
+                return_to=return_to,
             )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/skills?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/skills?error={quote_plus(str(exc))}",
+                request,
+                fallback="/",
+                return_to=return_to,
+            )
 
     @app.get("/skills/export/{skill_id}")
     async def skills_export(request: Request, skill_id: str) -> Response:

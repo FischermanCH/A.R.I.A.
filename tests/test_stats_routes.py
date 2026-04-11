@@ -16,6 +16,8 @@ from aria.web.stats_routes import (
     _build_preflight_meta,
     _build_qdrant_storage_meta,
     _build_release_meta,
+    _collapse_large_connection_groups,
+    _collapse_connection_kind_rows,
     _refresh_pricing_snapshot,
     _collapse_rss_rows,
     _directory_size_bytes,
@@ -103,6 +105,93 @@ def test_collapse_rss_rows_summarises_rss_and_keeps_other_connections() -> None:
     assert filtered_rows[1]["kind"] == "SFTP"
 
 
+def test_collapse_connection_kind_rows_summarises_ssh_profiles_from_threshold() -> None:
+    rows = [
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-a", "status": "ok"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-b", "status": "ok"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-c", "status": "ok"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-d", "status": "error"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-e", "status": "ok"},
+        {"kind_key": "rss", "kind": "RSS", "ref": "feed-a", "status": "ok"},
+    ]
+
+    filtered_rows = _collapse_connection_kind_rows(rows, kind_key="ssh", threshold=5, language="de")
+
+    assert len(filtered_rows) == 2
+    assert filtered_rows[0]["kind"] == "SSH"
+    assert filtered_rows[0]["status"] == "error"
+    assert filtered_rows[0]["target"] == "5 konfigurierte SSH-Profile"
+    assert filtered_rows[0]["message"] == "4 grün · 1 rot"
+    assert filtered_rows[0]["edit_url"] == "/config/connections/ssh"
+    assert filtered_rows[1]["kind"] == "RSS"
+
+
+def test_collapse_large_connection_groups_summarises_all_kinds_above_threshold() -> None:
+    rows = [
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-a", "status": "ok"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-b", "status": "ok"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-c", "status": "warn"},
+        {"kind_key": "ssh", "kind": "SSH", "ref": "srv-d", "status": "error"},
+        {"kind_key": "rss", "kind": "RSS", "ref": "feed-a", "status": "ok"},
+        {"kind_key": "rss", "kind": "RSS", "ref": "feed-b", "status": "ok"},
+        {"kind_key": "rss", "kind": "RSS", "ref": "feed-c", "status": "ok"},
+        {"kind_key": "rss", "kind": "RSS", "ref": "feed-d", "status": "error"},
+        {"kind_key": "discord", "kind": "Discord", "ref": "alerts", "status": "ok"},
+    ]
+
+    filtered_rows = _collapse_large_connection_groups(rows, threshold=4, language="de")
+
+    assert len(filtered_rows) == 3
+    assert filtered_rows[0]["kind"] == "SSH"
+    assert filtered_rows[0]["target"] == "4 konfigurierte SSH-Profile"
+    assert filtered_rows[1]["kind"] == "RSS"
+    assert filtered_rows[1]["target"] == "4 konfigurierte Feeds"
+    assert filtered_rows[2]["kind"] == "Discord"
+
+
+def test_build_settings_connection_status_rows_uses_cache_only_for_large_groups(monkeypatch) -> None:
+    calls: list[tuple[str, str, bool, bool]] = []
+
+    def fake_build_connection_status_row(
+        kind: str,
+        ref: str,
+        row: object,
+        *,
+        page_probe: bool = False,
+        cached_only: bool = False,
+        base_dir: Path | None = None,
+        lang: str = "de",
+    ) -> dict[str, str]:
+        del row, base_dir, lang
+        calls.append((kind, ref, page_probe, cached_only))
+        return {"kind_key": kind, "kind": kind.upper(), "ref": ref, "status": "ok"}
+
+    monkeypatch.setattr(connection_runtime, "build_connection_status_row", fake_build_connection_status_row)
+    monkeypatch.setattr(connection_runtime, "ordered_connection_kinds", lambda: ["ssh", "discord"])
+
+    settings = SimpleNamespace(
+        connections=SimpleNamespace(
+            ssh={"a": {}, "b": {}, "c": {}, "d": {}},
+            discord={"alerts": {}},
+        )
+    )
+
+    rows = connection_runtime.build_settings_connection_status_rows(
+        settings,
+        page_probe=True,
+        cached_only_threshold=4,
+    )
+
+    assert len(rows) == 5
+    assert calls[:4] == [
+        ("ssh", "a", False, True),
+        ("ssh", "b", False, True),
+        ("ssh", "c", False, True),
+        ("ssh", "d", False, True),
+    ]
+    assert calls[4] == ("discord", "alerts", True, False)
+
+
 def test_attach_connection_edit_urls_maps_rows_to_edit_pages() -> None:
     rows = [
         {"kind": "SFTP", "ref": "srv-a", "status": "ok"},
@@ -169,6 +258,22 @@ def test_build_preflight_meta_localizes_summaries_for_english() -> None:
     assert meta["checks"][1]["summary"] == "Qdrant reachable (0 collections)."
     assert meta["checks"][2]["summary"] == "LLM reachable."
     assert meta["checks"][3]["summary"] == "Embeddings reachable."
+
+
+def test_build_preflight_meta_includes_active_profile_names() -> None:
+    payload = {
+        "status": "warn",
+        "checked_at": "2026-03-31T10:20:30+00:00",
+        "checks": [
+            {"id": "llm", "status": "error", "summary_key": "llm_error", "summary": "LLM nicht erreichbar.", "detail": "model-a"},
+            {"id": "embeddings", "status": "ok", "summary_key": "embeddings_ok", "summary": "Embeddings erreichbar.", "detail": "model-b"},
+        ],
+    }
+
+    meta = _build_preflight_meta(payload, "de", active_profiles={"llm": "litellm-main", "embeddings": "litellm-emb"})
+
+    assert meta["checks"][0]["name"] == "Chat LLM (litellm-main)"
+    assert meta["checks"][1]["name"] == "Embeddings (litellm-emb)"
 
 
 def test_build_release_meta_uses_env_override(tmp_path, monkeypatch) -> None:

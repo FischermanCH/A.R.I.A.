@@ -156,3 +156,37 @@ def test_load_custom_skill_manifests_uses_cache_and_invalidates_on_change(monkey
     rows_after_change, _ = custom_skills._load_custom_skill_manifests()
     assert rows_after_change[0]["name"] == "Ops Report Updated"
     assert call_count["value"] == 2
+
+
+def test_normalize_skill_steps_manifest_keeps_valid_condition() -> None:
+    steps = custom_skills._normalize_skill_steps_manifest(
+        [
+            {
+                "id": "s5",
+                "type": "discord_send",
+                "params": {"message": "{s4_output}"},
+                "condition": {
+                    "source": "s4_output",
+                    "operator": "not_equals",
+                    "value": "NO_ALERT",
+                    "ignore_case": True,
+                },
+            }
+        ]
+    )
+
+    assert steps == [
+        {
+            "id": "s5",
+            "name": "",
+            "type": "discord_send",
+            "params": {"message": "{s4_output}"},
+            "on_error": "stop",
+            "condition": {
+                "source": "s4_output",
+                "operator": "not_equals",
+                "value": "NO_ALERT",
+                "ignore_case": True,
+            },
+        }
+    ]

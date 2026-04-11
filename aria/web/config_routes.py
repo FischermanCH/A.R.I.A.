@@ -63,6 +63,7 @@ from aria.core.guardrails import (
 )
 from aria.core.pipeline import Pipeline
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.runtime_diagnostics import probe_embeddings, probe_llm
 from aria.core.rss_grouping import build_rss_status_groups
 from aria.core.rss_grouping import load_cached_rss_status_groups, save_cached_rss_status_groups
 from aria.core.rss_opml import build_opml_document, parse_opml_feeds
@@ -913,8 +914,10 @@ def _build_connection_status_block(
     *,
     kind: str,
     rows: list[dict[str, Any]],
+    collapse_threshold: int = 0,
 ) -> dict[str, Any]:
     meta = connection_status_meta(kind)
+    should_collapse = collapse_threshold > 0 and len(rows) >= collapse_threshold
     return {
         "title_key": str(meta.get("title_key") or "").strip(),
         "title": str(meta.get("title") or "").strip(),
@@ -923,6 +926,11 @@ def _build_connection_status_block(
         "empty_key": str(meta.get("empty_key") or "").strip(),
         "empty_text": str(meta.get("empty_text") or "").strip(),
         "rows": rows,
+        "collapsed": should_collapse,
+        "total_count": len(rows),
+        "ok_count": sum(1 for item in rows if str(item.get("status", "")).strip().lower() == "ok"),
+        "warn_count": sum(1 for item in rows if str(item.get("status", "")).strip().lower() == "warn"),
+        "error_count": sum(1 for item in rows if str(item.get("status", "")).strip().lower() == "error"),
     }
 
 
@@ -1128,6 +1136,62 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     def _msg(lang: str, de: str, en: str) -> str:
         return de if str(lang or "de").strip().lower().startswith("de") else en
 
+    def _sanitize_return_to(value: str | None) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parsed = urlsplit(raw)
+        path = str(parsed.path or "").strip()
+        if not path.startswith("/") or path.startswith("//"):
+            return ""
+        cleaned = path
+        if parsed.query:
+            cleaned = f"{cleaned}?{parsed.query}"
+        return cleaned
+
+    def _referer_return_to(request: Request) -> str:
+        referer = str(request.headers.get("referer", "") or "").strip()
+        if not referer:
+            return ""
+        parsed = urlsplit(referer)
+        referer_query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        candidate = _sanitize_return_to(referer_query.get("return_to"))
+        if candidate:
+            return candidate
+        path = str(parsed.path or "").strip()
+        if not path.startswith("/") or path.startswith("//"):
+            return ""
+        return _sanitize_return_to(f"{path}?{parsed.query}" if parsed.query else path)
+
+    def _resolve_return_to(request: Request, *, fallback: str) -> str:
+        current_path = str(request.url.path or "").strip()
+        candidate = _sanitize_return_to(request.query_params.get("return_to"))
+        if candidate and urlsplit(candidate).path != current_path:
+            return candidate
+        referer_target = _referer_return_to(request)
+        if referer_target and urlsplit(referer_target).path != current_path:
+            return referer_target
+        return _sanitize_return_to(fallback) or "/"
+
+    def _attach_return_to(url: str, return_to: str) -> str:
+        target = _sanitize_return_to(return_to)
+        if not target:
+            return url
+        parsed = urlsplit(url)
+        pairs = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "return_to"]
+        pairs.append(("return_to", target))
+        query = urlencode(pairs)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
+
+    def _redirect_with_return_to(url: str, request: Request, *, fallback: str) -> RedirectResponse:
+        return_to = _resolve_return_to(request, fallback=fallback)
+        return RedirectResponse(url=_attach_return_to(url, return_to), status_code=303)
+
+    def _set_logical_back_url(request: Request, *, fallback: str) -> str:
+        target = _resolve_return_to(request, fallback=fallback)
+        request.state.logical_back_url = target
+        return target
+
     def _friendly_route_error(lang: str, exc: Exception, de_default: str, en_default: str) -> str:
         if isinstance(exc, ValueError):
             detail = str(exc).strip()
@@ -1204,7 +1268,39 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         return _msg(
             lang,
             f"{kind_label}-Profil gespeichert · Verbindungstest fehlgeschlagen",
-            f"{kind_label} profile saved · connection test failed",
+                f"{kind_label} profile saved · connection test failed",
+        )
+
+    def _active_profile_runtime_meta(raw: dict[str, Any], kind: str) -> dict[str, str]:
+        active_name = _get_active_profile_name(raw, kind) or "default"
+        if kind == "llm":
+            current = settings.llm
+        else:
+            current = settings.embeddings
+        return {
+            "active_name": active_name,
+            "model": str(getattr(current, "model", "") or "").strip(),
+            "api_base": str(getattr(current, "api_base", "") or "").strip(),
+        }
+
+    def _profile_test_redirect_url(page: str, *, ok: bool, message: str) -> str:
+        key = "info" if ok else "error"
+        return f"{page}?test_status={'ok' if ok else 'error'}&{key}={quote_plus(str(message))}"
+
+    def _profile_test_result_message(kind: str, active_name: str, result: dict[str, Any], lang: str) -> str:
+        label = _msg(lang, "LLM-Profil", "LLM profile") if kind == "llm" else _msg(lang, "Embedding-Profil", "Embedding profile")
+        active = str(active_name or "default").strip() or "default"
+        detail = str(result.get("detail", "") or "").strip()
+        if str(result.get("status", "")).strip().lower() == "ok":
+            return _msg(
+                lang,
+                f"{label} „{active}“ erfolgreich getestet.",
+                f"{label} '{active}' tested successfully.",
+            )
+        return _msg(
+            lang,
+            f"{label} „{active}“ Test fehlgeschlagen: {detail or '-'}",
+            f"{label} '{active}' test failed: {detail or '-'}",
         )
 
     def _format_config_info_message(lang: str, info: str) -> str:
@@ -1498,6 +1594,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         error: str = "",
         info: str = "",
     ) -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         raw = _read_raw_config()
         secure_store = _get_secure_store(raw)
@@ -1526,6 +1623,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "error_message": error,
                 "info_message": info_message,
                 "backup_summary": backup_summary,
+                "return_to": return_to,
             },
         )
 
@@ -1551,7 +1649,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         )
 
     @app.post("/config/backup/import")
-    async def config_backup_import(request: Request, backup_file: UploadFile = File(...)) -> RedirectResponse:
+    async def config_backup_import(
+        request: Request,
+        backup_file: UploadFile = File(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         if not bool(getattr(request.state, "can_access_advanced_config", False)):
             return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
         previous_raw = _read_raw_config()
@@ -1576,7 +1678,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             )
             _refresh_skill_trigger_index()
             _reload_runtime()
-            return RedirectResponse(url="/config/backup?saved=1&info=backup_imported", status_code=303)
+            return _redirect_with_return_to("/config/backup?saved=1&info=backup_imported", request, fallback="/config")
         except Exception as exc:  # noqa: BLE001
             with suppress(Exception):
                 restore_config_backup_payload(
@@ -1596,10 +1698,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     if str(getattr(request.state, 'lang', 'de') or 'de').startswith("de")
                     else f"{message} Previous configuration was restored."
                 )
-            return RedirectResponse(url=f"/config/backup?error={quote_plus(message)}", status_code=303)
+            request.state.logical_back_url = _sanitize_return_to(return_to) or "/config"
+            return _redirect_with_return_to(f"/config/backup?error={quote_plus(message)}", request, fallback="/config")
 
     @app.get("/config/appearance", response_class=HTMLResponse)
     async def config_appearance_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         raw = _read_raw_config()
         ui_cfg = raw.get("ui", {})
@@ -1640,13 +1744,16 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "background_rows": [row for row in background_rows if row["value"] in UI_BACKGROUND_OPTIONS],
                 "current_theme": current_theme,
                 "current_background": current_background,
+                "return_to": return_to,
             },
         )
 
     @app.post("/config/appearance/save")
     async def config_appearance_save(
+        request: Request,
         theme: str = Form("matrix"),
         background: str = Form("grid"),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         try:
             raw = _read_raw_config()
@@ -1657,12 +1764,18 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["ui"]["background"] = normalize_ui_background(background)
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/appearance?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/appearance?saved=1", request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/appearance?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/appearance?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.get("/config/language", response_class=HTMLResponse)
     async def config_language_page(request: Request, saved: int = 0, error: str = "", file: str = "") -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         raw = _read_raw_config()
         ui_cfg = raw.get("ui", {})
@@ -1702,11 +1815,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "default_language": default_language,
                 "selected_file": selected_file,
                 "editor_content": editor_content,
+                "return_to": return_to,
             },
         )
 
     @app.post("/config/language/save")
-    async def config_language_save(request: Request, default_language: str = Form(...)) -> RedirectResponse:
+    async def config_language_save(request: Request, default_language: str = Form(...), return_to: str = Form("")) -> RedirectResponse:
         try:
             code = I18N.resolve_lang(str(default_language).strip().lower(), default_lang=settings.ui.language)
             raw = _read_raw_config()
@@ -1717,7 +1831,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             _write_raw_config(raw)
             _reload_runtime()
             request.state.lang = code
-            response = RedirectResponse(url="/config/language?saved=1", status_code=303)
+            response = _redirect_with_return_to("/config/language?saved=1", request, fallback="/config", return_to=return_to)
             response.set_cookie(
                 key=_cookie_name_for_request(request, "lang", deps.lang_cookie),
                 value=code,
@@ -1728,10 +1842,20 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             )
             return response
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/language?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/language?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/language/file/save")
-    async def config_language_file_save(file_name: str = Form(...), content: str = Form(...)) -> RedirectResponse:
+    async def config_language_file_save(
+        request: Request,
+        file_name: str = Form(...),
+        content: str = Form(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             clean = str(file_name).strip().lower()
             if not re.fullmatch(r"[a-z0-9_-]+\.json", clean):
@@ -1742,20 +1866,27 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 raise ValueError("Sprachdatei muss ein JSON-Objekt sein.")
             target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             I18N.clear_cache()
-            return RedirectResponse(url=f"/config/language?file={quote_plus(clean)}&saved=1", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/language?file={quote_plus(clean)}&saved=1",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            return RedirectResponse(
-                url=f"/config/language?file={quote_plus(str(file_name))}&error={quote_plus(str(exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/language?file={quote_plus(str(file_name))}&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
 
     @app.get("/config/debug", response_class=HTMLResponse)
     async def config_debug_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
         _ = request, saved, error
-        return RedirectResponse(url="/config/users", status_code=303)
+        return _redirect_with_return_to("/config/users", request, fallback="/config")
 
     @app.post("/config/debug/save")
-    async def config_debug_save(debug_mode: str = Form("0")) -> RedirectResponse:
+    async def config_debug_save(request: Request, debug_mode: str = Form("0")) -> RedirectResponse:
         try:
             active = str(debug_mode).strip().lower() in {"1", "true", "on", "yes"}
             raw = _read_raw_config()
@@ -1765,9 +1896,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["ui"]["debug_mode"] = active
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/users?saved=1&info=Admin-On%2FOff+aktualisiert", status_code=303)
+            return _redirect_with_return_to("/config/users?saved=1&info=Admin-On%2FOff+aktualisiert", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/users?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/users?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.get("/config/security", response_class=HTMLResponse)
     async def config_security_page(
@@ -1777,6 +1908,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         info: str = "",
         guardrail_ref: str = "",
     ) -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         lang = str(getattr(request.state, "lang", "de") or "de")
         guardrail_rows = _read_guardrails()
@@ -1805,6 +1937,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "selected_guardrail": selected_guardrail,
                 "guardrail_kind_options": [{"value": kind, "label": guardrail_kind_label(kind)} for kind in guardrail_kind_options()],
                 "sample_guardrail_rows": _build_sample_guardrail_rows(),
+                "return_to": return_to,
             },
         )
 
@@ -1826,6 +1959,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         description: str = Form(""),
         allow_terms: str = Form(""),
         deny_terms: str = Form(""),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         try:
             raw = _read_raw_config()
@@ -1859,18 +1993,29 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
 
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(
-                url=f"/config/security?saved=1&guardrail_ref={quote_plus(ref)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/security?saved=1&guardrail_ref={quote_plus(ref)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_route_error(lang, exc, "Guardrail konnte nicht gespeichert werden.", "Could not save guardrail.")
             suffix = f"&guardrail_ref={quote_plus(_sanitize_connection_name(original_ref) or _sanitize_connection_name(guardrail_ref))}" if (original_ref or guardrail_ref) else ""
-            return RedirectResponse(url=f"/config/security?error={quote_plus(error)}{suffix}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/security?error={quote_plus(error)}{suffix}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/security/guardrails/delete")
-    async def config_security_guardrail_delete(request: Request, guardrail_ref: str = Form(...)) -> RedirectResponse:
+    async def config_security_guardrail_delete(
+        request: Request,
+        guardrail_ref: str = Form(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             ref = _sanitize_connection_name(guardrail_ref)
             if not ref:
@@ -1893,22 +2038,41 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                             value["guardrail_ref"] = ""
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/security?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/security?saved=1", request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_route_error(lang, exc, "Guardrail konnte nicht gelöscht werden.", "Could not delete guardrail.")
-            return RedirectResponse(url=f"/config/security?error={quote_plus(error)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/security?error={quote_plus(error)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/security/guardrails/import-sample")
-    async def config_security_guardrail_import_sample(request: Request, sample_file: str = Form("")) -> RedirectResponse:
+    async def config_security_guardrail_import_sample(
+        request: Request,
+        sample_file: str = Form(""),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         if not bool(getattr(request.state, "can_access_advanced_config", False)):
             return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
         try:
             imported_count, skipped_count = _import_sample_guardrail_manifest(sample_file)
             info = quote_plus(f"guardrail_sample_imported:{imported_count}:{skipped_count}")
-            return RedirectResponse(url=f"/config/security?saved=1&info={info}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/security?saved=1&info={info}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
         except (OSError, ValueError, yaml.YAMLError) as exc:
-            return RedirectResponse(url=f"/config/security?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/security?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.get("/config/logs", response_class=HTMLResponse)
     async def config_logs_page(
@@ -1920,6 +2084,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         factory_qdrant: int | None = None,
         error: str = "",
     ) -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         health = await pipeline.token_tracker.get_log_health()
         size_bytes = int(health.get("size_bytes", 0) or 0)
@@ -1944,11 +2109,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "error_message": error,
                 "token_tracking": settings.token_tracking,
                 "health": health,
+                "return_to": return_to,
             },
         )
 
     @app.post("/config/logs/save")
-    async def config_logs_save(enabled: str = Form("0"), retention_days: int = Form(...)) -> RedirectResponse:
+    async def config_logs_save(
+        request: Request,
+        enabled: str = Form("0"),
+        retention_days: int = Form(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             if retention_days < 0:
                 raise ValueError("retention_days muss >= 0 sein.")
@@ -1961,25 +2132,41 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["token_tracking"]["retention_days"] = int(retention_days)
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/logs?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/logs?saved=1", request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/logs?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/logs?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/logs/cleanup")
-    async def config_logs_cleanup() -> RedirectResponse:
+    async def config_logs_cleanup(request: Request, return_to: str = Form("")) -> RedirectResponse:
         try:
             removed = await pipeline.token_tracker.prune_old_entries(
                 int(getattr(settings.token_tracking, "retention_days", 0) or 0)
             )
-            return RedirectResponse(
-                url=f"/config/logs?pruned={int(removed.get('removed', 0) or 0)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/logs?pruned={int(removed.get('removed', 0) or 0)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/logs?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/logs?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/logs/reset")
-    async def config_logs_reset(request: Request, confirm_text: str = Form("")) -> RedirectResponse:
+    async def config_logs_reset(
+        request: Request,
+        confirm_text: str = Form(""),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             lang = str(getattr(request.state, "lang", "de") or "de")
             expected = "RESET"
@@ -1996,9 +2183,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     (runtime_dir / cache_name).unlink(missing_ok=True)
                 except OSError:
                     pass
-            return RedirectResponse(
-                url=f"/config/logs?reset={int(removed.get('removed', 0) or 0)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/logs?reset={int(removed.get('removed', 0) or 0)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
@@ -2008,7 +2197,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "Statistikdaten konnten nicht zurückgesetzt werden.",
                 "Could not reset stats data.",
             )
-            return RedirectResponse(url=f"/config/logs?error={quote_plus(error)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/logs?error={quote_plus(error)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/logs/factory-reset")
     async def config_logs_factory_reset(request: Request, confirm_text: str = Form("")) -> RedirectResponse:
@@ -2699,6 +2893,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "connection_status_block": _build_connection_status_block(
                 kind="ssh",
                 rows=connection_status_rows,
+                collapse_threshold=5,
             ),
             "refs": refs,
             "ref_options": _build_connection_ref_options(rows),
@@ -2936,6 +3131,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "connection_status_block": _build_connection_status_block(
                 kind="sftp",
                 rows=sftp_status_rows,
+                collapse_threshold=5,
             ),
             "sftp_refs": sftp_refs,
             "sftp_ref_options": _build_connection_ref_options(sftp_rows),
@@ -3712,6 +3908,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         mode: str = "edit",
     ) -> dict[str, Any]:
         connection_mode = _normalize_connection_mode(mode)
+        return_to = _set_logical_back_url(request, fallback="/config")
         return {
             "title": settings.ui.title,
             "username": _get_username_from_request(request),
@@ -3721,6 +3918,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "connection_mode": connection_mode,
             "connection_mode_edit_url": _connection_mode_url(request, "edit"),
             "connection_mode_create_url": _connection_mode_url(request, "create"),
+            "return_to": return_to,
         }
 
     def _render_connection_page(
@@ -3737,6 +3935,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         context = _base_connections_page_context(request, saved, info, error, mode=mode)
         builder_kwargs.setdefault("lang", str(getattr(request.state, "lang", "de") or "de"))
         context.update(context_builder(**builder_kwargs))
+        if isinstance(context.get("connection_intro"), dict):
+            context["connection_intro"] = dict(context["connection_intro"])
+            context["connection_intro"]["back_url"] = context.get("return_to") or "/config"
         return TEMPLATES.TemplateResponse(
             request=request,
             name=connection_template_name(kind),
@@ -4037,17 +4238,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     row["poll_interval_minutes"] = poll_interval
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(
-                url=(
-                    "/config/connections/rss?saved=1&mode=edit"
-                    f"&info={quote_plus(_msg(lang, f'RSS-Ping-Intervall global auf {poll_interval} Minuten gesetzt.', f'Global RSS ping interval set to {poll_interval} minutes.'))}"
-                ),
-                status_code=303,
+            return _redirect_with_return_to(
+                "/config/connections/rss?saved=1&mode=edit"
+                f"&info={quote_plus(_msg(lang, f'RSS-Ping-Intervall global auf {poll_interval} Minuten gesetzt.', f'Global RSS ping interval set to {poll_interval} minutes.'))}",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(
-                url=f"/config/connections/rss?mode=edit&error={quote_plus(str(exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/rss?mode=edit&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
             )
 
     @app.get("/config/connections/mqtt", response_class=HTMLResponse)
@@ -4080,9 +4281,10 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     ) -> RedirectResponse:
         try:
             spec = _delete_connection_profile(kind, connection_ref)
-            return RedirectResponse(
-                url=f"{spec['page']}?saved=1&info={quote_plus(str(spec['success_message']))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"{spec['page']}?saved=1&info={quote_plus(str(spec['success_message']))}",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             try:
@@ -4093,9 +4295,10 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             except ValueError:
                 target_page = "/config"
                 ref_suffix = ""
-            return RedirectResponse(
-                url=f"{target_page}?error={quote_plus(str(exc))}{ref_suffix}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"{target_page}?error={quote_plus(str(exc))}{ref_suffix}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/save")
@@ -4178,25 +4381,27 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 lang=lang,
             )
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(
-                        f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _msg(lang, 'Verbindung erfolgreich getestet', 'connection test succeeded'))}"
-                        f"&ref={quote_plus(ref)}&test_status=ok"
-                    ),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _msg(lang, 'Verbindung erfolgreich getestet', 'connection test succeeded'))}"
+                    f"&ref={quote_plus(ref)}&test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(
-                    f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _msg(lang, 'Verbindungstest fehlgeschlagen', 'connection test failed'))}"
-                    f"&error={quote_plus(test_result['message'])}&ref={quote_plus(ref)}&test_status=error"
-                ),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _msg(lang, 'Verbindungstest fehlgeschlagen', 'connection test failed'))}"
+                f"&error={quote_plus(test_result['message'])}&ref={quote_plus(ref)}&test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             suffix = f"&ref={quote_plus(ref_hint)}" if ref_hint else ""
             detail = _friendly_ssh_setup_error(lang, exc)
-            return RedirectResponse(url=f"/config/connections/ssh?error={quote_plus(detail)}{suffix}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?error={quote_plus(detail)}{suffix}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/discord/save")
     async def config_discord_connections_save(
@@ -4257,25 +4462,24 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_discord_connections().get(ref, {})
             test_result = build_connection_status_row("discord", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(
-                        f"/config/connections/discord?saved=1&info={quote_plus(_connection_saved_test_info('Discord', lang, success=True))}"
-                        f"&discord_ref={quote_plus(ref)}&discord_test_status=ok"
-                    ),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/discord?saved=1&info={quote_plus(_connection_saved_test_info('Discord', lang, success=True))}"
+                    f"&discord_ref={quote_plus(ref)}&discord_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(
-                    f"/config/connections/discord?saved=1&info={quote_plus(_connection_saved_test_info('Discord', lang, success=False))}"
-                    f"&error={quote_plus(test_result['message'])}&discord_ref={quote_plus(ref)}&discord_test_status=error"
-                ),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/discord?saved=1&info={quote_plus(_connection_saved_test_info('Discord', lang, success=False))}"
+                f"&error={quote_plus(test_result['message'])}&discord_ref={quote_plus(ref)}&discord_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(
-                url=f"/config/connections/discord?error={quote_plus(str(exc))}&discord_ref={quote_plus(ref_hint)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/discord?error={quote_plus(str(exc))}&discord_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/sftp/save")
@@ -4345,25 +4549,24 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_sftp_connections().get(ref, {})
             test_result = build_connection_status_row("sftp", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(
-                        f"/config/connections/sftp?saved=1&info={quote_plus(_connection_saved_test_info('SFTP', lang, success=True))}"
-                        f"&sftp_ref={quote_plus(ref)}&sftp_test_status=ok"
-                    ),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/sftp?saved=1&info={quote_plus(_connection_saved_test_info('SFTP', lang, success=True))}"
+                    f"&sftp_ref={quote_plus(ref)}&sftp_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(
-                    f"/config/connections/sftp?saved=1&info={quote_plus(_connection_saved_test_info('SFTP', lang, success=False))}"
-                    f"&error={quote_plus(test_result['message'])}&sftp_ref={quote_plus(ref)}&sftp_test_status=error"
-                ),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/sftp?saved=1&info={quote_plus(_connection_saved_test_info('SFTP', lang, success=False))}"
+                f"&error={quote_plus(test_result['message'])}&sftp_ref={quote_plus(ref)}&sftp_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(
-                url=f"/config/connections/sftp?error={quote_plus(str(exc))}&sftp_ref={quote_plus(ref_hint)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/sftp?error={quote_plus(str(exc))}&sftp_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/smb/save")
@@ -4432,17 +4635,23 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_smb_connections().get(ref, {})
             test_result = build_connection_status_row("smb", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(f"/config/connections/smb?saved=1&info={quote_plus(_connection_saved_test_info('SMB', lang, success=True))}&smb_ref={quote_plus(ref)}&smb_test_status=ok"),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/smb?saved=1&info={quote_plus(_connection_saved_test_info('SMB', lang, success=True))}&smb_ref={quote_plus(ref)}&smb_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(f"/config/connections/smb?saved=1&info={quote_plus(_connection_saved_test_info('SMB', lang, success=False))}&error={quote_plus(test_result['message'])}&smb_ref={quote_plus(ref)}&smb_test_status=error"),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/smb?saved=1&info={quote_plus(_connection_saved_test_info('SMB', lang, success=False))}&error={quote_plus(test_result['message'])}&smb_ref={quote_plus(ref)}&smb_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(url=f"/config/connections/smb?error={quote_plus(str(exc))}&smb_ref={quote_plus(ref_hint)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/smb?error={quote_plus(str(exc))}&smb_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/webhook/save")
     async def config_webhook_connections_save(
@@ -4504,17 +4713,23 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_webhook_connections().get(ref, {})
             test_result = build_connection_status_row("webhook", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(f"/config/connections/webhook?saved=1&info={quote_plus(_connection_saved_test_info('Webhook', lang, success=True))}&webhook_ref={quote_plus(ref)}&webhook_test_status=ok"),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/webhook?saved=1&info={quote_plus(_connection_saved_test_info('Webhook', lang, success=True))}&webhook_ref={quote_plus(ref)}&webhook_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(f"/config/connections/webhook?saved=1&info={quote_plus(_connection_saved_test_info('Webhook', lang, success=False))}&error={quote_plus(test_result['message'])}&webhook_ref={quote_plus(ref)}&webhook_test_status=error"),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/webhook?saved=1&info={quote_plus(_connection_saved_test_info('Webhook', lang, success=False))}&error={quote_plus(test_result['message'])}&webhook_ref={quote_plus(ref)}&webhook_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(url=f"/config/connections/webhook?error={quote_plus(str(exc))}&webhook_ref={quote_plus(ref_hint)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/webhook?error={quote_plus(str(exc))}&webhook_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/smtp/save")
     async def config_smtp_connections_save(
@@ -4575,17 +4790,23 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_email_connections().get(ref, {})
             test_result = build_connection_status_row("email", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(f"/config/connections/smtp?saved=1&info={quote_plus(_connection_saved_test_info('SMTP', lang, success=True))}&email_ref={quote_plus(ref)}&email_test_status=ok"),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/smtp?saved=1&info={quote_plus(_connection_saved_test_info('SMTP', lang, success=True))}&email_ref={quote_plus(ref)}&email_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(f"/config/connections/smtp?saved=1&info={quote_plus(_connection_saved_test_info('SMTP', lang, success=False))}&error={quote_plus(test_result['message'])}&email_ref={quote_plus(ref)}&email_test_status=error"),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/smtp?saved=1&info={quote_plus(_connection_saved_test_info('SMTP', lang, success=False))}&error={quote_plus(test_result['message'])}&email_ref={quote_plus(ref)}&email_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(url=f"/config/connections/smtp?error={quote_plus(str(exc))}&email_ref={quote_plus(ref_hint)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/smtp?error={quote_plus(str(exc))}&email_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/imap/save")
     async def config_imap_connections_save(
@@ -4642,17 +4863,23 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_imap_connections().get(ref, {})
             test_result = build_connection_status_row("imap", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(f"/config/connections/imap?saved=1&info={quote_plus(_connection_saved_test_info('IMAP', lang, success=True))}&imap_ref={quote_plus(ref)}&imap_test_status=ok"),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/imap?saved=1&info={quote_plus(_connection_saved_test_info('IMAP', lang, success=True))}&imap_ref={quote_plus(ref)}&imap_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(f"/config/connections/imap?saved=1&info={quote_plus(_connection_saved_test_info('IMAP', lang, success=False))}&error={quote_plus(test_result['message'])}&imap_ref={quote_plus(ref)}&imap_test_status=error"),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/imap?saved=1&info={quote_plus(_connection_saved_test_info('IMAP', lang, success=False))}&error={quote_plus(test_result['message'])}&imap_ref={quote_plus(ref)}&imap_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(url=f"/config/connections/imap?error={quote_plus(str(exc))}&imap_ref={quote_plus(ref_hint)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/imap?error={quote_plus(str(exc))}&imap_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/http-api/save")
     async def config_http_api_connections_save(
@@ -4714,17 +4941,23 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_http_api_connections().get(ref, {})
             test_result = build_connection_status_row("http_api", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(f"/config/connections/http-api?saved=1&info={quote_plus(_connection_saved_test_info('HTTP API', lang, success=True))}&http_api_ref={quote_plus(ref)}&http_api_test_status=ok"),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/http-api?saved=1&info={quote_plus(_connection_saved_test_info('HTTP API', lang, success=True))}&http_api_ref={quote_plus(ref)}&http_api_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(f"/config/connections/http-api?saved=1&info={quote_plus(_connection_saved_test_info('HTTP API', lang, success=False))}&error={quote_plus(test_result['message'])}&http_api_ref={quote_plus(ref)}&http_api_test_status=error"),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/http-api?saved=1&info={quote_plus(_connection_saved_test_info('HTTP API', lang, success=False))}&error={quote_plus(test_result['message'])}&http_api_ref={quote_plus(ref)}&http_api_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(url=f"/config/connections/http-api?error={quote_plus(str(exc))}&http_api_ref={quote_plus(ref_hint)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/http-api?error={quote_plus(str(exc))}&http_api_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/searxng/save")
     async def config_searxng_connections_save(
@@ -4771,25 +5004,24 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_searxng_connections().get(ref, {})
             test_result = build_connection_status_row("searxng", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(
-                        f"/config/connections/searxng?saved=1&info={quote_plus(_connection_saved_test_info('SearXNG', lang, success=True))}"
-                        f"&searxng_ref={quote_plus(ref)}&searxng_test_status=ok"
-                    ),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/searxng?saved=1&info={quote_plus(_connection_saved_test_info('SearXNG', lang, success=True))}"
+                    f"&searxng_ref={quote_plus(ref)}&searxng_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(
-                    f"/config/connections/searxng?saved=1&info={quote_plus(_connection_saved_test_info('SearXNG', lang, success=False))}"
-                    f"&error={quote_plus(test_result['message'])}&searxng_ref={quote_plus(ref)}&searxng_test_status=error"
-                ),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/searxng?saved=1&info={quote_plus(_connection_saved_test_info('SearXNG', lang, success=False))}"
+                f"&error={quote_plus(test_result['message'])}&searxng_ref={quote_plus(ref)}&searxng_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(
-                url=f"/config/connections/searxng?error={quote_plus(str(exc))}&searxng_ref={quote_plus(ref_hint)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/searxng?error={quote_plus(str(exc))}&searxng_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/rss/save")
@@ -4841,18 +5073,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     f"/config/connections/rss?saved=1&info={quote_plus(_connection_saved_test_info('RSS', lang, success=True))}"
                     f"&rss_test_status=ok&rss_ref={quote_plus(ref)}&mode=edit"
                 )
-                return RedirectResponse(
-                    url=target_url,
-                    status_code=303,
-                )
+                return _redirect_with_return_to(target_url, request, fallback="/config")
             target_url = (
                 f"/config/connections/rss?saved=1&info={quote_plus(_connection_saved_test_info('RSS', lang, success=False))}"
                 f"&error={quote_plus(test_result['message'])}&rss_test_status=error&rss_ref={quote_plus(ref)}&mode=edit"
             )
-            return RedirectResponse(
-                url=target_url,
-                status_code=303,
-            )
+            return _redirect_with_return_to(target_url, request, fallback="/config")
         except (OSError, ValueError) as exc:
             original_ref_clean = _sanitize_connection_name(original_ref)
             target_url = f"/config/connections/rss?error={quote_plus(str(exc))}"
@@ -4860,7 +5086,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 target_url += f"&rss_ref={quote_plus(original_ref_clean)}"
             else:
                 target_url += "&create_new=1"
-            return RedirectResponse(url=target_url, status_code=303)
+            return _redirect_with_return_to(target_url, request, fallback="/config")
 
     @app.get("/config/connections/rss/export-opml")
     async def config_rss_connections_export_opml() -> Response:
@@ -4884,9 +5110,10 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     ) -> RedirectResponse:
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return RedirectResponse(
-                url="/config/connections/rss?create_new=1&error=csrf_failed",
-                status_code=303,
+            return _redirect_with_return_to(
+                "/config/connections/rss?create_new=1&error=csrf_failed",
+                request,
+                fallback="/config",
             )
         try:
             del poll_interval_minutes
@@ -4928,17 +5155,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 imported_count += 1
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(
-                url=(
-                    "/config/connections/rss?saved=1&mode=edit"
-                    f"&info={quote_plus(_msg(lang, f'OPML-Import abgeschlossen · {imported_count} Feeds importiert', f'OPML import completed · {imported_count} feeds imported'))}"
-                ),
-                status_code=303,
+            return _redirect_with_return_to(
+                "/config/connections/rss?saved=1&mode=edit"
+                f"&info={quote_plus(_msg(lang, f'OPML-Import abgeschlossen · {imported_count} Feeds importiert', f'OPML import completed · {imported_count} feeds imported'))}",
+                request,
+                fallback="/config",
             )
         except Exception as exc:  # noqa: BLE001
-            return RedirectResponse(
-                url=f"/config/connections/rss?create_new=1&error={quote_plus(str(exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/rss?create_new=1&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/rss/ping-now")
@@ -4949,35 +5176,38 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         ref = _sanitize_connection_name(rss_ref)
         lang = str(getattr(request.state, "lang", "de") or "de")
         if not ref:
-            return RedirectResponse(url="/config/connections/rss?error=Connection-Ref+ist+ung%C3%BCltig.", status_code=303)
+            return _redirect_with_return_to(
+                "/config/connections/rss?error=Connection-Ref+ist+ung%C3%BCltig.",
+                request,
+                fallback="/config",
+            )
         try:
             test_row = _read_rss_connections().get(ref)
             if not isinstance(test_row, dict):
                 raise ValueError("Connection-Profil nicht gefunden.")
             test_result = build_connection_status_row("rss", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(
-                        "/config/connections/rss?mode=edit"
-                        f"&rss_ref={quote_plus(ref)}"
-                        f"&rss_test_status=ok"
-                        f"&info={quote_plus(str(test_result['message']))}"
-                    ),
-                    status_code=303,
-                )
-            return RedirectResponse(
-                url=(
+                return _redirect_with_return_to(
                     "/config/connections/rss?mode=edit"
                     f"&rss_ref={quote_plus(ref)}"
-                    f"&rss_test_status=error"
-                    f"&error={quote_plus(str(test_result['message']))}"
-                ),
-                status_code=303,
+                    f"&rss_test_status=ok"
+                    f"&info={quote_plus(str(test_result['message']))}",
+                    request,
+                    fallback="/config",
+                )
+            return _redirect_with_return_to(
+                "/config/connections/rss?mode=edit"
+                f"&rss_ref={quote_plus(ref)}"
+                f"&rss_test_status=error"
+                f"&error={quote_plus(str(test_result['message']))}",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(
-                url=f"/config/connections/rss?mode=edit&rss_ref={quote_plus(ref)}&rss_test_status=error&error={quote_plus(str(exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/rss?mode=edit&rss_ref={quote_plus(ref)}&rss_test_status=error&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/mqtt/save")
@@ -5035,17 +5265,23 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             test_row = _read_mqtt_connections().get(ref, {})
             test_result = build_connection_status_row("mqtt", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
-                return RedirectResponse(
-                    url=(f"/config/connections/mqtt?saved=1&info={quote_plus(_connection_saved_test_info('MQTT', lang, success=True))}&mqtt_ref={quote_plus(ref)}&mqtt_test_status=ok"),
-                    status_code=303,
+                return _redirect_with_return_to(
+                    f"/config/connections/mqtt?saved=1&info={quote_plus(_connection_saved_test_info('MQTT', lang, success=True))}&mqtt_ref={quote_plus(ref)}&mqtt_test_status=ok",
+                    request,
+                    fallback="/config",
                 )
-            return RedirectResponse(
-                url=(f"/config/connections/mqtt?saved=1&info={quote_plus(_connection_saved_test_info('MQTT', lang, success=False))}&error={quote_plus(test_result['message'])}&mqtt_ref={quote_plus(ref)}&mqtt_test_status=error"),
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/mqtt?saved=1&info={quote_plus(_connection_saved_test_info('MQTT', lang, success=False))}&error={quote_plus(test_result['message'])}&mqtt_ref={quote_plus(ref)}&mqtt_test_status=error",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return RedirectResponse(url=f"/config/connections/mqtt?error={quote_plus(str(exc))}&mqtt_ref={quote_plus(ref_hint)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/mqtt?error={quote_plus(str(exc))}&mqtt_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
 
     @app.post("/config/connections/keygen")
     async def config_connections_keygen(
@@ -5076,18 +5312,24 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["connections"]["ssh"][ref]["key_path"] = str(key_path)
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(
-                url=f"/config/connections/ssh?saved=1&info={quote_plus(_msg(str(getattr(request.state, 'lang', 'de') or 'de'), 'SSH-Key erstellt', 'SSH key created'))}&ref={quote_plus(ref)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?saved=1&info={quote_plus(_msg(str(getattr(request.state, 'lang', 'de') or 'de'), 'SSH-Key erstellt', 'SSH key created'))}&ref={quote_plus(ref)}",
+                request,
+                fallback="/config",
             )
         except subprocess.CalledProcessError as exc:
             detail = (exc.stderr or exc.stdout or str(exc)).strip()
-            return RedirectResponse(url=f"/config/connections/ssh?error={quote_plus(detail)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?error={quote_plus(detail)}",
+                request,
+                fallback="/config",
+            )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
-            return RedirectResponse(
-                url=f"/config/connections/ssh?error={quote_plus(_friendly_ssh_setup_error(lang, exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?error={quote_plus(_friendly_ssh_setup_error(lang, exc))}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/key-exchange")
@@ -5134,15 +5376,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["connections"]["ssh"][ref]["key_path"] = str(key_path)
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(
-                url=f"/config/connections/ssh?saved=1&info={quote_plus(_msg(str(getattr(request.state, 'lang', 'de') or 'de'), 'Key-Exchange erfolgreich', 'Key exchange successful'))}&ref={quote_plus(ref)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?saved=1&info={quote_plus(_msg(str(getattr(request.state, 'lang', 'de') or 'de'), 'Key-Exchange erfolgreich', 'Key exchange successful'))}&ref={quote_plus(ref)}",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
-            return RedirectResponse(
-                url=f"/config/connections/ssh?error={quote_plus(_friendly_ssh_setup_error(lang, exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?error={quote_plus(_friendly_ssh_setup_error(lang, exc))}",
+                request,
+                fallback="/config",
             )
 
     @app.post("/config/connections/test")
@@ -5163,14 +5407,16 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             if test_result["status"] != "ok":
                 raise ValueError(test_result["message"])
             info = test_result["message"]
-            return RedirectResponse(
-                url=f"/config/connections/ssh?saved=1&info={quote_plus(info)}&ref={quote_plus(ref)}&test_status=ok",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?saved=1&info={quote_plus(info)}&ref={quote_plus(ref)}&test_status=ok",
+                request,
+                fallback="/config",
             )
         except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-            return RedirectResponse(
-                url=f"/config/connections/ssh?error={quote_plus(str(exc))}&ref={quote_plus(connection_ref)}&test_status=error",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/connections/ssh?error={quote_plus(str(exc))}&ref={quote_plus(connection_ref)}&test_status=error",
+                request,
+                fallback="/config",
             )
 
     @app.get("/config/users", response_class=HTMLResponse)
@@ -5180,6 +5426,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         error: str = "",
         info: str = "",
     ) -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         manager = _get_auth_manager()
         users: list[dict[str, Any]] = []
@@ -5210,11 +5457,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     max(5, int(getattr(settings.security, "session_max_age_seconds", 60 * 60 * 12) or 0) // 60),
                     lang=str(getattr(request.state, "lang", "de") or "de"),
                 ),
+                "return_to": return_to,
             },
         )
 
     @app.post("/config/users/debug-save")
-    async def config_users_debug_save(request: Request, debug_mode: str = Form("0")) -> RedirectResponse:
+    async def config_users_debug_save(request: Request, debug_mode: str = Form("0"), return_to: str = Form("")) -> RedirectResponse:
         try:
             lang = str(getattr(request.state, "lang", "de") or "de")
             active = str(debug_mode).strip().lower() in {"1", "true", "on", "yes"}
@@ -5234,14 +5482,25 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 if lang.startswith("de")
                 else "Admin mode disabled. Advanced system areas are now hidden."
             )
-            return RedirectResponse(url=f"/config/users?saved=1&info={quote_plus(info)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/users?saved=1&info={quote_plus(info)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/users?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/users?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     async def _save_user_security_settings(
         request: Request,
         bootstrap_locked: str,
         session_timeout_minutes: int,
+        return_to: str = "",
     ) -> RedirectResponse:
         try:
             active = str(bootstrap_locked).strip().lower() in {"1", "true", "on", "yes"}
@@ -5254,7 +5513,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["security"]["session_max_age_seconds"] = int(timeout_minutes * 60)
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/users?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/users?saved=1", request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error_msg = _friendly_route_error(
@@ -5263,15 +5522,21 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "Benutzer- und Login-Einstellungen konnten nicht gespeichert werden.",
                 "Could not save user and login settings.",
             )
-            return RedirectResponse(url=f"/config/users?error={quote_plus(error_msg)}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/users?error={quote_plus(error_msg)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/users/security-save")
     async def config_users_security_save(
         request: Request,
         bootstrap_locked: str = Form("0"),
         session_timeout_minutes: int = Form(60 * 60 * 12 // 60),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
-        return await _save_user_security_settings(request, bootstrap_locked, session_timeout_minutes)
+        return await _save_user_security_settings(request, bootstrap_locked, session_timeout_minutes, return_to=return_to)
 
     @app.post("/config/users/create")
     async def config_users_create(
@@ -5279,10 +5544,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         create_username: str = Form(...),
         create_password: str = Form(...),
         create_role: str = Form("user"),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         manager = _get_auth_manager()
         if not manager:
-            return RedirectResponse(url="/config/users?error=Security+Store+nicht+aktiv", status_code=303)
+            return _redirect_with_return_to("/config/users?error=Security+Store+nicht+aktiv", request, fallback="/config", return_to=return_to)
         try:
             clean_username = _sanitize_username(create_username)
             clean_role = _sanitize_role(create_role)
@@ -5291,9 +5557,14 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             if manager.store.get_user(clean_username):
                 raise ValueError("User existiert bereits.")
             manager.upsert_user(clean_username, create_password, role=clean_role)
-            return RedirectResponse(url="/config/users?saved=1&info=User+erstellt", status_code=303)
+            return _redirect_with_return_to("/config/users?saved=1&info=User+erstellt", request, fallback="/config", return_to=return_to)
         except ValueError as exc:
-            return RedirectResponse(url=f"/config/users?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/users?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/users/update")
     async def config_users_update(
@@ -5303,10 +5574,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         role_value: str = Form("user"),
         active_value: str = Form("0"),
         password_value: str = Form(""),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         manager = _get_auth_manager()
         if not manager:
-            return RedirectResponse(url="/config/users?error=Security+Store+nicht+aktiv", status_code=303)
+            return _redirect_with_return_to("/config/users?error=Security+Store+nicht+aktiv", request, fallback="/config", return_to=return_to)
         try:
             auth = _get_auth_session_from_request(request) or {}
             current_username = _sanitize_username(auth.get("username"))
@@ -5351,7 +5623,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 manager.store.set_user_role(clean_username, clean_role)
 
             manager.store.set_user_active(clean_username, target_active)
-            response = RedirectResponse(url="/config/users?saved=1&info=User+aktualisiert", status_code=303)
+            response = _redirect_with_return_to("/config/users?saved=1&info=User+aktualisiert", request, fallback="/config", return_to=return_to)
             if old_username == current_username:
                 secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
                 response.set_cookie(
@@ -5380,7 +5652,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 )
             return response
         except ValueError as exc:
-            return RedirectResponse(url=f"/config/users?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/users?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.get("/config/prompts", response_class=HTMLResponse)
     async def config_prompts_page(
@@ -5405,6 +5682,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 error = _friendly_route_error(lang, exc, "Prompt-Datei konnte nicht geladen werden.", "Could not load prompt file.")
                 content = ""
         selected_row = next((row for row in rows if row.get("path") == selected), None)
+        return_to = _set_logical_back_url(request, fallback="/config")
 
         return TEMPLATES.TemplateResponse(
             request=request,
@@ -5418,11 +5696,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "file_content": content,
                 "saved": bool(saved),
                 "error_message": error,
+                "return_to": return_to,
             },
         )
 
     @app.post("/config/prompts/save")
-    async def config_prompts_save(request: Request, file: str = Form(...), content: str = Form(...)) -> RedirectResponse:
+    async def config_prompts_save(
+        request: Request,
+        file: str = Form(...),
+        content: str = Form(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             target = _resolve_prompt_file(file)
             if not target.exists():
@@ -5431,13 +5715,16 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             target_url = f"/config/prompts?file={quote_plus(file)}&saved=1"
             if reload_message:
                 target_url += f"&error={quote_plus(reload_message)}"
-            return RedirectResponse(url=target_url, status_code=303)
+            request.state.logical_back_url = _sanitize_return_to(return_to) or "/config"
+            return _redirect_with_return_to(target_url, request, fallback="/config")
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_route_error(lang, exc, "Prompt-Datei konnte nicht gespeichert werden.", "Could not save prompt file.")
-            return RedirectResponse(
-                url=f"/config/prompts?file={quote_plus(file)}&error={quote_plus(error)}",
-                status_code=303,
+            request.state.logical_back_url = _sanitize_return_to(return_to) or "/config"
+            return _redirect_with_return_to(
+                f"/config/prompts?file={quote_plus(file)}&error={quote_plus(error)}",
+                request,
+                fallback="/config",
             )
 
     @app.get("/config/routing", response_class=HTMLResponse)
@@ -5447,6 +5734,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         error: str = "",
         scope: str = "default",
     ) -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         supported_languages = list(getattr(request.state, "supported_languages", []) or [])
         selected_scope = str(scope or "default").strip().lower() or "default"
@@ -5470,6 +5758,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "forget_keywords_text": "\n".join(routing.memory_forget_keywords),
                 "store_prefixes_text": "\n".join(routing.memory_store_prefixes),
                 "recall_cleanup_text": "\n".join(routing.memory_recall_cleanup_keywords),
+                "return_to": return_to,
             },
         )
 
@@ -5482,6 +5771,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         memory_forget_keywords: str = Form(""),
         memory_store_prefixes: str = Form(""),
         memory_recall_cleanup_keywords: str = Form(""),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         try:
             store_keywords = _parse_lines(memory_store_keywords)
@@ -5535,14 +5825,18 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 routing_section["languages"][selected_scope] = payload
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(
-                url=f"/config/routing?saved=1&scope={quote_plus(selected_scope)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/routing?saved=1&scope={quote_plus(selected_scope)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError) as exc:
-            return RedirectResponse(
-                url=f"/config/routing?scope={quote_plus(str(scope or 'default'))}&error={quote_plus(str(exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/routing?scope={quote_plus(str(scope or 'default'))}&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
 
     @app.get("/config/skill-routing", response_class=HTMLResponse)
@@ -5555,6 +5849,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         auth = _get_auth_session_from_request(request) or {}
         if _sanitize_role(auth.get("role")) != "admin":
             return RedirectResponse(url="/skills?error=no_admin", status_code=303)
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         lang = str(getattr(request.state, "lang", "de") or "de")
         manifests, load_errors = _load_custom_skill_manifests()
@@ -5582,6 +5877,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "rows": rows,
                 "index": index,
                 "load_errors": load_errors,
+                "return_to": return_to,
             },
         )
 
@@ -5590,6 +5886,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         request: Request,
         skill_id: str = Form(...),
         router_keywords: str = Form(""),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         auth = _get_auth_session_from_request(request) or {}
         if _sanitize_role(auth.get("role")) != "admin":
@@ -5607,17 +5904,25 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             keywords = [item.strip() for item in str(router_keywords).split(",") if item.strip()]
             raw["router_keywords"] = keywords
             clean = _save_custom_skill_manifest(raw)
-            return RedirectResponse(
-                url=f"/config/skill-routing?saved=1&info={quote_plus(clean.get('id', clean_id))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/skill-routing?saved=1&info={quote_plus(clean.get('id', clean_id))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            return RedirectResponse(url=f"/config/skill-routing?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/skill-routing?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/skill-routing/suggest")
     async def config_skill_routing_suggest(
         request: Request,
         skill_id: str = Form(...),
+        return_to: str = Form(""),
     ) -> RedirectResponse:
         auth = _get_auth_session_from_request(request) or {}
         if _sanitize_role(auth.get("role")) != "admin":
@@ -5639,15 +5944,22 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["router_keywords"] = keywords
             _save_custom_skill_manifest(raw)
             info = f"suggest:{clean_id}:{len(keywords)}"
-            return RedirectResponse(
-                url=f"/config/skill-routing?saved=1&info={quote_plus(info)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/skill-routing?saved=1&info={quote_plus(info)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            return RedirectResponse(url=f"/config/skill-routing?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/skill-routing?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/skill-routing/suggest-all")
-    async def config_skill_routing_suggest_all(request: Request) -> RedirectResponse:
+    async def config_skill_routing_suggest_all(request: Request, return_to: str = Form("")) -> RedirectResponse:
         auth = _get_auth_session_from_request(request) or {}
         if _sanitize_role(auth.get("role")) != "admin":
             return RedirectResponse(url="/skills?error=no_admin", status_code=303)
@@ -5668,26 +5980,50 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 updated += 1
                 total_keywords += len(keywords)
             info = f"suggest-all:{updated}:{total_keywords}"
-            return RedirectResponse(
-                url=f"/config/skill-routing?saved=1&info={quote_plus(info)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/skill-routing?saved=1&info={quote_plus(info)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
-            return RedirectResponse(url=f"/config/skill-routing?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/skill-routing?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/skill-routing/rebuild")
-    async def config_skill_routing_rebuild(request: Request) -> RedirectResponse:
+    async def config_skill_routing_rebuild(request: Request, return_to: str = Form("")) -> RedirectResponse:
         auth = _get_auth_session_from_request(request) or {}
         if _sanitize_role(auth.get("role")) != "admin":
             return RedirectResponse(url="/skills?error=no_admin", status_code=303)
         try:
             _refresh_skill_trigger_index()
-            return RedirectResponse(url="/config/skill-routing?saved=1&info=rebuild", status_code=303)
+            return _redirect_with_return_to(
+                "/config/skill-routing?saved=1&info=rebuild",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
         except OSError as exc:
-            return RedirectResponse(url=f"/config/skill-routing?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(
+                f"/config/skill-routing?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.get("/config/llm", response_class=HTMLResponse)
-    async def config_llm_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
+    async def config_llm_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        test_status: str = "",
+    ) -> HTMLResponse:
+        _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         raw = _read_raw_config()
         llm_profiles = _get_profiles(raw, "llm")
@@ -5703,6 +6039,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 }
             }
         active_llm_profile = _get_active_profile_name(raw, "llm") or "default"
+        active_llm_meta = _active_profile_runtime_meta(raw, "llm")
         providers = [
             {
                 "key": key,
@@ -5720,15 +6057,18 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "username": username,
                 "saved": bool(saved),
                 "error_message": error,
+                "info_message": _format_config_info_message(str(getattr(request.state, "lang", "de") or "de"), info),
+                "test_status": str(test_status or "").strip().lower(),
                 "llm": settings.llm,
                 "providers": providers,
                 "llm_profiles": sorted(llm_profiles.keys()),
                 "active_llm_profile": active_llm_profile,
+                "active_llm_meta": active_llm_meta,
             },
         )
 
     @app.post("/config/llm/profile/load")
-    async def config_llm_profile_load(profile_name: str = Form(...)) -> RedirectResponse:
+    async def config_llm_profile_load(request: Request, profile_name: str = Form(...)) -> RedirectResponse:
         try:
             raw = _read_raw_config()
             name = _sanitize_profile_name(profile_name)
@@ -5756,12 +6096,13 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             _set_active_profile(raw, "llm", name)
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/llm?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/llm?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/llm?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/llm?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/llm/profile/save")
     async def config_llm_profile_save(
+        request: Request,
         profile_name: str = Form(...),
         model: str = Form(...),
         api_base: str = Form(""),
@@ -5826,12 +6167,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 raw["llm"]["api_key"] = cleaned_api_key
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/llm?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/llm?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/llm?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/llm?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/llm/profile/delete")
-    async def config_llm_profile_delete(profile_name: str = Form(...)) -> RedirectResponse:
+    async def config_llm_profile_delete(request: Request, profile_name: str = Form(...)) -> RedirectResponse:
         try:
             raw = _read_raw_config()
             name = _sanitize_profile_name(profile_name)
@@ -5847,9 +6188,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             del raw["profiles"]["llm"][name]
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/llm?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/llm?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/llm?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/llm?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/llm/models")
     async def config_llm_models(api_base: str = Form(...), api_key: str = Form("")) -> JSONResponse:
@@ -5876,6 +6217,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
 
     @app.post("/config/llm/save")
     async def config_llm_save(
+        request: Request,
         model: str = Form(...),
         api_base: str = Form(""),
         api_key: str = Form(""),
@@ -5935,15 +6277,32 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     raw["profiles"]["llm"][target_name]["api_key"] = cleaned_api_key
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/llm?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/llm?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(
-                url=f"/config/llm?error={quote_plus(str(exc))}",
-                status_code=303,
-            )
+            return _redirect_with_return_to(f"/config/llm?error={quote_plus(str(exc))}", request, fallback="/config")
+
+    @app.post("/config/llm/test")
+    async def config_llm_test(request: Request) -> RedirectResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        raw = _read_raw_config()
+        active_name = _get_active_profile_name(raw, "llm") or "default"
+        result = await probe_llm(settings.llm, usage_meter=getattr(pipeline, "usage_meter", None))
+        message = _profile_test_result_message("llm", active_name, result, lang)
+        return _redirect_with_return_to(
+            _profile_test_redirect_url("/config/llm", ok=str(result.get("status", "")).strip().lower() == "ok", message=message),
+            request,
+            fallback="/config",
+        )
 
     @app.get("/config/embeddings", response_class=HTMLResponse)
-    async def config_embeddings_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
+    async def config_embeddings_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        test_status: str = "",
+    ) -> HTMLResponse:
+        _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         raw = _read_raw_config()
         embedding_profiles = _get_profiles(raw, "embeddings")
@@ -5957,6 +6316,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 }
             }
         active_embedding_profile = _get_active_profile_name(raw, "embeddings") or "default"
+        active_embedding_meta = _active_profile_runtime_meta(raw, "embeddings")
         providers = [
             {
                 "key": key,
@@ -5975,10 +6335,13 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "username": username,
                 "saved": bool(saved),
                 "error_message": error,
+                "info_message": _format_config_info_message(str(getattr(request.state, "lang", "de") or "de"), info),
+                "test_status": str(test_status or "").strip().lower(),
                 "embeddings": settings.embeddings,
                 "providers": providers,
                 "embedding_profiles": sorted(embedding_profiles.keys()),
                 "active_embedding_profile": active_embedding_profile,
+                "active_embedding_meta": active_embedding_meta,
                 "embedding_guard": embedding_guard,
             },
         )
@@ -6026,9 +6389,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             raw["memory"]["embedding_model"] = resolved_model
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/embeddings?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/embeddings?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/embeddings?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/embeddings?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/embeddings/profile/save")
     async def config_embeddings_profile_save(
@@ -6099,12 +6462,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 raw["embeddings"]["api_key"] = cleaned_api_key
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/embeddings?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/embeddings?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/embeddings?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/embeddings?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/embeddings/profile/delete")
-    async def config_embeddings_profile_delete(profile_name: str = Form(...)) -> RedirectResponse:
+    async def config_embeddings_profile_delete(request: Request, profile_name: str = Form(...)) -> RedirectResponse:
         try:
             raw = _read_raw_config()
             name = _sanitize_profile_name(profile_name)
@@ -6120,9 +6483,9 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             del raw["profiles"]["embeddings"][name]
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/embeddings?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/embeddings?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(url=f"/config/embeddings?error={quote_plus(str(exc))}", status_code=303)
+            return _redirect_with_return_to(f"/config/embeddings?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/embeddings/save")
     async def config_embeddings_save(
@@ -6189,15 +6552,30 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     raw["profiles"]["embeddings"][target_name]["api_key"] = cleaned_api_key
             _write_raw_config(raw)
             _reload_runtime()
-            return RedirectResponse(url="/config/embeddings?saved=1", status_code=303)
+            return _redirect_with_return_to("/config/embeddings?saved=1", request, fallback="/config")
         except (OSError, ValueError) as exc:
-            return RedirectResponse(
-                url=f"/config/embeddings?error={quote_plus(str(exc))}",
-                status_code=303,
-            )
+            return _redirect_with_return_to(f"/config/embeddings?error={quote_plus(str(exc))}", request, fallback="/config")
+
+    @app.post("/config/embeddings/test")
+    async def config_embeddings_test(request: Request) -> RedirectResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        raw = _read_raw_config()
+        active_name = _get_active_profile_name(raw, "embeddings") or "default"
+        result = await probe_embeddings(settings.embeddings, usage_meter=getattr(pipeline, "usage_meter", None))
+        message = _profile_test_result_message("embeddings", active_name, result, lang)
+        return _redirect_with_return_to(
+            _profile_test_redirect_url(
+                "/config/embeddings",
+                ok=str(result.get("status", "")).strip().lower() == "ok",
+                message=message,
+            ),
+            request,
+            fallback="/config",
+        )
 
     @app.get("/config/files", response_class=HTMLResponse)
     async def config_files_page(request: Request, file: str | None = None, saved: int = 0, error: str = "") -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         entries = _list_file_editor_entries()
         rows = _build_editor_entries_from_paths(BASE_DIR, [row["path"] for row in entries], _resolve_file_editor_file)
@@ -6233,11 +6611,13 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "file_content": content,
                 "saved": bool(saved),
                 "error_message": error,
+                "return_to": return_to,
             },
         )
 
     @app.get("/config/error-interpreter", response_class=HTMLResponse)
     async def config_error_interpreter_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
+        return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
         content = ""
         category_count = 0
@@ -6260,11 +6640,16 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "file_content": content,
                 "file_path": str(ERROR_INTERPRETER_PATH.relative_to(BASE_DIR)),
                 "category_count": category_count,
+                "return_to": return_to,
             },
         )
 
     @app.post("/config/error-interpreter/save")
-    async def config_error_interpreter_save(content: str = Form(...)) -> RedirectResponse:
+    async def config_error_interpreter_save(
+        request: Request,
+        content: str = Form(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             parsed = yaml.safe_load(content) or {}
             if not isinstance(parsed, dict):
@@ -6285,15 +6670,27 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                     raise ValueError(f"Regel {idx}: `messages` muss ein Objekt sein.")
             ERROR_INTERPRETER_PATH.write_text(content, encoding="utf-8")
             _reload_runtime()
-            return RedirectResponse(url="/config/error-interpreter?saved=1", status_code=303)
+            return _redirect_with_return_to(
+                "/config/error-interpreter?saved=1",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
         except (OSError, ValueError, yaml.YAMLError) as exc:
-            return RedirectResponse(
-                url=f"/config/error-interpreter?error={quote_plus(str(exc))}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/error-interpreter?error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )
 
     @app.post("/config/files/save")
-    async def config_files_save(request: Request, file: str = Form(...), content: str = Form(...)) -> RedirectResponse:
+    async def config_files_save(
+        request: Request,
+        file: str = Form(...),
+        content: str = Form(...),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
         try:
             target = _resolve_edit_file(file)
             if not target.exists():
@@ -6302,11 +6699,13 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             target_url = f"/config/files?file={quote_plus(file)}&saved=1"
             if reload_message:
                 target_url += f"&error={quote_plus(reload_message)}"
-            return RedirectResponse(url=target_url, status_code=303)
+            return _redirect_with_return_to(target_url, request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_route_error(lang, exc, "Datei konnte nicht gespeichert werden.", "Could not save file.")
-            return RedirectResponse(
-                url=f"/config/files?file={quote_plus(file)}&error={quote_plus(error)}",
-                status_code=303,
+            return _redirect_with_return_to(
+                f"/config/files?file={quote_plus(file)}&error={quote_plus(error)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
             )

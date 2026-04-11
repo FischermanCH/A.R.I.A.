@@ -11,6 +11,7 @@ Aktuelle Beispiele:
 - `echo-chat.json`: sicherer Demo-Skill ohne externe Verbindung
 - `ssh-healthcheck-template.json`: einfacher SSH-Uptime-/Healthcheck
 - `linux-updates-check-template.json`: read-only Linux-Update-Check via SSH
+- `linux-fleet-healthcheck-to-discord-template.json`: mehrere Linux-Hosts read-only via SSH pruefen, per LLM bewerten und nur bei echtem Alarm nach Discord senden
 - `sftp-read-template.json`: einfacher Datei-Lesezugriff via SFTP
 - `smb-share-list-template.json`: SMB-Share lesen und im Chat zusammenfassen
 - `discord-broadcast-template.json`: einfache Discord-Nachricht aus einem Skill senden

@@ -28,6 +28,7 @@
   </section>
 
   <form id="skills-toggles-form" class="editor-form" method="post" action="/skills/save">
+    <input type="hidden" name="return_to" value="{{ return_to or '' }}">
     <section class="floating-card skills-section">
       <h3>{{ tr(request, 'skills.core', 'Core Skills') }}</h3>
       <div class="config-group-grid">
@@ -110,7 +111,7 @@
               {% endif %}
               {% if not skills_readonly %}
               <div class="inline-actions">
-                <a class="nav-link" href="/skills/wizard?skill_id={{ row.key }}">{{ tr(request, 'skills.edit', 'Bearbeiten') }}</a>
+                <a class="nav-link" href="/skills/wizard?skill_id={{ row.key }}&return_to=%2Fskills">{{ tr(request, 'skills.edit', 'Bearbeiten') }}</a>
                 <button
                   type="submit"
                   class="danger-btn"
@@ -150,13 +151,14 @@
   <section class="floating-card skills-actions skills-actions-create">
     <h3>{{ tr(request, 'skills.create', 'Skill erstellen') }}</h3>
     <div class="inline-actions">
-      <a class="nav-link skill-action-link" href="/skills/wizard">{{ tr(request, 'skills.create_wizard', 'Neuen Skill erstellen (Wizard)') }}</a>
+      <a class="nav-link skill-action-link" href="/skills/wizard?return_to=%2Fskills">{{ tr(request, 'skills.create_wizard', 'Neuen Skill erstellen (Wizard)') }}</a>
     </div>
   </section>
 
   <section class="floating-card skills-actions skills-actions-import">
     <h3>{{ tr(request, 'skills.import', 'Skill importieren') }}</h3>
     <form class="editor-form" method="post" action="/skills/import" enctype="multipart/form-data">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <div class="inline-actions">
         <input type="file" name="skill_file" accept="application/json,.json" required>
         <button type="submit" class="skill-action-button">{{ tr(request, 'skills.import_btn', 'Skill importieren') }}</button>
@@ -179,6 +181,7 @@
         {% endif %}
         <p class="hint-text">{{ sample.file_name }}</p>
         <form method="post" action="/skills/import-sample" class="inline-form">
+          <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
           <button type="submit" class="skill-action-button">{{ tr(request, 'skills.import_sample_btn', 'Sample importieren') }}</button>
         </form>
