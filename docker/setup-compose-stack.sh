@@ -814,6 +814,8 @@ log "Pruefe Compose-Konfiguration"
 compose_cmd --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" config -q >/dev/null
 
 if [[ "$START_STACK" == "true" ]]; then
+  log "Ziehe aktuelle Images"
+  compose_cmd --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" pull
   log "Starte den Stack"
   compose_cmd --env-file "$INSTALL_DIR/.env" -f "$INSTALL_DIR/docker-compose.yml" up -d
   "$INSTALL_DIR/aria-stack.sh" validate

@@ -6,6 +6,11 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.105] - 2026-04-11
+
+### Fixed
+- fresh managed installs via `aria-setup` now pull the referenced Docker images before the first `docker compose up`, so a host with an older cached `fischermanch/aria:alpha` image can no longer silently come up on the wrong ARIA version after a supposedly clean reinstall
+
 ## [0.1.0-alpha.104] - 2026-04-11
 
 ### Fixed
