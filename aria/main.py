@@ -2592,6 +2592,15 @@ def _build_app() -> FastAPI:
             return RedirectResponse(url="/updates", status_code=303)
         return _render_updates_running_page(request)
 
+    @app.get("/updates/relogin")
+    async def updates_relogin(request: Request, next: str = "/updates") -> RedirectResponse:  # noqa: A002
+        target = str(next or "/updates")
+        if not target.startswith("/"):
+            target = "/updates"
+        response = RedirectResponse(url=f"/login?next={quote_plus(target)}", status_code=303)
+        _clear_auth_related_cookies(response, request)
+        return response
+
     @app.post("/updates/run")
     async def run_updates_from_ui(request: Request, csrf_token: str = Form("")) -> Response:  # noqa: ARG001
         wants_json = str(request.headers.get("x-requested-with", "") or "").strip() == "ARIA-Update-UI"
@@ -2623,7 +2632,7 @@ def _build_app() -> FastAPI:
                 content={
                     "status": status or "accepted",
                     "message": "Update helper accepted the run." if status == "accepted" else "Update request forwarded.",
-                    "reload_url": "/updates",
+                    "reload_url": "/updates/relogin?next=%2Fupdates",
                     "status_url": "/updates/status",
                     "running_url": "/updates/running",
                 }

@@ -90,7 +90,7 @@
   </div>
 
   {% if update_control.visible %}
-  <div class="update-live-card{% if not update_control.running and update_notice != 'update_started' %} is-hidden{% endif %}" id="update-live-card" data-health-url="/health" data-reload-url="/updates" data-status-url="/updates/status" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
+  <div class="update-live-card{% if not update_control.running and update_notice != 'update_started' %} is-hidden{% endif %}" id="update-live-card" data-health-url="/health" data-reload-url="/updates/relogin?next=%2Fupdates" data-status-url="/updates/status" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
     <div class="update-live-card__panel">
       <div class="update-live-card__head">
         <span class="health-lamp status-warn update-live-card__lamp"></span>
@@ -165,7 +165,7 @@
       </div>
       {% endif %}
 
-      <form method="post" action="/updates/run" class="connection-test-form" id="update-run-form" data-status-url="/updates/status" data-reload-url="/updates">
+      <form method="post" action="/updates/run" class="connection-test-form" id="update-run-form" data-status-url="/updates/status" data-reload-url="/updates/relogin?next=%2Fupdates">
         <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
         <button type="submit" class="btn-primary" id="update-run-button" {% if update_control.running %}disabled{% endif %}>
           {{ tr(request, 'updates.run_button', 'Update starten') }}

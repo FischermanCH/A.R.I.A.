@@ -275,7 +275,26 @@ def test_updates_run_returns_json_for_ajax_requests(monkeypatch) -> None:
     payload = response.json()
     assert payload["status"] == "accepted"
     assert payload["status_url"] == "/updates/status"
-    assert payload["reload_url"] == "/updates"
+    assert payload["reload_url"] == "/updates/relogin?next=%2Fupdates"
+
+
+def test_updates_relogin_clears_current_instance_cookies() -> None:
+    client = TestClient(main_mod.app)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("whity", "admin"))
+    client.cookies.set(_scoped_cookie(main_mod.CSRF_COOKIE), "csrf-token")
+    client.cookies.set(_scoped_cookie(main_mod.USERNAME_COOKIE), "whity")
+    client.cookies.set(_scoped_cookie(main_mod.MEMORY_COLLECTION_COOKIE), "aria_facts_whity")
+    client.cookies.set(_scoped_cookie(main_mod.SESSION_COOKIE), "session123")
+
+    response = client.get("/updates/relogin?next=%2Fupdates", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login?next=%2Fupdates"
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any(header.startswith(f"{_scoped_cookie(main_mod.AUTH_COOKIE)}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{_scoped_cookie(main_mod.USERNAME_COOKIE)}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{_scoped_cookie(main_mod.MEMORY_COLLECTION_COOKIE)}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{_scoped_cookie(main_mod.SESSION_COOKIE)}=") for header in set_cookie_headers)
 
 
 def test_updates_run_rejects_non_admin(monkeypatch) -> None:
