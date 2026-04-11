@@ -14,6 +14,33 @@ Repository and full documentation:
 - Wiki: `https://github.com/FischermanCH/A.R.I.A./wiki`
 - Setup docs: `https://github.com/FischermanCH/A.R.I.A./tree/main/docs/setup`
 - Changelog: `https://github.com/FischermanCH/A.R.I.A./blob/main/CHANGELOG.md`
+- Product Homepage: `https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/`
+
+## Screenshots
+
+Chat
+
+![ARIA main chat](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat.png)
+
+Toolbox
+
+![ARIA toolbox in chat](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat-toolbox.png)
+
+Memory Map
+
+![ARIA memory map](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/03-aria-memories-map.png)
+
+Skills
+
+![ARIA skills overview](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png)
+
+Statistics
+
+![ARIA statistics page](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png)
+
+Workbench
+
+![ARIA workbench settings](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png)
 
 ## What you need
 

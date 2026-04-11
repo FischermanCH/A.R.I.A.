@@ -8,6 +8,7 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 
 **GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
+**Product Homepage:** [fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent](https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/)  
 **Wiki:** [GitHub Wiki](https://github.com/FischermanCH/A.R.I.A./wiki)  
 **Product Homepage:** [Fischerman.ch](https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/)
 
@@ -20,57 +21,48 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 <table>
   <tr>
     <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/bca9df58-f65e-4fba-a42b-00d8d2f87223">
-        <img src="https://github.com/user-attachments/assets/bca9df58-f65e-4fba-a42b-00d8d2f87223" alt="ARIA chat running a Linux update skill" height="220">
+      <a href="docs/assets/screenshots/02-aria-main-chat.png">
+        <img src="docs/assets/screenshots/02-aria-main-chat.png" alt="ARIA main chat" height="220">
       </a>
       <br>
-      <sub><strong>Chat + Skills:</strong> ARIA running a Linux server update workflow.</sub>
+      <sub><strong>Chat:</strong> browser-first conversation view with assistant messages, runs and details.</sub>
     </td>
     <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/1810671e-5452-4255-8165-f1f2f10072e2">
-        <img src="https://github.com/user-attachments/assets/1810671e-5452-4255-8165-f1f2f10072e2" alt="ARIA memory map" height="220">
+      <a href="docs/assets/screenshots/02-aria-main-chat-toolbox.png">
+        <img src="docs/assets/screenshots/02-aria-main-chat-toolbox.png" alt="ARIA toolbox in chat" height="220">
       </a>
       <br>
-      <sub><strong>Memory Map:</strong> visual view into ARIA's stored memory structure.</sub>
+      <sub><strong>Toolbox:</strong> contextual actions, shortcuts and admin tools directly beside chat.</sub>
     </td>
     <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/2ed2281e-6fff-448c-af94-2e6262b26e84">
-        <img src="https://github.com/user-attachments/assets/2ed2281e-6fff-448c-af94-2e6262b26e84" alt="ARIA theme variant one" height="220">
+      <a href="docs/assets/screenshots/03-aria-memories-map.png">
+        <img src="docs/assets/screenshots/03-aria-memories-map.png" alt="ARIA memory map" height="220">
       </a>
       <br>
-      <sub><strong>Themes:</strong> different looks and color directions are built in.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/804e6584-2447-4901-a006-9543e8c0c275">
-        <img src="https://github.com/user-attachments/assets/804e6584-2447-4901-a006-9543e8c0c275" alt="ARIA configuration screen" height="220">
-      </a>
-      <br>
-      <sub><strong>Configuration:</strong> browser-based setup for system and provider settings.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/e583d84d-52a8-4a60-9279-a6b214bb5732">
-        <img src="https://github.com/user-attachments/assets/e583d84d-52a8-4a60-9279-a6b214bb5732" alt="ARIA skill configuration screen" height="220">
-      </a>
-      <br>
-      <sub><strong>Skill Builder:</strong> UI for editing and wiring custom skills.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/434a28c2-f7bd-447b-8218-d848a1d1f0e9">
-        <img src="https://github.com/user-attachments/assets/434a28c2-f7bd-447b-8218-d848a1d1f0e9" alt="ARIA statistics page" height="220">
-      </a>
-      <br>
-      <sub><strong>Statistics:</strong> runtime health, usage, costs, and system status.</sub>
+      <sub><strong>Memory Map:</strong> visual view into stored memory structure and semantic clusters.</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="33%">
-      <a href="https://github.com/user-attachments/assets/eae1715d-4272-46e3-bf67-cddc37890b32">
-        <img src="https://github.com/user-attachments/assets/eae1715d-4272-46e3-bf67-cddc37890b32" alt="ARIA theme variant two" height="220">
+      <a href="docs/assets/screenshots/04-aria-skills.png">
+        <img src="docs/assets/screenshots/04-aria-skills.png" alt="ARIA skills overview" height="220">
       </a>
       <br>
-      <sub><strong>Theme Variant:</strong> another UI style from the same system.</sub>
+      <sub><strong>Skills:</strong> built-in and custom skill management from the browser UI.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/assets/screenshots/05-aria-stats.png">
+        <img src="docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" height="220">
+      </a>
+      <br>
+      <sub><strong>Statistics:</strong> runtime health, activities, costs and service status.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/assets/screenshots/06-aria-settings-workbench.png">
+        <img src="docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" height="220">
+      </a>
+      <br>
+      <sub><strong>Workbench:</strong> advanced configuration surface for tuning connections and behavior.</sub>
     </td>
     <td align="center" width="33%">
       &nbsp;
