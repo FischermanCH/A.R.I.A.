@@ -21,7 +21,6 @@ INSTALL_DIR = Path(os.environ.get("ARIA_UPDATE_INSTALL_DIR", "/managed")).resolv
 STATE_DIR = Path(os.environ.get("ARIA_UPDATE_STATE_DIR", str(INSTALL_DIR / ".aria-updater"))).resolve()
 STATE_PATH = STATE_DIR / "state.json"
 LOG_PATH = STATE_DIR / "update.log"
-SETUP_SCRIPT = Path(os.environ.get("ARIA_UPDATE_SETUP_SCRIPT", "/app/docker/setup-compose-stack.sh")).resolve()
 TOKEN = str(os.environ.get("ARIA_UPDATE_TOKEN", "") or "").strip()
 HELPER_HOST = str(os.environ.get("ARIA_UPDATE_HELPER_HOST", "0.0.0.0") or "0.0.0.0").strip() or "0.0.0.0"
 HELPER_PORT = int(str(os.environ.get("ARIA_UPDATE_HELPER_PORT", "8094") or "8094").strip() or "8094")
@@ -140,6 +139,47 @@ def _compose_base_command() -> list[str]:
         ]
     raise RuntimeError("Neither 'docker compose' nor 'docker-compose' is available inside the update helper.")
 
+
+def _read_install_env_value(key: str) -> str:
+    env_path = INSTALL_DIR / ".env"
+    if not env_path.exists():
+        return ""
+    try:
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            if raw_line.startswith(f"{key}="):
+                return raw_line.split("=", 1)[1].strip()
+    except OSError:
+        return ""
+    return ""
+
+
+def _managed_target_image() -> str:
+    image = _read_install_env_value("ARIA_IMAGE")
+    return image or "fischermanch/aria:alpha"
+
+
+def _refresh_managed_stack_files_from_target_image() -> None:
+    image = _managed_target_image()
+    _run_logged(["docker", "pull", image], step="Pull ARIA target image for stack refresh")
+    _run_logged(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{INSTALL_DIR}:/managed",
+            image,
+            "/app/docker/setup-compose-stack.sh",
+            "--install-dir",
+            "/managed",
+            "--upgrade-existing",
+            "--force",
+            "--no-start",
+        ],
+        step="Refresh managed stack files",
+    )
+
+
 def _run_logged(command: list[str], *, step: str) -> None:
     _write_log_line(f"[{_now_iso()}] {step}")
     _write_log_line(f"$ {' '.join(command)}")
@@ -227,20 +267,7 @@ def _run_managed_update_worker() -> None:
         _write_log_line(f"[{_now_iso()}] ARIA managed update started.")
         if not (INSTALL_DIR / ".env").exists() or not (INSTALL_DIR / "docker-compose.yml").exists():
             raise RuntimeError(f"Managed install directory incomplete: {INSTALL_DIR}")
-        if not SETUP_SCRIPT.exists():
-            raise RuntimeError(f"Managed setup script missing: {SETUP_SCRIPT}")
-
-        _run_logged(
-            [
-                str(SETUP_SCRIPT),
-                "--install-dir",
-                str(INSTALL_DIR),
-                "--upgrade-existing",
-                "--force",
-                "--no-start",
-            ],
-            step="Refresh managed stack files",
-        )
+        _refresh_managed_stack_files_from_target_image()
 
         services = _compose_services()
         if not services:

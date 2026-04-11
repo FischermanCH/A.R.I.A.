@@ -381,15 +381,44 @@ run_compose() {
   compose_cmd --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+read_env_value() {
+  local key="$1"
+  sed -n "s/^${key}=//p" "$ENV_FILE" | head -n1
+}
+
+aria_image_ref() {
+  local image
+  image="$(read_env_value "ARIA_IMAGE")"
+  if [[ -n "$image" ]]; then
+    printf '%s\n' "$image"
+    return 0
+  fi
+  printf 'fischermanch/aria:alpha\n'
+}
+
+pull_aria_image() {
+  local image
+  image="$(aria_image_ref)"
+  log "Ziehe ARIA-Image fuer Stack-Refresh: $image"
+  docker pull "$image" >/dev/null
+}
+
+refresh_stack_files_from_image() {
+  local image
+  image="$(aria_image_ref)"
+  log "Aktualisiere Stack-Dateien via $image"
+  docker run --rm -v "$STACK_DIR:/managed" "$image" /app/docker/setup-compose-stack.sh --install-dir /managed --upgrade-existing --force --no-start >/dev/null
+}
+
 health_url() {
   local http_port
   local public_url
-  http_port="$(sed -n 's/^ARIA_HTTP_PORT=//p' "$ENV_FILE" | head -n1)"
+  http_port="$(read_env_value "ARIA_HTTP_PORT")"
   if [[ -n "$http_port" ]]; then
     printf 'http://127.0.0.1:%s/health\n' "$http_port"
     return 0
   fi
-  public_url="$(sed -n 's/^ARIA_PUBLIC_URL=//p' "$ENV_FILE" | head -n1)"
+  public_url="$(read_env_value "ARIA_PUBLIC_URL")"
   if [[ -n "$public_url" ]]; then
     printf '%s/health\n' "${public_url%/}"
     return 0
@@ -490,6 +519,64 @@ print(len(collections))
   fi
 }
 
+file_sha256() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$path" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+    return 0
+  fi
+  die "Weder sha256sum noch python3 verfuegbar, kann Config-Hash nicht berechnen."
+}
+
+container_config_sha256() {
+  local output=""
+  if ! output="$(
+    run_compose exec -T aria python -c '
+import hashlib
+from pathlib import Path
+
+path = Path("/app/config/config.yaml")
+if not path.exists():
+    raise SystemExit(3)
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+' 2>/dev/null
+  )"; then
+    printf '%s\n' ""
+    return 0
+  fi
+  printf '%s\n' "$(printf '%s' "$output" | tail -n1 | tr -dc 'a-f0-9')"
+}
+
+validate_config_sync() {
+  local host_path="$STACK_DIR/storage/aria-config/config.yaml"
+  local host_hash=""
+  local container_hash=""
+  if [[ ! -f "$host_path" ]]; then
+    log "WARN: Config-Sync-Check uebersprungen, Host-Config fehlt noch: $host_path"
+    return 0
+  fi
+  host_hash="$(file_sha256 "$host_path")"
+  container_hash="$(container_config_sha256)"
+  if [[ -z "$container_hash" ]]; then
+    die "Config-Sync-Check fehlgeschlagen: /app/config/config.yaml ist im aria-Container nicht lesbar. Bitte ./aria-stack.sh repair ausfuehren."
+  fi
+  if [[ "$host_hash" != "$container_hash" ]]; then
+    die "Config-Sync-Check fehlgeschlagen: Host-Config und Container-Config unterscheiden sich. Bitte ./aria-stack.sh repair ausfuehren."
+  fi
+  log "Config-Sync-Check ok."
+}
+
 validate_runtime() {
   local storage_count="0"
   local api_count="0"
@@ -497,6 +584,7 @@ validate_runtime() {
   if service_present "aria-updater"; then
     wait_for_service_health "aria-updater"
   fi
+  validate_config_sync
   storage_count="$(qdrant_local_collection_count)"
   if [[ "$storage_count" =~ ^[0-9]+$ ]] && (( storage_count > 0 )); then
     api_count="$(qdrant_api_collection_count)"
@@ -528,6 +616,16 @@ runtime_update_services() {
   printf '%s\n' "${services[@]}"
 }
 
+repair_runtime() {
+  local runtime_services=("$@")
+  if [[ "${#runtime_services[@]}" -eq 0 ]]; then
+    runtime_services=("aria")
+  fi
+  refresh_stack_files_from_image
+  run_compose up -d --force-recreate "${runtime_services[@]}"
+  validate_runtime
+}
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -542,6 +640,7 @@ Usage:
   ./aria-stack.sh validate
   ./aria-stack.sh pull
   ./aria-stack.sh pull-all
+  ./aria-stack.sh repair
   ./aria-stack.sh update
   ./aria-stack.sh update-all
 USAGE
@@ -598,12 +697,19 @@ main() {
     pull-all)
       run_compose pull
       ;;
+    repair)
+      repair_runtime "${runtime_services[@]}"
+      ;;
     update)
+      pull_aria_image
+      refresh_stack_files_from_image
       run_compose pull "${runtime_services[@]}"
       run_compose up -d --no-deps --force-recreate "${runtime_services[@]}"
       validate_runtime
       ;;
     update-all)
+      pull_aria_image
+      refresh_stack_files_from_image
       run_compose pull
       run_compose up -d
       validate_runtime
@@ -637,6 +743,7 @@ Common commands:
   cd $INSTALL_DIR
   ./aria-stack.sh ps
   ./aria-stack.sh logs
+  ./aria-stack.sh repair
   ./aria-stack.sh update
   ./aria-stack.sh update-all
   ./aria-stack.sh validate
@@ -835,6 +942,7 @@ Wichtige Befehle:
   cd $INSTALL_DIR
   ./aria-stack.sh ps
   ./aria-stack.sh logs
+  ./aria-stack.sh repair
   ./aria-stack.sh update
   ./aria-stack.sh validate
   aria-setup upgrade --install-dir $INSTALL_DIR

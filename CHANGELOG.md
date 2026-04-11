@@ -6,6 +6,19 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.110] - 2026-04-12
+
+### Added
+- managed stacks now expose `./aria-stack.sh repair` as an official recovery path; it regenerates the managed stack files from the configured ARIA image and recreates the runtime services before running the normal validation again
+
+### Changed
+- managed GUI updates now refresh stack files from the target ARIA image via `docker run ... /app/docker/setup-compose-stack.sh` instead of relying on the currently running updater container's bundled script, which reduces stale-helper drift during upgrades
+- `./aria-stack.sh update` and `update-all` now refresh the managed stack files from the configured ARIA image before recreating services, so manual host-side updates follow the same safer recovery-aware path as the new repair flow
+
+### Fixed
+- managed runtime validation now compares the host `storage/aria-config/config.yaml` with the live container view of `/app/config/config.yaml` and fails loudly when the container does not actually see the same config state
+- managed update failures now point operators directly at `./aria-stack.sh repair` when a config-mount mismatch is detected, instead of silently reporting a healthy restart while profiles appear to be missing in the UI
+
 ## [0.1.0-alpha.108] - 2026-04-11
 
 ### Fixed

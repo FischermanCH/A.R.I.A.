@@ -267,6 +267,20 @@ Siehe dafuer:
   - aktueller Back-Pfeil nutzt Browser-History und landet nach Save/Redirect oft wieder auf derselben Detailseite
   - loesen ueber `return_to`/`next` plus sinnvolle Fallback-Ziele pro Bereich
 
+- [ ] P0: Managed GUI-Update darf Config-/Prompt-/Data-Mounts nie wieder implizit verdrehen oder entkoppeln
+  - Befund aus `white`/`neo`-Mehrinstanz-Host: Nach GUI-Update wirkte eine Instanz wie frisch/default, obwohl `config.yaml` auf dem Host die Profile noch enthielt
+  - Symptom: Host-`config.yaml` enthielt LLM-/Embedding-Profile, im laufenden Container war `/app/config/config.yaml` davon abweichend
+  - Sofort-Fix/Recovery: `setup-compose-stack.sh --upgrade-existing --force --no-start` erneut gegen das Install-Verzeichnis laufen lassen und danach `aria` + `aria-updater` recreaten
+  - lokaler Produkt-Fix vorbereitet:
+    - `./aria-stack.sh repair` als offizieller Recovery-Befehl
+    - Managed-Post-Validation vergleicht Host-`config.yaml` gegen Container-`/app/config/config.yaml`
+    - GUI-Update-Refresh laeuft ueber das Ziel-Image statt ueber das ggf. veraltete Updater-Bundle
+  - Produkt-Fix absichern:
+    - Compose-/Mount-Refresh im Managed-Update als Regressionstest absichern
+    - nach Managed-Update serverseitig pruefen, dass Container-`/app/config/config.yaml` denselben Profilstand wie `storage/aria-config/config.yaml` sieht
+    - dieselbe Konsistenzpruefung auch fuer `/app/prompts` und `/app/data` vorsehen
+    - im Fehlerfall Update nicht still als "ok" melden, sondern klar auf Mount-/Persistenzproblem gehen
+
 - [ ] P1: GUI-Update mit naechstem echten Release erneut testen
 - [ ] P2: Public `aria-setup` einmal nochmal komplett frisch gegen Host mit bestehender ARIA gegenpruefen
 - [ ] P3: Aktivitaeten-/Runs-Karte spaeter klarer als Historie markieren, damit alte Fehler nicht wie Live-Status wirken
