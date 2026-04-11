@@ -162,7 +162,25 @@ def _build_profile_config_app(tmp_path: Path) -> TestClient:
         templates=templates,
         base_dir=tmp_path,
         error_interpreter_path=tmp_path / 'config' / 'error_interpreter.yaml',
-        llm_provider_presets={},
+        llm_provider_presets={
+            "litellm": {
+                "label": "LiteLLM Proxy",
+                "default_model": "openai/<modellname>",
+                "default_api_base": "http://localhost:4000",
+            }
+        },
+        embedding_provider_presets={
+            "litellm": {
+                "label": "LiteLLM Proxy",
+                "default_model": "openai/<embedding-model>",
+                "default_api_base": "http://localhost:4000",
+            },
+            "openai": {
+                "label": "OpenAI",
+                "default_model": "text-embedding-3-small",
+                "default_api_base": "",
+            },
+        },
         auth_cookie='auth',
         lang_cookie='lang',
         username_cookie='user',
@@ -236,6 +254,17 @@ def test_llm_config_page_shows_active_profile_runtime_meta(tmp_path: Path) -> No
     assert 'openai/gpt-4.1-mini' in response.text
     assert 'action="/config/llm/test"' in response.text
     assert "const logical='/config';" in response.text
+
+
+def test_embeddings_page_uses_embedding_specific_provider_presets(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/embeddings')
+
+    assert response.status_code == 200
+    assert 'LiteLLM Proxy' in response.text
+    assert 'text-embedding-3-small' in response.text
+    assert 'Anthropic' not in response.text
 
 
 def test_llm_test_route_reports_active_profile_result(monkeypatch, tmp_path: Path) -> None:

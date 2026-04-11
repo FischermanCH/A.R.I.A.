@@ -182,6 +182,7 @@ class ConfigRouteDeps:
     base_dir: Path
     error_interpreter_path: Path
     llm_provider_presets: dict[str, dict[str, str]]
+    embedding_provider_presets: dict[str, dict[str, str]]
     auth_cookie: str
     lang_cookie: str
     username_cookie: str
@@ -1062,6 +1063,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     BASE_DIR = deps.base_dir
     ERROR_INTERPRETER_PATH = deps.error_interpreter_path
     LLM_PROVIDER_PRESETS = deps.llm_provider_presets
+    EMBEDDING_PROVIDER_PRESETS = deps.embedding_provider_presets
     AUTH_COOKIE = deps.auth_cookie
     USERNAME_COOKIE = deps.username_cookie
     MEMORY_COLLECTION_COOKIE = deps.memory_collection_cookie
@@ -6047,7 +6049,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "default_model": data["default_model"],
                 "default_api_base": data["default_api_base"],
             }
-            for key, data in LLM_PROVIDER_PRESETS.items()
+            for key, data in EMBEDDING_PROVIDER_PRESETS.items()
         ]
         return TEMPLATES.TemplateResponse(
             request=request,

@@ -6,6 +6,12 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.103] - 2026-04-11
+
+### Fixed
+- the embeddings configuration page now uses embedding-specific provider presets instead of reusing the chat-LLM preset list, so fresh installs no longer suggest irrelevant chat providers such as Anthropic on the embeddings screen
+- embedding preset defaults are now better aligned with proxy-based setups like LiteLLM, reducing the chance that a fresh profile setup quietly drifts toward a mismatched default embedding model
+
 ## [0.1.0-alpha.102] - 2026-04-11
 
 ### Changed

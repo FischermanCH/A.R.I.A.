@@ -563,6 +563,29 @@ LLM_PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     },
 }
 
+EMBEDDING_PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    "ollama": {
+        "label": "Ollama",
+        "default_model": "ollama/nomic-embed-text",
+        "default_api_base": "http://localhost:11434",
+    },
+    "litellm": {
+        "label": "LiteLLM Proxy",
+        "default_model": "openai/<embedding-model>",
+        "default_api_base": "http://localhost:4000",
+    },
+    "openai": {
+        "label": "OpenAI",
+        "default_model": "text-embedding-3-small",
+        "default_api_base": "",
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "default_model": "openai/<embedding-model>",
+        "default_api_base": "https://openrouter.ai/api/v1",
+    },
+}
+
 def _daily_time_to_cron(value: str) -> str:
     text = str(value or "").strip()
     if not re.fullmatch(r"\d{2}:\d{2}", text):
@@ -2777,6 +2800,7 @@ def _build_app() -> FastAPI:
             base_dir=BASE_DIR,
             error_interpreter_path=ERROR_INTERPRETER_PATH,
             llm_provider_presets=LLM_PROVIDER_PRESETS,
+            embedding_provider_presets=EMBEDDING_PROVIDER_PRESETS,
             auth_cookie=AUTH_COOKIE,
             lang_cookie=LANG_COOKIE,
             username_cookie=USERNAME_COOKIE,
