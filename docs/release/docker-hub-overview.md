@@ -16,32 +16,6 @@ Repository and full documentation:
 - Changelog: `https://github.com/FischermanCH/A.R.I.A./blob/main/CHANGELOG.md`
 - Product Homepage: `https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/`
 
-## Screenshots
-
-Chat
-
-![ARIA main chat](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat.png)
-
-Toolbox
-
-![ARIA toolbox in chat](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat-toolbox.png)
-
-Memory Map
-
-![ARIA memory map](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/03-aria-memories-map.png)
-
-Skills
-
-![ARIA skills overview](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png)
-
-Statistics
-
-![ARIA statistics page](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png)
-
-Workbench
-
-![ARIA workbench settings](https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png)
-
 ## What you need
 
 - Docker
@@ -353,3 +327,17 @@ Useful chat shortcuts after setup:
   - `docker-compose.public.yml`
 
 For new public installs, prefer `aria-setup` unless you explicitly want to manage the compose directory yourself.
+
+## Screenshots
+
+<p>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat.png" alt="ARIA main chat" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat-toolbox.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/02-aria-main-chat-toolbox.png" alt="ARIA toolbox in chat" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/03-aria-memories-map.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/03-aria-memories-map.png" alt="ARIA memory map" width="220"></a>
+</p>
+
+<p>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png" alt="ARIA skills overview" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" width="220"></a>
+</p>

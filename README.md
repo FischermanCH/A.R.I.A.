@@ -18,60 +18,62 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 ---
 ## Screenshots
 
-<table>
-  <tr>
-    <td align="center" width="33%">
-      <a href="docs/assets/screenshots/02-aria-main-chat.png">
-        <img src="docs/assets/screenshots/02-aria-main-chat.png" alt="ARIA main chat" height="220">
-      </a>
-      <br>
-      <sub><strong>Chat:</strong> browser-first conversation view with assistant messages, runs and details.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="docs/assets/screenshots/02-aria-main-chat-toolbox.png">
-        <img src="docs/assets/screenshots/02-aria-main-chat-toolbox.png" alt="ARIA toolbox in chat" height="220">
-      </a>
-      <br>
-      <sub><strong>Toolbox:</strong> contextual actions, shortcuts and admin tools directly beside chat.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="docs/assets/screenshots/03-aria-memories-map.png">
-        <img src="docs/assets/screenshots/03-aria-memories-map.png" alt="ARIA memory map" height="220">
-      </a>
-      <br>
-      <sub><strong>Memory Map:</strong> visual view into stored memory structure and semantic clusters.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="33%">
-      <a href="docs/assets/screenshots/04-aria-skills.png">
-        <img src="docs/assets/screenshots/04-aria-skills.png" alt="ARIA skills overview" height="220">
-      </a>
-      <br>
-      <sub><strong>Skills:</strong> built-in and custom skill management from the browser UI.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="docs/assets/screenshots/05-aria-stats.png">
-        <img src="docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" height="220">
-      </a>
-      <br>
-      <sub><strong>Statistics:</strong> runtime health, activities, costs and service status.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href="docs/assets/screenshots/06-aria-settings-workbench.png">
-        <img src="docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" height="220">
-      </a>
-      <br>
-      <sub><strong>Workbench:</strong> advanced configuration surface for tuning connections and behavior.</sub>
-    </td>
-    <td align="center" width="33%">
-      &nbsp;
-    </td>
-    <td align="center" width="33%">
-      &nbsp;
-    </td>
-  </tr>
-</table>
+<details open>
+  <summary><strong>Login and chat</strong></summary>
+  <p>
+    <a href="docs/assets/screenshots/01-aria-login-en.png"><img src="docs/assets/screenshots/01-aria-login-en.png" alt="ARIA login in English" width="260"></a>
+    <a href="docs/assets/screenshots/01-aria-login-de.png"><img src="docs/assets/screenshots/01-aria-login-de.png" alt="ARIA login in German" width="260"></a>
+    <a href="docs/assets/screenshots/02-aria-main-chat.png"><img src="docs/assets/screenshots/02-aria-main-chat.png" alt="ARIA main chat" width="260"></a>
+    <a href="docs/assets/screenshots/02-aria-main-chat-toolbox.png"><img src="docs/assets/screenshots/02-aria-main-chat-toolbox.png" alt="ARIA toolbox in chat" width="260"></a>
+    <a href="docs/assets/screenshots/02-aria-main-chat-menu.png"><img src="docs/assets/screenshots/02-aria-main-chat-menu.png" alt="ARIA chat menu" width="260"></a>
+  </p>
+</details>
+
+<details>
+  <summary><strong>Memory</strong></summary>
+  <p>
+    <a href="docs/assets/screenshots/03-aria-memories.png"><img src="docs/assets/screenshots/03-aria-memories.png" alt="ARIA memories overview" width="260"></a>
+    <a href="docs/assets/screenshots/03-aria-memories-map.png"><img src="docs/assets/screenshots/03-aria-memories-map.png" alt="ARIA memory map" width="260"></a>
+    <a href="docs/assets/screenshots/03-aria-memories-setup.png"><img src="docs/assets/screenshots/03-aria-memories-setup.png" alt="ARIA memory setup" width="260"></a>
+  </p>
+</details>
+
+<details>
+  <summary><strong>Skills and automations</strong></summary>
+  <p>
+    <a href="docs/assets/screenshots/04-aria-skills.png"><img src="docs/assets/screenshots/04-aria-skills.png" alt="ARIA skills overview" width="260"></a>
+    <a href="docs/assets/screenshots/04-aria-skills-discord.png"><img src="docs/assets/screenshots/04-aria-skills-discord.png" alt="ARIA Discord skill sample" width="260"></a>
+    <a href="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png"><img src="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png" alt="ARIA Linux fleet healthcheck skill" width="260"></a>
+  </p>
+</details>
+
+<details>
+  <summary><strong>Stats and help</strong></summary>
+  <p>
+    <a href="docs/assets/screenshots/05-aria-stats.png"><img src="docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" width="260"></a>
+    <a href="docs/assets/screenshots/07-aria-help.png"><img src="docs/assets/screenshots/07-aria-help.png" alt="ARIA help page" width="260"></a>
+    <a href="docs/assets/screenshots/08-aria-users.png"><img src="docs/assets/screenshots/08-aria-users.png" alt="ARIA users page" width="260"></a>
+  </p>
+</details>
+
+<details>
+  <summary><strong>Settings and themes</strong></summary>
+  <p>
+    <a href="docs/assets/screenshots/06-aria-settings.png"><img src="docs/assets/screenshots/06-aria-settings.png" alt="ARIA settings overview" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-connections.png"><img src="docs/assets/screenshots/06-aria-settings-connections.png" alt="ARIA connection settings" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-bundled-sample-connections.png"><img src="docs/assets/screenshots/06-aria-settings-bundled-sample-connections.png" alt="ARIA sample connections" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-workbench.png"><img src="docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-fine-tune-memory.png"><img src="docs/assets/screenshots/06-aria-settings-fine-tune-memory.png" alt="ARIA memory tuning settings" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-tune-intelligence.png"><img src="docs/assets/screenshots/06-aria-settings-tune-intelligence.png" alt="ARIA intelligence tuning settings" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style.png" alt="ARIA personality and style settings" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-harbor-blue.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-harbor-blue.png" alt="ARIA Harbor Blue theme" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-cyberpunk.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-cyberpunk.png" alt="ARIA Cyberpunk theme" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-deep-space.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-deep-space.png" alt="ARIA Deep Space theme" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-arcade.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-arcade.png" alt="ARIA Arcade theme" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-nyan-cat.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-nyan-cat.png" alt="ARIA Nyan Cat theme" width="260"></a>
+    <a href="docs/assets/screenshots/06-aria-settings-personality-style-theme-puke-unicorn.png"><img src="docs/assets/screenshots/06-aria-settings-personality-style-theme-puke-unicorn.png" alt="ARIA Puke Unicorn theme" width="260"></a>
+  </p>
+</details>
 
 
 # English
