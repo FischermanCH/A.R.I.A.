@@ -603,9 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha110`
-- Current prepared public candidate from the repo line: `0.1.0-alpha121`
-- `alpha121` is already internally verified end-to-end on a real managed install, including update-button flow, config/profile persistence, Qdrant-backed memory persistence, and SSH-routing regressions
+- Current public alpha release: `0.1.0-alpha121`
+- `alpha121` was internally verified end-to-end on a real managed install before publication, including update-button flow, config/profile persistence, Qdrant-backed memory persistence, and SSH-routing regressions
 
 ## One-line summary
 

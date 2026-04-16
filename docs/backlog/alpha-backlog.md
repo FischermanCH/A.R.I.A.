@@ -9,9 +9,8 @@ Zweck:
 - groessere Zukunftsthemen stehen in `docs/backlog/future-features.md`
 
 Aktueller Release-Stand:
-- public: `0.1.0-alpha110`
+- public: `0.1.0-alpha121`
 - lokal / intern: `0.1.0-alpha121` · intern end-to-end verifiziert
-- naechster vorbereiteter Public-Kandidat: `0.1.0-alpha121` · Changelog/Git-/Docker-Doku nachgezogen
 
 ## Offene Alpha-Punkte
 

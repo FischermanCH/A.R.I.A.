@@ -18,6 +18,10 @@ Repository and full documentation:
 
 ## Current alpha highlights
 
+Current public alpha release:
+
+- `0.1.0-alpha121`
+
 - safer managed updates with host-vs-container validation for `config`, `prompts`, and `data`, plus the documented recovery helper `./aria-stack.sh repair`
 - Qdrant-backed routing index admin/debug tooling under `/config/routing`, including rebuild, testbench output, and live-routing controls
 - `Memory Map` now shows routing collections as a dedicated system branch instead of leaving them easy to overlook
