@@ -38,6 +38,7 @@ from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
 from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
 from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.release_meta import read_release_meta
+from aria.core.routing_admin import build_connection_routing_index_status
 from aria.core.runtime_endpoint import resolve_runtime_url
 from aria.core.update_helper_client import fetch_update_helper_status
 from aria.core.update_helper_client import helper_status_visual
@@ -1031,6 +1032,7 @@ def register_stats_routes(
         )
         runtime_memory = _build_runtime_memory_meta(language)
         qdrant_storage = await _build_qdrant_storage_meta(base_dir, settings)
+        routing_index_meta = await build_connection_routing_index_status(settings)
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
         update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
         source_usage_rows = _build_source_usage_rows(stats)
@@ -1074,6 +1076,7 @@ def register_stats_routes(
                 'preflight_meta': preflight_meta,
                 'runtime_memory': runtime_memory,
                 'qdrant_storage': qdrant_storage,
+                'routing_index_meta': routing_index_meta,
                 'release_meta': release_meta,
                 'update_status': update_status,
                 'source_usage_rows': source_usage_rows,

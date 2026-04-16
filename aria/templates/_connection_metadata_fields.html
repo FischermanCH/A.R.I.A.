@@ -10,6 +10,8 @@
       class="button-link subtle-link"
       data-connection-meta-llm-kind="{{ meta_llm_kind|e }}"
       data-connection-meta-prefix="{{ meta_prefix|e }}"
+      data-connection-meta-endpoint="{{ meta_llm_endpoint|e }}"
+      data-connection-meta-source-fields="{{ (meta_llm_source_fields or [])|join(',')|e }}"
       data-default-label="{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}"
       data-loading-label="{{ tr(request, 'config_conn.meta_llm_suggest_loading', 'LLM denkt nach ...') }}"
     >{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}</button>

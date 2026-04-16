@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlsplit, urlunsplit
@@ -64,6 +65,9 @@ from aria.core.guardrails import (
 from aria.core.pipeline import Pipeline
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.runtime_diagnostics import probe_embeddings, probe_llm
+from aria.core.routing_admin import build_connection_routing_index_status
+from aria.core.routing_admin import rebuild_connection_routing_index
+from aria.core.routing_admin import test_connection_routing_query
 from aria.core.rss_grouping import build_rss_status_groups
 from aria.core.rss_grouping import load_cached_rss_status_groups, save_cached_rss_status_groups
 from aria.core.rss_opml import build_opml_document, parse_opml_feeds
@@ -93,6 +97,7 @@ FileResolver = Callable[[str], Path]
 FileEditorEntryLister = Callable[[], list[dict[str, Any]]]
 FileEditorFileResolver = Callable[[str], Path]
 ModelLoader = Callable[[str, str], list[str]]
+IntGetter = Callable[[], int]
 ProfilesGetter = Callable[[dict[str, Any], str], dict[str, dict[str, Any]]]
 ActiveProfileGetter = Callable[[dict[str, Any], str], str]
 ActiveProfileSetter = Callable[[dict[str, Any], str, str], None]
@@ -122,6 +127,10 @@ _RSS_METADATA_HEADERS = {
         "Chrome/122.0.0.0 Safari/537.36 ARIA/1.0"
     ),
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
+}
+_WEB_METADATA_HEADERS = {
+    **_RSS_METADATA_HEADERS,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
 }
 _SAMPLE_CONNECTIONS_DIR = Path(__file__).resolve().parents[2] / "samples" / "connections"
 _SAMPLE_GUARDRAILS_DIR = Path(__file__).resolve().parents[2] / "samples" / "security"
@@ -187,7 +196,7 @@ class ConfigRouteDeps:
     lang_cookie: str
     username_cookie: str
     memory_collection_cookie: str
-    auth_session_max_age_seconds: int
+    get_auth_session_max_age_seconds: IntGetter
     get_settings: SettingsGetter
     get_pipeline: PipelineGetter
     get_username_from_request: UsernameResolver
@@ -474,6 +483,7 @@ def _read_ssh_connections_impl(read_raw_config: RawConfigReader, sanitize_connec
             "host": str(value.get("host", "")).strip(),
             "port": int(value.get("port", 22) or 22),
             "user": str(value.get("user", "")).strip(),
+            "service_url": str(value.get("service_url", "")).strip(),
             "key_path": str(value.get("key_path", "")).strip(),
             "timeout_seconds": int(value.get("timeout_seconds", 20) or 20),
             "strict_host_key_checking": str(value.get("strict_host_key_checking", "accept-new")).strip() or "accept-new",
@@ -540,6 +550,16 @@ def _build_connection_metadata(
         "aliases": _normalize_connection_meta_list(aliases_text),
         "tags": _normalize_connection_meta_list(tags_text),
     }
+
+
+def _derive_matching_sftp_ref(ssh_ref: str) -> str:
+    clean_ref = str(ssh_ref or "").strip()
+    if not clean_ref:
+        return "sftp-profile"
+    for suffix in ("-ssh", "_ssh"):
+        if clean_ref.endswith(suffix):
+            return f"{clean_ref[:-len(suffix)]}{suffix[0]}sftp"
+    return f"{clean_ref}-sftp"
 
 
 def _normalize_rss_feed_url_for_dedupe(value: str) -> str:
@@ -711,6 +731,7 @@ def _build_schema_form_fields(
         ("sftp", "key_path"): "config_conn.sftp_key_path_hint",
         ("discord", "webhook_url"): "config_conn.discord_password_hint",
         ("ssh", "allow_commands"): "config_conn.allow_commands_hint",
+        ("ssh", "service_url"): "config_conn.ssh_service_url_hint",
     }
     label_keys = {
         "connection_ref": "config_conn.profile_ref",
@@ -730,6 +751,7 @@ def _build_schema_form_fields(
         "host": "config_conn.host",
         "port": "config_conn.port",
         "user": "config_conn.user",
+        "service_url": "config_conn.ssh_service_url",
         "topic": "config_conn.mqtt_topic",
         "smtp_host": "config_conn.email_smtp_host",
         "from_email": "config_conn.email_from",
@@ -1067,7 +1089,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     AUTH_COOKIE = deps.auth_cookie
     USERNAME_COOKIE = deps.username_cookie
     MEMORY_COLLECTION_COOKIE = deps.memory_collection_cookie
-    AUTH_SESSION_MAX_AGE_SECONDS = deps.auth_session_max_age_seconds
+    get_auth_session_max_age_seconds = deps.get_auth_session_max_age_seconds
 
     settings = _DynamicProxy(deps.get_settings)
     pipeline = _DynamicProxy(deps.get_pipeline)
@@ -2333,6 +2355,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "host": str(value.get("host", "")).strip(),
                 "port": int(value.get("port", 22) or 22),
                 "user": str(value.get("user", "")).strip(),
+                "service_url": str(value.get("service_url", "")).strip(),
                 "key_path": str(value.get("key_path", "")).strip(),
                 "timeout_seconds": int(value.get("timeout_seconds", 20) or 20),
                 "strict_host_key_checking": str(value.get("strict_host_key_checking", "accept-new")).strip() or "accept-new",
@@ -2397,6 +2420,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "host": str(value.get("host", "")).strip(),
                 "port": int(value.get("port", 22) or 22),
                 "user": str(value.get("user", "")).strip(),
+                "service_url": str(value.get("service_url", "")).strip(),
                 "timeout_seconds": int(value.get("timeout_seconds", 10) or 10),
                 "root_path": str(value.get("root_path", "")).strip(),
                 "key_path": key_path,
@@ -2576,6 +2600,78 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             return None
         return payload if isinstance(payload, dict) else None
 
+    def _extract_html_attribute_map(tag_html: str) -> dict[str, str]:
+        attrs: dict[str, str] = {}
+        for match in re.finditer(r'([a-zA-Z_:][\w:.-]*)\s*=\s*(["\'])(.*?)\2', str(tag_html or ""), flags=re.DOTALL):
+            key = str(match.group(1) or "").strip().lower()
+            if not key:
+                continue
+            attrs[key] = unescape(str(match.group(3) or "").strip())
+        return attrs
+
+    def _clean_html_text(value: str, max_length: int = 240) -> str:
+        text = re.sub(r"<[^>]+>", " ", str(value or ""))
+        text = unescape(text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:max_length]
+
+    def _extract_ssh_service_seed(service_url: str) -> dict[str, Any]:
+        clean_url = str(service_url or "").strip()
+        parsed = urlparse(clean_url)
+        host = str(parsed.netloc or "").strip().lower()
+        host_short = host[4:] if host.startswith("www.") else host
+        fallback_aliases = [value for value in [host_short, host_short.split(".", 1)[0].replace("-", " ")] if value]
+        seed = {
+            "service_title": host_short or clean_url,
+            "service_description": "",
+            "keywords": [],
+            "host": host_short,
+            "aliases": fallback_aliases,
+        }
+        if not clean_url:
+            return seed
+        req = URLRequest(clean_url, headers=_WEB_METADATA_HEADERS, method="GET")
+        try:
+            with urlopen(req, timeout=10) as resp:  # noqa: S310
+                payload = resp.read(256 * 1024)
+        except Exception:
+            return seed
+        text = payload.decode("utf-8", errors="replace").strip()
+        if not text:
+            return seed
+
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.IGNORECASE | re.DOTALL)
+        title = _clean_html_text(title_match.group(1), 120) if title_match else ""
+        meta_description = ""
+        keywords: list[str] = []
+        og_title = ""
+        h1_title = ""
+
+        for match in re.finditer(r"<meta\b[^>]*>", text, flags=re.IGNORECASE):
+            attrs = _extract_html_attribute_map(match.group(0))
+            key = str(attrs.get("name") or attrs.get("property") or "").strip().lower()
+            content = _clean_html_text(attrs.get("content", ""), 240)
+            if not key or not content:
+                continue
+            if key in {"description", "og:description", "twitter:description"} and not meta_description:
+                meta_description = content
+            elif key in {"keywords", "news_keywords"} and not keywords:
+                keywords = [item.strip()[:24] for item in re.split(r"[;,]", content) if item.strip()][:8]
+            elif key in {"og:title", "twitter:title"} and not og_title:
+                og_title = content[:120]
+
+        h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", text, flags=re.IGNORECASE | re.DOTALL)
+        if h1_match:
+            h1_title = _clean_html_text(h1_match.group(1), 120)
+
+        resolved_title = title or og_title or h1_title
+        if resolved_title:
+            seed["service_title"] = resolved_title
+        if meta_description:
+            seed["service_description"] = meta_description
+        seed["keywords"] = keywords
+        return seed
+
     def _extract_rss_feed_seed(feed_url: str) -> dict[str, Any]:
         clean_url = str(feed_url or "").strip()
         parsed = urlparse(clean_url)
@@ -2627,6 +2723,31 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         seed["entry_titles"] = entry_titles
         return seed
 
+    def _connection_metadata_language_instruction(lang: str) -> str:
+        code = str(lang or "de").strip().lower() or "de"
+        if code.startswith("de"):
+            return (
+                "Output language: German (Deutsch). "
+                "Write title and description in natural German. "
+                "Aliases and tags must prioritize German routing and trigger terms someone would type in German. "
+                "Keep product names and proper nouns unchanged. "
+                "If an English product term is common, it may appear once, but include German trigger words too. "
+                "Do not switch to English only because the source page is in English."
+            )
+        if code.startswith("en"):
+            return (
+                "Output language: English. "
+                "Write title and description in natural English. "
+                "Aliases and tags must prioritize English routing and trigger terms someone would type in English. "
+                "Keep product names and proper nouns unchanged."
+            )
+        return (
+            f"Output language: {code}. "
+            "Write title, description, aliases, and tags primarily in that language when natural. "
+            "Keep product names and proper nouns unchanged. "
+            "Prefer routing terms a user would type in that language."
+        )
+
     async def _suggest_rss_metadata_with_llm(
         *,
         feed_url: str,
@@ -2649,27 +2770,29 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             }
 
         system_prompt = (
-            "Du erzeugst kompakte Metadaten fuer ein RSS-Connection-Profil in ARIA. "
-            "Antworte nur als JSON im Format "
+            "You generate concise metadata for an RSS connection profile in ARIA. "
+            "Respond with JSON only in the format "
             '{"title":"...","description":"...","aliases":["..."],"tags":["..."]}. '
-            "Beschreibung maximal 120 Zeichen. Aliase maximal 8 Eintraege, je 2-40 Zeichen. "
-            "Tags maximal 8 Eintraege, je 2-24 Zeichen. Keine Markdown-Ausgabe."
+            "Description max 120 characters. Aliases max 8 entries, each 2-40 chars. "
+            "Tags max 8 entries, each 2-24 chars. No markdown. "
+            + _connection_metadata_language_instruction(lang)
         )
         user_prompt = "\n".join(
             [
-                f"Connection-Ref: {str(connection_ref or '').strip() or '-'}",
-                f"Feed-URL: {str(feed_url or '').strip() or '-'}",
-                f"Feed-Titel: {seed['feed_title'] or '-'}",
-                f"Feed-Beschreibung: {seed['feed_description'] or '-'}",
-                f"Beispiel-Artikel: {', '.join(seed['entry_titles']) or '-'}",
-                f"Aktuelle Gruppe: {str(group_name or '').strip() or '-'}",
-                f"Bestehender Titel: {str(current_title or '').strip() or '-'}",
-                f"Bestehende Beschreibung: {str(current_description or '').strip() or '-'}",
-                f"Bestehende Aliase: {str(current_aliases or '').strip() or '-'}",
-                f"Bestehende Tags: {str(current_tags or '').strip() or '-'}",
+                f"Preferred language: {str(lang or 'de').strip() or 'de'}",
+                f"Connection ref: {str(connection_ref or '').strip() or '-'}",
+                f"Feed URL: {str(feed_url or '').strip() or '-'}",
+                f"Detected feed title: {seed['feed_title'] or '-'}",
+                f"Detected feed description: {seed['feed_description'] or '-'}",
+                f"Example entries: {', '.join(seed['entry_titles']) or '-'}",
+                f"Current group: {str(group_name or '').strip() or '-'}",
+                f"Current title: {str(current_title or '').strip() or '-'}",
+                f"Current description: {str(current_description or '').strip() or '-'}",
+                f"Current aliases: {str(current_aliases or '').strip() or '-'}",
+                f"Current tags: {str(current_tags or '').strip() or '-'}",
                 "",
-                "Ziel: Erzeuge gut routebare, nutzernahe Metadaten fuer diese RSS-Connection. "
-                "Aliase sollen typische Chat-Begriffe enthalten, mit denen man den Feed ansprechen wuerde.",
+                "Goal: produce user-friendly metadata that helps ARIA route chat requests to this RSS connection. "
+                "Aliases should contain the terms people would naturally use when referring to this feed in the preferred language.",
             ]
         )
         try:
@@ -2704,6 +2827,86 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             "description": description or current_description.strip() or seed["feed_description"],
             "aliases": ", ".join(aliases or seed["aliases"]),
             "tags": ", ".join(tags),
+        }
+
+    async def _suggest_ssh_metadata_with_llm(
+        *,
+        service_url: str,
+        connection_ref: str,
+        current_title: str,
+        current_description: str,
+        current_aliases: str,
+        current_tags: str,
+        lang: str,
+    ) -> dict[str, Any]:
+        seed = _extract_ssh_service_seed(service_url)
+        llm_client = getattr(pipeline, "llm_client", None)
+        fallback_tags = [item for item in seed["keywords"] if item][:8]
+        if llm_client is None:
+            return {
+                "title": current_title.strip() or seed["service_title"],
+                "description": current_description.strip() or seed["service_description"],
+                "aliases": ", ".join(seed["aliases"]),
+                "tags": ", ".join(fallback_tags),
+            }
+
+        system_prompt = (
+            "You generate concise metadata for an SSH connection profile in ARIA. "
+            "Respond with JSON only in the format "
+            '{"title":"...","description":"...","aliases":["..."],"tags":["..."]}. '
+            "Description max 120 characters. Aliases max 8 entries, each 2-40 chars. "
+            "Tags max 8 entries, each 2-24 chars. No markdown. "
+            + _connection_metadata_language_instruction(lang)
+        )
+        user_prompt = "\n".join(
+            [
+                f"Preferred language: {str(lang or 'de').strip() or 'de'}",
+                f"Connection ref: {str(connection_ref or '').strip() or '-'}",
+                f"Service URL: {str(service_url or '').strip() or '-'}",
+                f"Detected page title: {seed['service_title'] or '-'}",
+                f"Detected description: {seed['service_description'] or '-'}",
+                f"Detected keywords: {', '.join(seed['keywords']) or '-'}",
+                f"Current title: {str(current_title or '').strip() or '-'}",
+                f"Current description: {str(current_description or '').strip() or '-'}",
+                f"Current aliases: {str(current_aliases or '').strip() or '-'}",
+                f"Current tags: {str(current_tags or '').strip() or '-'}",
+                "",
+                "Goal: produce user-friendly metadata that helps ARIA route chat requests to this SSH connection. "
+                "Aliases should reflect how someone would naturally refer to the service behind this host.",
+            ]
+        )
+        try:
+            response = await llm_client.chat(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                source="ssh_metadata",
+                operation="suggest_metadata",
+                user_id="system",
+            )
+        except Exception:
+            response = None
+        payload = _extract_json_object_local(str(getattr(response, "content", "") if response else "") or "") or {}
+        title = str(payload.get("title", "") or "").strip()[:80]
+        description = str(payload.get("description", "") or "").strip()[:120]
+        aliases_raw = payload.get("aliases", [])
+        aliases = [
+            str(item).strip()[:40]
+            for item in aliases_raw
+            if str(item).strip()
+        ][:8] if isinstance(aliases_raw, list) else []
+        tags_raw = payload.get("tags", [])
+        tags = [
+            str(item).strip()[:24]
+            for item in tags_raw
+            if str(item).strip()
+        ][:8] if isinstance(tags_raw, list) else []
+        return {
+            "title": title or current_title.strip() or seed["service_title"],
+            "description": description or current_description.strip() or seed["service_description"],
+            "aliases": ", ".join(aliases or seed["aliases"]),
+            "tags": ", ".join(tags or fallback_tags),
         }
 
     def _read_rss_connections() -> dict[str, dict[str, Any]]:
@@ -2912,18 +3115,28 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 values=dict(selected),
                 prefix="ssh_edit",
                 ref_value=selected_ref,
-                placeholders={"connection_ref": "z.B. main-ssh", "host": "server.example.local", "user": "admin"},
+                placeholders={
+                    "connection_ref": "z.B. main-ssh",
+                    "host": "server.example.local",
+                    "service_url": "https://service.example.local",
+                    "user": "admin",
+                },
                 required_fields={"host", "user", "port", "timeout_seconds"},
-                ordered_fields=["host", "user", "port", "timeout_seconds"],
+                ordered_fields=["host", "service_url", "user", "port", "timeout_seconds"],
             ),
             "ssh_new_base_form_fields": _build_schema_form_fields(
                 kind="ssh",
                 values={"port": 22, "timeout_seconds": 20},
                 prefix="ssh_new",
                 ref_value="",
-                placeholders={"connection_ref": "z.B. main-ssh", "host": "server.example.local", "user": "admin"},
+                placeholders={
+                    "connection_ref": "z.B. main-ssh",
+                    "host": "server.example.local",
+                    "service_url": "https://service.example.local",
+                    "user": "admin",
+                },
                 required_fields={"host", "user", "port", "timeout_seconds"},
-                ordered_fields=["host", "user", "port", "timeout_seconds"],
+                ordered_fields=["host", "service_url", "user", "port", "timeout_seconds"],
             ),
             "ssh_edit_advanced_form_fields": _build_schema_form_fields(
                 kind="ssh",
@@ -3150,16 +3363,17 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 values=dict(selected_sftp),
                 prefix="sftp_edit",
                 ref_value=selected_sftp_ref,
-                placeholders={"connection_ref": "z.B. files-sftp", "host": "files.example.local", "user": "backup", "root_path": "/data", "key_path": "/app/data/ssh_keys/files-sftp_ed25519"},
+                placeholders={"connection_ref": "z.B. files-sftp", "host": "files.example.local", "service_url": "https://files.example.local", "user": "backup", "root_path": "/data", "key_path": "/app/data/ssh_keys/files-sftp_ed25519"},
                 required_fields={"host", "user", "port", "timeout_seconds"},
                 field_hints={"key_path": "Wenn gesetzt, nutzt SFTP diesen Key statt Passwort. Ideal für Profile, die du aus SSH übernommen hast."},
                 secrets_with_hints={"password": "The password is stored in the secure store and never written into config.yaml."},
-                ordered_fields=["host", "user", "port", "timeout_seconds", "root_path", "key_path", "password"],
+                ordered_fields=["host", "service_url", "user", "port", "timeout_seconds", "root_path", "key_path", "password"],
             ),
             "sftp_new_form_fields": _build_schema_form_fields(
                 kind="sftp",
                 values={
                     "host": str(selected_ssh_seed.get("host", "")).strip(),
+                    "service_url": str(selected_ssh_seed.get("service_url", "")).strip(),
                     "user": str(selected_ssh_seed.get("user", "")).strip(),
                     "port": int(selected_ssh_seed.get("port", 22) or 22),
                     "timeout_seconds": int(selected_ssh_seed.get("timeout_seconds", 10) or 10),
@@ -3167,11 +3381,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 },
                 prefix="sftp_new",
                 ref_value=selected_ssh_seed_ref,
-                placeholders={"connection_ref": "z.B. files-sftp", "host": "files.example.local", "user": "backup", "root_path": "/data", "key_path": "/app/data/ssh_keys/files-sftp_ed25519"},
+                placeholders={"connection_ref": "z.B. files-sftp", "host": "files.example.local", "service_url": "https://files.example.local", "user": "backup", "root_path": "/data", "key_path": "/app/data/ssh_keys/files-sftp_ed25519"},
                 required_fields={"host", "user", "port", "timeout_seconds"},
                 field_hints={"key_path": "Wenn gesetzt, nutzt SFTP diesen Key statt Passwort. Ideal für Profile, die du aus SSH übernommen hast."},
                 secrets_with_hints={"password": "The password is stored in the secure store and never written into config.yaml."},
-                ordered_fields=["host", "user", "port", "timeout_seconds", "root_path", "key_path", "password"],
+                ordered_fields=["host", "service_url", "user", "port", "timeout_seconds", "root_path", "key_path", "password"],
             ),
             "ssh_refs": ssh_refs,
             "ssh_ref_options": _build_connection_ref_options(ssh_rows),
@@ -4187,6 +4401,68 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             context["info_message"] = "RSS-Kategorien aktualisiert"
         return TEMPLATES.TemplateResponse(request=request, name=connection_template_name("rss"), context=context)
 
+    @app.get("/config/connections/ssh/suggest-metadata")
+    async def config_connections_ssh_suggest_metadata(
+        request: Request,
+        connection_ref: str = "",
+        service_url: str = "",
+        connection_title: str = "",
+        connection_description: str = "",
+        connection_aliases: str = "",
+        connection_tags: str = "",
+    ) -> JSONResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        clean_service_url = str(service_url or "").strip()
+        if not clean_service_url:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": _msg(lang, "Service-URL fehlt.", "Service URL is missing."),
+                },
+                status_code=400,
+            )
+        suggestion = await _suggest_ssh_metadata_with_llm(
+            service_url=clean_service_url,
+            connection_ref=_sanitize_connection_name(connection_ref),
+            current_title=str(connection_title or "").strip(),
+            current_description=str(connection_description or "").strip(),
+            current_aliases=str(connection_aliases or "").strip(),
+            current_tags=str(connection_tags or "").strip(),
+            lang=lang,
+        )
+        return JSONResponse({"ok": True, **suggestion})
+
+    @app.get("/config/connections/sftp/suggest-metadata")
+    async def config_connections_sftp_suggest_metadata(
+        request: Request,
+        connection_ref: str = "",
+        service_url: str = "",
+        connection_title: str = "",
+        connection_description: str = "",
+        connection_aliases: str = "",
+        connection_tags: str = "",
+    ) -> JSONResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        clean_service_url = str(service_url or "").strip()
+        if not clean_service_url:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": _msg(lang, "Service-URL fehlt.", "Service URL is missing."),
+                },
+                status_code=400,
+            )
+        suggestion = await _suggest_ssh_metadata_with_llm(
+            service_url=clean_service_url,
+            connection_ref=_sanitize_connection_name(connection_ref),
+            current_title=str(connection_title or "").strip(),
+            current_description=str(connection_description or "").strip(),
+            current_aliases=str(connection_aliases or "").strip(),
+            current_tags=str(connection_tags or "").strip(),
+            lang=lang,
+        )
+        return JSONResponse({"ok": True, **suggestion})
+
     @app.get("/config/connections/rss/suggest-metadata")
     async def config_connections_rss_suggest_metadata(
         request: Request,
@@ -4321,9 +4597,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         host: str = Form(""),
         port: int = Form(22),
         user: str = Form(""),
+        service_url: str = Form(""),
         login_user: str = Form(""),
         login_password: str = Form(""),
         run_key_exchange: str = Form("1"),
+        create_matching_sftp: str = Form("0"),
         key_path: str = Form(""),
         timeout_seconds: int = Form(20),
         strict_host_key_checking: str = Form("accept-new"),
@@ -4350,6 +4628,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "host": clean_host,
                 "port": max(1, int(port)),
                 "user": clean_user,
+                "service_url": str(service_url).strip(),
                 "key_path": str(key_path).strip(),
                 "timeout_seconds": max(5, int(timeout_seconds)),
                 "strict_host_key_checking": str(strict_host_key_checking).strip() or "accept-new",
@@ -4370,6 +4649,43 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 row_value["user"] = exch_user
                 row_value["key_path"] = str(exch_key)
                 info = _msg(lang, "Profil gespeichert + Key-Exchange erfolgreich", "Profile saved + key exchange successful")
+            matching_sftp_note = ""
+            if _is_create and str(create_matching_sftp).strip().lower() in {"1", "true", "on", "yes"}:
+                connections = raw.setdefault("connections", {})
+                if not isinstance(connections, dict):
+                    raise ValueError("Ungültige Connection-Konfiguration.")
+                sftp_rows = connections.setdefault("sftp", {})
+                if not isinstance(sftp_rows, dict):
+                    raise ValueError("Ungültige SFTP-Sektion.")
+                sftp_ref = _derive_matching_sftp_ref(ref)
+                key_path_for_sftp = str(row_value.get("key_path", "")).strip()
+                if not key_path_for_sftp:
+                    matching_sftp_note = _msg(
+                        lang,
+                        "Passendes SFTP-Profil nicht erzeugt: erst SSH-Key speichern oder Key-Exchange ausführen.",
+                        "Matching SFTP profile not created: save an SSH key first or run key exchange.",
+                    )
+                elif sftp_ref in sftp_rows:
+                    matching_sftp_note = _msg(
+                        lang,
+                        f"Passendes SFTP-Profil `{sftp_ref}` existiert bereits und blieb unverändert.",
+                        f"Matching SFTP profile `{sftp_ref}` already exists and was left unchanged.",
+                    )
+                else:
+                    sftp_rows[sftp_ref] = {
+                        "host": clean_host,
+                        "port": max(1, int(port)),
+                        "user": str(row_value.get("user", "")).strip(),
+                        "key_path": key_path_for_sftp,
+                        "timeout_seconds": max(5, int(timeout_seconds)),
+                        "root_path": "/",
+                        **_build_connection_metadata(connection_title, connection_description, connection_aliases, connection_tags),
+                    }
+                    matching_sftp_note = _msg(
+                        lang,
+                        f"Passendes SFTP-Profil `{sftp_ref}` mitgespeichert",
+                        f"Matching SFTP profile `{sftp_ref}` created",
+                    )
             _finalize_connection_save(
                 "ssh",
                 raw=raw,
@@ -4378,8 +4694,12 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 original_ref=original_ref_clean,
                 row_value=row_value,
             )
+            if matching_sftp_note:
+                info = f"{info} · {matching_sftp_note}"
             if should_exchange and not login_password.strip():
                 info = _msg(lang, "Profil gespeichert (ohne Key-Exchange: Passwort fehlt)", "Profile saved (without key exchange: password missing)")
+                if matching_sftp_note:
+                    info = f"{info} · {matching_sftp_note}"
             test_result = build_connection_status_row(
                 "ssh",
                 ref,
@@ -4500,6 +4820,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         connection_aliases: str = Form(""),
         connection_tags: str = Form(""),
         host: str = Form(""),
+        service_url: str = Form(""),
         port: int = Form(22),
         user: str = Form(""),
         password: str = Form(""),
@@ -4532,6 +4853,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "host": str(host).strip(),
                 "port": max(1, int(port)),
                 "user": str(user).strip(),
+                "service_url": str(service_url).strip(),
                 "key_path": clean_key_path,
                 "timeout_seconds": max(5, int(timeout_seconds)),
                 "root_path": str(root_path).strip(),
@@ -5637,7 +5959,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 response.set_cookie(
                     key=_cookie_name_for_request(request, "auth", AUTH_COOKIE),
                     value=_encode_auth_session(clean_username, clean_role, scope=_cookie_scope_for_request(request)),
-                    max_age=AUTH_SESSION_MAX_AGE_SECONDS,
+                    max_age=get_auth_session_max_age_seconds(),
                     samesite="lax",
                     secure=secure_cookie,
                     httponly=True,
@@ -5740,7 +6062,10 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         request: Request,
         saved: int = 0,
         error: str = "",
+        info: str = "",
         scope: str = "default",
+        routing_query: str = "",
+        routing_kind: str = "auto",
     ) -> HTMLResponse:
         return_to = _set_logical_back_url(request, fallback="/config")
         username = _get_username_from_request(request)
@@ -5751,6 +6076,20 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             selected_scope = "default"
 
         routing = settings.routing.for_language(None if selected_scope == "default" else selected_scope)
+        routing_index_status = await build_connection_routing_index_status(settings)
+        routing_qdrant_meta = {
+            "enabled": bool(getattr(settings.routing, "qdrant_connection_routing_enabled", False)),
+            "score_threshold": float(getattr(settings.routing, "qdrant_score_threshold", 0.72) or 0.0),
+            "candidate_limit": int(getattr(settings.routing, "qdrant_candidate_limit", 5) or 5),
+            "ask_on_low_confidence": bool(getattr(settings.routing, "qdrant_ask_on_low_confidence", True)),
+        }
+        routing_test_result = None
+        if str(routing_query or "").strip():
+            routing_test_result = await test_connection_routing_query(
+                settings,
+                routing_query,
+                preferred_kind=routing_kind,
+            )
         return TEMPLATES.TemplateResponse(
             request=request,
             name="config_routing.html",
@@ -5759,6 +6098,13 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "username": username,
                 "saved": bool(saved),
                 "error_message": error,
+                "info_message": info,
+                "routing_index_status": routing_index_status,
+                "routing_qdrant_meta": routing_qdrant_meta,
+                "routing_test_result": routing_test_result,
+                "routing_test_query": str(routing_query or "").strip(),
+                "routing_test_kind": str(routing_kind or "auto").strip().lower() or "auto",
+                "routing_test_kind_options": ["auto", "ssh", "sftp", "rss", "discord", "http_api"],
                 "scope_options": ["default", *supported_languages],
                 "selected_scope": selected_scope,
                 "store_keywords_text": "\n".join(routing.memory_store_keywords),
@@ -5769,6 +6115,116 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
                 "return_to": return_to,
             },
         )
+
+    @app.get("/config/routing-index/status")
+    async def config_routing_index_status(request: Request) -> JSONResponse:
+        auth = _get_auth_session_from_request(request) or {}
+        if _sanitize_role(auth.get("role")) != "admin":
+            return JSONResponse({"status": "error", "message": "Admin access required."}, status_code=403)
+        return JSONResponse(await build_connection_routing_index_status(settings))
+
+    @app.get("/config/routing-index/test")
+    async def config_routing_index_test(
+        request: Request,
+        query: str = "",
+        preferred_kind: str = "auto",
+    ) -> JSONResponse:
+        auth = _get_auth_session_from_request(request) or {}
+        if _sanitize_role(auth.get("role")) != "admin":
+            return JSONResponse({"status": "error", "message": "Admin access required."}, status_code=403)
+        return JSONResponse(
+            await test_connection_routing_query(
+                settings,
+                query,
+                preferred_kind=preferred_kind,
+            )
+        )
+
+    @app.post("/config/routing-index/rebuild")
+    async def config_routing_index_rebuild(
+        request: Request,
+        scope: str = Form("default"),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
+        auth = _get_auth_session_from_request(request) or {}
+        if _sanitize_role(auth.get("role")) != "admin":
+            return _redirect_with_return_to(
+                "/config/routing?error=Admin+access+required.",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
+        selected_scope = str(scope or "default").strip().lower() or "default"
+        try:
+            result = await rebuild_connection_routing_index(settings)
+        except Exception as exc:
+            return _redirect_with_return_to(
+                f"/config/routing?scope={quote_plus(selected_scope)}&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
+        message = str(result.get("message", "") or "").strip() or "Routing index rebuild finished."
+        target_param = "info" if str(result.get("status", "") or "").lower() != "error" else "error"
+        return _redirect_with_return_to(
+            f"/config/routing?scope={quote_plus(selected_scope)}&{target_param}={quote_plus(message)}",
+            request,
+            fallback="/config",
+            return_to=return_to,
+        )
+
+    @app.post("/config/routing/qdrant/save")
+    async def config_routing_qdrant_save(
+        request: Request,
+        scope: str = Form("default"),
+        qdrant_connection_routing_enabled: str = Form("0"),
+        qdrant_score_threshold: str = Form("0.72"),
+        qdrant_candidate_limit: str = Form("5"),
+        qdrant_ask_on_low_confidence: str = Form("0"),
+        return_to: str = Form(""),
+    ) -> RedirectResponse:
+        auth = _get_auth_session_from_request(request) or {}
+        selected_scope = str(scope or "default").strip().lower() or "default"
+        if _sanitize_role(auth.get("role")) != "admin":
+            return _redirect_with_return_to(
+                f"/config/routing?scope={quote_plus(selected_scope)}&error=Admin+access+required.",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
+        try:
+            threshold = float(str(qdrant_score_threshold or "0.72").strip().replace(",", "."))
+            if threshold < 0.0 or threshold > 1.0:
+                raise ValueError("Threshold muss zwischen 0.00 und 1.00 liegen.")
+            candidate_limit = int(str(qdrant_candidate_limit or "5").strip())
+            if candidate_limit < 1 or candidate_limit > 20:
+                raise ValueError("Limit muss zwischen 1 und 20 liegen.")
+
+            raw = _read_raw_config()
+            raw.setdefault("routing", {})
+            if not isinstance(raw["routing"], dict):
+                raw["routing"] = {}
+            routing_section = raw["routing"]
+            routing_section["qdrant_connection_routing_enabled"] = str(qdrant_connection_routing_enabled or "") == "1"
+            routing_section["qdrant_score_threshold"] = round(threshold, 4)
+            routing_section["qdrant_candidate_limit"] = candidate_limit
+            routing_section["qdrant_ask_on_low_confidence"] = str(qdrant_ask_on_low_confidence or "") == "1"
+            _write_raw_config(raw)
+            _reload_runtime()
+            info = "Live-Qdrant-Routing gespeichert."
+            return _redirect_with_return_to(
+                f"/config/routing?scope={quote_plus(selected_scope)}&info={quote_plus(info)}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
+        except (OSError, ValueError) as exc:
+            return _redirect_with_return_to(
+                f"/config/routing?scope={quote_plus(selected_scope)}&error={quote_plus(str(exc))}",
+                request,
+                fallback="/config",
+                return_to=return_to,
+            )
 
     @app.post("/config/routing/save")
     async def config_routing_save(

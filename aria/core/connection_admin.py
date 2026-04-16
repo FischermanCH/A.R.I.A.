@@ -367,6 +367,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
             "host": str(row_value.get("host", "")).strip(),
             "port": int(row_value.get("port", 22) or 22),
             "user": str(row_value.get("user", "")).strip(),
+            "service_url": str(row_value.get("service_url", "")).strip(),
             "key_path": str(row_value.get("key_path", "")).strip(),
             "timeout_seconds": int(row_value.get("timeout_seconds", 20) or 20),
             "strict_host_key_checking": str(row_value.get("strict_host_key_checking", "accept-new")).strip() or "accept-new",
@@ -381,6 +382,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
             "host": str(row_value.get("host", "")).strip(),
             "port": int(row_value.get("port", 22) or 22),
             "user": str(row_value.get("user", "")).strip(),
+            "service_url": str(row_value.get("service_url", "")).strip(),
             "key_path": str(row_value.get("key_path", "")).strip(),
             "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
             "root_path": str(row_value.get("root_path", "")).strip(),
@@ -558,7 +560,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
     store = get_secure_store_for_config(base_dir, raw)
 
     if clean_kind == "ssh":
-        for field in ("host", "user", "key_path", "strict_host_key_checking"):
+        for field in ("host", "user", "service_url", "key_path", "strict_host_key_checking"):
             value = update_payload.get(field, "")
             if field == "strict_host_key_checking":
                 clean_value = str(value).strip()

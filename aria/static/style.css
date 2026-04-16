@@ -3677,6 +3677,68 @@ button.button-link.subtle-link:hover {
   flex-wrap: wrap;
 }
 
+.routing-index-card {
+  display: grid;
+  gap: 0.55rem;
+  margin: 1rem 0;
+}
+
+.routing-index-actions form {
+  margin: 0;
+}
+
+.routing-testbench-card {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.routing-testbench-form {
+  max-width: 54rem;
+}
+
+.routing-testbench-form label {
+  margin-bottom: -0.25rem;
+}
+
+.routing-testbench-result {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.routing-testbench-grid {
+  margin-top: 0.25rem;
+}
+
+.routing-candidate-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.routing-candidate-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(5, 14, 10, 0.38);
+}
+
+.routing-candidate-item.status-ok {
+  border-color: rgba(69, 192, 110, 0.62);
+}
+
+.routing-candidate-item.status-warn {
+  border-color: rgba(233, 176, 61, 0.64);
+}
+
+.routing-candidate-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .meta-row {
   display: flex;
   flex-wrap: wrap;
@@ -4072,6 +4134,14 @@ button.button-link.subtle-link:hover {
   background: rgba(10, 26, 17, 0.9);
 }
 
+.connection-create-link {
+  min-height: 2.7rem;
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
 .connection-mode-link:hover {
   color: var(--text);
   border-color: rgba(80, 255, 155, 0.85);
@@ -4083,6 +4153,13 @@ button.button-link.subtle-link:hover {
   border-color: var(--accent);
   background: rgba(10, 26, 17, 0.98);
   box-shadow: inset 0 0 0 1px rgba(80, 255, 155, 0.16);
+}
+
+.connection-create-link.is-active {
+  color: #06140b;
+  border-color: rgba(120, 255, 190, 0.96);
+  background: linear-gradient(135deg, rgba(82, 255, 179, 0.96), rgba(25, 221, 115, 0.96));
+  box-shadow: 0 12px 28px rgba(3, 18, 10, 0.26), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 .connection-mode-card {
@@ -4593,8 +4670,16 @@ button.button-link.subtle-link:hover {
   border-color: rgba(198, 138, 255, 0.82);
 }
 
+.memory-graph-node.kind-routing {
+  border-color: rgba(255, 170, 72, 0.82);
+}
+
 .memory-graph-node.variant-rollup {
   background: color-mix(in srgb, var(--surface-card) 75%, rgba(70, 35, 116, 0.55) 25%);
+}
+
+.memory-graph-node.variant-routing {
+  background: color-mix(in srgb, var(--surface-card) 72%, rgba(104, 63, 10, 0.4) 28%);
 }
 
 .memory-rollup-grid {

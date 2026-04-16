@@ -71,7 +71,17 @@ def build_action_plan(
     if not resolved_path:
         if draft.capability == "file_list":
             path = "."
-        elif draft.capability in {"feed_read", "webhook_send", "discord_send", "api_request", "mail_read", "mail_search", "email_send", "mqtt_publish"}:
+        elif draft.capability in {
+            "feed_read",
+            "webhook_send",
+            "discord_send",
+            "api_request",
+            "mail_read",
+            "mail_search",
+            "email_send",
+            "mqtt_publish",
+            "ssh_command",
+        }:
             path = ""
         else:
             missing_fields.append("path")
@@ -80,7 +90,15 @@ def build_action_plan(
         path = resolved_path
 
     content = str(draft.content or "").strip()
-    if draft.capability in {"file_write", "webhook_send", "discord_send", "email_send", "mail_search", "mqtt_publish"} and not content:
+    if draft.capability in {
+        "file_write",
+        "webhook_send",
+        "discord_send",
+        "email_send",
+        "mail_search",
+        "mqtt_publish",
+        "ssh_command",
+    } and not content:
         missing_fields.append("content")
 
     return ActionPlan(

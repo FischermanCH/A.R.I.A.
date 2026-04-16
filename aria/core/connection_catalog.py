@@ -14,6 +14,10 @@ CONNECTION_FIELD_CHAT_CATALOG: dict[str, dict[str, Any]] = {
     "host": {
         "patterns": [r"\bhost\s+(\S+)"],
     },
+    "service_url": {
+        "patterns": [r"\b(?:service(?:_url)?|service-url|homepage|home-page|website|webseite|url)\s+(https?://\S+)"],
+        "show_in_summary": False,
+    },
     "smtp_host": {
         "patterns": [r"\b(?:smtp[_-]?host|smtp-host|host)\s+(\S+)"],
     },
@@ -163,6 +167,7 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
             "host": {"type": "str", "max_length": 255, "label": "Host"},
             "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
             "user": {"type": "str", "max_length": 255, "label": "User"},
+            "service_url": {"type": "str", "max_length": 512, "label": "Service-URL"},
             "key_path": {"type": "str", "max_length": 512, "label": "Key-Pfad"},
             "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
             "strict_host_key_checking": {"type": "str", "max_length": 32, "label": "Host-Key-Prüfung"},
@@ -195,6 +200,7 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
             "host": {"type": "str", "max_length": 255, "label": "Host"},
             "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
             "user": {"type": "str", "max_length": 255, "label": "User"},
+            "service_url": {"type": "str", "max_length": 512, "label": "Service-URL"},
             "password": {"type": "str", "max_length": 512, "label": "Passwort"},
             "key_path": {"type": "str", "max_length": 512, "label": "Key-Pfad"},
             "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},

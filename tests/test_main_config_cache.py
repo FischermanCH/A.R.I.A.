@@ -60,3 +60,25 @@ def test_write_raw_config_refreshes_cache_without_extra_reload(monkeypatch, tmp_
 
     assert data["ui"]["title"] == "After Write"
     assert call_count["value"] == 0
+
+
+def test_dynamic_proxy_reads_latest_target_object() -> None:
+    class _Target:
+        def __init__(self, label: str, enabled: bool) -> None:
+            self.label = label
+            self.enabled = enabled
+
+        def __bool__(self) -> bool:
+            return self.enabled
+
+    holder = {"current": _Target("alpha", False)}
+    proxy = main_mod._DynamicProxy(lambda: holder["current"])
+
+    assert proxy.label == "alpha"
+    assert bool(proxy) is False
+
+    holder["current"] = _Target("beta", True)
+
+    assert proxy.label == "beta"
+    assert bool(proxy) is True
+    assert repr(proxy) == repr(holder["current"])

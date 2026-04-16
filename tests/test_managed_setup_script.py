@@ -77,6 +77,11 @@ def test_managed_setup_writes_repair_capable_stack_helper(tmp_path: Path) -> Non
     install_text = (install_dir / "INSTALL.txt").read_text(encoding="utf-8")
 
     assert "./aria-stack.sh repair" in helper_text
-    assert "Config-Sync-Check fehlgeschlagen" in helper_text
+    assert 'validate_file_sync "Config-Sync-Check"' in helper_text
+    assert 'validate_file_sync "Prompts-Sync-Check"' in helper_text
+    assert "Data-Sync-Check fehlgeschlagen" in helper_text
+    assert 'validate_mount_binding "Config-Mount-Check"' in helper_text
+    assert 'validate_mount_binding "Prompts-Mount-Check"' in helper_text
+    assert 'validate_mount_binding "Data-Mount-Check"' in helper_text
     assert 'docker run --rm -v "$STACK_DIR:/managed"' in helper_text
     assert "./aria-stack.sh repair" in install_text

@@ -83,6 +83,10 @@ class RoutingLanguageConfig(BaseModel):
 
 
 class RoutingConfig(BaseModel):
+    qdrant_connection_routing_enabled: bool = False
+    qdrant_score_threshold: float = 0.72
+    qdrant_candidate_limit: int = 5
+    qdrant_ask_on_low_confidence: bool = True
     memory_store_keywords: list[str] = Field(
         default_factory=lambda: get_default_routing_profile()["memory_store_keywords"]
     )
@@ -296,6 +300,7 @@ class SSHConnectionConfig(ConnectionMetaConfig):
     host: str = ""
     port: int = 22
     user: str = ""
+    service_url: str = ""
     key_path: str = ""
     timeout_seconds: int = 20
     strict_host_key_checking: str = "accept-new"
@@ -318,6 +323,7 @@ class SFTPConnectionConfig(ConnectionMetaConfig):
     host: str = ""
     port: int = 22
     user: str = ""
+    service_url: str = ""
     password: str = ""
     key_path: str = ""
     timeout_seconds: int = 10

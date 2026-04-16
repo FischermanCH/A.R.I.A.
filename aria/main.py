@@ -15,8 +15,10 @@ import secrets
 import socket
 import subprocess
 import shlex
+import threading
 import tomllib
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -361,6 +363,29 @@ CUSTOM_SKILL_DESC_I18N_FALLBACKS: dict[str, dict[str, str]] = {
         "en": "Runs apt update/upgrade on two configured servers and summarizes the result.",
     },
 }
+
+
+class _DynamicProxy:
+    def __init__(self, getter) -> None:  # type: ignore[no-untyped-def]
+        self._getter = getter
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._getter(), name)
+
+    def __bool__(self) -> bool:
+        return bool(self._getter())
+
+    def __repr__(self) -> str:
+        return repr(self._getter())
+
+
+@dataclass(slots=True)
+class _RuntimeBundle:
+    settings: Settings
+    prompt_loader: PromptLoader
+    usage_meter: UsageMeter
+    llm_client: LLMClient
+    pipeline: Pipeline
 
 
 def _replace_agent_name(text: str, agent_name: str) -> str:
@@ -1298,59 +1323,73 @@ def _get_update_status(current_label: str, *, ttl_seconds: int = 60 * 60 * 6) ->
 
 def _build_app() -> FastAPI:
     global AUTH_SIGNING_SECRET, FORGET_SIGNING_SECRET
-    settings: Settings = load_settings(CONFIG_PATH)
+    initial_settings: Settings = load_settings(CONFIG_PATH)
     global AUTH_SESSION_MAX_AGE_SECONDS
     AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
-        getattr(settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
+        getattr(initial_settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
     )
     get_or_create_runtime_secret("ARIA_MASTER_KEY", CONFIG_PATH)
     AUTH_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_AUTH_SIGNING_SECRET", CONFIG_PATH)
     FORGET_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_FORGET_SIGNING_SECRET", CONFIG_PATH)
-    prompt_loader = PromptLoader(BASE_DIR / settings.prompts.persona)
-    usage_meter = UsageMeter(settings)
-    llm_client = LLMClient(settings.llm, usage_meter=usage_meter)
     capability_context_store = CapabilityContextStore(CAPABILITY_CONTEXT_PATH)
-    pipeline = Pipeline(
-        settings=settings,
-        prompt_loader=prompt_loader,
-        llm_client=llm_client,
-        capability_context_store=capability_context_store,
-        usage_meter=usage_meter,
-    )
-    chat_history_store = FileChatHistoryStore(CHAT_HISTORY_DIR, max_messages=80)
+    runtime_reload_lock = threading.RLock()
 
-    def _reload_runtime() -> None:
-        nonlocal settings, prompt_loader, llm_client, pipeline, startup_diagnostics, usage_meter
-        global AUTH_SESSION_MAX_AGE_SECONDS
-        try:
-            new_settings = load_settings(CONFIG_PATH)
-            new_prompt_loader = PromptLoader(BASE_DIR / new_settings.prompts.persona)
-            new_usage_meter = UsageMeter(new_settings)
-            new_llm_client = LLMClient(new_settings.llm, usage_meter=new_usage_meter)
-            new_pipeline = Pipeline(
-                settings=new_settings,
-                prompt_loader=new_prompt_loader,
-                llm_client=new_llm_client,
-                capability_context_store=capability_context_store,
-                usage_meter=new_usage_meter,
-            )
-        except Exception as exc:
-            LOGGER.exception("Runtime reload failed")
-            raise ValueError(f"Runtime-Neuladen fehlgeschlagen: {exc}") from exc
-
-        settings = new_settings
-        AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
-            getattr(new_settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
-        )
-        prompt_loader = new_prompt_loader
-        llm_client = new_llm_client
-        usage_meter = new_usage_meter
-        pipeline = new_pipeline
-        startup_diagnostics = {
+    def _empty_startup_diagnostics() -> dict[str, Any]:
+        return {
             "status": "warn",
             "checked_at": "",
             "checks": [],
         }
+
+    def _build_runtime_bundle(runtime_settings: Settings) -> _RuntimeBundle:
+        runtime_prompt_loader = PromptLoader(BASE_DIR / runtime_settings.prompts.persona)
+        runtime_usage_meter = UsageMeter(runtime_settings)
+        runtime_llm_client = LLMClient(runtime_settings.llm, usage_meter=runtime_usage_meter)
+        runtime_pipeline = Pipeline(
+            settings=runtime_settings,
+            prompt_loader=runtime_prompt_loader,
+            llm_client=runtime_llm_client,
+            capability_context_store=capability_context_store,
+            usage_meter=runtime_usage_meter,
+        )
+        return _RuntimeBundle(
+            settings=runtime_settings,
+            prompt_loader=runtime_prompt_loader,
+            usage_meter=runtime_usage_meter,
+            llm_client=runtime_llm_client,
+            pipeline=runtime_pipeline,
+        )
+
+    runtime_bundle = _build_runtime_bundle(initial_settings)
+    settings = _DynamicProxy(lambda: runtime_bundle.settings)
+    prompt_loader = _DynamicProxy(lambda: runtime_bundle.prompt_loader)
+    usage_meter = _DynamicProxy(lambda: runtime_bundle.usage_meter)
+    llm_client = _DynamicProxy(lambda: runtime_bundle.llm_client)
+    pipeline = _DynamicProxy(lambda: runtime_bundle.pipeline)
+    chat_history_store = FileChatHistoryStore(CHAT_HISTORY_DIR, max_messages=80)
+    startup_diagnostics = _empty_startup_diagnostics()
+
+    def _get_runtime_settings() -> Settings:
+        return runtime_bundle.settings
+
+    def _get_runtime_pipeline() -> Pipeline:
+        return runtime_bundle.pipeline
+
+    def _reload_runtime() -> None:
+        nonlocal runtime_bundle, startup_diagnostics
+        global AUTH_SESSION_MAX_AGE_SECONDS
+        try:
+            with runtime_reload_lock:
+                new_settings = load_settings(CONFIG_PATH)
+                new_runtime_bundle = _build_runtime_bundle(new_settings)
+                runtime_bundle = new_runtime_bundle
+                AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
+                    getattr(new_settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
+                )
+                startup_diagnostics = _empty_startup_diagnostics()
+        except Exception as exc:
+            LOGGER.exception("Runtime reload failed")
+            raise ValueError(f"Runtime-Neuladen fehlgeschlagen: {exc}") from exc
 
     async def _suggest_skill_keywords_with_llm(
         manifest: dict[str, Any],
@@ -1724,17 +1763,17 @@ def _build_app() -> FastAPI:
         return count
 
     startup_maintenance_task: asyncio.Task[None] | None = None
-    startup_diagnostics: dict[str, Any] = {
-        "status": "warn",
-        "checked_at": "",
-        "checks": [],
-    }
 
     async def _get_runtime_preflight_data(force_refresh: bool = False) -> dict[str, Any]:
         nonlocal startup_diagnostics
-        if force_refresh or not startup_diagnostics.get("checked_at"):
-            startup_diagnostics = await build_runtime_diagnostics(BASE_DIR, settings, usage_meter=usage_meter)
-        return startup_diagnostics
+        with runtime_reload_lock:
+            current_diagnostics = startup_diagnostics
+        if force_refresh or not current_diagnostics.get("checked_at"):
+            refreshed = await build_runtime_diagnostics(BASE_DIR, settings, usage_meter=usage_meter)
+            with runtime_reload_lock:
+                startup_diagnostics = refreshed
+            return refreshed
+        return current_diagnostics
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):  # noqa: ANN202
@@ -2765,8 +2804,8 @@ def _build_app() -> FastAPI:
     register_stats_routes(
         app,
         templates=TEMPLATES,
-        get_pipeline=lambda: pipeline,
-        get_settings=lambda: settings,
+        get_pipeline=_get_runtime_pipeline,
+        get_settings=_get_runtime_settings,
         get_username_from_request=_get_username_from_request,
         resolve_pricing_entry=_resolve_pricing_entry,
         get_runtime_preflight=_get_runtime_preflight_data,
@@ -2775,15 +2814,15 @@ def _build_app() -> FastAPI:
     register_activities_routes(
         app,
         templates=TEMPLATES,
-        get_pipeline=lambda: pipeline,
-        get_settings=lambda: settings,
+        get_pipeline=_get_runtime_pipeline,
+        get_settings=_get_runtime_settings,
         get_username_from_request=_get_username_from_request,
     )
 
     register_skills_routes(
         app,
         templates=TEMPLATES,
-        get_settings=lambda: settings,
+        get_settings=_get_runtime_settings,
         get_username_from_request=_get_username_from_request,
         get_auth_session_from_request=_get_auth_session_from_request,
         sanitize_role=_sanitize_role,
@@ -2801,8 +2840,8 @@ def _build_app() -> FastAPI:
     register_memories_routes(
         app,
         templates=TEMPLATES,
-        get_settings=lambda: settings,
-        get_pipeline=lambda: pipeline,
+        get_settings=_get_runtime_settings,
+        get_pipeline=_get_runtime_pipeline,
         get_username_from_request=_get_username_from_request,
         get_auth_session_from_request=_get_auth_session_from_request,
         sanitize_role=_sanitize_role,
@@ -2834,9 +2873,9 @@ def _build_app() -> FastAPI:
             lang_cookie=LANG_COOKIE,
             username_cookie=USERNAME_COOKIE,
             memory_collection_cookie=MEMORY_COLLECTION_COOKIE,
-            auth_session_max_age_seconds=AUTH_SESSION_MAX_AGE_SECONDS,
-            get_settings=lambda: settings,
-            get_pipeline=lambda: pipeline,
+            get_auth_session_max_age_seconds=lambda: AUTH_SESSION_MAX_AGE_SECONDS,
+            get_settings=_get_runtime_settings,
+            get_pipeline=_get_runtime_pipeline,
             get_username_from_request=_get_username_from_request,
             get_auth_session_from_request=_get_auth_session_from_request,
             sanitize_role=_sanitize_role,

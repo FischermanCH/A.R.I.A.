@@ -14,6 +14,7 @@ from email import message_from_bytes
 from email.header import make_header, decode_header
 from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.error import URLError
@@ -37,6 +38,20 @@ _RSS_HTTP_HEADERS = {
     ),
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
 }
+_SKILL_ID_INVALID_RE = re.compile(r"[^a-z0-9_-]")
+_SKILL_ID_DASH_RE = re.compile(r"-+")
+_JSON_FENCE_START_RE = re.compile(r"^```(?:json)?\s*", re.IGNORECASE)
+_JSON_FENCE_END_RE = re.compile(r"\s*```$")
+_SKILL_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+_CONDITION_SOURCE_RE = re.compile(r"[^a-z0-9_-]")
+_FEED_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+@lru_cache(maxsize=128)
+def _compile_condition_regex(pattern: str, flags: int) -> re.Pattern[str]:
+    return re.compile(pattern, flags=flags)
 
 
 def _is_english(language: str | None) -> bool:
@@ -49,8 +64,8 @@ def _msg(language: str | None, de: str, en: str) -> str:
 
 def sanitize_skill_id(value: str) -> str:
     raw = str(value or "").strip().lower()
-    raw = re.sub(r"[^a-z0-9_-]", "-", raw)
-    raw = re.sub(r"-+", "-", raw).strip("-")
+    raw = _SKILL_ID_INVALID_RE.sub("-", raw)
+    raw = _SKILL_ID_DASH_RE.sub("-", raw).strip("-")
     return raw[:48]
 
 
@@ -70,8 +85,8 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
     if not text:
         return None
     if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-        text = re.sub(r"\s*```$", "", text)
+        text = _JSON_FENCE_START_RE.sub("", text)
+        text = _JSON_FENCE_END_RE.sub("", text)
     start = text.find("{")
     end = text.rfind("}")
     if start < 0 or end <= start:
@@ -153,7 +168,7 @@ _SKILL_ACTION_HINTS = {
 
 
 def _skill_tokens(value: str) -> list[str]:
-    return [token for token in re.split(r"[^a-z0-9]+", str(value or "").lower()) if token]
+    return [token for token in _SKILL_TOKEN_SPLIT_RE.split(str(value or "").lower()) if token]
 
 
 def _significant_skill_tokens(value: str) -> list[str]:
@@ -278,7 +293,7 @@ def normalize_skill_steps(value: Any) -> list[dict[str, Any]]:
             operator = str(condition.get("operator", "")).strip().lower()
             if operator in {"equals", "not_equals", "contains", "not_contains", "regex", "is_empty", "not_empty"}:
                 norm_condition = {
-                    "source": re.sub(r"[^a-z0-9_-]", "", source)[:40],
+                    "source": _CONDITION_SOURCE_RE.sub("", source)[:40],
                     "operator": operator,
                     "value": str(condition.get("value", "")).strip()[:1200],
                     "ignore_case": bool(condition.get("ignore_case", False)),
@@ -321,7 +336,7 @@ def _evaluate_skill_step_condition(condition: dict[str, Any], values: dict[str, 
     if operator == "regex":
         flags = re.IGNORECASE if ignore_case else 0
         try:
-            return re.search(expected, actual, flags=flags) is not None
+            return _compile_condition_regex(expected, flags).search(actual) is not None
         except re.error:
             return False
     if operator == "is_empty":
@@ -739,9 +754,9 @@ class CustomSkillRuntime:
         if not raw:
             return ""
         text = html.unescape(raw)
-        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
+        text = _FEED_BR_RE.sub("\n", text)
+        text = _HTML_TAG_RE.sub(" ", text)
+        text = _WHITESPACE_RE.sub(" ", text).strip()
         if not text:
             return ""
         if len(text) <= limit:

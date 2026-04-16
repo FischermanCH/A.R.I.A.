@@ -86,6 +86,62 @@ def test_create_connection_profile_writes_rss_config(tmp_path) -> None:
     assert row["tags"] == ["news", "tech"]
 
 
+def test_create_connection_profile_writes_ssh_service_url(tmp_path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    config_path = config_dir / "config.yaml"
+    config_path.write_text("connections: {}\n", encoding="utf-8")
+
+    result = create_connection_profile(
+        tmp_path,
+        "ssh",
+        "mgmt-ssh",
+        {
+            "host": "10.0.1.7",
+            "user": "ops",
+            "service_url": "https://grafana.example.local",
+            "key_path": "data/ssh_keys/mgmt_ed25519",
+            "title": "Management SSH",
+        },
+    )
+
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    row = raw["connections"]["ssh"]["mgmt-ssh"]
+    assert result["kind"] == "ssh"
+    assert row["host"] == "10.0.1.7"
+    assert row["service_url"] == "https://grafana.example.local"
+    assert row["title"] == "Management SSH"
+
+
+def test_create_connection_profile_writes_sftp_service_url(tmp_path) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    config_path = config_dir / "config.yaml"
+    config_path.write_text("connections: {}\n", encoding="utf-8")
+
+    result = create_connection_profile(
+        tmp_path,
+        "sftp",
+        "files-sftp",
+        {
+            "host": "10.0.1.8",
+            "user": "backup",
+            "service_url": "https://minio.example.local",
+            "key_path": "data/ssh_keys/files_ed25519",
+            "root_path": "/data",
+            "title": "Files SFTP",
+        },
+    )
+
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    row = raw["connections"]["sftp"]["files-sftp"]
+    assert result["kind"] == "sftp"
+    assert row["host"] == "10.0.1.8"
+    assert row["service_url"] == "https://minio.example.local"
+    assert row["root_path"] == "/data"
+    assert row["title"] == "Files SFTP"
+
+
 def test_normalize_rss_feed_url_for_dedupe_merges_slash_and_tracking_variants() -> None:
     assert _normalize_rss_feed_url_for_dedupe("https://Example.org/feed/") == "https://example.org/feed"
     assert (

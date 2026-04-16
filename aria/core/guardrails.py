@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 
@@ -65,6 +66,30 @@ def _clean_term_list(values: Any) -> list[str]:
     return rows
 
 
+def _normalize_guardrail_text(value: str) -> str:
+    return " ".join(str(value or "").split()).strip().lower()
+
+
+def _guardrail_term_matches(text: str, term: str) -> bool:
+    clean_text = _normalize_guardrail_text(text)
+    clean_term = _normalize_guardrail_text(term)
+    if not clean_text or not clean_term:
+        return False
+    if "/" in clean_term or "\\" in clean_term:
+        return clean_term in clean_text
+    pattern = re.escape(clean_term)
+    pattern = re.sub(r"\\\s+", r"\\s+", pattern)
+    if clean_term[0].isalnum() or clean_term[0] == "_":
+        pattern = r"(?<![a-z0-9_])" + pattern
+    if clean_term[-1].isalnum() or clean_term[-1] == "_":
+        pattern = pattern + r"(?![a-z0-9_])"
+    return re.search(pattern, clean_text, flags=re.IGNORECASE) is not None
+
+
+def _any_guardrail_term_matches(text: str, terms: list[str]) -> bool:
+    return any(_guardrail_term_matches(text, token) for token in terms)
+
+
 def resolve_guardrail_profile(settings: Any, ref: str) -> dict[str, Any] | None:
     clean_ref = str(ref or "").strip()
     if not clean_ref:
@@ -105,18 +130,18 @@ def evaluate_guardrail(*, profile_ref: str, profile: dict[str, Any] | None, kind
             kind=profile_kind,
         )
 
-    lowered = " ".join(str(text or "").split()).strip().lower()
+    lowered = _normalize_guardrail_text(text)
     deny_terms = _clean_term_list(profile.get("deny_terms", []))
     allow_terms = _clean_term_list(profile.get("allow_terms", []))
 
-    if deny_terms and any(token in lowered for token in deny_terms):
+    if deny_terms and _any_guardrail_term_matches(lowered, deny_terms):
         return GuardrailDecision(
             allowed=False,
             reason="guardrail_denied",
             profile_ref=profile_ref,
             kind=profile_kind,
         )
-    if allow_terms and not any(token in lowered for token in allow_terms):
+    if allow_terms and not _any_guardrail_term_matches(lowered, allow_terms):
         return GuardrailDecision(
             allowed=False,
             reason="guardrail_not_allowed",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -298,6 +300,10 @@ def test_updates_relogin_clears_current_instance_cookies() -> None:
 
 
 def test_updates_page_forces_relogin_when_helper_finished_after_session(monkeypatch) -> None:
+    session_issued_at = int(time.time()) - 120
+    helper_started_at = datetime.fromtimestamp(session_issued_at + 30, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    helper_finished_at = datetime.fromtimestamp(session_issued_at + 90, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
     monkeypatch.setattr(
         main_mod,
         "_read_release_meta",
@@ -331,8 +337,8 @@ def test_updates_page_forces_relogin_when_helper_finished_after_session(monkeypa
             "status": "ok",
             "running": False,
             "current_step": "",
-            "last_started_at": "2026-04-11T22:05:00Z",
-            "last_finished_at": "2026-04-11T22:06:00Z",
+            "last_started_at": helper_started_at,
+            "last_finished_at": helper_finished_at,
             "last_result": "Update completed successfully.",
             "last_error": "",
             "log_tail": [],
@@ -343,7 +349,7 @@ def test_updates_page_forces_relogin_when_helper_finished_after_session(monkeypa
     old_auth = main_mod._encode_auth_session(
         "whity",
         "admin",
-        issued_at=1775944800,
+        issued_at=session_issued_at,
         scope=main_mod._cookie_scope_source(public_url="http://testserver"),
     )
     client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), old_auth)

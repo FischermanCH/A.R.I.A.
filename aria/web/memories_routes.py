@@ -391,6 +391,7 @@ def _graph_kind_order(kind: str) -> int:
         "session": 2,
         "document": 3,
         "knowledge": 4,
+        "routing": 5,
     }
     return order.get(str(kind or "").strip().lower(), 99)
 
@@ -403,8 +404,13 @@ def _graph_kind_label(kind: str) -> str:
         "session": "Tages-Kontext",
         "document": "Dokumente",
         "knowledge": "Wissen",
+        "routing": "Routing",
     }
     return labels.get(normalized, normalized.upper() or "Memory")
+
+
+def _routing_graph_link() -> str:
+    return "/config/routing"
 
 
 def _memory_graph_link(*, kind: str = "all", collection: str = "") -> str:
@@ -442,8 +448,12 @@ def _build_memory_graph(
     kind_totals: dict[str, int],
     document_groups: list[dict[str, Any]],
     rollup_groups: list[dict[str, Any]],
+    routing_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    routing_items = list(routing_rows or [])
     kinds = [kind for kind, points in kind_totals.items() if int(points or 0) > 0]
+    if routing_items:
+        kinds.append("routing")
     if not kinds:
         return {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
 
@@ -485,6 +495,20 @@ def _build_memory_graph(
                         "variant": "rollup",
                     }
                 )
+        if kind == "routing":
+            for row in routing_items[:3]:
+                detail_nodes_by_kind[kind].append(
+                    {
+                        "label": str(row.get("name", "")).strip(),
+                        "meta": (
+                            f"{int(row.get('points', 0) or 0)} Punkte"
+                            f" · {int(row.get('share_pct', 0) or 0)}%"
+                        ),
+                        "href": str(row.get("browse_url", "")).strip() or _routing_graph_link(),
+                        "variant": "routing",
+                    }
+                )
+            continue
         for row in collection_rows_by_kind.get(kind, [])[:2]:
             detail_nodes_by_kind[kind].append(
                 {
@@ -513,12 +537,17 @@ def _build_memory_graph(
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, float]] = []
+    memory_total_points = sum(int(value or 0) for value in kind_totals.values())
+    routing_total_points = sum(int(row.get("points", 0) or 0) for row in routing_items)
+    root_meta = f"{memory_total_points} Punkte im Memory"
+    if routing_total_points > 0:
+        root_meta += f" · {routing_total_points} Routing-Punkte"
     nodes.append(
         {
             "id": "graph-root",
             "kind": "root",
             "label": username,
-            "meta": f"{sum(int(value or 0) for value in kind_totals.values())} Punkte im Memory",
+            "meta": root_meta,
             "left": round(width / 2 - 108, 2),
             "top": 20,
             "width": 216,
@@ -535,11 +564,17 @@ def _build_memory_graph(
                 "id": type_id,
                 "kind": kind,
                 "label": _graph_kind_label(kind),
-                "meta": f"{int(kind_totals.get(kind, 0) or 0)} Punkte",
+                "meta": (
+                    f"{routing_total_points} Punkte · System"
+                    if kind == "routing"
+                    else f"{int(kind_totals.get(kind, 0) or 0)} Punkte"
+                ),
                 "left": round(x_center - node_width / 2, 2),
                 "top": round(type_y - 42, 2),
                 "width": node_width,
-                "href": _memory_graph_link(kind=kind if kind != "knowledge" else "knowledge"),
+                "href": _routing_graph_link()
+                if kind == "routing"
+                else _memory_graph_link(kind=kind if kind != "knowledge" else "knowledge"),
                 "variant": "type",
             }
         )
@@ -693,6 +728,44 @@ def _normalize_document_collection_name(raw_name: str, sanitize_collection_name:
 def _document_collection_names(collection_names: list[str]) -> list[str]:
     rows = [str(name or "").strip() for name in collection_names if _is_document_collection_name(str(name or "").strip())]
     return sorted(set(name for name in rows if name))
+
+
+def _is_routing_collection_name(name: str) -> bool:
+    clean = str(name or "").strip().lower()
+    return bool(clean) and clean.startswith("aria_routing_")
+
+
+def _build_routing_collection_rows(
+    overview_rows: list[dict[str, Any]],
+    *,
+    known_user_collection_names: set[str] | None = None,
+    browse_url: str = "",
+) -> list[dict[str, Any]]:
+    blocked = {str(name or "").strip() for name in (known_user_collection_names or set()) if str(name or "").strip()}
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in overview_rows:
+        name = str(row.get("name", "")).strip()
+        if not name or name in seen or name in blocked or not _is_routing_collection_name(name):
+            continue
+        seen.add(name)
+        items.append(
+            {
+                "name": name,
+                "kind": "routing",
+                "points": int(row.get("points", 0) or 0),
+                "status": str(row.get("status", "ok")).strip() or "ok",
+                "browse_url": str(browse_url or "").strip(),
+            }
+        )
+    items.sort(key=lambda item: (-(int(item.get("points", 0) or 0)), str(item.get("name", "")).lower()))
+    total_points = int(sum(int(item.get("points", 0) or 0) for item in items))
+    max_points = max((int(item.get("points", 0) or 0) for item in items), default=0)
+    for item in items:
+        points = int(item.get("points", 0) or 0)
+        item["share_pct"] = int((points / total_points) * 100) if total_points > 0 else 0
+        item["pct"] = int((points / max_points) * 100) if max_points > 0 else 0
+    return items
 
 
 def _resolve_document_target_collection(
@@ -1019,10 +1092,12 @@ def register_memories_routes(
         settings = get_settings()
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
+        is_admin = _is_admin_request(request, get_auth_session_from_request, sanitize_role)
         info = str(request.query_params.get("info") or "").strip()
         error = str(request.query_params.get("error") or "").strip()
         overview = await qdrant_overview(request)
         user_rows: list[dict[str, Any]] = []
+        routing_rows: list[dict[str, Any]] = []
         collection_stats: list[dict[str, Any]] = []
         document_entries: list[dict[str, Any]] = []
         document_groups: list[dict[str, Any]] = []
@@ -1088,6 +1163,13 @@ def register_memories_routes(
             kind = str(row.get("kind", "fact"))
             if kind in kind_totals:
                 kind_totals[kind] += int(row.get("points", 0) or 0)
+        if is_admin:
+            routing_rows = _build_routing_collection_rows(
+                list(overview.get("collections", []) or []),
+                known_user_collection_names={str(row.get("name", "")).strip() for row in user_rows},
+                browse_url="/config/routing",
+            )
+        routing_total_points = int(sum(int(row.get("points", 0) or 0) for row in routing_rows))
         cleanup_status = _build_cleanup_status(pipeline.memory_skill)
         cleanup_status["timestamp"] = _format_display_timestamp(cleanup_status.get("timestamp"))
 
@@ -1106,6 +1188,7 @@ def register_memories_routes(
             kind_totals=kind_totals,
             document_groups=document_groups,
             rollup_groups=rollup_groups,
+            routing_rows=routing_rows,
         )
 
         return templates.TemplateResponse(
@@ -1120,6 +1203,8 @@ def register_memories_routes(
                 "map_rows": user_rows,
                 "map_total_points": total_points,
                 "map_kind_totals": kind_totals,
+                "routing_rows": routing_rows,
+                "routing_total_points": routing_total_points,
                 "document_entries": document_entries,
                 "document_groups": document_groups,
                 "rollup_entries": rollup_entries,

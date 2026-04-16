@@ -6,10 +6,14 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import aria.core.pipeline as pipeline_mod
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.capability_context import CapabilityContextStore
 from aria.core.config import Settings
 from aria.core.pipeline import Pipeline
+from aria.core.routing_admin import routing_connections_collection_name
+from aria.core.routing_index import build_connection_routing_documents
+from aria.core.routing_index import routing_documents_fingerprint
 from aria.skills.base import SkillResult
 
 
@@ -2355,6 +2359,255 @@ def test_pipeline_capability_router_sends_discord_via_metadata_title_alias() -> 
     assert calls == [("alerts-discord", "ARIA lebt")]
 
 
+def test_pipeline_qdrant_connection_routing_is_feature_flagged_off_by_default(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant"},
+            "connections": {
+                "discord": {
+                    "alerts-main": {
+                        "webhook_url": "https://discord.example/alerts",
+                        "allow_skill_messages": True,
+                    },
+                    "team-chat": {
+                        "webhook_url": "https://discord.example/team",
+                        "allow_skill_messages": True,
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    def fail_qdrant_client(**_kwargs):  # noqa: ANN001
+        raise AssertionError("Qdrant routing must stay off by default")
+
+    monkeypatch.setattr(pipeline_mod, "create_async_qdrant_client", fail_qdrant_client)
+
+    result = asyncio.run(
+        pipeline.process(
+            'Schicke eine Discord Nachricht an den Ops Kanal "ARIA lebt"',
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:discord_send"]
+    assert "welches Discord-Profil" in result.text
+    assert result.detail_lines == []
+
+
+def test_pipeline_qdrant_connection_routing_resolves_profile_when_enabled(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "ui": {"debug_mode": True},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "routing": {
+                "qdrant_connection_routing_enabled": True,
+                "qdrant_score_threshold": 0.72,
+                "qdrant_candidate_limit": 5,
+            },
+            "connections": {
+                "discord": {
+                    "alerts-main": {
+                        "webhook_url": "https://discord.example/alerts",
+                        "allow_skill_messages": True,
+                        "title": "Infrastructure Alerts",
+                    },
+                    "team-chat": {
+                        "webhook_url": "https://discord.example/team",
+                        "allow_skill_messages": True,
+                        "title": "Team Chat",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    current_hash = routing_documents_fingerprint(build_connection_routing_documents(settings))
+    collection = routing_connections_collection_name(settings)
+
+    class FakeEmbeddingClient:
+        async def embed(self, inputs, **_kwargs):  # noqa: ANN001
+            return SimpleNamespace(vectors=[[0.1, 0.2, 0.3] for _ in inputs], usage={}, model="fake-embed")
+
+    class FakeQdrant:
+        def __init__(self) -> None:
+            self.queries = 0
+
+        async def get_collections(self) -> object:
+            return SimpleNamespace(collections=[SimpleNamespace(name=collection)])
+
+        async def get_collection(self, collection_name: str) -> object:
+            assert collection_name == collection
+            return SimpleNamespace(
+                points_count=2,
+                config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=3))),
+            )
+
+        async def scroll(self, **_kwargs: object) -> tuple[list[object], None]:
+            return [SimpleNamespace(payload={"routing_index_hash": current_hash})], None
+
+        async def collection_exists(self, collection_name: str) -> bool:
+            return collection_name == collection
+
+        async def query_points(self, *, collection_name: str, query: list[float], limit: int) -> list[object]:
+            assert collection_name == collection
+            assert query == [0.1, 0.2, 0.3]
+            assert limit == 20
+            self.queries += 1
+            return [
+                SimpleNamespace(
+                    score=0.91,
+                    payload={
+                        "scope": "connection",
+                        "kind": "discord",
+                        "ref": "alerts-main",
+                        "title": "Infrastructure Alerts",
+                    },
+                )
+            ]
+
+        async def close(self) -> None:
+            return None
+
+    qdrant = FakeQdrant()
+    monkeypatch.setattr(pipeline_mod, "create_async_qdrant_client", lambda **_kwargs: qdrant)
+
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {"status": "ok", "stale": False, "message": "Routing index ready."}
+
+    monkeypatch.setattr(pipeline_mod, "build_connection_routing_index_status", fake_status)
+
+    llm = FakeLLMClient()
+    pipeline = Pipeline(
+        settings=settings,
+        prompt_loader=FakePromptLoader(),
+        llm_client=llm,
+        embedding_client=FakeEmbeddingClient(),
+    )
+    calls: list[tuple[str, str]] = []
+
+    def fake_discord_send(connection_ref: str, content: str, *, language: str = "de") -> str:
+        calls.append((connection_ref, content))
+        return f"Discord gesendet via `{connection_ref}`"
+
+    pipeline._skill_runtime.execute_discord_send = fake_discord_send  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            'Schicke eine Discord Nachricht an den Ops Kanal "ARIA lebt"',
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:discord_send"]
+    assert result.text == "Discord gesendet via `alerts-main`"
+    assert calls == [("alerts-main", "ARIA lebt")]
+    assert qdrant.queries == 1
+    assert result.detail_lines == [
+        "Routing: Qdrant selected `discord/alerts-main` score=0.910 source=qdrant_routing.",
+        "Ausgeführt via Discord-Profil `alerts-main`",
+    ]
+    assert llm.calls == 0
+
+
+def test_pipeline_qdrant_connection_routing_skips_stale_index(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "ui": {"debug_mode": True},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "routing": {"qdrant_connection_routing_enabled": True},
+            "connections": {
+                "discord": {
+                    "alerts-main": {
+                        "webhook_url": "https://discord.example/alerts",
+                        "allow_skill_messages": True,
+                        "title": "Infrastructure Alerts",
+                    },
+                    "team-chat": {
+                        "webhook_url": "https://discord.example/team",
+                        "allow_skill_messages": True,
+                        "title": "Team Chat",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    collection = routing_connections_collection_name(settings)
+
+    class FakeEmbeddingClient:
+        async def embed(self, inputs, **_kwargs):  # noqa: ANN001
+            return SimpleNamespace(vectors=[[0.1, 0.2, 0.3] for _ in inputs], usage={}, model="fake-embed")
+
+    class FakeQdrant:
+        async def get_collections(self) -> object:
+            return SimpleNamespace(collections=[SimpleNamespace(name=collection)])
+
+        async def get_collection(self, collection_name: str) -> object:
+            return SimpleNamespace(
+                points_count=2,
+                config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=3))),
+            )
+
+        async def scroll(self, **_kwargs: object) -> tuple[list[object], None]:
+            return [SimpleNamespace(payload={"routing_index_hash": "old-hash"})], None
+
+        async def collection_exists(self, collection_name: str) -> bool:
+            return collection_name == collection
+
+        async def query_points(self, **_kwargs: object) -> list[object]:
+            raise AssertionError("stale routing index must not be queried")
+
+        async def close(self) -> None:
+            return None
+
+    def fail_qdrant_client(**_kwargs):  # noqa: ANN001
+        raise AssertionError("stale routing index must not be queried")
+
+    monkeypatch.setattr(pipeline_mod, "create_async_qdrant_client", fail_qdrant_client)
+
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {"status": "warn", "stale": True, "message": "Routing index may be outdated; rebuild recommended."}
+
+    monkeypatch.setattr(pipeline_mod, "build_connection_routing_index_status", fake_status)
+
+    llm = FakeLLMClient()
+    pipeline = Pipeline(
+        settings=settings,
+        prompt_loader=FakePromptLoader(),
+        llm_client=llm,
+        embedding_client=FakeEmbeddingClient(),
+    )
+
+    def fail_discord_send(connection_ref: str, content: str, *, language: str = "de") -> str:
+        raise AssertionError(f"Discord send should be skipped, got {connection_ref=} {content=} {language=}")
+
+    pipeline._skill_runtime.execute_discord_send = fail_discord_send  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            'Schicke eine Discord Nachricht an den Ops Kanal "ARIA lebt"',
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:discord_send"]
+    assert "welches Discord-Profil" in result.text
+    assert result.detail_lines == [
+        "Routing: Qdrant skipped because the routing index is outdated.",
+    ]
+    assert llm.calls == 0
+
+
 def test_pipeline_capability_detail_lines_follow_english_language() -> None:
     settings = Settings.model_validate(
         {
@@ -2514,6 +2767,288 @@ def test_pipeline_explicit_capability_beats_custom_skill_when_profile_is_explici
             "Executed via Discord profile `alerts-discord`",
         ]
         assert llm.calls == 0
+
+
+def test_pipeline_routes_direct_ssh_command_before_chat_rag() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant"},
+            "connections": {
+                "ssh": {
+                    " pihole1 ": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = FakeMemorySkill()  # type: ignore[assignment]
+
+    calls: list[dict[str, object]] = []
+
+    async def fake_ssh_command(**kwargs):
+        calls.append(dict(kwargs))
+        return SkillResult(
+            skill_name="custom_skill_direct-ssh-command",
+            content="pihole1 uptime ok",
+            success=True,
+        )
+
+    pipeline._execute_custom_ssh_command = fake_ssh_command  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "Run uptime on pihole1",
+            user_id="u1",
+            source="test",
+            language="en",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.text == "pihole1 uptime ok"
+    assert result.detail_lines == [
+        "Executed via SSH profile `pihole1`",
+        "Command: uptime",
+    ]
+    assert calls == [
+        {
+            "skill_id": "direct-ssh-command",
+            "skill_name": "SSH Command",
+            "connection_ref": "pihole1",
+            "command_template": "uptime",
+            "message": "uptime",
+            "language": "en",
+        }
+    ]
+    assert llm.calls == 0
+    assert pipeline.memory_skill is not None
+    assert pipeline.memory_skill.calls == []
+
+
+def test_pipeline_routes_natural_dns_uptime_prompt_to_ssh_before_sftp() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant"},
+            "connections": {
+                "ssh": {
+                    "pihole1": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server"],
+                    }
+                },
+                "sftp": {
+                    "pihole1": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole files",
+                        "aliases": ["dns server files"],
+                    }
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = FakeMemorySkill()  # type: ignore[assignment]
+
+    calls: list[dict[str, object]] = []
+
+    async def fake_ssh_command(**kwargs):
+        calls.append(dict(kwargs))
+        return SkillResult(
+            skill_name="custom_skill_direct-ssh-command",
+            content="pihole1 uptime ok",
+            success=True,
+        )
+
+    pipeline._execute_custom_ssh_command = fake_ssh_command  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "Zeig mir die Laufzeit vom primären DNS Server",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.text == "pihole1 uptime ok"
+    assert result.detail_lines == [
+        "Ausgeführt via SSH-Profil `pihole1`",
+        "Befehl: uptime",
+    ]
+    assert calls == [
+        {
+            "skill_id": "direct-ssh-command",
+            "skill_name": "SSH Command",
+            "connection_ref": "pihole1",
+            "command_template": "uptime",
+            "message": "uptime",
+            "language": "de",
+        }
+    ]
+    assert llm.calls == 0
+    assert pipeline.memory_skill is not None
+    assert pipeline.memory_skill.calls == []
+
+
+def test_pipeline_routes_how_long_dns_server_runs_phrase_to_ssh() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant"},
+            "connections": {
+                "ssh": {
+                    "pihole1": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server"],
+                    }
+                },
+                "sftp": {
+                    "pihole1": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole files",
+                        "aliases": ["dns server files"],
+                    }
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = FakeMemorySkill()  # type: ignore[assignment]
+
+    calls: list[dict[str, object]] = []
+
+    async def fake_ssh_command(**kwargs):
+        calls.append(dict(kwargs))
+        return SkillResult(
+            skill_name="custom_skill_direct-ssh-command",
+            content="pihole1 uptime ok",
+            success=True,
+        )
+
+    pipeline._execute_custom_ssh_command = fake_ssh_command  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "Wie lange läuft mein DNS Server schon?",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.text == "pihole1 uptime ok"
+    assert result.detail_lines == [
+        "Ausgeführt via SSH-Profil `pihole1`",
+        "Befehl: uptime",
+    ]
+    assert calls == [
+        {
+            "skill_id": "direct-ssh-command",
+            "skill_name": "SSH Command",
+            "connection_ref": "pihole1",
+            "command_template": "uptime",
+            "message": "uptime",
+            "language": "de",
+        }
+    ]
+    assert llm.calls == 0
+    assert pipeline.memory_skill is not None
+    assert pipeline.memory_skill.calls == []
+
+
+def test_pipeline_routes_how_long_dns_server_is_online_phrase_to_ssh() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant"},
+            "connections": {
+                "ssh": {
+                    "pihole1": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server"],
+                    }
+                },
+                "sftp": {
+                    "pihole1": {
+                        "host": "127.0.0.1",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole files",
+                        "aliases": ["dns server files"],
+                    }
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = FakeMemorySkill()  # type: ignore[assignment]
+
+    calls: list[dict[str, object]] = []
+
+    async def fake_ssh_command(**kwargs):
+        calls.append(dict(kwargs))
+        return SkillResult(
+            skill_name="custom_skill_direct-ssh-command",
+            content="pihole1 uptime ok",
+            success=True,
+        )
+
+    pipeline._execute_custom_ssh_command = fake_ssh_command  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "Wie lange ist mein DNS Server schon online?",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.text == "pihole1 uptime ok"
+    assert result.detail_lines == [
+        "Ausgeführt via SSH-Profil `pihole1`",
+        "Befehl: uptime",
+    ]
+    assert calls == [
+        {
+            "skill_id": "direct-ssh-command",
+            "skill_name": "SSH Command",
+            "connection_ref": "pihole1",
+            "command_template": "uptime",
+            "message": "uptime",
+            "language": "de",
+        }
+    ]
+    assert llm.calls == 0
+    assert pipeline.memory_skill is not None
+    assert pipeline.memory_skill.calls == []
 
 
 def test_pipeline_does_not_fall_back_to_other_discord_profile_when_requested_ref_is_missing() -> None:

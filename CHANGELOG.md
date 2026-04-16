@@ -6,6 +6,28 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha.121] - 2026-04-16
+
+### Added
+- `/config/routing` now exposes a Qdrant-backed routing index admin/debug surface with status, rebuild, testbench output, and live-routing controls for bounded candidate routing
+- SSH and SFTP profiles now support a `Service URL`; ARIA can use the linked page plus the active UI language to draft routing-friendly titles, descriptions, aliases, and tags
+- `Memory Map` now surfaces routing/system collections in both the textual overview and the graph, so routing data is visible without mixing it into semantic user memory
+
+### Changed
+- runtime reloads now build a fresh runtime bundle and swap it atomically under a lock, which reduces stale-state drift after config saves and profile changes
+- managed update validation now compares `config`, `prompts`, and `data` host/container views and surfaces the real failing check in the update UI instead of only a generic `exit code 1`
+- connection metadata helpers now align generated routing hints more closely with the active UI language, which improves German/English routing coverage for SSH, SFTP, and RSS profiles
+
+### Fixed
+- natural SSH questions such as `Wie lange laeuft mein DNS Server schon?` and `Wie lange ist mein DNS Server schon online?` now route back to `ssh_command` / `uptime` instead of falling into generic chat or SFTP file reads
+- first-contact SSH `known hosts` warnings are filtered from the user-visible stderr output, while real SSH errors stay visible
+- routing collections on `/memories/map` are no longer easy to miss; they now appear as a dedicated system branch in the graph
+- config saves keep session-cookie lifetime and related runtime settings consistent after reloads instead of quietly continuing with stale route dependencies
+
+### Upgrade Notes
+- managed installs can continue to use `/updates` or `./aria-stack.sh update`; if validation reports a mount mismatch, `./aria-stack.sh repair` remains the supported recovery path
+- the internal TAR/NAS update flow stays a private test path; public installs should continue to use `aria-setup` or `docker-compose.public.yml`
+
 ## [0.1.0-alpha.110] - 2026-04-12
 
 ### Added

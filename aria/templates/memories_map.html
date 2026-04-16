@@ -92,6 +92,9 @@
     <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ health.type_points.session }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}: <code>{{ health.type_points.document }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ health.type_points.knowledge }}</code></span>
+    {% if routing_rows %}
+    <span class="chat-status">{{ tr(request, 'memories_map.routing_collections_title', 'Routing-Collections') }}: <code>{{ routing_rows|length }}</code></span>
+    {% endif %}
   </section>
 
   {% if rollup_groups %}
@@ -250,6 +253,54 @@
       </a>
       {% endfor %}
     </div>
+  </section>
+  {% endif %}
+
+  {% if routing_rows %}
+  <section class="memory-create-card">
+    <h2>{{ tr(request, 'memories_map.routing_collections_title', 'Routing-Collections') }}</h2>
+    <p>{{ tr(request, 'memories_map.routing_collections_subtitle', 'Generierte Qdrant-Collections für Routing und Systemlogik. Sie gehören nicht zum semantischen User-Memory, werden hier aber der Vollständigkeit halber angezeigt.') }}</p>
+    <div class="memory-type-grid">
+      {% for row in routing_rows %}
+      {% if row.browse_url %}
+      <a class="memory-type-card memory-collection-card" href="{{ row.browse_url }}">
+      {% else %}
+      <article class="memory-type-card memory-collection-card">
+      {% endif %}
+        <strong><code>{{ row.name }}</code></strong>
+        <span>{{ tr(request, 'memories_map.kind_routing', 'Routing') }} · {{ row.points }} {{ tr(request, 'memories_map.total_points', 'Total Points') }}{% if routing_total_points %} · {{ row.share_pct }}%{% endif %} · {{ row.status }}</span>
+      {% if row.browse_url %}
+      </a>
+      {% else %}
+      </article>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="prompt-table-wrap">
+    <table class="prompt-table">
+      <thead>
+        <tr>
+          <th>{{ tr(request, 'memories_map.col_collection', 'Collection') }}</th>
+          <th>{{ tr(request, 'memories_map.col_type', 'Typ') }}</th>
+          <th>{{ tr(request, 'memories_map.col_points', 'Punkte') }}</th>
+          <th>{{ tr(request, 'memories_map.col_share', 'Anteil') }}</th>
+          <th>{{ tr(request, 'memories_map.col_status', 'Status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in routing_rows %}
+        <tr>
+          <td><code>{{ row.name }}</code></td>
+          <td>{{ tr(request, 'memories_map.kind_routing', 'Routing') }}</td>
+          <td>{{ row.points }}</td>
+          <td>{{ row.share_pct }}%</td>
+          <td>{{ row.status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
   {% endif %}
 

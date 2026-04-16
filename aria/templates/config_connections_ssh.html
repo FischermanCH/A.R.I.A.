@@ -24,6 +24,9 @@
       <label class="inline-check" for="run_key_exchange_edit"><input id="run_key_exchange_edit" type="checkbox" name="run_key_exchange" value="1" checked>{{ tr(request, 'config_conn.run_key_exchange', 'Run key exchange directly after save (default)') }}</label>
       <details class="skill-details"><summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_edit_advanced_form_fields %}{% include "_connection_schema_fields.html" %}<label for="guardrail_ref_edit">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label><select id="guardrail_ref_edit" name="guardrail_ref"><option value="">{{ tr(request, 'config_security.no_guardrail_loaded', 'Noch kein Guardrail geladen') }}</option>{% for item in guardrail_ref_options[1:] %}<option value="{{ item.ref }}" {% if item.ref == (selected.guardrail_ref or '') %}selected{% endif %}>{{ item.label }}</option>{% endfor %}</select><small class="hint-text">{{ tr(request, 'config_security.guardrails_subtitle', 'Wiederverwendbare Sicherheitsprofile für einzelne Dienste. Guardrails lassen sich an kompatible Verbindungen anhängen und später modular erweitern.') }}</small></div></details>
       {% set meta_prefix = 'ssh_edit' %}
+      {% set meta_llm_kind = 'ssh' %}
+      {% set meta_llm_endpoint = '/config/connections/ssh/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['service_url'] %}
       {% set meta_values = selected %}
       {% include "_connection_metadata_fields.html" %}
       <button type="submit">{{ tr(request, 'config_conn.save_profile', 'Save profile') }}</button>
@@ -50,10 +53,13 @@
       <small class="hint-text">{{ tr(request, 'config_conn.password_hint', 'Without password only the profile is saved. ARIA still runs the automatic connection test and shows the result above.') }}</small>
       <label class="inline-check" for="run_key_exchange_new"><input id="run_key_exchange_new" type="checkbox" name="run_key_exchange" value="1" checked>{{ tr(request, 'config_conn.run_key_exchange', 'Run key exchange directly after save (default)') }}</label>
       <details class="skill-details"><summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_new_advanced_form_fields %}{% include "_connection_schema_fields.html" %}<label for="guardrail_ref_new">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label><select id="guardrail_ref_new" name="guardrail_ref"><option value="">{{ tr(request, 'config_security.no_guardrail_loaded', 'Noch kein Guardrail geladen') }}</option>{% for item in guardrail_ref_options[1:] %}<option value="{{ item.ref }}">{{ item.label }}</option>{% endfor %}</select><small class="hint-text">{{ tr(request, 'config_security.guardrails_subtitle', 'Wiederverwendbare Sicherheitsprofile für einzelne Dienste. Guardrails lassen sich an kompatible Verbindungen anhängen und später modular erweitern.') }}</small></div></details>
+      <label class="inline-check ssh-create-mirror-check" for="create_matching_sftp_new"><input id="create_matching_sftp_new" type="checkbox" name="create_matching_sftp" value="1">{{ tr(request, 'config_conn.ssh_create_matching_sftp', 'Gleich auch ein passendes SFTP-Profil anlegen') }}</label>
+      <small class="hint-text">{{ tr(request, 'config_conn.ssh_create_matching_sftp_hint', 'Erzeugt beim Speichern zusaetzlich ein SFTP-Profil mit Host, User, Port und SSH-Key. Wenn der Ref auf -ssh endet, wird automatisch -sftp daraus.') }}</small>
       {% set meta_prefix = 'ssh_new' %}
-
+      {% set meta_llm_kind = 'ssh' %}
+      {% set meta_llm_endpoint = '/config/connections/ssh/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['service_url'] %}
       {% set meta_values = {} %}
-
       {% include "_connection_metadata_fields.html" %}
 
       <button type="submit">{{ tr(request, 'config_conn.save_profile', 'Save profile') }}</button>

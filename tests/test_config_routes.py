@@ -67,7 +67,7 @@ class _NoopStore:
         return []
 
 
-def _build_profile_config_app(tmp_path: Path) -> TestClient:
+def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en') -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
@@ -127,7 +127,7 @@ def _build_profile_config_app(tmp_path: Path) -> TestClient:
     @app.middleware('http')
     async def _inject_state(request: Request, call_next):
         request.state.can_access_advanced_config = True
-        request.state.lang = 'en'
+        request.state.lang = lang
         request.state.cookie_names = {}
         request.state.csrf_token = 'test-csrf'
         request.state.release_meta = {'label': 'test'}
@@ -195,7 +195,7 @@ def _build_profile_config_app(tmp_path: Path) -> TestClient:
         lang_cookie='lang',
         username_cookie='user',
         memory_collection_cookie='memory',
-        auth_session_max_age_seconds=3600,
+        get_auth_session_max_age_seconds=lambda: 3600,
         get_settings=lambda: settings,
         get_pipeline=lambda: pipeline,
         get_username_from_request=lambda request: 'neo',
@@ -249,6 +249,7 @@ def _build_profile_config_app(tmp_path: Path) -> TestClient:
         suggest_skill_keywords_with_llm=_keyword_stub,
     )
     register_config_routes(app, deps)
+    app.state.test_pipeline = pipeline
     return TestClient(app)
 
 
@@ -286,6 +287,204 @@ def test_embeddings_page_uses_embedding_specific_provider_presets(tmp_path: Path
     assert 'LiteLLM Proxy' in response.text
     assert 'text-embedding-3-small' in response.text
     assert 'Anthropic' not in response.text
+
+
+def test_routing_page_shows_qdrant_routing_index_status(monkeypatch, tmp_path: Path) -> None:
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Routing index ready: 3/3 profiles indexed.",
+            "collection_name": "aria_routing_connections_test",
+            "collection_names": ["aria_routing_connections_test"],
+            "collection_count": 1,
+            "document_count": 3,
+            "indexed_count": 3,
+            "detail": "",
+        }
+
+    monkeypatch.setattr(config_routes_mod, "build_connection_routing_index_status", fake_status)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/routing')
+
+    assert response.status_code == 200
+    assert 'Routing Index' in response.text
+    assert 'Routing index ready: 3/3 profiles indexed.' in response.text
+    assert 'aria_routing_connections_test' in response.text
+    assert 'action="/config/routing-index/rebuild"' in response.text
+    assert 'action="/config/routing/qdrant/save"' in response.text
+    assert 'name="qdrant_connection_routing_enabled"' in response.text
+    assert 'name="qdrant_score_threshold"' in response.text
+
+
+def test_routing_index_rebuild_redirects_with_result(monkeypatch, tmp_path: Path) -> None:
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": "Routing index has not been built yet.",
+            "collection_name": "aria_routing_connections_test",
+            "collection_names": [],
+            "collection_count": 0,
+            "document_count": 3,
+            "indexed_count": 0,
+            "detail": "",
+        }
+
+    async def fake_rebuild(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Routing index rebuilt: 3/3 profiles indexed.",
+            "document_count": 3,
+            "indexed_count": 3,
+        }
+
+    monkeypatch.setattr(config_routes_mod, "build_connection_routing_index_status", fake_status)
+    monkeypatch.setattr(config_routes_mod, "rebuild_connection_routing_index", fake_rebuild)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        '/config/routing-index/rebuild',
+        data={"scope": "default", "return_to": "/config"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert '/config/routing?' in response.headers['location']
+    assert 'info=Routing+index+rebuilt' in response.headers['location']
+
+
+def test_routing_qdrant_save_persists_live_settings(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        '/config/routing/qdrant/save',
+        data={
+            "scope": "default",
+            "qdrant_connection_routing_enabled": "1",
+            "qdrant_score_threshold": "0.45",
+            "qdrant_candidate_limit": "7",
+            "qdrant_ask_on_low_confidence": "1",
+            "return_to": "/config",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert '/config/routing?' in response.headers['location']
+    assert 'info=Live-Qdrant-Routing+gespeichert' in response.headers['location']
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    assert raw["routing"]["qdrant_connection_routing_enabled"] is True
+    assert raw["routing"]["qdrant_score_threshold"] == 0.45
+    assert raw["routing"]["qdrant_candidate_limit"] == 7
+    assert raw["routing"]["qdrant_ask_on_low_confidence"] is True
+
+
+def test_routing_qdrant_save_can_disable_live_routing(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        '/config/routing/qdrant/save',
+        data={
+            "scope": "default",
+            "qdrant_score_threshold": "0.50",
+            "qdrant_candidate_limit": "5",
+            "return_to": "/config",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    assert raw["routing"]["qdrant_connection_routing_enabled"] is False
+    assert raw["routing"]["qdrant_ask_on_low_confidence"] is False
+
+
+def test_routing_page_shows_testbench_result(monkeypatch, tmp_path: Path) -> None:
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Routing index ready.",
+            "collection_name": "aria_routing_connections_test",
+            "collection_names": [],
+            "collection_count": 0,
+            "document_count": 1,
+            "indexed_count": 1,
+            "detail": "",
+        }
+
+    async def fake_test(_settings: object, query: str, *, preferred_kind: str = "auto") -> dict[str, object]:
+        assert query == "Run uptime on pihole1"
+        assert preferred_kind == "ssh"
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Deterministic routing matched ssh/pihole1 via exact_ref.",
+            "query": query,
+            "preferred_kind": preferred_kind,
+            "available_counts": {"ssh": 1},
+            "deterministic": {
+                "found": True,
+                "kind": "ssh",
+                "ref": "pihole1",
+                "source": "exact_ref",
+                "score": 10007.0,
+                "reason": "pihole1",
+                "capability": "",
+            },
+            "qdrant": {
+                "enabled": True,
+                "message": "",
+                "error": "",
+                "candidate_count": 0,
+                "accepted_count": 0,
+                "candidates": [],
+            },
+            "decision": {
+                "found": True,
+                "kind": "ssh",
+                "ref": "pihole1",
+                "source": "exact_ref",
+                "score": 10007.0,
+                "reason": "pihole1",
+                "capability": "",
+            },
+            "executed": False,
+        }
+
+    monkeypatch.setattr(config_routes_mod, "build_connection_routing_index_status", fake_status)
+    monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/routing?routing_query=Run+uptime+on+pihole1&routing_kind=ssh')
+
+    assert response.status_code == 200
+    assert 'Routing Testbench' in response.text
+    assert 'ssh/pihole1' in response.text
+    assert 'Dry-run' in response.text
+
+
+def test_routing_index_test_json_route(monkeypatch, tmp_path: Path) -> None:
+    async def fake_test(_settings: object, query: str, *, preferred_kind: str = "auto") -> dict[str, object]:
+        return {
+            "status": "warn",
+            "message": "No routing target matched.",
+            "query": query,
+            "preferred_kind": preferred_kind,
+            "decision": {"found": False},
+        }
+
+    monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/routing-index/test?query=foo&preferred_kind=ssh')
+
+    assert response.status_code == 200
+    assert response.json()["query"] == "foo"
+    assert response.json()["preferred_kind"] == "ssh"
 
 
 def test_llm_test_route_reports_active_profile_result(monkeypatch, tmp_path: Path) -> None:
@@ -400,3 +599,246 @@ def test_additional_config_pages_set_logical_back_url(tmp_path: Path) -> None:
         response = client.get(path)
         assert response.status_code == 200, path
         assert "const logical='/config';" in response.text, path
+
+
+def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/connections/ssh?mode=create&return_to=%2Fconfig')
+    nav_response = client.get('/config/connections/ssh?return_to=%2Fconfig')
+
+    assert response.status_code == 200
+    assert nav_response.status_code == 200
+    assert 'name="service_url"' in response.text
+    assert 'data-connection-meta-endpoint="/config/connections/ssh/suggest-metadata"' in response.text
+    assert 'data-connection-meta-source-fields="service_url"' in response.text
+    assert 'name="create_matching_sftp"' in response.text
+    assert 'connection-create-link is-active' in nav_response.text
+
+
+def test_sftp_page_exposes_service_url_helper(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/connections/sftp?mode=create&return_to=%2Fconfig')
+
+    assert response.status_code == 200
+    assert 'name="service_url"' in response.text
+    assert 'data-connection-meta-endpoint="/config/connections/sftp/suggest-metadata"' in response.text
+    assert 'data-connection-meta-source-fields="service_url"' in response.text
+
+
+def test_ssh_suggest_metadata_route_returns_llm_payload(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+    captured_messages: list[dict[str, str]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b"<html><head><title>Grafana Labs</title>"
+                b"<meta name=\"description\" content=\"Dashboards and metrics\">"
+                b"<meta name=\"keywords\" content=\"grafana, monitoring, dashboards\">"
+                b"</head><body></body></html>"
+            )
+
+    class _FakeLLM:
+        async def chat(self, messages, **_kwargs):
+            captured_messages.extend(messages)
+            return SimpleNamespace(
+                content='{"title":"Grafana","description":"Monitoring dashboards","aliases":["grafana","monitoring"],"tags":["metrics","dashboards"]}'
+            )
+
+    monkeypatch.setattr(config_routes_mod, 'urlopen', lambda *_args, **_kwargs: _FakeResponse())
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.get(
+        '/config/connections/ssh/suggest-metadata',
+        params={'service_url': 'https://grafana.example.local'},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ok'] is True
+    assert payload['title'] == 'Grafana'
+    assert payload['description'] == 'Monitoring dashboards'
+    assert payload['aliases'] == 'grafana, monitoring'
+    assert payload['tags'] == 'metrics, dashboards'
+    prompt_blob = "\n".join(item.get('content', '') for item in captured_messages)
+    assert 'Output language: German (Deutsch).' in prompt_blob
+    assert 'German routing and trigger terms' in prompt_blob
+    assert 'Preferred language: de' in prompt_blob
+
+
+def test_sftp_suggest_metadata_route_returns_llm_payload(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+    captured_messages: list[dict[str, str]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b"<html><head><title>MinIO Console</title>"
+                b"<meta name=\"description\" content=\"Object storage browser\">"
+                b"<meta name=\"keywords\" content=\"minio, storage, objects\">"
+                b"</head><body></body></html>"
+            )
+
+    class _FakeLLM:
+        async def chat(self, messages, **_kwargs):
+            captured_messages.extend(messages)
+            return SimpleNamespace(
+                content='{"title":"MinIO","description":"Dateiablage im Objekt-Storage","aliases":["minio","dateiablage"],"tags":["storage","dateien"]}'
+            )
+
+    monkeypatch.setattr(config_routes_mod, 'urlopen', lambda *_args, **_kwargs: _FakeResponse())
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.get(
+        '/config/connections/sftp/suggest-metadata',
+        params={'service_url': 'https://minio.example.local'},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ok'] is True
+    assert payload['title'] == 'MinIO'
+    assert payload['description'] == 'Dateiablage im Objekt-Storage'
+    assert payload['aliases'] == 'minio, dateiablage'
+    assert payload['tags'] == 'storage, dateien'
+    prompt_blob = "\n".join(item.get('content', '') for item in captured_messages)
+    assert 'Output language: German (Deutsch).' in prompt_blob
+    assert 'Preferred language: de' in prompt_blob
+
+
+def test_rss_suggest_metadata_route_uses_request_language(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+    captured_messages: list[dict[str, str]] = []
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b'<?xml version="1.0" encoding="UTF-8"?>'
+                b'<rss version="2.0"><channel>'
+                b'<title>Example Feed</title>'
+                b'<description>Ops updates and incidents</description>'
+                b'<item><title>Database incident</title></item>'
+                b'</channel></rss>'
+            )
+
+    class _FakeLLM:
+        async def chat(self, messages, **_kwargs):
+            captured_messages.extend(messages)
+            return SimpleNamespace(
+                content='{"title":"Ops Feed","description":"Aktuelle Ops-Meldungen","aliases":["ops feed","stoerungen"],"tags":["ops","status"]}'
+            )
+
+    monkeypatch.setattr(config_routes_mod, 'urlopen', lambda *_args, **_kwargs: _FakeResponse())
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.get(
+        '/config/connections/rss/suggest-metadata',
+        params={'feed_url': 'https://feeds.example.local/rss.xml'},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ok'] is True
+    assert payload['description'] == 'Aktuelle Ops-Meldungen'
+    prompt_blob = "\n".join(item.get('content', '') for item in captured_messages)
+    assert 'Output language: German (Deutsch).' in prompt_blob
+    assert 'Preferred language: de' in prompt_blob
+
+
+def test_ssh_save_can_create_matching_sftp_profile(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    monkeypatch.setattr(
+        config_routes_mod,
+        'build_connection_status_row',
+        lambda *_args, **_kwargs: {'status': 'ok', 'message': 'ok'},
+    )
+
+    response = client.post(
+        '/config/connections/save',
+        data={
+            'connection_ref': 'mgmt-ssh',
+            'original_ref': '',
+            'host': '10.0.1.5',
+            'service_url': 'https://grafana.example.local',
+            'user': 'aria',
+            'key_path': 'data/ssh_keys/mgmt_ed25519',
+            'timeout_seconds': '20',
+            'port': '22',
+            'connection_title': 'Management Server',
+            'connection_description': 'SSH access for ops',
+            'connection_aliases': 'grafana, ops',
+            'connection_tags': 'monitoring, linux',
+            'create_matching_sftp': '1',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    ssh_row = raw['connections']['ssh']['mgmt-ssh']
+    sftp_row = raw['connections']['sftp']['mgmt-sftp']
+    assert ssh_row['service_url'] == 'https://grafana.example.local'
+    assert sftp_row['host'] == '10.0.1.5'
+    assert sftp_row['user'] == 'aria'
+    assert sftp_row['key_path'] == 'data/ssh_keys/mgmt_ed25519'
+    assert sftp_row['title'] == 'Management Server'
+    assert sftp_row['aliases'] == ['grafana', 'ops']
+    assert sftp_row['tags'] == ['monitoring', 'linux']
+
+
+def test_sftp_save_persists_service_url(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    monkeypatch.setattr(
+        config_routes_mod,
+        'build_connection_status_row',
+        lambda *_args, **_kwargs: {'status': 'ok', 'message': 'ok'},
+    )
+
+    response = client.post(
+        '/config/connections/sftp/save',
+        data={
+            'connection_ref': 'files-sftp',
+            'original_ref': '',
+            'host': '10.0.1.9',
+            'service_url': 'https://minio.example.local',
+            'user': 'backup',
+            'key_path': 'data/ssh_keys/files_ed25519',
+            'timeout_seconds': '10',
+            'port': '22',
+            'root_path': '/data',
+            'connection_title': 'Files',
+            'connection_description': 'SFTP for backups',
+            'connection_aliases': 'minio, backup',
+            'connection_tags': 'storage, files',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    sftp_row = raw['connections']['sftp']['files-sftp']
+    assert sftp_row['service_url'] == 'https://minio.example.local'
+    assert sftp_row['host'] == '10.0.1.9'
+    assert sftp_row['root_path'] == '/data'

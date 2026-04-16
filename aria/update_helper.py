@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -183,6 +184,7 @@ def _refresh_managed_stack_files_from_target_image() -> None:
 def _run_logged(command: list[str], *, step: str) -> None:
     _write_log_line(f"[{_now_iso()}] {step}")
     _write_log_line(f"$ {' '.join(command)}")
+    start_offset = LOG_PATH.stat().st_size if LOG_PATH.exists() else 0
     with LOG_PATH.open("a", encoding="utf-8") as handle:
         process = subprocess.run(
             command,
@@ -193,6 +195,9 @@ def _run_logged(command: list[str], *, step: str) -> None:
             check=False,
         )
     if process.returncode != 0:
+        detail = _latest_failure_detail(start_offset=start_offset)
+        if detail:
+            raise RuntimeError(f"{step} failed with exit code {process.returncode}: {detail}")
         raise RuntimeError(f"{step} failed with exit code {process.returncode}.")
 
 
@@ -208,6 +213,7 @@ def _run_logged_with_env(
     env = os.environ.copy()
     env.update(extra_env)
     working_dir = str(cwd or INSTALL_DIR)
+    start_offset = LOG_PATH.stat().st_size if LOG_PATH.exists() else 0
     with LOG_PATH.open("a", encoding="utf-8") as handle:
         process = subprocess.run(
             command,
@@ -219,7 +225,40 @@ def _run_logged_with_env(
             env=env,
         )
     if process.returncode != 0:
+        detail = _latest_failure_detail(start_offset=start_offset)
+        if detail:
+            raise RuntimeError(f"{step} failed with exit code {process.returncode}: {detail}")
         raise RuntimeError(f"{step} failed with exit code {process.returncode}.")
+
+
+_TIMESTAMP_LINE_RE = re.compile(r"^\[\d{4}-\d{2}-\d{2}T[^]]+\]\s")
+_FAILURE_DETAIL_RE = re.compile(r"(error|failed|traceback|exception|denied|not found|fehlgeschlagen)", re.IGNORECASE)
+
+
+def _latest_failure_detail(*, start_offset: int = 0) -> str:
+    if LOG_PATH.exists():
+        try:
+            with LOG_PATH.open("r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(max(start_offset, 0))
+                recent_lines = handle.read().splitlines()
+        except OSError:
+            recent_lines = _read_log_tail(max_lines=25)
+    else:
+        recent_lines = []
+    if not recent_lines:
+        recent_lines = _read_log_tail(max_lines=25)
+    fallback = ""
+    for raw_line in reversed(recent_lines):
+        line = raw_line.strip()
+        if not line or line.startswith("$ "):
+            continue
+        if _TIMESTAMP_LINE_RE.match(line):
+            continue
+        if _FAILURE_DETAIL_RE.search(line):
+            return line
+        if not fallback:
+            fallback = line
+    return fallback
 
 
 def _compose_services() -> list[str]:

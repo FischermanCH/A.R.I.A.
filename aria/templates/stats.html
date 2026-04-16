@@ -268,6 +268,67 @@
     </div>
   </section>
 
+  {% set routing_index = routing_index_meta or {} %}
+  <section class="stat-card">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.routing_index_title', 'Routing Index') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.routing_index_subtitle', 'Admin/debug status for the generated Qdrant routing collection. Not active in chat routing yet.') }}</p>
+      </div>
+      <a class="button-like" href="/config/routing">{{ tr(request, 'stats.routing_index_open', 'Open routing admin') }}</a>
+    </div>
+    <div class="stats-health-grid">
+      <article class="stats-health-card status-{{ routing_index.visual_status or 'warn' }}">
+        <div class="stats-health-card-head">
+          <div class="stats-health-title">
+            <span class="health-lamp status-{{ routing_index.visual_status or 'warn' }}"></span>
+            <strong>{{ tr(request, 'stats.routing_index_state', 'Index status') }}</strong>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ routing_index.message or tr(request, 'stats.routing_index_unknown', 'Status unknown.') }}</p>
+        <small class="stats-health-detail">
+          {{ tr(request, 'stats.routing_index_collection', 'Collection') }}:
+          <code>{{ routing_index.collection_name or '-' }}</code>
+        </small>
+        <small class="stats-health-detail">
+          {{ tr(request, 'stats.routing_index_fingerprint', 'Fingerprint') }}:
+          <code>{{ (routing_index.current_config_hash or '-')[:12] }}</code>
+          →
+          <code>{{ (routing_index.indexed_config_hash or '-')[:12] }}</code>
+          ·
+          {% if routing_index.stale %}
+            <strong>{{ tr(request, 'stats.routing_index_stale', 'outdated') }}</strong>
+          {% else %}
+            {{ tr(request, 'stats.routing_index_fresh', 'current') }}
+          {% endif %}
+        </small>
+      </article>
+      <article class="stats-health-card status-ok">
+        <div class="stats-health-card-head">
+          <div class="stats-health-title">
+            <span class="health-lamp status-ok"></span>
+            <strong>{{ tr(request, 'stats.routing_index_profiles', 'Routable profiles') }}</strong>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ routing_index.document_count if routing_index.document_count is not none else '-' }}</p>
+        <small class="stats-health-detail">{{ tr(request, 'stats.routing_index_profiles_hint', 'Generated from SSH, SFTP, RSS, Discord and HTTP API connection metadata.') }}</small>
+      </article>
+      <article class="stats-health-card status-{{ routing_index.visual_status or 'warn' }}">
+        <div class="stats-health-card-head">
+          <div class="stats-health-title">
+            <span class="health-lamp status-{{ routing_index.visual_status or 'warn' }}"></span>
+            <strong>{{ tr(request, 'stats.routing_index_indexed', 'Indexed points') }}</strong>
+          </div>
+        </div>
+        <p class="stats-health-summary">{{ routing_index.indexed_count if routing_index.indexed_count is not none else '-' }}</p>
+        <small class="stats-health-detail">
+          {{ routing_index.collection_count or 0 }}
+          {{ tr(request, 'stats.routing_index_collections', 'routing collection(s)') }}
+        </small>
+      </article>
+    </div>
+  </section>
+
   <section class="stat-card">
     <div class="connection-status-stack">
       <div class="connection-status-head">

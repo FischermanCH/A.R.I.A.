@@ -539,18 +539,64 @@ PY
   die "Weder sha256sum noch python3 verfuegbar, kann Config-Hash nicht berechnen."
 }
 
-container_config_sha256() {
+canonical_path() {
+  local path="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$path" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).resolve())
+PY
+    return 0
+  fi
+  printf '%s\n' "$path"
+}
+
+container_mount_source() {
+  local service="$1"
+  local destination="$2"
+  local container_id=""
+  container_id="$(service_container_id "$service")"
+  [[ -n "$container_id" ]] || {
+    printf '%s\n' ""
+    return 0
+  }
+  docker inspect --format "{{range .Mounts}}{{if eq .Destination \"$destination\"}}{{.Source}}{{end}}{{end}}" "$container_id" 2>/dev/null || true
+}
+
+validate_mount_binding() {
+  local label="$1"
+  local expected_host_dir="$2"
+  local container_dir="$3"
+  local expected_source=""
+  local actual_source=""
+  expected_source="$(canonical_path "$expected_host_dir")"
+  actual_source="$(container_mount_source "aria" "$container_dir")"
+  if [[ -z "$actual_source" ]]; then
+    die "${label} fehlgeschlagen: ${container_dir} ist im aria-Container nicht auf ${expected_source} gemountet (gefunden: kein Mount). Bitte ./aria-stack.sh repair ausfuehren."
+  fi
+  actual_source="$(canonical_path "$actual_source")"
+  if [[ "$actual_source" != "$expected_source" ]]; then
+    die "${label} fehlgeschlagen: ${container_dir} ist im aria-Container auf ${actual_source} statt auf ${expected_source} gemountet. Bitte ./aria-stack.sh repair ausfuehren."
+  fi
+  log "${label} ok: ${container_dir} -> ${expected_source}."
+}
+
+container_file_sha256() {
+  local container_path="$1"
   local output=""
   if ! output="$(
-    run_compose exec -T aria python -c '
+    run_compose exec -T aria python - "$container_path" <<'PY' 2>/dev/null
 import hashlib
+import sys
 from pathlib import Path
 
-path = Path("/app/config/config.yaml")
-if not path.exists():
+path = Path(sys.argv[1])
+if not path.exists() or not path.is_file():
     raise SystemExit(3)
 print(hashlib.sha256(path.read_bytes()).hexdigest())
-' 2>/dev/null
+PY
   )"; then
     printf '%s\n' ""
     return 0
@@ -558,23 +604,60 @@ print(hashlib.sha256(path.read_bytes()).hexdigest())
   printf '%s\n' "$(printf '%s' "$output" | tail -n1 | tr -dc 'a-f0-9')"
 }
 
-validate_config_sync() {
-  local host_path="$STACK_DIR/storage/aria-config/config.yaml"
+validate_file_sync() {
+  local label="$1"
+  local host_path="$2"
+  local container_path="$3"
+  local missing_summary="$4"
   local host_hash=""
   local container_hash=""
   if [[ ! -f "$host_path" ]]; then
-    log "WARN: Config-Sync-Check uebersprungen, Host-Config fehlt noch: $host_path"
+    log "WARN: ${label} uebersprungen, Host-Datei fehlt noch: $host_path"
     return 0
   fi
   host_hash="$(file_sha256 "$host_path")"
-  container_hash="$(container_config_sha256)"
+  container_hash="$(container_file_sha256 "$container_path")"
   if [[ -z "$container_hash" ]]; then
-    die "Config-Sync-Check fehlgeschlagen: /app/config/config.yaml ist im aria-Container nicht lesbar. Bitte ./aria-stack.sh repair ausfuehren."
+    die "${label} fehlgeschlagen: ${missing_summary} ${container_path} ist im aria-Container nicht lesbar, obwohl ${host_path} auf dem Host existiert. Bitte ./aria-stack.sh repair ausfuehren."
   fi
   if [[ "$host_hash" != "$container_hash" ]]; then
-    die "Config-Sync-Check fehlgeschlagen: Host-Config und Container-Config unterscheiden sich. Bitte ./aria-stack.sh repair ausfuehren."
+    die "${label} fehlgeschlagen: Host-Datei ${host_path} und Container-Datei ${container_path} unterscheiden sich. Bitte ./aria-stack.sh repair ausfuehren."
   fi
-  log "Config-Sync-Check ok."
+  log "${label} ok."
+}
+
+validate_config_sync() {
+  validate_mount_binding "Config-Mount-Check" "$STACK_DIR/storage/aria-config" "/app/config"
+  validate_file_sync "Config-Sync-Check" "$STACK_DIR/storage/aria-config/config.yaml" "/app/config/config.yaml" "Config-Datei"
+}
+
+validate_prompts_sync() {
+  validate_mount_binding "Prompts-Mount-Check" "$STACK_DIR/storage/aria-prompts" "/app/prompts"
+  validate_file_sync "Prompts-Sync-Check" "$STACK_DIR/storage/aria-prompts/persona.md" "/app/prompts/persona.md" "Prompt-Datei"
+}
+
+validate_data_sync() {
+  local auth_db_host="$STACK_DIR/storage/aria-data/auth/aria_secure.sqlite"
+  local output=""
+  validate_mount_binding "Data-Mount-Check" "$STACK_DIR/storage/aria-data" "/app/data"
+  if [[ -f "$auth_db_host" ]]; then
+    validate_file_sync "Data-Sync-Check" "$auth_db_host" "/app/data/auth/aria_secure.sqlite" "Auth-DB"
+    return 0
+  fi
+  if ! output="$(
+    run_compose exec -T aria python - <<'PY' 2>/dev/null
+from pathlib import Path
+
+required = [Path("/app/data/auth"), Path("/app/data/logs"), Path("/app/data/skills")]
+print("ok" if all(path.exists() and path.is_dir() for path in required) else "missing")
+PY
+  )"; then
+    die "Data-Sync-Check fehlgeschlagen: /app/data konnte im aria-Container nicht geprueft werden. Bitte ./aria-stack.sh repair ausfuehren."
+  fi
+  if [[ "$(printf '%s' "$output" | tail -n1 | tr -d '\r')" != "ok" ]]; then
+    die "Data-Sync-Check fehlgeschlagen: /app/data sieht im aria-Container unvollstaendig aus (erwartet: auth/, logs/, skills/). Bitte ./aria-stack.sh repair ausfuehren."
+  fi
+  log "Data-Sync-Check ok."
 }
 
 validate_runtime() {
@@ -585,6 +668,8 @@ validate_runtime() {
     wait_for_service_health "aria-updater"
   fi
   validate_config_sync
+  validate_prompts_sync
+  validate_data_sync
   storage_count="$(qdrant_local_collection_count)"
   if [[ "$storage_count" =~ ^[0-9]+$ ]] && (( storage_count > 0 )); then
     api_count="$(qdrant_api_collection_count)"

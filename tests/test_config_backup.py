@@ -202,11 +202,12 @@ def _build_test_config_app(base_dir: Path) -> FastAPI:
         base_dir=base_dir,
         error_interpreter_path=base_dir / "config" / "error_interpreter.yaml",
         llm_provider_presets={},
+        embedding_provider_presets={},
         auth_cookie="auth",
         lang_cookie="lang",
         username_cookie="user",
         memory_collection_cookie="memory",
-        auth_session_max_age_seconds=3600,
+        get_auth_session_max_age_seconds=lambda: 3600,
         get_settings=lambda: SimpleNamespace(ui=SimpleNamespace(title="ARIA Test")),
         get_pipeline=lambda: SimpleNamespace(),
         get_username_from_request=lambda request: "neo",
@@ -295,7 +296,7 @@ def test_config_backup_import_route_restores_backup_and_redirects(tmp_path: Path
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/config/backup?saved=1&info=backup_imported"
+    assert response.headers["location"].startswith("/config/backup?saved=1&info=backup_imported")
     restored = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
     assert restored["ui"]["title"] == "Imported Config"
     assert (tmp_path / "prompts" / "persona.md").read_text(encoding="utf-8") == "Imported persona\n"

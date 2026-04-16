@@ -76,6 +76,10 @@ auto_memory:
   max_facts_per_message: 3
 
 routing:
+  qdrant_connection_routing_enabled: false
+  qdrant_score_threshold: 0.72
+  qdrant_candidate_limit: 5
+  qdrant_ask_on_low_confidence: true
   memory_store_keywords:
     - "merk"
     - "speicher"

@@ -16,6 +16,15 @@ Repository and full documentation:
 - Changelog: `https://github.com/FischermanCH/A.R.I.A./blob/main/CHANGELOG.md`
 - Product Homepage: `https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/`
 
+## Current alpha highlights
+
+- safer managed updates with host-vs-container validation for `config`, `prompts`, and `data`, plus the documented recovery helper `./aria-stack.sh repair`
+- Qdrant-backed routing index admin/debug tooling under `/config/routing`, including rebuild, testbench output, and live-routing controls
+- `Memory Map` now shows routing collections as a dedicated system branch instead of leaving them easy to overlook
+- SSH and SFTP connections now support a `Service URL`, metadata drafting via LLM, and stronger language-aware routing hints
+- natural uptime / health questions such as `How long has my DNS server been online?` can route directly to SSH `uptime`
+- runtime reloads now swap their live bundle atomically, which makes config-save and profile-change flows more predictable
+
 ## What you need
 
 - Docker
@@ -291,6 +300,7 @@ Important:
 - keep the same volumes
 - do not rename the stack casually between updates
 - use the documented host-side `docker compose` commands for manual installs; the browser `/updates` button and chat-driven update flow are part of the managed install path
+- if a managed install ever reports a mount mismatch after an update, `./aria-stack.sh repair` is the supported recovery path
 
 ## Backup and recovery
 

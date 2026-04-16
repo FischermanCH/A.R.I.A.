@@ -12,11 +12,13 @@ _CAPABILITY_DETAIL_I18N: dict[str, dict[str, str]] = {
         "executed_via": "Ausgeführt via {kind}-Profil `{ref}`",
         "detail_path": "Pfad",
         "detail_search": "Suche",
+        "detail_command": "Befehl",
     },
     "en": {
         "executed_via": "Executed via {kind} profile `{ref}`",
         "detail_path": "Path",
         "detail_search": "Search",
+        "detail_command": "Command",
     },
 }
 
@@ -69,6 +71,13 @@ CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
         "detail_label": "Topic",
         "executors": ["mqtt"],
     },
+    "ssh_command": {
+        "icon": "💻",
+        "badge": "ssh_command",
+        "detail_attr": "content",
+        "detail_label": "Befehl",
+        "executors": ["ssh"],
+    },
 }
 
 
@@ -109,6 +118,8 @@ def build_capability_detail_lines(
         detail_label = _capability_detail_text(language, "detail_path", detail_label)
     elif detail_label == "Suche":
         detail_label = _capability_detail_text(language, "detail_search", detail_label)
+    elif detail_label == "Befehl":
+        detail_label = _capability_detail_text(language, "detail_command", detail_label)
     if detail_attr and detail_label:
         value = str(getattr(plan, detail_attr, "") or "").strip()
         if value:

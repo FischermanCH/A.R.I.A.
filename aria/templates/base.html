@@ -358,5 +358,99 @@
       }
     })();
   </script>
+  <script>
+    (function () {
+      const buttons = Array.from(document.querySelectorAll('[data-connection-meta-endpoint]'));
+      if (!buttons.length) return;
+
+      const mergeListValues = (currentValue, suggestedValue) => {
+        const rows = [];
+        const seen = new Set();
+        [currentValue, suggestedValue].forEach((value) => {
+          String(value || '')
+            .split(/[\n,;]+/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .forEach((item) => {
+              const key = item.toLowerCase();
+              if (!seen.has(key)) {
+                seen.add(key);
+                rows.push(item);
+              }
+            });
+        });
+        return rows.join(', ');
+      };
+
+      const setFieldValue = (fieldId, value, { merge = false } = {}) => {
+        const field = document.getElementById(fieldId);
+        if (!field) return;
+        const cleanValue = String(value || '').trim();
+        if (!cleanValue) return;
+        field.value = merge ? mergeListValues(field.value, cleanValue) : cleanValue;
+      };
+
+      const readFieldValue = (fieldId) => {
+        const field = document.getElementById(fieldId);
+        return field ? String(field.value || '').trim() : '';
+      };
+
+      const applySuggestion = async (button) => {
+        const prefix = button.dataset.connectionMetaPrefix || '';
+        const endpoint = button.dataset.connectionMetaEndpoint || '';
+        if (!prefix || !endpoint || button.disabled) return;
+        const params = new URLSearchParams({
+          connection_ref: readFieldValue(`${prefix}_connection_ref`),
+          connection_title: readFieldValue(`${prefix}_connection_title`),
+          connection_description: readFieldValue(`${prefix}_connection_description`),
+          connection_aliases: readFieldValue(`${prefix}_connection_aliases`),
+          connection_tags: readFieldValue(`${prefix}_connection_tags`),
+        });
+        const extraFields = String(button.dataset.connectionMetaSourceFields || '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean);
+        extraFields.forEach((fieldName) => {
+          params.set(fieldName, readFieldValue(`${prefix}_${fieldName}`));
+        });
+
+        const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Check mit LLM';
+        const loadingLabel = button.dataset.loadingLabel || 'LLM denkt nach ...';
+        const beginBusy = (typeof window.ariaBeginBusyImmediate === 'function')
+          ? window.ariaBeginBusyImmediate
+          : (typeof window.ariaBeginBusy === 'function' ? window.ariaBeginBusy : null);
+        const endBusy = (typeof window.ariaEndBusy === 'function') ? window.ariaEndBusy : null;
+        button.disabled = true;
+        button.textContent = loadingLabel;
+        if (beginBusy) beginBusy();
+        try {
+          const response = await fetch(`${endpoint}?${params.toString()}`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.ok) {
+            throw new Error(payload.error || `HTTP ${response.status}`);
+          }
+          setFieldValue(`${prefix}_connection_title`, payload.title);
+          setFieldValue(`${prefix}_connection_description`, payload.description);
+          setFieldValue(`${prefix}_connection_aliases`, payload.aliases, { merge: true });
+          setFieldValue(`${prefix}_connection_tags`, payload.tags, { merge: true });
+        } catch (error) {
+          window.alert(String(error && error.message ? error.message : error));
+        } finally {
+          if (endBusy) endBusy();
+          button.disabled = false;
+          button.textContent = defaultLabel;
+        }
+      };
+
+      buttons.forEach((button) => {
+        button.addEventListener('click', () => {
+          void applySuggestion(button);
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

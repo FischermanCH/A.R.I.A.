@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+import pytest
 
 import aria.update_helper as update_helper
 
@@ -75,3 +78,27 @@ def test_managed_update_worker_refreshes_stack_from_target_image_before_compose_
         "Recreate updated services",
         "Validate managed services",
     ]
+
+
+def test_run_logged_includes_last_meaningful_failure_detail(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(update_helper, "INSTALL_DIR", tmp_path)
+    monkeypatch.setattr(update_helper, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(update_helper, "LOG_PATH", tmp_path / "update.log")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        update_helper._run_logged(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "print('first line'); "
+                    "print('[aria-stack] ERROR: Config-Sync-Check fehlgeschlagen', file=sys.stderr); "
+                    "sys.exit(7)"
+                ),
+            ],
+            step="Validate managed services",
+        )
+
+    assert "exit code 7" in str(excinfo.value)
+    assert "[aria-stack] ERROR: Config-Sync-Check fehlgeschlagen" in str(excinfo.value)

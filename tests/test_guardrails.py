@@ -53,6 +53,52 @@ def test_evaluate_guardrail_blocks_deny_term() -> None:
     assert decision.reason == "guardrail_denied"
 
 
+def test_evaluate_guardrail_does_not_match_plain_terms_inside_words() -> None:
+    decision = evaluate_guardrail(
+        profile_ref="readonly-linux",
+        profile={
+            "kind": "ssh_command",
+            "allow_terms": [],
+            "deny_terms": ["rm"],
+        },
+        kind="ssh_command",
+        text="cat /tmp/berm.sh",
+    )
+
+    assert decision.allowed is True
+
+
+def test_evaluate_guardrail_matches_plain_terms_as_tokens() -> None:
+    decision = evaluate_guardrail(
+        profile_ref="readonly-linux",
+        profile={
+            "kind": "ssh_command",
+            "allow_terms": [],
+            "deny_terms": ["rm"],
+        },
+        kind="ssh_command",
+        text="rm -rf /tmp/demo",
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "guardrail_denied"
+
+
+def test_evaluate_guardrail_keeps_path_prefix_matching() -> None:
+    decision = evaluate_guardrail(
+        profile_ref="readonly-files",
+        profile={
+            "kind": "file_access",
+            "allow_terms": ["/srv/data/docs"],
+            "deny_terms": [],
+        },
+        kind="file_access",
+        text="read /srv/data/docs/report.pdf",
+    )
+
+    assert decision.allowed is True
+
+
 def test_evaluate_guardrail_blocks_allowlist_miss() -> None:
     decision = evaluate_guardrail(
         profile_ref="readonly-linux",

@@ -11,6 +11,11 @@ from aria.skills.base import SkillResult
 
 
 class SSHRuntime:
+    _DISPLAY_ONLY_STDERR_FILTERS: tuple[re.Pattern[str], ...] = (
+        re.compile(r"^Warning: Permanently added '.+' \([^)]+\) to the list of known hosts\.$"),
+        re.compile(r"^Warning: Permanently added the .+ host key for IP address '.+' to the list of known hosts\.$"),
+    )
+
     def __init__(
         self,
         *,
@@ -40,6 +45,30 @@ class SSHRuntime:
             rows.append("dpkg/Lock")
         return rows
 
+    @classmethod
+    def _filter_stderr_for_display(cls, stderr: str) -> str:
+        visible_lines: list[str] = []
+        for line in str(stderr or "").splitlines():
+            stripped = line.strip()
+            if stripped and any(pattern.match(stripped) for pattern in cls._DISPLAY_ONLY_STDERR_FILTERS):
+                continue
+            visible_lines.append(line)
+        return "\n".join(visible_lines).strip()
+
+    @staticmethod
+    def _render_command_template(command_template: str, query: str) -> str:
+        """Render user input as one shell argument by default.
+
+        Custom SSH skills run remotely via ``bash -lc``. That is useful for
+        admin-authored command templates, but user-provided ``{query}`` values
+        must not become shell syntax.
+        """
+
+        quoted_query = shlex.quote(str(query or ""))
+        rendered = str(command_template or "").replace("{query:q}", quoted_query)
+        rendered = rendered.replace("{query}", quoted_query)
+        return rendered.strip()
+
     async def execute_custom_ssh_command(
         self,
         *,
@@ -68,6 +97,12 @@ class SSHRuntime:
 
         connection = self.settings.connections.ssh.get(connection_ref)
         if not connection:
+            clean_ref = str(connection_ref or "").strip().lower()
+            for ref, row in self.settings.connections.ssh.items():
+                if str(ref or "").strip().lower() == clean_ref:
+                    connection = row
+                    break
+        if not connection:
             return SkillResult(
                 skill_name=f"custom_skill_{skill_id}",
                 content="",
@@ -86,7 +121,7 @@ class SSHRuntime:
             )
 
         query = self.normalize_spaces(message)
-        command = command_template.replace("{query}", query).strip()
+        command = self._render_command_template(command_template, query)
         if not command:
             return SkillResult(
                 skill_name=f"custom_skill_{skill_id}",
@@ -193,6 +228,7 @@ class SSHRuntime:
         duration_seconds = max(0.0, asyncio.get_running_loop().time() - started)
         stdout = self.truncate_text((stdout_b or b"").decode("utf-8", errors="replace"))
         stderr = self.truncate_text((stderr_b or b"").decode("utf-8", errors="replace"))
+        display_stderr = self._filter_stderr_for_display(stderr)
         warning_hints = self._extract_warning_hints(stdout, stderr)
         lines = [
             f"[Custom Skill SSH] {skill_name}",
@@ -215,8 +251,8 @@ class SSHRuntime:
                 lines.append("Interpretation:\n" + interpretation.summary())
         if stdout:
             lines.append("STDOUT:\n" + stdout)
-        if stderr:
-            lines.append("STDERR:\n" + stderr)
+        if display_stderr:
+            lines.append("STDERR:\n" + display_stderr)
         held_packages = self.extract_held_packages(stdout + "\n" + stderr)
         return SkillResult(
             skill_name=f"custom_skill_{skill_id}",

@@ -41,11 +41,15 @@ Public release flow:
 
 1. finish internal testing
 2. freeze release version
-3. move release notes from `Unreleased` into a concrete tag section in `CHANGELOG.md`
-4. create git tag
-5. push git tag
-6. push Docker tags
-7. create GitHub Release object from the matching `CHANGELOG.md` section
+3. sync public-facing docs for the release candidate
+   - `README.md`
+   - `docs/release/docker-hub-overview.md`
+   - optional supporting docs that are linked from those entry points
+4. move release notes from `Unreleased` into a concrete tag section in `CHANGELOG.md`
+5. create git tag
+6. push git tag
+7. push Docker tags
+8. create GitHub Release object from the matching `CHANGELOG.md` section
 
 ## Wiki
 
@@ -73,4 +77,3 @@ If we later decide to automate pushing the real GitHub Wiki repository too, we c
 - use a classic PAT with `repo` scope
 
 The second option is broader, so it should only be used if we actually automate wiki push.
-

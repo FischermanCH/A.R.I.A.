@@ -10,7 +10,6 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
 **Product Homepage:** [fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent](https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/)  
 **Wiki:** [GitHub Wiki](https://github.com/FischermanCH/A.R.I.A./wiki)  
-**Product Homepage:** [Fischerman.ch](https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/)
 
 **Languages:** [English](#english) · [Deutsch](#deutsch)
 
@@ -147,6 +146,15 @@ Not the current target:
 - OpenAI-compatible endpoint `POST /v1/chat/completions`
 - Config via `config/config.yaml` plus `ARIA_*` environment overrides
 - `/health` endpoint
+
+## Recent alpha highlights
+
+- safer managed updates with host-vs-container validation for `config`, `prompts`, and `data`, plus a documented `./aria-stack.sh repair` recovery path
+- Qdrant-backed routing index admin/debug tooling under `/config/routing`, including rebuild, testbench output, and live-routing controls
+- `Memory Map` now shows routing collections as a separate system branch instead of hiding them outside the main graph
+- SSH and SFTP connections now support a `Service URL`, metadata drafting via LLM, and stronger language-aware routing hints
+- natural uptime / health questions such as `How long has my DNS server been online?` can route directly to SSH `uptime`
+- runtime reloads now swap their live bundle atomically, which makes config-save and profile-change flows more predictable
 
 ## Architecture at a glance
 
@@ -595,7 +603,9 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-ARIA is close to a first public ALPHA release. The remaining work is mostly release hygiene and end-to-end verification.
+- Current public alpha release: `0.1.0-alpha110`
+- Current prepared public candidate from the repo line: `0.1.0-alpha121`
+- `alpha121` is already internally verified end-to-end on a real managed install, including update-button flow, config/profile persistence, Qdrant-backed memory persistence, and SSH-routing regressions
 
 ## One-line summary
 
@@ -669,6 +679,15 @@ Aktuell **nicht** gedacht für:
 - OpenAI-kompatibler Endpoint `POST /v1/chat/completions`
 - Konfiguration über `config/config.yaml` plus `ARIA_*` ENV-Overrides
 - `/health` Endpoint
+
+## Neu in der aktuellen Alpha-Linie
+
+- sicherere Managed-Updates mit Host-vs-Container-Pruefung fuer `config`, `prompts` und `data` sowie dokumentiertem Recovery-Pfad ueber `./aria-stack.sh repair`
+- Qdrant-gestuetzter Routing-Index mit Admin-/Debug-Seite unter `/config/routing`, inklusive Rebuild, Testbench und Live-Routing-Schaltern
+- die `Memory Map` zeigt Routing-Collections jetzt als eigenen System-Zweig statt sie nur abseits der Hauptgrafik zu verstecken
+- SSH- und SFTP-Connections unterstuetzen jetzt `Service URL`, LLM-gestuetzte Metadatenhilfe und staerkere sprachbewusste Routing-Hinweise
+- natuerliche Laufzeit-/Online-Fragen wie `Wie lange ist mein DNS Server schon online?` koennen direkt auf SSH `uptime` geroutet werden
+- Runtime-Reloads tauschen ihren Live-Bundle jetzt atomar aus, was Config-Saves und Profilwechsel robuster macht
 
 ## Architektur auf einen Blick
 

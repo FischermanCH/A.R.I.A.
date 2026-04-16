@@ -4,6 +4,7 @@ from aria.web.memories_routes import (
     _document_matches_filter,
     _memory_collection_link,
     _memory_document_link,
+    _build_routing_collection_rows,
     _build_memory_graph,
     _build_document_collection_groups,
     _build_document_entries,
@@ -42,6 +43,27 @@ def test_document_collection_names_only_keep_docs_collections() -> None:
     )
 
     assert names == ["aria_docs_handbuch", "aria_docs_manual"]
+
+
+def test_build_routing_collection_rows_keeps_only_system_routing_collections() -> None:
+    rows = _build_routing_collection_rows(
+        [
+            {"name": "aria_routing_connections_aria_8800", "points": 116, "status": "green"},
+            {"name": "aria_facts_neo", "points": 12, "status": "ok"},
+            {"name": "aria_docs_neo_manuals", "points": 24, "status": "ok"},
+            {"name": "aria_routing_skills_aria_8800", "points": 8, "status": "yellow"},
+        ],
+        known_user_collection_names={"aria_facts_neo", "aria_docs_neo_manuals"},
+        browse_url="/config/routing",
+    )
+
+    assert [row["name"] for row in rows] == [
+        "aria_routing_connections_aria_8800",
+        "aria_routing_skills_aria_8800",
+    ]
+    assert all(row["kind"] == "routing" for row in rows)
+    assert all(row["browse_url"] == "/config/routing" for row in rows)
+    assert rows[0]["share_pct"] == 93
 
 
 def test_normalize_document_collection_name_adds_docs_prefix() -> None:
@@ -280,6 +302,15 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
                 "count": 3,
             }
         ],
+        routing_rows=[
+            {
+                "name": "aria_routing_connections_neo_8800",
+                "kind": "routing",
+                "points": 116,
+                "share_pct": 100,
+                "browse_url": "/config/routing",
+            }
+        ],
     )
 
     labels = [node["label"] for node in graph["nodes"]]
@@ -290,7 +321,11 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
     assert "Dokumente" in labels
     assert "aria_docs_neo_manuals" in labels
     assert "WOCHE" in labels
+    assert "Routing" in labels
+    assert "aria_routing_connections_neo_8800" in labels
     assert "type=document" in str(hrefs.get("aria_docs_neo_manuals", ""))
+    assert hrefs.get("Routing", "") == "/config/routing"
+    assert hrefs.get("aria_routing_connections_neo_8800", "") == "/config/routing"
     assert graph["edges"]
 
 

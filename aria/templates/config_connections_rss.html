@@ -150,7 +150,8 @@
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'rss_edit' %}
       {% set meta_llm_kind = 'rss' %}
-
+      {% set meta_llm_endpoint = '/config/connections/rss/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['feed_url', 'group_name'] %}
       {% set meta_values = selected_rss %}
 
       {% include "_connection_metadata_fields.html" %}
@@ -182,7 +183,8 @@
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'rss_new' %}
       {% set meta_llm_kind = 'rss' %}
-
+      {% set meta_llm_endpoint = '/config/connections/rss/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['feed_url', 'group_name'] %}
       {% set meta_values = {} %}
 
       {% include "_connection_metadata_fields.html" %}
@@ -224,91 +226,5 @@
     input.addEventListener('search', applyRssSearchFilter);
   })();
 
-  (function () {
-    const buttons = Array.from(document.querySelectorAll('[data-connection-meta-llm-kind="rss"]'));
-    if (!buttons.length) return;
-
-    const mergeListValues = (currentValue, suggestedValue) => {
-      const rows = [];
-      const seen = new Set();
-      [currentValue, suggestedValue].forEach((value) => {
-        String(value || '')
-          .split(/[\n,;]+/)
-          .map((item) => item.trim())
-          .filter(Boolean)
-          .forEach((item) => {
-            const key = item.toLowerCase();
-            if (!seen.has(key)) {
-              seen.add(key);
-              rows.push(item);
-            }
-          });
-      });
-      return rows.join(', ');
-    };
-
-    const setFieldValue = (fieldId, value, { merge = false } = {}) => {
-      const field = document.getElementById(fieldId);
-      if (!field) return;
-      const cleanValue = String(value || '').trim();
-      if (!cleanValue) return;
-      field.value = merge ? mergeListValues(field.value, cleanValue) : cleanValue;
-    };
-
-    const readFieldValue = (fieldId) => {
-      const field = document.getElementById(fieldId);
-      return field ? String(field.value || '').trim() : '';
-    };
-
-    const applySuggestion = async (button) => {
-      const prefix = button.dataset.connectionMetaPrefix || '';
-      if (!prefix || button.disabled) return;
-      const params = new URLSearchParams({
-        connection_ref: readFieldValue(`${prefix}_connection_ref`),
-        feed_url: readFieldValue(`${prefix}_feed_url`),
-        group_name: readFieldValue(`${prefix}_group_name`),
-        connection_title: readFieldValue(`${prefix}_connection_title`),
-        connection_description: readFieldValue(`${prefix}_connection_description`),
-        connection_aliases: readFieldValue(`${prefix}_connection_aliases`),
-        connection_tags: readFieldValue(`${prefix}_connection_tags`),
-      });
-
-      const defaultLabel = button.dataset.defaultLabel || button.textContent || 'Check mit LLM';
-      const loadingLabel = button.dataset.loadingLabel || 'LLM denkt nach ...';
-      const beginBusy = (typeof window.ariaBeginBusyImmediate === 'function')
-        ? window.ariaBeginBusyImmediate
-        : (typeof window.ariaBeginBusy === 'function' ? window.ariaBeginBusy : null);
-      const endBusy = (typeof window.ariaEndBusy === 'function') ? window.ariaEndBusy : null;
-      button.disabled = true;
-      button.textContent = loadingLabel;
-      if (beginBusy) beginBusy();
-      try {
-        const response = await fetch(`/config/connections/rss/suggest-metadata?${params.toString()}`, {
-          method: 'GET',
-          headers: { 'Accept': 'application/json' },
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.ok) {
-          throw new Error(payload.error || `HTTP ${response.status}`);
-        }
-        setFieldValue(`${prefix}_connection_title`, payload.title);
-        setFieldValue(`${prefix}_connection_description`, payload.description);
-        setFieldValue(`${prefix}_connection_aliases`, payload.aliases, { merge: true });
-        setFieldValue(`${prefix}_connection_tags`, payload.tags, { merge: true });
-      } catch (error) {
-        window.alert(String(error && error.message ? error.message : error));
-      } finally {
-        if (endBusy) endBusy();
-        button.disabled = false;
-        button.textContent = defaultLabel;
-      }
-    };
-
-    buttons.forEach((button) => {
-      button.addEventListener('click', () => {
-        void applySuggestion(button);
-      });
-    });
-  })();
 </script>
 {% endblock %}

@@ -347,6 +347,100 @@ def test_capability_router_detects_mqtt_publish() -> None:
     assert draft.content == "Backup fertig"
 
 
+def test_capability_router_detects_ssh_command_on_explicit_profile() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Run uptime on pihole1",
+        language="en",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "uptime"
+
+
+def test_capability_router_detects_ssh_command_with_trimmed_profile_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Führe uptime auf pihole1 aus",
+        available_connection_refs_by_kind={"ssh": [" pihole1 "]},
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "uptime"
+
+
+def test_capability_router_detects_natural_ssh_uptime_request_via_alias() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Zeig mir die Laufzeit vom primären DNS Server",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_aliases_by_kind={
+            "ssh": {
+                "pihole1": ["Pi-hole Primary DNS Server", "dns server"],
+            }
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "uptime"
+
+
+def test_capability_router_detects_how_long_server_runs_phrase_via_alias() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Wie lange läuft mein DNS Server schon?",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_aliases_by_kind={
+            "ssh": {
+                "pihole1": ["Pi-hole Primary DNS Server", "dns server"],
+            }
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "uptime"
+
+
+def test_capability_router_detects_how_long_server_is_online_phrase_via_alias() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Wie lange ist mein DNS Server schon online?",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_aliases_by_kind={
+            "ssh": {
+                "pihole1": ["Pi-hole Primary DNS Server", "dns server"],
+            }
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "uptime"
+
+
+def test_capability_router_detects_natural_ssh_uptime_request_without_target_for_qdrant() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Zeig mir die Laufzeit vom primären DNS Server",
+        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.content == "uptime"
+
+
 def test_capability_router_detects_english_file_read_phrase() -> None:
     router = CapabilityRouter()
     draft = router.classify(

@@ -128,6 +128,73 @@ class CapabilityRouter:
         return ""
 
     @staticmethod
+    def _clean_ssh_command(value: str) -> str:
+        command = str(value or "").strip(" \t\r\n.,;")
+        command = re.sub(r"^(?:den\s+|the\s+)?(?:command|befehl)\s+", "", command, flags=re.IGNORECASE).strip()
+        if (command.startswith('"') and command.endswith('"')) or (command.startswith("'") and command.endswith("'")):
+            command = command[1:-1].strip()
+        return command
+
+    @classmethod
+    def _extract_ssh_command(cls, message: str, explicit_ref: str = "") -> str:
+        raw = str(message or "").strip()
+        if not raw:
+            return ""
+
+        action = r"(?:run|execute|exec|start|starte|führe|fuehre)"
+        command_prefix = r"(?:(?:den|the)\s+)?(?:command|befehl)?"
+        ref_variants: list[str] = []
+        clean_ref = str(explicit_ref or "").strip()
+        if clean_ref:
+            ref_variants.append(re.escape(clean_ref))
+            ref_spaced = re.sub(r"[-_]+", " ", clean_ref)
+            if ref_spaced != clean_ref:
+                ref_variants.append(re.escape(ref_spaced))
+        if ref_variants:
+            target = "(?:" + "|".join(ref_variants) + ")"
+            patterns = (
+                rf"^\s*{action}\s+{command_prefix}\s*(?P<cmd>.+?)\s+(?:on|auf|via|bei|von)\s+(?:ssh\s+)?{target}\s*(?:aus)?\s*[.!?]?\s*$",
+                rf"^\s*(?:ssh\s+)?{target}\s+{action}\s+{command_prefix}\s*(?P<cmd>.+?)\s*[.!?]?\s*$",
+                rf"^\s*ssh\s+{target}\s+(?P<cmd>.+?)\s*[.!?]?\s*$",
+            )
+            for pattern in patterns:
+                match = re.search(pattern, raw, re.IGNORECASE)
+                if match:
+                    return cls._clean_ssh_command(match.group("cmd"))
+
+        patterns_without_ref = (
+            rf"^\s*{action}\s+{command_prefix}\s*(?P<cmd>.+?)\s+(?:via|per|über|ueber)\s+ssh\s*[.!?]?\s*$",
+            rf"^\s*ssh\s+{action}\s+{command_prefix}\s*(?P<cmd>.+?)\s*[.!?]?\s*$",
+        )
+        for pattern in patterns_without_ref:
+            match = re.search(pattern, raw, re.IGNORECASE)
+            if match:
+                return cls._clean_ssh_command(match.group("cmd"))
+        return ""
+
+    @classmethod
+    def _extract_natural_ssh_command(cls, message: str) -> str:
+        raw = str(message or "").strip()
+        if not raw or cls._extract_path(raw):
+            return ""
+        lower = raw.lower()
+        if re.search(r"\b(?:uptime|laufzeit|betriebszeit)\b", lower, re.IGNORECASE):
+            return "uptime"
+        if re.search(r"\b(?:health\s*check|healthcheck|gesundheitscheck|systemstatus)\b", lower, re.IGNORECASE):
+            return "uptime"
+        if re.search(r"\bwie\s+lange\s+l(?:ä|ae)?uft\b", lower, re.IGNORECASE):
+            return "uptime"
+        if re.search(r"\bseit\s+wann\s+l(?:ä|ae)?uft\b", lower, re.IGNORECASE):
+            return "uptime"
+        if re.search(r"\b(?:wie\s+lange|seit\s+wann)\s+ist\b.*\bonline\b", lower, re.IGNORECASE):
+            return "uptime"
+        if re.search(r"\bhow\s+long\b.*\b(?:running|up)\b", lower, re.IGNORECASE):
+            return "uptime"
+        if re.search(r"\bhow\s+long\b.*\b(?:been\s+online|online)\b", lower, re.IGNORECASE):
+            return "uptime"
+        return ""
+
+    @staticmethod
     def _split_ref_tokens(value: str) -> list[str]:
         return [token for token in re.split(r"[^a-z0-9]+", str(value or "").lower()) if token]
 
@@ -261,6 +328,10 @@ class CapabilityRouter:
                 r"\bmqtt\s+([a-z0-9._-]+)\b",
                 r"\bbroker\s+([a-z0-9._-]+)\b",
             ),
+            "ssh": (
+                r"\b(?:on|auf|via|bei|von)\s+([a-z0-9._-]+)\b",
+                r"\bssh\s+([a-z0-9._-]+)\b",
+            ),
             "rss": (
                 r"\bfeed\s+([a-z0-9._-]+)\b",
                 r"\brss\s+([a-z0-9._-]+)\b",
@@ -280,6 +351,8 @@ class CapabilityRouter:
             "inbox",
             "mqtt",
             "broker",
+            "ssh",
+            "shell",
             "feed",
             "rss",
             "topic",
@@ -333,10 +406,14 @@ class CapabilityRouter:
         has_email_hint = self._contains_any(lower, lexicon.email_hints)
         has_imap_hint = self._contains_any(lower, lexicon.imap_hints)
         has_mqtt_hint = self._contains_any(lower, lexicon.mqtt_hints)
+        has_ssh_hint = self._contains_any(lower, lexicon.ssh_hints)
+        natural_ssh_command = self._extract_natural_ssh_command(raw)
+        ssh_command = self._extract_ssh_command(raw, explicit_ref) or natural_ssh_command
         has_remote_hint = (
             any(token in lower for token in lexicon.remote_terms)
             or bool(explicit_ref)
             or bool(self._extract_path(raw))
+            or bool(ssh_command)
             or has_feed_hint
             or (has_feed_request and "rss" in available_kinds and has_feed_subject)
             or has_api_hint
@@ -350,7 +427,14 @@ class CapabilityRouter:
 
         capability = ""
         confidence = 0.0
-        if (has_imap_hint or explicit_kind == "imap") and self._contains_any(lower, lexicon.mail_search_terms):
+        if (
+            ssh_command
+            and (explicit_kind == "ssh" or has_ssh_hint or ("ssh" in available_kinds and not explicit_kind))
+            and (self._contains_any(lower, lexicon.ssh_command_terms) or bool(natural_ssh_command))
+        ):
+            capability = "ssh_command"
+            confidence = 0.82
+        elif (has_imap_hint or explicit_kind == "imap") and self._contains_any(lower, lexicon.mail_search_terms):
             capability = "mail_search"
             confidence = 0.77
         elif (has_imap_hint or explicit_kind == "imap") and self._contains_any(lower, lexicon.mail_read_terms):
@@ -397,10 +481,14 @@ class CapabilityRouter:
                 return None
 
         connection_kind = explicit_kind
+        if capability == "ssh_command" and "ssh" in available_kinds:
+            connection_kind = "ssh"
         if not connection_kind:
             has_sftp_hint = self._contains_any(lower, lexicon.sftp_hints)
             has_smb_hint = self._contains_any(lower, lexicon.smb_hints)
-            if has_smb_hint and not has_sftp_hint and "smb" in available_kinds:
+            if capability == "ssh_command" and "ssh" in available_kinds:
+                connection_kind = "ssh"
+            elif has_smb_hint and not has_sftp_hint and "smb" in available_kinds:
                 connection_kind = "smb"
             elif has_feed_hint and "rss" in available_kinds:
                 connection_kind = "rss"
@@ -460,6 +548,9 @@ class CapabilityRouter:
             requested_connection_ref=requested_connection_ref,
             path=self._extract_mqtt_topic(raw) if capability == "mqtt_publish" else self._extract_path(raw),
             content=(
+                ssh_command
+                if capability == "ssh_command"
+                else
                 self._extract_webhook_content(raw, explicit_ref)
                 if capability in {"webhook_send", "discord_send", "email_send", "mqtt_publish"}
                 else self._extract_mail_search_query(raw, explicit_ref)

@@ -34,6 +34,9 @@
         </div>
       </details>
       {% set meta_prefix = 'sftp_edit' %}
+      {% set meta_llm_kind = 'ssh' %}
+      {% set meta_llm_endpoint = '/config/connections/sftp/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['service_url'] %}
       {% set meta_values = selected_sftp %}
       {% include "_connection_metadata_fields.html" %}
       <button type="submit">{{ tr(request, 'config_conn.sftp_save_profile', 'Save SFTP profile') }}</button>
@@ -86,9 +89,10 @@
         </div>
       </details>
       {% set meta_prefix = 'sftp_new' %}
-
+      {% set meta_llm_kind = 'ssh' %}
+      {% set meta_llm_endpoint = '/config/connections/sftp/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['service_url'] %}
       {% set meta_values = selected_ssh_seed %}
-
       {% include "_connection_metadata_fields.html" %}
 
       <button type="submit">{{ tr(request, 'config_conn.sftp_save_profile', 'Save SFTP profile') }}</button>

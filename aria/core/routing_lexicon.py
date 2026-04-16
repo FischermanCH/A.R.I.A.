@@ -37,10 +37,12 @@ class CapabilityRoutingLexicon:
     mail_search_terms: tuple[str, ...]
     mqtt_terms: tuple[str, ...]
     mqtt_action_terms: tuple[str, ...]
+    ssh_command_terms: tuple[str, ...]
     webhook_action_terms: tuple[str, ...]
     discord_action_terms: tuple[str, ...]
     list_terms: tuple[str, ...]
     remote_terms: tuple[str, ...]
+    ssh_hints: tuple[str, ...]
     sftp_hints: tuple[str, ...]
     smb_hints: tuple[str, ...]
     rss_hints: tuple[str, ...]
@@ -348,6 +350,28 @@ _COMMON_CAPABILITY_TERMS: dict[str, tuple[str, ...]] = {
     ),
     "mqtt_terms": ("mqtt", "broker", "topic", "publish", "iot"),
     "mqtt_action_terms": ("send", "sende", "schick", "schicke", "publish", "poste", "post"),
+    "ssh_command_terms": (
+        "run",
+        "execute",
+        "exec",
+        "start",
+        "starte",
+        "führe",
+        "fuehre",
+        "uptime",
+        "laufzeit",
+        "betriebszeit",
+        "wie lange läuft",
+        "wie lange laeuft",
+        "seit wann läuft",
+        "seit wann laeuft",
+        "healthcheck",
+        "health check",
+        "gesundheitscheck",
+        "systemstatus",
+        "command",
+        "befehl",
+    ),
     "webhook_action_terms": (
         "send",
         "sende",
@@ -416,6 +440,7 @@ _COMMON_CAPABILITY_TERMS: dict[str, tuple[str, ...]] = {
         "server",
         "remote",
         "host",
+        "ssh",
         "sftp",
         "share",
         "freigabe",
@@ -428,6 +453,7 @@ _COMMON_CAPABILITY_TERMS: dict[str, tuple[str, ...]] = {
         "file",
         "/",
     ),
+    "ssh_hints": ("ssh", "shell", "terminal", "server", "host", "linux", "linux-server"),
     "sftp_hints": ("sftp", "server", "host", "ssh", "linux-server"),
     "smb_hints": (
         "smb",
