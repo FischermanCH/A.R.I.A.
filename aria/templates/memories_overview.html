@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+{% macro overview_section(title, desc, count=None, open=False, section_id='') -%}
+  <details class="floating-card config-section-details"{% if section_id %} id="{{ section_id }}"{% endif %}{% if open %} open{% endif %}>
+    <summary class="config-section-summary">
+      <span class="config-section-heading">
+        <span class="config-section-title-row">
+          <h3>{{ title }}</h3>
+          {% if count is not none %}
+          <span class="config-section-count">{{ count }}</span>
+          {% endif %}
+        </span>
+        <span class="config-section-desc">{{ desc }}</span>
+      </span>
+    </summary>
+    <div class="config-section-content">
+      {{ caller() }}
+    </div>
+  </details>
+{%- endmacro %}
+<main class="config-layout memory-overview-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+  {% if error_message %}
+  <section class="floating-card">
+    <div class="alert err">{{ error_message }}</div>
+  </section>
+  {% endif %}
+  {% if info_message %}
+  <section class="floating-card">
+    <div class="alert ok">{{ info_message }}</div>
+  </section>
+  {% endif %}
+
+  <section class="floating-card">
+    <div class="page-title-row"><span>{{ icon('memories', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories_overview.title', 'Memory Overview') }}</h2></div>
+    <div class="memory-health-grid">
+      {% for check in overview_checks %}
+      {% if check.href %}
+      <a class="memory-health-card-link" href="{{ check.href }}">
+      {% endif %}
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ check.status }}"></span>
+          <h3>{{ check.title }}</h3>
+        </div>
+        <p>{{ check.summary }}</p>
+        <small>{{ check.meta }}</small>
+      </article>
+      {% if check.href %}
+      </a>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
+  {% call overview_section(
+    tr(request, 'memories_overview.section_actions_title', 'Aktionen'),
+    tr(request, 'memories_overview.section_actions_desc', 'Hier legst du neue Memory-Einträge an oder importierst Dokumente. Der Explorer bleibt dadurch auf Suchen, Filtern und Prüfen fokussiert.'),
+    2,
+    True,
+    'memories-actions'
+  ) %}
+    <details class="memory-create-card memory-create-panel">
+      <summary class="memory-group-summary memory-create-summary">
+        <span class="memory-create-summary-icon">{{ icon('plus', 'submenu-icon') }}</span>
+        <div class="memory-create-summary-copy">
+          <span class="memory-create-summary-title">{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</span>
+          <span class="memory-create-summary-desc">{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</span>
+        </div>
+      </summary>
+      <div class="memory-group-list">
+        <form method="post" action="/memories/create" class="editor-form">
+          <input type="hidden" name="source_view" value="overview">
+          <div class="connection-form-grid">
+            <div>
+              <label for="overview_memory_type">{{ tr(request, 'memories.create_type', 'Memory-Typ') }}</label>
+              <select id="overview_memory_type" name="memory_type">
+                <option value="fact">{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
+                <option value="preference">{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
+                <option value="knowledge">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
+              </select>
+            </div>
+          </div>
+          <label for="overview_memory_text">{{ tr(request, 'memories.create_text', 'Text') }}</label>
+          <textarea id="overview_memory_text" name="text" class="editor-textarea short" maxlength="4000" placeholder="{{ tr(request, 'memories.create_placeholder', 'z. B. Ich nutze für Server-Dateien meist mein Hauptsystem.') }}" required></textarea>
+          <button type="submit">{{ tr(request, 'memories.create_button', 'Memory speichern') }}</button>
+        </form>
+      </div>
+    </details>
+
+    <details class="memory-create-card memory-create-panel">
+      <summary class="memory-group-summary memory-create-summary">
+        <span class="memory-create-summary-icon">{{ icon('upload', 'submenu-icon') }}</span>
+        <div class="memory-create-summary-copy">
+          <span class="memory-create-summary-title">{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</span>
+          <span class="memory-create-summary-desc">{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</span>
+        </div>
+      </summary>
+      <div class="memory-group-list">
+        <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data">
+          <input type="hidden" name="source_view" value="overview">
+          <label for="overview_document_file">{{ tr(request, 'memories.upload_file', 'Datei') }}</label>
+          <input id="overview_document_file" name="document_file" type="file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" required>
+          <small class="hint-text">{{ tr(request, 'memories.upload_formats', 'Unterstützt:') }} {% for suffix in supported_upload_suffixes %}<code>{{ suffix }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</small>
+          <div class="connection-form-grid">
+            <div>
+              <label for="overview_document_collection">{{ tr(request, 'memories.upload_collection', 'Bestehende Collection') }}</label>
+              <select id="overview_document_collection" name="collection">
+                <option value="">{{ tr(request, 'memories.upload_use_active', 'Aktive Collection verwenden') }}{% if active_document_collection %}: {{ active_document_collection }}{% endif %}</option>
+                {% for name in document_collections %}
+                <option value="{{ name }}">{{ name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="overview_document_new_collection">{{ tr(request, 'memories.upload_new_collection', 'Oder neue Collection') }}</label>
+              <input id="overview_document_new_collection" name="new_collection_name" type="text" placeholder="{{ tr(request, 'memories.upload_new_collection_placeholder', 'z. B. aria_docs_handbuch') }}">
+            </div>
+          </div>
+          <small class="hint-text">{{ tr(request, 'memories.upload_collection_hint', 'Wenn keine Auswahl getroffen wird, nutzt ARIA die aktive Dokument-Collection oder legt die persönliche Default-Dokument-Collection an.') }} <code>{{ default_document_collection }}</code></small>
+          <button
+            type="submit"
+            class="memory-upload-submit"
+            data-default-label="{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}"
+            data-loading-label="{{ tr(request, 'memories.upload_button_loading', 'Dokument wird gechunkt und importiert ...') }}"
+          >{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}</button>
+          <p class="upload-progress-note" hidden aria-live="polite">
+            {{ tr(request, 'memories.upload_progress', 'Dokument wird vorbereitet, gechunkt und nach Qdrant importiert. Das kann je nach PDF kurz dauern.') }}
+          </p>
+        </form>
+      </div>
+    </details>
+  {% endcall %}
+
+  {% call overview_section(
+    tr(request, 'memories_overview.section_tools_title', 'Tools'),
+    tr(request, 'memories_overview.section_tools_desc', 'Export und Qdrant-Zugriff bleiben schnell erreichbar, ohne die normale Memory-Ansicht zu überladen.'),
+    2 if request.state.can_access_advanced_config else 1,
+    True,
+    'memories-tools'
+  ) %}
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/memories/export?type=all&sort=updated_desc">
+        <span class="submenu-icon-wrap">{{ icon('download', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'memories_overview.export_title', 'Export memory JSON') }}</span><span class="submenu-desc">{{ tr(request, 'memories_overview.export_desc', 'Download the current memory view as JSON for backup or inspection.') }}</span></span>
+      </a>
+      {% if request.state.can_access_advanced_config %}
+      <a class="config-submenu-item" href="/memories/config#qdrant-access">
+        <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'memories_overview.qdrant_access_title', 'Qdrant-Zugriff') }}</span><span class="submenu-desc">{{ tr(request, 'memories_overview.qdrant_access_desc', 'Dashboard, URL und API-Key mit Copy/Paste an einer Stelle im Memory-Setup.') }}</span></span>
+      </a>
+      {% endif %}
+    </div>
+  {% endcall %}
+
+  {% call overview_section(
+    tr(request, 'memories_overview.graph_title', 'Memory-Graph'),
+    tr(request, 'memories_overview.graph_desc', 'Die Übersicht zeigt direkt die wichtigsten Collections, Dokumente, Rollups und Routing-Knoten ohne die Unterseiten-Navigation zu duplizieren.'),
+    none,
+    True,
+    'memories-graph'
+  ) %}
+    <div class="memory-map-frame-wrap memory-graph-wrap memory-map-showcase">
+      {% include "_memory_graph.html" %}
+    </div>
+  {% endcall %}
+</main>
+{% endblock %}

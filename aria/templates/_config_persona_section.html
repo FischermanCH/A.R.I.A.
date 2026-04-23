@@ -1,0 +1,21 @@
+{% from "_icons.html" import icon %}
+{% if request.state.can_access_advanced_config %}
+<section class="floating-card config-domain-section">
+  <div class="config-submenu">
+    <a class="config-submenu-item" href="/config/prompts?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.prompt_title', 'Prompt Studio') }}</span><span class="submenu-desc">{{ tr(request, 'config.prompt_desc', 'Edit persona and skill prompts directly in the browser.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="/config/appearance?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('appearance', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.appearance_title', 'Appearance & Theme') }}</span><span class="submenu-desc">{{ tr(request, 'config.appearance_desc', 'Choose the visual style, accent palette, and background atmosphere for your ARIA.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="/config/language?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('language', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.language_title', 'Language & Translation') }}</span><span class="submenu-desc">{{ tr(request, 'config.language_desc', 'Set default language and edit language files in Advanced mode.') }}</span></span>
+    </a>
+  </div>
+</section>
+{% else %}
+{% include '_config_admin_notice.html' %}
+{% endif %}

@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 <div id="stats-pricing-panel" class="stats-details-content">
   <section class="stat-card">
     <div class="stats-health-head">
@@ -18,7 +19,7 @@
         hx-target="#stats-pricing-panel"
         hx-swap="outerHTML"
       >
-        <button type="submit" class="nav-link">{{ tr(request, 'stats.refresh_pricing', 'Preise aktualisieren') }}</button>
+        <button type="submit" class="nav-link ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request, 'stats.refresh_pricing', 'Preise aktualisieren') }}</button>
       </form>
       {% endif %}
     </div>

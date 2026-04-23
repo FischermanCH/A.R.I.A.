@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from datetime import datetime
 import hmac
 from pathlib import Path
@@ -207,6 +208,143 @@ def _build_cleanup_status(memory_skill: Any | None) -> dict[str, Any]:
     return dict(getattr(memory_skill, "last_cleanup_status", {}) or fallback)
 
 
+async def _build_memory_map_snapshot(
+    *,
+    pipeline: Any,
+    username: str,
+    overview: dict[str, Any],
+    is_admin: bool,
+    settings: Any,
+    parse_collection_day_suffix: CollectionDayParser,
+) -> dict[str, Any]:
+    user_rows: list[dict[str, Any]] = []
+    notes_rows: list[dict[str, Any]] = []
+    routing_rows: list[dict[str, Any]] = []
+    collection_stats: list[dict[str, Any]] = []
+    document_entries: list[dict[str, Any]] = []
+    document_groups: list[dict[str, Any]] = []
+    rollup_entries: list[dict[str, Any]] = []
+    rollup_groups: list[dict[str, Any]] = []
+    memory_graph: dict[str, Any] = {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
+    memory_skill = getattr(pipeline, "memory_skill", None)
+
+    if memory_skill:
+        try:
+            stats = await memory_skill.get_user_collection_stats(username)
+            collection_stats = list(stats)
+            all_status = {
+                str(item.get("name", "")): str(item.get("status", "ok"))
+                for item in overview.get("collections", [])
+            }
+            for row in stats:
+                name = str(row.get("name", "")).strip()
+                kind = str(row.get("kind", "fact"))
+                user_rows.append(
+                    {
+                        "name": name,
+                        "points": int(row.get("points", 0) or 0),
+                        "kind": kind,
+                        "status": all_status.get(name, "ok"),
+                        "browse_url": _memory_collection_link(kind=kind, collection=name),
+                    }
+                )
+        except Exception:
+            user_rows = []
+        try:
+            document_rows = await memory_skill.list_memories_global(
+                user_id=username,
+                type_filter="document",
+                limit=5000,
+            )
+            document_entries = _build_document_entries(document_rows)
+            document_groups = _build_document_collection_groups(document_entries)
+        except Exception:
+            document_entries = []
+            document_groups = []
+        try:
+            knowledge_rows = await memory_skill.list_memories_global(
+                user_id=username,
+                type_filter="knowledge",
+                limit=5000,
+            )
+            rollup_entries = _build_rollup_entries(knowledge_rows)
+            rollup_groups = _build_rollup_groups(rollup_entries)
+        except Exception:
+            rollup_entries = []
+            rollup_groups = []
+
+    user_rows.sort(key=lambda row: int(row.get("points", 0) or 0), reverse=True)
+    max_points = max((int(row.get("points", 0) or 0) for row in user_rows), default=0)
+    total_points = int(sum(int(row.get("points", 0) or 0) for row in user_rows))
+    for row in user_rows:
+        points = int(row.get("points", 0) or 0)
+        row["pct"] = int((points / max_points) * 100) if max_points > 0 else 0
+        row["share_pct"] = int((points / total_points) * 100) if total_points > 0 else 0
+        row["node_size"] = max(16, min(54, int(16 + (row["pct"] / 100.0) * 38)))
+
+    kind_totals = {"fact": 0, "preference": 0, "knowledge": 0, "document": 0, "session": 0}
+    for row in user_rows:
+        kind = str(row.get("kind", "fact"))
+        if kind in kind_totals:
+            kind_totals[kind] += int(row.get("points", 0) or 0)
+
+    if is_admin:
+        notes_rows = _build_notes_collection_rows(
+            list(overview.get("collections", []) or []),
+            username=username,
+            browse_url="/notes",
+        )
+        routing_rows = _build_routing_collection_rows(
+            list(overview.get("collections", []) or []),
+            known_user_collection_names={
+                str(row.get("name", "")).strip() for row in [*user_rows, *notes_rows]
+            },
+            browse_url="/config/routing",
+        )
+
+    notes_total_points = int(sum(int(row.get("points", 0) or 0) for row in notes_rows))
+    routing_total_points = int(sum(int(row.get("points", 0) or 0) for row in routing_rows))
+    cleanup_status = _build_cleanup_status(memory_skill)
+    cleanup_status["timestamp"] = _format_display_timestamp(cleanup_status.get("timestamp"))
+
+    health = _build_memory_health(
+        all_rows=[],
+        collection_stats=collection_stats,
+        filter_type="all",
+        query="",
+        parse_collection_day_suffix=parse_collection_day_suffix,
+        compress_after_days=int(settings.memory.collections.sessions.compress_after_days or 7),
+        qdrant_reachable=bool(overview.get("reachable")),
+    )
+    memory_graph = _build_memory_graph(
+        username=username,
+        map_rows=user_rows,
+        kind_totals=kind_totals,
+        document_groups=document_groups,
+        rollup_groups=rollup_groups,
+        notes_rows=notes_rows,
+        routing_rows=routing_rows,
+    )
+
+    return {
+        "user_rows": user_rows,
+        "notes_rows": notes_rows,
+        "notes_total_points": notes_total_points,
+        "routing_rows": routing_rows,
+        "routing_total_points": routing_total_points,
+        "collection_stats": collection_stats,
+        "document_entries": document_entries,
+        "document_groups": document_groups,
+        "rollup_entries": rollup_entries,
+        "rollup_groups": rollup_groups,
+        "memory_graph": memory_graph,
+        "health": health,
+        "cleanup_status": cleanup_status,
+        "kind_totals": kind_totals,
+        "total_points": total_points,
+    }
+
+
 def _format_display_timestamp(value: str | None) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -391,7 +529,8 @@ def _graph_kind_order(kind: str) -> int:
         "session": 2,
         "document": 3,
         "knowledge": 4,
-        "routing": 5,
+        "notes": 5,
+        "routing": 6,
     }
     return order.get(str(kind or "").strip().lower(), 99)
 
@@ -404,9 +543,25 @@ def _graph_kind_label(kind: str) -> str:
         "session": "Tages-Kontext",
         "document": "Dokumente",
         "knowledge": "Wissen",
+        "notes": "Notizen",
         "routing": "Routing",
     }
     return labels.get(normalized, normalized.upper() or "Memory")
+
+
+def _graph_kind_icon(kind: str) -> str:
+    normalized = str(kind or "").strip().lower()
+    icons = {
+        "root": "memories",
+        "fact": "memories",
+        "preference": "settings",
+        "session": "activities",
+        "document": "files",
+        "knowledge": "llm",
+        "notes": "notes",
+        "routing": "routing",
+    }
+    return icons.get(normalized, "memories")
 
 
 def _routing_graph_link() -> str:
@@ -414,7 +569,7 @@ def _routing_graph_link() -> str:
 
 
 def _memory_graph_link(*, kind: str = "all", collection: str = "") -> str:
-    url = f"/memories?type={quote_plus(kind)}&q=&sort=updated_desc&limit=50&page=1"
+    url = f"/memories/explorer?type={quote_plus(kind)}&q=&sort=updated_desc&limit=50&page=1"
     if collection:
         url += f"&collection_filter={quote_plus(collection)}"
     return url
@@ -422,6 +577,8 @@ def _memory_graph_link(*, kind: str = "all", collection: str = "") -> str:
 
 def _memory_collection_link(*, kind: str = "all", collection: str = "") -> str:
     normalized_kind = str(kind or "").strip().lower() or "all"
+    if normalized_kind == "notes":
+        return "/notes"
     if normalized_kind not in {"all", "fact", "preference", "knowledge", "document", "session"}:
         normalized_kind = "all"
     return _memory_graph_link(kind=normalized_kind, collection=collection)
@@ -448,10 +605,14 @@ def _build_memory_graph(
     kind_totals: dict[str, int],
     document_groups: list[dict[str, Any]],
     rollup_groups: list[dict[str, Any]],
+    notes_rows: list[dict[str, Any]] | None = None,
     routing_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    note_items = list(notes_rows or [])
     routing_items = list(routing_rows or [])
     kinds = [kind for kind, points in kind_totals.items() if int(points or 0) > 0]
+    if note_items:
+        kinds.append("notes")
     if routing_items:
         kinds.append("routing")
     if not kinds:
@@ -495,6 +656,20 @@ def _build_memory_graph(
                         "variant": "rollup",
                     }
                 )
+        if kind == "notes":
+            for row in note_items[:3]:
+                detail_nodes_by_kind[kind].append(
+                    {
+                        "label": str(row.get("name", "")).strip(),
+                        "meta": (
+                            f"{int(row.get('points', 0) or 0)} Punkte"
+                            f" · {int(row.get('share_pct', 0) or 0)}%"
+                        ),
+                        "href": str(row.get("browse_url", "")).strip() or "/notes",
+                        "variant": "notes",
+                    }
+                )
+            continue
         if kind == "routing":
             for row in routing_items[:3]:
                 detail_nodes_by_kind[kind].append(
@@ -522,24 +697,29 @@ def _build_memory_graph(
                 }
             )
 
-    column_gap = 220
-    root_y = 74
-    type_y = 214
-    detail_start_y = 364
-    detail_gap_y = 116
-    node_width = 188
-    stage_padding = 110
-    width = max(860, stage_padding * 2 + max(1, len(kinds) - 1) * column_gap + node_width)
-    start_x = width / 2 if len(kinds) == 1 else stage_padding + node_width / 2
-    step = 0 if len(kinds) == 1 else (width - stage_padding * 2 - node_width) / max(1, len(kinds) - 1)
+    column_gap = 184
+    root_y = 70
+    type_y = 188
+    detail_start_y = 316
+    detail_gap_y = 100
+    root_width = 190
+    type_width = 150
+    detail_width = 148
+    stage_padding = 72
+    width = max(732, stage_padding * 2 + max(1, len(kinds) - 1) * column_gap + type_width)
+    start_x = width / 2 if len(kinds) == 1 else stage_padding + type_width / 2
+    step = 0 if len(kinds) == 1 else (width - stage_padding * 2 - type_width) / max(1, len(kinds) - 1)
     max_detail_rows = max((len(items) for items in detail_nodes_by_kind.values()), default=0)
-    height = 460 + max(0, max_detail_rows - 1) * detail_gap_y
+    height = 414 + max(0, max_detail_rows - 1) * detail_gap_y
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, float]] = []
     memory_total_points = sum(int(value or 0) for value in kind_totals.values())
+    notes_total_points = sum(int(row.get("points", 0) or 0) for row in note_items)
     routing_total_points = sum(int(row.get("points", 0) or 0) for row in routing_items)
     root_meta = f"{memory_total_points} Punkte im Memory"
+    if notes_total_points > 0:
+        root_meta += f" · {notes_total_points} Notes-Punkte"
     if routing_total_points > 0:
         root_meta += f" · {routing_total_points} Routing-Punkte"
     nodes.append(
@@ -548,11 +728,12 @@ def _build_memory_graph(
             "kind": "root",
             "label": username,
             "meta": root_meta,
-            "left": round(width / 2 - 108, 2),
+            "left": round(width / 2 - root_width / 2, 2),
             "top": 20,
-            "width": 216,
+            "width": root_width,
             "href": _memory_graph_link(),
             "variant": "root",
+            "icon": _graph_kind_icon("root"),
         }
     )
 
@@ -567,15 +748,20 @@ def _build_memory_graph(
                 "meta": (
                     f"{routing_total_points} Punkte · System"
                     if kind == "routing"
+                    else f"{notes_total_points} Punkte · Notizen"
+                    if kind == "notes"
                     else f"{int(kind_totals.get(kind, 0) or 0)} Punkte"
                 ),
-                "left": round(x_center - node_width / 2, 2),
-                "top": round(type_y - 42, 2),
-                "width": node_width,
+                "left": round(x_center - type_width / 2, 2),
+                "top": round(type_y - 38, 2),
+                "width": type_width,
                 "href": _routing_graph_link()
                 if kind == "routing"
+                else "/notes"
+                if kind == "notes"
                 else _memory_graph_link(kind=kind if kind != "knowledge" else "knowledge"),
                 "variant": "type",
+                "icon": _graph_kind_icon(kind),
             }
         )
         edges.append(
@@ -594,11 +780,12 @@ def _build_memory_graph(
                     "kind": kind,
                     "label": str(item.get("label", "")).strip(),
                     "meta": str(item.get("meta", "")).strip(),
-                    "left": round(x_center - 98, 2),
-                    "top": round(detail_y - 36, 2),
-                    "width": 196,
+                    "left": round(x_center - detail_width / 2, 2),
+                    "top": round(detail_y - 28, 2),
+                    "width": detail_width,
                     "href": str(item.get("href", "")).strip(),
                     "variant": str(item.get("variant", "detail")).strip(),
+                    "icon": _graph_kind_icon(kind),
                 }
             )
             edges.append(
@@ -663,7 +850,7 @@ def _memories_redirect(
     error: str = "",
 ) -> RedirectResponse:
     url = (
-        f"/memories?type={quote_plus(filter_type)}&q={quote_plus(query)}"
+        f"/memories/explorer?type={quote_plus(filter_type)}&q={quote_plus(query)}"
         f"&collection_filter={quote_plus(collection_filter)}"
         f"&page={_coerce_page_number(page)}&limit={_coerce_page_size(limit)}&sort={quote_plus(sort)}"
     )
@@ -680,6 +867,18 @@ def _memories_redirect(
 
 def _memories_map_redirect(*, info: str = "", error: str = "") -> RedirectResponse:
     url = "/memories/map"
+    params: list[str] = []
+    if info:
+        params.append(f"info={quote_plus(info)}")
+    if error:
+        params.append(f"error={quote_plus(error)}")
+    if params:
+        url += "?" + "&".join(params)
+    return RedirectResponse(url=url, status_code=303)
+
+
+def _memories_overview_redirect(*, info: str = "", error: str = "") -> RedirectResponse:
+    url = "/memories"
     params: list[str] = []
     if info:
         params.append(f"info={quote_plus(info)}")
@@ -733,6 +932,47 @@ def _document_collection_names(collection_names: list[str]) -> list[str]:
 def _is_routing_collection_name(name: str) -> bool:
     clean = str(name or "").strip().lower()
     return bool(clean) and clean.startswith("aria_routing_")
+
+
+def _is_notes_collection_name(name: str, *, username: str = "") -> bool:
+    clean = str(name or "").strip().lower()
+    if not clean.startswith("aria_notes_"):
+        return False
+    if not username:
+        return True
+    return clean == f"aria_notes_{_slug_user_id(username)}"
+
+
+def _build_notes_collection_rows(
+    overview_rows: list[dict[str, Any]],
+    *,
+    username: str,
+    browse_url: str = "",
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in overview_rows:
+        name = str(row.get("name", "")).strip()
+        if not name or name in seen or not _is_notes_collection_name(name, username=username):
+            continue
+        seen.add(name)
+        items.append(
+            {
+                "name": name,
+                "kind": "notes",
+                "points": int(row.get("points", 0) or 0),
+                "status": str(row.get("status", "ok")).strip() or "ok",
+                "browse_url": str(browse_url or "").strip() or "/notes",
+            }
+        )
+    items.sort(key=lambda item: (-(int(item.get("points", 0) or 0)), str(item.get("name", "")).lower()))
+    total_points = int(sum(int(item.get("points", 0) or 0) for item in items))
+    max_points = max((int(item.get("points", 0) or 0) for item in items), default=0)
+    for item in items:
+        points = int(item.get("points", 0) or 0)
+        item["share_pct"] = int((points / total_points) * 100) if total_points > 0 else 0
+        item["pct"] = int((points / max_points) * 100) if max_points > 0 else 0
+    return items
 
 
 def _build_routing_collection_rows(
@@ -865,6 +1105,179 @@ def register_memories_routes(
         return fallback
 
     @app.get("/memories", response_class=HTMLResponse)
+    @app.get("/memories/overview", response_class=HTMLResponse)
+    async def memories_overview_page(
+        request: Request,
+        info: str = "",
+        error: str = "",
+    ) -> HTMLResponse:
+        legacy_explorer_params = {
+            "type",
+            "q",
+            "collection_filter",
+            "document_id",
+            "document_name",
+            "limit",
+            "page",
+            "sort",
+        }
+        if any(key in request.query_params for key in legacy_explorer_params):
+            target = "/memories/explorer"
+            if request.url.query:
+                target += f"?{request.url.query}"
+            return RedirectResponse(url=target, status_code=307)
+        settings = get_settings()
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        is_admin = _is_admin_request(request, get_auth_session_from_request, sanitize_role)
+        overview = await qdrant_overview(request)
+        active_collection = get_effective_memory_collection(request, username)
+        default_collection = default_memory_collection_for_user(username)
+        default_document_collection = _default_document_collection_for_user(username)
+        collection_names = [
+            str(row.get("name", "")).strip()
+            for row in overview.get("collections", [])
+            if str(row.get("name", "")).strip()
+        ]
+        document_collections = _document_collection_names(collection_names)
+        routing_rows = _build_routing_collection_rows(
+            overview.get("collections", []),
+            known_user_collection_names=set(collection_names),
+            browse_url="/config/routing",
+        )
+        collection_stats: list[dict[str, Any]] = []
+        if getattr(pipeline, "memory_skill", None):
+            with suppress(Exception):
+                collection_stats = await pipeline.memory_skill.get_user_collection_stats(username)
+        user_memory_points = sum(int(row.get("points", 0) or 0) for row in collection_stats)
+        auto_memory_enabled = bool(is_auto_memory_enabled(request))
+        map_snapshot = await _build_memory_map_snapshot(
+            pipeline=pipeline,
+            username=username,
+            overview=overview,
+            is_admin=is_admin,
+            settings=settings,
+            parse_collection_day_suffix=parse_collection_day_suffix,
+        )
+        overview_checks = [
+            {
+                "title": "Qdrant",
+                "status": "ok" if overview.get("reachable") else "error",
+                "summary": "Erreichbar" if overview.get("reachable") else "Nicht erreichbar",
+                "meta": f"{len(collection_names)} Collections",
+            },
+            {
+                "title": "Aktive Collection",
+                "status": "ok" if active_collection else "warn",
+                "summary": active_collection or default_collection,
+                "meta": f"Default: {default_collection}",
+            },
+            {
+                "title": "User Memory",
+                "status": "ok" if user_memory_points > 0 else "warn",
+                "summary": str(user_memory_points),
+                "meta": f"{len(collection_stats)} Collections mit Punkten",
+            },
+            {
+                "title": "Dokumente",
+                "status": "ok" if document_collections else "warn",
+                "summary": default_document_collection,
+                "meta": f"{len(document_collections)} Dokument-Collections",
+            },
+            {
+                "title": "Auto-Memory",
+                "status": "ok" if auto_memory_enabled else "warn",
+                "summary": "Aktiv" if auto_memory_enabled else "Aus",
+                "meta": f"Backend: {settings.memory.backend or 'n/a'}",
+                "href": "/memories/config#auto-memory",
+            },
+        ]
+        next_steps = [
+            {
+                "icon": "plus",
+                "title": _msg(
+                    lang,
+                    "Erste Memory anlegen" if user_memory_points <= 0 else "Neue Memory erfassen",
+                    "Create first memory" if user_memory_points <= 0 else "Add memory",
+                ),
+                "desc": _msg(
+                    lang,
+                    "Starte mit einer kleinen festen Information oder Präferenz, damit ARIA etwas Greifbares im Gedächtnis hat."
+                    if user_memory_points <= 0
+                    else "Lege bewusst einen weiteren Fakt oder eine Präferenz an, ohne erst in den Explorer wechseln zu müssen.",
+                    "Start with one small fact or preference so ARIA has something concrete in memory."
+                    if user_memory_points <= 0
+                    else "Add another fact or preference directly from the hub without jumping into the explorer first.",
+                ),
+                "href": "/memories#memories-actions",
+                "badge": _msg(lang, "Direkt hier", "Right here"),
+            },
+            {
+                "icon": "upload",
+                "title": _msg(
+                    lang,
+                    "Erstes Dokument importieren" if not document_collections else "Weiteres Dokument importieren",
+                    "Import first document" if not document_collections else "Import another document",
+                ),
+                "desc": _msg(
+                    lang,
+                    "PDFs, Markdown und Textdateien landen in einer Dokument-Collection und werden danach im Explorer und in der Map sichtbar."
+                    if not document_collections
+                    else "Nutze den Hub weiter als Eingang für neue PDFs oder Textdateien, ohne das Setup zu öffnen.",
+                    "PDFs, Markdown, and text files land in a document collection and then show up in the explorer and the map."
+                    if not document_collections
+                    else "Keep using the hub as the intake point for new PDFs or text files without opening setup.",
+                ),
+                "href": "/memories#memories-actions",
+                "badge": default_document_collection,
+            },
+            {
+                "icon": "memories",
+                "title": _msg(lang, "Im Explorer prüfen", "Open explorer"),
+                "desc": _msg(
+                    lang,
+                    "Filtere Fakten, Dokumente, Rollups und Tages-Kontext, damit Einträge später nicht durcheinanderlaufen.",
+                    "Filter facts, documents, rollups, and day context so entries do not blur together later.",
+                ),
+                "href": "/memories/explorer",
+                "badge": _msg(lang, "Suche & Filter", "Search & filters"),
+            },
+        ]
+        return templates.TemplateResponse(
+            request=request,
+            name="memories_overview.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "memory_nav": "overview",
+                "info_message": info,
+                "error_message": error,
+                "active_collection": active_collection,
+                "default_collection": default_collection,
+                "default_document_collection": default_document_collection,
+                "auto_memory_enabled": auto_memory_enabled,
+                "memory_cfg": settings.memory,
+                "qdrant_overview": overview,
+                "collection_count": len(collection_names),
+                "document_collection_count": len(document_collections),
+                "routing_collection_count": len(routing_rows),
+                "user_memory_points": user_memory_points,
+                "overview_checks": overview_checks,
+                "next_steps": next_steps,
+                "memory_graph": map_snapshot["memory_graph"],
+                "qdrant_dashboard_url": qdrant_dashboard_url(request),
+                "document_collections": document_collections,
+                "active_document_collection": (
+                    active_collection
+                    if _is_document_collection_name(active_collection)
+                    else default_document_collection
+                ),
+                "supported_upload_suffixes": supported_upload_suffixes(),
+            },
+        )
+
+    @app.get("/memories/explorer", response_class=HTMLResponse)
     async def memories_page(
         request: Request,
         type: str = "all",
@@ -993,6 +1406,7 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": username,
+                "memory_nav": "explorer",
                 "rows": rows,
                 "grouped_rows": grouped_rows,
                 "filter_type": type,
@@ -1096,99 +1510,13 @@ def register_memories_routes(
         info = str(request.query_params.get("info") or "").strip()
         error = str(request.query_params.get("error") or "").strip()
         overview = await qdrant_overview(request)
-        user_rows: list[dict[str, Any]] = []
-        routing_rows: list[dict[str, Any]] = []
-        collection_stats: list[dict[str, Any]] = []
-        document_entries: list[dict[str, Any]] = []
-        document_groups: list[dict[str, Any]] = []
-        rollup_entries: list[dict[str, Any]] = []
-        rollup_groups: list[dict[str, Any]] = []
-        memory_graph: dict[str, Any] = {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
-        if pipeline.memory_skill:
-            try:
-                stats = await pipeline.memory_skill.get_user_collection_stats(username)
-                collection_stats = list(stats)
-                all_status = {
-                    str(item.get("name", "")): str(item.get("status", "ok"))
-                    for item in overview.get("collections", [])
-                }
-                for row in stats:
-                    name = str(row.get("name", "")).strip()
-                    kind = str(row.get("kind", "fact"))
-                    user_rows.append(
-                        {
-                            "name": name,
-                            "points": int(row.get("points", 0) or 0),
-                            "kind": kind,
-                            "status": all_status.get(name, "ok"),
-                            "browse_url": _memory_collection_link(kind=kind, collection=name),
-                        }
-                    )
-            except Exception:
-                user_rows = []
-            try:
-                document_rows = await pipeline.memory_skill.list_memories_global(
-                    user_id=username,
-                    type_filter="document",
-                    limit=5000,
-                )
-                document_entries = _build_document_entries(document_rows)
-                document_groups = _build_document_collection_groups(document_entries)
-            except Exception:
-                document_entries = []
-                document_groups = []
-            try:
-                knowledge_rows = await pipeline.memory_skill.list_memories_global(
-                    user_id=username,
-                    type_filter="knowledge",
-                    limit=5000,
-                )
-                rollup_entries = _build_rollup_entries(knowledge_rows)
-                rollup_groups = _build_rollup_groups(rollup_entries)
-            except Exception:
-                rollup_entries = []
-                rollup_groups = []
-
-        user_rows.sort(key=lambda row: int(row.get("points", 0) or 0), reverse=True)
-        max_points = max((int(row.get("points", 0) or 0) for row in user_rows), default=0)
-        total_points = int(sum(int(row.get("points", 0) or 0) for row in user_rows))
-        for row in user_rows:
-            points = int(row.get("points", 0) or 0)
-            row["pct"] = int((points / max_points) * 100) if max_points > 0 else 0
-            row["share_pct"] = int((points / total_points) * 100) if total_points > 0 else 0
-            row["node_size"] = max(16, min(54, int(16 + (row["pct"] / 100.0) * 38)))
-
-        kind_totals = {"fact": 0, "preference": 0, "knowledge": 0, "document": 0, "session": 0}
-        for row in user_rows:
-            kind = str(row.get("kind", "fact"))
-            if kind in kind_totals:
-                kind_totals[kind] += int(row.get("points", 0) or 0)
-        if is_admin:
-            routing_rows = _build_routing_collection_rows(
-                list(overview.get("collections", []) or []),
-                known_user_collection_names={str(row.get("name", "")).strip() for row in user_rows},
-                browse_url="/config/routing",
-            )
-        routing_total_points = int(sum(int(row.get("points", 0) or 0) for row in routing_rows))
-        cleanup_status = _build_cleanup_status(pipeline.memory_skill)
-        cleanup_status["timestamp"] = _format_display_timestamp(cleanup_status.get("timestamp"))
-
-        health = _build_memory_health(
-            all_rows=[],
-            collection_stats=collection_stats,
-            filter_type="all",
-            query="",
-            parse_collection_day_suffix=parse_collection_day_suffix,
-            compress_after_days=int(settings.memory.collections.sessions.compress_after_days or 7),
-            qdrant_reachable=bool(overview.get("reachable")),
-        )
-        memory_graph = _build_memory_graph(
+        snapshot = await _build_memory_map_snapshot(
+            pipeline=pipeline,
             username=username,
-            map_rows=user_rows,
-            kind_totals=kind_totals,
-            document_groups=document_groups,
-            rollup_groups=rollup_groups,
-            routing_rows=routing_rows,
+            overview=overview,
+            is_admin=is_admin,
+            settings=settings,
+            parse_collection_day_suffix=parse_collection_day_suffix,
         )
 
         return templates.TemplateResponse(
@@ -1197,21 +1525,22 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": username,
+                "memory_nav": "map",
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "qdrant_api_key": str(getattr(settings.memory, "qdrant_api_key", "") or ""),
                 "qdrant_overview": overview,
-                "map_rows": user_rows,
-                "map_total_points": total_points,
-                "map_kind_totals": kind_totals,
-                "routing_rows": routing_rows,
-                "routing_total_points": routing_total_points,
-                "document_entries": document_entries,
-                "document_groups": document_groups,
-                "rollup_entries": rollup_entries,
-                "rollup_groups": rollup_groups,
-                "memory_graph": memory_graph,
-                "health": health,
-                "cleanup_status": cleanup_status,
+                "map_rows": snapshot["user_rows"],
+                "map_total_points": snapshot["total_points"],
+                "map_kind_totals": snapshot["kind_totals"],
+                "routing_rows": snapshot["routing_rows"],
+                "routing_total_points": snapshot["routing_total_points"],
+                "document_entries": snapshot["document_entries"],
+                "document_groups": snapshot["document_groups"],
+                "rollup_entries": snapshot["rollup_entries"],
+                "rollup_groups": snapshot["rollup_groups"],
+                "memory_graph": snapshot["memory_graph"],
+                "health": snapshot["health"],
+                "cleanup_status": snapshot["cleanup_status"],
                 "info_message": info,
                 "error_message": error,
             },
@@ -1234,7 +1563,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
         ok = await pipeline.memory_skill.delete_memory_point(
             user_id=username,
             collection=sanitize_collection_name(collection),
@@ -1283,7 +1612,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
         removed = await pipeline.memory_skill.delete_document(
             user_id=username,
             collection=sanitize_collection_name(collection),
@@ -1337,7 +1666,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
         clean_text = str(text).strip()
         if not clean_text:
             return _memories_redirect(
@@ -1386,6 +1715,7 @@ def register_memories_routes(
         request: Request,
         memory_type: str = Form("fact"),
         text: str = Form(...),
+        source_view: str = Form("explorer"),
         type: str = Form("all"),
         q: str = Form(""),
         collection_filter: str = Form(""),
@@ -1399,13 +1729,17 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories?error=Memory+Skill+nicht+aktiv", status_code=303)
+            if str(source_view or "").strip().lower() == "overview":
+                return _memories_overview_redirect(error="Memory+Skill+nicht+aktiv")
+            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
 
         clean_type = str(memory_type or "fact").strip().lower()
         if clean_type not in {"fact", "preference", "knowledge"}:
             clean_type = "fact"
         clean_text = str(text or "").strip()
         if not clean_text:
+            if str(source_view or "").strip().lower() == "overview":
+                return _memories_overview_redirect(error="Memory-Text darf nicht leer sein")
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1433,6 +1767,8 @@ def register_memories_routes(
                 },
             )
             if result.success:
+                if str(source_view or "").strip().lower() == "overview":
+                    return _memories_overview_redirect(info=result.content or "Memory gespeichert")
                 return _memories_redirect(
                     filter_type=type,
                     query=q,
@@ -1443,6 +1779,10 @@ def register_memories_routes(
                     limit=limit,
                     sort=sort,
                     info=result.content or "Memory gespeichert",
+                )
+            if str(source_view or "").strip().lower() == "overview":
+                return _memories_overview_redirect(
+                    error=result.error or result.content or "Memory konnte nicht gespeichert werden"
                 )
             return _memories_redirect(
                 filter_type=type,
@@ -1457,6 +1797,15 @@ def register_memories_routes(
             )
         except Exception as exc:  # noqa: BLE001
             lang = str(getattr(request.state, "lang", "de") or "de")
+            if str(source_view or "").strip().lower() == "overview":
+                return _memories_overview_redirect(
+                    error=_friendly_memory_error(
+                        lang,
+                        exc,
+                        "Memory konnte nicht gespeichert werden.",
+                        "Could not save memory.",
+                    )
+                )
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1498,6 +1847,7 @@ def register_memories_routes(
         collection_filter = str(form.get("collection_filter", "") or "")
         document_id = str(form.get("document_id", "") or "")
         document_name = str(form.get("document_name", "") or "")
+        source_view = str(form.get("source_view", "explorer") or "explorer").strip().lower()
         page = _coerce_form_int(form.get("page"), 1)
         limit = _coerce_form_int(form.get("limit"), 50)
         sort = _normalize_memory_sort(str(form.get("sort", "updated_desc") or "updated_desc"))
@@ -1506,6 +1856,10 @@ def register_memories_routes(
 
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
+            if source_view == "overview":
+                return _memories_overview_redirect(
+                    error=_msg(lang, "Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden.", "Security check failed. Please reload the page.")
+                )
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1518,6 +1872,10 @@ def register_memories_routes(
                 error=_msg(lang, "Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden.", "Security check failed. Please reload the page."),
             )
         if not pipeline.memory_skill:
+            if source_view == "overview":
+                return _memories_overview_redirect(
+                    error=_msg(lang, "Memory-Backend ist aktuell nicht verfügbar.", "Memory backend is currently unavailable.")
+                )
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1530,6 +1888,8 @@ def register_memories_routes(
                 error=_msg(lang, "Memory-Backend ist aktuell nicht verfügbar.", "Memory backend is currently unavailable."),
             )
         if not _is_uploaded_file(document_file):
+            if source_view == "overview":
+                return _memories_overview_redirect(error=_msg(lang, "Bitte eine Datei auswählen.", "Please choose a file."))
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1572,6 +1932,14 @@ def register_memories_routes(
             if not result.success:
                 raise ValueError(result.error or _msg(lang, "Dokument konnte nicht importiert werden.", "Could not import document."))
             chunk_count = int((result.metadata or {}).get("chunk_count", 0) or 0)
+            if source_view == "overview":
+                return _memories_overview_redirect(
+                    info=_msg(
+                        lang,
+                        f"Dokument importiert: {prepared.filename} · {chunk_count} Chunks in {target_collection}",
+                        f"Document imported: {prepared.filename} · {chunk_count} chunks into {target_collection}",
+                    )
+                )
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1588,6 +1956,10 @@ def register_memories_routes(
                 ),
             )
         except (DocumentIngestError, ValueError) as exc:
+            if source_view == "overview":
+                return _memories_overview_redirect(
+                    error=str(exc).strip() or _msg(lang, "Dokument konnte nicht importiert werden.", "Could not import document.")
+                )
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1600,6 +1972,10 @@ def register_memories_routes(
                 error=str(exc).strip() or _msg(lang, "Dokument konnte nicht importiert werden.", "Could not import document."),
             )
         except Exception as exc:  # noqa: BLE001
+            if source_view == "overview":
+                return _memories_overview_redirect(
+                    error=_friendly_memory_error(lang, exc, "Dokument-Import fehlgeschlagen.", "Document import failed.")
+                )
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1627,7 +2003,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
         try:
             session_cfg = settings.memory.collections.sessions
             result = await pipeline.memory_skill.execute(
@@ -1697,6 +2073,7 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": username,
+                "memory_nav": "setup",
                 "saved": bool(saved),
                 "error_message": error,
                 "collections": [row["name"] for row in overview.get("collections", [])],
@@ -1707,6 +2084,8 @@ def register_memories_routes(
                 "auto_memory_cookie": is_auto_memory_enabled(request),
                 "qdrant_overview": overview,
                 "has_qdrant_api_key": bool(getattr(settings.memory, "qdrant_api_key", "")),
+                "qdrant_api_key_value": str(getattr(settings.memory, "qdrant_api_key", "") or ""),
+                "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "compress_result": compress_result,
             },
         )
@@ -1715,7 +2094,6 @@ def register_memories_routes(
     @app.post("/config/memory/backend-save")
     async def config_memory_backend_save(
         request: Request,
-        enabled: str = Form("0"),
         backend: str = Form("qdrant"),
         qdrant_url: str = Form(""),
         qdrant_api_key: str = Form(""),
@@ -1734,7 +2112,8 @@ def register_memories_routes(
             raw.setdefault("memory", {})
             if not isinstance(raw["memory"], dict):
                 raw["memory"] = {}
-            raw["memory"]["enabled"] = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
+            # Keep the memory backend active whenever this Qdrant setup is saved from the UI.
+            raw["memory"]["enabled"] = True
             raw["memory"]["backend"] = clean_backend
             raw["memory"]["qdrant_url"] = clean_url
             raw["memory"]["qdrant_api_key"] = ""

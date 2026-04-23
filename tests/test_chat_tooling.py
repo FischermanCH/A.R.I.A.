@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import aria.main as main_mod
+from aria.core.pipeline import PipelineResult
+from aria.skills.memory import MemorySkill
 
 
 def _scoped_cookie(base_name: str) -> str:
@@ -100,3 +102,222 @@ def test_chat_can_show_update_helper_status(monkeypatch) -> None:
     assert "Update-Helper" in response.text
     assert "/updates" in response.text
     assert "/updates/running" in response.text
+
+
+def test_chat_can_confirm_pending_routed_action(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r1",
+            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:discord_send"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=10,
+            detail_lines=[],
+            pending_action={
+                "query": "schick eine testnachricht",
+                "candidate_kind": "template",
+                "candidate_id": "discord_send_message",
+                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
+                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
+                "payload": {
+                    "found": True,
+                    "capability": "discord_send",
+                    "connection_kind": "discord",
+                    "connection_ref": "alerts",
+                    "content": "ARIA Testnachricht",
+                    "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
+                    "missing_fields": [],
+                },
+                "safety_decision": {"action": "ask_user", "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden."},
+                "execution_decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen."},
+            },
+        )
+
+    async def fake_execute_pending(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r2",
+            text="Discord gesendet.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:discord_send"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=12,
+            detail_lines=['Discord-Nachricht: "ARIA Testnachricht"'],
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    monkeypatch.setattr(main_mod.Pipeline, "execute_pending_routed_action", fake_execute_pending)
+
+    client = _admin_client(monkeypatch)
+    preview = client.post("/chat", data={"message": "schick eine testnachricht", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert preview.status_code == 200
+    match = re.search(r"(?:bestätige aktion|bestaetige aktion|confirm action) ([a-z0-9]{8})", preview.text, re.IGNORECASE)
+    assert match
+
+    command = (
+        f"confirm action {match.group(1)}"
+        if "confirm action" in preview.text.lower()
+        else f"bestätige aktion {match.group(1)}"
+    )
+    confirm = client.post("/chat", data={"message": command, "csrf_token": client.headers["x-csrf-token"]})
+
+    assert confirm.status_code == 200
+    assert "Discord gesendet." in confirm.text
+
+
+def test_chat_can_continue_pending_routed_action_missing_input(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-missing-preview",
+            text="Welche Nachricht soll ARIA senden?",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:discord_send"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=10,
+            detail_lines=[],
+            pending_action={
+                "query": "schick an alerts",
+                "candidate_kind": "template",
+                "candidate_id": "discord_send_message",
+                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
+                "action_decision": {
+                    "found": True,
+                    "candidate_kind": "template",
+                    "candidate_id": "discord_send_message",
+                    "missing_input": "message",
+                    "clarifying_question": "Welche Nachricht soll ARIA senden?",
+                },
+                "payload": {
+                    "found": True,
+                    "capability": "discord_send",
+                    "connection_kind": "discord",
+                    "connection_ref": "alerts",
+                    "content": "",
+                    "preview": "Discord-Nachricht",
+                    "missing_fields": [],
+                },
+                "safety_decision": {"action": "ask_user"},
+                "execution_decision": {"next_step": "ask_user"},
+            },
+        )
+
+    async def fake_continue(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-missing-continued",
+            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:discord_send"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=12,
+            detail_lines=['Discord-Nachricht: "TESTNACHRICHT"'],
+            pending_action={
+                "query": "schick an alerts",
+                "candidate_kind": "template",
+                "candidate_id": "discord_send_message",
+                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
+                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
+                "payload": {
+                    "found": True,
+                    "capability": "discord_send",
+                    "connection_kind": "discord",
+                    "connection_ref": "alerts",
+                    "content": "TESTNACHRICHT",
+                    "preview": 'Discord-Nachricht: "TESTNACHRICHT"',
+                    "missing_fields": [],
+                },
+                "safety_decision": {"action": "ask_user", "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden."},
+                "execution_decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen."},
+            },
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    monkeypatch.setattr(main_mod.Pipeline, "continue_pending_routed_action_input", fake_continue)
+
+    client = _admin_client(monkeypatch)
+    preview = client.post("/chat", data={"message": "schick an alerts", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert preview.status_code == 200
+    assert "Welche Nachricht soll ARIA senden?" in preview.text
+    assert "bestätige aktion" not in preview.text.lower()
+
+    follow_up = client.post("/chat", data={"message": "TESTNACHRICHT", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert follow_up.status_code == 200
+    assert "vor der Ausfuehrung" in follow_up.text
+    assert (
+        "bestätige aktion" in follow_up.text.lower()
+        or "bestaetige aktion" in follow_up.text.lower()
+        or "confirm action" in follow_up.text.lower()
+    )
+
+
+def test_chat_can_confirm_pending_safe_fix(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-safe-fix-preview",
+            text="Ich habe einen sicheren Fix vorbereitet.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:ssh_command"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=8,
+            detail_lines=[],
+            safe_fix_plan=[{"connection_ref": "pihole1", "packages": ["curl"]}],
+        )
+
+    async def fake_execute_safe_fix_plan(*_args, **_kwargs):
+        return SimpleNamespace(content="Safe-Fix ausgeführt.", success=True, error="")
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    monkeypatch.setattr(main_mod.Pipeline, "execute_safe_fix_plan", fake_execute_safe_fix_plan)
+    monkeypatch.setattr(main_mod, "send_discord_alerts", lambda *_args, **_kwargs: None)
+
+    client = _admin_client(monkeypatch)
+    preview = client.post("/chat", data={"message": "repariere apt", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert preview.status_code == 200
+    match = re.search(r"bestätige fix ([a-z0-9]{8})", preview.text, re.IGNORECASE)
+    assert match
+
+    confirm = client.post("/chat", data={"message": f"bestätige fix {match.group(1)}", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert confirm.status_code == 200
+    assert "Safe-Fix ausgeführt." in confirm.text
+
+
+def test_chat_can_confirm_memory_forget(monkeypatch) -> None:
+    async def fake_memory_execute(self, query="", params=None):  # noqa: ANN001
+        action = dict(params or {}).get("action")
+        if action == "forget_preview":
+            return SimpleNamespace(
+                success=True,
+                content="Ich habe passende Memories gefunden.",
+                metadata={"forget_candidates": [{"collection": "facts", "id": "m1"}]},
+                error=None,
+            )
+        return SimpleNamespace(
+            success=True,
+            content="Memory gelöscht.",
+            metadata={},
+            error=None,
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "classify_routing", lambda *_args, **_kwargs: SimpleNamespace(intents=["memory_forget"]))
+    monkeypatch.setattr(MemorySkill, "execute", fake_memory_execute)
+
+    client = _admin_client(monkeypatch)
+    preview = client.post("/chat", data={"message": "vergiss meine notiz über dns", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert preview.status_code == 200
+    match = re.search(r"bestätige ([a-z0-9]{8})", preview.text, re.IGNORECASE)
+    assert match
+
+    confirm = client.post("/chat", data={"message": f"bestätige {match.group(1)}", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert confirm.status_code == 200
+    assert "Memory gelöscht." in confirm.text

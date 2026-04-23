@@ -1,19 +1,9 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('files', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_files.title', 'File Editor') }}</h2></div>
-    <p>{{ tr(request, 'config_files.subtitle', 'Edit only approved user files and view internal help texts safely in the UI.') }}</p>
-
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_files.saved', 'Saved.') }}</div>
-    {% endif %}
-
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
-
+<main class="config-layout config-domain-layout config-domain-surface-layout config-files-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+  <section class="floating-card config-domain-section">
     {% set picker_action = '/config/files' %}
     {% set save_action = '/config/files/save' %}
     {% set picker_id = 'editable-file' %}

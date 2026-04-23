@@ -7,9 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import aria.core.pipeline as pipeline_mod
+import aria.core.skill_runtime as skill_runtime_mod
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.capability_context import CapabilityContextStore
 from aria.core.config import Settings
+from aria.core.notes_context import NotesContextHit
 from aria.core.pipeline import Pipeline
 from aria.core.routing_admin import routing_connections_collection_name
 from aria.core.routing_index import build_connection_routing_documents
@@ -147,6 +149,481 @@ def test_pipeline_collects_skill_detail_lines_for_chat_badges() -> None:
         assert llm.calls == 1
 
     asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_executes_template_action(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_health_check"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "ssh_command",
+                        "connection_kind": "ssh",
+                        "connection_ref": "pihole1",
+                        "content": "uptime",
+                        "preview": "SSH command: uptime",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
+                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: uptime"}},
+            }
+
+        async def fake_execute(plan, *, language="de"):
+            assert plan.capability == "ssh_command"
+            assert plan.connection_ref == "pihole1"
+            assert plan.content == "uptime"
+            assert language == "de"
+            return "Host läuft seit 5 Tagen."
+
+        async def _unexpected(*_args, **_kwargs):
+            raise AssertionError("Legacy capability path should not run when unified routing resolves the action.")
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+        pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+        pipeline._try_ssh_command_action = _unexpected  # type: ignore[method-assign]
+        pipeline._try_capability_action = _unexpected  # type: ignore[method-assign]
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+        result = await pipeline.process("checke den dns server", user_id="u1", source="test", language="de")
+
+        assert result.text == "Host läuft seit 5 Tagen."
+        assert result.intents == ["capability:ssh_command"]
+        assert result.pending_action is None
+        assert result.skill_errors == []
+        assert result.detail_lines
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_executes_normalized_df_h_command(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "ssh_command",
+                        "connection_kind": "ssh",
+                        "connection_ref": "pihole1",
+                        "content": "df -h",
+                        "preview": "SSH command: df -h",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
+                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: df -h"}},
+            }
+
+        async def fake_execute(plan, *, language="de"):
+            assert plan.capability == "ssh_command"
+            assert plan.connection_ref == "pihole1"
+            assert plan.content == "df -h"
+            assert language == "de"
+            return "Filesystem      Size  Used Avail Use% Mounted on"
+
+        async def _unexpected(*_args, **_kwargs):
+            raise AssertionError("Legacy capability path should not run when unified routing resolves the action.")
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+        pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+        pipeline._try_ssh_command_action = _unexpected  # type: ignore[method-assign]
+        pipeline._try_capability_action = _unexpected  # type: ignore[method-assign]
+
+        result = await pipeline.process("check mal die festplatte auf meinen dns server", user_id="u1", source="test", language="de")
+
+        assert result.text == "Filesystem      Size  Used Avail Use% Mounted on"
+        assert result.intents == ["capability:ssh_command"]
+        assert result.pending_action is None
+        assert result.skill_errors == []
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_executes_calendar_read(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "google_calendar", "ref": "primary-calendar"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "google_calendar_read_events"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "calendar_read",
+                        "connection_kind": "google_calendar",
+                        "connection_ref": "primary-calendar",
+                        "path": "today",
+                        "content": "",
+                        "preview": "Calendar range: today",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
+                "execution_debug": {
+                    "decision": {
+                        "next_step": "allow",
+                        "summary": "ARIA wuerde auf google_calendar/primary-calendar direkt ausfuehren: Calendar range: today",
+                    }
+                },
+            }
+
+        async def fake_execute(plan, *, language="de"):
+            assert plan.capability == "calendar_read"
+            assert plan.connection_ref == "primary-calendar"
+            assert plan.path == "today"
+            assert language == "de"
+            return "1. Team-Standup [2026-04-22 09:00]"
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+        pipeline._executor_registry.register("google_calendar", "calendar_read", fake_execute)
+
+        result = await pipeline.process("was steht heute in meinem kalender?", user_id="u1", source="test", language="de")
+
+        assert result.text == "1. Team-Standup [2026-04-22 09:00]"
+        assert result.intents == ["capability:calendar_read"]
+        assert result.pending_action is None
+        assert result.skill_errors == []
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_returns_pending_confirmation(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "discord", "ref": "alerts"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "discord_send",
+                        "connection_kind": "discord",
+                        "connection_ref": "alerts",
+                        "content": "ARIA Testnachricht",
+                        "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {
+                    "decision": {
+                        "action": "ask_user",
+                        "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden.",
+                    }
+                },
+                "execution_debug": {
+                    "decision": {
+                        "next_step": "ask_user",
+                        "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
+                    }
+                },
+            }
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+        result = await pipeline.process("schick eine testnachricht", user_id="u1", source="test", language="de")
+
+        assert result.intents == ["capability:discord_send"]
+        assert result.pending_action is not None
+        assert result.pending_action["candidate_id"] == "discord_send_message"
+        assert result.pending_action["payload"]["capability"] == "discord_send"
+        assert "noch nachfragen" in result.text
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_ssh_alias_runs_before_legacy_fallbacks(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "ssh": {
+                        "pihole1": {
+                            "host": "pihole1.lan",
+                            "user": "root",
+                            "aliases": ["dns server"],
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_health_check"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "ssh_command",
+                        "connection_kind": "ssh",
+                        "connection_ref": "pihole1",
+                        "content": "uptime",
+                        "preview": "SSH command: uptime",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
+                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: uptime"}},
+            }
+
+        async def fake_execute(plan, *, language="de"):
+            assert plan.capability == "ssh_command"
+            assert plan.connection_ref == "pihole1"
+            assert language == "de"
+            return "Host läuft seit 5 Tagen."
+
+        async def _unexpected(*_args, **_kwargs):
+            raise AssertionError("Legacy capability path should not run when unified routing resolves the SSH alias.")
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+        pipeline._try_ssh_command_action = _unexpected  # type: ignore[method-assign]
+        pipeline._try_capability_action = _unexpected  # type: ignore[method-assign]
+
+        result = await pipeline.process("checke die healht auf meinem dns server", user_id="u1", source="test", language="de")
+
+        assert result.text == "Host läuft seit 5 Tagen."
+        assert result.intents == ["capability:ssh_command"]
+        assert result.pending_action is None
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_discord_channel_runs_before_legacy_fallbacks(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "discord": {
+                        "fischerman-aria-messages": {
+                            "title": "fischerman-aria-messages",
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "discord", "ref": "fischerman-aria-messages"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "discord_send",
+                        "connection_kind": "discord",
+                        "connection_ref": "fischerman-aria-messages",
+                        "content": "ARIA Testnachricht",
+                        "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {"decision": {"action": "ask_user", "reason_label": "Das Ziel ist noch nicht eindeutig bestaetigt."}},
+                "execution_debug": {"decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/fischerman-aria-messages noch nachfragen."}},
+            }
+
+        async def _unexpected(*_args, **_kwargs):
+            raise AssertionError("Legacy capability path should not run when unified routing resolves the Discord request.")
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._try_ssh_command_action = _unexpected  # type: ignore[method-assign]
+        pipeline._try_capability_action = _unexpected  # type: ignore[method-assign]
+
+        result = await pipeline.process(
+            "schick eine testnachricht an meinen alerts channel",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+
+        assert result.intents == ["capability:discord_send"]
+        assert result.pending_action is not None
+        assert result.pending_action["candidate_id"] == "discord_send_message"
+        assert "noch nachfragen" in result.text
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "ssh", "ref": "srv-a"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "ssh_command",
+                        "connection_kind": "ssh",
+                        "connection_ref": "srv-a",
+                        "content": "rm -rf /tmp/test",
+                        "preview": "SSH command: rm -rf /tmp/test",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {"decision": {"action": "block", "reason_label": "Das aktive Guardrail-Profil blockiert diese Aktion."}},
+                "execution_debug": {"decision": {"next_step": "block", "summary": "ARIA wuerde die geplante Aktion auf ssh/srv-a blockieren."}},
+            }
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+        result = await pipeline.process("fuehre rm -rf aus", user_id="u1", source="test", language="de")
+
+        assert result.pending_action is None
+        assert result.skill_errors == []
+        assert "blockieren" in result.text
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_executes_custom_skill(monkeypatch, tmp_path) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    skills_dir = tmp_path / "data" / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    (skills_dir / "linux-health.json").write_text(
+        json.dumps(
+            {
+                "id": "linux-health",
+                "name": "Linux Health",
+                "router_keywords": ["linux health"],
+                "connections": ["ssh"],
+                "steps": [
+                    {
+                        "id": "s1",
+                        "type": "chat_send",
+                        "name": "Chat",
+                        "params": {"chat_message": "Linux Health OK"},
+                        "on_error": "stop",
+                    }
+                ],
+                "enabled_default": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.yaml").write_text(
+        "skills:\n  custom:\n    linux-health:\n      enabled: true\n",
+        encoding="utf-8",
+    )
+
+    pipeline._custom_skills_dir = skills_dir
+    pipeline._config_path = config_dir / "config.yaml"
+    pipeline._custom_skill_cache = {"sign": None, "rows": []}
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "decision": {"found": True, "kind": "ssh", "ref": "srv-a"},
+            "action_debug": {"decision": {"found": True, "candidate_kind": "skill", "candidate_id": "linux-health"}},
+            "payload_debug": {
+                "payload": {
+                    "found": True,
+                    "capability": "custom_skill",
+                    "connection_kind": "ssh",
+                    "connection_ref": "srv-a",
+                    "preview": "Chat-Antwort ueber Skill senden",
+                    "missing_fields": [],
+                    "skill_id": "linux-health",
+                }
+            },
+            "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
+            "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/srv-a direkt ausfuehren: Chat-Antwort ueber Skill senden"}},
+        }
+
+    monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+
+    result = asyncio.run(
+        pipeline.process(
+            "mach bitte den linux health check",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.text == "Linux Health OK"
+    assert "custom_skill:linux-health" in result.intents
+    assert result.pending_action is None
 
 
 def test_pipeline_english_prompt_wrapper_follows_request_language() -> None:
@@ -340,6 +817,81 @@ def test_pipeline_explicit_web_search_skips_auto_memory_recall() -> None:
         assert result.detail_lines == ["Quelle: Rabbit Update · https://example.org/rabbit · startpage"]
         assert fake_memory.calls == []
         assert llm.calls == 1
+
+    asyncio.run(_run())
+
+
+def test_pipeline_passes_notes_context_into_regular_web_search() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        captured: dict[str, object] = {}
+
+        class _FakeWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                assert "Google Calendar OAuth" in query
+                note_rows = list(params.get("note_context_hits", []) or [])
+                assert len(note_rows) == 1
+                assert note_rows[0]["title"] == "Google OAuth"
+                captured["note_context_hits"] = note_rows
+                return SkillResult(
+                    skill_name="web_search",
+                    content="[Web Search via web-search]\nSuche: Google Calendar OAuth",
+                    success=True,
+                    metadata={"detail_lines": ["Quelle: Example · https://example.org · duckduckgo"]},
+                )
+
+        pipeline.web_search_skill = _FakeWebSearchSkill()
+
+        async def _fake_note_hits(**kwargs):
+            _ = kwargs
+            return [
+                NotesContextHit(
+                    note_id="n1",
+                    title="Google OAuth",
+                    folder="Recherche",
+                    relative_path="Recherche/google-oauth.md",
+                    updated_at="2026-04-23T12:00:00+00:00",
+                    score=0.91,
+                    snippet="Audience, Test users und OAuth Playground",
+                    source="markdown",
+                )
+            ]
+
+        with patch.object(skill_runtime_mod, "search_note_hits", _fake_note_hits):
+            result = await pipeline.process("suche im web nach Google Calendar OAuth", user_id="u1", source="test")
+
+        assert result.text == "ok"
+        assert result.intents == ["web_search"]
+        assert result.detail_lines == ["Quelle: Example · https://example.org · duckduckgo"]
+        assert captured["note_context_hits"] == [
+            {
+                "note_id": "n1",
+                "title": "Google OAuth",
+                "folder": "Recherche",
+                "relative_path": "Recherche/google-oauth.md",
+                "updated_at": "2026-04-23T12:00:00+00:00",
+                "score": 0.91,
+                "snippet": "Audience, Test users und OAuth Playground",
+                "chunk_index": 0,
+                "chunk_total": 0,
+                "source": "markdown",
+            }
+        ]
 
     asyncio.run(_run())
 
@@ -1408,16 +1960,11 @@ def test_pipeline_capability_router_sftp_write_direct_response() -> None:
     )
 
     assert result.intents == ["capability:file_write"]
-    assert result.text == "WROTE /tmp/info.txt via server-main: Hallo ARIA"
-    assert result.detail_lines == [
-        "Ausgeführt via SFTP-Profil `server-main`",
-        "Pfad: /tmp/info.txt",
-    ]
-    assert called == {
-        "connection_ref": "server-main",
-        "remote_path": "/tmp/info.txt",
-        "content": "Hallo ARIA",
-    }
+    assert result.pending_action is not None
+    assert result.pending_action["payload"]["capability"] == "file_write"
+    assert result.pending_action["payload"]["path"] == "/tmp/info.txt"
+    assert result.pending_action["payload"]["content"] == "Hallo ARIA"
+    assert called == {}
     assert llm.calls == 0
 
 
@@ -1558,6 +2105,13 @@ def test_pipeline_capability_router_uses_recent_context_for_same_server_phrase()
                 source="test",
             )
         )
+        context_store.remember_action(
+            "u1",
+            capability="file_write",
+            connection_kind="sftp",
+            connection_ref="server-main",
+            path="/tmp/info.txt",
+        )
         second = asyncio.run(
             pipeline.process(
                 "Lies mir wie letztes Mal die Datei /etc/hosts",
@@ -1567,8 +2121,9 @@ def test_pipeline_capability_router_uses_recent_context_for_same_server_phrase()
         )
 
         assert first.intents == ["capability:file_write"]
+        assert first.pending_action is not None
+        assert write_calls == []
         assert second.intents == ["capability:file_read"]
-        assert write_calls == [("server-main", "/tmp/info.txt", "Hallo")]
         assert read_calls == [("server-main", "/etc/hosts")]
         assert second.detail_lines == [
             "Ausgeführt via SFTP-Profil `server-main`",
@@ -2164,11 +2719,12 @@ def test_pipeline_capability_router_sends_webhook_via_explicit_profile() -> None
     )
 
     assert result.intents == ["capability:webhook_send"]
-    assert result.text == "Webhook gesendet via `incident-hook`"
-    assert result.detail_lines == [
-        "Ausgeführt via Webhook-Profil `incident-hook`",
-    ]
-    assert calls == [("incident-hook", "Server down auf mgmt")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "webhook_send_message"
+    assert result.pending_action["payload"]["capability"] == "webhook_send"
+    assert result.detail_lines == []
+    assert calls == []
     assert llm.calls == 0
 
 
@@ -2209,11 +2765,12 @@ def test_pipeline_capability_router_sends_webhook_via_explicit_ref_name() -> Non
     )
 
     assert result.intents == ["capability:webhook_send"]
-    assert result.text == "Webhook n8n-test-webhook: ARIA was here"
-    assert result.detail_lines == [
-        "Ausgeführt via Webhook-Profil `n8n-test-webhook`",
-    ]
-    assert calls == [("n8n-test-webhook", "ARIA was here")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "webhook_send_message"
+    assert result.pending_action["payload"]["capability"] == "webhook_send"
+    assert result.detail_lines == []
+    assert calls == []
     assert llm.calls == 0
 
 
@@ -2306,11 +2863,10 @@ def test_pipeline_capability_router_sends_discord_via_explicit_profile() -> None
     )
 
     assert result.intents == ["capability:discord_send"]
-    assert result.text == "Discord gesendet via `alerts-discord`"
-    assert result.detail_lines == [
-        "Ausgeführt via Discord-Profil `alerts-discord`",
-    ]
-    assert calls == [("alerts-discord", "ARIA lebt")]
+    assert result.pending_action is not None
+    assert result.pending_action["payload"]["capability"] == "discord_send"
+    assert result.pending_action["payload"]["content"] == "ARIA lebt"
+    assert calls == []
     assert llm.calls == 0
 
 
@@ -2352,11 +2908,136 @@ def test_pipeline_capability_router_sends_discord_via_metadata_title_alias() -> 
     )
 
     assert result.intents == ["capability:discord_send"]
-    assert result.text == "Discord gesendet via `alerts-discord`"
-    assert result.detail_lines == [
-        "Ausgeführt via Discord-Profil `alerts-discord`",
-    ]
-    assert calls == [("alerts-discord", "ARIA lebt")]
+    assert result.pending_action is not None
+    assert result.pending_action["payload"]["capability"] == "discord_send"
+    assert result.pending_action["payload"]["content"] == "ARIA lebt"
+    assert calls == []
+
+
+def test_pipeline_discord_missing_message_returns_pending_action() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "discord": {
+                    "alerts-discord": {
+                        "webhook_url": "https://discord.example/webhook",
+                        "allow_skill_messages": True,
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    result = asyncio.run(
+        pipeline.process(
+            "schick an alerts-discord",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:discord_send"]
+    assert "Ich kann das nach Discord senden" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "discord_send_message"
+    assert result.pending_action["action_decision"]["missing_input"] == "message"
+    assert result.pending_action["payload"]["connection_ref"] == "alerts-discord"
+
+
+def test_pipeline_can_continue_pending_discord_message_input() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "discord": {
+                    "alerts-discord": {
+                        "webhook_url": "https://discord.example/webhook",
+                        "allow_skill_messages": True,
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    preview = asyncio.run(
+        pipeline.process(
+            "schick an alerts-discord",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert preview.pending_action is not None
+
+    continued = asyncio.run(
+        pipeline.continue_pending_routed_action_input(
+            preview.pending_action,
+            "ARIA lebt",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert continued.intents == ["capability:discord_send"]
+    assert "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden." in continued.text
+    assert continued.pending_action is not None
+    assert continued.pending_action["payload"]["capability"] == "discord_send"
+    assert continued.pending_action["payload"]["content"] == "ARIA lebt"
+
+
+def test_pipeline_can_continue_pending_discord_message_input_from_natural_followup() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "discord": {
+                    "alerts-discord": {
+                        "webhook_url": "https://discord.example/webhook",
+                        "allow_skill_messages": True,
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    preview = asyncio.run(
+        pipeline.process(
+            "schick an alerts-discord",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert preview.pending_action is not None
+
+    continued = asyncio.run(
+        pipeline.continue_pending_routed_action_input(
+            preview.pending_action,
+            "schreib einfach TESTNACHRICHT",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert continued.intents == ["capability:discord_send"]
+    assert continued.pending_action is not None
+    assert continued.pending_action["payload"]["capability"] == "discord_send"
+    assert continued.pending_action["payload"]["content"] == "TESTNACHRICHT"
 
 
 def test_pipeline_qdrant_connection_routing_is_feature_flagged_off_by_default(monkeypatch) -> None:
@@ -2478,10 +3159,14 @@ def test_pipeline_qdrant_connection_routing_resolves_profile_when_enabled(monkey
     qdrant = FakeQdrant()
     monkeypatch.setattr(pipeline_mod, "create_async_qdrant_client", lambda **_kwargs: qdrant)
 
-    async def fake_status(_settings: object) -> dict[str, object]:
-        return {"status": "ok", "stale": False, "message": "Routing index ready."}
+    async def fake_ensure(_settings: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "status": {"status": "ok", "stale": False, "message": "Routing index ready."},
+            "refresh_attempted": False,
+            "refresh_result": None,
+        }
 
-    monkeypatch.setattr(pipeline_mod, "build_connection_routing_index_status", fake_status)
+    monkeypatch.setattr(pipeline_mod, "ensure_connection_routing_index_ready", fake_ensure)
 
     llm = FakeLLMClient()
     pipeline = Pipeline(
@@ -2507,17 +3192,19 @@ def test_pipeline_qdrant_connection_routing_resolves_profile_when_enabled(monkey
     )
 
     assert result.intents == ["capability:discord_send"]
-    assert result.text == "Discord gesendet via `alerts-main`"
-    assert calls == [("alerts-main", "ARIA lebt")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "discord_send_message"
+    assert result.pending_action["payload"]["capability"] == "discord_send"
+    assert calls == []
     assert qdrant.queries == 1
     assert result.detail_lines == [
         "Routing: Qdrant selected `discord/alerts-main` score=0.910 source=qdrant_routing.",
-        "Ausgeführt via Discord-Profil `alerts-main`",
     ]
     assert llm.calls == 0
 
 
-def test_pipeline_qdrant_connection_routing_skips_stale_index(monkeypatch) -> None:
+def test_pipeline_qdrant_connection_routing_auto_refreshes_stale_index(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
@@ -2548,36 +3235,40 @@ def test_pipeline_qdrant_connection_routing_skips_stale_index(monkeypatch) -> No
             return SimpleNamespace(vectors=[[0.1, 0.2, 0.3] for _ in inputs], usage={}, model="fake-embed")
 
     class FakeQdrant:
-        async def get_collections(self) -> object:
-            return SimpleNamespace(collections=[SimpleNamespace(name=collection)])
-
-        async def get_collection(self, collection_name: str) -> object:
-            return SimpleNamespace(
-                points_count=2,
-                config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=3))),
-            )
-
-        async def scroll(self, **_kwargs: object) -> tuple[list[object], None]:
-            return [SimpleNamespace(payload={"routing_index_hash": "old-hash"})], None
-
         async def collection_exists(self, collection_name: str) -> bool:
             return collection_name == collection
 
+        async def get_collection(self, collection_name: str) -> object:
+            assert collection_name == collection
+            return SimpleNamespace(config=SimpleNamespace(params=SimpleNamespace(vectors=SimpleNamespace(size=3))))
+
         async def query_points(self, **_kwargs: object) -> list[object]:
-            raise AssertionError("stale routing index must not be queried")
+            return [
+                SimpleNamespace(
+                    score=0.91,
+                    payload={
+                        "scope": "connection",
+                        "kind": "discord",
+                        "ref": "alerts-main",
+                        "title": "Infrastructure Alerts",
+                    },
+                )
+            ]
 
         async def close(self) -> None:
             return None
 
-    def fail_qdrant_client(**_kwargs):  # noqa: ANN001
-        raise AssertionError("stale routing index must not be queried")
+    qdrant = FakeQdrant()
+    monkeypatch.setattr(pipeline_mod, "create_async_qdrant_client", lambda **_kwargs: qdrant)
 
-    monkeypatch.setattr(pipeline_mod, "create_async_qdrant_client", fail_qdrant_client)
+    async def fake_ensure(_settings: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "status": {"status": "ok", "stale": False, "message": "Routing index ready."},
+            "refresh_attempted": True,
+            "refresh_result": {"status": "ok", "message": "Routing index rebuilt."},
+        }
 
-    async def fake_status(_settings: object) -> dict[str, object]:
-        return {"status": "warn", "stale": True, "message": "Routing index may be outdated; rebuild recommended."}
-
-    monkeypatch.setattr(pipeline_mod, "build_connection_routing_index_status", fake_status)
+    monkeypatch.setattr(pipeline_mod, "ensure_connection_routing_index_ready", fake_ensure)
 
     llm = FakeLLMClient()
     pipeline = Pipeline(
@@ -2586,11 +3277,6 @@ def test_pipeline_qdrant_connection_routing_skips_stale_index(monkeypatch) -> No
         llm_client=llm,
         embedding_client=FakeEmbeddingClient(),
     )
-
-    def fail_discord_send(connection_ref: str, content: str, *, language: str = "de") -> str:
-        raise AssertionError(f"Discord send should be skipped, got {connection_ref=} {content=} {language=}")
-
-    pipeline._skill_runtime.execute_discord_send = fail_discord_send  # type: ignore[method-assign]
 
     result = asyncio.run(
         pipeline.process(
@@ -2601,9 +3287,11 @@ def test_pipeline_qdrant_connection_routing_skips_stale_index(monkeypatch) -> No
     )
 
     assert result.intents == ["capability:discord_send"]
-    assert "welches Discord-Profil" in result.text
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["payload"]["connection_ref"] == "alerts-main"
     assert result.detail_lines == [
-        "Routing: Qdrant skipped because the routing index is outdated.",
+        "Routing: Qdrant selected `discord/alerts-main` score=0.910 source=qdrant_routing.",
     ]
     assert llm.calls == 0
 
@@ -2762,10 +3450,11 @@ def test_pipeline_explicit_capability_beats_custom_skill_when_profile_is_explici
         )
 
         assert result.intents == ["capability:discord_send"]
-        assert result.text == "Discord message sent via `alerts-discord`"
-        assert result.detail_lines == [
-            "Executed via Discord profile `alerts-discord`",
-        ]
+        assert "ask for confirmation" in result.text
+        assert result.pending_action is not None
+        assert result.pending_action["candidate_id"] == "discord_send_message"
+        assert result.pending_action["payload"]["capability"] == "discord_send"
+        assert result.detail_lines == []
         assert llm.calls == 0
 
 
@@ -3333,11 +4022,12 @@ def test_pipeline_capability_router_sends_email_via_explicit_profile() -> None:
     )
 
     assert result.intents == ["capability:email_send"]
-    assert result.text == "Mail gesendet via `alerts-mail` an ops@example.org"
-    assert result.detail_lines == [
-        "Ausgeführt via SMTP-Profil `alerts-mail`",
-    ]
-    assert calls == [("alerts-mail", "Backup erfolgreich abgeschlossen")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "email_send_message"
+    assert result.pending_action["payload"]["capability"] == "email_send"
+    assert result.detail_lines == []
+    assert calls == []
     assert llm.calls == 0
 
 
@@ -3381,11 +4071,12 @@ def test_pipeline_capability_router_sends_email_via_metadata_title_alias() -> No
     )
 
     assert result.intents == ["capability:email_send"]
-    assert result.text == "Mail gesendet via `alerts-mail`"
-    assert result.detail_lines == [
-        "Ausgeführt via SMTP-Profil `alerts-mail`",
-    ]
-    assert calls == [("alerts-mail", "Backup erfolgreich abgeschlossen")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "email_send_message"
+    assert result.pending_action["payload"]["capability"] == "email_send"
+    assert result.detail_lines == []
+    assert calls == []
     assert llm.calls == 0
 
 
@@ -3564,12 +4255,13 @@ def test_pipeline_capability_router_publishes_mqtt_via_explicit_profile() -> Non
     )
 
     assert result.intents == ["capability:mqtt_publish"]
-    assert result.text == "MQTT gesendet via `event-bus` auf Topic `aria/events`"
-    assert result.detail_lines == [
-        "Ausgeführt via MQTT-Profil `event-bus`",
-        "Topic: aria/events",
-    ]
-    assert calls == [("event-bus", "aria/events", "Backup fertig")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "mqtt_publish_message"
+    assert result.pending_action["payload"]["capability"] == "mqtt_publish"
+    assert result.pending_action["payload"]["path"] == "aria/events"
+    assert result.detail_lines == []
+    assert calls == []
     assert llm.calls == 0
 
 
@@ -3612,10 +4304,11 @@ def test_pipeline_capability_router_publishes_mqtt_via_metadata_title_alias() ->
     )
 
     assert result.intents == ["capability:mqtt_publish"]
-    assert result.text == "MQTT gesendet via `event-bus` auf Topic `aria/events`"
-    assert result.detail_lines == [
-        "Ausgeführt via MQTT-Profil `event-bus`",
-        "Topic: aria/events",
-    ]
-    assert calls == [("event-bus", "aria/events", "Backup fertig")]
+    assert "ask for confirmation" in result.text
+    assert result.pending_action is not None
+    assert result.pending_action["candidate_id"] == "mqtt_publish_message"
+    assert result.pending_action["payload"]["capability"] == "mqtt_publish"
+    assert result.pending_action["payload"]["path"] == "aria/events"
+    assert result.detail_lines == []
+    assert calls == []
     assert llm.calls == 0

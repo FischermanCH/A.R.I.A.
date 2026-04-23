@@ -95,6 +95,46 @@ def test_updates_page_renders_release_notes(monkeypatch) -> None:
     assert "aria --version" in response.text
     assert "Sichere Update-Sequenz" in response.text or "Safe update sequence" in response.text
     assert "aria-pull" in response.text
+    assert "memory-subnav-item" in response.text
+    assert "/config/operations" in response.text
+
+
+def test_updates_page_is_public_but_hides_managed_controls_for_anonymous(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main_mod,
+        "_read_release_meta",
+        lambda _base_dir: {
+            "version": "0.1.0",
+            "label": "0.1.0-alpha127",
+        },
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "_get_update_status",
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
+            "current_label": "0.1.0-alpha127",
+            "latest_label": "0.1.0-alpha127",
+            "latest_tag": "v0.1.0-alpha.127",
+            "update_available": False,
+            "checked_at": "2026-04-18T10:00:00+00:00",
+            "source": "github-tags",
+            "release_notes": "## [0.1.0-alpha.127] - 2026-04-19",
+            "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005
+
+    client = TestClient(main_mod.app)
+    response = client.get("/updates")
+
+    assert response.status_code == 200
+    assert "Updates" in response.text or "Update" in response.text
+    assert "Einstellungen" in response.text or "Settings" in response.text
+    assert "Kontrolliertes Update" not in response.text and "Controlled update" not in response.text
+    assert "Update starten" not in response.text and "Start update" not in response.text
 
 
 def test_updates_page_shows_managed_update_controls_for_admin(monkeypatch) -> None:
@@ -145,6 +185,7 @@ def test_updates_page_shows_managed_update_controls_for_admin(monkeypatch) -> No
 
     assert response.status_code == 200
     assert "Kontrolliertes Update" in response.text or "Controlled update" in response.text
+    assert 'id="updates-primary"' in response.text
     assert "Update starten" in response.text or "Start update" in response.text
     assert "Update completed successfully." in response.text
 
@@ -373,6 +414,29 @@ def test_updates_run_rejects_non_admin(monkeypatch) -> None:
 
     assert response.status_code == 303
     assert response.headers["location"] == "/updates?error=no_admin"
+
+
+def test_updates_run_rejects_anonymous_even_with_valid_csrf(monkeypatch) -> None:
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "trigger_update_helper_run", lambda _config: {"status": "accepted"})
+
+    client = TestClient(main_mod.app)
+    client.get("/updates")
+    csrf_token = client.cookies.get(_scoped_cookie(main_mod.CSRF_COOKIE), "")
+    response = client.post("/updates/run", data={"csrf_token": csrf_token}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/updates?error=no_admin"
+
+
+def test_updates_status_rejects_anonymous() -> None:
+    client = TestClient(main_mod.app)
+
+    response = client.get("/updates/status")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin rights required."
 
 
 def test_updates_status_returns_helper_payload_for_admin(monkeypatch) -> None:

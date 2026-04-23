@@ -243,6 +243,29 @@ def test_capability_router_detects_http_api_request() -> None:
     assert draft.path == "/health"
 
 
+def test_capability_router_detects_calendar_read_for_google_calendar_profiles() -> None:
+    router = CapabilityRouter()
+
+    draft = router.classify(
+        "Was steht morgen in meinem Kalender?",
+        available_connection_refs_by_kind={"google_calendar": ["primary-calendar"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "calendar_read"
+    assert draft.connection_kind == "google_calendar"
+    assert draft.explicit_connection_ref == ""
+    assert draft.path == "tomorrow"
+
+
+def test_capability_router_leaves_calendar_read_requests_without_google_calendar_profiles_unclaimed() -> None:
+    router = CapabilityRouter()
+
+    draft = router.classify("Was steht morgen in meinem Kalender?")
+
+    assert draft is None
+
+
 def test_capability_router_prefers_http_api_ref_over_similar_webhook_ref() -> None:
     router = CapabilityRouter()
     draft = router.classify(
@@ -270,6 +293,20 @@ def test_capability_router_detects_email_send() -> None:
     assert draft.connection_kind == "email"
     assert draft.explicit_connection_ref == "alerts-mail"
     assert draft.content == "Backup erfolgreich abgeschlossen"
+
+
+def test_capability_router_keeps_unknown_email_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        'Send email to ops-mail "Backup finished successfully"',
+        language="en",
+        available_connection_refs_by_kind={"email": ["alerts-mail"]},
+    )
+    assert draft is not None
+    assert draft.capability == "email_send"
+    assert draft.connection_kind == "email"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "ops-mail"
 
 
 def test_capability_router_detects_email_send_via_title_alias_without_mail_keyword() -> None:
@@ -361,6 +398,21 @@ def test_capability_router_detects_ssh_command_on_explicit_profile() -> None:
     assert draft.content == "uptime"
 
 
+def test_capability_router_keeps_unknown_ssh_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Run uptime on backup-node",
+        language="en",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "backup-node"
+    assert draft.content == "uptime"
+
+
 def test_capability_router_detects_ssh_command_with_trimmed_profile_ref() -> None:
     router = CapabilityRouter()
     draft = router.classify(
@@ -441,6 +493,36 @@ def test_capability_router_detects_natural_ssh_uptime_request_without_target_for
     assert draft.content == "uptime"
 
 
+def test_capability_router_normalizes_natural_disk_check_to_df_h() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "check mal die festplatte auf meinen dns server",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_aliases_by_kind={"ssh": {"pihole1": ["dns server"]}},
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "df -h"
+
+
+def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "check mit dem befehl df wieviel festplatte noch frei ist auf meinen dns server",
+        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_aliases_by_kind={"ssh": {"pihole1": ["dns server"]}},
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.content == "df -h"
+
+
 def test_capability_router_detects_english_file_read_phrase() -> None:
     router = CapabilityRouter()
     draft = router.classify(
@@ -481,6 +563,38 @@ def test_capability_router_keeps_unknown_explicit_discord_target_as_requested_re
     assert draft.connection_kind == "discord"
     assert draft.explicit_connection_ref == ""
     assert draft.requested_connection_ref == "alerts-discord"
+
+
+def test_capability_router_ignores_generic_discord_channel_token_as_requested_ref() -> None:
+    router = CapabilityRouter()
+
+    draft = router.classify(
+        'Send a test message to Discord channel "ARIA lives"',
+        language="en",
+        available_connection_refs_by_kind={"discord": ["fischerman-aria-messages"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "discord_send"
+    assert draft.connection_kind == "discord"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == ""
+
+
+def test_capability_router_keeps_multiword_discord_requested_ref_phrase() -> None:
+    router = CapabilityRouter()
+
+    draft = router.classify(
+        'Send a test message to Discord my ops alerts channel "ARIA lives"',
+        language="en",
+        available_connection_refs_by_kind={"discord": ["fischerman-aria-messages"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "discord_send"
+    assert draft.connection_kind == "discord"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "ops alerts channel"
 
 
 def test_capability_router_does_not_steal_english_web_search_as_feed_read() -> None:

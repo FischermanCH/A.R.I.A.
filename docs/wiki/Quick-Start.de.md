@@ -11,7 +11,14 @@ Empfohlener Weg:
    - Chat-LLM
    - Embeddings
    - Memory
+   - die ersten Connections unter `/connections/types`
 5. den ersten Prompt testen
+
+Sinnvolle erste Alltagsbereiche nach dem Setup:
+
+- `/notes` fuer schnelle Markdown-Notizen
+- `/connections/types` fuer RSS, Beobachtete Webseiten oder Google Calendar
+- `/memories` fuer semantische Erinnerung und Dokumente
 
 Wichtige Deployment-Referenzen:
 

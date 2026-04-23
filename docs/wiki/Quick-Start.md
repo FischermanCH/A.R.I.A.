@@ -11,7 +11,14 @@ Recommended path:
    - chat LLM
    - embeddings
    - memory
+   - first connections under `/connections/types`
 5. test the first prompt
+
+Useful first daily-use areas after setup:
+
+- `/notes` for quick Markdown notes
+- `/connections/types` for RSS, Watched Websites, or Google Calendar
+- `/memories` for semantic memory and documents
 
 Core deployment references:
 

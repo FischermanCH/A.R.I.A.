@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.parse import urlparse
+from urllib.parse import parse_qs
+
 from aria.web.memories_routes import (
     _document_matches_filter,
     _memory_collection_link,
     _memory_document_link,
+    _build_notes_collection_rows,
     _build_routing_collection_rows,
     _build_memory_graph,
     _build_document_collection_groups,
@@ -20,7 +25,11 @@ from aria.web.memories_routes import (
     _resolve_document_target_collection,
 )
 from fastapi import UploadFile as FastAPIUploadFile
+from fastapi import FastAPI, Request
+from fastapi.templating import Jinja2Templates
+from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile as StarletteUploadFile
+from types import SimpleNamespace
 
 
 def _sanitize_collection_name(value: str | None) -> str:
@@ -31,6 +40,99 @@ def _sanitize_collection_name(value: str | None) -> str:
     clean = re.sub(r"[^a-zA-Z0-9_-]", "_", value).strip("_")
     clean = re.sub(r"_+", "_", clean)
     return clean[:64]
+
+
+def _build_memories_app() -> TestClient:
+    app = FastAPI()
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
+    templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+
+    settings = SimpleNamespace(
+        ui=SimpleNamespace(title="Memories Test"),
+        memory=SimpleNamespace(
+            backend="qdrant",
+            enabled=True,
+            qdrant_url="http://qdrant.local:6333",
+            qdrant_api_key="secret-key",
+            compression_summary_prompt="prompts/memory_summary.md",
+            collections=SimpleNamespace(
+                sessions=SimpleNamespace(
+                    compress_after_days=7,
+                    monthly_after_days=30,
+                )
+            ),
+        ),
+        auto_memory=SimpleNamespace(
+            enabled=True,
+            session_recall_top_k=4,
+            user_recall_top_k=4,
+            max_facts_per_message=3,
+        ),
+    )
+
+    class _MemorySkill:
+        async def get_user_collection_stats(self, _username: str) -> list[dict[str, object]]:
+            return [{"name": "aria_facts_tester", "points": 12}]
+
+    pipeline = SimpleNamespace(memory_skill=_MemorySkill())
+
+    @app.middleware("http")
+    async def _inject_state(request: Request, call_next):
+        request.state.authenticated = True
+        request.state.auth_user = "tester"
+        request.state.auth_role = "admin"
+        request.state.can_access_users = False
+        request.state.can_access_advanced_config = True
+        request.state.debug_mode = True
+        request.state.lang = "en"
+        request.state.cookie_names = {}
+        request.state.csrf_token = "test-csrf"
+        request.state.release_meta = {"label": "test"}
+        request.state.update_status = SimpleNamespace(update_available=False)
+        request.state.ui_theme = "matrix"
+        request.state.ui_background = "grid"
+        request.state.logical_back_url = ""
+        return await call_next(request)
+
+    from aria.web.memories_routes import register_memories_routes
+
+    async def _qdrant_overview(_request: Request) -> dict[str, object]:
+        return {
+            "reachable": True,
+            "collections": [
+                {"name": "aria_facts_tester", "points": 12, "status": "ok"},
+                {"name": "aria_notes_tester", "points": 6, "status": "ok"},
+                {"name": "aria_docs_tester_manuals", "points": 8, "status": "ok"},
+                {"name": "aria_routing_connections_aria_8800", "points": 5, "status": "green"},
+            ],
+            "collection_count": 4,
+        }
+
+    register_memories_routes(
+        app,
+        templates=templates,
+        get_settings=lambda: settings,
+        get_pipeline=lambda: pipeline,
+        get_username_from_request=lambda _request: "tester",
+        get_auth_session_from_request=lambda _request: {"role": "admin"},
+        sanitize_role=lambda value: str(value or "").strip().lower(),
+        qdrant_overview=_qdrant_overview,
+        qdrant_dashboard_url=lambda _request: "http://qdrant.local:6333/dashboard",
+        parse_collection_day_suffix=lambda _value: None,
+        sanitize_collection_name=_sanitize_collection_name,
+        default_memory_collection_for_user=lambda username: f"aria_facts_{username.lower()}",
+        get_effective_memory_collection=lambda _request, username: f"aria_facts_{username.lower()}",
+        is_auto_memory_enabled=lambda _request: True,
+        read_raw_config=lambda: {},
+        write_raw_config=lambda _raw: None,
+        reload_runtime=lambda: None,
+        resolve_prompt_file=lambda value: Path("/tmp") / value,
+        get_secure_store=lambda _raw=None: None,
+        memory_collection_cookie="aria_memory_collection",
+        auto_memory_cookie="aria_auto_memory",
+    )
+    return TestClient(app)
 
 
 def test_default_document_collection_for_user_uses_docs_prefix() -> None:
@@ -64,6 +166,22 @@ def test_build_routing_collection_rows_keeps_only_system_routing_collections() -
     assert all(row["kind"] == "routing" for row in rows)
     assert all(row["browse_url"] == "/config/routing" for row in rows)
     assert rows[0]["share_pct"] == 93
+
+
+def test_build_notes_collection_rows_keeps_only_active_user_notes_collection() -> None:
+    rows = _build_notes_collection_rows(
+        [
+            {"name": "aria_notes_tester", "points": 6, "status": "ok"},
+            {"name": "aria_notes_other", "points": 3, "status": "ok"},
+            {"name": "aria_facts_tester", "points": 12, "status": "ok"},
+        ],
+        username="tester",
+        browse_url="/notes",
+    )
+
+    assert [row["name"] for row in rows] == ["aria_notes_tester"]
+    assert rows[0]["kind"] == "notes"
+    assert rows[0]["browse_url"] == "/notes"
 
 
 def test_normalize_document_collection_name_adds_docs_prefix() -> None:
@@ -141,6 +259,174 @@ def test_build_document_entries_groups_chunks_by_document() -> None:
     assert entries[0]["collection"] == "aria_docs_manuals"
 
 
+def test_memories_overview_page_renders_unified_memory_hub() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories")
+
+    assert response.status_code == 200
+    assert "Memory Overview" in response.text
+    assert "Memory-Graph" in response.text
+    assert "Nächste Schritte" not in response.text
+    assert "/memories#memories-actions" not in response.text
+    assert "Dokumente importieren" in response.text
+    assert "Eigene Memory erfassen" in response.text
+    assert "/memories/config#qdrant-access" in response.text
+    assert '/memories/config#auto-memory' in response.text
+    assert "Qdrant" in response.text
+
+
+def test_memories_map_page_shows_notes_and_routing_collections() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/map")
+
+    assert response.status_code == 200
+    assert "aria_notes_tester" in response.text
+    assert "Notes-Collections" in response.text
+    assert "Routing-Collections" in response.text
+    assert 'href="/notes"' in response.text
+    assert "/config/routing" in response.text
+
+
+def test_memories_explorer_stays_focused_on_browsing_not_creation() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/explorer")
+
+    assert response.status_code == 200
+    assert "Memory Explorer" in response.text
+    assert "Dokumente importieren" not in response.text
+    assert "Eigene Memory erfassen" not in response.text
+
+
+def test_memories_root_redirects_legacy_explorer_query_to_new_explorer_path() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories?type=document&sort=collection", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/memories/explorer?type=document&sort=collection"
+
+
+def test_memory_setup_page_keeps_qdrant_access_in_one_place() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/config")
+
+    assert response.status_code == 200
+    assert response.text.count("Qdrant Dashboard + API-Key kopieren") == 1
+    assert 'id="qdrant-access"' in response.text
+    assert 'data-copy-source="qdrant-url"' in response.text
+    assert 'data-copy-source="qdrant-key"' in response.text
+    assert 'type="password"' in response.text
+    assert 'data-copy-value="secret-key"' in response.text
+    assert 'data-dashboard-url="http://qdrant.local:6333/dashboard"' in response.text
+    assert "Memory backend enabled" not in response.text
+
+
+def test_memory_backend_save_always_keeps_backend_enabled() -> None:
+    app = FastAPI()
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
+    templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+
+    writes: list[dict[str, object]] = []
+    runtime_reloaded = {"called": False}
+
+    settings = SimpleNamespace(
+        ui=SimpleNamespace(title="Memories Test"),
+        memory=SimpleNamespace(
+            backend="qdrant",
+            enabled=True,
+            qdrant_url="http://qdrant.local:6333",
+            qdrant_api_key="secret-key",
+            compression_summary_prompt="prompts/memory_summary.md",
+            collections=SimpleNamespace(
+                sessions=SimpleNamespace(
+                    compress_after_days=7,
+                    monthly_after_days=30,
+                )
+            ),
+        ),
+        auto_memory=SimpleNamespace(
+            enabled=True,
+            session_recall_top_k=4,
+            user_recall_top_k=4,
+            max_facts_per_message=3,
+        ),
+    )
+
+    @app.middleware("http")
+    async def _inject_state(request: Request, call_next):
+        request.state.authenticated = True
+        request.state.auth_user = "tester"
+        request.state.auth_role = "admin"
+        request.state.can_access_users = False
+        request.state.can_access_advanced_config = True
+        request.state.debug_mode = True
+        request.state.lang = "en"
+        request.state.cookie_names = {}
+        request.state.csrf_token = "test-csrf"
+        request.state.release_meta = {"label": "test"}
+        request.state.update_status = SimpleNamespace(update_available=False)
+        request.state.ui_theme = "matrix"
+        request.state.ui_background = "grid"
+        request.state.logical_back_url = ""
+        return await call_next(request)
+
+    from aria.web.memories_routes import register_memories_routes
+
+    async def _qdrant_overview(_request: Request) -> dict[str, object]:
+        return {"reachable": True, "collections": [], "collection_count": 0}
+
+    def _read_raw_config() -> dict[str, object]:
+        return {"memory": {"enabled": False, "backend": "qdrant", "qdrant_url": "http://old:6333"}}
+
+    def _write_raw_config(raw: dict[str, object]) -> None:
+        writes.append(raw)
+
+    def _reload_runtime() -> None:
+        runtime_reloaded["called"] = True
+
+    register_memories_routes(
+        app,
+        templates=templates,
+        get_settings=lambda: settings,
+        get_pipeline=lambda: SimpleNamespace(memory_skill=None),
+        get_username_from_request=lambda _request: "tester",
+        get_auth_session_from_request=lambda _request: {"role": "admin"},
+        sanitize_role=lambda value: str(value or "").strip().lower(),
+        qdrant_overview=_qdrant_overview,
+        qdrant_dashboard_url=lambda _request: "http://qdrant.local:6333/dashboard",
+        parse_collection_day_suffix=lambda _value: None,
+        sanitize_collection_name=_sanitize_collection_name,
+        default_memory_collection_for_user=lambda username: f"aria_facts_{username.lower()}",
+        get_effective_memory_collection=lambda _request, username: f"aria_facts_{username.lower()}",
+        is_auto_memory_enabled=lambda _request: True,
+        read_raw_config=_read_raw_config,
+        write_raw_config=_write_raw_config,
+        reload_runtime=_reload_runtime,
+        resolve_prompt_file=lambda value: Path("/tmp") / value,
+        get_secure_store=lambda _raw=None: None,
+        memory_collection_cookie="aria_memory_collection",
+        auto_memory_cookie="aria_auto_memory",
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/memories/config/backend-save",
+        data={"backend": "qdrant", "qdrant_url": "http://qdrant:6333", "qdrant_api_key": ""},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert urlparse(response.headers["location"]).path == "/memories/config"
+    assert runtime_reloaded["called"] is True
+    assert writes
+    assert writes[0]["memory"]["enabled"] is True
+
+
 def test_build_document_collection_groups_summarizes_per_collection() -> None:
     entries = [
         {
@@ -201,7 +487,7 @@ def test_memories_redirect_keeps_collection_filter() -> None:
 def test_memory_collection_link_uses_matching_type_for_document_collections() -> None:
     url = _memory_collection_link(kind="document", collection="aria_docs_fischerman_manuals")
 
-    assert url.startswith("/memories?type=document")
+    assert url.startswith("/memories/explorer?type=document")
     assert "collection_filter=aria_docs_fischerman_manuals" in url
 
 
@@ -212,7 +498,7 @@ def test_memory_document_link_points_to_document_chunks_view() -> None:
         document_name="Atlas.pdf",
     )
 
-    assert url.startswith("/memories?type=document")
+    assert url.startswith("/memories/explorer?type=document")
     assert "collection_filter=aria_docs_fischerman" in url
     assert "document_id=doc-42" in url
 
@@ -302,6 +588,15 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
                 "count": 3,
             }
         ],
+        notes_rows=[
+            {
+                "name": "aria_notes_neo",
+                "kind": "notes",
+                "points": 6,
+                "share_pct": 100,
+                "browse_url": "/notes",
+            }
+        ],
         routing_rows=[
             {
                 "name": "aria_routing_connections_neo_8800",
@@ -321,11 +616,20 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
     assert "Dokumente" in labels
     assert "aria_docs_neo_manuals" in labels
     assert "WOCHE" in labels
+    assert "Notizen" in labels
+    assert "aria_notes_neo" in labels
     assert "Routing" in labels
     assert "aria_routing_connections_neo_8800" in labels
     assert "type=document" in str(hrefs.get("aria_docs_neo_manuals", ""))
+    assert hrefs.get("Notizen", "") == "/notes"
+    assert hrefs.get("aria_notes_neo", "") == "/notes"
     assert hrefs.get("Routing", "") == "/config/routing"
     assert hrefs.get("aria_routing_connections_neo_8800", "") == "/config/routing"
+    icons = {node["label"]: node.get("icon", "") for node in graph["nodes"]}
+    assert icons.get("aria_docs_neo_manuals") == "files"
+    assert icons.get("WOCHE") == "llm"
+    assert icons.get("aria_notes_neo") == "notes"
+    assert icons.get("aria_routing_connections_neo_8800") == "routing"
     assert graph["edges"]
 
 

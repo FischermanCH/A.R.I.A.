@@ -7,17 +7,28 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from aria.core.action_plan import ActionPlan, MemoryHints, build_action_plan
-from aria.core.capability_catalog import build_capability_detail_lines, capability_executor_bindings
+from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints, build_action_plan
+from aria.core.action_planner import debug_bounded_action_plan_decision
+from aria.core.capability_catalog import (
+    build_capability_detail_lines,
+    capability_executor_bindings,
+    capability_matches_connection_kind,
+    normalize_capability,
+)
 from aria.core.capability_context import CapabilityContextStore
 from aria.core.capability_router import CapabilityRouter
-from aria.core.connection_catalog import connection_kind_label
+from aria.core.connection_catalog import connection_kind_label, normalize_connection_kind
 from aria.core.connection_semantic_resolver import ConnectionSemanticResolver
 from aria.core.connection_semantic_resolver import build_connection_aliases
 from aria.core.config import RoutingLanguageConfig, Settings
 from aria.core.context import ContextAssembler
 from aria.core.embedding_client import EmbeddingClient
 from aria.core.error_interpreter import ErrorInterpreter
+from aria.core.execution_dry_run import (
+    build_execution_preview_dry_run,
+    build_payload_dry_run,
+    evaluate_guardrail_confirm_dry_run,
+)
 from aria.core.executor_registry import ExecutorRegistry
 from aria.core.llm_client import LLMClient
 from aria.core.memory_assist import MemoryAssistResolver
@@ -25,11 +36,12 @@ from aria.core.prompt_loader import PromptLoader
 from aria.core.pricing_catalog import resolve_litellm_pricing_entry
 from aria.core.router import KeywordRouter
 from aria.core.qdrant_client import create_async_qdrant_client
-from aria.core.routing_admin import build_connection_routing_index_status
+from aria.core.routing_admin import ensure_connection_routing_index_ready
+from aria.core.routing_admin import resolve_connection_routing_chain
 from aria.core.routing_admin import routing_connections_collection_name
 from aria.core.routing_index import DEFAULT_CONNECTION_ROUTING_KINDS
 from aria.core.routing_index import RoutingIndexStore
-from aria.core.routing_resolver import RoutingResolver
+from aria.core.routing_resolver import RoutingResolver, infer_preferred_connection_kind
 from aria.core.safe_fix import SafeFixExecutor, build_safe_fix_plan, extract_held_packages
 from aria.core.skill_runtime import (
     CustomSkillRuntime,
@@ -65,6 +77,7 @@ class PipelineResult:
     total_cost_usd: float | None = None
     safe_fix_plan: list[dict[str, Any]] | None = None
     detail_lines: list[str] = field(default_factory=list)
+    pending_action: dict[str, Any] | None = None
 
 
 class Pipeline:
@@ -138,6 +151,7 @@ class Pipeline:
             "file_write": self._execute_file_write,
             "file_list": self._execute_file_list,
             "feed_read": self._execute_feed_read,
+            "calendar_read": self._execute_calendar_read,
             "webhook_send": self._execute_webhook_send,
             "discord_send": self._execute_discord_send,
             "api_request": self._execute_api_request,
@@ -231,19 +245,17 @@ class Pipeline:
         if clean_kind and clean_kind not in connection_pools:
             return MemoryHints(), [], False
 
-        status = await build_connection_routing_index_status(self.settings)
+        refresh_meta = await ensure_connection_routing_index_ready(
+            self.settings,
+            embedding_client=self.embedding_client,
+        )
+        status = dict(refresh_meta.get("status", {}) or {})
         if status.get("status") == "error":
             return (
                 MemoryHints(),
                 self._routing_debug_line(
                     f"Routing: Qdrant skipped, index status failed: {status.get('detail') or status.get('message') or 'unknown'}"
                 ),
-                self._qdrant_ask_on_low_confidence(),
-            )
-        if bool(status.get("stale")):
-            return (
-                MemoryHints(),
-                self._routing_debug_line("Routing: Qdrant skipped because the routing index is outdated."),
                 self._qdrant_ask_on_low_confidence(),
             )
         if str(status.get("status", "") or "").lower() != "ok":
@@ -599,6 +611,15 @@ class Pipeline:
     async def _execute_feed_read(self, plan: ActionPlan, *, language: str = "de") -> str:
         return self._call_with_optional_language(self._skill_runtime.execute_rss_read, plan.connection_ref, language=language)
 
+    async def _execute_calendar_read(self, plan: ActionPlan, *, language: str = "de") -> str:
+        return self._call_with_optional_language(
+            self._skill_runtime.execute_google_calendar_read,
+            plan.connection_ref,
+            plan.path or "upcoming",
+            plan.content,
+            language=language,
+        )
+
     async def _execute_webhook_send(self, plan: ActionPlan, *, language: str = "de") -> str:
         return self._call_with_optional_language(
             self._skill_runtime.execute_webhook_send,
@@ -701,6 +722,8 @@ class Pipeline:
         intro = self._msg(language, f"Ich kann das über {kind_label} erledigen", f"I can do this via {kind_label}")
         if plan.capability == "feed_read":
             intro = self._msg(language, "Ich kann diesen Feed lesen", "I can read this feed")
+        if plan.capability == "calendar_read":
+            intro = self._msg(language, "Ich kann den Kalender lesen", "I can read the calendar")
         if plan.capability == "webhook_send":
             intro = self._msg(language, "Ich kann das per Webhook senden", "I can send this via webhook")
         if plan.capability == "discord_send":
@@ -733,6 +756,7 @@ class Pipeline:
     def _format_capability_execution_error(self, plan: ActionPlan, exc: Exception, *, language: str | None = None) -> str:
         labels = {
             "feed_read": self._msg(language, "Der Feed konnte nicht gelesen werden.", "The feed could not be read."),
+            "calendar_read": self._msg(language, "Die Kalendertermine konnten nicht gelesen werden.", "The calendar events could not be read."),
             "webhook_send": self._msg(language, "Der Webhook konnte nicht gesendet werden.", "The webhook could not be sent."),
             "discord_send": self._msg(language, "Die Discord-Nachricht konnte nicht gesendet werden.", "The Discord message could not be sent."),
             "api_request": self._msg(language, "Die HTTP-API-Anfrage konnte nicht ausgeführt werden.", "The HTTP API request could not be executed."),
@@ -750,6 +774,1372 @@ class Pipeline:
         base = labels.get(str(plan.capability or "").strip().lower(), default_label)
         reason = self._sanitize_capability_error(exc, language=language)
         return self._msg(language, f"{base} Grund: {reason}", f"{base} Reason: {reason}")
+
+    @staticmethod
+    def _requested_connection_ref_is_soft_hint(value: str) -> bool:
+        clean = str(value or "").strip().lower()
+        if not clean:
+            return False
+        generic_tail_terms = (
+            "channel",
+            "kanal",
+            "profile",
+            "profil",
+            "server",
+            "mailbox",
+            "inbox",
+            "topic",
+            "broker",
+            "feed",
+            "endpoint",
+            "api",
+        )
+        return " " in clean or clean.endswith(generic_tail_terms)
+
+    @staticmethod
+    def _payload_to_action_plan(payload: dict[str, Any]) -> ActionPlan:
+        connection_ref = str(payload.get("connection_ref", "") or "").strip()
+        requested_connection_ref = str(payload.get("requested_connection_ref", "") or "").strip()
+        if Pipeline._requested_connection_ref_is_soft_hint(requested_connection_ref):
+            requested_connection_ref = ""
+        return ActionPlan(
+            capability=str(payload.get("capability", "") or "").strip(),
+            connection_kind=str(payload.get("connection_kind", "") or "").strip(),
+            connection_ref=connection_ref,
+            requested_connection_ref=requested_connection_ref,
+            path=str(payload.get("path", "") or "").strip(),
+            content=str(payload.get("content", "") or "").strip(),
+            missing_fields=[
+                str(item or "").strip()
+                for item in list(payload.get("missing_fields", []) or [])
+                if str(item or "").strip()
+            ],
+            resolution_source=str(payload.get("resolution_source", "") or "").strip(),
+            notes=[
+                str(item or "").strip()
+                for item in list(payload.get("notes", []) or [])
+                if str(item or "").strip()
+            ],
+        )
+
+    @staticmethod
+    def _find_runtime_custom_skill(runtime_custom_skills: list[dict[str, Any]], skill_id: str) -> dict[str, Any] | None:
+        clean_skill_id = str(skill_id or "").strip()
+        if not clean_skill_id:
+            return None
+        for row in runtime_custom_skills:
+            if str(row.get("id", "") or "").strip() == clean_skill_id:
+                return row
+        return None
+
+    @staticmethod
+    def _zero_usage() -> dict[str, int]:
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    def _routing_reason_text(self, resolved: dict[str, Any], *, language: str | None = None) -> str:
+        execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
+        safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        summary = str(execution.get("summary", "") or "").strip()
+        if summary:
+            return summary
+        reason = str(safety.get("reason_label", "") or action.get("reason", "") or "").strip()
+        if reason:
+            return reason
+        preview = str(payload.get("preview", "") or "").strip()
+        if preview:
+            return preview
+        return self._msg(
+            language,
+            "ARIA hat eine konkrete Aktion vorbereitet.",
+            "ARIA prepared a concrete action.",
+        )
+
+    def _build_routed_confirmation_text(
+        self,
+        resolved: dict[str, Any],
+        *,
+        language: str | None = None,
+    ) -> str:
+        execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
+        safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        lines: list[str] = []
+        summary = str(execution.get("summary", "") or "").strip()
+        reason = str(safety.get("reason_label", "") or "").strip()
+        preview = str(payload.get("preview", "") or "").strip()
+        if summary:
+            lines.append(summary)
+        elif reason:
+            lines.append(reason)
+        else:
+            lines.append(
+                self._msg(
+                    language,
+                    "ARIA moechte diese Aktion vor der Ausfuehrung noch bestaetigen.",
+                    "ARIA wants to confirm this action before execution.",
+                )
+            )
+        if reason and reason not in lines:
+            lines.append(reason)
+        if preview:
+            lines.append(
+                self._msg(
+                    language,
+                    f"Geplante Aktion: {preview}",
+                    f"Planned action: {preview}",
+                )
+            )
+        return "\n\n".join(line for line in lines if line)
+
+    def _build_routed_missing_input_text(
+        self,
+        resolved: dict[str, Any],
+        *,
+        language: str | None = None,
+    ) -> str:
+        action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        question = str((resolved.get("action_debug") or {}).get("clarifying_question", "") or action.get("clarifying_question", "") or "").strip()
+        example_prompt = str((resolved.get("action_debug") or {}).get("example_prompt", "") or action.get("example_prompt", "") or "").strip()
+        reason = str((resolved.get("safety_debug") or {}).get("decision", {}).get("reason_label", "") or action.get("reason", "") or "").strip()
+        lines: list[str] = []
+        if question:
+            lines.append(question)
+        elif reason:
+            lines.append(reason)
+        else:
+            lines.append(
+                self._msg(
+                    language,
+                    "Bevor ARIA etwas ausfuehrt, fehlt noch eine Pflichtangabe.",
+                    "Before ARIA can execute anything, one required field is still missing.",
+                )
+            )
+        if example_prompt:
+            lines.append(
+                self._msg(
+                    language,
+                    f"Beispiel: {example_prompt}",
+                    f"Example: {example_prompt}",
+                )
+            )
+        return "\n\n".join(line for line in lines if line)
+
+    @staticmethod
+    def _pending_follow_up_value(follow_up_message: str, *, missing_input: str) -> str:
+        clean = str(follow_up_message or "").strip()
+        if len(clean) >= 2 and clean[0] == clean[-1] and clean[0] in {"'", '"', "`"}:
+            clean = clean[1:-1].strip()
+        if not clean:
+            return ""
+        quoted = re.search(r'["\'`]\s*([^"\'`]+?)\s*["\'`]', clean)
+        if quoted and missing_input in {"command", "message", "search_query"}:
+            return str(quoted.group(1) or "").strip()
+        if missing_input == "remote_path":
+            quoted = re.search(r'["\'`]\s*([^"\'`]+?)\s*["\'`]', clean)
+            if quoted:
+                return str(quoted.group(1) or "").strip()
+            slash_path = re.search(r"(/[^\\s]+(?:/[^\\s]+)*)", clean)
+            if slash_path:
+                return str(slash_path.group(1) or "").strip()
+        if missing_input in {"command", "message", "search_query"}:
+            colon = re.search(r"[:=-]\s*(.+)$", clean)
+            if colon:
+                candidate = str(colon.group(1) or "").strip()
+                if candidate:
+                    return candidate
+            patterns_by_input = {
+                "message": (
+                    r"^(?:bitte\s+)?(?:schick(?:e)?|send(?:e)?|schreib(?:e)?|post(?:e)?|publish)\s+(?:bitte\s+|einfach\s+)*(?:(?:die|den|das)\s+)?(?:nachricht|meldung|text)?\s*(.+)$",
+                ),
+                "command": (
+                    r"^(?:bitte\s+)?(?:f(?:ü|ue)hre|run|execute|exec)\s+(?:bitte\s+|einfach\s+)*(?:(?:den|das)\s+)?(?:befehl|command)?\s*(.+)$",
+                ),
+                "search_query": (
+                    r"^(?:bitte\s+)?(?:suche|such|search|finde|find)\s+(?:bitte\s+|einfach\s+)*(?:nach\s+)?(.+)$",
+                ),
+            }
+            for pattern in patterns_by_input.get(missing_input, ()):
+                match = re.search(pattern, clean, re.IGNORECASE)
+                if not match:
+                    continue
+                candidate = str(match.group(1) or "").strip(" \t\r\n.,;:!?")
+                if candidate:
+                    return candidate
+        return clean
+
+    @staticmethod
+    def _resolve_pending_missing_input(action: dict[str, Any], payload: dict[str, Any]) -> str:
+        explicit = str(action.get("missing_input", "") or payload.get("missing_input", "") or "").strip()
+        if explicit:
+            return explicit
+        missing_fields = [
+            str(item or "").strip()
+            for item in list(payload.get("missing_fields", []) or [])
+            if str(item or "").strip()
+        ]
+        if not missing_fields:
+            return ""
+        primary = missing_fields[0]
+        capability = str(payload.get("capability", "") or "").strip().lower()
+        if primary == "content":
+            mapping = {
+                "discord_send": "message",
+                "webhook_send": "message",
+                "email_send": "message",
+                "mail_search": "search_query",
+                "mqtt_publish": "message",
+                "ssh_command": "command",
+            }
+            return mapping.get(capability, "content")
+        if primary == "path":
+            return "topic" if capability == "mqtt_publish" else "remote_path"
+        return primary
+
+    def _pending_input_to_draft(
+        self,
+        pending_action: dict[str, Any],
+        follow_up_message: str,
+    ) -> tuple[CapabilityDraft | None, str]:
+        action = dict(pending_action.get("action_decision", {}) or {})
+        payload = dict(pending_action.get("payload", {}) or {})
+        routing = dict(pending_action.get("routing_decision", {}) or {})
+        missing_input = self._resolve_pending_missing_input(action, payload)
+        if not missing_input:
+            return None, ""
+
+        follow_up_value = self._pending_follow_up_value(follow_up_message, missing_input=missing_input)
+        if not follow_up_value:
+            return None, missing_input
+
+        capability = str(payload.get("capability", "") or routing.get("capability", "") or "").strip()
+        connection_kind = str(payload.get("connection_kind", "") or routing.get("kind", "") or "").strip()
+        connection_ref = str(payload.get("connection_ref", "") or routing.get("ref", "") or "").strip()
+        requested_connection_ref = str(payload.get("requested_connection_ref", "") or "").strip()
+        path = str(payload.get("path", "") or "").strip()
+        content = str(payload.get("content", "") or "").strip()
+
+        if missing_input in {"command", "message", "search_query"}:
+            content = follow_up_value
+        elif missing_input in {"remote_path", "topic"}:
+            path = follow_up_value
+
+        draft = CapabilityDraft(
+            capability=capability,
+            connection_kind=connection_kind,
+            explicit_connection_ref=connection_ref,
+            requested_connection_ref=requested_connection_ref,
+            path=path,
+            content=content,
+            notes=[f"pending_input:{missing_input}"],
+        )
+        return draft, missing_input
+
+    def _apply_filled_pending_input(
+        self,
+        resolved: dict[str, Any],
+        *,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        action_debug = dict(resolved.get("action_debug", {}) or {})
+        action = dict(action_debug.get("decision", {}) or {})
+        payload_debug = dict(resolved.get("payload_debug", {}) or {})
+        payload = dict(payload_debug.get("payload", {}) or {})
+
+        action["missing_input"] = ""
+        action["missing_input_label"] = ""
+        action["clarifying_question"] = ""
+        action["example_prompt"] = ""
+        action["reason"] = str(action.get("reason", "") or "").strip()
+        action_debug["decision"] = action
+        resolved["action_debug"] = action_debug
+
+        payload["missing_input"] = ""
+        payload["missing_input_label"] = ""
+        payload_debug["payload"] = payload
+        resolved["payload_debug"] = payload_debug
+
+        resolved["safety_debug"] = evaluate_guardrail_confirm_dry_run(
+            self.settings,
+            payload_debug=payload_debug,
+            routing_decision=dict(resolved.get("decision", {}) or {}),
+            language=str(language or ""),
+        )
+        ask_user = bool(dict((resolved.get("safety_debug") or {}).get("decision", {}) or {}).get("ask_user"))
+        action["execution_state"] = "needs_confirmation" if ask_user else "ready"
+        action["execution_state_label"] = self._msg(
+            language,
+            "Braucht Bestaetigung" if ask_user else "Bereit",
+            "Needs confirmation" if ask_user else "Ready",
+        )
+        action_debug["decision"] = action
+        resolved["action_debug"] = action_debug
+        resolved["execution_debug"] = build_execution_preview_dry_run(
+            routing_decision=dict(resolved.get("decision", {}) or {}),
+            action_decision=action,
+            payload_debug=payload_debug,
+            safety_debug=dict(resolved.get("safety_debug", {}) or {}),
+            language=str(language or ""),
+        )
+        return resolved
+
+    def _build_routed_action_result(
+        self,
+        *,
+        request_id: str,
+        decision: Any,
+        duration_ms: int,
+        intents: list[str],
+        text: str,
+        detail_lines: list[str] | None = None,
+        skill_errors: list[str] | None = None,
+        pending_action: dict[str, Any] | None = None,
+    ) -> PipelineResult:
+        return PipelineResult(
+            request_id=request_id,
+            text=text,
+            usage=self._zero_usage(),
+            intents=intents,
+            skill_errors=list(skill_errors or []),
+            router_level=decision.level,
+            duration_ms=duration_ms,
+            chat_cost_usd=None,
+            embedding_cost_usd=None,
+            total_cost_usd=None,
+            safe_fix_plan=None,
+            detail_lines=list(detail_lines or []),
+            pending_action=dict(pending_action or {}) if pending_action else None,
+        )
+
+    def _settings_without_qdrant_routing(self) -> Settings:
+        clone = self.settings.model_copy(deep=True)
+        try:
+            clone.memory.enabled = False
+        except Exception:
+            pass
+        return clone
+
+    async def _resolve_live_routing_chain(
+        self,
+        message: str,
+        *,
+        llm_client: Any | None,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        chain_settings = self.settings
+        detail_lines: list[str] = []
+        qdrant_client: Any | None = None
+        close_client = False
+
+        memory = getattr(self.settings, "memory", None)
+        memory_uses_qdrant = bool(
+            memory is not None
+            and bool(getattr(memory, "enabled", False))
+            and str(getattr(memory, "backend", "") or "").strip().lower() == "qdrant"
+        )
+        if memory_uses_qdrant:
+            if not self._qdrant_routing_enabled():
+                chain_settings = self._settings_without_qdrant_routing()
+            else:
+                refresh_meta = await ensure_connection_routing_index_ready(
+                    self.settings,
+                    embedding_client=self.embedding_client,
+                )
+                status = dict(refresh_meta.get("status", {}) or {})
+                status_value = str(status.get("status", "") or "").strip().lower()
+                if status_value == "error":
+                    detail_lines.extend(
+                        self._routing_debug_line(
+                            f"Routing: Qdrant skipped, index status failed: {status.get('detail') or status.get('message') or 'unknown'}"
+                        )
+                    )
+                    chain_settings = self._settings_without_qdrant_routing()
+                elif status_value and status_value != "ok":
+                    detail_lines.extend(
+                        self._routing_debug_line(
+                            f"Routing: Qdrant skipped, index is not ready: {status.get('message') or 'unknown'}"
+                        )
+                    )
+                    chain_settings = self._settings_without_qdrant_routing()
+                else:
+                    qdrant_client = create_async_qdrant_client(
+                        url=memory.qdrant_url,
+                        api_key=getattr(memory, "qdrant_api_key", "") or None,
+                        timeout=8,
+                    )
+                    close_client = True
+
+        try:
+            resolved = await resolve_connection_routing_chain(
+                chain_settings,
+                message,
+                llm_client=llm_client,
+                qdrant_client=qdrant_client,
+                embedding_client=self.embedding_client,
+                language=str(language or ""),
+                limit=self._qdrant_routing_limit(),
+                score_threshold=self._qdrant_routing_threshold(),
+            )
+        finally:
+            if close_client and qdrant_client is not None:
+                close = getattr(qdrant_client, "close", None)
+                if close is not None:
+                    result = close()
+                    if hasattr(result, "__await__"):
+                        await result
+
+        existing_details = [
+            str(item or "").strip()
+            for item in list(resolved.get("detail_lines", []) or [])
+            if str(item or "").strip()
+        ]
+        if detail_lines or existing_details:
+            resolved["detail_lines"] = [*detail_lines, *existing_details]
+        return resolved
+
+    @staticmethod
+    def _resolved_routing_chain_has_signal(resolved: dict[str, Any] | None) -> bool:
+        if not isinstance(resolved, dict):
+            return False
+        if bool(dict(resolved.get("decision", {}) or {}).get("found")):
+            return True
+        if bool(dict((resolved.get("action_debug") or {}).get("decision", {}) or {}).get("found")):
+            return True
+        return bool(dict((resolved.get("payload_debug") or {}).get("payload", {}) or {}).get("found"))
+
+    def _resolved_routing_detail_lines(self, resolved: dict[str, Any]) -> list[str]:
+        lines = [
+            str(item or "").strip()
+            for item in list(resolved.get("detail_lines", []) or [])
+            if str(item or "").strip()
+        ]
+        decision = dict(resolved.get("decision", {}) or {})
+        if self._routing_debug_enabled() and str(decision.get("source", "") or "").strip() == "qdrant_routing":
+            kind = str(decision.get("kind", "") or "").strip()
+            ref = str(decision.get("ref", "") or "").strip()
+            score = float(decision.get("score", 0.0) or 0.0)
+            line = f"Routing: Qdrant selected `{kind}/{ref}` score={score:.3f} source=qdrant_routing."
+            if line not in lines:
+                lines.append(line)
+        return lines
+
+    @staticmethod
+    def _apply_capability_draft_overrides(
+        payload_debug: dict[str, Any],
+        *,
+        capability_draft: Any | None,
+    ) -> dict[str, Any]:
+        payload = dict(payload_debug.get("payload", {}) or {})
+        if not bool(payload.get("found")) or capability_draft is None:
+            return payload_debug
+
+        path_override = str(getattr(capability_draft, "path", "") or "").strip()
+        content_override = str(getattr(capability_draft, "content", "") or "").strip()
+        changed = False
+        if path_override:
+            payload["path"] = path_override
+            missing_fields = [
+                str(item or "").strip()
+                for item in list(payload.get("missing_fields", []) or [])
+                if str(item or "").strip() and str(item or "").strip() != "path"
+            ]
+            payload["missing_fields"] = missing_fields
+            capability = str(payload.get("capability", "") or "").strip()
+            connection_kind = str(payload.get("connection_kind", "") or "").strip()
+            if capability == "file_list":
+                prefix = "List remote path" if connection_kind == "sftp" else "List share path" if connection_kind == "smb" else "List path"
+                payload["preview"] = f"{prefix}: {path_override}"
+            elif capability == "file_read":
+                prefix = "Read remote path" if connection_kind == "sftp" else "Read share path" if connection_kind == "smb" else "Read path"
+                payload["preview"] = f"{prefix}: {path_override}"
+            elif capability == "file_write":
+                prefix = "Write remote path" if connection_kind == "sftp" else "Write share path" if connection_kind == "smb" else "Write path"
+                payload["preview"] = f"{prefix}: {path_override}"
+            elif capability == "calendar_read":
+                payload["preview"] = f"Calendar range: {path_override}"
+            elif capability == "mqtt_publish" and content_override:
+                payload["preview"] = f"MQTT publish to {path_override}: {content_override}"
+            changed = True
+        if content_override:
+            payload["content"] = content_override
+            missing_fields = [
+                str(item or "").strip()
+                for item in list(payload.get("missing_fields", []) or [])
+                if str(item or "").strip() and str(item or "").strip() != "content"
+            ]
+            payload["missing_fields"] = missing_fields
+            capability = str(payload.get("capability", "") or "").strip()
+            if capability == "discord_send":
+                payload["preview"] = f"Discord message: {content_override}"
+            elif capability == "webhook_send":
+                payload["preview"] = f"Webhook payload: {content_override}"
+            elif capability == "email_send":
+                payload["preview"] = f"Email content: {content_override}"
+            elif capability == "mail_search":
+                payload["preview"] = f"Mailbox search: {content_override}"
+            elif capability == "ssh_command":
+                payload["preview"] = f"SSH command: {content_override}"
+            elif capability == "calendar_read" and path_override:
+                payload["preview"] = f"Calendar range: {path_override} · {content_override}"
+            elif capability == "mqtt_publish" and path_override:
+                payload["preview"] = f"MQTT publish to {path_override}: {content_override}"
+            changed = True
+        if changed:
+            payload_debug["payload"] = payload
+        return payload_debug
+
+    @staticmethod
+    def _draft_with_hint_path(draft: Any | None, hints: MemoryHints) -> Any | None:
+        if draft is None or not str(getattr(hints, "path", "") or "").strip():
+            return draft
+        if str(getattr(draft, "path", "") or "").strip():
+            return draft
+        return replace(draft, path=str(hints.path or "").strip())
+
+    async def _build_kind_only_routed_resolution(
+        self,
+        message: str,
+        *,
+        connection_kind: str,
+        language: str | None = None,
+        llm_client: Any | None = None,
+        capability_draft: Any | None = None,
+        source: str = "kind_inferred",
+        reason: str = "",
+    ) -> dict[str, Any]:
+        clean_kind = normalize_connection_kind(connection_kind)
+        decision_payload = {
+            "found": True,
+            "kind": clean_kind,
+            "ref": "",
+            "capability": str(getattr(capability_draft, "capability", "") or "").strip(),
+            "source": str(source or "kind_inferred").strip() or "kind_inferred",
+            "score": 0.0,
+            "reason": str(reason or clean_kind).strip(),
+            "routing_ask_user": False,
+            "routing_confidence": "",
+            "routing_message": "",
+        }
+        action_debug = await debug_bounded_action_plan_decision(
+            str(message or "").strip(),
+            llm_client=llm_client,
+            routing_decision=decision_payload,
+            language=str(language or ""),
+        )
+        payload_debug = build_payload_dry_run(
+            str(message or "").strip(),
+            settings=self.settings,
+            routing_decision=decision_payload,
+            action_decision=dict((action_debug or {}).get("decision", {}) or {}),
+        )
+        payload_debug = self._apply_capability_draft_overrides(
+            payload_debug,
+            capability_draft=capability_draft,
+        )
+        safety_debug = evaluate_guardrail_confirm_dry_run(
+            self.settings,
+            payload_debug=payload_debug,
+            routing_decision=decision_payload,
+            language=str(language or ""),
+        )
+        execution_debug = build_execution_preview_dry_run(
+            routing_decision=decision_payload,
+            action_decision=dict((action_debug or {}).get("decision", {}) or {}),
+            payload_debug=payload_debug,
+            safety_debug=safety_debug,
+            language=str(language or ""),
+        )
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": f"Routing still needs a concrete {clean_kind} profile.",
+            "query": str(message or "").strip(),
+            "preferred_kind": clean_kind or "auto",
+            "requested_preferred_kind": clean_kind or "auto",
+            "inferred_preferred_kind": clean_kind,
+            "available_counts": {clean_kind: 0},
+            "llm_ignore_deterministic": False,
+            "deterministic": {},
+            "qdrant": {
+                "enabled": False,
+                "message": "",
+                "error": "",
+                "candidate_count": 0,
+                "accepted_count": 0,
+                "candidates": [],
+            },
+            "decision": decision_payload,
+            "llm_debug": {},
+            "action_debug": action_debug,
+            "payload_debug": payload_debug,
+            "safety_debug": safety_debug,
+            "execution_debug": execution_debug,
+            "executed": False,
+            "updated_at": "",
+        }
+
+    async def _resolve_unified_routed_action(
+        self,
+        message: str,
+        *,
+        user_id: str,
+        language: str | None = None,
+        capability_draft: Any | None = None,
+        llm_client: Any | None | object = ...,
+    ) -> dict[str, Any] | None:
+        effective_llm_client = self.llm_client if llm_client is ... else llm_client
+        effective_kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
+        if not effective_kind:
+            effective_kind = infer_preferred_connection_kind(
+                message,
+                available_kinds=self._unified_routing_connection_pools().keys(),
+            )
+        connection_pools = self._unified_routing_connection_pools()
+        candidate_connections = connection_pools.get(effective_kind, {}) if effective_kind else {}
+
+        working_draft = capability_draft
+        if working_draft is None:
+            working_draft = CapabilityDraft(capability="", connection_kind=effective_kind)
+
+        resolved = await self._resolve_live_routing_chain(
+            message,
+            llm_client=effective_llm_client,
+            language=language,
+        )
+        if effective_llm_client is not None and not self._resolved_routing_chain_complete(resolved):
+            fallback_resolved = await self._resolve_live_routing_chain(
+                message,
+                llm_client=None,
+                language=language,
+            )
+            if self._resolved_routing_chain_has_signal(fallback_resolved):
+                resolved = fallback_resolved
+
+        if self._resolved_routing_chain_complete(resolved) and (not isinstance(candidate_connections, dict) or not candidate_connections):
+            return self._apply_requested_connection_guard(resolved, capability_draft=working_draft, language=language)
+
+        if not isinstance(candidate_connections, dict) or not candidate_connections:
+            return None
+
+        hints = await self._memory_assist.resolve(
+            draft=working_draft,
+            message=message,
+            user_id=user_id,
+            available_connections=candidate_connections,
+        )
+        working_draft = self._draft_with_hint_path(working_draft, hints)
+
+        if self._resolved_routing_chain_complete(resolved):
+            payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+            current_path = str(payload.get("path", "") or "").strip()
+            if str(getattr(hints, "path", "") or "").strip() and current_path in {"", "."}:
+                decision = dict(resolved.get("decision", {}) or {})
+                rebuilt = await self._build_forced_routed_resolution(
+                    message,
+                    connection_kind=str(decision.get("kind", "") or effective_kind),
+                    connection_ref=str(decision.get("ref", "") or hints.connection_ref or ""),
+                    language=language,
+                    llm_client=None,
+                    capability_draft=working_draft,
+                    source=str(decision.get("source", "") or "recent_context"),
+                    reason=str(decision.get("reason", "") or hints.matched_text or hints.path or ""),
+                )
+                rebuilt["detail_lines"] = self._resolved_routing_detail_lines(resolved)
+                resolved = rebuilt
+            return self._apply_requested_connection_guard(resolved, capability_draft=working_draft, language=language)
+
+        forced_ref = str(hints.connection_ref or "").strip()
+        if not forced_ref and len(candidate_connections) == 1:
+            forced_ref = str(next(iter(candidate_connections.keys())) or "").strip()
+            if forced_ref and not str(hints.source or "").strip():
+                hints = replace(hints, source="default_single_profile")
+        if not forced_ref:
+            kind_only = await self._build_kind_only_routed_resolution(
+                message,
+                connection_kind=effective_kind,
+                language=language,
+                llm_client=None,
+                capability_draft=working_draft,
+                source="kind_inferred",
+                reason=str(hints.matched_text or effective_kind),
+            )
+            kind_only["detail_lines"] = self._resolved_routing_detail_lines(resolved)
+            return self._apply_requested_connection_guard(kind_only, capability_draft=working_draft, language=language)
+
+        forced_resolved = await self._build_forced_routed_resolution(
+            message,
+            connection_kind=effective_kind,
+            connection_ref=forced_ref,
+            language=language,
+            llm_client=effective_llm_client,
+            capability_draft=working_draft,
+            source=str(hints.source or "memory_hint"),
+            reason=str(hints.matched_text or forced_ref),
+        )
+        if not self._resolved_routing_chain_complete(forced_resolved):
+            kind_only = await self._build_kind_only_routed_resolution(
+                message,
+                connection_kind=effective_kind,
+                language=language,
+                llm_client=None,
+                capability_draft=working_draft,
+                source=str(hints.source or "kind_inferred"),
+                reason=str(hints.matched_text or forced_ref or effective_kind),
+            )
+            kind_only["detail_lines"] = self._resolved_routing_detail_lines(resolved)
+            return self._apply_requested_connection_guard(kind_only, capability_draft=working_draft, language=language)
+        return self._apply_requested_connection_guard(forced_resolved, capability_draft=working_draft, language=language)
+
+    @staticmethod
+    def _resolved_routing_chain_complete(resolved: dict[str, Any]) -> bool:
+        routing_decision = dict(resolved.get("decision", {}) or {})
+        action_decision = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        return bool(routing_decision.get("found")) and bool(action_decision.get("found")) and bool(payload.get("found"))
+
+    async def _build_forced_routed_resolution(
+        self,
+        message: str,
+        *,
+        connection_kind: str,
+        connection_ref: str,
+        language: str | None = None,
+        llm_client: Any | None = None,
+        capability_draft: Any | None = None,
+        source: str = "",
+        reason: str = "",
+    ) -> dict[str, Any]:
+        decision_payload = {
+            "found": True,
+            "kind": normalize_connection_kind(connection_kind),
+            "ref": str(connection_ref or "").strip(),
+            "capability": str(getattr(capability_draft, "capability", "") or "").strip(),
+            "source": str(source or "memory_hint").strip() or "memory_hint",
+            "score": 1.0,
+            "reason": str(reason or connection_ref).strip(),
+            "routing_ask_user": False,
+            "routing_confidence": "",
+            "routing_message": "",
+        }
+        action_debug = await debug_bounded_action_plan_decision(
+            str(message or "").strip(),
+            llm_client=llm_client,
+            routing_decision=decision_payload,
+            language=str(language or ""),
+        )
+        payload_debug = build_payload_dry_run(
+            str(message or "").strip(),
+            settings=self.settings,
+            routing_decision=decision_payload,
+            action_decision=dict((action_debug or {}).get("decision", {}) or {}),
+        )
+        payload_debug = self._apply_capability_draft_overrides(
+            payload_debug,
+            capability_draft=capability_draft,
+        )
+        safety_debug = evaluate_guardrail_confirm_dry_run(
+            self.settings,
+            payload_debug=payload_debug,
+            routing_decision=decision_payload,
+            language=str(language or ""),
+        )
+        execution_debug = build_execution_preview_dry_run(
+            routing_decision=decision_payload,
+            action_decision=dict((action_debug or {}).get("decision", {}) or {}),
+            payload_debug=payload_debug,
+            safety_debug=safety_debug,
+            language=str(language or ""),
+        )
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": f"Forced routing selected {connection_kind}/{connection_ref}.",
+            "query": str(message or "").strip(),
+            "preferred_kind": normalize_connection_kind(connection_kind) or "auto",
+            "requested_preferred_kind": normalize_connection_kind(connection_kind) or "auto",
+            "inferred_preferred_kind": normalize_connection_kind(connection_kind),
+            "available_counts": {normalize_connection_kind(connection_kind): 1},
+            "llm_ignore_deterministic": False,
+            "deterministic": {},
+            "qdrant": {
+                "enabled": False,
+                "message": "",
+                "error": "",
+                "candidate_count": 0,
+                "accepted_count": 0,
+                "candidates": [],
+            },
+            "decision": decision_payload,
+            "llm_debug": {},
+            "action_debug": action_debug,
+            "payload_debug": payload_debug,
+            "safety_debug": safety_debug,
+            "execution_debug": execution_debug,
+            "executed": False,
+            "updated_at": "",
+        }
+
+    def _apply_requested_connection_guard(
+        self,
+        resolved: dict[str, Any],
+        *,
+        capability_draft: Any | None,
+        language: str | None = None,
+    ) -> dict[str, Any]:
+        requested_ref = str(getattr(capability_draft, "requested_connection_ref", "") or "").strip()
+        if not requested_ref:
+            return resolved
+        payload_debug = dict(resolved.get("payload_debug", {}) or {})
+        payload = dict(payload_debug.get("payload", {}) or {})
+        if not bool(payload.get("found")):
+            return resolved
+        actual_ref = str(payload.get("connection_ref", "") or "").strip()
+        payload["requested_connection_ref"] = requested_ref
+        if actual_ref and actual_ref.lower() == requested_ref.lower():
+            payload_debug["payload"] = payload
+            resolved["payload_debug"] = payload_debug
+            return resolved
+        if self._requested_connection_ref_is_soft_hint(requested_ref):
+            if actual_ref:
+                payload["requested_connection_ref"] = ""
+                payload_debug["payload"] = payload
+                resolved["payload_debug"] = payload_debug
+                return resolved
+            payload["requested_connection_ref"] = ""
+            payload_debug["payload"] = payload
+            resolved["payload_debug"] = payload_debug
+            return resolved
+        payload["connection_ref"] = ""
+        missing_fields = [str(item or "").strip() for item in list(payload.get("missing_fields", []) or []) if str(item or "").strip()]
+        if "connection_ref" not in missing_fields:
+            missing_fields.insert(0, "connection_ref")
+        payload["missing_fields"] = missing_fields
+        payload["resolution_source"] = "requested_missing"
+        payload_debug["payload"] = payload
+        resolved["payload_debug"] = payload_debug
+        resolved["safety_debug"] = evaluate_guardrail_confirm_dry_run(
+            self.settings,
+            payload_debug=payload_debug,
+            routing_decision=dict(resolved.get("decision", {}) or {}),
+            language=str(language or ""),
+        )
+        resolved["execution_debug"] = build_execution_preview_dry_run(
+            routing_decision=dict(resolved.get("decision", {}) or {}),
+            action_decision=dict((resolved.get("action_debug") or {}).get("decision", {}) or {}),
+            payload_debug=payload_debug,
+            safety_debug=dict(resolved.get("safety_debug", {}) or {}),
+            language=str(language or ""),
+        )
+        return resolved
+
+    async def _execute_custom_skill_by_id(
+        self,
+        skill_id: str,
+        message: str,
+        *,
+        runtime_custom_skills: list[dict[str, Any]],
+        language: str = "de",
+    ) -> SkillResult:
+        row = self._find_runtime_custom_skill(runtime_custom_skills, skill_id)
+        if row is None:
+            return SkillResult(
+                skill_name=f"custom_skill_{skill_id or 'unknown'}",
+                content="",
+                success=False,
+                error="custom_skill_manifest_missing",
+            )
+        return await self._execute_custom_steps(row, message, language=language)
+
+    async def _execute_routed_action(
+        self,
+        resolved: dict[str, Any],
+        *,
+        user_id: str,
+        runtime_custom_skills: list[dict[str, Any]],
+        language: str = "de",
+    ) -> tuple[list[str], str, list[str], list[str]]:
+        action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        candidate_kind = str(action.get("candidate_kind", "") or "").strip().lower()
+        if candidate_kind == "skill":
+            skill_id = str(action.get("candidate_id", "") or payload.get("skill_id", "") or "").strip()
+            skill_result = await self._execute_custom_skill_by_id(
+                skill_id,
+                resolved.get("query", "") or "",
+                runtime_custom_skills=runtime_custom_skills,
+                language=language,
+            )
+            intents = [f"custom_skill:{skill_id}"] if skill_id else ["chat"]
+            if not skill_result.success:
+                return intents, skill_result.error or "custom_skill_execution_failed", [], [skill_result.error or "custom_skill_execution_failed"]
+            detail_lines = self._collect_skill_detail_lines([skill_result])
+            meta = skill_result.metadata or {}
+            if bool(meta.get("direct_chat_response")):
+                text = str(meta.get("direct_chat_text") or skill_result.content or "").strip()
+            else:
+                text = str(skill_result.content or "").strip()
+            return intents, text, detail_lines, []
+
+        plan = self._payload_to_action_plan(payload)
+        intents = [f"capability:{plan.capability}"] if str(plan.capability or "").strip() else ["chat"]
+        detail_lines = self._build_capability_detail_lines(plan, language=language)
+        try:
+            result_text = await self._executor_registry.execute(plan, language=language)
+        except Exception as exc:
+            error_text = self._format_capability_execution_error(plan, exc, language=language)
+            error_code = f"capability_{plan.capability}_error:{type(exc).__name__}"
+            return intents, error_text, detail_lines, [error_code]
+        if self.capability_context_store is not None and plan.is_complete:
+            try:
+                self.capability_context_store.remember_action(
+                    user_id,
+                    capability=plan.capability,
+                    connection_kind=plan.connection_kind,
+                    connection_ref=plan.connection_ref,
+                    path=plan.path,
+                )
+            except Exception:
+                pass
+        return intents, result_text, detail_lines, []
+
+    async def _try_unified_routed_action(
+        self,
+        message: str,
+        user_id: str,
+        *,
+        request_id: str,
+        source: str,
+        decision: Any,
+        start: float,
+        runtime_custom_skills: list[dict[str, Any]],
+        capability_draft: Any | None = None,
+        language: str | None = None,
+    ) -> PipelineResult | None:
+        strong_structured_signal = any(
+            str(getattr(capability_draft, field, "") or "").strip()
+            for field in ("explicit_connection_ref", "requested_connection_ref", "path", "content")
+        )
+        context_signal = False
+        wants_previous_connection = getattr(self._memory_assist, "_wants_previous_connection", None)
+        if callable(wants_previous_connection):
+            try:
+                context_signal = context_signal or bool(wants_previous_connection(message))
+            except Exception:
+                pass
+        wants_previous_path = getattr(self._memory_assist, "_wants_previous_path", None)
+        if callable(wants_previous_path):
+            try:
+                context_signal = context_signal or bool(wants_previous_path(message))
+            except Exception:
+                pass
+        resolved = await self._resolve_unified_routed_action(
+            message,
+            user_id=user_id,
+            language=language,
+            capability_draft=capability_draft,
+            llm_client=None if (strong_structured_signal or context_signal) else ...,
+        )
+        if resolved is None:
+            return None
+
+        resolved["query"] = message
+        action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        routing_detail_lines = self._resolved_routing_detail_lines(resolved)
+        next_step = str(execution.get("next_step", "") or safety.get("action", "") or "ask_user").strip().lower() or "ask_user"
+        candidate_kind = str(action.get("candidate_kind", "") or "").strip().lower()
+        candidate_id = str(action.get("candidate_id", "") or "").strip()
+        intents = (
+            [f"custom_skill:{candidate_id}"]
+            if candidate_kind == "skill" and candidate_id
+            else [f"capability:{str(payload.get('capability', '') or '').strip()}"]
+            if str(payload.get("capability", "") or "").strip()
+            else ["chat"]
+        )
+        async def _log_routed_result(result_intents: list[str], skill_errors: list[str] | None = None) -> int:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            await self.token_tracker.log(
+                request_id=request_id,
+                user_id=user_id,
+                intents=result_intents,
+                router_level=decision.level,
+                usage=self._zero_usage(),
+                chat_model=self.settings.llm.model,
+                embedding_model=self.settings.embeddings.model,
+                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                duration_ms=duration_ms,
+                source=source,
+                skill_errors=list(skill_errors or []),
+                extraction_model="bounded_routing_chain",
+                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            )
+            return duration_ms
+
+        if next_step == "block":
+            text = self._routing_reason_text(resolved, language=language)
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+            )
+
+        payload_missing_fields = [
+            str(item or "").strip()
+            for item in list(payload.get("missing_fields", []) or [])
+            if str(item or "").strip()
+        ]
+        if payload_missing_fields:
+            plan = self._payload_to_action_plan(payload)
+            text = self._format_capability_missing_message(plan, language=language)
+            pending_missing_input = self._resolve_pending_missing_input(action, payload)
+            if pending_missing_input:
+                action = dict(action)
+                action["missing_input"] = pending_missing_input
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+                pending_action={
+                    "query": message,
+                    "candidate_kind": candidate_kind,
+                    "candidate_id": candidate_id,
+                    "routing_decision": dict(resolved.get("decision", {}) or {}),
+                    "action_decision": action,
+                    "payload": payload,
+                    "safety_decision": safety,
+                    "execution_decision": execution,
+                },
+            )
+
+        if str(action.get("missing_input", "") or "").strip():
+            text = self._build_routed_missing_input_text(resolved, language=language)
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+                pending_action={
+                    "query": message,
+                    "candidate_kind": candidate_kind,
+                    "candidate_id": candidate_id,
+                    "routing_decision": dict(resolved.get("decision", {}) or {}),
+                    "action_decision": action,
+                    "payload": payload,
+                    "safety_decision": safety,
+                    "execution_decision": execution,
+                },
+            )
+
+        if next_step == "ask_user":
+            text = self._build_routed_confirmation_text(resolved, language=language)
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+                pending_action={
+                    "query": message,
+                    "candidate_kind": candidate_kind,
+                    "candidate_id": candidate_id,
+                    "routing_decision": dict(resolved.get("decision", {}) or {}),
+                    "action_decision": action,
+                    "payload": payload,
+                    "safety_decision": safety,
+                    "execution_decision": execution,
+                },
+            )
+
+        action_text, result_text, detail_lines, errors = await self._execute_routed_action(
+            resolved,
+            user_id=user_id,
+            runtime_custom_skills=runtime_custom_skills,
+            language=str(language or "de"),
+        )
+        duration_ms = await _log_routed_result(action_text, errors)
+        return self._build_routed_action_result(
+            request_id=request_id,
+            decision=decision,
+            duration_ms=duration_ms,
+            intents=action_text,
+            text=result_text,
+            detail_lines=[*routing_detail_lines, *detail_lines],
+            skill_errors=errors,
+        )
+
+    async def execute_pending_routed_action(
+        self,
+        pending_action: dict[str, Any],
+        *,
+        user_id: str,
+        source: str = "web",
+        language: str | None = None,
+    ) -> PipelineResult:
+        start = time.perf_counter()
+        request_id = str(uuid4())
+        decision = self.classify_routing(str(pending_action.get("query", "") or ""), language=language)
+        candidate_kind = str(pending_action.get("candidate_kind", "") or "").strip().lower()
+        candidate_id = str(pending_action.get("candidate_id", "") or "").strip()
+        runtime_custom_skills = self._load_custom_skill_runtime()
+        resolved = {
+            "query": str(pending_action.get("query", "") or ""),
+            "decision": dict(pending_action.get("routing_decision", {}) or {}),
+            "action_debug": {"decision": dict(pending_action.get("action_decision", {}) or {})},
+            "payload_debug": {"payload": dict(pending_action.get("payload", {}) or {})},
+            "safety_debug": {"decision": dict(pending_action.get("safety_decision", {}) or {})},
+            "execution_debug": {"decision": dict(pending_action.get("execution_decision", {}) or {})},
+        }
+        routing_detail_lines = self._resolved_routing_detail_lines(resolved)
+        result_intents, result_text, detail_lines, errors = await self._execute_routed_action(
+            resolved,
+            user_id=user_id,
+            runtime_custom_skills=runtime_custom_skills,
+            language=str(language or "de"),
+        )
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        await self.token_tracker.log(
+            request_id=request_id,
+            user_id=user_id,
+            intents=result_intents,
+            router_level=decision.level,
+            usage=self._zero_usage(),
+            chat_model=self.settings.llm.model,
+            embedding_model=self.settings.embeddings.model,
+            embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            chat_cost_usd=None,
+            embedding_cost_usd=None,
+            total_cost_usd=None,
+            duration_ms=duration_ms,
+            source=source,
+            skill_errors=errors,
+            extraction_model="bounded_routing_chain_confirm",
+            extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+        )
+        return self._build_routed_action_result(
+            request_id=request_id,
+            decision=decision,
+            duration_ms=duration_ms,
+            intents=result_intents,
+            text=result_text,
+            detail_lines=[*routing_detail_lines, *detail_lines],
+            skill_errors=errors,
+        )
+
+    async def continue_pending_routed_action_input(
+        self,
+        pending_action: dict[str, Any],
+        follow_up_message: str,
+        *,
+        user_id: str,
+        source: str = "web",
+        language: str | None = None,
+    ) -> PipelineResult:
+        start = time.perf_counter()
+        request_id = str(uuid4())
+        base_query = str(pending_action.get("query", "") or "").strip()
+        decision = self.classify_routing(base_query, language=language)
+        runtime_custom_skills = self._load_custom_skill_runtime()
+        draft, missing_input = self._pending_input_to_draft(pending_action, follow_up_message)
+        if draft is None:
+            resolved = {
+                "query": base_query,
+                "decision": dict(pending_action.get("routing_decision", {}) or {}),
+                "action_debug": {"decision": dict(pending_action.get("action_decision", {}) or {})},
+                "payload_debug": {"payload": dict(pending_action.get("payload", {}) or {})},
+                "safety_debug": {"decision": dict(pending_action.get("safety_decision", {}) or {})},
+                "execution_debug": {"decision": dict(pending_action.get("execution_decision", {}) or {})},
+            }
+            text = self._build_routed_missing_input_text(resolved, language=language)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            await self.token_tracker.log(
+                request_id=request_id,
+                user_id=user_id,
+                intents=[f"capability:{str(dict(pending_action.get('payload', {}) or {}).get('capability', '') or '').strip()}"] if str(dict(pending_action.get("payload", {}) or {}).get("capability", "") or "").strip() else ["chat"],
+                router_level=decision.level,
+                usage=self._zero_usage(),
+                chat_model=self.settings.llm.model,
+                embedding_model=self.settings.embeddings.model,
+                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                duration_ms=duration_ms,
+                source=source,
+                skill_errors=[],
+                extraction_model="bounded_routing_chain_missing_input",
+                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            )
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=[f"capability:{str(dict(pending_action.get('payload', {}) or {}).get('capability', '') or '').strip()}"] if str(dict(pending_action.get("payload", {}) or {}).get("capability", "") or "").strip() else ["chat"],
+                text=text,
+                detail_lines=self._resolved_routing_detail_lines({"detail_lines": list(pending_action.get("detail_lines", []) or []), "decision": dict(pending_action.get("routing_decision", {}) or {})}),
+                skill_errors=[],
+                pending_action=dict(pending_action),
+            )
+
+        routing_decision = dict(pending_action.get("routing_decision", {}) or {})
+        connection_kind = normalize_connection_kind(str(routing_decision.get("kind", "") or draft.connection_kind))
+        connection_ref = str(routing_decision.get("ref", "") or draft.explicit_connection_ref).strip()
+        resolved = await self._build_forced_routed_resolution(
+            base_query,
+            connection_kind=connection_kind,
+            connection_ref=connection_ref,
+            language=language,
+            llm_client=None,
+            capability_draft=draft,
+            source=str(routing_decision.get("source", "") or "pending_follow_up"),
+            reason=str(routing_decision.get("reason", "") or connection_ref or connection_kind),
+        )
+        resolved["query"] = base_query
+        resolved = self._apply_filled_pending_input(
+            resolved,
+            language=language,
+        )
+
+        action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        routing_detail_lines = self._resolved_routing_detail_lines(resolved)
+        next_step = str(execution.get("next_step", "") or safety.get("action", "") or "ask_user").strip().lower() or "ask_user"
+        candidate_kind = str(action.get("candidate_kind", "") or "").strip().lower()
+        candidate_id = str(action.get("candidate_id", "") or "").strip()
+        intents = (
+            [f"custom_skill:{candidate_id}"]
+            if candidate_kind == "skill" and candidate_id
+            else [f"capability:{str(payload.get('capability', '') or '').strip()}"]
+            if str(payload.get("capability", "") or "").strip()
+            else ["chat"]
+        )
+
+        async def _log_routed_result(result_intents: list[str], skill_errors: list[str] | None = None) -> int:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            await self.token_tracker.log(
+                request_id=request_id,
+                user_id=user_id,
+                intents=result_intents,
+                router_level=decision.level,
+                usage=self._zero_usage(),
+                chat_model=self.settings.llm.model,
+                embedding_model=self.settings.embeddings.model,
+                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                chat_cost_usd=None,
+                embedding_cost_usd=None,
+                total_cost_usd=None,
+                duration_ms=duration_ms,
+                source=source,
+                skill_errors=list(skill_errors or []),
+                extraction_model="bounded_routing_chain_missing_input",
+                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            )
+            return duration_ms
+
+        payload_missing_fields = [
+            str(item or "").strip()
+            for item in list(payload.get("missing_fields", []) or [])
+            if str(item or "").strip()
+        ]
+        if payload_missing_fields or str(action.get("missing_input", "") or "").strip():
+            text = self._build_routed_missing_input_text(resolved, language=language)
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+                pending_action={
+                    "query": base_query,
+                    "candidate_kind": candidate_kind,
+                    "candidate_id": candidate_id,
+                    "routing_decision": dict(resolved.get("decision", {}) or {}),
+                    "action_decision": action,
+                    "payload": payload,
+                    "safety_decision": safety,
+                    "execution_decision": execution,
+                },
+            )
+
+        if next_step == "block":
+            text = self._routing_reason_text(resolved, language=language)
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+            )
+
+        if next_step == "ask_user":
+            text = self._build_routed_confirmation_text(resolved, language=language)
+            duration_ms = await _log_routed_result(intents, [])
+            return self._build_routed_action_result(
+                request_id=request_id,
+                decision=decision,
+                duration_ms=duration_ms,
+                intents=intents,
+                text=text,
+                detail_lines=routing_detail_lines,
+                skill_errors=[],
+                pending_action={
+                    "query": base_query,
+                    "candidate_kind": candidate_kind,
+                    "candidate_id": candidate_id,
+                    "routing_decision": dict(resolved.get("decision", {}) or {}),
+                    "action_decision": action,
+                    "payload": payload,
+                    "safety_decision": safety,
+                    "execution_decision": execution,
+                },
+            )
+
+        result_intents, result_text, detail_lines, errors = await self._execute_routed_action(
+            resolved,
+            user_id=user_id,
+            runtime_custom_skills=runtime_custom_skills,
+            language=str(language or "de"),
+        )
+        duration_ms = await _log_routed_result(result_intents, errors)
+        return self._build_routed_action_result(
+            request_id=request_id,
+            decision=decision,
+            duration_ms=duration_ms,
+            intents=result_intents,
+            text=result_text,
+            detail_lines=[*routing_detail_lines, *detail_lines],
+            skill_errors=errors,
+        )
 
     async def _try_ssh_command_action(
         self,
@@ -907,17 +2297,37 @@ class Pipeline:
             return intent, error_text, details, plan, [error_code]
         return intent, result_text, details, plan, []
 
+    def _unified_routing_connection_pools(self) -> dict[str, dict[str, Any]]:
+        connection_pools: dict[str, dict[str, Any]] = {}
+        for kind in DEFAULT_CONNECTION_ROUTING_KINDS:
+            clean_kind = normalize_connection_kind(kind)
+            rows = getattr(getattr(self.settings, "connections", object()), clean_kind, {})
+            if isinstance(rows, dict) and rows:
+                connection_pools[clean_kind] = rows
+        return connection_pools
+
+    def _capability_routing_connection_pools(self) -> dict[str, dict[str, Any]]:
+        connection_pools: dict[str, dict[str, Any]] = {}
+        for kind in ("ssh", "sftp", "smb", "google_calendar", "rss", "webhook", "discord", "http_api", "email", "imap", "mqtt"):
+            clean_kind = normalize_connection_kind(kind)
+            rows = getattr(getattr(self.settings, "connections", object()), clean_kind, {})
+            if isinstance(rows, dict) and rows:
+                connection_pools[clean_kind] = rows
+        return connection_pools
+
+    @staticmethod
+    def _capability_matches_connection_kind(capability_draft: Any | None) -> bool:
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or "").strip())
+        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
+        return capability_matches_connection_kind(capability, kind)
+
     def _classify_capability_draft(
         self,
         message: str,
         *,
         language: str | None = None,
     ) -> Any | None:
-        connection_pools: dict[str, dict[str, Any]] = {}
-        for kind in ("sftp", "smb", "rss", "webhook", "discord", "http_api", "email", "imap", "mqtt"):
-            rows = getattr(getattr(self.settings, "connections", object()), kind, {})
-            if isinstance(rows, dict) and rows:
-                connection_pools[kind] = rows
+        connection_pools = self._capability_routing_connection_pools()
         if not connection_pools:
             return None
 
@@ -938,6 +2348,44 @@ class Pipeline:
             available_connection_refs_by_kind={kind: rows.keys() for kind, rows in connection_pools.items()},
             available_connection_aliases_by_kind=connection_aliases_by_kind,
         )
+
+    def _should_try_unified_routing(
+        self,
+        message: str,
+        capability_draft: Any | None,
+    ) -> bool:
+        connection_pools = self._unified_routing_connection_pools()
+        if not connection_pools:
+            return False
+
+        supported_kinds = set(connection_pools.keys())
+        draft_kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
+        draft_matches_kind = self._capability_matches_connection_kind(capability_draft)
+        if draft_kind in supported_kinds and draft_matches_kind:
+            if str(getattr(capability_draft, "explicit_connection_ref", "") or "").strip():
+                return True
+            if str(getattr(capability_draft, "requested_connection_ref", "") or "").strip():
+                return True
+            if str(getattr(capability_draft, "path", "") or "").strip():
+                return True
+            if str(getattr(capability_draft, "content", "") or "").strip():
+                return True
+            return True
+
+        preferred_kind = infer_preferred_connection_kind(
+            message,
+            explicit_kind=draft_kind if draft_matches_kind else "",
+            available_kinds=supported_kinds,
+        )
+        deterministic = RoutingResolver._deterministic_connection_match(
+            message,
+            connection_pools,
+            preferred_kind=preferred_kind,
+        )
+        if deterministic.found:
+            return True
+
+        return bool(preferred_kind and preferred_kind in supported_kinds)
 
     def classify_routing(self, message: str, *, language: str | None = None) -> RouterDecision:
         routing_profile = self.settings.routing.for_language(language)
@@ -997,113 +2445,31 @@ class Pipeline:
             )
 
         custom_intents: list[str] = []
-        capability_result = None
         if decision.intents in (["chat"], ["memory_recall"]):
-            capability_result = await self._try_ssh_command_action(message, language=language)
-            if capability_result is None:
-                capability_draft = self._classify_capability_draft(message, language=language)
-                if capability_draft is not None and str(getattr(capability_draft, "explicit_connection_ref", "")).strip():
-                    capability_result = await self._try_capability_action(message, user_id, language=language)
-            if capability_result is not None:
-                capability_intents, capability_text, capability_details, capability_plan, capability_errors = capability_result
-                if capability_plan.capability == "ssh_command" or (
-                    capability_plan.is_complete and capability_plan.resolution_source == "explicit"
-                ):
-                    duration_ms = int((time.perf_counter() - start) * 1000)
-                    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                    await self.token_tracker.log(
-                        request_id=request_id,
-                        user_id=user_id,
-                        intents=capability_intents,
-                        router_level=decision.level,
-                        usage=usage,
-                        chat_model=self.settings.llm.model,
-                        embedding_model=self.settings.embeddings.model,
-                        embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                        chat_cost_usd=None,
-                        embedding_cost_usd=None,
-                        total_cost_usd=None,
-                        duration_ms=duration_ms,
-                        source=source,
-                        skill_errors=capability_errors,
-                        extraction_model="capability_router",
-                        extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                    )
-                    if self.capability_context_store is not None and capability_plan.is_complete:
-                        try:
-                            self.capability_context_store.remember_action(
-                                user_id,
-                                capability=capability_plan.capability,
-                                connection_kind=capability_plan.connection_kind,
-                                connection_ref=capability_plan.connection_ref,
-                                path=capability_plan.path,
-                            )
-                        except Exception:
-                            pass
-                    return PipelineResult(
-                        request_id=request_id,
-                        text=capability_text,
-                        usage=usage,
-                        intents=capability_intents,
-                        skill_errors=capability_errors,
-                        router_level=decision.level,
-                        duration_ms=duration_ms,
-                        chat_cost_usd=None,
-                        embedding_cost_usd=None,
-                        total_cost_usd=None,
-                        safe_fix_plan=None,
-                        detail_lines=capability_details,
-                    )
             custom_intents = self._match_custom_skill_intents(message, runtime_custom_skills)
-        if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents and capability_result is None:
-            capability_result = await self._try_capability_action(message, user_id, language=language)
-        if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents and capability_result is not None:
-            capability_intents, capability_text, capability_details, capability_plan, capability_errors = capability_result
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            await self.token_tracker.log(
-                request_id=request_id,
-                user_id=user_id,
-                intents=capability_intents,
-                router_level=decision.level,
-                usage=usage,
-                chat_model=self.settings.llm.model,
-                embedding_model=self.settings.embeddings.model,
-                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                duration_ms=duration_ms,
-                source=source,
-                skill_errors=capability_errors,
-                extraction_model="capability_router",
-                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            capability_draft = self._classify_capability_draft(message, language=language)
+            explicit_or_targeted_signal = any(
+                str(getattr(capability_draft, field, "") or "").strip()
+                for field in ("explicit_connection_ref", "requested_connection_ref", "path")
             )
-            if self.capability_context_store is not None and capability_plan.is_complete:
-                try:
-                    self.capability_context_store.remember_action(
-                        user_id,
-                        capability=capability_plan.capability,
-                        connection_kind=capability_plan.connection_kind,
-                        connection_ref=capability_plan.connection_ref,
-                        path=capability_plan.path,
-                    )
-                except Exception:
-                    pass
-            return PipelineResult(
-                request_id=request_id,
-                text=capability_text,
-                usage=usage,
-                intents=capability_intents,
-                skill_errors=capability_errors,
-                router_level=decision.level,
-                duration_ms=duration_ms,
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                safe_fix_plan=None,
-                detail_lines=capability_details,
+            content_signal = str(getattr(capability_draft, "content", "") or "").strip()
+            strong_capability_signal = self._capability_matches_connection_kind(capability_draft) and (
+                explicit_or_targeted_signal or (content_signal and not custom_intents)
             )
+            if self._should_try_unified_routing(message, capability_draft) and (strong_capability_signal or not custom_intents):
+                unified_routed_result = await self._try_unified_routed_action(
+                    message,
+                    user_id,
+                    request_id=request_id,
+                    source=source,
+                    decision=decision,
+                    start=start,
+                    runtime_custom_skills=runtime_custom_skills,
+                    capability_draft=capability_draft,
+                    language=language,
+                )
+                if unified_routed_result is not None:
+                    return unified_routed_result
         if decision.intents in (["chat"], ["memory_recall"]) and not custom_intents:
             custom_intents = await self._resolve_custom_skill_intent_with_llm(message, runtime_custom_skills)
 

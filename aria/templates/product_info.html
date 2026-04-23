@@ -1,16 +1,19 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
-<section class="panel">
+<section class="panel docs-clean-layout">
   <div class="page-head">
     <div>
       <p class="section-kicker">{{ tr(request, 'product_info.kicker', 'Produkt-Info') }}</p>
       <h2>{{ tr(request, 'product_info.title', 'ARIA Produkt-Info') }}</h2>
-      <p>{{ tr(request, 'product_info.subtitle', 'Read-only Produkt-, Architektur- und Release-Doku direkt aus dem Repo.') }}</p>
     </div>
   </div>
 
-  <div class="product-doc-grid">
+  {% with docs_current='product_info' %}
+    {% include "_docs_nav.html" %}
+  {% endwith %}
+
+  <div class="product-doc-grid docs-clean-grid">
     {% for product_doc in product_docs %}
     <a
       href="/product-info?doc={{ product_doc.id }}"
@@ -26,13 +29,13 @@
     {% endfor %}
   </div>
 
-  <div class="help-source-chip">
+  <div class="help-source-chip docs-clean-chip">
     <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
     <code>{{ doc_path }}</code>
   </div>
 
   {% if selected_doc.assets %}
-  <div class="product-diagram-grid">
+  <div class="product-diagram-grid docs-clean-grid">
     {% for asset in selected_doc.assets %}
     <figure class="product-diagram-card">
       <img src="{{ asset.src }}" alt="{{ tr(request, asset.caption_i18n, asset.caption_default) }}" loading="lazy">
@@ -43,7 +46,9 @@
   {% endif %}
 
   {% if doc_text %}
-  <pre class="help-document">{{ doc_text }}</pre>
+  <article class="doc-markdown docs-content-surface">
+    {{ doc_html }}
+  </article>
   {% else %}
   <div class="empty-state">{{ tr(request, 'product_info.missing', 'Noch keine Produkt-Doku-Datei gefunden.') }}</div>
   {% endif %}

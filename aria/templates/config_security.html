@@ -1,23 +1,10 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('security', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_security.title', 'Security Guardrails') }}</h2></div>
-    <p>{{ tr(request, 'config_security.subtitle', 'Hier verwaltest du wiederverwendbare Guardrail-Profile für ARIA-Module.') }}</p>
+<main class="config-layout config-domain-layout config-domain-surface-layout config-security-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
 
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_security.saved', 'Security-Konfiguration gespeichert.') }}</div>
-    {% endif %}
-    {% if info_message %}
-    <div class="alert ok">{{ info_message }}</div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
-  </section>
-
-  <section class="config-card">
+  <section class="config-card floating-card config-domain-section">
     <h2>{{ tr(request, 'config_security.guardrails_title', 'Guardrail-Profile') }}</h2>
     <p>{{ tr(request, 'config_security.guardrails_subtitle', 'Wiederverwendbare Sicherheitsprofile für einzelne Dienste. Guardrails lassen sich an kompatible Verbindungen anhängen und später modular erweitern.') }}</p>
 
@@ -77,7 +64,7 @@
     {% endif %}
   </section>
 
-  <section class="config-card">
+  <section class="config-card floating-card config-domain-section">
     <h2>{{ tr(request, 'config_security.create_guardrail', 'Neues Guardrail erfassen') }}</h2>
     <p>{{ tr(request, 'config_security.create_guardrail_hint', 'Ein Guardrail ist ein wiederverwendbares Sicherheitsprofil für einen bestimmten Diensttyp. Danach kannst du es an kompatible Verbindungen anhängen.') }}</p>
     <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
@@ -112,7 +99,7 @@
     </form>
   </section>
 
-  <section class="config-card">
+  <section class="config-card floating-card config-domain-section">
     <h2>{{ tr(request, 'config_security.sample_guardrails_title', 'Mitgelieferte Sample-Guardrails') }}</h2>
     <p>{{ tr(request, 'config_security.sample_guardrails_subtitle', 'Starter-Pakete aus /app/samples/security, die direkt nach security.guardrails importiert werden können.') }}</p>
     <div class="config-group-grid">

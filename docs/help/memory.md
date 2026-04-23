@@ -8,6 +8,12 @@ Dieses Dokument beschreibt, wie ARIA Wissen speichert, in welche Qdrant-Collecti
 
 Es ist als Basis für ein späteres Hilfe-System im Web-UI gedacht.
 
+Wichtige Abgrenzung:
+
+- `Memory` ist ARIAs semantischer Wissensspeicher
+- `Notizen` unter `/notes` sind ein eigener Markdown-first Arbeitsbereich
+- Notizen koennen fuer Suche ebenfalls in Qdrant indiziert werden, gehoeren aber produktisch nicht in den Memory-Bereich
+
 ## Was bewusst nicht ins semantische Memory geht
 
 Nicht jede Chat-Nachricht ist Wissen. Operative Skill-Trigger werden deshalb nicht als Tages-Kontext gespeichert.

@@ -1,0 +1,38 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card skills-section" id="skills-system">
+  <h3>{{ tr(request, 'skills.system_title', 'Core / System') }}</h3>
+  <p class="hint-text">{{ tr(request, 'skills.system_desc', 'Das sind die eingebauten Grundfähigkeiten von ARIA. Sie sind wichtig, stehen aber nicht im täglichen Vordergrund wie deine eigenen Skills.') }}</p>
+  <div class="config-group-grid">
+    {% for row in skill_rows %}
+    <article class="config-group-card skill-card">
+      <div class="skill-card-head">
+        <h3>{{ row.title }}</h3>
+        <span class="skill-state {% if row.enabled %}is-on{% else %}is-off{% endif %}">
+          {% if row.enabled %}{{ tr(request, 'skills.state_on', 'aktiv') }}{% else %}{{ tr(request, 'skills.state_off', 'aus') }}{% endif %}
+        </span>
+      </div>
+      <p>{{ row.desc }}</p>
+      <label class="inline-check">
+        <input
+          type="checkbox"
+          name="{{ row.key }}_enabled"
+          value="1"
+          {% if row.enabled %}checked{% endif %}
+          {% if skills_readonly %}disabled{% endif %}
+        >
+        {{ row.title }} {{ tr(request, 'skills.enable', 'aktivieren') }}
+      </label>
+      <details class="skill-details">
+        <summary>{{ tr(request, 'skills.details', 'Details') }}</summary>
+        <div class="skill-details-content">
+          {% if row.key == "memory" %}
+          <a class="nav-link ui-action-link" href="/memories">{{ icon('memories', 'ui-action-icon') }}{{ tr(request, 'skills.memory_center', 'Memory-Zentrale') }}</a>
+          {% elif row.key == "auto_memory" %}
+          <a class="nav-link ui-action-link" href="/memories">{{ icon('memories', 'ui-action-icon') }}{{ tr(request, 'skills.memory_center', 'Memory-Zentrale') }}</a>
+          {% endif %}
+        </div>
+      </details>
+    </article>
+    {% endfor %}
+  </div>
+</section>

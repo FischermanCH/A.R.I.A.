@@ -38,6 +38,10 @@ def build_connection_aliases(connection_kind: str, ref: str, row: Any) -> list[s
         if clean and clean not in aliases:
             aliases.append(clean)
 
+    def _read_bool(name: str) -> bool:
+        raw = row.get(name) if isinstance(row, dict) else getattr(row, name, False)
+        return bool(raw)
+
     def _add_kind_meta_aliases(values: list[str], suffixes: list[str]) -> None:
         for value in values:
             clean_value = normalize_connection_alias(value)
@@ -136,6 +140,47 @@ def build_connection_aliases(connection_kind: str, ref: str, row: Any) -> list[s
         _add(_read("topic"))
     elif kind == "discord":
         _add(_read("webhook_url"))
+        title_blob = " ".join(
+            value
+            for value in (
+                clean_ref,
+                meta_title,
+                meta_description,
+                " ".join(str(item) for item in meta_tags) if isinstance(meta_tags, list) else "",
+            )
+            if str(value).strip()
+        ).lower()
+        if any(
+            _read_bool(flag_name)
+            for flag_name in (
+                "alert_skill_errors",
+                "alert_safe_fix",
+                "alert_connection_changes",
+                "alert_system_events",
+            )
+        ):
+            for value in (
+                "alerts",
+                "alerts channel",
+                "alert channel",
+                "notification channel",
+                "ops alerts",
+            ):
+                _add(value)
+        if any(token in title_blob for token in ("logs", "log", "logging")):
+            for value in ("logs", "logs channel", "log channel"):
+                _add(value)
+        if _read_bool("allow_skill_messages") or _read_bool("send_test_messages"):
+            for value in (
+                "messages",
+                "messages channel",
+                "chat channel",
+                "test channel",
+            ):
+                _add(value)
+        if any(token in title_blob for token in ("message", "messages", "chat")):
+            for value in ("messages", "messages channel", "chat channel"):
+                _add(value)
 
     meta_values: list[str] = []
     if meta_title:

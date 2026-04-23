@@ -8,9 +8,11 @@ Aktuell unterstuetzte Familien sind:
 - SFTP
 - SMB
 - RSS
+- Beobachtete Webseiten
 - Discord
 - HTTP API
 - SearXNG
+- Google Calendar
 - Webhook
 - SMTP
 - IMAP
@@ -39,6 +41,17 @@ Pro Profil pflegst du vor allem:
 - wenige sinnvolle Kategorien
 - wenige bevorzugte Engines
 - Trefferzahl und Zeitbereich
+
+Neuere persoenliche / wissensnahe Verbindungstypen:
+
+- `Beobachtete Webseiten`
+  - fuer einzelne Quellen ohne RSS-Feed
+  - URL-first anlegen
+  - Titel, Kurzbeschreibung, Tags und Gruppe koennen automatisch vorgeschlagen werden
+- `Google Calendar`
+  - read-only ausgelegt
+  - eigener gefuehrter Setup-Flow ueber Google Cloud + OAuth Playground
+  - gedacht fuer Fragen wie `was steht heute an?`
 
 Nuetzliche Referenzen:
 

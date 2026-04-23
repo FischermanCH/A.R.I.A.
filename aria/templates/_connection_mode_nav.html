@@ -1,7 +1,8 @@
+{% from "_icons.html" import icon %}
 <nav class="connection-mode-nav" aria-label="{{ tr(request, 'config_conn.section_jump', 'Bereiche') }}">
   {% if connection_mode == 'create' %}
-  <a href="{{ connection_mode_edit_url }}" class="button-link subtle-link connection-mode-link">{{ tr(request, 'config_conn.back_to_existing_profiles', 'Zurück zu Verbindungen') }}</a>
+  <a href="{{ connection_mode_edit_url }}" class="button-link subtle-link connection-mode-link ui-action-link">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'config_conn.back_to_existing_profiles', 'Zurück zu Verbindungen') }}</a>
   {% else %}
-  <a href="{{ connection_mode_create_url }}" class="button-link subtle-link connection-mode-link connection-create-link is-active">{{ tr(request, 'config_conn.create_section_tab', 'Neu') }}</a>
+  <a href="{{ connection_mode_create_url }}" class="button-link subtle-link connection-mode-link connection-create-link is-active ui-action-link">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'config_conn.create_section_tab', 'Neu') }}</a>
   {% endif %}
 </nav>

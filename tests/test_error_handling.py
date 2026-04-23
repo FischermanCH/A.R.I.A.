@@ -257,8 +257,25 @@ def test_normalize_ui_theme_falls_back_to_matrix() -> None:
 
 
 def test_normalize_ui_background_falls_back_to_grid() -> None:
-    assert normalize_ui_background("aurora") == "aurora"
-    assert normalize_ui_background("unknown") == "grid"
+    static_dir = Path(__file__).resolve().parents[1] / "aria" / "static"
+    assert normalize_ui_background("grid", static_dir=static_dir) == "grid-signal"
+    assert normalize_ui_background("unknown", static_dir=static_dir) == "grid-signal"
+
+
+def test_normalize_ui_background_maps_legacy_alias_when_matching_file_exists(tmp_path: Path) -> None:
+    static_dir = tmp_path / "aria" / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    (static_dir / "background-aurora-glow.png").write_bytes(b"png")
+
+    assert normalize_ui_background("aurora", static_dir=static_dir) == "aurora-glow"
+
+
+def test_normalize_ui_background_accepts_dynamic_background_files(tmp_path: Path) -> None:
+    static_dir = tmp_path / "aria" / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    (static_dir / "background-8-bit-arcade.png").write_bytes(b"png")
+
+    assert normalize_ui_background("8-bit-arcade", static_dir=static_dir) == "8-bit-arcade"
 
 
 def test_read_ssh_connections_impl_keeps_connection_metadata() -> None:

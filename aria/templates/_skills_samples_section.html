@@ -1,0 +1,37 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card skills-section" id="skills-samples">
+  <h3>{{ tr(request, 'skills.samples_title', 'Mitgelieferte Sample-Skills') }}</h3>
+  <p class="hint-text">{{ tr(request, 'skills.samples_hint', 'Diese Skill-Templates liegen im Container unter /app/samples/skills und können direkt importiert werden.') }}</p>
+  <div class="config-group-grid">
+    {% for sample in sample_skill_rows %}
+    <details class="config-group-card skill-card sample-skill-card" data-sample-skill>
+      <summary class="sample-skill-summary">
+        <div class="skill-card-head">
+          <h3>{{ sample.name }}</h3>
+          <span class="skill-state is-off">{{ sample.category }}</span>
+        </div>
+        <p class="hint-text sample-skill-file">{{ sample.file_name }}</p>
+      </summary>
+      <div class="skill-details-content sample-skill-content">
+      {% if sample.description %}
+      <p>{{ sample.description }}</p>
+      {% endif %}
+      {% if not skills_readonly %}
+      <form method="post" action="/skills/import-sample" class="inline-form">
+        <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">
+        <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
+        <button type="submit" class="skill-action-button ui-action-button">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'skills.import_sample_btn', 'Sample importieren') }}</button>
+      </form>
+      {% else %}
+      <p class="hint-text">{{ tr(request, 'skills.readonly_templates_hint', 'Vorlagen sind sichtbar, können im User-Modus aber nicht importiert werden.') }}</p>
+      {% endif %}
+      </div>
+    </details>
+    {% else %}
+    <article class="config-group-card skill-card is-future">
+      <h3>{{ tr(request, 'skills.samples_empty_title', 'Keine Sample-Skills gefunden') }}</h3>
+      <p>{{ tr(request, 'skills.samples_empty_hint', 'Im Container wurde kein samples/skills-Verzeichnis gefunden.') }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>

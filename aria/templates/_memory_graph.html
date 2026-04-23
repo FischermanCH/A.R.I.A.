@@ -1,0 +1,37 @@
+{% from "_icons.html" import icon %}
+{% if memory_graph.has_graph %}
+<div class="memory-graph-stage" style="--graph-width: {{ memory_graph.width }}px; --graph-height: {{ memory_graph.height }}px;">
+  <svg class="memory-graph-lines" viewBox="0 0 {{ memory_graph.width }} {{ memory_graph.height }}" aria-hidden="true" focusable="false">
+    {% for edge in memory_graph.edges %}
+    <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}"></line>
+    {% endfor %}
+  </svg>
+  {% for node in memory_graph.nodes %}
+    {% if node.href %}
+    <a class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}{% if node.icon %} has-icon{% endif %}" href="{{ node.href }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
+      {% if node.icon %}
+      <span class="memory-graph-node-icon" aria-hidden="true">{{ icon(node.icon, 'memory-graph-node-icon-svg') }}</span>
+      {% endif %}
+      <span class="memory-graph-node-copy">
+        <strong>{{ node.label }}</strong>
+        <span>{{ node.meta }}</span>
+      </span>
+    </a>
+    {% else %}
+    <article class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}{% if node.icon %} has-icon{% endif %}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
+      {% if node.icon %}
+      <span class="memory-graph-node-icon" aria-hidden="true">{{ icon(node.icon, 'memory-graph-node-icon-svg') }}</span>
+      {% endif %}
+      <span class="memory-graph-node-copy">
+        <strong>{{ node.label }}</strong>
+        <span>{{ node.meta }}</span>
+      </span>
+    </article>
+    {% endif %}
+  {% endfor %}
+</div>
+{% else %}
+<article class="memory-card">
+  <p>{{ tr(request, 'memories_map.none_for_user', 'Für diesen Nutzer sind aktuell keine Collections vorhanden.') }}</p>
+</article>
+{% endif %}

@@ -1,28 +1,15 @@
 {% extends "base.html" %}
-{% block content %}
 {% from "_icons.html" import icon %}
-<main class="config-layout">
-  {% if error_message %}
-  <section class="floating-card">
-    <div class="alert err">{{ error_message }}</div>
-  </section>
-  {% endif %}
-  {% if saved %}
-  <section class="floating-card">
-    <div class="alert ok">{{ tr(request, 'config.saved', 'Configuration saved.') }}</div>
-  </section>
-  {% endif %}
-  {% if info_message %}
-  <section class="floating-card">
-    <div class="alert ok">{{ info_message }}</div>
-  </section>
-  {% endif %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-surface-layout config-backup-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
 
-  <section class="floating-card">
-    <p class="section-kicker">{{ tr(request, 'config.backup_title', 'Backup & Restore') }}</p>
-    <h1>{{ tr(request, 'config.backup_heading', 'Export or restore your ARIA configuration') }}</h1>
+  <section class="floating-card config-domain-section">
+    <p class="section-kicker">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</p>
+    <h1>{{ tr(request, 'config.transfer_heading', 'Import / Export for configuration and memory') }}</h1>
     <p>
-      {{ tr(request, 'config.backup_intro', 'Create a single backup file for the parts you configure inside ARIA, then restore it later if a release, container, or manual change goes sideways.') }}
+      {{ tr(request, 'config.transfer_intro', 'Keep configuration backups and user-memory exports in one place so recovery and migration steps stay easier to find.') }}
     </p>
     <div class="config-group-grid">
       <article class="config-group-card">
@@ -54,7 +41,7 @@
     </div>
   </section>
 
-  <section class="floating-card">
+  <section class="floating-card config-domain-section">
     <div class="config-group-grid">
       <article class="config-group-card">
         <div class="skill-card-head">
@@ -82,7 +69,23 @@
         </div>
         <p class="hint-text">{{ tr(request, 'config.backup_export_hint', 'Tip: create a fresh backup before larger upgrades or before importing a file from another instance.') }}</p>
         <p>
-          <a class="button-like" href="/config/backup/export{% if return_to %}?return_to={{ return_to|urlencode }}{% endif %}">{{ tr(request, 'config.backup_export_btn', 'Download config backup') }}</a>
+          <a class="button-like ui-action-link" href="/config/backup/export{% if return_to %}?return_to={{ return_to|urlencode }}{% endif %}">{{ icon('download', 'ui-action-icon') }}{{ tr(request, 'config.backup_export_btn', 'Download config backup') }}</a>
+        </p>
+      </article>
+
+      <article class="config-group-card">
+        <div class="skill-card-head">
+          <h3>{{ tr(request, 'config.memory_export_title', 'Export memory JSON') }}</h3>
+          <span class="skill-state is-on">{{ tr(request, 'config.memory_export_scope', 'Current user') }}</span>
+        </div>
+        <p>{{ tr(request, 'config.memory_export_desc', 'Download the current user memory as JSON. This is useful for review, migration, or a quick semantic-memory backup outside the full config backup flow.') }}</p>
+        <ul class="plain-list">
+          <li>{{ tr(request, 'config.memory_export_contains', 'Includes facts, preferences, day context, documents, and rollup knowledge for the signed-in user.') }}</li>
+          <li>{{ tr(request, 'config.memory_export_excludes', 'Does not create a restore file for full ARIA settings and does not include routing/system collections.') }}</li>
+        </ul>
+        <p class="hint-text">{{ tr(request, 'config.memory_export_hint', 'Use this when you want the semantic memory itself, not the broader ARIA configuration snapshot.') }}</p>
+        <p>
+          <a class="button-like ui-action-link" href="{{ memory_export_url }}">{{ icon('download', 'ui-action-icon') }}{{ tr(request, 'config.memory_export_btn', 'Download memory export') }}</a>
         </p>
       </article>
 
@@ -99,7 +102,7 @@
           <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label for="backup_file">{{ tr(request, 'config.backup_file_label', 'Backup file (.json)') }}</label>
           <input id="backup_file" type="file" name="backup_file" accept="application/json,.json" required>
-          <button type="submit">{{ tr(request, 'config.backup_import_btn', 'Restore backup') }}</button>
+          <button type="submit" class="ui-action-button">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'config.backup_import_btn', 'Restore backup') }}</button>
         </form>
       </article>
     </div>

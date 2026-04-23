@@ -11,9 +11,18 @@
   <script src="/static/vendor/htmx-1.9.12.min.js?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}"></script>
   <link rel="stylesheet" href="/static/style.css?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
 </head>
-<body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}">
+<body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}"{% if request and request.state and request.state.ui_background_asset_url %} style="--background-art: url('{{ request.state.ui_background_asset_url|e }}'); --background-size: cover; --background-repeat: no-repeat;"{% endif %}>
   {% from "_icons.html" import icon %}
   {% set logical_back_url = request.state.logical_back_url if request and request.state and request.state.logical_back_url else '' %}
+  {% set current_path = request.url.path if request else '/' %}
+  {% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
+  {% set nav_memories_active = current_path.startswith('/memories') %}
+  {% set nav_notes_active = current_path.startswith('/notes') %}
+  {% set nav_skills_active = current_path.startswith('/skills') %}
+  {% set nav_connections_active = current_path == '/connections' or current_path.startswith('/config/connections') %}
+  {% set nav_stats_active = current_path.startswith('/stats') or current_path.startswith('/activities') %}
+  {% set nav_config_active = current_path == '/config' or current_path.startswith('/config/') or current_path.startswith('/updates') %}
+  {% set nav_help_active = current_path.startswith('/help') or current_path.startswith('/product-info') or current_path.startswith('/licenses') %}
   <div class="app-shell">
     <header class="topbar">
       <a class="brand brand-home" href="/" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
@@ -40,8 +49,16 @@
         {% if request.state.can_access_advanced_config %}
         <span class="pill brand-admin-pill mobile-admin-pill mobile-only">{{ tr(request, 'base.admin_on', 'Admin ON') }}</span>
         {% endif %}
-        <details class="user-menu">
-          <summary class="user-pill user-pill-icon">{{ icon('more') }}<span>Menu</span>{% if request.state.update_status.update_available %}<span class="topnav-update-indicator" title="{{ tr(request, 'updates.available_short', 'Update verfügbar') }}"><span class="health-lamp status-warn"></span></span>{% endif %}</summary>
+        <details class="user-menu app-menu">
+          <summary
+            class="user-pill user-pill-icon app-menu-trigger"
+            aria-label="{{ tr(request, 'base.nav_sections', 'Bereiche') }}"
+            title="{{ tr(request, 'base.nav_sections', 'Bereiche') }}"
+          >
+            {{ icon('settings') }}
+            <span class="mobile-only">{{ tr(request, 'base.nav_sections', 'Bereiche') }}</span>
+            {% if update_status and update_status.update_available %}<span class="topnav-update-indicator" title="{{ tr(request, 'updates.available_short', 'Update verfügbar') }}"><span class="health-lamp status-warn"></span></span>{% endif %}
+          </summary>
           <div class="user-menu-panel">
             <div class="user-menu-header">
               <strong>{{ username or request.state.auth_user }}</strong>
@@ -49,23 +66,15 @@
               <small>{{ request.state.auth_role }}</small>
               {% endif %}
             </div>
-            {% if request.url.path != "/" %}
-            <button
-              type="button"
-              class="user-menu-link user-menu-link-icon user-menu-button mobile-only"
-              onclick="(function(){ const logical='{{ logical_back_url|e }}'; if (logical) { window.location.assign(logical); return; } if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
-            >{{ icon('more') }}<span>{{ tr(request, 'base.nav_back', 'Zurück') }}</span></button>
-            {% endif %}
-            <a href="/memories" class="user-menu-link user-menu-link-icon">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
-            <a href="/skills" class="user-menu-link user-menu-link-icon">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Skills') }}</span></a>
-            <a href="/stats" class="user-menu-link user-menu-link-icon">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
-            {% if request.state.can_access_advanced_config %}
-            <a href="/config" class="user-menu-link user-menu-link-icon">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Config') }}</span></a>
-            {% endif %}
-            <a href="/help" class="user-menu-link user-menu-link-icon">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
-            {% if request.state.can_access_users %}
-            <a href="/config/users" class="user-menu-link user-menu-link-icon">{{ icon('users') }}<span>{{ tr(request, 'base.nav_users', 'Benutzer') }}</span></a>
-            {% endif %}
+            <div class="user-menu-section-label">{{ tr(request, 'base.nav_sections', 'Bereiche') }}</div>
+            <a href="/memories" class="user-menu-link user-menu-link-icon{% if nav_memories_active %} is-active{% endif %}">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
+            <a href="/notes" class="user-menu-link user-menu-link-icon{% if nav_notes_active %} is-active{% endif %}">{{ icon('notes') }}<span>{{ tr(request, 'base.nav_notes', 'Notizen') }}</span></a>
+            <a href="/skills" class="user-menu-link user-menu-link-icon{% if nav_skills_active %} is-active{% endif %}">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Skills') }}</span></a>
+            <a href="/connections" class="user-menu-link user-menu-link-icon{% if nav_connections_active %} is-active{% endif %}">{{ icon('connections') }}<span>{{ tr(request, 'base.nav_connections', 'Connections') }}</span></a>
+            <a href="/config" class="user-menu-link user-menu-link-icon{% if nav_config_active %} is-active{% endif %}">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Settings') }}</span></a>
+            <a href="/stats" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
+            <a href="/help" class="user-menu-link user-menu-link-icon{% if nav_help_active %} is-active{% endif %}">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
+            <div class="user-menu-divider" aria-hidden="true"></div>
             <form action="/logout" method="post" class="inline-form">
               <button type="submit" class="user-menu-link user-menu-link-icon user-menu-button">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_logout', 'Logout') }}</span></button>
             </form>
@@ -84,15 +93,6 @@
         <a href="/login" class="nav-link nav-link-icon">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_login', 'Login') }}</span></a>
         {% endif %}
       </nav>
-      {% if request.url.path != "/" %}
-      <button
-        type="button"
-        class="nav-back-button desktop-only"
-        aria-label="{{ tr(request, 'base.nav_back', 'Zurück') }}"
-        title="{{ tr(request, 'base.nav_back', 'Zurück') }}"
-        onclick="(function(){ const logical='{{ logical_back_url|e }}'; if (logical) { window.location.assign(logical); return; } if (window.history.length > 1) { try { sessionStorage.setItem('aria_back_reload_pending', '1'); } catch (e) {} window.history.back(); return; } window.location.assign('{{ '/' if request.state.authenticated else '/login' }}'); })()"
-      >←</button>
-      {% endif %}
     </header>
     {% if request.state.authenticated %}
     <div id="runtime-restart-banner" class="runtime-restart-banner" hidden>
@@ -114,6 +114,7 @@
   </div>
   <script>
     (function () {
+      const logical='{{ logical_back_url|e }}';
       const isAuthenticated = {{ "true" if request.state.authenticated else "false" }};
       const backReloadKey = "aria_back_reload_pending";
       const restartFailureCountKey = "aria_restart_probe_failure_count";

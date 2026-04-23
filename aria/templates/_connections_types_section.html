@@ -1,0 +1,54 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card connections-section">
+  {% if request.state.can_access_advanced_config %}
+  <h3>{{ tr(request, 'connections_overview.section_types_title', 'Verbindungstypen') }}</h3>
+  <p class="hint-text">{{ tr(request, 'connections_overview.section_types_desc', 'Jeder Typ hat seine eigene Hauptseite zum Verwalten, Testen und Pflegen von Profilen.') }}</p>
+  <p class="hint-text">{{ tr(request, 'connections_overview.section_types_hint', 'SearXNG, RSS und beobachtete Webseiten sind gute Quellenpfade fuer laufende Recherche und Sammlung.') }}</p>
+  <div class="config-submenu">
+    {% for row in connection_menu_rows %}
+    {% if row.disabled %}
+    <div class="config-submenu-item is-disabled" aria-disabled="true">
+    {% else %}
+    <a class="config-submenu-item" href="{{ row.url }}{% if '?' in row.url %}&{% else %}?{% endif %}return_to={{ page_return_to | urlencode }}">
+    {% endif %}
+      <span class="submenu-icon-wrap">{{ icon(row.icon, 'submenu-icon') }}</span>
+      <span class="submenu-copy">
+        {% if row.alpha or row.warning_badge %}
+        <span class="submenu-title-row">
+          <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+          {% if row.alpha and not row.hide_alpha_badge %}
+          <span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>
+          {% endif %}
+          {% if row.warning_badge %}
+          <span class="alpha-flag warn-flag">{{ row.warning_badge }}</span>
+          {% endif %}
+        </span>
+        {% else %}
+        <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+        {% endif %}
+        <span class="submenu-desc">{{ tr(request, row.desc_key, '') }}</span>
+        {% if row.availability_message %}
+        <span class="submenu-status-text">{{ row.availability_message }}</span>
+        {% endif %}
+      </span>
+    {% if row.disabled %}
+    </div>
+    {% else %}
+    </a>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade Admin-Modus') }}</h3>
+  <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktiviertem Admin-Modus wird dieser Bereich sichtbar.') }}</p>
+  <div class="config-submenu">
+    <a class="config-submenu-item" href="/config/users?return_to={{ page_return_to | urlencode }}#admin-mode">
+      <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+      <span class="submenu-copy">
+        <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Benutzer & Zugriff öffnen') }}</span>
+        <span class="submenu-desc">{{ tr(request, 'connections_overview.admin_off_link_desc', 'Dort kannst du den Admin-Modus wieder einschalten.') }}</span>
+      </span>
+    </a>
+  </div>
+  {% endif %}
+</section>

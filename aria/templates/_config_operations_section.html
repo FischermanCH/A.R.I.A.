@@ -1,0 +1,93 @@
+{% from "_icons.html" import icon %}
+{% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
+{% if request.state.can_access_advanced_config %}
+{% set service_restart = operations_service_restart if operations_service_restart is defined else {} %}
+<section class="floating-card config-domain-section">
+  <div class="config-submenu">
+    <a class="config-submenu-item" href="/updates?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('updates', 'submenu-icon') }}</span>
+      <span class="submenu-copy">
+        <span class="submenu-title-row">
+          <span class="submenu-title">{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
+          {% if update_status and update_status.update_available %}
+          <span class="alpha-flag warn-flag">{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span>
+          {% endif %}
+        </span>
+        <span class="submenu-desc">{{ tr(request, 'config.updates_desc', 'Version, Release Notes und kontrollierte Update-Pfade an einem Ort.') }}</span>
+      </span>
+    </a>
+    <a class="config-submenu-item" href="/config/logs?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="/config/backup?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</span><span class="submenu-desc">{{ tr(request, 'config.transfer_desc', 'Export config backups, download memory JSON, and restore ARIA from one place.') }}</span></span>
+    </a>
+  </div>
+</section>
+
+<section class="floating-card config-domain-section">
+  <div class="page-title-row"><span>{{ icon('refresh', 'page-title-icon') }}</span><h3>{{ tr(request, 'config.operations_services_title', 'System-Services') }}</h3></div>
+  <div class="stats-list">
+    <li>
+      <span>{{ tr(request, 'config.operations_services_helper', 'Helper-Status') }}</span>
+      <strong class="update-status-inline update-status-chip status-{{ service_restart.status_visual or 'warn' }}">
+        <span class="health-lamp status-{{ service_restart.status_visual or 'warn' }}"></span>
+        <span>{{ service_restart.status or 'disabled' }}</span>
+      </strong>
+    </li>
+  </div>
+
+  {% if not service_restart.configured %}
+  <div class="alert info">
+    <strong>{{ tr(request, 'config.operations_services_unavailable_title', 'Kein Neustart-Helper aktiv') }}</strong>
+    <div>{{ tr(request, 'config.operations_services_unavailable_body', 'Dieser Bereich ist nur auf Installationen mit aktivem GUI-Helper fuer Updates und Service-Neustarts verfuegbar.') }}</div>
+  </div>
+  {% elif service_restart.helper_error %}
+  <div class="alert warn">
+    <strong>{{ tr(request, 'config.operations_services_error_title', 'Helper nicht erreichbar') }}</strong>
+    <div>{{ service_restart.helper_error }}</div>
+  </div>
+  {% else %}
+  {% if service_restart.last_result %}
+  <div class="alert info">
+    <strong>{{ tr(request, 'config.operations_services_last_result', 'Letztes Ergebnis') }}</strong>
+    <div>{{ service_restart.last_result }}</div>
+  </div>
+  {% endif %}
+  {% if service_restart.last_error %}
+  <div class="alert warn">
+    <strong>{{ tr(request, 'config.operations_services_last_error', 'Letzter Fehler') }}</strong>
+    <div>{{ service_restart.last_error }}</div>
+  </div>
+  {% endif %}
+  <div class="config-submenu service-restart-grid">
+    {% for service in service_restart.services or [] %}
+    <form
+      method="post"
+      action="/config/operations/service-restart"
+      class="service-restart-form"
+      onsubmit="return confirm('{{ (service.confirm or tr(request, 'config.operations_services_confirm_default', 'Diesen Dienst wirklich kontrolliert neu starten? Kurzzeitige Unterbrüche sind normal.'))|e }}');"
+    >
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="service" value="{{ service.id }}">
+      <button
+        type="submit"
+        class="config-submenu-item service-restart-button{% if service_restart.disabled %} is-disabled{% endif %}"
+        {% if service_restart.disabled %}disabled{% endif %}
+      >
+        <span class="submenu-icon-wrap">{{ icon(service.icon, 'submenu-icon') }}</span>
+        <span class="submenu-copy">
+          <span class="submenu-title">{{ service.title }}</span>
+          <span class="submenu-desc">{{ service.desc }}</span>
+        </span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% else %}
+{% include '_config_admin_notice.html' %}
+{% endif %}

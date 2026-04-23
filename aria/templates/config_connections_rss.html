@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block content %}
 <main class="config-layout">
   {% include "_connection_page_intro.html" %}
@@ -37,13 +38,13 @@
           <small>{{ tr(request,'config_conn.rss_opml_hint','Importiere viele Feeds aus einer OPML-Datei oder exportiere deine aktuelle RSS-Sammlung wieder als OPML.') }}</small>
         </div>
         <div class="inline-actions">
-          <a class="button-link subtle-link" href="/config/connections/rss/export-opml">{{ tr(request,'config_conn.rss_export_opml','OPML exportieren') }}</a>
+          <a class="button-link subtle-link ui-action-link" href="/config/connections/rss/export-opml">{{ icon('download', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_export_opml','OPML exportieren') }}</a>
         </div>
         <form method="post" action="/config/connections/rss/import-opml" class="editor-form" enctype="multipart/form-data">
           <label for="opml_file">{{ tr(request,'config_conn.rss_opml_file','OPML-Datei') }}</label>
           <input id="opml_file" type="file" name="opml_file" accept=".opml,.xml,text/xml,application/xml" required>
 
-          <button type="submit">{{ tr(request,'config_conn.rss_import_opml','OPML importieren') }}</button>
+          <button type="submit" class="ui-action-button">{{ icon('upload', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_import_opml','OPML importieren') }}</button>
         </form>
       </div>
     </details>
@@ -60,7 +61,7 @@
         <form method="get" action="/config/connections/rss" class="inline-form" data-busy-immediate="true">
           <input type="hidden" name="refresh_groups" value="1">
           <input type="hidden" name="mode" value="edit">
-          <button type="submit">{{ tr(request,'config_conn.rss_refresh_groups','Kategorien mit LLM aktualisieren') }}</button>
+          <button type="submit" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_refresh_groups','Kategorien mit LLM aktualisieren') }}</button>
         </form>
       </div>
       <div class="editor-form">
@@ -91,7 +92,7 @@
           <small>{{ item.message }}</small>
           <form method="post" action="/config/connections/rss/ping-now" class="inline-form" data-busy-immediate="true">
             <input type="hidden" name="rss_ref" value="{{ item.ref }}">
-            <button type="submit" class="button-link subtle-link">{{ tr(request,'config_conn.rss_ping_now','Jetzt pingen') }}</button>
+            <button type="submit" class="button-link subtle-link ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_ping_now','Jetzt pingen') }}</button>
           </form>
         </article>
         {% endif %}

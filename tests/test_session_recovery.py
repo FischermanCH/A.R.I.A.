@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import aria.main as main_mod
-from aria.main import AUTH_COOKIE, CONNECTION_CREATE_PENDING_COOKIE, CSRF_COOKIE, FORGET_PENDING_COOKIE, app
+from aria.main import AUTH_COOKIE, CONNECTION_CREATE_PENDING_COOKIE, CSRF_COOKIE, FORGET_PENDING_COOKIE, ROUTED_ACTION_PENDING_COOKIE, app
 
 
 def _current_cookie_name(base_name: str, host: str = "testserver") -> str:
@@ -32,6 +33,7 @@ def test_session_expired_page_clears_auth_and_pending_cookies() -> None:
     client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
     client.cookies.set(FORGET_PENDING_COOKIE, "pending")
     client.cookies.set(CONNECTION_CREATE_PENDING_COOKIE, "pending")
+    client.cookies.set(ROUTED_ACTION_PENDING_COOKIE, "pending")
 
     response = client.get("/session-expired")
 
@@ -40,6 +42,7 @@ def test_session_expired_page_clears_auth_and_pending_cookies() -> None:
     assert any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
     assert any(header.startswith(f"{FORGET_PENDING_COOKIE}=") for header in set_cookie_headers)
     assert any(header.startswith(f"{CONNECTION_CREATE_PENDING_COOKIE}=") for header in set_cookie_headers)
+    assert any(header.startswith(f"{ROUTED_ACTION_PENDING_COOKIE}=") for header in set_cookie_headers)
 
 
 def test_json_fetch_on_protected_route_returns_login_required_json() -> None:
@@ -83,6 +86,26 @@ def test_json_fetch_with_invalid_auth_cookie_returns_session_expired_json_and_cl
     assert payload["login_url"].startswith("/login?next=")
     set_cookie_headers = response.headers.get_list("set-cookie")
     assert any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_next"),
+    [
+        ("/", "/"),
+        ("/stats", "/stats"),
+        ("/memories", "/memories"),
+        ("/skills", "/skills"),
+        ("/config", "/config"),
+        ("/config/llm?return_to=%2Fconfig", "/config/llm?return_to=%2Fconfig"),
+    ],
+)
+def test_protected_html_routes_redirect_to_login_without_session(path: str, expected_next: str) -> None:
+    client = TestClient(app)
+
+    response = client.get(path, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/login?next={main_mod.quote_plus(expected_next)}"
 
 
 def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkeypatch) -> None:
@@ -192,7 +215,7 @@ def test_memories_upload_without_file_returns_redirect_instead_of_validation_jso
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/memories?")
+    assert response.headers["location"].startswith("/memories/explorer?")
 
 
 def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None:
@@ -221,7 +244,7 @@ def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/memories?")
+    assert response.headers["location"].startswith("/memories/explorer?")
 
 
 def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() -> None:

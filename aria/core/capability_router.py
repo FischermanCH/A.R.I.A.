@@ -4,8 +4,10 @@ import re
 from typing import Iterable
 
 from aria.core.action_plan import CapabilityDraft
+from aria.core.capability_catalog import capability_executor_kinds
 from aria.core.routing_lexicon import CapabilityRoutingLexicon
 from aria.core.routing_lexicon import get_default_capability_lexicon
+from aria.core.routing_resolver import infer_preferred_connection_kind
 
 
 class CapabilityRouter:
@@ -36,6 +38,52 @@ class CapabilityRouter:
             if f" {token} " in lower or lower.strip().startswith(token + " ") or f" {token}" in lower:
                 return True
         return False
+
+    @staticmethod
+    def _looks_like_calendar_request(text: str) -> bool:
+        lower = str(text or "").lower()
+        if not lower:
+            return False
+        if "event bus" in lower or "mqtt" in lower or "topic" in lower:
+            return False
+        if "kalender" in lower or "calendar" in lower:
+            return True
+        if any(term in lower for term in ("termin", "termine", "meeting", "appointment")) and any(
+            marker in lower for marker in ("heute", "morgen", "naechst", "nächst", "today", "tomorrow", "next week", "next ")
+        ):
+            return True
+        return False
+
+    @staticmethod
+    def _extract_calendar_range(text: str) -> str:
+        lower = str(text or "").strip().lower()
+        if not lower:
+            return ""
+        if any(term in lower for term in ("übermorgen", "uebermorgen", "day after tomorrow")):
+            return "day_after_tomorrow"
+        if any(term in lower for term in ("morgen", "tomorrow")):
+            return "tomorrow"
+        if any(term in lower for term in ("heute", "today")):
+            return "today"
+        if any(term in lower for term in ("diese woche", "this week")):
+            return "this_week"
+        if any(term in lower for term in ("nächste woche", "naechste woche", "next week")):
+            return "next_week"
+        if any(term in lower for term in ("nächster termin", "naechster termin", "next appointment", "next meeting", "naechstes meeting", "nächstes meeting")):
+            return "next"
+        if "was steht an" in lower or "what's on" in lower or "whats on" in lower:
+            return "upcoming"
+        return "upcoming"
+
+    @staticmethod
+    def _extract_calendar_search(text: str) -> str:
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        quoted = re.search(r'["“](.+?)["”]', raw)
+        if quoted:
+            return str(quoted.group(1) or "").strip()
+        return ""
 
     def _lexicon_for_language(self, language: str | None) -> CapabilityRoutingLexicon:
         lang_key = str(language or "").strip().lower()
@@ -127,6 +175,45 @@ class CapabilityRouter:
                 return match.group(1).strip()
         return ""
 
+    @classmethod
+    def _extract_mail_search_query_with_lexicon(
+        cls,
+        message: str,
+        explicit_ref: str,
+        lexicon: CapabilityRoutingLexicon,
+    ) -> str:
+        quoted = re.search(r"['\"](.+?)['\"]", message)
+        if quoted:
+            return quoted.group(1).strip()
+        lower = str(message or "").strip().lower()
+        for after_term in lexicon.mail_search_after_terms:
+            clean_term = str(after_term or "").strip().lower()
+            if not clean_term:
+                continue
+            match = re.search(rf"\b{re.escape(clean_term)}\b\s+(.+)$", str(message or ""), re.IGNORECASE)
+            if not match:
+                continue
+            value = str(match.group(1) or "").strip(" .,:;!?")
+            if explicit_ref and value.lower().startswith(explicit_ref.lower() + " "):
+                value = value[len(explicit_ref):].strip(" .,:;!?")
+            if value:
+                return value
+        return cls._extract_mail_search_query(message, explicit_ref)
+
+    @classmethod
+    def _extract_mqtt_topic_with_lexicon(cls, message: str, lexicon: CapabilityRoutingLexicon) -> str:
+        raw = str(message or "").strip()
+        for topic_term in lexicon.mqtt_topic_terms:
+            clean_term = str(topic_term or "").strip()
+            if not clean_term:
+                continue
+            match = re.search(rf"\b{re.escape(clean_term)}\s+([A-Za-z0-9_./-]+)\b", raw, re.IGNORECASE)
+            if match:
+                candidate = str(match.group(1) or "").strip()
+                if candidate:
+                    return candidate
+        return cls._extract_mqtt_topic(message)
+
     @staticmethod
     def _clean_ssh_command(value: str) -> str:
         command = str(value or "").strip(" \t\r\n.,;")
@@ -178,6 +265,17 @@ class CapabilityRouter:
         if not raw or cls._extract_path(raw):
             return ""
         lower = raw.lower()
+        if re.search(
+            r"\b(?:df|disk(?:\s+space)?|storage|festplatte|plattenplatz|speicherplatz)\b",
+            lower,
+            re.IGNORECASE,
+        ) and (
+            re.search(r"\b(?:frei|free|remaining|verf(?:ü|ue)gbar|available)\b", lower, re.IGNORECASE)
+            or re.search(r"\bwieviel\b.*\bfrei\b", lower, re.IGNORECASE)
+            or re.search(r"\bhow\s+much\b.*\b(?:free|left|remaining|available)\b", lower, re.IGNORECASE)
+            or re.search(r"\bcheck\b.*\b(?:festplatte|disk|storage|df)\b", lower, re.IGNORECASE)
+        ):
+            return "df -h"
         if re.search(r"\b(?:uptime|laufzeit|betriebszeit)\b", lower, re.IGNORECASE):
             return "uptime"
         if re.search(r"\b(?:health\s*check|healthcheck|gesundheitscheck|systemstatus)\b", lower, re.IGNORECASE):
@@ -193,6 +291,18 @@ class CapabilityRouter:
         if re.search(r"\bhow\s+long\b.*\b(?:been\s+online|online)\b", lower, re.IGNORECASE):
             return "uptime"
         return ""
+
+    @classmethod
+    def _extract_natural_ssh_command_with_lexicon(cls, message: str, lexicon: CapabilityRoutingLexicon) -> str:
+        raw = str(message or "").strip()
+        if not raw or cls._extract_path(raw):
+            return ""
+        lower = raw.lower()
+        if any(term in lower for term in lexicon.ssh_natural_uptime_terms if str(term).strip()):
+            return "uptime"
+        if any(term in lower for term in lexicon.ssh_natural_online_terms if str(term).strip()) and "online" in lower:
+            return "uptime"
+        return cls._extract_natural_ssh_command(message)
 
     @staticmethod
     def _split_ref_tokens(value: str) -> list[str]:
@@ -293,81 +403,130 @@ class CapabilityRouter:
         return kind, ref
 
     @staticmethod
-    def _extract_requested_connection_ref_hint(message: str, connection_kind: str) -> str:
+    def _requested_ref_candidate_after_term(message: str, term: str) -> str:
+        clean_term = str(term or "").strip()
+        if not clean_term:
+            return ""
+        pattern = rf"\b{re.escape(clean_term)}\b\s+([a-z0-9._-]+)\b"
+        match = re.search(pattern, str(message or ""), re.IGNORECASE)
+        if not match:
+            return ""
+        return str(match.group(1) or "").strip()
+
+    @staticmethod
+    def _clean_requested_ref_candidate(candidate: str, ignore_tokens: set[str]) -> str:
+        clean = re.sub(r"\s+", " ", str(candidate or "").strip(" \t\r\n.,;:!?")).strip()
+        if not clean:
+            return ""
+        tokens = [token for token in re.split(r"\s+", clean) if token]
+        while tokens and tokens[0].lower() in ignore_tokens:
+            tokens.pop(0)
+        if not tokens:
+            return ""
+        return " ".join(tokens[:4]).strip()
+
+    @classmethod
+    def _extract_requested_connection_phrase_hint(
+        cls,
+        message: str,
+        connection_kind: str,
+        ignore_tokens: set[str],
+    ) -> str:
+        raw = str(message or "").strip()
+        kind = str(connection_kind or "").strip().lower()
+        if not raw or kind != "discord":
+            return ""
+        patterns = (
+            r"\bdiscord\b\s+(?:my\s+|the\s+|mein(?:en|e|er)?\s+)?([a-z0-9._-]+(?:\s+[a-z0-9._-]+){0,2}\s+(?:channel|kanal|profile|profil|server))\b",
+            r"\b(?:an|nach|zu|in|to)\s+(?:den|dem|die|das|the|my|mein(?:en|e|er)?)?\s*([a-z0-9._-]+(?:\s+[a-z0-9._-]+){0,2}\s+(?:channel|kanal|profile|profil|server))\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, raw, re.IGNORECASE)
+            if not match:
+                continue
+            candidate = cls._clean_requested_ref_candidate(str(match.group(1) or ""), ignore_tokens)
+            if candidate:
+                return candidate
+        return ""
+
+    @classmethod
+    def _extract_requested_connection_ref_hint(
+        cls,
+        message: str,
+        connection_kind: str,
+        lexicon: CapabilityRoutingLexicon,
+    ) -> str:
         raw = str(message or "").strip()
         kind = str(connection_kind or "").strip().lower()
         if not raw or not kind:
             return ""
 
-        patterns_by_kind: dict[str, tuple[str, ...]] = {
-            "discord": (
-                r"\bdiscord\s+([a-z0-9._-]+)\b",
-                r"\bto discord\s+([a-z0-9._-]+)\b",
-                r"\bnach discord\s+([a-z0-9._-]+)\b",
-                r"\bvia discord\s+([a-z0-9._-]+)\b",
-            ),
-            "webhook": (
-                r"\bwebhook\s+([a-z0-9._-]+)\b",
-                r"\bvia webhook\s+([a-z0-9._-]+)\b",
-                r"\bper webhook\s+([a-z0-9._-]+)\b",
-            ),
-            "http_api": (
-                r"\bapi\s+([a-z0-9._-]+)\b",
-                r"\bendpoint\s+([a-z0-9._-]+)\b",
-            ),
-            "email": (
-                r"\bmail\s+([a-z0-9._-]+)\b",
-                r"\bemail\s+([a-z0-9._-]+)\b",
-            ),
-            "imap": (
-                r"\bpostfach\s+([a-z0-9._-]+)\b",
-                r"\bmailbox\s+([a-z0-9._-]+)\b",
-                r"\binbox\s+([a-z0-9._-]+)\b",
-            ),
-            "mqtt": (
-                r"\bmqtt\s+([a-z0-9._-]+)\b",
-                r"\bbroker\s+([a-z0-9._-]+)\b",
-            ),
-            "ssh": (
-                r"\b(?:on|auf|via|bei|von)\s+([a-z0-9._-]+)\b",
-                r"\bssh\s+([a-z0-9._-]+)\b",
-            ),
-            "rss": (
-                r"\bfeed\s+([a-z0-9._-]+)\b",
-                r"\brss\s+([a-z0-9._-]+)\b",
-            ),
+        markers_by_kind: dict[str, tuple[str, ...]] = {
+            "discord": lexicon.discord_requested_ref_terms,
+            "webhook": lexicon.webhook_requested_ref_terms,
+            "http_api": lexicon.api_requested_ref_terms,
+            "email": lexicon.email_requested_ref_terms,
+            "imap": lexicon.imap_requested_ref_terms,
+            "mqtt": lexicon.mqtt_requested_ref_terms,
+            "rss": lexicon.rss_requested_ref_terms,
         }
-        ignore_tokens = {
-            "discord",
-            "message",
-            "nachricht",
-            "webhook",
-            "api",
-            "endpoint",
-            "mail",
-            "email",
-            "postfach",
-            "mailbox",
-            "inbox",
-            "mqtt",
-            "broker",
-            "ssh",
-            "shell",
-            "feed",
-            "rss",
-            "topic",
-        }
-        for pattern in patterns_by_kind.get(kind, ()):
-            match = re.search(pattern, raw, re.IGNORECASE)
-            if not match:
-                continue
-            candidate = str(match.group(1) or "").strip()
+        ignore_tokens = {str(token).strip().lower() for token in lexicon.requested_connection_ref_ignore_terms}
+
+        phrase_candidate = cls._extract_requested_connection_phrase_hint(raw, kind, ignore_tokens)
+        if phrase_candidate:
+            return phrase_candidate
+
+        marker_terms: tuple[str, ...]
+        if kind == "ssh":
+            marker_terms = (*lexicon.ssh_requested_ref_prepositions, *lexicon.ssh_requested_ref_terms)
+        else:
+            marker_terms = markers_by_kind.get(kind, ())
+
+        for marker in marker_terms:
+            candidate = cls._requested_ref_candidate_after_term(raw, marker)
             if not candidate:
                 continue
-            if candidate.lower() in ignore_tokens:
+            cleaned_candidate = cls._clean_requested_ref_candidate(candidate, ignore_tokens)
+            if not cleaned_candidate:
                 continue
-            return candidate
+            if cleaned_candidate.lower() in ignore_tokens:
+                continue
+            return cleaned_candidate
         return ""
+
+    @staticmethod
+    def _fallback_kind_from_candidates(candidate_kinds: Iterable[str], preferred_order: Iterable[str]) -> str:
+        ordered = [str(kind).strip().lower() for kind in candidate_kinds if str(kind).strip()]
+        if not ordered:
+            return ""
+        if len(ordered) == 1:
+            return ordered[0]
+        for preferred in (str(kind).strip().lower() for kind in preferred_order if str(kind).strip()):
+            if preferred in ordered:
+                return preferred
+        return ordered[0]
+
+    def _resolve_connection_kind(
+        self,
+        message: str,
+        *,
+        capability: str,
+        explicit_kind: str,
+        available_kinds: set[str],
+        lexicon: CapabilityRoutingLexicon,
+    ) -> str:
+        if explicit_kind:
+            return explicit_kind
+        candidate_kinds = [kind for kind in capability_executor_kinds(capability) if kind in available_kinds]
+        if not candidate_kinds:
+            return ""
+        inferred = infer_preferred_connection_kind(
+            message,
+            available_kinds=candidate_kinds,
+        )
+        if inferred and inferred in set(candidate_kinds):
+            return inferred
+        return self._fallback_kind_from_candidates(candidate_kinds, lexicon.connection_kind_priority)
 
     def classify(
         self,
@@ -407,7 +566,7 @@ class CapabilityRouter:
         has_imap_hint = self._contains_any(lower, lexicon.imap_hints)
         has_mqtt_hint = self._contains_any(lower, lexicon.mqtt_hints)
         has_ssh_hint = self._contains_any(lower, lexicon.ssh_hints)
-        natural_ssh_command = self._extract_natural_ssh_command(raw)
+        natural_ssh_command = self._extract_natural_ssh_command_with_lexicon(raw, lexicon)
         ssh_command = self._extract_ssh_command(raw, explicit_ref) or natural_ssh_command
         has_remote_hint = (
             any(token in lower for token in lexicon.remote_terms)
@@ -423,11 +582,17 @@ class CapabilityRouter:
             or has_mqtt_hint
         )
         if not has_remote_hint:
-            return None
+            if self._looks_like_calendar_request(lower) and "google_calendar" in available_kinds:
+                has_remote_hint = True
+            else:
+                return None
 
         capability = ""
         confidence = 0.0
-        if (
+        if self._looks_like_calendar_request(lower) and "google_calendar" in available_kinds:
+            capability = "calendar_read"
+            confidence = 0.8
+        elif (
             ssh_command
             and (explicit_kind == "ssh" or has_ssh_hint or ("ssh" in available_kinds and not explicit_kind))
             and (self._contains_any(lower, lexicon.ssh_command_terms) or bool(natural_ssh_command))
@@ -484,54 +649,21 @@ class CapabilityRouter:
         if capability == "ssh_command" and "ssh" in available_kinds:
             connection_kind = "ssh"
         if not connection_kind:
-            has_sftp_hint = self._contains_any(lower, lexicon.sftp_hints)
-            has_smb_hint = self._contains_any(lower, lexicon.smb_hints)
-            if capability == "ssh_command" and "ssh" in available_kinds:
-                connection_kind = "ssh"
-            elif has_smb_hint and not has_sftp_hint and "smb" in available_kinds:
-                connection_kind = "smb"
-            elif has_feed_hint and "rss" in available_kinds:
-                connection_kind = "rss"
-            elif self._contains_any(lower, lexicon.webhook_hints) and "webhook" in available_kinds:
-                connection_kind = "webhook"
-            elif has_discord_hint and "discord" in available_kinds:
-                connection_kind = "discord"
-            elif has_api_hint and "http_api" in available_kinds:
-                connection_kind = "http_api"
-            elif has_imap_hint and "imap" in available_kinds:
-                connection_kind = "imap"
-            elif has_email_hint and "email" in available_kinds:
-                connection_kind = "email"
-            elif has_mqtt_hint and "mqtt" in available_kinds:
-                connection_kind = "mqtt"
-            elif has_sftp_hint and "sftp" in available_kinds:
-                connection_kind = "sftp"
-            elif len(available_kinds) == 1:
-                connection_kind = sorted(available_kinds)[0]
-            elif "sftp" in available_kinds:
-                connection_kind = "sftp"
-            elif "smb" in available_kinds:
-                connection_kind = "smb"
-            elif "rss" in available_kinds:
-                connection_kind = "rss"
-            elif "webhook" in available_kinds:
-                connection_kind = "webhook"
-            elif "discord" in available_kinds:
-                connection_kind = "discord"
-            elif "http_api" in available_kinds:
-                connection_kind = "http_api"
-            elif "email" in available_kinds:
-                connection_kind = "email"
-            elif "imap" in available_kinds:
-                connection_kind = "imap"
-            elif "mqtt" in available_kinds:
-                connection_kind = "mqtt"
-            else:
-                connection_kind = "sftp"
+            connection_kind = self._resolve_connection_kind(
+                raw,
+                capability=capability,
+                explicit_kind=explicit_kind,
+                available_kinds=available_kinds,
+                lexicon=lexicon,
+            ) or (
+                "sftp"
+                if "sftp" in available_kinds
+                else self._fallback_kind_from_candidates(available_kinds, lexicon.connection_kind_priority)
+            )
 
         requested_connection_ref = ""
         if connection_kind and not explicit_ref:
-            requested_candidate = self._extract_requested_connection_ref_hint(raw, connection_kind)
+            requested_candidate = self._extract_requested_connection_ref_hint(raw, connection_kind, lexicon)
             if requested_candidate:
                 available_refs_for_kind = {
                     str(ref).strip().lower()
@@ -541,19 +673,31 @@ class CapabilityRouter:
                 if requested_candidate.lower() not in available_refs_for_kind:
                     requested_connection_ref = requested_candidate
 
+        mail_search_content = self._extract_mail_search_query_with_lexicon(raw, explicit_ref, lexicon)
+        mqtt_topic = self._extract_mqtt_topic_with_lexicon(raw, lexicon)
+
         return CapabilityDraft(
             capability=capability,
             connection_kind=connection_kind,
             explicit_connection_ref=explicit_ref,
             requested_connection_ref=requested_connection_ref,
-            path=self._extract_mqtt_topic(raw) if capability == "mqtt_publish" else self._extract_path(raw),
+            path=(
+                self._extract_calendar_range(raw)
+                if capability == "calendar_read"
+                else mqtt_topic
+                if capability == "mqtt_publish"
+                else self._extract_path(raw)
+            ),
             content=(
+                self._extract_calendar_search(raw)
+                if capability == "calendar_read"
+                else
                 ssh_command
                 if capability == "ssh_command"
                 else
                 self._extract_webhook_content(raw, explicit_ref)
                 if capability in {"webhook_send", "discord_send", "email_send", "mqtt_publish"}
-                else self._extract_mail_search_query(raw, explicit_ref)
+                else mail_search_content
                 if capability == "mail_search"
                 else self._extract_content(raw)
             ),

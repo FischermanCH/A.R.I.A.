@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 {% from "_icons.html" import icon %}
-{% macro config_section(title, desc, count=None, open=False) -%}
-  <details class="floating-card config-section-details"{% if open %} open{% endif %}>
+{% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
+{% macro config_section(title, desc, count=None, open=False, section_id='') -%}
+  <details class="floating-card config-section-details"{% if section_id %} id="{{ section_id }}"{% endif %}{% if open %} open{% endif %}>
     <summary class="config-section-summary">
       <span class="config-section-heading">
         <span class="config-section-title-row">
@@ -20,6 +21,7 @@
   </details>
 {%- endmacro %}
 <main class="config-layout">
+  {% include "_config_nav.html" %}
   {% if error_message %}
   <section class="floating-card">
     <div class="alert err">{{ error_message }}</div>
@@ -35,11 +37,31 @@
     <div class="alert ok">{{ info_message }}</div>
   </section>
   {% endif %}
+
+  <section class="floating-card" id="config-overview">
+    <div class="page-title-row"><span>{{ icon('settings', 'page-title-icon') }}</span><h2>{{ tr(request, 'config.overview_title', 'Einstellungen') }}</h2></div>
+    <p>{{ tr(request, 'config.overview_subtitle', 'Der zentrale Hub für Systemlogik, Verhalten, Sicherheit und administrative ARIA-Werkzeuge.') }}</p>
+    <div class="memory-health-grid">
+      {% for check in overview_checks %}
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ check.status }}"></span>
+          <h3>{{ check.title }}</h3>
+        </div>
+        <p>{{ check.summary }}</p>
+        <small>{{ check.meta }}</small>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
   {% if request.state.can_access_advanced_config %}
   {% call config_section(
     tr(request, 'config.h1', 'Tune Intelligence'),
     tr(request, 'config.h1_desc', 'Configure how ARIA thinks, responds, and computes.'),
-    2
+    2,
+    False,
+    'config-intelligence'
   ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/llm?return_to=%2Fconfig">
@@ -56,28 +78,11 @@
 
   {% if request.state.can_access_advanced_config %}
   {% call config_section(
-    tr(request, 'config.memory_title', 'Fine-Tune Memory'),
-    tr(request, 'config.memory_desc', 'So ARIA keeps important facts and returns stronger recall results.'),
-    2
-  ) %}
-    <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/routing?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.memory_routing_title', 'Memory Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.memory_routing_desc', 'Adjust keywords like “remember this” and “do you remember”.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/skill-routing?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.skill_routing_title', 'Skill Triggers & Routing') }}</span><span class="submenu-desc">{{ tr(request, 'config.skill_routing_desc', 'Central trigger map for all custom skills with direct JSON linkage.') }}</span></span>
-      </a>
-    </div>
-  {% endcall %}
-  {% endif %}
-
-  {% if request.state.can_access_advanced_config %}
-  {% call config_section(
     tr(request, 'config.persona_title', 'Personality & Style'),
     tr(request, 'config.persona_desc', 'Define ARIA tone, character, and working style.'),
-    3
+    3,
+    False,
+    'config-persona'
   ) %}
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/prompts?return_to=%2Fconfig">
@@ -98,73 +103,21 @@
 
   {% if request.state.can_access_advanced_config %}
   {% call config_section(
-    tr(request, 'config.connections_title', 'Connections'),
-    tr(request, 'config.connections_desc', 'Everything for external systems and access.'),
-    connection_menu_rows|length
+    tr(request, 'config.access_title', 'Zugriff & Sicherheit'),
+    tr(request, 'config.access_desc', 'Benutzer, Rollen und Guardrails für den sicheren Betrieb von ARIA.'),
+    2,
+    False,
+    'config-access'
   ) %}
     <div class="config-submenu">
-      {% for row in connection_menu_rows %}
-      {% if row.disabled %}
-      <div class="config-submenu-item is-disabled" aria-disabled="true">
-      {% else %}
-      <a class="config-submenu-item" href="{{ row.url }}{% if '?' in row.url %}&{% else %}?{% endif %}return_to=%2Fconfig">
-      {% endif %}
-        <span class="submenu-icon-wrap">{{ icon(row.icon, 'submenu-icon') }}</span>
-        <span class="submenu-copy">
-          {% if row.alpha or row.warning_badge %}
-          <span class="submenu-title-row">
-            <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
-            {% if row.alpha %}
-            <span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>
-            {% endif %}
-            {% if row.warning_badge %}
-            <span class="alpha-flag warn-flag">{{ row.warning_badge }}</span>
-            {% endif %}
-          </span>
-          {% else %}
-          <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
-          {% endif %}
-          <span class="submenu-desc">{{ tr(request, row.desc_key, '') }}</span>
-          {% if row.availability_message %}
-          <span class="submenu-status-text">{{ row.availability_message }}</span>
-          {% endif %}
-        </span>
-      {% if row.disabled %}
-      </div>
-      {% else %}
+      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig#admin-mode">
+        <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Benutzer') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Benutzerkonten, Rollen und Admin-Modus zentral verwalten.') }}</span></span>
       </a>
-      {% endif %}
-      {% endfor %}
-    </div>
-  {% endcall %}
-
-  {% call config_section(
-    tr(request, 'config.sample_connections_title', 'Mitgelieferte Sample-Connections'),
-    tr(request, 'config.sample_connections_desc', 'Diese Beispielprofile liegen im Container unter /app/samples/connections und können direkt in config.yaml importiert werden.'),
-    sample_connection_rows|length
-  ) %}
-    <div class="config-group-grid">
-      {% for sample in sample_connection_rows %}
-      <article class="config-group-card">
-        <div class="skill-card-head">
-          <h3>{{ sample.title }}</h3>
-          <span class="skill-state is-off">{{ sample.label }}</span>
-        </div>
-        {% if sample.description %}
-        <p>{{ sample.description }}</p>
-        {% endif %}
-        <p class="hint-text">{{ sample.ref }} · {{ sample.file_name }}</p>
-        <form class="inline-form" method="post" action="/config/connections/import-sample">
-          <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
-          <button type="submit">{{ tr(request, 'config.sample_connections_import_btn', 'Sample importieren') }}</button>
-        </form>
-      </article>
-      {% else %}
-      <article class="config-group-card">
-        <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Sample-Connections gefunden') }}</h3>
-        <p>{{ tr(request, 'config.sample_connections_empty_desc', 'Im Container wurde kein samples/connections-Verzeichnis gefunden.') }}</p>
-      </article>
-      {% endfor %}
+      <a class="config-submenu-item" href="/config/security?return_to=%2Fconfig">
+        <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
+      </a>
     </div>
   {% endcall %}
   {% endif %}
@@ -174,10 +127,11 @@
     tr(request, 'config.admin_mode_off_title', 'Admin mode is currently off'),
     tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Users > Admin On/Off.'),
     1,
-    True
+    True,
+    'config-admin'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig#admin-mode">
         <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
         <span class="submenu-copy">
           <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Users & Access') }}</span>
@@ -190,18 +144,49 @@
 
   {% if request.state.can_access_advanced_config %}
   {% call config_section(
-    tr(request, 'config.workbench_title', 'Workbench (Advanced)'),
-    tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.'),
-    5
+    tr(request, 'config.operations_title', 'Betrieb & Transfer'),
+    tr(request, 'config.operations_desc', 'Logs, Cleanup und Backups an einem ruhigeren Ort für den täglichen Betrieb.'),
+    3,
+    False,
+    'config-operations'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/security?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
+      <a class="config-submenu-item" href="/updates">
+        <span class="submenu-icon-wrap">{{ icon('updates', 'submenu-icon') }}</span>
+        <span class="submenu-copy">
+          <span class="submenu-title-row">
+            <span class="submenu-title">{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
+            {% if update_status and update_status.update_available %}
+            <span class="alpha-flag warn-flag">{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span>
+            {% endif %}
+          </span>
+          <span class="submenu-desc">{{ tr(request, 'config.updates_desc', 'Version, Release Notes und kontrollierte Update-Pfade an einem Ort.') }}</span>
+        </span>
       </a>
       <a class="config-submenu-item" href="/config/logs?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/backup?return_to=%2Fconfig">
+        <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</span><span class="submenu-desc">{{ tr(request, 'config.transfer_desc', 'Export config backups, download memory JSON, and restore ARIA from one place.') }}</span></span>
+      </a>
+    </div>
+  {% endcall %}
+  {% endif %}
+
+  {% if request.state.can_access_advanced_config %}
+  {% call config_section(
+    tr(request, 'config.workbench_title', 'Workbench (Advanced)'),
+    tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.'),
+    3,
+    False,
+    'config-workbench'
+  ) %}
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/workbench/routing?return_to=%2Fconfig">
+        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.workbench_routing_title', 'Routing Workbench') }}</span><span class="submenu-desc">{{ tr(request, 'config.workbench_routing_menu_desc', 'Dedicated dry-run page for routing, action planning, payloads, and execution preview.') }}</span></span>
       </a>
       <a class="config-submenu-item" href="/config/files?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
@@ -211,12 +196,33 @@
         <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/backup?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.backup_title', 'Backup & Restore') }}</span><span class="submenu-desc">{{ tr(request, 'config.backup_desc', 'Export your full ARIA configuration or restore it from a backup file.') }}</span></span>
-      </a>
     </div>
   {% endcall %}
   {% endif %}
 </main>
+<script>
+  (function () {
+    function openConfigSection(targetId) {
+      const target = document.getElementById(targetId);
+      if (!target || target.tagName !== "DETAILS") return;
+      target.open = true;
+    }
+
+    document.querySelectorAll('[data-open-details-target]').forEach(function (link) {
+      link.addEventListener('click', function () {
+        const targetId = link.getAttribute('data-open-details-target');
+        if (targetId) openConfigSection(targetId);
+      });
+    });
+
+    function openFromHash() {
+      const hash = String(window.location.hash || '');
+      if (!hash.startsWith('#config-')) return;
+      openConfigSection(hash.slice(1));
+    }
+
+    openFromHash();
+    window.addEventListener('hashchange', openFromHash);
+  })();
+</script>
 {% endblock %}

@@ -259,6 +259,7 @@ def test_llm_config_page_shows_active_profile_runtime_meta(tmp_path: Path) -> No
     response = client.get('/config/llm?return_to=%2Fconfig')
 
     assert response.status_code == 200
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
     assert 'Active profile' in response.text
     assert 'litellm-main' in response.text
     assert 'https://litellm.example/v1' in response.text
@@ -284,6 +285,7 @@ def test_embeddings_page_uses_embedding_specific_provider_presets(tmp_path: Path
     response = client.get('/config/embeddings')
 
     assert response.status_code == 200
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
     assert 'LiteLLM Proxy' in response.text
     assert 'text-embedding-3-small' in response.text
     assert 'Anthropic' not in response.text
@@ -316,6 +318,399 @@ def test_routing_page_shows_qdrant_routing_index_status(monkeypatch, tmp_path: P
     assert 'action="/config/routing/qdrant/save"' in response.text
     assert 'name="qdrant_connection_routing_enabled"' in response.text
     assert 'name="qdrant_score_threshold"' in response.text
+    assert '/config/workbench/routing?scope=default' in response.text
+    assert 'Routing Testbench' not in response.text
+
+
+def test_routing_page_redirects_legacy_testbench_queries_to_workbench(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get(
+        '/config/routing?routing_query=Run+uptime+on+pihole1&routing_kind=ssh&routing_llm_qdrant_only=1',
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers['location'].startswith('/config/workbench/routing?')
+    assert 'routing_query=Run+uptime+on+pihole1' in response.headers['location']
+    assert 'routing_kind=ssh' in response.headers['location']
+    assert 'routing_llm_qdrant_only=1' in response.headers['location']
+
+
+def test_config_page_shows_routing_workbench_link(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config')
+
+    assert response.status_code == 200
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Settings Navigation"' in response.text
+    assert 'href="/config/intelligence"' in response.text
+    assert 'href="/config/persona"' in response.text
+    assert 'href="/config/access"' in response.text
+    assert 'href="/config/operations"' in response.text
+    assert 'href="/config/workbench"' in response.text
+    assert 'Routing Workbench' not in response.text
+    assert 'litellm-main' in response.text
+    assert 'litellm-emb' in response.text
+    assert 'The currently active chat-brain profile for answers and tool decisions.' in response.text
+    assert 'Memory Triggers & Routing' not in response.text
+    assert 'Skill Triggers & Routing' not in response.text
+
+
+def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_path: Path) -> None:
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Routing index ready: 3/3 profiles indexed.",
+            "collection_name": "aria_routing_connections_test",
+            "collection_names": ["aria_routing_connections_test"],
+            "collection_count": 1,
+            "document_count": 3,
+            "indexed_count": 3,
+            "detail": "",
+        }
+
+    async def fake_test_query(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Deterministic routing matched ssh/pihole1 via alias.",
+            "query": "pruef mal den pi-hole",
+            "preferred_kind": "ssh",
+            "requested_preferred_kind": "auto",
+            "inferred_preferred_kind": "ssh",
+            "available_counts": {"ssh": 1},
+            "llm_ignore_deterministic": False,
+            "deterministic": {"found": True, "kind": "ssh", "ref": "pihole1", "source": "alias", "score": 1000.0, "reason": "pi-hole"},
+            "qdrant": {"enabled": True, "message": "", "error": "", "candidate_count": 1, "accepted_count": 1, "candidates": []},
+            "decision": {"found": True, "kind": "ssh", "ref": "pihole1", "source": "alias", "score": 1000.0, "reason": "pi-hole"},
+            "llm_debug": {"available": True, "used": True, "status": "ok", "visual_status": "ok", "message": "LLM router debug selected ssh/pihole1.", "decision": {"found": True, "kind": "ssh", "ref": "pihole1", "reason": "fits"}, "confidence": "high", "ask_user": False},
+            "action_debug": {
+                "available": True,
+                "used": True,
+                "status": "ok",
+                "visual_status": "ok",
+                "message": "LLM action planner selected template/ssh_health_check.",
+                "target_context": "ssh/pihole1",
+                "target_reason": "pi-hole",
+                "decision": {
+                    "found": True,
+                    "candidate_kind": "template",
+                    "candidate_kind_label": "Template",
+                    "candidate_id": "ssh_health_check",
+                    "title": "SSH Health Check",
+                    "intent": "health_check",
+                    "intent_label": "Health check",
+                    "capability": "ssh_command",
+                    "capability_label": "SSH command",
+                    "summary_line": "Template: Health check via SSH command on ssh/pihole1",
+                    "inputs": {"command": "uptime"},
+                    "input_items": [{"key": "command", "key_label": "Command", "value": "uptime"}],
+                    "score": 0.98,
+                    "execution_state": "ready",
+                    "execution_state_label": "Ready",
+                    "preview": "SSH command: uptime",
+                    "reason": "health check fits",
+                },
+                "confidence": "high",
+                "confidence_label": "High",
+                "ask_user": False,
+                "execution_state": "ready",
+                "execution_state_label": "Ready",
+                "planner_source": "llm",
+                "planner_source_label": "LLM",
+                "missing_input": "",
+                "missing_input_label": "",
+                "clarifying_question": "",
+                "candidates": [
+                    {
+                        "candidate_kind": "template",
+                        "candidate_kind_label": "Template",
+                        "candidate_id": "ssh_health_check",
+                        "title": "SSH Health Check",
+                        "intent": "health_check",
+                        "intent_label": "Health check",
+                        "capability": "ssh_command",
+                        "capability_label": "SSH command",
+                        "summary_line": "Template: Health check via SSH command",
+                        "inputs": {"command": "uptime"},
+                        "input_items": [{"key": "command", "key_label": "Command", "value": "uptime"}],
+                        "execution_state": "ready",
+                        "execution_state_label": "Ready",
+                        "missing_input": "",
+                        "summary": "Runs a lightweight health or status check on the target host.",
+                        "preview": "SSH command: uptime",
+                        "score": 0.98,
+                    },
+                    {
+                        "candidate_kind": "template",
+                        "candidate_kind_label": "Template",
+                        "candidate_id": "ssh_run_command",
+                        "title": "SSH Run Command",
+                        "intent": "run_command",
+                        "intent_label": "Run command",
+                        "capability": "ssh_command",
+                        "capability_label": "SSH command",
+                        "summary_line": "Template: Run command via SSH command",
+                        "inputs": {},
+                        "execution_state": "needs_input",
+                        "execution_state_label": "Needs input",
+                        "missing_input": "command",
+                        "missing_input_label": "Command",
+                        "clarifying_question": "Which command should ARIA run on this target?",
+                        "summary": "Runs a direct command on the target host when the request names a concrete command.",
+                        "preview": "SSH command from the user request",
+                        "example_prompt": 'Run "df -h" on pihole1',
+                        "input_items": [],
+                        "score": 0.74,
+                    }
+                ],
+            },
+            "payload_debug": {
+                "available": True,
+                "used": True,
+                "status": "ok",
+                "visual_status": "ok",
+                "message": "Payload dry-run built a concrete executor payload.",
+                "payload": {
+                    "found": True,
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "pihole1",
+                    "path": "",
+                    "content": "uptime",
+                    "missing_fields": [],
+                    "preview": "SSH command: uptime",
+                },
+            },
+            "safety_debug": {
+                "available": True,
+                "used": True,
+                "status": "ok",
+                "visual_status": "ok",
+                "message": "Guardrail / confirm dry-run would allow execution.",
+                "decision": {
+                    "action": "allow",
+                    "reason": "safe_health_check",
+                    "guardrail_ref": "safe-ssh",
+                },
+            },
+            "execution_debug": {
+                "available": True,
+                "used": True,
+                "status": "ok",
+                "visual_status": "ok",
+                "message": "Would execute with the current dry-run plan.",
+                "decision": {
+                    "next_step": "allow",
+                    "target": "ssh/pihole1",
+                    "capability": "ssh_command",
+                    "preview": "SSH command: uptime",
+                },
+            },
+            "executed": False,
+        }
+
+    monkeypatch.setattr(config_routes_mod, "build_connection_routing_index_status", fake_status)
+    monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test_query)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/workbench/routing?routing_query=pruef+mal+den+pi-hole')
+
+    assert response.status_code == 200
+    assert 'Action / Skill' in response.text
+    assert 'ssh/pihole1' in response.text
+    assert 'pi-hole' in response.text
+    assert 'SSH Health Check' in response.text
+    assert 'ssh_health_check' in response.text
+    assert 'SSH command' in response.text
+    assert 'Template: Health check via SSH command on ssh/pihole1' in response.text
+    assert 'Template: Run command via SSH command' in response.text
+    assert 'Ready' in response.text
+    assert 'Command=uptime' in response.text
+    assert 'SSH command: uptime' in response.text
+    assert 'Template' in response.text
+    assert 'High' in response.text
+    assert 'Health check' in response.text
+    assert 'Run command' in response.text
+    assert 'LLM' in response.text
+    assert '0.980' in response.text
+    assert '0.740' in response.text
+    assert 'Needs input' in response.text
+    assert 'Command' in response.text
+    assert 'Which command should ARIA run on this target?' in response.text
+    assert 'df -h' in response.text
+    assert 'on pihole1' in response.text
+    assert 'Decision identifier' in response.text
+    assert 'Decision score' in response.text
+    assert 'Decision reason' in response.text
+    assert 'Payload dry-run' in response.text or 'Payload Dry-run' in response.text
+    assert 'safe-ssh' in response.text
+    assert 'Final execution preview' in response.text or 'Finale Ausfuehrungsvorschau' in response.text
+    assert 'allow' in response.text
+
+
+def test_routing_workbench_page_renders_action_planner_follow_up_question(monkeypatch, tmp_path: Path) -> None:
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "Routing index ready: 3/3 profiles indexed.",
+            "collection_name": "aria_routing_connections_test",
+            "collection_names": ["aria_routing_connections_test"],
+            "collection_count": 1,
+            "document_count": 3,
+            "indexed_count": 3,
+            "detail": "",
+        }
+
+    async def fake_test_query(*_args: object, **_kwargs: object) -> dict[str, object]:
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": "Qdrant routing candidate selected sftp/mgmt.",
+            "query": "lies die datei vom management server",
+            "preferred_kind": "sftp",
+            "requested_preferred_kind": "auto",
+            "inferred_preferred_kind": "sftp",
+            "available_counts": {"sftp": 1},
+            "llm_ignore_deterministic": False,
+            "deterministic": {"found": True, "kind": "sftp", "ref": "mgmt", "source": "alias", "score": 1000.0, "reason": "management server"},
+            "qdrant": {"enabled": True, "message": "", "error": "", "candidate_count": 1, "accepted_count": 1, "candidates": []},
+            "decision": {"found": True, "kind": "sftp", "ref": "mgmt", "source": "alias", "score": 1000.0, "reason": "management server"},
+            "llm_debug": {"available": True, "used": True, "status": "ok", "visual_status": "ok", "message": "LLM router debug selected sftp/mgmt.", "decision": {"found": True, "kind": "sftp", "ref": "mgmt", "reason": "fits"}, "confidence": "high", "ask_user": False},
+            "action_debug": {
+                "available": False,
+                "used": False,
+                "status": "warn",
+                "visual_status": "warn",
+                "message": "Action dry-run recommends asking the user before execution.",
+                "target_context": "sftp/mgmt",
+                "target_reason": "management server",
+                "decision": {
+                    "found": True,
+                    "candidate_kind": "template",
+                    "candidate_kind_label": "Template",
+                    "candidate_id": "sftp_read_file",
+                    "title": "SFTP Read File",
+                    "intent": "read_file",
+                    "intent_label": "Read file",
+                    "capability": "file_read",
+                    "capability_label": "Read file",
+                    "summary_line": "Template: Read file on sftp/mgmt",
+                    "inputs": {},
+                    "input_items": [],
+                    "score": 0.91,
+                    "execution_state": "needs_input",
+                    "execution_state_label": "Needs input",
+                    "preview": "Read remote file via SFTP",
+                    "reason": "Missing required remote_path.",
+                },
+                "confidence": "low",
+                "confidence_label": "Low",
+                "ask_user": True,
+                "execution_state": "needs_input",
+                "execution_state_label": "Needs input",
+                "planner_source": "heuristic",
+                "planner_source_label": "Heuristic",
+                "missing_input": "remote_path",
+                "missing_input_label": "Remote path",
+                "clarifying_question": "Which remote path should ARIA read?",
+                "example_prompt": "Read /etc/hosts from the management server",
+                "candidates": [
+                    {
+                        "candidate_kind": "template",
+                        "candidate_kind_label": "Template",
+                        "candidate_id": "sftp_read_file",
+                        "title": "SFTP Read File",
+                        "intent": "read_file",
+                        "intent_label": "Read file",
+                        "capability": "file_read",
+                        "capability_label": "Read file",
+                        "summary_line": "Template: Read file",
+                        "inputs": {},
+                        "input_items": [],
+                        "execution_state": "needs_input",
+                        "execution_state_label": "Needs input",
+                        "missing_input": "remote_path",
+                        "missing_input_label": "Remote path",
+                        "clarifying_question": "Which remote path should ARIA read?",
+                        "summary": "Reads a remote file from the target system.",
+                        "preview": "Read remote file via SFTP",
+                        "example_prompt": "Read /etc/hosts from the management server",
+                        "score": 0.91,
+                    }
+                ],
+            },
+            "payload_debug": {
+                "available": True,
+                "used": True,
+                "status": "warn",
+                "visual_status": "warn",
+                "message": "Payload dry-run still needs one or more parameters.",
+                "payload": {
+                    "found": True,
+                    "capability": "file_read",
+                    "connection_kind": "sftp",
+                    "connection_ref": "mgmt",
+                    "path": "",
+                    "content": "",
+                    "missing_fields": ["path"],
+                    "preview": "Remote file path still missing",
+                },
+            },
+            "safety_debug": {
+                "available": True,
+                "used": True,
+                "status": "warn",
+                "visual_status": "warn",
+                "message": "Guardrail / confirm dry-run would ask before execution.",
+                "decision": {
+                    "action": "ask_user",
+                    "reason": "missing_parameters",
+                    "guardrail_ref": "",
+                },
+            },
+            "execution_debug": {
+                "available": True,
+                "used": True,
+                "status": "warn",
+                "visual_status": "warn",
+                "message": "Would ask the user before executing this plan.",
+                "decision": {
+                    "next_step": "ask_user",
+                    "target": "sftp/mgmt",
+                    "capability": "file_read",
+                    "preview": "Remote file path still missing",
+                },
+            },
+            "executed": False,
+        }
+
+    monkeypatch.setattr(config_routes_mod, "build_connection_routing_index_status", fake_status)
+    monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test_query)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/workbench/routing?routing_query=lies+die+datei+vom+management+server')
+
+    assert response.status_code == 200
+    assert 'sftp/mgmt' in response.text
+    assert 'management server' in response.text
+    assert 'SFTP Read File' in response.text
+    assert 'Template: Read file on sftp/mgmt' in response.text
+    assert 'Template: Read file' in response.text
+    assert 'Remote path' in response.text
+    assert 'Read file' in response.text
+    assert 'Needs input' in response.text
+    assert 'Low' in response.text
+    assert 'Read file' in response.text
+    assert 'Which remote path should ARIA read?' in response.text
+    assert 'Read /etc/hosts from the management server' in response.text
+    assert 'Heuristic' in response.text
+    assert '0.910' in response.text
+    assert 'missing_parameters' in response.text
+    assert 'ask_user' in response.text
 
 
 def test_routing_index_rebuild_redirects_with_result(monkeypatch, tmp_path: Path) -> None:
@@ -402,7 +797,7 @@ def test_routing_qdrant_save_can_disable_live_routing(tmp_path: Path) -> None:
     assert raw["routing"]["qdrant_ask_on_low_confidence"] is False
 
 
-def test_routing_page_shows_testbench_result(monkeypatch, tmp_path: Path) -> None:
+def test_routing_workbench_page_shows_testbench_result(monkeypatch, tmp_path: Path) -> None:
     async def fake_status(_settings: object) -> dict[str, object]:
         return {
             "status": "ok",
@@ -416,9 +811,20 @@ def test_routing_page_shows_testbench_result(monkeypatch, tmp_path: Path) -> Non
             "detail": "",
         }
 
-    async def fake_test(_settings: object, query: str, *, preferred_kind: str = "auto") -> dict[str, object]:
+    async def fake_test(
+        _settings: object,
+        query: str,
+        *,
+        preferred_kind: str = "auto",
+        llm_ignore_deterministic: bool = False,
+        llm_client: object | None = None,
+        language: str = "",
+    ) -> dict[str, object]:
         assert query == "Run uptime on pihole1"
         assert preferred_kind == "ssh"
+        assert llm_ignore_deterministic is True
+        assert llm_client is None
+        assert language == "en"
         return {
             "status": "ok",
             "visual_status": "ok",
@@ -443,6 +849,25 @@ def test_routing_page_shows_testbench_result(monkeypatch, tmp_path: Path) -> Non
                 "accepted_count": 0,
                 "candidates": [],
             },
+            "llm_debug": {
+                "available": True,
+                "used": True,
+                "status": "ok",
+                "visual_status": "ok",
+                "message": "LLM router debug selected ssh/pihole1.",
+                "mode": "qdrant_only",
+                "confidence": "high",
+                "ask_user": False,
+                "decision": {
+                    "found": True,
+                    "kind": "ssh",
+                    "ref": "pihole1",
+                    "source": "router_llm_debug",
+                    "score": 0.0,
+                    "reason": "exact match wins",
+                    "capability": "ssh_command",
+                },
+            },
             "decision": {
                 "found": True,
                 "kind": "ssh",
@@ -459,16 +884,30 @@ def test_routing_page_shows_testbench_result(monkeypatch, tmp_path: Path) -> Non
     monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test)
     client = _build_profile_config_app(tmp_path)
 
-    response = client.get('/config/routing?routing_query=Run+uptime+on+pihole1&routing_kind=ssh')
+    response = client.get('/config/workbench/routing?routing_query=Run+uptime+on+pihole1&routing_kind=ssh&routing_llm_qdrant_only=1')
 
     assert response.status_code == 200
     assert 'Routing Testbench' in response.text
     assert 'ssh/pihole1' in response.text
     assert 'Dry-run' in response.text
+    assert 'LLM router dry-run' in response.text
+    assert 'exact match wins' in response.text
+    assert 'Qdrant + LLM only' in response.text
 
 
 def test_routing_index_test_json_route(monkeypatch, tmp_path: Path) -> None:
-    async def fake_test(_settings: object, query: str, *, preferred_kind: str = "auto") -> dict[str, object]:
+    async def fake_test(
+        _settings: object,
+        query: str,
+        *,
+        preferred_kind: str = "auto",
+        llm_ignore_deterministic: bool = False,
+        llm_client: object | None = None,
+        language: str = "",
+    ) -> dict[str, object]:
+        assert llm_ignore_deterministic is True
+        assert llm_client is None
+        assert language == "en"
         return {
             "status": "warn",
             "message": "No routing target matched.",
@@ -480,7 +919,7 @@ def test_routing_index_test_json_route(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test)
     client = _build_profile_config_app(tmp_path)
 
-    response = client.get('/config/routing-index/test?query=foo&preferred_kind=ssh')
+    response = client.get('/config/routing-index/test?query=foo&preferred_kind=ssh&llm_qdrant_only=1')
 
     assert response.status_code == 200
     assert response.json()["query"] == "foo"
@@ -585,6 +1024,19 @@ def test_config_appearance_save_preserves_return_to(tmp_path: Path) -> None:
     assert 'return_to=%2Fconfig' in response.headers['location']
 
 
+def test_config_appearance_lists_dynamic_background_files(tmp_path: Path) -> None:
+    static_dir = tmp_path / "aria" / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    (static_dir / "background-8-bit-arcade.png").write_bytes(b"png")
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/appearance?return_to=%2Fconfig')
+
+    assert response.status_code == 200
+    assert 'value="8-bit-arcade"' in response.text
+    assert '8-Bit Arcade' in response.text
+
+
 def test_additional_config_pages_set_logical_back_url(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
@@ -594,11 +1046,25 @@ def test_additional_config_pages_set_logical_back_url(tmp_path: Path) -> None:
         '/config/routing?return_to=%2Fconfig',
         '/config/files?return_to=%2Fconfig',
         '/config/error-interpreter?return_to=%2Fconfig',
-        '/config/users?return_to=%2Fconfig',
+        '/config/users?return_to=%2Fconfig#admin-mode',
     ):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "const logical='/config';" in response.text, path
+
+
+def test_users_debug_save_route_is_available_from_users_surface(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        "/config/users/debug-save",
+        data={"debug_mode": "1", "return_to": "/config/access"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/config/users?saved=1")
+    assert "return_to=%2Fconfig%2Faccess" in response.headers["location"]
 
 
 def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: Path) -> None:
@@ -807,6 +1273,66 @@ def test_ssh_save_can_create_matching_sftp_profile(monkeypatch, tmp_path: Path) 
     assert sftp_row['tags'] == ['monitoring', 'linux']
 
 
+def test_ssh_save_autofills_routing_metadata_from_service_url(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b"<html><head><title>Grafana Labs</title>"
+                b"<meta name=\"description\" content=\"Dashboards and metrics\">"
+                b"<meta name=\"keywords\" content=\"grafana, monitoring, dashboards\">"
+                b"</head><body></body></html>"
+            )
+
+    class _FakeLLM:
+        async def chat(self, *_args, **_kwargs):
+            return SimpleNamespace(
+                content='{"title":"Grafana","description":"Monitoring dashboards","aliases":["grafana","monitoring"],"tags":["metrics","dashboards"]}'
+            )
+
+    monkeypatch.setattr(config_routes_mod, 'urlopen', lambda *_args, **_kwargs: _FakeResponse())
+    monkeypatch.setattr(
+        config_routes_mod,
+        'build_connection_status_row',
+        lambda *_args, **_kwargs: {'status': 'ok', 'message': 'ok'},
+    )
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.post(
+        '/config/connections/save',
+        data={
+            'connection_ref': 'grafana-ssh',
+            'original_ref': '',
+            'host': '10.0.1.5',
+            'service_url': 'https://grafana.example.local',
+            'user': 'aria',
+            'key_path': 'data/ssh_keys/grafana_ed25519',
+            'timeout_seconds': '20',
+            'port': '22',
+            'connection_title': '',
+            'connection_description': '',
+            'connection_aliases': '',
+            'connection_tags': '',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    ssh_row = raw['connections']['ssh']['grafana-ssh']
+    assert ssh_row['title'] == 'Grafana'
+    assert ssh_row['description'] == 'Monitoring dashboards'
+    assert ssh_row['aliases'] == ['grafana', 'monitoring']
+    assert ssh_row['tags'] == ['metrics', 'dashboards']
+
+
 def test_sftp_save_persists_service_url(monkeypatch, tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
@@ -842,3 +1368,314 @@ def test_sftp_save_persists_service_url(monkeypatch, tmp_path: Path) -> None:
     assert sftp_row['service_url'] == 'https://minio.example.local'
     assert sftp_row['host'] == '10.0.1.9'
     assert sftp_row['root_path'] == '/data'
+
+
+def test_sftp_save_autofills_routing_metadata_from_service_url(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b"<html><head><title>MinIO Console</title>"
+                b"<meta name=\"description\" content=\"Object storage browser\">"
+                b"<meta name=\"keywords\" content=\"minio, storage, objects\">"
+                b"</head><body></body></html>"
+            )
+
+    class _FakeLLM:
+        async def chat(self, *_args, **_kwargs):
+            return SimpleNamespace(
+                content='{"title":"MinIO","description":"Dateiablage im Objekt-Storage","aliases":["minio","dateiablage"],"tags":["storage","dateien"]}'
+            )
+
+    monkeypatch.setattr(config_routes_mod, 'urlopen', lambda *_args, **_kwargs: _FakeResponse())
+    monkeypatch.setattr(
+        config_routes_mod,
+        'build_connection_status_row',
+        lambda *_args, **_kwargs: {'status': 'ok', 'message': 'ok'},
+    )
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.post(
+        '/config/connections/sftp/save',
+        data={
+            'connection_ref': 'files-sftp',
+            'original_ref': '',
+            'host': '10.0.1.9',
+            'service_url': 'https://minio.example.local',
+            'user': 'backup',
+            'key_path': 'data/ssh_keys/files_ed25519',
+            'timeout_seconds': '10',
+            'port': '22',
+            'root_path': '/data',
+            'connection_title': '',
+            'connection_description': '',
+            'connection_aliases': '',
+            'connection_tags': '',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    sftp_row = raw['connections']['sftp']['files-sftp']
+    assert sftp_row['title'] == 'MinIO'
+    assert sftp_row['description'] == 'Dateiablage im Objekt-Storage'
+    assert sftp_row['aliases'] == ['minio', 'dateiablage']
+    assert sftp_row['tags'] == ['storage', 'dateien']
+
+
+def test_connections_overview_page_is_available_as_top_level_hub(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/connections')
+
+    assert response.status_code == 200
+    assert 'Connections' in response.text
+    assert 'aria-label="Verbindungs-Navigation"' in response.text or 'aria-label="Connections navigation"' in response.text
+    assert 'Next steps' not in response.text
+    assert 'Nächste Schritte' not in response.text
+    assert 'Create first connection' not in response.text
+    assert 'Erste Verbindung anlegen' not in response.text
+    assert 'href="/connections/status"' in response.text
+    assert 'href="/connections/types"' in response.text
+    assert 'href="/connections/templates"' in response.text
+    assert 'href="/config/connections/searxng?return_to=%2Fconnections"' in response.text
+
+
+def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    status_response = client.get('/connections/status')
+    assert status_response.status_code == 200
+    assert 'Live status of all configured connections' in status_response.text or 'Live-Status aller konfigurierten Verbindungen' in status_response.text
+
+    types_response = client.get('/connections/types')
+    assert types_response.status_code == 200
+    assert '/config/connections/ssh?return_to=/connections/types' in types_response.text
+    assert 'SearXNG' in types_response.text
+    assert 'Beobachtete Webseiten' in types_response.text or 'Watched Websites' in types_response.text
+    assert 'Google Calendar' in types_response.text
+    assert types_response.text.index('Beobachtete Webseiten' if 'Beobachtete Webseiten' in types_response.text else 'Watched Websites') < types_response.text.index('Google Calendar')
+    assert types_response.text.index('SearXNG') < types_response.text.index('Google Calendar')
+
+    templates_response = client.get('/connections/templates')
+    assert templates_response.status_code == 200
+    assert 'name="return_to" value="/connections/templates"' in templates_response.text
+
+
+def test_settings_page_groups_system_areas_without_connections_block(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config')
+
+    assert response.status_code == 200
+    assert '/config/intelligence' in response.text
+    assert '/config/persona' in response.text
+    assert '/config/access' in response.text
+    assert '/config/operations' in response.text
+    assert '/config/workbench' in response.text
+    assert 'memory-health-grid' in response.text
+    assert '/config/connections/ssh?return_to=%2Fconfig' not in response.text
+
+
+def test_settings_subpages_link_to_existing_specialist_pages(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    intelligence = client.get('/config/intelligence')
+    assert intelligence.status_code == 200
+    assert '/config/llm?return_to=/config/intelligence' in intelligence.text
+    assert '/config/embeddings?return_to=/config/intelligence' in intelligence.text
+
+    persona = client.get('/config/persona')
+    assert persona.status_code == 200
+    assert '/config/prompts?return_to=/config/persona' in persona.text
+    assert '/config/appearance?return_to=/config/persona' in persona.text
+    assert '/config/language?return_to=/config/persona' in persona.text
+
+    access = client.get('/config/access')
+    assert access.status_code == 200
+    assert '/config/users?return_to=/config/access#admin-mode' in access.text
+    assert '/config/security?return_to=/config/access' in access.text
+
+    operations = client.get('/config/operations')
+    assert operations.status_code == 200
+    assert '/updates?return_to=/config/operations' in operations.text
+    assert '/config/logs?return_to=/config/operations' in operations.text
+    assert '/config/backup?return_to=/config/operations' in operations.text
+
+    workbench = client.get('/config/workbench')
+    assert workbench.status_code == 200
+    assert '/config/workbench/routing?return_to=/config/workbench' in workbench.text
+    assert '/config/files?return_to=/config/workbench' in workbench.text
+    assert '/config/error-interpreter?return_to=/config/workbench' in workbench.text
+
+
+def test_config_operations_page_shows_service_restart_controls(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    monkeypatch.setattr(config_routes_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(
+        config_routes_mod,
+        "fetch_update_helper_status",
+        lambda _config, timeout=1.2: {  # noqa: ARG005
+            "status": "idle",
+            "running": False,
+            "visual_status": "ok",
+            "current_step": "",
+            "last_result": "",
+            "last_error": "",
+        },
+    )
+
+    response = client.get('/config/operations')
+
+    assert response.status_code == 200
+    assert "System-Services" in response.text
+    assert "Qdrant neu starten" in response.text or "Restart Qdrant" in response.text
+    assert "SearXNG neu starten" in response.text or "Restart SearXNG" in response.text
+    assert 'action="/config/operations/service-restart"' in response.text
+    assert "kontrolliert neu starten" in response.text or "Restart Qdrant now?" in response.text
+
+
+def test_config_operations_service_restart_triggers_helper(monkeypatch, tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    called: dict[str, str] = {}
+    monkeypatch.setattr(config_routes_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+
+    def _trigger(_config, service: str, timeout: float = 2.5) -> dict[str, object]:  # noqa: ARG001
+        called["service"] = service
+        return {"status": "accepted"}
+
+    monkeypatch.setattr(config_routes_mod, "trigger_update_helper_service_restart", _trigger)
+
+    response = client.post(
+        '/config/operations/service-restart',
+        data={"service": "qdrant", "csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert called["service"] == "qdrant"
+    assert response.headers["location"].startswith("/config/operations?saved=1&info=")
+
+
+def test_google_calendar_connection_page_renders(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get("/config/connections/google-calendar?mode=create&return_to=%2Fconnections%2Ftypes")
+
+    assert response.status_code == 200
+    assert "Google Calendar" in response.text
+    assert "/config/connections/google-calendar/save" in response.text
+    assert "OAuth Playground" in response.text
+    assert "https://developers.google.com/oauthplayground/" in response.text
+    assert "https://console.cloud.google.com/auth/clients" in response.text
+    assert "https://www.googleapis.com/auth/calendar.readonly" in response.text
+    assert "Recommended flow" not in response.text
+    assert "Empfohlener Ablauf" not in response.text
+
+
+def test_searxng_connection_page_prefills_local_stack_defaults(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/connections/searxng?mode=create')
+
+    assert response.status_code == 200
+    assert 'value="web-search"' in response.text
+    assert 'Standardprofil fuer allgemeine Websuche' in response.text or 'Default profile for general web search' in response.text
+    assert 'websuche, internet, suche' in response.text or 'web search, internet, search' in response.text
+
+
+def test_website_connection_page_renders(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/connections/websites?mode=create&return_to=%2Fconnections%2Ftypes')
+
+    assert response.status_code == 200
+    assert 'action="/config/connections/websites/save"' in response.text
+    assert 'https://example.org/docs' in response.text
+    assert 'group_name' in response.text
+    assert '#manage-existing' in response.text
+
+
+def test_website_connection_existing_links_jump_to_editor(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    response = client.post(
+        '/config/connections/websites/save',
+        data={
+            'connection_ref': 'aria-docs',
+            'url': 'https://example.org/docs',
+            'group_name': 'Docs',
+            'title': 'ARIA Docs',
+            'description': 'Technical documentation',
+            'aliases': 'docs',
+            'tags': 'aria, docs',
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert '#create-new' in response.text
+    assert 'website_ref=aria-docs#manage-existing' in response.text
+
+
+def test_website_save_autofills_metadata_and_group(monkeypatch, tmp_path: Path) -> None:
+    import aria.web.connection_reader_helpers as connection_reader_helpers_mod
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return (
+                b'<html><head><title>ARIA Docs</title>'
+                b'<meta name="description" content="Technical documentation for ARIA">'
+                b'<meta name="keywords" content="docs, api, reference">'
+                b'</head><body><h1>ARIA Docs</h1></body></html>'
+            )
+
+    class _FakeLLM:
+        async def chat(self, _messages, **_kwargs):
+            return SimpleNamespace(
+                content='{"title":"ARIA Docs","description":"Technische Dokumentation fuer ARIA","aliases":["aria docs","doku"],"tags":["docs","api"]}'
+            )
+
+    monkeypatch.setattr(connection_reader_helpers_mod, 'urlopen', lambda *_args, **_kwargs: _FakeResponse())
+    monkeypatch.setattr(config_routes_mod, 'build_connection_status_row', lambda *_args, **_kwargs: {'status': 'ok', 'message': 'ok'})
+
+    client = _build_profile_config_app(tmp_path, lang='de')
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.post(
+        '/config/connections/websites/save',
+        data={
+            'connection_ref': 'aria-docs',
+            'original_ref': '',
+            'url': 'docs.aria.local/reference',
+            'timeout_seconds': '10',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert '/config/connections/websites?saved=1' in response.headers['location']
+    assert 'website_ref=aria-docs' in response.headers['location']
+    assert 'website_test_status=ok' in response.headers['location']
+
+    saved = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    row = saved['connections']['website']['aria-docs']
+    assert row['url'] == 'https://docs.aria.local/reference'
+    assert row['title'] == 'ARIA Docs'
+    assert row['description'] == 'Technische Dokumentation fuer ARIA'
+    assert row['aliases'] == ['aria docs', 'doku']
+    assert row['tags'] == ['docs', 'api']
+    assert row['group_name'] == 'Dokumentation'

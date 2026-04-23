@@ -54,6 +54,21 @@ class CapabilityRoutingLexicon:
     mqtt_hints: tuple[str, ...]
     feed_subject_ignore_terms: tuple[str, ...]
     generic_connection_ref_tokens: tuple[str, ...]
+    requested_connection_ref_ignore_terms: tuple[str, ...]
+    discord_requested_ref_terms: tuple[str, ...]
+    webhook_requested_ref_terms: tuple[str, ...]
+    api_requested_ref_terms: tuple[str, ...]
+    email_requested_ref_terms: tuple[str, ...]
+    imap_requested_ref_terms: tuple[str, ...]
+    mqtt_requested_ref_terms: tuple[str, ...]
+    ssh_requested_ref_terms: tuple[str, ...]
+    ssh_requested_ref_prepositions: tuple[str, ...]
+    rss_requested_ref_terms: tuple[str, ...]
+    ssh_natural_uptime_terms: tuple[str, ...]
+    ssh_natural_online_terms: tuple[str, ...]
+    mail_search_after_terms: tuple[str, ...]
+    mqtt_topic_terms: tuple[str, ...]
+    connection_kind_priority: tuple[str, ...]
 
 
 _DEFAULT_ROUTING_LEXICONS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -537,6 +552,100 @@ _COMMON_CAPABILITY_TERMS: dict[str, tuple[str, ...]] = {
         "topic",
         "webhook",
     ),
+    "requested_connection_ref_ignore_terms": (
+        "a",
+        "an",
+        "about",
+        "api",
+        "broker",
+        "channel",
+        "dem",
+        "den",
+        "der",
+        "discord",
+        "email",
+        "endpoint",
+        "feed",
+        "inbox",
+        "kanal",
+        "mail",
+        "mailbox",
+        "message",
+        "messages",
+        "mit",
+        "mqtt",
+        "my",
+        "nachricht",
+        "nachrichten",
+        "postfach",
+        "rss",
+        "shell",
+        "ssh",
+        "topic",
+        "the",
+        "to",
+        "ueber",
+        "wegen",
+        "webhook",
+        "with",
+        "zu",
+        "über",
+    ),
+    "discord_requested_ref_terms": (
+        "discord",
+        "via discord",
+    ),
+    "webhook_requested_ref_terms": (
+        "webhook",
+        "via webhook",
+        "per webhook",
+    ),
+    "api_requested_ref_terms": (
+        "api",
+        "endpoint",
+    ),
+    "email_requested_ref_terms": (
+        "mail",
+        "email",
+    ),
+    "imap_requested_ref_terms": (
+        "postfach",
+        "mailbox",
+        "inbox",
+    ),
+    "mqtt_requested_ref_terms": (
+        "mqtt",
+        "broker",
+    ),
+    "ssh_requested_ref_terms": ("ssh",),
+    "rss_requested_ref_terms": (
+        "feed",
+        "rss",
+    ),
+    "ssh_natural_uptime_terms": (
+        "uptime",
+        "laufzeit",
+        "betriebszeit",
+        "healthcheck",
+        "health check",
+        "gesundheitscheck",
+        "systemstatus",
+    ),
+    "ssh_natural_online_terms": ("online",),
+    "mail_search_after_terms": ("nach",),
+    "mqtt_topic_terms": ("topic",),
+    "connection_kind_priority": (
+        "ssh",
+        "sftp",
+        "smb",
+        "rss",
+        "discord",
+        "http_api",
+        "webhook",
+        "email",
+        "imap",
+        "mqtt",
+    ),
 }
 
 _CAPABILITY_ROUTING_LEXICONS: dict[str, dict[str, tuple[str, ...]]] = {
@@ -657,6 +766,56 @@ _CAPABILITY_ROUTING_LEXICONS: dict[str, dict[str, tuple[str, ...]]] = {
             "search mails",
             "search emails",
         ),
+        "requested_connection_ref_ignore_terms": (
+            *_COMMON_CAPABILITY_TERMS["requested_connection_ref_ignore_terms"],
+            "das",
+            "ein",
+            "eine",
+            "einem",
+            "einen",
+            "mein",
+            "meinem",
+            "meinen",
+        ),
+        "discord_requested_ref_terms": (
+            *_COMMON_CAPABILITY_TERMS["discord_requested_ref_terms"],
+            "nach discord",
+            "zu discord",
+            "an discord",
+        ),
+        "email_requested_ref_terms": (
+            *_COMMON_CAPABILITY_TERMS["email_requested_ref_terms"],
+            "mail an",
+            "email an",
+            "mail an den",
+            "email an den",
+            "per mail",
+            "per email",
+            "via mail",
+            "via email",
+        ),
+        "ssh_requested_ref_prepositions": ("auf", "bei", "via", "von"),
+        "ssh_natural_uptime_terms": (
+            *_COMMON_CAPABILITY_TERMS["ssh_natural_uptime_terms"],
+            "wie lange läuft",
+            "wie lange laeuft",
+            "seit wann läuft",
+            "seit wann laeuft",
+        ),
+        "ssh_natural_online_terms": (
+            *_COMMON_CAPABILITY_TERMS["ssh_natural_online_terms"],
+            "wie lange ist",
+            "seit wann ist",
+        ),
+        "mail_search_after_terms": (
+            *_COMMON_CAPABILITY_TERMS["mail_search_after_terms"],
+            "betreff",
+        ),
+        "mqtt_topic_terms": (
+            *_COMMON_CAPABILITY_TERMS["mqtt_topic_terms"],
+            "auf topic",
+            "an topic",
+        ),
     },
     "en": {
         **_COMMON_CAPABILITY_TERMS,
@@ -733,6 +892,40 @@ _CAPABILITY_ROUTING_LEXICONS: dict[str, dict[str, tuple[str, ...]]] = {
             "find emails",
             "search mailbox",
             "search inbox",
+        ),
+        "requested_connection_ref_ignore_terms": (
+            *_COMMON_CAPABILITY_TERMS["requested_connection_ref_ignore_terms"],
+            "me",
+        ),
+        "discord_requested_ref_terms": (
+            *_COMMON_CAPABILITY_TERMS["discord_requested_ref_terms"],
+            "to discord",
+        ),
+        "email_requested_ref_terms": (
+            *_COMMON_CAPABILITY_TERMS["email_requested_ref_terms"],
+            "mail to",
+            "email to",
+            "via mail",
+            "via email",
+        ),
+        "ssh_requested_ref_prepositions": ("on", "via", "from"),
+        "ssh_natural_uptime_terms": (
+            *_COMMON_CAPABILITY_TERMS["ssh_natural_uptime_terms"],
+            "how long",
+        ),
+        "ssh_natural_online_terms": (
+            *_COMMON_CAPABILITY_TERMS["ssh_natural_online_terms"],
+            "been online",
+            "how long is",
+        ),
+        "mail_search_after_terms": (
+            *_COMMON_CAPABILITY_TERMS["mail_search_after_terms"],
+            "for",
+            "subject",
+        ),
+        "mqtt_topic_terms": (
+            *_COMMON_CAPABILITY_TERMS["mqtt_topic_terms"],
+            "on topic",
         ),
     },
 }

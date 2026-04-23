@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<section class="panel docs-clean-layout licenses-layout">
+  <nav class="help-doc-inline-nav" aria-label="{{ tr(request, 'help.toc_label', 'Inhaltsverzeichnis') }}">
+    <div class="help-doc-pill-row">
+      {% for help_doc in help_docs %}
+      {% if help_doc.id not in ['qdrant', 'searxng'] %}
+      <a
+        href="/help?doc={{ help_doc.id }}"
+        class="help-doc-pill"
+        aria-current="false"
+      >
+        <span class="help-doc-pill-icon">{{ icon(help_doc.icon) }}</span>
+        <span>{{ tr(request, help_doc.label_i18n, help_doc.label_default) }}</span>
+      </a>
+      {% endif %}
+      {% endfor %}
+      <a href="/licenses" class="help-doc-pill is-active" aria-current="page">
+        <span class="help-doc-pill-icon">{{ icon('files') }}</span>
+        <span>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</span>
+      </a>
+    </div>
+  </nav>
+
+  <div class="page-head">
+    <div>
+      <p class="section-kicker">{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</p>
+      <h2>{{ tr(request, 'licenses.title', 'Lizenzen & Drittanbieter') }}</h2>
+    </div>
+  </div>
+
+  <div class="licenses-grid docs-clean-grid">
+    {% for entry in license_entries %}
+    <article class="licenses-card">
+      <div class="licenses-card-head">
+        <span class="licenses-card-icon">{{ icon(entry.icon) }}</span>
+        <div>
+          <h3>{{ entry.name }}</h3>
+          <p>{{ entry.summary }}</p>
+        </div>
+      </div>
+      <div class="stats-list docs-clean-surface licenses-stats-list">
+        <li>
+          <span>{{ tr(request, 'licenses.license_label', 'Lizenz') }}</span>
+          <strong>{{ entry.license }}</strong>
+        </li>
+        <li>
+          <span>{{ tr(request, 'help.source_label', 'Quelle') }}</span>
+          <strong>
+            {% if entry.url %}
+            <a href="{{ entry.url }}" target="_blank" rel="noreferrer">{{ entry.source }}</a>
+            {% else %}
+            {{ entry.source }}
+            {% endif %}
+          </strong>
+        </li>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <details class="stats-details licenses-details" id="aria-license-text" open>
+    <summary>{{ tr(request, 'licenses.aria_full_text', 'ARIA Lizenztext anzeigen') }}</summary>
+    <div class="stats-details-content">
+      <p class="licenses-project-link">
+        <a href="https://fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/" target="_blank" rel="noreferrer">
+          {{ tr(request, 'licenses.project_site', 'ARIA Projektseite') }}
+        </a>
+      </p>
+      <pre class="help-document docs-content-surface">{{ aria_license_text }}</pre>
+    </div>
+  </details>
+</section>
+{% endblock %}

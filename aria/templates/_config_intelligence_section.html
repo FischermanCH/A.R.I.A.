@@ -1,0 +1,17 @@
+{% from "_icons.html" import icon %}
+{% if request.state.can_access_advanced_config %}
+<section class="floating-card config-domain-section">
+  <div class="config-submenu">
+    <a class="config-submenu-item" href="/config/llm?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.llm_title', 'Chat Brain (LLM)') }}</span><span class="submenu-desc">{{ tr(request, 'config.llm_desc', 'Provider, API base, API key, model, temperature, tokens, timeout.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="/config/embeddings?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('embeddings', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.embed_title', 'Embedding Radar') }}</span><span class="submenu-desc">{{ tr(request, 'config.embed_desc', 'Separate model for memory, search, and similarity.') }}</span></span>
+    </a>
+  </div>
+</section>
+{% else %}
+{% include '_config_admin_notice.html' %}
+{% endif %}

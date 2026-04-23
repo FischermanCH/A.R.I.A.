@@ -1,0 +1,27 @@
+{% from "_icons.html" import icon %}
+{% if next_steps %}
+<section class="floating-card next-steps-panel">
+  <div class="next-steps-head">
+    <div>
+      <h3>{{ tr(request, section_title_key or 'shared.next_steps_title', section_title or 'Nächste Schritte') }}</h3>
+      <p class="hint-text">
+        {{ tr(request, section_desc_key or 'shared.next_steps_desc', section_desc or 'Ein kompakter Startpunkt für die wichtigsten nächsten Aktionen in diesem Bereich.') }}
+      </p>
+    </div>
+  </div>
+  <div class="config-submenu next-steps-grid">
+    {% for step in next_steps %}
+    <a class="config-submenu-item next-step-item" href="{{ step.href }}">
+      <span class="submenu-icon-wrap">{{ icon(step.icon or 'plus', 'submenu-icon') }}</span>
+      <span class="submenu-copy">
+        <span class="submenu-title">{{ step.title }}</span>
+        <span class="submenu-desc">{{ step.desc }}</span>
+      </span>
+      {% if step.badge %}
+      <span class="status-badge status-badge-muted next-step-badge">{{ step.badge }}</span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

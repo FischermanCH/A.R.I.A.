@@ -12,6 +12,7 @@ Zweck:
 - lokaler/self-hosted Betrieb im LAN, Homelab oder auf einem separaten Docker-Host
 - modularer Zugriff auf echte Systeme über konfigurierte Connections
 - Memory mit Qdrant
+- eigenständige Notizen als Markdown-first Arbeitsbereich mit Qdrant-Index
 - Custom Skills als importierbare JSON-Manifeste
 - Admin-Modus für Systemkonfiguration, User-Modus als reduzierte Arbeitsansicht
 - Statistiken/Health/Token-/Kostenübersicht direkt im UI
@@ -84,6 +85,20 @@ Zweck:
 - leere Qdrant-Collections werden nach UI-Löschung und Chat-Forget aufgeräumt
 - Qdrant-Status und Qdrant-DB-Größe werden in `Statistiken` angezeigt
 - Update-Check kann bei GitHub-API-Rate-Limits auf den öffentlichen Changelog als Fallback wechseln, damit `/updates` weiter nutzbar bleibt
+- `Notizen` sind bewusst **kein** Untertyp von `Memory`:
+  - Notizen leben als echte Markdown-Dateien
+  - Qdrant dient dort nur als Suchindex
+  - bei Änderungen wird die betroffene Notiz vollständig neu gechunked und neu indiziert
+
+## Notizen
+
+- eigener Bereich unter `/notes`
+- Explorer-artige Ordnernavigation links und Zettel-Board rechts
+- Notiz anlegen, bearbeiten, löschen und zwischen Ordnern verschieben
+- Markdown-Export pro Notiz
+- Chat-Pfade für natürliches Anlegen, z. B. `notiere ...` oder `halte fest ...`
+- semantische Suche über Qdrant mit lokalem Dateifallback
+- passende Notes können Websuche und Research als Zusatzkontext anreichern
 
 ## Custom Skills
 
@@ -123,8 +138,10 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - `SMB`
 - `Discord`
 - `RSS`
+- `Beobachtete Webseiten`
 - `HTTP API`
 - `SearXNG`
+- `Google Calendar`
 - `Webhook`
 - `SMTP`
 - `IMAP`
@@ -174,7 +191,26 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Profil-Metadaten wie Name, Aliase und Tags helfen beim Routing fuer unterschiedliche Suchprofile wie `youtube` fuer Videos oder `startpage` fuer Buecher
 - Chat kann explizite Websuche-Anfragen routen, z. B. `websuche ...`
 - Chat-Details zeigen Web-Quellen mit Titel, URL und Engine
+- passende `Notizen` koennen bei normaler Websuche automatisch als Zusatzkontext zugeladen werden
 - Stack-Dateien koennen SearXNG als separaten Dienst neben ARIA und Qdrant mitfuehren
+
+## Beobachtete Webseiten
+
+- eigener Connection-Typ fuer einzelne Quellen ohne RSS-Feed
+- URL-first Setup: Benutzer gibt primär die URL an
+- Titel, Kurzbeschreibung, Tags und Gruppierung koennen per LLM vorgeschlagen werden
+- Seiten werden in Gruppen aehnlich zu RSS organisiert
+- Live-Test/Status im normalen Connection-Statuspfad
+
+## Google Calendar
+
+- eigener Connection-Typ fuer `read-only` Kalenderzugriff
+- Secure Store fuer `client_secret` und `refresh_token`
+- gefuehrter Setup-Flow mit Google Cloud / OAuth Playground Links direkt in der Config-Seite
+- erster persoenlicher Produktpfad fuer natuerliche Kalenderfragen:
+  - `was steht heute an?`
+  - `was habe ich morgen im kalender?`
+  - `wann ist mein naechster termin?`
 
 ## RSS / OPML
 

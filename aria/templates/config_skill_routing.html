@@ -1,19 +1,12 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="floating-card">
-    <div class="page-title-row"><span>{{ icon('routing', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_skill_routing.title', 'Skill Routing') }}</h2></div>
-    <p>{{ tr(request, 'config_skill_routing.subtitle', 'Central trigger overview for all custom skills. One trigger can map to one or more skills.') }}</p>
+<main class="config-layout config-domain-layout config-domain-surface-layout config-skill-routing-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
 
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_skill_routing.saved', 'Saved.') }}</div>
-    {% endif %}
+  <section class="floating-card config-domain-section">
     {% if info_message %}
     <div class="alert ok">{{ tr(request, 'config_skill_routing.info', 'Info') }}: {{ info_message }}</div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
     {% endif %}
     {% if load_errors %}
     <div class="alert err">{{ tr(request, 'config_skill_routing.load_errors', 'Some skill manifests could not be loaded:') }}</div>
@@ -40,7 +33,7 @@
     </form>
   </section>
 
-  <section class="floating-card">
+  <section class="floating-card config-domain-section">
     <h3>{{ tr(request, 'config_skill_routing.per_skill', 'Per skill') }}</h3>
     {% if rows %}
       {% for row in rows %}
@@ -66,7 +59,7 @@
     {% endif %}
   </section>
 
-  <section class="floating-card">
+  <section class="floating-card config-domain-section">
     <h3>{{ tr(request, 'config_skill_routing.index', 'Trigger index preview') }}</h3>
     <div class="prompt-table-wrap">
       <table class="prompt-table">

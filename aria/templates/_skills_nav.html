@@ -1,0 +1,23 @@
+{% from "_icons.html" import icon %}
+<nav class="memory-subnav" aria-label="{{ tr(request, 'skills.nav_label', 'Fähigkeiten Navigation') }}">
+  <a class="memory-subnav-item{% if skills_nav == 'overview' %} active{% endif %}" href="/skills">
+    {{ icon('skills', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'skills.title', 'Fähigkeiten') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if skills_nav == 'start' %} active{% endif %}" href="/skills/start">
+    {{ icon('plus', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'skills.start_title', 'Skill starten') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if skills_nav == 'mine' %} active{% endif %}" href="/skills/mine">
+    {{ icon('skills', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'skills.my_skills_title', 'Meine Skills') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if skills_nav == 'system' %} active{% endif %}" href="/skills/system">
+    {{ icon('settings', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'skills.system_title', 'Core / System') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if skills_nav == 'templates' %} active{% endif %}" href="/skills/templates">
+    {{ icon('upload', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'skills.templates_title', 'Vorlagen') }}</span>
+  </a>
+</nav>

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-overview-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+  <section class="floating-card config-domain-links">
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/intelligence">
+        <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.h1', 'Intelligenz abstimmen') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_intelligence_desc', 'LLM- und Embedding-Profile für Denken, Antworten und semantische Suche.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/persona">
+        <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.persona_title', 'Persönlichkeit & Stil') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_persona_desc', 'Prompt-Stil, Theme und Sprache an einem gemeinsamen Ort.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/access">
+        <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.access_title', 'Zugriff & Sicherheit') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_access_desc', 'Benutzer, Rollen und Guardrails für den sicheren Betrieb.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/operations">
+        <span class="submenu-icon-wrap">{{ icon('updates', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.operations_title', 'Betrieb & Transfer') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_operations_desc', 'Updates, Logs und Backups als gemeinsamer Betriebsbereich.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/workbench">
+        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.workbench_title', 'Workbench (Advanced)') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_workbench_desc', 'Dry-runs, Dateiwerkzeuge und technische Spezialhilfen.') }}</span></span>
+      </a>
+    </div>
+  </section>
+</main>
+{% endblock %}

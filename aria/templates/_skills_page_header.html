@@ -1,0 +1,39 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card skills-intro">
+  <div class="page-title-row"><span>{{ icon('skills', 'page-title-icon') }}</span><h2>{{ skills_page_heading }}</h2></div>
+
+  {% if saved %}
+  <div class="alert ok">{{ tr(request, 'skills.saved', 'Skills gespeichert.') }}</div>
+  {% endif %}
+  {% if info_message %}
+  <div class="alert ok">{{ info_message }}</div>
+  {% endif %}
+  {% if error_message %}
+  <div class="alert err">{{ error_message }}</div>
+  {% endif %}
+  {% if skills_readonly %}
+  <div class="alert note">{{ tr(request, 'skills.readonly_mode', 'User mode is active. Skills can be viewed here, but changes are disabled.') }}</div>
+  {% endif %}
+  {% if custom_errors %}
+  <p class="error-text">{{ tr(request, 'skills.load_errors', 'Einige Skill-Dateien konnten nicht geladen werden:') }}</p>
+  <ul class="hint-text">
+    {% for err in custom_errors %}
+    <li>{{ err }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if show_overview_checks %}
+  <div class="memory-health-grid">
+    {% for check in overview_checks %}
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ check.status }}"></span>
+        <h3>{{ check.title }}</h3>
+      </div>
+      <p>{{ check.summary }}</p>
+      <small>{{ check.meta }}</small>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
-<main class="chat-layout">
+{% set initial_message_count = chat_history|length if chat_history else 0 %}
+{% set initial_chat_state = 'compact' if initial_message_count <= 1 else 'expanded' %}
+<main class="chat-layout" data-chat-state="{{ initial_chat_state }}">
   {% if debug_mode %}
   <div class="chat-meta-header">
     <div class="chat-status-cluster">
@@ -132,6 +134,7 @@
     const textarea = document.getElementById("message");
     const sendBtn = document.getElementById("send-btn");
     const messages = document.getElementById("messages");
+    const chatLayout = document.querySelector(".chat-layout");
     const indicator = document.getElementById("typing-indicator");
     const thinkingText = document.getElementById("thinking-text");
     const slashMenu = document.getElementById("slash-menu");
@@ -159,6 +162,12 @@
     function csrfToken() {
       if (csrfMeta && csrfMeta.content) return csrfMeta.content;
       return readCookie(window.ariaCsrfCookieName || "aria_csrf_token");
+    }
+
+    function updateChatState() {
+      if (!chatLayout || !messages) return;
+      const messageCount = messages.querySelectorAll(".msg").length;
+      chatLayout.dataset.chatState = messageCount <= 1 ? "compact" : "expanded";
     }
 
     function setBusy(isBusy, busyText) {
@@ -372,6 +381,7 @@
         "<p>" + uiText.ready + "</p>",
         "</article>",
       ].join("");
+      updateChatState();
       messages.scrollTop = messages.scrollHeight;
     }
 
@@ -406,6 +416,7 @@
       p.textContent = text;
       article.appendChild(p);
       messages.appendChild(article);
+      updateChatState();
       messages.scrollTop = messages.scrollHeight;
       return article;
     }
@@ -417,6 +428,7 @@
       p.textContent = text;
       article.appendChild(p);
       messages.appendChild(article);
+      updateChatState();
       messages.scrollTop = messages.scrollHeight;
     }
 
@@ -427,6 +439,7 @@
       p.textContent = text;
       article.appendChild(p);
       messages.appendChild(article);
+      updateChatState();
       messages.scrollTop = messages.scrollHeight;
       return article;
     }
@@ -450,6 +463,7 @@
     }
 
     restoreDraft();
+    updateChatState();
 
     textarea.addEventListener("input", function () {
       persistDraft();
@@ -573,12 +587,14 @@
         } else {
           appendErrorMessage(uiText.parseError);
         }
+        updateChatState();
       } catch (err) {
         pendingAssistantNode.remove();
         pendingUserNode.classList.remove("pending-user");
         appendErrorMessage(err.message || uiText.unknownError);
       } finally {
         clearPendingStatusTimers();
+        updateChatState();
         setBusy(false);
         messages.scrollTop = messages.scrollHeight;
         textarea.focus();

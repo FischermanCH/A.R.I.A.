@@ -25,6 +25,83 @@ Zweck:
 - Produktentscheidung und Implementierung, ob ausgewählte Capability-Ergebnisse automatisch in Memory geschrieben werden sollen
 - Ziel: konsistentes Verhalten zwischen Chat, Activities und Memory ohne ungewolltes Memory-Rauschen
 
+### Learning Loop / Self-Learning
+
+- kontrollierter Learning-Loop statt diffuser `self-improving`-Magie
+- ARIA soll aus echter Nutzung lernen auf drei Ebenen:
+  - Facts
+  - Routing-/Alias-Wissen
+  - Procedures / Skill-Drafts
+- Lernschritte bewusst trennen:
+  - Observation
+  - Reflection
+  - Classification
+  - persistierbarer Vorschlag
+- Prioritaet fuer ARIA:
+  - transparente Lernvorschlaege
+  - kontrollierte Annahme durch den User
+  - automatische Persistenz nur fuer niedrig-riskante Fakten/Aliase
+- spaeterer Ausbau:
+  - Skill-Draft aus erfolgreichen Workflows
+  - vorsichtige Verbesserung bestehender Skills ueber Nutzungshistorie
+  - keine stillen Core-Code-Mutationen
+
+### Web / Search -> Memory
+
+- Such- und Web-Recherche-Ergebnisse sollen gezielt in Memory uebernommen werden koennen
+- User waehlt explizit, welche Treffer / Snippets / Zusammenfassungen gespeichert werden
+- gespeicherte Web-Fakten brauchen saubere Provenienz:
+  - Quelle
+  - URL
+  - Zeitstempel
+  - optional Suchprompt / Suchkontext
+- Ziel: ARIA-Wissen durch aktuelle Web-Recherche erweitern, ohne unkontrolliertes Memory-Rauschen oder unsichtbare Faktenimporte
+
+### Beobachtete Webseiten
+
+- eigener Connection-Typ unter `Verbindungen` als Ergaenzung zu RSS
+- Zielgruppe: Webseiten ohne RSS-Feed, die trotzdem gezielt beobachtet werden sollen
+- MVP ist jetzt da:
+  - URL-first Profil anlegen
+  - Metadaten automatisch nachziehen
+  - einfache thematische Gruppierung
+  - Live-Test ueber die normale Connection-Statusschiene
+- geplanter Produktpfad:
+  - User gibt nur die URL ein
+  - ARIA / LLM zieht Titel, Kurzbeschreibung und sinnvolle Metadaten selbst nach
+  - automatische thematische Gruppierung analog zu RSS
+  - die gespeicherten Webseiten koennen im Chat als zusaetzlicher Kontext fuer Websuche / Research mitgegeben werden
+- Produktname:
+  - `Beobachtete Webseiten`
+- offene Produktentscheidung:
+  - Quellen direkt per Chat anlegen und die Metadaten-/Gruppen-Magie in denselben Flow ziehen
+  - gespeicherte Webseiten als expliziten Zusatzkontext fuer Websuche / Research im Chat nutzbar machen
+  - pruefen, ob lokale Default-Quellen wie ein vorhandener SearXNG-Stack automatisch als erste Webquelle vorgeschlagen oder verbunden werden sollen
+  - bewusst erst entscheiden, wenn der einfache manuelle Flow fuer Endnutzer sauber sitzt
+
+### Notizen / Markdown-first Notes
+
+- einfacher persoenlicher Notizbereich mit echten Markdown-Dateien als Quelle
+- Notizen sollen bewusst editierbar, exportierbar und transparent bleiben statt nur als Vektorobjekte zu existieren
+- Qdrant dient als abgeleiteter Such-/Kontextindex fuer semantische Suche, Routing-Hinweise und spaetere Chat-Anreicherung
+- saubere Indexierungsstrategie fuer dynamische Notizen:
+  - bei jeder Aenderung wird genau die betroffene Notiz komplett neu gechunked und neu indiziert
+  - keine partielle Diff-/Patch-Embeddingschicht als erstes Modell
+- erster MVP ist jetzt da:
+  - `/notes` mit Anlegen, Bearbeiten, Loeschen, Ordnern und Markdown-Export
+  - Qdrant-Reindex pro gespeicherter Notiz
+  - semantische bzw. lexikale Suche
+  - einfacher Chat-/Toolbox-Einstieg
+  - explizite Websuche mit Notes-Kontext
+  - normaler Web-Search-Pfad mit automatischem Notes-Zusatzkontext
+  - natuerliche Chat-Phrasen fuer schnelle Notes
+  - URL/Webquelle direkt als Notiz uebernehmen
+  - einfache Tag-Vorschlaege direkt beim Speichern
+- Produktpfad:
+  - via UI anlegen, verschieben, loeschen, exportieren
+  - spaeter auch via Chat und Toolbox anstossen
+  - spaeter Notizen als zusaetzlichen Kontext in weiteren Research-/Routing-Flows nutzbar machen
+
 ### Public Release Hygiene
 
 - README und Setup-Doku finalisieren

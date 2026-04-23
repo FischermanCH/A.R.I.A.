@@ -5,6 +5,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from aria.core.notes_context import NotesContextHit, note_context_block, note_context_detail_lines
 from aria.core.config import resolve_searxng_base_url
 from aria.core.searxng_client import SearXNGClient, SearXNGClientError
 from aria.skills.base import BaseSkill, SkillResult
@@ -265,8 +266,38 @@ class WebSearchSkill(BaseSkill):
         )
         return [row[4] for row in scored]
 
+    @staticmethod
+    def _note_context_hits(params: dict[str, Any]) -> list[NotesContextHit]:
+        rows = params.get("note_context_hits")
+        if not isinstance(rows, list):
+            return []
+        hits: list[NotesContextHit] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            note_id = str(row.get("note_id", "")).strip()
+            title = str(row.get("title", "")).strip()
+            if not note_id or not title:
+                continue
+            hits.append(
+                NotesContextHit(
+                    note_id=note_id,
+                    title=title,
+                    folder=str(row.get("folder", "")).strip(),
+                    relative_path=str(row.get("relative_path", "")).strip(),
+                    updated_at=str(row.get("updated_at", "")).strip(),
+                    score=float(row.get("score", 0.0) or 0.0),
+                    snippet=str(row.get("snippet", "")).strip(),
+                    chunk_index=int(row.get("chunk_index", 0) or 0),
+                    chunk_total=int(row.get("chunk_total", 0) or 0),
+                    source=str(row.get("source", "markdown") or "markdown").strip(),
+                )
+            )
+        return hits
+
     async def execute(self, query: str, params: dict) -> SkillResult:
         language = str(params.get("language", "") or "").strip().lower()
+        note_hits = self._note_context_hits(params)
         selected = self._select_profile(query, explicit_ref=str(params.get("connection_ref", "")))
         if selected is None:
             return SkillResult(
@@ -315,7 +346,15 @@ class WebSearchSkill(BaseSkill):
                 },
             )
 
-        lines = [f"[Web Search via {display_name}]", f"{self._msg(language, 'Suche', 'Search')}: {response.query}"]
+        lines: list[str] = []
+        detail_lines: list[str] = []
+        if note_hits:
+            context_block = note_context_block(note_hits, language=language)
+            if context_block:
+                lines.extend(context_block.splitlines())
+                lines.append("")
+            detail_lines.extend(note_context_detail_lines(note_hits, language=language))
+        lines.extend([f"[Web Search via {display_name}]", f"{self._msg(language, 'Suche', 'Search')}: {response.query}"])
         if self._is_recency_query(query):
             lines.append(
                 self._msg(
@@ -324,7 +363,6 @@ class WebSearchSkill(BaseSkill):
                     "Note: results with recognized publication dates are shown first.",
                 )
             )
-        detail_lines: list[str] = []
         source_entries: list[dict[str, Any]] = []
         for index, result in enumerate(ordered_results, start=1):
             entry = f"- [{index}] {result.title}"

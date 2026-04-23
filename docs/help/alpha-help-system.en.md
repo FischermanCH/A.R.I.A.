@@ -12,6 +12,7 @@ Good fit for:
 
 - a browser-based personal AI workspace
 - Memory with Qdrant
+- Notes as a separate Markdown workspace
 - SSH / SFTP / SMB / RSS / Discord / HTTP API / Webhook / Mail / MQTT
 - Custom Skills that automate multi-step flows
 
@@ -76,6 +77,31 @@ On `/memories`, you can:
 
 If you explicitly want something forgotten, you can ask in chat with phrasing like `forget ...`, or delete it directly on `/memories`.
 
+Important distinction:
+
+- `Memory` is ARIA's semantic recall layer
+- `Notes` are your intentionally written Markdown workspace under `/notes`
+- notes are indexed in Qdrant for search, but product-wise they are **not** part of the Memory area
+
+## Notes
+
+Under `/notes`, you get a standalone workspace:
+
+- folder navigation on the left, like a small explorer
+- a note board with previews on the right
+- the editor below for the selected note
+
+Notes are intentionally:
+
+- editable
+- exportable as Markdown
+- separate from Memory
+
+ARIA can also create notes from chat, for example with prompts like:
+
+- `note down ...`
+- `keep this note ...`
+
 ## Connections
 
 You manage external connections under `/config`.
@@ -116,6 +142,21 @@ The better your titles / aliases / tags are, the more reliably ARIA can pick the
   - time range
 - clear profile names and tags help routing, for example `youtube` for videos or `startpage` for books
 - in chat you can then use explicit prompts like `search the web ...` or `web search ...`
+
+### Watched Websites
+
+- for pages without an RSS feed
+- you mainly provide the URL
+- ARIA can suggest title, short description, tags, and a group automatically
+- later these sources combine well with web search and notes
+
+### Google Calendar
+
+- the first personal `read-only` daily-use path
+- own setup flow on the connection page with Google links per step
+- meant for everyday questions like:
+  - `what is on my calendar today?`
+  - `when is my next event?`
 
 ### RSS
 

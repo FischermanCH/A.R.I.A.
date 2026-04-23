@@ -1,0 +1,22 @@
+{% from "_icons.html" import icon %}
+{% set docs_current = docs_current | default('help') %}
+<nav class="help-doc-inline-nav docs-header-nav" aria-label="{{ tr(request, 'docs.nav_label', 'Doku-Navigation') }}">
+  <div class="help-doc-pill-row">
+    <a href="/help" class="help-doc-pill{% if docs_current == 'help' %} is-active{% endif %}" aria-current="{{ 'page' if docs_current == 'help' else 'false' }}">
+      <span class="help-doc-pill-icon">{{ icon('help') }}</span>
+      <span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span>
+    </a>
+    <a href="/product-info" class="help-doc-pill{% if docs_current == 'product_info' %} is-active{% endif %}" aria-current="{{ 'page' if docs_current == 'product_info' else 'false' }}">
+      <span class="help-doc-pill-icon">{{ icon('product') }}</span>
+      <span>{{ tr(request, 'base.nav_product_info', 'Produkt-Info') }}</span>
+    </a>
+    <a href="/updates" class="help-doc-pill{% if docs_current == 'updates' %} is-active{% endif %}" aria-current="{{ 'page' if docs_current == 'updates' else 'false' }}">
+      <span class="help-doc-pill-icon">{{ icon('updates') }}</span>
+      <span>{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
+    </a>
+    <a href="/licenses" class="help-doc-pill{% if docs_current == 'licenses' %} is-active{% endif %}" aria-current="{{ 'page' if docs_current == 'licenses' else 'false' }}">
+      <span class="help-doc-pill-icon">{{ icon('files') }}</span>
+      <span>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</span>
+    </a>
+  </div>
+</nav>

@@ -1,23 +1,56 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% macro step_action_controls(request) -%}
+<div class="inline-actions wizard-advanced-only skill-step-icon-actions">
+  <button type="button" class="skill-icon-button js-move-step-up" title="{{ tr(request, 'skills.step_move_up', 'Move step up') }}" aria-label="{{ tr(request, 'skills.step_move_up', 'Move step up') }}">
+    {{ icon('arrow_up', 'skill-icon-button-icon') }}
+    <span class="sr-only">{{ tr(request, 'skills.step_move_up', 'Move step up') }}</span>
+  </button>
+  <button type="button" class="skill-icon-button js-move-step-down" title="{{ tr(request, 'skills.step_move_down', 'Move step down') }}" aria-label="{{ tr(request, 'skills.step_move_down', 'Move step down') }}">
+    {{ icon('arrow_down', 'skill-icon-button-icon') }}
+    <span class="sr-only">{{ tr(request, 'skills.step_move_down', 'Move step down') }}</span>
+  </button>
+  <button type="button" class="skill-icon-button js-duplicate-step" title="{{ tr(request, 'skills.step_duplicate', 'Duplicate step') }}" aria-label="{{ tr(request, 'skills.step_duplicate', 'Duplicate step') }}">
+    {{ icon('duplicate', 'skill-icon-button-icon') }}
+    <span class="sr-only">{{ tr(request, 'skills.step_duplicate', 'Duplicate step') }}</span>
+  </button>
+  <button type="button" class="skill-icon-button danger-btn js-remove-step" title="{{ tr(request, 'skills.step_remove', 'Remove step') }}" aria-label="{{ tr(request, 'skills.step_remove', 'Remove step') }}">
+    {{ icon('trash', 'skill-icon-button-icon') }}
+    <span class="sr-only">{{ tr(request, 'skills.step_remove', 'Remove step') }}</span>
+  </button>
+</div>
+{%- endmacro %}
+{% macro manage_connections_link(request) -%}
+<a class="nav-link ui-action-link" href="/connections" target="_blank" rel="noopener noreferrer">{{ icon('connections', 'ui-action-icon') }}{{ tr(request, 'skills.manage_connections', 'Verbindungen verwalten') }}</a>
+{%- endmacro %}
 {% block content %}
-<main class="skills-layout">
-  <section class="floating-card">
-    <h2>Skill Wizard</h2>
-    <p>Skill = Steps + Parameter. Du definierst pro Schritt Typ und Eingaben.</p>
-    {% if saved %}
-    <div class="alert ok">Skill gespeichert.</div>
-    {% endif %}
-    {% if info_message %}
-    <div class="alert ok">{{ info_message }}</div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
+<main class="skills-layout skills-clean-layout skills-surface-layout skills-wizard-layout" id="skills-wizard-root" data-wizard-mode="{{ wizard_mode or 'simple' }}" data-skill-loaded="{% if skill.id %}1{% else %}0{% endif %}">
+  {% include "_skills_nav.html" %}
+  {% include "_skills_page_header.html" %}
+
+  <section class="floating-card skills-wizard-intro">
+    <section class="skill-summary skill-wizard-mode-card">
+      <h3>{{ tr(request, 'skills.wizard_mode_title', 'Wizard mode') }}</h3>
+      <p class="hint-text">{{ tr(request, 'skills.wizard_mode_hint', 'Simple zeigt nur die wichtigsten Felder. Advanced blendet Metadaten, Rohschritte und Feintuning wieder ein.') }}</p>
+      <div class="skill-wizard-mode-switch" role="radiogroup" aria-label="{{ tr(request, 'skills.wizard_mode_title', 'Wizard mode') }}">
+        <label class="skill-mode-pill {% if (wizard_mode or 'simple') != 'advanced' %}is-active{% endif %}">
+          <input type="radio" name="wizard_mode_toggle" value="simple" {% if (wizard_mode or 'simple') != 'advanced' %}checked{% endif %}>
+          <span>{{ tr(request, 'skills.wizard_mode_simple', 'Simple Skill') }}</span>
+          <small>{{ tr(request, 'skills.wizard_mode_simple_hint', 'Name, Ziel, Schedule und die passenden Step-Felder.') }}</small>
+        </label>
+        <label class="skill-mode-pill {% if (wizard_mode or 'simple') == 'advanced' %}is-active{% endif %}">
+          <input type="radio" name="wizard_mode_toggle" value="advanced" {% if (wizard_mode or 'simple') == 'advanced' %}checked{% endif %}>
+          <span>{{ tr(request, 'skills.wizard_mode_advanced', 'Advanced Skill') }}</span>
+          <small>{{ tr(request, 'skills.wizard_mode_advanced_hint', 'IDs, Rohschritte, Spezialoptionen und komplette Pipeline-Kontrolle.') }}</small>
+        </label>
+      </div>
+    </section>
   </section>
 
-  <section class="floating-card">
+  <section class="floating-card skills-wizard-editor">
     <form class="editor-form" method="post" action="/skills/wizard/save" id="skill-wizard-form">
       <input type="hidden" name="original_skill_id" value="{{ skill.id or '' }}">
+      <input type="hidden" name="wizard_mode" id="wizard-mode-input" value="{{ wizard_mode or 'simple' }}">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <div class="config-form-grid">
         <label>
@@ -27,32 +60,31 @@
         </label>
 
         <label>
-          ID (optional)
-          <span class="field-help" title="Kann leer bleiben. Wird automatisch aus dem Namen erzeugt und kann später bearbeitet werden.">i</span>
-          <input type="text" name="skill_id" maxlength="48" value="{{ skill.id or '' }}" placeholder="auto aus Name">
-        </label>
-
-        <label>
-          Version
-          <span class="field-help" title="Optional. Für spätere Skill-Entwicklung und Export-Versionierung.">i</span>
-          <input type="text" name="skill_version" maxlength="20" value="{{ skill.version or '0.1.0' }}">
-        </label>
-
-        <label>
-          Kategorie
-          <span class="field-help" title="Dropdown hilft, die Anzahl Kategorien kontrolliert zu halten.">i</span>
-          <select name="skill_category">
-            {% for cat in category_options %}
-            <option value="{{ cat }}" {% if (skill.category or 'custom') == cat %}selected{% endif %}>{{ cat }}</option>
-            {% endfor %}
-          </select>
-        </label>
-
-        <label>
           Beschreibung
           <span class="field-help" title="Kurz erklären, was der Skill tut.">i</span>
           <textarea name="skill_description" rows="3" maxlength="400">{{ skill.description or '' }}</textarea>
         </label>
+
+        <label>
+          {{ tr(request, 'skills.skill_type_label', 'Skill type') }}
+          <span class="field-help" title="{{ tr(request, 'skills.skill_type_help', 'Geführte Defaults für typische Skill-Arten. Du kannst die Details danach weiter anpassen.') }}">i</span>
+          <select name="skill_type" id="skill-type-select">
+            {% for item in skill_type_options %}
+            <option value="{{ item.key }}" {% if (selected_skill_type or 'health_check') == item.key %}selected{% endif %}>{{ item.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <section class="skill-summary">
+          <h3>{{ tr(request, 'skills.skill_type_summary_title', 'Guided type defaults') }}</h3>
+          <p class="hint-text" id="skill-type-hint-text">
+            {% for item in skill_type_options %}
+              {% if (selected_skill_type or 'health_check') == item.key %}
+                {{ item.hint }}
+              {% endif %}
+            {% endfor %}
+          </p>
+        </section>
 
         <label>
           Trigger-Keywords
@@ -64,9 +96,36 @@
           {{ tr(request, 'skills.wizard_auto_keywords', 'Trigger automatically via LLM when empty') }}
         </label>
 
-        <details class="skill-details">
-          <summary>JSON-Felder (erweitert)</summary>
+        <section class="skill-summary">
+          <h3>{{ tr(request, 'skills.wizard_simple_flow_title', 'Simple flow') }}</h3>
+          <p class="hint-text">{{ tr(request, 'skills.wizard_simple_flow_hint', '1) Name und Beschreibung setzen. 2) Trigger leer lassen oder kurz pflegen. 3) Schedule optional setzen. 4) Pro Step nur den passenden Connection-Typ ausfuellen.') }}</p>
+        </section>
+
+        <details class="skill-details wizard-advanced-only">
+          <summary>{{ tr(request, 'skills.wizard_metadata_advanced', 'Skill metadata (advanced)') }}</summary>
           <div class="skill-details-content">
+            <label>
+              ID (optional)
+              <span class="field-help" title="Kann leer bleiben. Wird automatisch aus dem Namen erzeugt und kann später bearbeitet werden.">i</span>
+              <input type="text" name="skill_id" maxlength="48" value="{{ skill.id or '' }}" placeholder="auto aus Name">
+            </label>
+
+            <label>
+              Version
+              <span class="field-help" title="Optional. Für spätere Skill-Entwicklung und Export-Versionierung.">i</span>
+              <input type="text" name="skill_version" maxlength="20" value="{{ skill.version or '0.1.0' }}">
+            </label>
+
+            <label>
+              Kategorie
+              <span class="field-help" title="Dropdown hilft, die Anzahl Kategorien kontrolliert zu halten.">i</span>
+              <select name="skill_category">
+                {% for cat in category_options %}
+                <option value="{{ cat }}" {% if (skill.category or 'custom') == cat %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+              </select>
+            </label>
+
             <label>
               Connections (kommagetrennt)
               <span class="field-help" title="Optionales Override-Feld für das Skill-JSON. Runtime-Connections aus Steps bleiben zusätzlich erhalten.">i</span>
@@ -116,13 +175,23 @@
           <p class="hint-text">
             Hinweis: <code>chat_send</code> nutzt die interne Connection <code>chat</code> (Default, ohne Konfiguration).
           </p>
+          <section class="skill-summary" id="simple-connection-card">
+            <h3 id="simple-connection-title">{{ tr(request, 'skills.simple_connection_title', 'Hauptverbindung wählen') }}</h3>
+            <p class="hint-text" id="simple-connection-hint">{{ tr(request, 'skills.simple_connection_hint', 'Wähle zuerst die wichtigste Connection für diesen Skill-Typ.') }}</p>
+            <div class="skill-connection-groups" id="simple-connection-groups"></div>
+          </section>
+          <section class="skill-summary" id="simple-followup-card">
+            <h3>{{ tr(request, 'skills.simple_followup_title', 'Sinnvolle nächste Schritte') }}</h3>
+            <p class="hint-text" id="simple-followup-hint">{{ tr(request, 'skills.simple_followup_hint', 'Fuege mit einem Klick passende Folge-Schritte fuer diesen Skill-Typ hinzu.') }}</p>
+            <div class="inline-actions skill-followup-actions" id="simple-followup-actions"></div>
+          </section>
 
           <div id="steps-container" class="config-form-grid">
             {% for step in step_forms %}
             <details class="skill-details step-block" data-step-index="{{ step.idx }}" open>
               <summary>Step {{ step.idx }}{% if step.name %}: {{ step.name }}{% endif %}</summary>
               <div class="skill-details-content">
-                <label class="inline-check">
+                <label class="inline-check wizard-advanced-only">
                   <input type="checkbox" name="step_{{ step.idx }}_enabled" value="1" {% if step.enabled %}checked{% endif %}>
                   Step aktiv
                 </label>
@@ -136,7 +205,7 @@
 
                 <label>
                   Typ
-                  <select name="step_{{ step.idx }}_type">
+                  <select name="step_{{ step.idx }}_type" data-step-type-select>
                     <option value="ssh_run" {% if step.type == 'ssh_run' %}selected{% endif %}>ssh_run</option>
                     <option value="sftp_read" {% if step.type == 'sftp_read' %}selected{% endif %}>sftp_read</option>
                     <option value="sftp_write" {% if step.type == 'sftp_write' %}selected{% endif %}>sftp_write</option>
@@ -149,7 +218,7 @@
                   </select>
                 </label>
 
-                <label>
+                <label class="wizard-advanced-only">
                   On Error
                   <select name="step_{{ step.idx }}_on_error">
                     <option value="stop" {% if step.on_error == 'stop' %}selected{% endif %}>stop</option>
@@ -157,7 +226,7 @@
                   </select>
                 </label>
 
-                <label>
+                <label data-step-types="ssh_run">
                   SSH Connection Ref (für ssh_run)
                   <div class="inline-actions">
                     <select name="step_{{ step.idx }}_connection_ref">
@@ -166,16 +235,16 @@
                       <option value="{{ item.ref }}" {% if step.connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
                       {% endfor %}
                     </select>
-                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                    {{ manage_connections_link(request) }}
                   </div>
                 </label>
 
-                <label>
+                <label data-step-types="ssh_run">
                   SSH Command (für ssh_run)
                   <textarea name="step_{{ step.idx }}_command" rows="4" maxlength="2400" placeholder="sudo apt update && sudo apt upgrade -y">{{ step.command }}</textarea>
                 </label>
 
-                <label>
+                <label data-step-types="sftp_read sftp_write">
                   SFTP Connection Ref (für sftp_read / sftp_write)
                   <div class="inline-actions">
                     <select name="step_{{ step.idx }}_sftp_connection_ref">
@@ -184,21 +253,21 @@
                       <option value="{{ item.ref }}" {% if step.sftp_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
                       {% endfor %}
                     </select>
-                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                    {{ manage_connections_link(request) }}
                   </div>
                 </label>
 
-                <label>
+                <label data-step-types="sftp_read sftp_write">
                   SFTP Remote-Pfad (für sftp_read / sftp_write)
                   <input type="text" name="step_{{ step.idx }}_sftp_remote_path" maxlength="400" value="{{ step.sftp_remote_path }}" placeholder="/data/report.txt oder report.txt">
                 </label>
 
-                <label>
+                <label data-step-types="sftp_write">
                   SFTP Inhalt / Template (für sftp_write)
                   <textarea name="step_{{ step.idx }}_sftp_content" rows="3" maxlength="1200" placeholder="{prev_output}">{{ step.sftp_content }}</textarea>
                 </label>
 
-                <label>
+                <label data-step-types="smb_read smb_write">
                   SMB Connection Ref (für smb_read / smb_write)
                   <div class="inline-actions">
                     <select name="step_{{ step.idx }}_smb_connection_ref">
@@ -207,21 +276,21 @@
                       <option value="{{ item.ref }}" {% if step.smb_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
                       {% endfor %}
                     </select>
-                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                    {{ manage_connections_link(request) }}
                   </div>
                 </label>
 
-                <label>
+                <label data-step-types="smb_read smb_write">
                   SMB Remote-Pfad (für smb_read / smb_write)
                   <input type="text" name="step_{{ step.idx }}_smb_remote_path" maxlength="400" value="{{ step.smb_remote_path }}" placeholder="/ oder reports/status.txt">
                 </label>
 
-                <label>
+                <label data-step-types="smb_write">
                   SMB Inhalt / Template (für smb_write)
                   <textarea name="step_{{ step.idx }}_smb_content" rows="3" maxlength="1200" placeholder="{prev_output}">{{ step.smb_content }}</textarea>
                 </label>
 
-                <label>
+                <label data-step-types="rss_read">
                   RSS Connection Ref (für rss_read)
                   <div class="inline-actions">
                     <select name="step_{{ step.idx }}_rss_connection_ref">
@@ -230,17 +299,17 @@
                       <option value="{{ item.ref }}" {% if step.rss_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
                       {% endfor %}
                     </select>
-                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                    {{ manage_connections_link(request) }}
                   </div>
                 </label>
 
-                <label>
+                <label data-step-types="llm_transform">
                   LLM Prompt (für llm_transform)
                   <textarea name="step_{{ step.idx }}_prompt" rows="3" maxlength="1200" placeholder="Fasse das Ergebnis kurz zusammen:\n{prev_output}">{{ step.prompt }}</textarea>
                 </label>
-                <p class="hint-text">Platzhalter: <code>{prev_output}</code> für den direkt vorherigen Step oder <code>{s1_output}</code>, <code>{s2_output}</code>, ... für gezielte frühere Step-Ergebnisse.</p>
+                <p class="hint-text" data-step-types="llm_transform">Platzhalter: <code>{prev_output}</code> für den direkt vorherigen Step oder <code>{s1_output}</code>, <code>{s2_output}</code>, ... für gezielte frühere Step-Ergebnisse.</p>
 
-                <label>
+                <label data-step-types="discord_send">
                   Discord Connection Ref (für discord_send)
                   <div class="inline-actions">
                     <select name="step_{{ step.idx }}_discord_connection_ref">
@@ -249,42 +318,40 @@
                       <option value="{{ item.ref }}" {% if step.discord_connection_ref == item.ref %}selected{% endif %}>{{ item.label }}</option>
                       {% endfor %}
                     </select>
-                    <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+                    {{ manage_connections_link(request) }}
                   </div>
                 </label>
 
-                <label>
+                <label class="wizard-advanced-only" data-step-types="discord_send">
                   Discord Webhook URL (für discord_send)
                   <input type="text" name="step_{{ step.idx }}_webhook_url" maxlength="400" value="{{ step.webhook_url }}" placeholder="https://discord.com/api/webhooks/...">
                 </label>
 
-                <label>
+                <label data-step-types="discord_send">
                   Discord Message Template (für discord_send)
                   <textarea name="step_{{ step.idx }}_message" rows="3" maxlength="1200" placeholder="Update Ergebnis:\n{prev_output}">{{ step.message }}</textarea>
                 </label>
 
-                <label>
+                <label data-step-types="chat_send">
                   Chat Message Template (für chat_send)
                   <textarea name="step_{{ step.idx }}_chat_message" rows="3" maxlength="1200" placeholder="Antwort für Chat:\n{prev_output}">{{ step.chat_message or step.message }}</textarea>
                 </label>
 
-                <div class="inline-actions">
-                  <button type="button" class="js-move-step-up">Nach oben</button>
-                  <button type="button" class="js-move-step-down">Nach unten</button>
-                  <button type="button" class="js-duplicate-step">Schritt duplizieren</button>
-                  <button type="button" class="danger-btn js-remove-step">Schritt entfernen</button>
-                </div>
+                {{ step_action_controls(request) }}
               </div>
             </details>
             {% endfor %}
           </div>
 
           <div class="inline-actions">
-            <button type="button" id="add-step-btn">+ Zusätzlichen Schritt aktivieren</button>
+            <button type="button" id="add-step-btn" class="skill-action-button skill-add-step-button">
+              {{ icon('plus', 'skill-add-step-icon') }}
+              <span id="add-step-btn-label">Zusätzlichen Schritt aktivieren</span>
+            </button>
           </div>
         </fieldset>
 
-        <details class="skill-details">
+        <details class="skill-details wizard-advanced-only">
           <summary>Erweitert (optional)</summary>
           <div class="skill-details-content">
             <label>
@@ -300,7 +367,7 @@
           </div>
         </details>
 
-        <label class="inline-check">
+        <label class="inline-check wizard-advanced-only">
           <input type="checkbox" name="enabled_default" value="1" {% if skill.enabled_default %}checked{% endif %}>
           Beim ersten Laden aktiv
         </label>
@@ -313,19 +380,19 @@
       </section>
 
       <div class="inline-actions">
-        <button type="submit">Skill speichern</button>
+        <button type="submit" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}Skill speichern</button>
         {% if skill.id %}
         <button
           type="submit"
-          class="danger-btn"
+          class="danger-btn ui-action-button"
           formaction="/skills/delete"
           formmethod="post"
           name="skill_id"
           value="{{ skill.id }}"
           onclick="return confirm('{{ tr(request, 'skills.delete_confirm', 'Skill wirklich löschen?') }}');"
-        >{{ tr(request, 'skills.delete', 'Löschen') }}</button>
+        >{{ icon('trash', 'ui-action-icon') }}{{ tr(request, 'skills.delete', 'Löschen') }}</button>
         {% endif %}
-        <a class="nav-link" href="{{ return_to or '/skills' }}">Zurück zu Skills</a>
+        <a class="nav-link ui-action-link" href="{{ return_to or '/skills' }}">{{ icon('arrow_left', 'ui-action-icon') }}Zurück zu Fähigkeiten</a>
       </div>
     </form>
   </section>
@@ -335,7 +402,7 @@
   <details class="skill-details step-block" data-step-index="__IDX__" open>
     <summary>Step __IDX__</summary>
     <div class="skill-details-content">
-      <label class="inline-check">
+      <label class="inline-check wizard-advanced-only">
         <input type="checkbox" name="step___IDX___enabled" value="1" checked>
         Step aktiv
       </label>
@@ -349,7 +416,7 @@
 
       <label>
         Typ
-        <select name="step___IDX___type">
+        <select name="step___IDX___type" data-step-type-select>
           <option value="ssh_run" selected>ssh_run</option>
           <option value="sftp_read">sftp_read</option>
           <option value="sftp_write">sftp_write</option>
@@ -362,7 +429,7 @@
         </select>
       </label>
 
-      <label>
+      <label class="wizard-advanced-only">
         On Error
         <select name="step___IDX___on_error">
           <option value="stop" selected>stop</option>
@@ -370,7 +437,7 @@
         </select>
       </label>
 
-      <label>
+      <label data-step-types="ssh_run">
         SSH Connection Ref (für ssh_run)
         <div class="inline-actions">
           <select name="step___IDX___connection_ref">
@@ -379,16 +446,16 @@
             <option value="{{ item.ref }}">{{ item.label }}</option>
             {% endfor %}
           </select>
-          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+          {{ manage_connections_link(request) }}
         </div>
       </label>
 
-      <label>
+      <label data-step-types="ssh_run">
         SSH Command (für ssh_run)
         <textarea name="step___IDX___command" rows="4" maxlength="2400" placeholder="sudo apt update && sudo apt upgrade -y"></textarea>
       </label>
 
-      <label>
+      <label data-step-types="sftp_read sftp_write">
         SFTP Connection Ref (für sftp_read / sftp_write)
         <div class="inline-actions">
           <select name="step___IDX___sftp_connection_ref">
@@ -397,21 +464,21 @@
             <option value="{{ item.ref }}">{{ item.label }}</option>
             {% endfor %}
           </select>
-          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+          {{ manage_connections_link(request) }}
         </div>
       </label>
 
-      <label>
+      <label data-step-types="sftp_read sftp_write">
         SFTP Remote-Pfad (für sftp_read / sftp_write)
         <input type="text" name="step___IDX___sftp_remote_path" maxlength="400" placeholder="/data/report.txt oder report.txt">
       </label>
 
-      <label>
+      <label data-step-types="sftp_write">
         SFTP Inhalt / Template (für sftp_write)
         <textarea name="step___IDX___sftp_content" rows="3" maxlength="1200" placeholder="{prev_output}"></textarea>
       </label>
 
-      <label>
+      <label data-step-types="smb_read smb_write">
         SMB Connection Ref (für smb_read / smb_write)
         <div class="inline-actions">
           <select name="step___IDX___smb_connection_ref">
@@ -420,21 +487,21 @@
             <option value="{{ item.ref }}">{{ item.label }}</option>
             {% endfor %}
           </select>
-          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+          {{ manage_connections_link(request) }}
         </div>
       </label>
 
-      <label>
+      <label data-step-types="smb_read smb_write">
         SMB Remote-Pfad (für smb_read / smb_write)
         <input type="text" name="step___IDX___smb_remote_path" maxlength="400" placeholder="/ oder reports/status.txt">
       </label>
 
-      <label>
+      <label data-step-types="smb_write">
         SMB Inhalt / Template (für smb_write)
         <textarea name="step___IDX___smb_content" rows="3" maxlength="1200" placeholder="{prev_output}"></textarea>
       </label>
 
-      <label>
+      <label data-step-types="rss_read">
         RSS Connection Ref (für rss_read)
         <div class="inline-actions">
           <select name="step___IDX___rss_connection_ref">
@@ -443,17 +510,17 @@
             <option value="{{ item.ref }}">{{ item.label }}</option>
             {% endfor %}
           </select>
-          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+          {{ manage_connections_link(request) }}
         </div>
       </label>
 
-      <label>
+      <label data-step-types="llm_transform">
         LLM Prompt (für llm_transform)
         <textarea name="step___IDX___prompt" rows="3" maxlength="1200" placeholder="Fasse das Ergebnis kurz zusammen:\n{prev_output}"></textarea>
       </label>
-      <p class="hint-text">Platzhalter: <code>{prev_output}</code> für den direkt vorherigen Step oder <code>{s1_output}</code>, <code>{s2_output}</code>, ... für gezielte frühere Step-Ergebnisse.</p>
+      <p class="hint-text" data-step-types="llm_transform">Platzhalter: <code>{prev_output}</code> für den direkt vorherigen Step oder <code>{s1_output}</code>, <code>{s2_output}</code>, ... für gezielte frühere Step-Ergebnisse.</p>
 
-      <label>
+      <label data-step-types="discord_send">
         Discord Connection Ref (für discord_send)
         <div class="inline-actions">
           <select name="step___IDX___discord_connection_ref">
@@ -462,42 +529,69 @@
             <option value="{{ item.ref }}">{{ item.label }}</option>
             {% endfor %}
           </select>
-          <a class="nav-link" href="/config" target="_blank" rel="noopener noreferrer">Verbindungen verwalten</a>
+          {{ manage_connections_link(request) }}
         </div>
       </label>
 
-      <label>
+      <label class="wizard-advanced-only" data-step-types="discord_send">
         Discord Webhook URL (für discord_send)
         <input type="text" name="step___IDX___webhook_url" maxlength="400" placeholder="https://discord.com/api/webhooks/...">
       </label>
 
-      <label>
+      <label data-step-types="discord_send">
         Discord Message Template (für discord_send)
         <textarea name="step___IDX___message" rows="3" maxlength="1200" placeholder="Update Ergebnis:\n{prev_output}"></textarea>
       </label>
 
-      <label>
+      <label data-step-types="chat_send">
         Chat Message Template (für chat_send)
         <textarea name="step___IDX___chat_message" rows="3" maxlength="1200" placeholder="Antwort für Chat:\n{prev_output}"></textarea>
       </label>
 
-      <div class="inline-actions">
-        <button type="button" class="js-move-step-up">Nach oben</button>
-        <button type="button" class="js-move-step-down">Nach unten</button>
-        <button type="button" class="js-duplicate-step">Schritt duplizieren</button>
-        <button type="button" class="danger-btn js-remove-step">Schritt entfernen</button>
-      </div>
+      {{ step_action_controls(request) }}
     </div>
   </details>
 </template>
 
 <script>
   (function () {
+    const skillTypePresets = {{ skill_type_presets_json | tojson }};
+    const skillTypeAllowedSteps = {{ skill_type_allowed_steps_json | tojson }};
+    const skillTypeFollowupSteps = {{ skill_type_followup_steps_json | tojson }};
+    const skillTypeConnectionChoices = {{ skill_type_connection_choices_json | tojson }};
+    const connectionOptionsByKind = {{ connection_options_by_kind_json | tojson }};
+    const root = document.getElementById("skills-wizard-root");
     const container = document.getElementById("steps-container");
     const addBtn = document.getElementById("add-step-btn");
+    const addBtnLabel = document.getElementById("add-step-btn-label");
     const tpl = document.getElementById("step-template");
     const form = document.getElementById("skill-wizard-form");
-    if (!container || !addBtn || !tpl || !form) return;
+    const modeInput = document.getElementById("wizard-mode-input");
+    const modeToggles = Array.from(document.querySelectorAll('input[name="wizard_mode_toggle"]'));
+    const skillTypeSelect = document.getElementById("skill-type-select");
+    const skillTypeHint = document.getElementById("skill-type-hint-text");
+    const skillCategorySelect = document.querySelector('select[name="skill_category"]');
+    const skillDescriptionField = document.querySelector('textarea[name="skill_description"]');
+    const simpleConnectionCard = document.getElementById("simple-connection-card");
+    const simpleConnectionTitle = document.getElementById("simple-connection-title");
+    const simpleConnectionHint = document.getElementById("simple-connection-hint");
+    const simpleConnectionGroups = document.getElementById("simple-connection-groups");
+    const simpleFollowupCard = document.getElementById("simple-followup-card");
+    const simpleFollowupActions = document.getElementById("simple-followup-actions");
+    if (!container || !addBtn || !tpl || !form || !root || !modeInput) return;
+
+    function updateWizardMode(mode) {
+      const nextMode = mode === "advanced" ? "advanced" : "simple";
+      root.dataset.wizardMode = nextMode;
+      modeInput.value = nextMode;
+      modeToggles.forEach((toggle) => {
+        const wrapper = toggle.closest(".skill-mode-pill");
+        const isActive = toggle.value === nextMode;
+        toggle.checked = isActive;
+        if (wrapper) wrapper.classList.toggle("is-active", isActive);
+      });
+      refreshAllStepTypeOptions();
+    }
 
     function currentMaxIndex() {
       const blocks = container.querySelectorAll(".step-block");
@@ -507,6 +601,20 @@
         if (idx > max) max = idx;
       });
       return max;
+    }
+
+    function setAutofilledValue(field, value, force) {
+      if (!field) return;
+      const nextValue = String(value || "");
+      const currentValue = String(field.value || "");
+      const wasAutofilled = field.dataset.autofilled === "1";
+      if (!force && currentValue) return;
+      if (force && currentValue && !wasAutofilled) return;
+      field.value = nextValue;
+      field.dataset.autofilled = nextValue ? "1" : "0";
+      field.dataset.autofillValue = nextValue;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
     function wireRemove(scope) {
@@ -526,9 +634,29 @@
       const idx = Number(step.getAttribute("data-step-index") || "0");
       const summary = step.querySelector("summary");
       const nameInput = step.querySelector(`input[name="step_${idx}_name"]`);
+      const typeSelect = step.querySelector("[data-step-type-select]");
       if (!summary) return;
       const name = nameInput ? (nameInput.value || "").trim() : "";
-      summary.textContent = name ? `Step ${idx}: ${name}` : `Step ${idx}`;
+      const typeLabel = typeSelect ? String(typeSelect.value || "").replaceAll("_", " ").trim() : "";
+      if (name) {
+        summary.textContent = `Step ${idx}: ${name}`;
+        return;
+      }
+      summary.textContent = typeLabel ? `Step ${idx}: ${typeLabel}` : `Step ${idx}`;
+    }
+
+    function updateStepFields(step) {
+      if (!step) return;
+      const typeSelect = step.querySelector("[data-step-type-select]");
+      const currentType = typeSelect ? String(typeSelect.value || "").trim() : "";
+      step.querySelectorAll("[data-step-types]").forEach((field) => {
+        const supportedTypes = String(field.getAttribute("data-step-types") || "")
+          .split(/\s+/)
+          .map((item) => item.trim())
+          .filter(Boolean);
+        field.hidden = supportedTypes.length > 0 && !supportedTypes.includes(currentType);
+      });
+      updateStepSummary(step);
     }
 
     function renumberStep(step, newIdx) {
@@ -543,6 +671,7 @@
       });
       const idField = step.querySelector(`input[name="step_${newIdx}_id"]`);
       if (idField) idField.value = `s${newIdx}`;
+      updateStepFields(step);
       updateStepSummary(step);
     }
 
@@ -604,7 +733,10 @@
     }
 
     function wireSummaryUpdates(scope) {
-      scope.querySelectorAll('.step-block').forEach((step) => {
+      const blocks = scope.classList && scope.classList.contains("step-block")
+        ? [scope]
+        : Array.from(scope.querySelectorAll(".step-block"));
+      blocks.forEach((step) => {
         const idx = Number(step.getAttribute("data-step-index") || "0");
         const nameInput = step.querySelector(`input[name="step_${idx}_name"]`);
         if (!nameInput || nameInput.dataset.summaryBound === "1") return;
@@ -616,11 +748,275 @@
       });
     }
 
+    function wireTypeSwitches(scope) {
+      const blocks = scope.classList && scope.classList.contains("step-block")
+        ? [scope]
+        : Array.from(scope.querySelectorAll(".step-block"));
+      blocks.forEach((step) => {
+        const typeSelect = step.querySelector("[data-step-type-select]");
+        if (!typeSelect || typeSelect.dataset.typeBound === "1") {
+          updateStepFields(step);
+          return;
+        }
+        typeSelect.dataset.typeBound = "1";
+        typeSelect.addEventListener("change", function () {
+          updateStepFields(step);
+        });
+        updateStepFields(step);
+      });
+    }
+
     function wireStepInteractions(scope) {
       wireRemove(scope);
       wireMove(scope);
       wireDuplicate(scope);
       wireSummaryUpdates(scope);
+      wireTypeSwitches(scope);
+    }
+
+    function currentAllowedStepTypes() {
+      const currentMode = String(modeInput.value || root.dataset.wizardMode || "simple").trim();
+      if (currentMode === "advanced") {
+        return null;
+      }
+      const skillType = skillTypeSelect ? String(skillTypeSelect.value || "custom").trim() : "custom";
+      return skillTypeAllowedSteps[skillType] || skillTypeAllowedSteps.custom || null;
+    }
+
+    function refreshStepTypeOptions(step) {
+      if (!step) return;
+      const select = step.querySelector("[data-step-type-select]");
+      if (!select) return;
+      const allowed = currentAllowedStepTypes();
+      const normalizedAllowed = Array.isArray(allowed) ? allowed.map((item) => String(item || "").trim()) : null;
+      const options = Array.from(select.options);
+      options.forEach((option) => {
+        const permitted = !normalizedAllowed || normalizedAllowed.includes(String(option.value || "").trim());
+        option.hidden = !permitted;
+        option.disabled = !permitted;
+      });
+      if (normalizedAllowed && !normalizedAllowed.includes(String(select.value || "").trim())) {
+        const fallback = normalizedAllowed.find((value) => options.some((option) => option.value === value));
+        if (fallback) {
+          select.value = fallback;
+        }
+      }
+      updateStepFields(step);
+    }
+
+    function refreshAllStepTypeOptions() {
+      Array.from(container.querySelectorAll(".step-block")).forEach((step) => {
+        refreshStepTypeOptions(step);
+      });
+    }
+
+    function createStepFromChoice(choice) {
+      const idx = currentMaxIndex() + 1;
+      const html = tpl.innerHTML.replaceAll("__IDX__", String(idx));
+      const wrap = document.createElement("div");
+      wrap.innerHTML = html.trim();
+      const node = wrap.firstElementChild;
+      if (!node) return null;
+      container.appendChild(node);
+      wireStepInteractions(node);
+      renumberAllSteps();
+      const blocks = Array.from(container.querySelectorAll(".step-block"));
+      const newStep = blocks[blocks.length - 1];
+      if (!newStep) return null;
+      const newIdx = Number(newStep.getAttribute("data-step-index") || "0");
+      const typeSelect = newStep.querySelector("[data-step-type-select]");
+      if (typeSelect && choice.step_type) {
+        typeSelect.value = String(choice.step_type);
+        typeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const stepNameField = newStep.querySelector(`input[name="step_${newIdx}_name"]`);
+      setAutofilledValue(stepNameField, choice.name || "", true);
+      Object.entries(choice.params || {}).forEach(([paramKey, paramValue]) => {
+        const field = newStep.querySelector(`[name="step_${newIdx}_${paramKey}"]`);
+        setAutofilledValue(field, String(paramValue || ""), true);
+      });
+      refreshStepTypeOptions(newStep);
+      updateStepSummary(newStep);
+      newStep.open = true;
+      return newStep;
+    }
+
+    function firstStep() {
+      const blocks = Array.from(container.querySelectorAll(".step-block"));
+      return blocks.length ? blocks[0] : null;
+    }
+
+    function applyConnectionChoice(choice, connectionRef) {
+      const step = firstStep();
+      if (!step) return;
+      const idx = Number(step.getAttribute("data-step-index") || "0");
+      const typeSelect = step.querySelector("[data-step-type-select]");
+      if (typeSelect && choice.step_type) {
+        typeSelect.value = String(choice.step_type);
+        typeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const field = step.querySelector(`[name="step_${idx}_${choice.field}"]`);
+      if (field) {
+        field.value = String(connectionRef || "");
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      refreshStepTypeOptions(step);
+      updateStepSummary(step);
+      renderConnectionGuidance();
+    }
+
+    function updateAddButtonLabel() {
+      const currentMode = String(modeInput.value || root.dataset.wizardMode || "simple").trim();
+      if (!addBtnLabel) return;
+      if (currentMode === "advanced") {
+        addBtnLabel.textContent = "Zusätzlichen Schritt aktivieren";
+        return;
+      }
+      const skillType = skillTypeSelect ? String(skillTypeSelect.value || "custom").trim() : "custom";
+      const preset = skillTypePresets[skillType] || skillTypePresets.custom || {};
+      const label = String(preset.label || "Schritt").trim();
+      addBtnLabel.textContent = `Weiteren ${label}-Schritt hinzufügen`;
+    }
+
+    function renderConnectionGuidance() {
+      if (!simpleConnectionCard || !simpleConnectionGroups) return;
+      const currentMode = String(modeInput.value || root.dataset.wizardMode || "simple").trim();
+      if (currentMode === "advanced") {
+        simpleConnectionCard.hidden = true;
+        simpleConnectionGroups.innerHTML = "";
+        return;
+      }
+      const skillType = skillTypeSelect ? String(skillTypeSelect.value || "custom").trim() : "custom";
+      const choices = skillTypeConnectionChoices[skillType] || [];
+      const preset = skillTypePresets[skillType] || skillTypePresets.custom || {};
+      if (simpleConnectionTitle) {
+        simpleConnectionTitle.textContent = `Hauptverbindung für ${String(preset.label || "diesen Skill")}`;
+      }
+      if (!choices.length) {
+        simpleConnectionCard.hidden = true;
+        simpleConnectionGroups.innerHTML = "";
+        return;
+      }
+      simpleConnectionCard.hidden = false;
+      simpleConnectionGroups.innerHTML = "";
+      const step = firstStep();
+      const idx = step ? Number(step.getAttribute("data-step-index") || "0") : 0;
+      choices.forEach((choice) => {
+        const group = document.createElement("section");
+        group.className = "skill-connection-group";
+
+        const heading = document.createElement("h4");
+        heading.textContent = String(choice.label || choice.kind || "Connection");
+        group.appendChild(heading);
+
+        const hint = document.createElement("p");
+        hint.className = "hint-text";
+        hint.textContent = String(choice.hint || "");
+        group.appendChild(hint);
+
+        const actions = document.createElement("div");
+        actions.className = "inline-actions skill-connection-actions";
+        const options = connectionOptionsByKind[String(choice.kind || "").trim()] || [];
+        const currentField = idx ? step.querySelector(`[name="step_${idx}_${choice.field}"]`) : null;
+        const currentRef = currentField ? String(currentField.value || "").trim() : "";
+
+        if (!options.length) {
+          const empty = document.createElement("p");
+          empty.className = "hint-text";
+          empty.textContent = "Noch keine passende Connection vorhanden.";
+          actions.appendChild(empty);
+          const link = document.createElement("a");
+          link.className = "nav-link ui-action-link";
+          link.href = "/config";
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = "Connection anlegen";
+          actions.appendChild(link);
+        } else {
+          options.forEach((option) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "skill-connection-btn";
+            if (currentRef && currentRef === String(option.ref || "")) {
+              button.classList.add("is-active");
+            }
+            button.textContent = String(option.label || option.ref || "");
+            button.addEventListener("click", function () {
+              applyConnectionChoice(choice, option.ref || "");
+            });
+            actions.appendChild(button);
+          });
+        }
+        group.appendChild(actions);
+        simpleConnectionGroups.appendChild(group);
+      });
+    }
+
+    function renderFollowupActions() {
+      if (!simpleFollowupCard || !simpleFollowupActions) return;
+      const currentMode = String(modeInput.value || root.dataset.wizardMode || "simple").trim();
+      if (currentMode === "advanced") {
+        simpleFollowupCard.hidden = true;
+        simpleFollowupActions.innerHTML = "";
+        return;
+      }
+      const skillType = skillTypeSelect ? String(skillTypeSelect.value || "custom").trim() : "custom";
+      const choices = skillTypeFollowupSteps[skillType] || [];
+      simpleFollowupActions.innerHTML = "";
+      simpleFollowupCard.hidden = choices.length === 0;
+      choices.forEach((choice) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "skill-followup-btn";
+        button.textContent = String(choice.label || choice.step_type || "Schritt hinzufügen");
+        button.addEventListener("click", function () {
+          createStepFromChoice(choice);
+        });
+        simpleFollowupActions.appendChild(button);
+      });
+    }
+
+    function applySkillTypePreset(force) {
+      if (!skillTypeSelect) return;
+      const preset = skillTypePresets[String(skillTypeSelect.value || "").trim()] || skillTypePresets.custom || {};
+      if (skillTypeHint) {
+        skillTypeHint.textContent = String(preset.hint || "");
+      }
+      if (skillCategorySelect) {
+        const currentCategory = String(skillCategorySelect.value || "").trim().toLowerCase();
+        if (force || !currentCategory || currentCategory === "custom") {
+          skillCategorySelect.value = String(preset.category || "custom");
+        }
+      }
+      setAutofilledValue(skillDescriptionField, preset.description || "", force);
+
+      if (!force && root.dataset.skillLoaded === "1") return;
+      if (!container.querySelector(".step-block")) {
+        addBtn.click();
+      }
+      const blocks = Array.from(container.querySelectorAll(".step-block"));
+      if (!blocks.length) return;
+      if (!force && blocks.length > 1) return;
+      const firstStep = blocks[0];
+      const idx = Number(firstStep.getAttribute("data-step-index") || "0");
+      const typeSelect = firstStep.querySelector("[data-step-type-select]");
+      if (typeSelect && preset.default_step_type) {
+        typeSelect.value = String(preset.default_step_type);
+        typeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const stepNameField = firstStep.querySelector(`input[name="step_${idx}_name"]`);
+      setAutofilledValue(stepNameField, preset.default_step_name || "", force);
+      const defaultParams = preset.default_params || {};
+      Object.entries(defaultParams).forEach(([paramKey, paramValue]) => {
+        const field = firstStep.querySelector(`[name="step_${idx}_${paramKey}"]`);
+        setAutofilledValue(field, String(paramValue || ""), force);
+      });
+      refreshAllStepTypeOptions();
+      updateStepSummary(firstStep);
+      updateAddButtonLabel();
+      renderConnectionGuidance();
+      renderFollowupActions();
     }
 
     addBtn.addEventListener("click", function () {
@@ -633,6 +1029,18 @@
         container.appendChild(node);
         wireStepInteractions(node);
         renumberAllSteps();
+        const blocks = Array.from(container.querySelectorAll(".step-block"));
+        const newStep = blocks[blocks.length - 1];
+        if (newStep) {
+          const typeSelect = newStep.querySelector("[data-step-type-select]");
+          const preset = skillTypePresets[String(skillTypeSelect ? skillTypeSelect.value : "custom") || "custom"] || {};
+          if (typeSelect && preset.default_step_type) {
+            typeSelect.value = String(preset.default_step_type);
+          }
+          refreshStepTypeOptions(newStep);
+        }
+        updateAddButtonLabel();
+        renderConnectionGuidance();
       }
     });
 
@@ -640,8 +1048,34 @@
       renumberAllSteps();
     });
 
+    modeToggles.forEach((toggle) => {
+      toggle.addEventListener("change", function () {
+        if (toggle.checked) {
+          updateWizardMode(toggle.value);
+          updateAddButtonLabel();
+          renderConnectionGuidance();
+          renderFollowupActions();
+        }
+      });
+    });
+
+    if (skillTypeSelect) {
+      skillTypeSelect.addEventListener("change", function () {
+        applySkillTypePreset(true);
+        updateAddButtonLabel();
+        renderConnectionGuidance();
+        renderFollowupActions();
+      });
+    }
+
+    updateWizardMode(modeInput.value || root.dataset.wizardMode || "simple");
     wireStepInteractions(container);
     renumberAllSteps();
+    applySkillTypePreset(false);
+    refreshAllStepTypeOptions();
+    updateAddButtonLabel();
+    renderConnectionGuidance();
+    renderFollowupActions();
   })();
 </script>
 {% endblock %}

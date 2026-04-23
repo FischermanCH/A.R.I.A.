@@ -1,14 +1,10 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('logs', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_logs.title', 'Logs & Retention') }}</h2></div>
-    <p>{{ tr(request, 'config_logs.subtitle', 'Control how long token/run logs for stats and activities are kept.') }}</p>
+<main class="config-layout config-domain-layout config-domain-surface-layout config-logs-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
 
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_logs.saved', 'Log configuration saved.') }}</div>
-    {% endif %}
+  <section class="config-card floating-card config-domain-section">
     {% if pruned is not none %}
     <div class="alert ok">{{ tr(request, 'config_logs.pruned', 'Log cleanup completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ pruned }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
     {% endif %}

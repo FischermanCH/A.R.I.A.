@@ -1,8 +1,31 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block content %}
-<main class="memories-layout">
+<main class="memories-layout memory-explorer-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+  <section class="floating-card memory-explorer-hero">
+    <div class="page-title-row"><span>{{ icon('memories', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories_overview.explorer_title', 'Memory Explorer') }}</h2></div>
+    <p>{{ tr(request, 'memories.explorer_subtitle', 'Suche, browse und pflege deine Memory-Inhalte ohne den Setup-Bereich zu überladen.') }}</p>
+    <div class="memory-explorer-summary">
+      <article class="memory-explorer-card">
+        <h3>{{ tr(request, 'memories.hits', 'Treffer') }}</h3>
+        <p>{{ total_rows }}</p>
+        <small>{{ tr(request, 'memories.showing', 'Zeige') }} {{ page_start }}-{{ page_end }}</small>
+      </article>
+      <article class="memory-explorer-card">
+        <h3>{{ tr(request, 'memories.type', 'Typ') }}</h3>
+        <p>{{ tr(request, 'memories.type_' ~ filter_type, tr(request, 'memories.type_all', 'Alle')) if filter_type != 'all' else tr(request, 'memories.type_all', 'Alle') }}</p>
+        <small>{{ tr(request, 'memories.sort', 'Sortierung') }}: {{ tr(request, 'memories.sort_' ~ ('newest' if sort == 'updated_desc' else 'oldest' if sort == 'updated_asc' else 'type' if sort == 'type' else 'collection' if sort == 'collection' else 'score'), sort) }}</small>
+      </article>
+      <article class="memory-explorer-card">
+        <h3>{{ tr(request, 'memories.collection_filter_label', 'Collection') }}</h3>
+        <p>{{ collection_filter or active_collection }}</p>
+        <small>{% if active_document_entry %}{{ active_document_entry.document_name }}{% elif query %}{{ tr(request, 'memories.search', 'Suche') }}: {{ query }}{% else %}{{ tr(request, 'memories.explorer_focus_hint', 'Aktueller Fokus des Explorers') }}{% endif %}</small>
+      </article>
+    </div>
+  </section>
   <section class="memories-toolbar">
-    <form method="get" action="/memories" class="memories-filter-form">
+    <form method="get" action="/memories/explorer" class="memories-filter-form">
       <label for="type">{{ tr(request, 'memories.type', 'Typ') }}</label>
       <select id="type" name="type">
         <option value="all" {% if filter_type == "all" %}selected{% endif %}>{{ tr(request, 'memories.type_all', 'Alle') }}</option>
@@ -38,17 +61,9 @@
       <input type="hidden" name="document_name" value="{{ document_name_filter }}">
       {% endif %}
       <input type="hidden" name="page" value="1">
-      <button type="submit">{{ tr(request, 'memories.search_btn', 'Suchen') }}</button>
+      <button type="submit" class="ui-action-button">{{ icon('searxng', 'ui-action-icon') }}{{ tr(request, 'memories.search_btn', 'Suchen') }}</button>
     </form>
-    <div class="inline-actions">
-      <a
-        class="chat-status memories-link"
-        href="/memories/export?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}"
-      >{{ tr(request, 'memories.export', 'Memory exportieren') }}</a>
-      <a class="chat-status memories-link" href="/memories/map">{{ tr(request, 'memories.map', 'Memory Map') }}</a>
-      {% if request.state.auth_role == "admin" %}
-      <a class="chat-status memories-link" href="/memories/config">{{ tr(request, 'memories.setup', 'Memory-Setup') }}</a>
-      {% endif %}
+    <div class="inline-actions memories-toolbar-actions">
       <form method="post" action="/memories/maintenance" class="memories-maintenance-form">
         <input type="hidden" name="type" value="{{ filter_type }}">
         <input type="hidden" name="q" value="{{ query }}">
@@ -57,7 +72,7 @@
         <input type="hidden" name="document_name" value="{{ document_name_filter }}">
         <input type="hidden" name="limit" value="{{ limit }}">
         <input type="hidden" name="sort" value="{{ sort }}">
-        <button type="submit">{{ tr(request, 'memories.rollup', 'Kontext-Rollup') }}</button>
+        <button type="submit" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request, 'memories.rollup', 'Kontext-Rollup') }}</button>
       </form>
     </div>
   </section>
@@ -66,28 +81,23 @@
     <span class="chat-status">{{ tr(request, 'memories.page', 'Seite') }}: <code>{{ page }}</code>/<code>{{ total_pages }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.hits', 'Treffer') }}: <code>{{ total_rows }}</code></span>
     <span class="chat-status">{{ tr(request, 'memories.showing', 'Zeige') }}: <code>{{ page_start }}</code>-<code>{{ page_end }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.facts', 'Facts') }}: <code>{{ counts.fact }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.preferences', 'Preferences') }}: <code>{{ counts.preference }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ counts.session }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}: <code>{{ counts.document }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ counts.knowledge }}</code></span>
+    {% if query %}
+    <span class="chat-status">{{ tr(request, 'memories.search', 'Suche') }}: <code>{{ query }}</code></span>
+    {% endif %}
     {% if collection_filter %}
     <span class="chat-status">{{ tr(request, 'memories.collection_filter_label', 'Collection') }}: <code>{{ collection_filter }}</code></span>
-    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ tr(request, 'memories.collection_filter_clear', 'Collection-Filter entfernen') }}</a>
+    <a class="button-like ui-action-link memories-link" href="/memories/explorer?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'memories.collection_filter_clear', 'Collection-Filter entfernen') }}</a>
     {% endif %}
     {% if active_document_entry %}
     <span class="chat-status">{{ tr(request, 'memories.document', 'Dokument') }}: <code>{{ active_document_entry.document_name }}</code></span>
-    <a class="chat-status memories-link" href="/memories?type=document&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ tr(request, 'memories.document_filter_clear', 'Zurück zu den Dokumenten im Store') }}</a>
-    {% endif %}
-    {% if qdrant_dashboard_url and request.state.auth_role == "admin" and request.state.debug_mode %}
-    <a class="chat-status memories-link" href="{{ qdrant_dashboard_url }}" target="_blank" rel="noopener noreferrer">Qdrant Dashboard</a>
+    <a class="button-like ui-action-link memories-link" href="/memories/explorer?type=document&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'memories.document_filter_clear', 'Zurück zu den Dokumenten im Store') }}</a>
     {% endif %}
   </section>
 
   {% if total_pages > 1 %}
   <section class="memories-meta">
-    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ prev_page }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">← {{ tr(request, 'memories.back', 'Zurück') }}</a>
-    <a class="chat-status memories-link" href="/memories?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ next_page }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">{{ tr(request, 'memories.next', 'Weiter') }} →</a>
+    <a class="button-like ui-icon-only memories-link" href="/memories/explorer?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ prev_page }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}" title="{{ tr(request, 'memories.back', 'Zurück') }}" aria-label="{{ tr(request, 'memories.back', 'Zurück') }}">{{ icon('arrow_left', 'ui-action-icon') }}<span class="sr-only">{{ tr(request, 'memories.back', 'Zurück') }}</span></a>
+    <a class="button-like ui-icon-only memories-link" href="/memories/explorer?type={{ filter_type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page={{ next_page }}{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}" title="{{ tr(request, 'memories.next', 'Weiter') }}" aria-label="{{ tr(request, 'memories.next', 'Weiter') }}">{{ icon('arrow_right', 'ui-action-icon') }}<span class="sr-only">{{ tr(request, 'memories.next', 'Weiter') }}</span></a>
   </section>
   {% endif %}
 
@@ -99,124 +109,47 @@
   {% endif %}
   {% with
     heading=tr(request, 'context_help.memory_title', 'Kurz erklärt'),
-    body=tr(request, 'context_help.memory_body', 'Dokumente lädst du hier hoch, gepflegt werden sie gesammelt in der Memory Map. Für große Sammlungen helfen Typ- und Collection-Filter, damit Fakten, Rollups und Dokument-Chunks nicht durcheinanderlaufen.'),
+    body=tr(request, 'context_help.memory_body', 'Neue Einträge und Dokument-Importe startest du jetzt über die Memory-Übersicht. Der Explorer konzentriert sich auf Suchen, Filtern und das Prüfen bestehender Inhalte.'),
     help_doc='memory'
   %}
     {% include "_context_help.html" %}
   {% endwith %}
 
+  <section class="memory-section-head">
+    <div>
+      <h3>{{ tr(request, 'memories.explorer_filter_title', 'Nach Typ filtern') }}</h3>
+      <p>{{ tr(request, 'memories.explorer_filter_desc', 'Die Karten darunter sind der schnellste Weg, um zwischen Fakten, Dokumenten, Rollups und Kontext zu springen.') }}</p>
+    </div>
+  </section>
   <section class="memory-type-grid">
-    <a class="memory-type-card {% if filter_type == 'all' %}active{% endif %}" href="/memories?type=all&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'all' %}active{% endif %}" href="/memories/explorer?type=all&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_all', 'Alle') }}</strong>
       <span><code>{{ total_rows }}</code> {{ tr(request, 'memories.hits', 'Treffer') }}</span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'document' %}active{% endif %}" href="/memories?type=document&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'document' %}active{% endif %}" href="/memories/explorer?type=document&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_document', 'Dokumente') }}</strong>
       <span><code>{{ counts.document }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'knowledge' %}active{% endif %}" href="/memories?type=knowledge&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'knowledge' %}active{% endif %}" href="/memories/explorer?type=knowledge&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</strong>
       <span><code>{{ counts.knowledge }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'fact' %}active{% endif %}" href="/memories?type=fact&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'fact' %}active{% endif %}" href="/memories/explorer?type=fact&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_fact', 'Fakten') }}</strong>
       <span><code>{{ counts.fact }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'preference' %}active{% endif %}" href="/memories?type=preference&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'preference' %}active{% endif %}" href="/memories/explorer?type=preference&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</strong>
       <span><code>{{ counts.preference }}</code></span>
     </a>
-    <a class="memory-type-card {% if filter_type == 'session' %}active{% endif %}" href="/memories?type=session&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+    <a class="memory-type-card {% if filter_type == 'session' %}active{% endif %}" href="/memories/explorer?type=session&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}</strong>
       <span><code>{{ counts.session }}</code></span>
     </a>
   </section>
 
-  <details class="memory-create-card memory-create-panel" {% if upload_success or upload_error or error_message %}open{% endif %}>
-    <summary class="memory-group-summary memory-create-summary">
-      <div>
-        <strong>{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</strong>
-        <small>{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</small>
-      </div>
-    </summary>
-    <div class="memory-group-list">
-    <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data">
-      <input type="hidden" name="type" value="{{ filter_type }}">
-      <input type="hidden" name="q" value="{{ query }}">
-      <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
-      <input type="hidden" name="document_id" value="{{ document_id_filter }}">
-      <input type="hidden" name="document_name" value="{{ document_name_filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="limit" value="{{ limit }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <label for="document_file">{{ tr(request, 'memories.upload_file', 'Datei') }}</label>
-      <input id="document_file" name="document_file" type="file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" required>
-      <small class="hint-text">{{ tr(request, 'memories.upload_formats', 'Unterstützt:') }} {% for suffix in supported_upload_suffixes %}<code>{{ suffix }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</small>
-      <div class="connection-form-grid">
-        <div>
-          <label for="document_collection">{{ tr(request, 'memories.upload_collection', 'Bestehende Collection') }}</label>
-          <select id="document_collection" name="collection">
-            <option value="">{{ tr(request, 'memories.upload_use_active', 'Aktive Collection verwenden') }}{% if active_document_collection %}: {{ active_document_collection }}{% endif %}</option>
-            {% for name in document_collections %}
-            <option value="{{ name }}">{{ name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="document_new_collection">{{ tr(request, 'memories.upload_new_collection', 'Oder neue Collection') }}</label>
-          <input id="document_new_collection" name="new_collection_name" type="text" placeholder="{{ tr(request, 'memories.upload_new_collection_placeholder', 'z. B. aria_docs_handbuch') }}">
-        </div>
-      </div>
-      <small class="hint-text">{{ tr(request, 'memories.upload_collection_hint', 'Wenn keine Auswahl getroffen wird, nutzt ARIA die aktive Dokument-Collection oder legt die persönliche Default-Dokument-Collection an.') }} <code>{{ default_document_collection }}</code></small>
-      <button
-        type="submit"
-        class="memory-upload-submit"
-        data-default-label="{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}"
-        data-loading-label="{{ tr(request, 'memories.upload_button_loading', 'Dokument wird gechunkt und importiert ...') }}"
-      >{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}</button>
-      <p class="upload-progress-note" hidden aria-live="polite">
-        {{ tr(request, 'memories.upload_progress', 'Dokument wird vorbereitet, gechunkt und nach Qdrant importiert. Das kann je nach PDF kurz dauern.') }}
-      </p>
-    </form>
-    </div>
-  </details>
-
-  <details class="memory-create-card memory-create-panel">
-    <summary class="memory-group-summary memory-create-summary">
-      <div>
-        <strong>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</strong>
-        <small>{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</small>
-      </div>
-    </summary>
-    <div class="memory-group-list">
-    <form method="post" action="/memories/create" class="editor-form">
-      <input type="hidden" name="type" value="{{ filter_type }}">
-      <input type="hidden" name="q" value="{{ query }}">
-      <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
-      <input type="hidden" name="document_id" value="{{ document_id_filter }}">
-      <input type="hidden" name="document_name" value="{{ document_name_filter }}">
-      <input type="hidden" name="page" value="{{ page }}">
-      <input type="hidden" name="limit" value="{{ limit }}">
-      <input type="hidden" name="sort" value="{{ sort }}">
-      <div class="connection-form-grid">
-        <div>
-          <label for="memory_type">{{ tr(request, 'memories.create_type', 'Memory-Typ') }}</label>
-          <select id="memory_type" name="memory_type">
-            <option value="fact">{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
-            <option value="preference">{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
-            <option value="knowledge">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
-          </select>
-        </div>
-      </div>
-      <label for="memory_text">{{ tr(request, 'memories.create_text', 'Text') }}</label>
-      <textarea id="memory_text" name="text" class="editor-textarea short" maxlength="4000" placeholder="{{ tr(request, 'memories.create_placeholder', 'z. B. Ich nutze für Server-Dateien meist mein Hauptsystem.') }}" required></textarea>
-      <button type="submit">{{ tr(request, 'memories.create_button', 'Memory speichern') }}</button>
-    </form>
-    </div>
-  </details>
-
   {% if filter_type == "document" and collection_filter and document_browser_entries %}
-  <section class="memory-create-card">
+  <section class="memory-create-card memory-doc-browser-card">
     <h2>
       {% if document_store_view %}
       {{ tr(request, 'memories.documents_in_store_title', 'Dokumente im Store') }}
@@ -249,7 +182,7 @@
             <small>{{ group.count }} {{ tr(request, 'memories.hits', 'Treffer') }}</small>
           </div>
           {% if filter_type == "all" %}
-          <a class="chat-status memories-link" href="/memories?type={{ group.type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">{{ tr(request, 'memories.show_type_only', 'Nur diesen Typ anzeigen') }}</a>
+          <a class="chat-status memories-link" href="/memories/explorer?type={{ group.type|urlencode }}&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1{% if document_id_filter %}&document_id={{ document_id_filter|urlencode }}{% endif %}{% if document_name_filter %}&document_name={{ document_name_filter|urlencode }}{% endif %}">{{ tr(request, 'memories.show_type_only', 'Nur diesen Typ anzeigen') }}</a>
           {% endif %}
         </summary>
         <div class="memory-group-list">
@@ -308,7 +241,10 @@
                 <input type="hidden" name="page" value="{{ page }}">
                 <input type="hidden" name="limit" value="{{ limit }}">
                 <input type="hidden" name="sort" value="{{ sort }}">
-                <button type="submit">{{ tr(request, 'memories.delete', 'Löschen') }}</button>
+                <button type="submit" class="danger-btn ui-icon-only" title="{{ tr(request, 'memories.delete', 'Löschen') }}" aria-label="{{ tr(request, 'memories.delete', 'Löschen') }}">
+                  {{ icon('trash', 'ui-action-icon') }}
+                  <span class="sr-only">{{ tr(request, 'memories.delete', 'Löschen') }}</span>
+                </button>
               </form>
             </div>
           </footer>

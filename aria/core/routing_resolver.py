@@ -77,7 +77,19 @@ def infer_preferred_connection_kind(
     if not lower:
         return ""
 
-    scores = {"ssh": 0, "sftp": 0, "discord": 0, "rss": 0, "http_api": 0}
+    scores = {
+        "ssh": 0,
+        "sftp": 0,
+        "smb": 0,
+        "google_calendar": 0,
+        "discord": 0,
+        "rss": 0,
+        "http_api": 0,
+        "webhook": 0,
+        "email": 0,
+        "imap": 0,
+        "mqtt": 0,
+    }
 
     if re.search(r"\b(?:wie\s+lange|seit\s+wann)\s+ist\b.*\bonline\b", lower, re.IGNORECASE):
         scores["ssh"] += 4
@@ -134,12 +146,47 @@ def infer_preferred_connection_kind(
         ),
     ):
         scores["sftp"] += 3
+    if _has_any_word(
+        lower,
+        (
+            "share",
+            "freigabe",
+            "netzlaufwerk",
+            "smb",
+            "nas share",
+            "synology share",
+        ),
+    ):
+        scores["smb"] += 4
     if re.search(r"(?<!\S)/(?:[\w.-]+/)*[\w.-]+", lower):
         scores["sftp"] += 3
     if _has_any_word(lower, ("read", "open", "show", "list", "lies", "lese", "öffne", "oeffne", "zeige", "auflisten")):
         scores["sftp"] += 1
     if _has_any_word(lower, ("run", "execute", "ausführen", "fuehre", "führe")) and scores["ssh"]:
         scores["sftp"] = max(0, scores["sftp"] - 2)
+    if _has_any_word(lower, ("datei", "file", "read", "open", "zeige", "lies", "lese")) and scores["smb"]:
+        scores["smb"] += 1
+
+    if _has_any_word(
+        lower,
+        (
+            "calendar",
+            "kalender",
+            "termin",
+            "termine",
+            "appointment",
+            "appointments",
+            "meeting",
+            "meetings",
+            "schedule",
+            "agenda",
+            "event",
+            "events",
+        ),
+    ):
+        scores["google_calendar"] += 4
+    if _has_any_word(lower, ("today", "tomorrow", "heute", "morgen", "next", "naechst", "nächst")):
+        scores["google_calendar"] += 2
 
     if _has_any_word(
         lower,
@@ -175,6 +222,24 @@ def infer_preferred_connection_kind(
 
     if _has_any_word(lower, ("api", "endpoint", "http", "webhook", "request")):
         scores["http_api"] += 3
+    if _has_any_word(
+        lower,
+        (
+            "webhook",
+            "hook",
+            "callback",
+            "endpoint",
+            "trigger webhook",
+            "poste an webhook",
+        ),
+    ):
+        scores["webhook"] += 4
+    if _has_any_word(lower, ("mail", "email", "smtp", "send mail", "send email", "sende mail", "sende email")):
+        scores["email"] += 4
+    if _has_any_word(lower, ("inbox", "mailbox", "postfach", "emails lesen", "email lesen", "mail suchen", "email suchen")):
+        scores["imap"] += 4
+    if _has_any_word(lower, ("mqtt", "topic", "broker", "publish", "event bus", "mqtt publish")):
+        scores["mqtt"] += 4
 
     if available:
         scores = {kind: score for kind, score in scores.items() if kind in available}

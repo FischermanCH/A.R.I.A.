@@ -1,0 +1,84 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card skills-section" id="skills-custom">
+  <h3>{{ tr(request, 'skills.my_skills_title', 'Meine Skills') }}</h3>
+  <p class="hint-text">{{ tr(request, 'skills.my_skills_desc', 'Hier findest du nur deine eigenen Skills. Vorlagen und Systemfunktionen liegen getrennt darunter.') }}</p>
+  <div class="config-group-grid">
+    {% for row in custom_rows %}
+    <article class="config-group-card skill-card">
+      <div class="skill-card-head">
+        <h3>{{ row.title }}</h3>
+        <span class="skill-state {% if row.enabled %}is-on{% else %}is-off{% endif %}">
+          {% if row.enabled %}{{ tr(request, 'skills.state_on', 'aktiv') }}{% else %}{{ tr(request, 'skills.state_off', 'aus') }}{% endif %}
+        </span>
+      </div>
+      <p>{{ row.desc }}</p>
+      <p class="hint-text">{{ tr(request, 'skills.category', 'Kategorie') }}: {{ row.category }}{% if row.prompt_file %} · {{ tr(request, 'skills.prompt', 'Prompt') }}: {{ row.prompt_file }}{% endif %}</p>
+      <label class="inline-check">
+        <input
+          type="checkbox"
+          name="custom_enabled__{{ row.key }}"
+          value="1"
+          {% if row.enabled %}checked{% endif %}
+          {% if request.state.auth_role != "admin" %}disabled{% endif %}
+        >
+        {{ row.title }} {{ tr(request, 'skills.enable', 'aktivieren') }}
+      </label>
+      <details class="skill-details">
+        <summary>{{ tr(request, 'skills.details', 'Details') }}</summary>
+        <div class="skill-details-content">
+          {% if row.router_keywords %}
+          <p class="hint-text">{{ tr(request, 'skills.trigger', 'Trigger') }}: {{ row.router_keywords|join(", ") }}</p>
+          {% endif %}
+          {% if row.connections %}
+          <p class="hint-text">{{ tr(request, 'skills.connections', 'Connections') }}: {{ row.connections|join(", ") }}</p>
+          {% endif %}
+          {% if row.steps %}
+          <p class="hint-text">{{ tr(request, 'skills.steps', 'Steps') }}: {{ row.steps|length }}</p>
+          {% for step in row.steps %}
+          <p class="hint-text">- {{ step.id }} · {{ step.type }}{% if step.name %} · {{ step.name }}{% endif %}</p>
+          {% endfor %}
+          {% endif %}
+          {% if row.schedule and row.schedule.enabled %}
+          <p class="hint-text">{{ tr(request, 'skills.schedule', 'Zeitplan') }}: {{ row.schedule_time_24h or 'custom' }} {{ tr(request, 'skills.clock', 'Uhr') }} ({{ row.schedule.timezone }}){% if row.schedule.run_on_startup %} · + {{ tr(request, 'skills.start', 'Start') }}{% endif %}</p>
+          {% endif %}
+          {% if not skills_readonly %}
+          <div class="inline-actions">
+            <a
+              class="button-like ui-icon-only"
+              href="/skills/wizard?skill_id={{ row.key }}&return_to={{ page_return_to | urlencode }}"
+              title="{{ tr(request, 'skills.edit', 'Bearbeiten') }}"
+              aria-label="{{ tr(request, 'skills.edit', 'Bearbeiten') }}"
+            >
+              {{ icon('edit', 'ui-action-icon') }}
+              <span class="sr-only">{{ tr(request, 'skills.edit', 'Bearbeiten') }}</span>
+            </a>
+            <button
+              type="submit"
+              class="danger-btn ui-icon-only"
+              formaction="/skills/delete"
+              formmethod="post"
+              name="skill_id"
+              value="{{ row.key }}"
+              title="{{ tr(request, 'skills.delete', 'Löschen') }}"
+              aria-label="{{ tr(request, 'skills.delete', 'Löschen') }}"
+              onclick="return confirm('{{ tr(request, 'skills.delete_confirm', 'Skill wirklich löschen?') }}');"
+            >
+              {{ icon('trash', 'ui-action-icon') }}
+              <span class="sr-only">{{ tr(request, 'skills.delete', 'Löschen') }}</span>
+            </button>
+          </div>
+          {% endif %}
+          {% if row.hint %}
+          <small class="hint-text">{{ row.hint }}</small>
+          {% endif %}
+        </div>
+      </details>
+    </article>
+    {% else %}
+    <article class="config-group-card skill-card is-future">
+      <h3>{{ tr(request, 'skills.none_title', 'Noch keine Custom Skills') }}</h3>
+      <p>{{ tr(request, 'skills.none_text', 'Erstelle den ersten Skill über den Wizard oder importiere ein JSON-Manifest.') }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>

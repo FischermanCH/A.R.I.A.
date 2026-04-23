@@ -1,0 +1,502 @@
+{% extends "base.html" %}
+{% macro render_action_debug_fields(item, request, execution_state='', execution_state_label='') -%}
+  {% if item.candidate_id %}
+  <small class="stats-health-detail">
+    {{ tr(request, 'config_routing.test_action_identifier', 'Decision identifier') }}:
+    <code>{{ item.candidate_kind }}/{{ item.candidate_id }}</code>
+  </small>
+  {% endif %}
+  {% if item.summary_line %}
+  <small class="stats-health-detail"><strong>{{ item.summary_line }}</strong></small>
+  {% endif %}
+  {% set effective_state = execution_state or item.execution_state %}
+  {% set effective_state_label = execution_state_label or item.execution_state_label %}
+  {% if effective_state %}
+  <small class="stats-health-detail">
+    {% if item.score is not none %}
+      {{ tr(request, 'config_routing.test_action_score', 'Decision score') }}:
+      <code>{{ "%.3f"|format(item.score or 0) }}</code>
+      ·
+    {% endif %}
+    {{ tr(request, 'config_routing.test_action_state', 'Execution state') }}:
+    <strong>{{ effective_state_label or effective_state }}</strong>
+  </small>
+  {% endif %}
+  {% if item.summary %}
+  <small class="stats-health-detail">{{ item.summary }}</small>
+  {% endif %}
+  {% if item.preview %}
+  <small class="stats-health-detail">
+    {{ tr(request, 'config_routing.test_action_preview', 'Planned preview') }}:
+    {{ item.preview }}
+  </small>
+  {% endif %}
+  {% if item.inputs %}
+  <small class="stats-health-detail">
+    {{ tr(request, 'config_routing.test_action_inputs', 'Planned inputs') }}:
+    {% for item_input in item.input_items or [] %}
+      <code>{{ item_input.key_label or item_input.key }}={{ item_input.value }}</code>{% if not loop.last %} {% endif %}
+    {% endfor %}
+  </small>
+  {% endif %}
+  {% if item.missing_input %}
+  <small class="stats-health-detail">
+    {{ tr(request, 'config_routing.test_action_missing_input', 'Missing input') }}:
+    <code>{{ item.missing_input_label or item.missing_input }}</code>
+  </small>
+  {% endif %}
+  {% if item.clarifying_question %}
+  <small class="stats-health-detail">
+    {{ tr(request, 'config_routing.test_action_question', 'Suggested follow-up question') }}:
+    {{ item.clarifying_question }}
+  </small>
+  {% endif %}
+  {% if item.example_prompt %}
+  <small class="stats-health-detail">
+    {{ tr(request, 'config_routing.test_action_example_prompt', 'Suggested example prompt') }}:
+    <code>{{ item.example_prompt }}</code>
+  </small>
+  {% endif %}
+{%- endmacro %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-surface-layout config-routing-workbench-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+  <section class="config-card floating-card config-domain-section">
+    <div class="inline-actions routing-index-actions">
+      <a class="button-like" href="/config/routing?scope={{ selected_scope }}&return_to={{ return_to|urlencode if return_to else '%2Fconfig' }}">{{ tr(request, 'config.workbench_routing_back', 'Routing-Regeln öffnen') }}</a>
+      <a class="button-like" href="/config?return_to={{ return_to|urlencode if return_to else '%2Fconfig' }}">{{ tr(request, 'config.workbench_back_to_settings', 'Zurück zu Einstellungen') }}</a>
+    </div>
+
+    {% set index_status = routing_index_status or {} %}
+    <section class="routing-index-card stats-health-card status-{{ index_status.visual_status or 'warn' }}">
+      <div class="stats-health-card-head">
+        <div class="stats-health-title">
+          <span class="health-lamp status-{{ index_status.visual_status or 'warn' }}"></span>
+          <div>
+            <strong>{{ tr(request, 'config_routing.index_title', 'Routing Index') }}</strong>
+            <small class="stats-health-state">{{ tr(request, 'config.workbench_routing_index_desc', 'Status overview for the generated routing collection that powers this workbench.') }}</small>
+          </div>
+        </div>
+      </div>
+      <p class="stats-health-summary">{{ index_status.message or tr(request, 'config_routing.index_unknown', 'Status unknown.') }}</p>
+      <small class="stats-health-detail">
+        {{ tr(request, 'config_routing.index_collection', 'Collection') }}:
+        <code>{{ index_status.collection_name or '-' }}</code>
+        ·
+        {{ tr(request, 'config_routing.index_documents', 'Profiles') }}:
+        <strong>{{ index_status.document_count if index_status.document_count is not none else '-' }}</strong>
+        ·
+        {{ tr(request, 'config_routing.index_indexed', 'Indexed') }}:
+        <strong>{{ index_status.indexed_count if index_status.indexed_count is not none else '-' }}</strong>
+      </small>
+    </section>
+
+    <section class="routing-testbench-card stats-health-card status-{{ routing_test_result.visual_status if routing_test_result else 'warn' }}">
+      <div class="stats-health-card-head">
+        <div class="stats-health-title">
+          <span class="health-lamp status-{{ routing_test_result.visual_status if routing_test_result else 'warn' }}"></span>
+          <div>
+            <strong>{{ tr(request, 'config_routing.testbench_title', 'Routing Testbench') }}</strong>
+            <small class="stats-health-state">{{ tr(request, 'config_routing.testbench_subtitle', 'Dry-run: shows how ARIA would resolve a target. Nothing is executed.') }}</small>
+          </div>
+        </div>
+      </div>
+      <form method="get" action="/config/workbench/routing" class="editor-form routing-testbench-form">
+        <input type="hidden" name="scope" value="{{ selected_scope }}">
+        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+        <label for="routing_query">{{ tr(request, 'config_routing.test_query', 'User prompt') }}</label>
+        <input id="routing_query" name="routing_query" value="{{ routing_test_query or '' }}" placeholder="{{ tr(request, 'config_routing.test_query_placeholder', 'Example: Run uptime on pihole1') }}">
+        <label for="routing_kind">{{ tr(request, 'config_routing.test_kind', 'Preferred kind') }}</label>
+        <select id="routing_kind" name="routing_kind">
+          {% for option in routing_test_kind_options %}
+          <option value="{{ option }}" {% if option == routing_test_kind %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+        <label class="checkbox-row">
+          <input type="checkbox" name="routing_llm_qdrant_only" value="1" {% if routing_test_llm_qdrant_only %}checked{% endif %}>
+          {{ tr(request, 'config_routing.test_llm_qdrant_only', 'Test LLM without deterministic hint (Qdrant + LLM only)') }}
+        </label>
+        <button type="submit">{{ tr(request, 'config_routing.test_run', 'Test routing') }}</button>
+      </form>
+
+      {% if routing_test_result %}
+      {% set test = routing_test_result %}
+      <div class="routing-testbench-result">
+        <p class="stats-health-summary">{{ test.message }}</p>
+        <small class="stats-health-detail">
+          {{ tr(request, 'config_routing.test_no_execution', 'Dry-run only: no command, message, feed or file action was executed.') }}
+        </small>
+        {% if test.inferred_preferred_kind and test.requested_preferred_kind == 'auto' %}
+        <small class="stats-health-detail">
+          {{ tr(request, 'config_routing.test_inferred_kind', 'Auto preferred kind inferred') }}:
+          <code>{{ test.inferred_preferred_kind }}</code>
+        </small>
+        {% endif %}
+
+        <div class="stats-health-grid routing-testbench-grid">
+          <article class="stats-health-card status-{{ 'ok' if test.decision.found else 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ 'ok' if test.decision.found else 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_decision', 'Final decision') }}</strong>
+            </div>
+            {% if test.decision.found %}
+            <p class="stats-health-summary"><code>{{ test.decision.kind }}/{{ test.decision.ref }}</code></p>
+            <small class="stats-health-detail">{{ test.decision.source }} · {{ "%.3f"|format(test.decision.score) }} · {{ test.decision.reason or '-' }}</small>
+            {% else %}
+            <p class="stats-health-summary">{{ tr(request, 'config_routing.test_no_match', 'No match') }}</p>
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_no_match_hint', 'Rebuild the index or improve title, description, aliases and tags on the connection profile.') }}</small>
+            {% endif %}
+          </article>
+
+          <article class="stats-health-card status-{{ 'ok' if test.deterministic.found else 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ 'ok' if test.deterministic.found else 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_deterministic', 'Deterministic') }}</strong>
+            </div>
+            {% if test.deterministic.found %}
+            <p class="stats-health-summary"><code>{{ test.deterministic.kind }}/{{ test.deterministic.ref }}</code></p>
+            <small class="stats-health-detail">{{ test.deterministic.source }} · {{ test.deterministic.reason }}</small>
+            {% else %}
+            <p class="stats-health-summary">{{ tr(request, 'config_routing.test_no_match', 'No match') }}</p>
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_deterministic_hint', 'No exact profile name or alias matched.') }}</small>
+            {% endif %}
+          </article>
+
+          <article class="stats-health-card status-{{ 'error' if test.qdrant.error else ('ok' if test.qdrant.accepted_count else 'warn') }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ 'error' if test.qdrant.error else ('ok' if test.qdrant.accepted_count else 'warn') }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_qdrant', 'Qdrant candidates') }}</strong>
+            </div>
+            <p class="stats-health-summary">{{ test.qdrant.accepted_count }}/{{ test.qdrant.candidate_count }}</p>
+            {% if test.qdrant.error %}
+            <small class="stats-health-detail">{{ test.qdrant.error }}</small>
+            {% elif test.qdrant.message %}
+            <small class="stats-health-detail">{{ test.qdrant.message }}</small>
+            {% else %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_qdrant_hint', 'Accepted / returned candidates from the generated routing collection.') }}</small>
+            {% endif %}
+          </article>
+
+          {% set llm_debug = test.llm_debug or {} %}
+          <article class="stats-health-card status-{{ llm_debug.visual_status or 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ llm_debug.visual_status or 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_llm', 'LLM router dry-run') }}</strong>
+            </div>
+            <p class="stats-health-summary">
+              {% if llm_debug.decision and llm_debug.decision.found %}
+              <code>{{ llm_debug.decision.kind }}/{{ llm_debug.decision.ref }}</code>
+              {% else %}
+              {{ tr(request, 'config_routing.test_no_match', 'No match') }}
+              {% endif %}
+            </p>
+            {% if llm_debug.message %}
+            <small class="stats-health-detail">{{ llm_debug.message }}</small>
+            {% endif %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_llm_mode', 'Mode') }}:
+              {% if llm_debug.mode == 'qdrant_only' %}
+                {{ tr(request, 'config_routing.test_llm_mode_qdrant_only', 'Qdrant + LLM only') }}
+              {% else %}
+                {{ tr(request, 'config_routing.test_llm_mode_default', 'Deterministic hint + bounded candidates') }}
+              {% endif %}
+            </small>
+            {% if llm_debug.confidence %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_llm_confidence', 'Confidence') }}:
+              <code>{{ llm_debug.confidence }}</code>
+              {% if llm_debug.ask_user %}
+                · {{ tr(request, 'config_routing.test_llm_ask_user', 'ask user first') }}
+              {% endif %}
+            </small>
+            {% endif %}
+            {% if llm_debug.decision and llm_debug.decision.reason %}
+            <small class="stats-health-detail">{{ llm_debug.decision.reason }}</small>
+            {% elif not llm_debug.available %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_llm_unavailable', 'No LLM client available for routing debug.') }}</small>
+            {% endif %}
+          </article>
+
+          {% set action_debug = test.action_debug or {} %}
+          <article class="stats-health-card status-{{ action_debug.visual_status or 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ action_debug.visual_status or 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_action', 'Action / Skill dry-run') }}</strong>
+            </div>
+            <p class="stats-health-summary">
+              {% if action_debug.decision and action_debug.decision.found %}
+              {{ action_debug.decision.title or (action_debug.decision.candidate_kind ~ '/' ~ action_debug.decision.candidate_id) }}
+              {% else %}
+              {{ tr(request, 'config_routing.test_no_match', 'No match') }}
+              {% endif %}
+            </p>
+            {% if action_debug.decision and action_debug.decision.found %}
+            {{ render_action_debug_fields(action_debug.decision, request, action_debug.execution_state, action_debug.execution_state_label) }}
+            {% endif %}
+            {% if action_debug.message %}
+            <small class="stats-health-detail">{{ action_debug.message }}</small>
+            {% endif %}
+            {% if action_debug.target_context %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_target', 'Target context') }}:
+              <code>{{ action_debug.target_context }}</code>
+            </small>
+            {% endif %}
+            {% if action_debug.target_reason %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_target_reason', 'Routing hint') }}:
+              {{ action_debug.target_reason }}
+            </small>
+            {% endif %}
+            {% if action_debug.confidence %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_llm_confidence', 'Confidence') }}:
+              <code>{{ action_debug.confidence_label or action_debug.confidence }}</code>
+              {% if action_debug.ask_user %}
+                · {{ tr(request, 'config_routing.test_llm_ask_user', 'ask user first') }}
+              {% endif %}
+            </small>
+            {% endif %}
+            {% if action_debug.planner_source %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_source', 'Planner source') }}:
+              <code>{{ action_debug.planner_source_label or action_debug.planner_source }}</code>
+            </small>
+            {% endif %}
+            {% if action_debug.missing_input %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_missing_input', 'Missing input') }}:
+              <code>{{ action_debug.missing_input_label or action_debug.missing_input }}</code>
+            </small>
+            {% endif %}
+            {% if action_debug.clarifying_question %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_question', 'Suggested follow-up question') }}:
+              {{ action_debug.clarifying_question }}
+            </small>
+            {% endif %}
+            {% if action_debug.example_prompt %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_example_prompt', 'Suggested example prompt') }}:
+              <code>{{ action_debug.example_prompt }}</code>
+            </small>
+            {% endif %}
+            {% if action_debug.decision and action_debug.decision.reason %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_reason', 'Decision reason') }}:
+              {{ action_debug.decision.reason }}
+            </small>
+            {% elif not action_debug.available %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_action_unavailable', 'No action planner available for this dry-run.') }}</small>
+            {% endif %}
+          </article>
+
+          {% set payload_debug = test.payload_debug or {} %}
+          {% set payload = payload_debug.payload or {} %}
+          <article class="stats-health-card status-{{ payload_debug.visual_status or 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ payload_debug.visual_status or 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_payload', 'Payload dry-run') }}</strong>
+            </div>
+            <p class="stats-health-summary">
+              {% if payload.found %}
+              <code>{{ payload.capability or '-' }}</code>
+              {% else %}
+              {{ tr(request, 'config_routing.test_no_match', 'No match') }}
+              {% endif %}
+            </p>
+            {% if payload_debug.message %}
+            <small class="stats-health-detail">{{ payload_debug.message }}</small>
+            {% endif %}
+            {% if payload.preview %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_preview', 'Planned preview') }}:
+              {{ payload.preview }}
+            </small>
+            {% endif %}
+            {% if payload.path %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_payload_path', 'Path') }}:
+              <code>{{ payload.path }}</code>
+            </small>
+            {% endif %}
+            {% if payload.content %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_payload_content', 'Content') }}:
+              <code>{{ payload.content }}</code>
+            </small>
+            {% endif %}
+            {% if payload.missing_fields %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_payload_missing', 'Missing fields') }}:
+              {{ payload.missing_fields|join(', ') }}
+            </small>
+            {% elif not payload_debug.available %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_payload_unavailable', 'No payload planner available for this dry-run.') }}</small>
+            {% endif %}
+          </article>
+
+          {% set safety_debug = test.safety_debug or {} %}
+          {% set safety = safety_debug.decision or {} %}
+          {% set safety_action_label = (
+            tr(request, 'config_routing.execution_allow', 'Freigeben') if safety.action == 'allow'
+            else tr(request, 'config_routing.execution_ask_user', 'Zuerst nachfragen') if safety.action == 'ask_user'
+            else tr(request, 'config_routing.execution_block', 'Blockieren') if safety.action == 'block'
+            else ''
+          ) %}
+          <article class="stats-health-card status-{{ safety_debug.visual_status or 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ safety_debug.visual_status or 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_safety', 'Guardrail / confirm dry-run') }}</strong>
+            </div>
+            <p class="stats-health-summary">
+              {% if safety.action %}
+              <span class="status-badge">{{ safety.action_label or safety_action_label }}</span>
+              {% else %}
+              {{ tr(request, 'config_routing.test_no_match', 'No match') }}
+              {% endif %}
+            </p>
+            {% if safety.summary %}
+            <small class="stats-health-detail">{{ safety.summary }}</small>
+            {% endif %}
+            {% if safety_debug.message %}
+            <small class="stats-health-detail">{{ safety_debug.message }}</small>
+            {% endif %}
+            {% if safety.action %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_internal_code', 'Interner Code') }}:
+              <code>{{ safety.action }}</code>
+            </small>
+            {% endif %}
+            {% if safety.guardrail_ref %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_safety_guardrail', 'Guardrail profile') }}:
+              <code>{{ safety.guardrail_ref }}</code>
+            </small>
+            {% endif %}
+            {% if safety.reason %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_safety_reason', 'Reason') }}:
+              {{ safety.reason_label or safety.reason }}
+            </small>
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_internal_code', 'Interner Code') }}:
+              <code>{{ safety.reason }}</code>
+            </small>
+            {% elif not safety_debug.available %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_safety_unavailable', 'No safety decision available for this dry-run.') }}</small>
+            {% endif %}
+          </article>
+
+          {% set execution_debug = test.execution_debug or {} %}
+          {% set execution = execution_debug.decision or {} %}
+          {% set execution_next_step_label = (
+            tr(request, 'config_routing.execution_allow', 'Freigeben') if execution.next_step == 'allow'
+            else tr(request, 'config_routing.execution_ask_user', 'Zuerst nachfragen') if execution.next_step == 'ask_user'
+            else tr(request, 'config_routing.execution_block', 'Blockieren') if execution.next_step == 'block'
+            else ''
+          ) %}
+          <article class="stats-health-card status-{{ execution_debug.visual_status or 'warn' }}">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ execution_debug.visual_status or 'warn' }}"></span>
+              <strong>{{ tr(request, 'config_routing.test_execution', 'Final execution preview') }}</strong>
+            </div>
+            <p class="stats-health-summary">
+              {% if execution.next_step %}
+              <span class="status-badge">{{ execution.next_step_label or execution_next_step_label }}</span>
+              {% else %}
+              {{ tr(request, 'config_routing.test_no_match', 'No match') }}
+              {% endif %}
+            </p>
+            {% if execution.summary %}
+            <small class="stats-health-detail">{{ execution.summary }}</small>
+            {% endif %}
+            {% if execution_debug.message %}
+            <small class="stats-health-detail">{{ execution_debug.message }}</small>
+            {% endif %}
+            {% if execution.next_step %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_internal_code', 'Interner Code') }}:
+              <code>{{ execution.next_step }}</code>
+            </small>
+            {% endif %}
+            {% if execution.target %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_execution_target', 'Target') }}:
+              <code>{{ execution.target }}</code>
+            </small>
+            {% endif %}
+            {% if execution.capability %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_execution_capability', 'Capability') }}:
+              <code>{{ execution.capability }}</code>
+            </small>
+            {% endif %}
+            {% if execution.preview %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_action_preview', 'Planned preview') }}:
+              {{ execution.preview }}
+            </small>
+            {% endif %}
+            {% if execution.reason %}
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_safety_reason', 'Reason') }}:
+              {{ execution.reason_label or execution.reason }}
+            </small>
+            <small class="stats-health-detail">
+              {{ tr(request, 'config_routing.test_internal_code', 'Interner Code') }}:
+              <code>{{ execution.reason }}</code>
+            </small>
+            {% elif not execution_debug.available %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_execution_unavailable', 'No execution preview available for this dry-run.') }}</small>
+            {% endif %}
+          </article>
+        </div>
+
+        {% if test.qdrant.candidates %}
+        <div class="routing-candidate-list">
+          <strong>{{ tr(request, 'config_routing.test_candidates', 'Candidate details') }}</strong>
+          {% for candidate in test.qdrant.candidates %}
+          <article class="routing-candidate-item status-{{ 'ok' if candidate.accepted else 'warn' }}">
+            <div class="routing-candidate-head">
+              <span class="health-lamp status-{{ 'ok' if candidate.accepted else 'warn' }}"></span>
+              <strong><code>{{ candidate.kind }}/{{ candidate.ref }}</code></strong>
+              <span class="status-badge">{{ "%.3f"|format(candidate.score) }}</span>
+            </div>
+            <small class="stats-health-detail">{{ candidate.reason or candidate.payload.title or '-' }}</small>
+            {% if candidate.reject_reason %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_rejected', 'Rejected') }}: {{ candidate.reject_reason }}</small>
+            {% endif %}
+            {% if candidate.payload.tags %}
+            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_tags', 'Tags') }}: {{ candidate.payload.tags|join(', ') }}</small>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if action_debug.candidates %}
+        <div class="routing-candidate-list">
+          <strong>{{ tr(request, 'config_routing.test_action_candidates', 'Action candidates') }}</strong>
+          {% for candidate in action_debug.candidates %}
+          <article class="routing-candidate-item status-{{ 'ok' if action_debug.decision and action_debug.decision.candidate_kind == candidate.candidate_kind and action_debug.decision.candidate_id == candidate.candidate_id else 'warn' }}">
+            <div class="routing-candidate-head">
+              <span class="health-lamp status-{{ 'ok' if action_debug.decision and action_debug.decision.candidate_kind == candidate.candidate_kind and action_debug.decision.candidate_id == candidate.candidate_id else 'warn' }}"></span>
+              <strong>{{ candidate.title or (candidate.candidate_kind ~ '/' ~ candidate.candidate_id) }}</strong>
+            {% if candidate.intent_label or candidate.intent %}
+              <span class="status-badge">{{ candidate.intent_label or candidate.intent }}</span>
+              {% endif %}
+              <span class="status-badge">{{ "%.3f"|format(candidate.score or 0) }}</span>
+            </div>
+            {{ render_action_debug_fields(candidate, request) }}
+          </article>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </section>
+  </section>
+</main>
+{% endblock %}

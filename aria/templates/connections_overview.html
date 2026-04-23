@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+{% macro overview_section(title, desc, count=None, open=False) -%}
+  <details class="floating-card config-section-details"{% if open %} open{% endif %}>
+    <summary class="config-section-summary">
+      <span class="config-section-heading">
+        <span class="config-section-title-row">
+          <h3>{{ title }}</h3>
+          {% if count is not none %}
+          <span class="config-section-count">{{ count }}</span>
+          {% endif %}
+        </span>
+        <span class="config-section-desc">{{ desc }}</span>
+      </span>
+    </summary>
+    <div class="config-section-content">
+      {{ caller() }}
+    </div>
+  </details>
+{%- endmacro %}
+<main class="config-layout">
+  {% include "_connections_nav.html" %}
+  {% if error_message %}
+  <section class="floating-card">
+    <div class="alert err">{{ error_message }}</div>
+  </section>
+  {% endif %}
+  {% if info_message %}
+  <section class="floating-card">
+    <div class="alert ok">{{ info_message }}</div>
+  </section>
+  {% endif %}
+
+  <section class="floating-card" id="connections-overview">
+    <div class="page-title-row"><span>{{ icon('connections', 'page-title-icon') }}</span><h2>{{ tr(request, 'connections_overview.title', 'Connections') }}</h2></div>
+    <div class="memory-health-grid">
+      {% for check in overview_checks %}
+      {% if check.href %}
+      <a class="memory-health-card memory-health-card-link" href="{{ check.href }}">
+      {% else %}
+      <article class="memory-health-card">
+      {% endif %}
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ check.status }}"></span>
+          <h3>{{ check.title }}</h3>
+        </div>
+        <p>{{ check.summary }}</p>
+        <small>{{ check.meta }}</small>
+      {% if check.href %}
+      </a>
+      {% else %}
+      </article>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
+  {% include "_connections_live_status.html" %}
+
+  {% if request.state.can_access_advanced_config %}
+  {% call overview_section(
+    tr(request, 'connections_overview.section_types_title', 'Verbindungstypen'),
+    tr(request, 'connections_overview.section_types_desc', 'Jeder Typ hat seine eigene Hauptseite zum Verwalten, Testen und Pflegen von Profilen.'),
+    connection_menu_rows|length,
+    True
+  ) %}
+    <div id="connections-types"></div>
+    <div class="config-submenu">
+      {% for row in connection_menu_rows %}
+      {% if row.disabled %}
+      <div class="config-submenu-item is-disabled" aria-disabled="true">
+      {% else %}
+      <a class="config-submenu-item" href="{{ row.url }}{% if '?' in row.url %}&{% else %}?{% endif %}return_to=%2Fconnections">
+      {% endif %}
+        <span class="submenu-icon-wrap">{{ icon(row.icon, 'submenu-icon') }}</span>
+        <span class="submenu-copy">
+          {% if row.alpha or row.warning_badge %}
+          <span class="submenu-title-row">
+            <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+            {% if row.alpha %}
+            <span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>
+            {% endif %}
+            {% if row.warning_badge %}
+            <span class="alpha-flag warn-flag">{{ row.warning_badge }}</span>
+            {% endif %}
+          </span>
+          {% else %}
+          <span class="submenu-title">{{ tr(request, row.title_key, row.label) }}</span>
+          {% endif %}
+          <span class="submenu-desc">{{ tr(request, row.desc_key, '') }}</span>
+          {% if row.availability_message %}
+          <span class="submenu-status-text">{{ row.availability_message }}</span>
+          {% endif %}
+        </span>
+      {% if row.disabled %}
+      </div>
+      {% else %}
+      </a>
+      {% endif %}
+      {% endfor %}
+    </div>
+  {% endcall %}
+
+  {% call overview_section(
+    tr(request, 'connections_overview.section_samples_title', 'Mitgelieferte Sample-Connections'),
+    tr(request, 'connections_overview.section_samples_desc', 'Beispielprofile aus /app/samples/connections zum schnellen Import in deine ARIA-Instanz.'),
+    sample_connection_rows|length
+  ) %}
+    <div id="connections-samples"></div>
+    <div class="config-group-grid">
+      {% for sample in sample_connection_rows %}
+      <article class="config-group-card">
+        <div class="skill-card-head">
+          <h3>{{ sample.title }}</h3>
+          <span class="skill-state is-off">{{ sample.label }}</span>
+        </div>
+        {% if sample.description %}
+        <p>{{ sample.description }}</p>
+        {% endif %}
+        <p class="hint-text">{{ sample.ref }} · {{ sample.file_name }}</p>
+        <form class="inline-form" method="post" action="/config/connections/import-sample">
+          <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
+          <button type="submit">{{ tr(request, 'config.sample_connections_import_btn', 'Sample importieren') }}</button>
+        </form>
+      </article>
+      {% else %}
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Sample-Connections gefunden') }}</h3>
+        <p>{{ tr(request, 'config.sample_connections_empty_desc', 'Im Container wurde kein samples/connections-Verzeichnis gefunden.') }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  {% endcall %}
+  {% else %}
+  {% call overview_section(
+    tr(request, 'connections_overview.admin_off_title', 'Connections brauchen gerade Admin-Modus'),
+    tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktiviertem Admin-Modus wird dieser Bereich sichtbar.'),
+    1,
+    True
+  ) %}
+    <div id="connections-admin"></div>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/config/users?return_to=%2Fconnections#admin-mode">
+        <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+        <span class="submenu-copy">
+          <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Benutzer & Zugriff öffnen') }}</span>
+          <span class="submenu-desc">{{ tr(request, 'connections_overview.admin_off_link_desc', 'Dort kannst du den Admin-Modus wieder einschalten.') }}</span>
+        </span>
+      </a>
+    </div>
+  {% endcall %}
+  {% endif %}
+</main>
+{% endblock %}

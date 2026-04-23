@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from aria.core.action_plan import ActionPlan
+from aria.core.connection_catalog import normalize_connection_kind
 
 
 CapabilityLabelResolver = Callable[[str], str]
@@ -13,12 +14,14 @@ _CAPABILITY_DETAIL_I18N: dict[str, dict[str, str]] = {
         "detail_path": "Pfad",
         "detail_search": "Suche",
         "detail_command": "Befehl",
+        "detail_range": "Zeitraum",
     },
     "en": {
         "executed_via": "Executed via {kind} profile `{ref}`",
         "detail_path": "Path",
         "detail_search": "Search",
         "detail_command": "Command",
+        "detail_range": "Range",
     },
 }
 
@@ -46,6 +49,13 @@ CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
         "executors": ["sftp", "smb"],
     },
     "feed_read": {"icon": "📰", "badge": "feed_read", "executors": ["rss"]},
+    "calendar_read": {
+        "icon": "📅",
+        "badge": "calendar_read",
+        "detail_attr": "path",
+        "detail_label": "Zeitraum",
+        "executors": ["google_calendar"],
+    },
     "webhook_send": {"icon": "📡", "badge": "webhook_send", "executors": ["webhook"]},
     "discord_send": {"icon": "💬", "badge": "discord_send", "executors": ["discord"]},
     "api_request": {
@@ -80,12 +90,48 @@ CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
     },
 }
 
+CAPABILITY_ALIASES: dict[str, str] = {
+    "rss_read": "feed_read",
+    "http_api_request": "api_request",
+}
+
 
 def capability_badge(capability: str) -> tuple[str, str] | None:
-    spec = CAPABILITY_CATALOG.get(str(capability or "").strip().lower())
+    spec = CAPABILITY_CATALOG.get(normalize_capability(capability))
     if not spec:
         return None
     return str(spec.get("icon", "💬")), str(spec.get("badge", capability)).strip()
+
+
+def normalize_capability(capability: str) -> str:
+    clean = str(capability or "").strip().lower()
+    if not clean:
+        return ""
+    return CAPABILITY_ALIASES.get(clean, clean)
+
+
+def capability_executor_kinds(capability: str) -> list[str]:
+    spec = CAPABILITY_CATALOG.get(normalize_capability(capability), {})
+    rows: list[str] = []
+    seen: set[str] = set()
+    for connection_kind in spec.get("executors", []):
+        clean_kind = normalize_connection_kind(connection_kind)
+        if not clean_kind or clean_kind in seen:
+            continue
+        seen.add(clean_kind)
+        rows.append(clean_kind)
+    return rows
+
+
+def capability_matches_connection_kind(capability: str, connection_kind: str) -> bool:
+    clean_capability = normalize_capability(capability)
+    clean_kind = normalize_connection_kind(connection_kind)
+    if not clean_capability or not clean_kind:
+        return True
+    allowed_kinds = capability_executor_kinds(clean_capability)
+    if not allowed_kinds:
+        return True
+    return clean_kind in set(allowed_kinds)
 
 
 def _capability_detail_text(language: str | None, key: str, fallback: str) -> str:
@@ -103,7 +149,7 @@ def build_capability_detail_lines(
     *,
     language: str | None = None,
 ) -> list[str]:
-    capability = str(plan.capability or "").strip().lower()
+    capability = normalize_capability(plan.capability)
     executed_via_template = _capability_detail_text(language, "executed_via", "Ausgeführt via {kind}-Profil `{ref}`")
     details = [
         executed_via_template.format(
@@ -120,6 +166,8 @@ def build_capability_detail_lines(
         detail_label = _capability_detail_text(language, "detail_search", detail_label)
     elif detail_label == "Befehl":
         detail_label = _capability_detail_text(language, "detail_command", detail_label)
+    elif detail_label == "Zeitraum":
+        detail_label = _capability_detail_text(language, "detail_range", detail_label)
     if detail_attr and detail_label:
         value = str(getattr(plan, detail_attr, "") or "").strip()
         if value:
@@ -131,7 +179,7 @@ def capability_executor_bindings() -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
     for capability, spec in CAPABILITY_CATALOG.items():
         for connection_kind in spec.get("executors", []):
-            clean_kind = str(connection_kind or "").strip().lower()
+            clean_kind = normalize_connection_kind(connection_kind)
             if clean_kind:
                 rows.append((clean_kind, capability))
     return rows

@@ -155,11 +155,14 @@
       </small>
     </article>
     {% endif %}
+    {% if searxng_stack_available %}
+    <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.stack_detected','Stack erkannt') }}</strong><span>{{ tr(request,'config_conn.searxng_prefill_hint','Lokaler SearXNG-Stack erkannt. ARIA schlaegt unten ein sofort nutzbares Standardprofil vor. Angelegt wird es erst beim Speichern.') }}</span></div>
+    {% endif %}
     <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.searxng_recommended_flow_text','1) SearXNG im Stack starten. 2) Profil fuer eine Suchaufgabe anlegen. 3) ARIA testet die JSON-Suche automatisch. 4) Danach Websuche im Chat nutzen.') }}</span></div>
     <form method="post" action="/config/connections/searxng/save" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
       <label for="searxng_new_connection_ref">{{ tr(request, 'config_conn.profile_name', 'Profilname') }}</label>
-      <input id="searxng_new_connection_ref" name="connection_ref" type="text" value="" maxlength="48" required placeholder="z. B. web-allgemein">
+      <input id="searxng_new_connection_ref" name="connection_ref" type="text" value="{{ searxng_suggested_ref }}" maxlength="48" required placeholder="z. B. web-allgemein">
       <small class="hint-text">{{ tr(request, 'config_conn.ref_hint', 'Technischer Referenzname für Routing und interne Zuordnung.') }}</small>
 
       <div class="skill-summary connection-flow-note">
@@ -234,7 +237,7 @@
         </div>
       </section>
       {% set meta_prefix = 'searxng_new' %}
-      {% set meta_values = {} %}
+      {% set meta_values = searxng_new_profile %}
       {% include "_connection_metadata_fields.html" %}
       <button type="submit">{{ tr(request,'config_conn.searxng_save_profile','Save SearXNG profile') }}</button>
     </form>

@@ -1,16 +1,9 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="floating-card">
-    <div class="page-title-row"><span>{{ icon('language', 'page-title-icon') }}</span><h3>{{ tr(request, 'config_language.title', 'Sprache') }}</h3></div>
-    <p>{{ tr(request, 'config_language.subtitle', 'Standardsprache festlegen und Sprachdateien verwalten.') }}</p>
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_language.saved', 'Gespeichert.') }}</div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
+<main class="config-layout config-domain-layout config-domain-surface-layout config-language-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+  <section class="floating-card config-domain-section">
     <form method="post" action="/config/language/save" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
@@ -26,7 +19,7 @@
   </section>
 
   {% if request.state.can_access_advanced_config %}
-  <section class="floating-card">
+  <section class="floating-card config-domain-section">
     <details class="skill-details">
       <summary>{{ tr(request, 'config_language.advanced_summary', 'Erweitert: Sprachdatei editieren') }}</summary>
       <div class="skill-details-content">

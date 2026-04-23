@@ -1,0 +1,32 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card connections-intro">
+  <div class="page-title-row"><span>{{ icon('connections', 'page-title-icon') }}</span><h2>{{ connections_page_heading }}</h2></div>
+  {% if info_message %}
+  <div class="alert ok">{{ info_message }}</div>
+  {% endif %}
+  {% if error_message %}
+  <div class="alert err">{{ error_message }}</div>
+  {% endif %}
+  {% if show_overview_checks %}
+  <div class="memory-health-grid">
+    {% for check in overview_checks %}
+    {% if check.href %}
+    <a class="memory-health-card memory-health-card-link" href="{{ check.href }}">
+    {% else %}
+    <article class="memory-health-card">
+    {% endif %}
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ check.status }}"></span>
+        <h3>{{ check.title }}</h3>
+      </div>
+      <p>{{ check.summary }}</p>
+      <small>{{ check.meta }}</small>
+    {% if check.href %}
+    </a>
+    {% else %}
+    </article>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

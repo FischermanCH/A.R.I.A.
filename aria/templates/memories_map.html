@@ -1,106 +1,83 @@
 {% extends "base.html" %}
 {% block content %}
 {% from "_icons.html" import icon %}
-<main class="memories-layout">
-  <section class="memories-toolbar">
-    <div class="inline-actions">
-      <a class="chat-status memories-link" href="/memories">{{ tr(request, 'memories_map.back', 'Zurück zu Memories') }}</a>
-      {% if request.state.auth_role == "admin" and request.state.debug_mode %}
-        {% if qdrant_dashboard_url %}
-        <a class="chat-status memories-link" href="{{ qdrant_dashboard_url }}" target="_blank" rel="noopener noreferrer">{{ tr(request, 'memories_map.qdrant_tab', 'Qdrant im neuen Tab') }}</a>
-        {% endif %}
-        {% if qdrant_api_key %}
-        <div class="memory-qdrant-tools">
-          <button
-            type="button"
-            class="chat-status memories-link memory-qdrant-toggle"
-            data-qdrant-key-toggle
-            aria-expanded="false"
-          >
-            <span>{{ tr(request, 'memories_map.qdrant_key', 'Qdrant Key') }}</span>
-          </button>
-          <div class="memory-qdrant-key-panel" data-qdrant-key-panel hidden>
-            <code
-              class="memory-qdrant-key-value"
-              data-qdrant-key-value
-              data-qdrant-key-full="{{ qdrant_api_key }}"
-            >{{ "*" * ((qdrant_api_key|length) - 4) }}{{ qdrant_api_key[-4:] if (qdrant_api_key|length) > 4 else qdrant_api_key }}</code>
-            <button type="button" class="memory-qdrant-copy-button" data-qdrant-key-copy>
-              {{ icon('files') }}
-              <span>{{ tr(request, 'memories_map.copy', 'Copy') }}</span>
-            </button>
-            <span class="memory-qdrant-copy-status" data-qdrant-key-status aria-live="polite"></span>
-          </div>
-        </div>
-        {% endif %}
-      {% endif %}
-    </div>
+<main class="memories-layout memory-map-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+
+  <section class="floating-card memory-map-hero">
+    <div class="page-title-row"><span>{{ icon('memories', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories.map', 'Memory Map') }}</h2></div>
   </section>
 
   <section class="memory-health-grid">
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories.health_points', 'Memory-Punkte') }}</h3>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if health.user_total_points else 'warn' }}"></span>
+        <h3>{{ tr(request, 'memories.health_points', 'Memory-Punkte') }}</h3>
+      </div>
       <p>{{ health.user_total_points }}</p>
       <small>{{ tr(request, 'memories.health_over', 'über') }} {{ health.user_collections }} {{ tr(request, 'memories.health_collections', 'Collections') }}</small>
     </article>
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories.health_mix', 'Typ-Verteilung') }}</h3>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if (health.type_points.fact or health.type_points.preference or health.type_points.session or health.type_points.document or health.type_points.knowledge) else 'warn' }}"></span>
+        <h3>{{ tr(request, 'memories.health_mix', 'Typ-Verteilung') }}</h3>
+      </div>
       <p>F {{ health.type_points.fact }} · P {{ health.type_points.preference }}</p>
-      <small>S {{ health.type_points.session }} · K {{ health.type_points.knowledge }}</small>
+      <small>S {{ health.type_points.session }} · D {{ health.type_points.document }} · K {{ health.type_points.knowledge }}</small>
     </article>
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories.health_largest', 'Grösste Collection') }}</h3>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if health.largest_collection_points else 'warn' }}"></span>
+        <h3>{{ tr(request, 'memories.health_largest', 'Grösste Collection') }}</h3>
+      </div>
       <p>{{ health.largest_collection_points }} ({{ health.largest_collection_share_pct }}%)</p>
       <small>{{ health.largest_collection_name }}</small>
     </article>
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories.health_due', 'Komprimierung fällig') }}</h3>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'warn' if health.stale_sessions else 'ok' }}"></span>
+        <h3>{{ tr(request, 'memories.health_due', 'Komprimierung fällig') }}</h3>
+      </div>
       <p>{{ health.stale_sessions }}</p>
       <small>{{ tr(request, 'memories.health_days_old', 'Tages-Kontext älter als') }} {{ health.compress_after_days }} {{ tr(request, 'memories.days', 'Tage') }}</small>
     </article>
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories_map.qdrant_reachable', 'Qdrant erreichbar') }}</h3>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if qdrant_overview.reachable else 'error' }}"></span>
+        <h3>{{ tr(request, 'memories_map.qdrant_reachable', 'Qdrant erreichbar') }}</h3>
+      </div>
       <p>{% if qdrant_overview.reachable %}{{ tr(request, 'memories_map.yes', 'Ja') }}{% else %}{{ tr(request, 'memories_map.no', 'Nein') }}{% endif %}</p>
-      <small>
-        {% if request.state.auth_role == "admin" and request.state.debug_mode %}
-          {{ qdrant_overview.qdrant_url or "n/a" }}
-        {% else %}
-          {{ tr(request, 'memories_map.url_hidden', 'URL verborgen (Admin-Modus)') }}
-        {% endif %}
-      </small>
+      <small>{{ tr(request, 'memories_map.setup_hint', 'Details und Dashboard findest du im Memory-Setup.') }}</small>
     </article>
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories_map.collections', 'Collections') }}</h3>
-      <p>{{ qdrant_overview.collection_count or 0 }}</p>
-      <small>{{ tr(request, 'memories_map.total_points', 'Total Points') }}: {{ qdrant_overview.total_points or 0 }}</small>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if notes_rows else 'warn' }}"></span>
+        <h3>{{ tr(request, 'memories_map.notes_collections_title', 'Notes-Collections') }}</h3>
+      </div>
+      <p>{{ notes_rows|length }}</p>
+      <small>{{ tr(request, 'memories_map.total_points', 'Total Points') }}: {{ notes_total_points or 0 }}</small>
     </article>
     <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories_map.user_points', 'User Points') }}</h3>
-      <p>{{ map_total_points }}</p>
-      <small>{{ tr(request, 'memories_map.only_user_collections', 'nur Collections von') }} {{ username }}</small>
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if routing_rows else 'warn' }}"></span>
+        <h3>{{ tr(request, 'memories_map.routing_collections_title', 'Routing-Collections') }}</h3>
+      </div>
+      <p>{{ routing_rows|length }}</p>
+      <small>{{ tr(request, 'memories_map.collections', 'Collections') }}: {{ qdrant_overview.collection_count or 0 }} · {{ tr(request, 'memories_map.total_points', 'Total Points') }}: {{ qdrant_overview.total_points or 0 }}</small>
     </article>
-    <article class="memory-health-card">
-      <h3>{{ tr(request, 'memories_map.type_mix', 'Typ Mix') }}</h3>
-      <p>F {{ map_kind_totals.fact }} · S {{ map_kind_totals.session }}</p>
-      <small>P {{ map_kind_totals.preference }} · D {{ map_kind_totals.document }} · K {{ map_kind_totals.knowledge }}</small>
-    </article>
-  </section>
-
-  <section class="memories-meta">
-    <span class="chat-status">{{ tr(request, 'memories.facts', 'Facts') }}: <code>{{ health.type_points.fact }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.preferences', 'Preferences') }}: <code>{{ health.type_points.preference }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}: <code>{{ health.type_points.session }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}: <code>{{ health.type_points.document }}</code></span>
-    <span class="chat-status">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}: <code>{{ health.type_points.knowledge }}</code></span>
-    {% if routing_rows %}
-    <span class="chat-status">{{ tr(request, 'memories_map.routing_collections_title', 'Routing-Collections') }}: <code>{{ routing_rows|length }}</code></span>
-    {% endif %}
   </section>
 
   {% if rollup_groups %}
   <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('activities', 'ui-action-icon') }}</span>
+        <div>
     <h2>{{ tr(request, 'memories_map.rollups_title', 'Session-Rollups') }}</h2>
     <p>{{ tr(request, 'memories_map.rollups_subtitle', 'Hier siehst du verdichteten Tages-Kontext als Wochen- und Monats-Rollups.') }}</p>
+        </div>
+      </div>
+    </div>
     <div class="memory-rollup-grid">
       {% for group in rollup_groups %}
       <details class="memory-group-card memory-rollup-group" {% if loop.first %}open{% endif %}>
@@ -157,8 +134,15 @@
 
   {% if document_groups %}
   <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('files', 'ui-action-icon') }}</span>
+        <div>
     <h2>{{ tr(request, 'memories.documents_title', 'Dokumente im Speicher') }}</h2>
     <p>{{ tr(request, 'memories.documents_collections_subtitle', 'Jede Kachel steht fuer eine Dokument-Collection. Klappe sie auf, um die enthaltenen Dokumente zu sehen.') }}</p>
+        </div>
+      </div>
+    </div>
     <div class="memories-list memory-doc-group-list">
       {% for group in document_groups %}
       <details class="memory-group-card memory-doc-group">
@@ -178,7 +162,7 @@
           <article class="memory-card memory-card-empty">
             <header class="memory-card-head">
               <div>
-                <strong><a class="memories-link" href="/memories?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}">{{ doc.document_name }}</a></strong>
+                <strong><a class="memories-link" href="/memories/explorer?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}">{{ doc.document_name }}</a></strong>
                 <div class="memory-preview">{{ doc.preview }}</div>
               </div>
               <span class="status-badge">{{ tr(request, 'memories.type_document', 'Dokumente') }}</span>
@@ -189,13 +173,24 @@
                 {% if doc.display_timestamp %}· {{ doc.display_timestamp }}{% endif %}
               </small>
               <div class="inline-actions">
-                <a class="chat-status memories-link" href="/memories?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}">{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}</a>
+                <a
+                  class="button-like ui-icon-only memories-link"
+                  href="/memories/explorer?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}"
+                  title="{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}"
+                  aria-label="{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}"
+                >
+                  {{ icon('files', 'ui-action-icon') }}
+                  <span class="sr-only">{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}</span>
+                </a>
                 <form method="post" action="/memories/delete-document">
                   <input type="hidden" name="collection" value="{{ doc.collection }}">
                   <input type="hidden" name="document_id" value="{{ doc.document_id }}">
                   <input type="hidden" name="document_name" value="{{ doc.document_name }}">
                   <input type="hidden" name="view" value="map">
-                  <button type="submit" class="danger-btn">{{ tr(request, 'memories.delete_document', 'Dokument entfernen') }}</button>
+                  <button type="submit" class="danger-btn ui-icon-only" title="{{ tr(request, 'memories.delete_document', 'Dokument entfernen') }}" aria-label="{{ tr(request, 'memories.delete_document', 'Dokument entfernen') }}">
+                    {{ icon('trash', 'ui-action-icon') }}
+                    <span class="sr-only">{{ tr(request, 'memories.delete_document', 'Dokument entfernen') }}</span>
+                  </button>
                 </form>
               </div>
             </footer>
@@ -210,41 +205,30 @@
 
   {% if map_rows %}
   <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('memories', 'ui-action-icon') }}</span>
+        <div>
     <h2>{{ tr(request, 'memories_map.graph_title', 'Memory-Graph') }}</h2>
     <p>{{ tr(request, 'memories_map.graph_subtitle', 'Ein einfacher Überblick über Typen, Collections, Dokumente und Rollups dieses Nutzers.') }}</p>
-    <div class="memory-map-frame-wrap memory-graph-wrap">
-      {% if memory_graph.has_graph %}
-      <div class="memory-graph-stage" style="--graph-width: {{ memory_graph.width }}px; --graph-height: {{ memory_graph.height }}px;">
-        <svg class="memory-graph-lines" viewBox="0 0 {{ memory_graph.width }} {{ memory_graph.height }}" aria-hidden="true" focusable="false">
-          {% for edge in memory_graph.edges %}
-          <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}"></line>
-          {% endfor %}
-        </svg>
-        {% for node in memory_graph.nodes %}
-          {% if node.href %}
-          <a class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}" href="{{ node.href }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
-            <strong>{{ node.label }}</strong>
-            <span>{{ node.meta }}</span>
-          </a>
-          {% else %}
-          <article class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
-            <strong>{{ node.label }}</strong>
-            <span>{{ node.meta }}</span>
-          </article>
-          {% endif %}
-        {% endfor %}
+        </div>
       </div>
-      {% else %}
-      <article class="memory-card">
-        <p>{{ tr(request, 'memories_map.none_for_user', 'Für diesen Nutzer sind aktuell keine Collections vorhanden.') }}</p>
-      </article>
-      {% endif %}
+    </div>
+    <div class="memory-map-frame-wrap memory-graph-wrap memory-map-showcase">
+      {% include "_memory_graph.html" %}
     </div>
   </section>
 
   <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('memories', 'ui-action-icon') }}</span>
+        <div>
     <h2>{{ tr(request, 'memories.collections_title', 'Collections im Speicher') }}</h2>
     <p>{{ tr(request, 'memories.collections_subtitle', 'Öffne eine Collection in der Memory-Ansicht, um ihre Einträge direkt zu sehen.') }}</p>
+        </div>
+      </div>
+    </div>
     <div class="memory-type-grid">
       {% for row in map_rows %}
       <a class="memory-type-card memory-collection-card" href="{{ row.browse_url }}">
@@ -256,10 +240,39 @@
   </section>
   {% endif %}
 
+  {% if notes_rows %}
+  <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('notes', 'ui-action-icon') }}</span>
+        <div>
+    <h2>{{ tr(request, 'memories_map.notes_collections_title', 'Notes-Collections') }}</h2>
+    <p>{{ tr(request, 'memories_map.notes_collections_subtitle', 'Qdrant-Collections aus den Notizen. Sie erweitern das semantische Wissen und führen direkt zurück in die Notizverwaltung.') }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="memory-type-grid">
+      {% for row in notes_rows %}
+      <a class="memory-type-card memory-collection-card" href="{{ row.browse_url or '/notes' }}">
+        <strong><code>{{ row.name }}</code></strong>
+        <span>{{ tr(request, 'memories_map.kind_notes', 'Notizen') }} · {{ row.points }} {{ tr(request, 'memories_map.total_points', 'Total Points') }}{% if notes_total_points %} · {{ row.share_pct }}%{% endif %} · {{ row.status }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   {% if routing_rows %}
   <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('routing', 'ui-action-icon') }}</span>
+        <div>
     <h2>{{ tr(request, 'memories_map.routing_collections_title', 'Routing-Collections') }}</h2>
     <p>{{ tr(request, 'memories_map.routing_collections_subtitle', 'Generierte Qdrant-Collections für Routing und Systemlogik. Sie gehören nicht zum semantischen User-Memory, werden hier aber der Vollständigkeit halber angezeigt.') }}</p>
+        </div>
+      </div>
+    </div>
     <div class="memory-type-grid">
       {% for row in routing_rows %}
       {% if row.browse_url %}
@@ -331,74 +344,4 @@
   </section>
   {% endif %}
 </main>
-<script>
-  (function () {
-    const toggle = document.querySelector("[data-qdrant-key-toggle]");
-    const panel = document.querySelector("[data-qdrant-key-panel]");
-    const value = document.querySelector("[data-qdrant-key-value]");
-    const copyButton = document.querySelector("[data-qdrant-key-copy]");
-    const status = document.querySelector("[data-qdrant-key-status]");
-    if (!toggle || !panel || !value || !copyButton || !status) return;
-
-    function setStatus(text) {
-      status.textContent = text || "";
-    }
-
-    function fallbackCopy(text) {
-      const helper = document.createElement("textarea");
-      helper.value = text;
-      helper.setAttribute("readonly", "readonly");
-      helper.style.position = "absolute";
-      helper.style.left = "-9999px";
-      document.body.appendChild(helper);
-      helper.select();
-      let success = false;
-      try {
-        success = document.execCommand("copy");
-      } catch (error) {
-        success = false;
-      }
-      document.body.removeChild(helper);
-      return success;
-    }
-
-    toggle.addEventListener("click", function () {
-      const shouldShow = panel.hidden;
-      panel.hidden = !shouldShow;
-      toggle.setAttribute("aria-expanded", shouldShow ? "true" : "false");
-      if (shouldShow) setStatus("");
-    });
-
-    copyButton.addEventListener("click", async function () {
-      const text = value.dataset.qdrantKeyFull || "";
-      if (!text) return;
-      let copied = false;
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-          copied = true;
-        }
-      } catch (error) {
-        copied = false;
-      }
-      if (!copied) copied = fallbackCopy(text);
-      setStatus(copied ? "{{ tr(request, 'memories_map.copy_ok', 'Copied') }}" : "{{ tr(request, 'memories_map.copy_error', 'Copy failed') }}");
-    });
-
-    document.addEventListener("click", function (event) {
-      if (panel.hidden) return;
-      if (toggle.contains(event.target) || panel.contains(event.target)) return;
-      panel.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-      setStatus("");
-    });
-
-    document.addEventListener("keydown", function (event) {
-      if (event.key !== "Escape" || panel.hidden) return;
-      panel.hidden = true;
-      toggle.setAttribute("aria-expanded", "false");
-      setStatus("");
-    });
-  })();
-</script>
 {% endblock %}

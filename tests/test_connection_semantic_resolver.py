@@ -111,3 +111,19 @@ def test_connection_semantic_resolver_builds_rss_aliases_from_metadata() -> None
     assert "heise" in aliases
     assert "heise security" in aliases
     assert "security" in aliases
+
+
+def test_build_connection_aliases_adds_discord_alert_channel_hints() -> None:
+    aliases = build_connection_aliases(
+        "discord",
+        "fischerman-aria-logs",
+        {
+            "title": "ARIA Logs",
+            "allow_skill_messages": True,
+            "alert_system_events": True,
+        },
+    )
+
+    assert "alerts channel" in aliases
+    assert "alert channel" in aliases
+    assert "logs channel" in aliases

@@ -386,6 +386,17 @@ def _parse_update_confirm_token(message: str) -> str | None:
     return match.group(1)
 
 
+def _parse_routed_action_confirm_token(message: str) -> str | None:
+    text = _normalize_chat_command_text(message)
+    match = re.search(
+        r"(?:bestätige|bestaetige|confirm)\s+(?:aktion|ausfuehrung|ausführung|action|execute)\s+([a-z0-9]{6,16})",
+        text,
+    )
+    if not match:
+        return None
+    return match.group(1)
+
+
 def _parse_backup_export_request(message: str) -> bool:
     return _matches_chat_phrase(
         message,
@@ -592,6 +603,63 @@ def _encode_connection_delete_pending(
         "kind": str(data.get("kind", "")).strip().lower().replace("-", "_")[:32],
         "ref": sanitize_connection_name(str(data.get("ref", "")))[:64],
         "issued_at": int(now_provider()),
+    }
+
+
+def _encode_routed_action_pending(
+    data: dict[str, Any],
+    *,
+    signing_secret: str,
+    sanitize_username: SanitizeString,
+    now_provider: NowProvider = time.time,
+) -> str:
+    payload = {
+        "token": str(data.get("token", "")).strip()[:24].lower(),
+        "user_id": sanitize_username(str(data.get("user_id", ""))),
+        "query": str(data.get("query", "")).strip()[:2000],
+        "candidate_kind": str(data.get("candidate_kind", "")).strip().lower()[:24],
+        "candidate_id": str(data.get("candidate_id", "")).strip()[:120],
+        "routing_decision": dict(data.get("routing_decision", {}) or {}),
+        "action_decision": dict(data.get("action_decision", {}) or {}),
+        "payload": dict(data.get("payload", {}) or {}),
+        "safety_decision": dict(data.get("safety_decision", {}) or {}),
+        "execution_decision": dict(data.get("execution_decision", {}) or {}),
+        "issued_at": int(now_provider()),
+    }
+    return _sign_pending_payload(payload, signing_secret=signing_secret)
+
+
+def _decode_routed_action_pending(
+    raw: str | None,
+    *,
+    signing_secret: str,
+    sanitize_username: SanitizeString,
+    max_age_seconds: int,
+    now_provider: NowProvider = time.time,
+) -> dict[str, Any] | None:
+    payload = _decode_signed_pending_payload(raw, signing_secret=signing_secret)
+    if payload is None:
+        return None
+    token = str(payload.get("token", "")).strip().lower()
+    user_id = sanitize_username(str(payload.get("user_id", "")))
+    query = str(payload.get("query", "")).strip()
+    issued_at = int(payload.get("issued_at", 0) or 0)
+    if not token or not user_id or not query or issued_at <= 0:
+        return None
+    if int(now_provider()) - issued_at > max_age_seconds:
+        return None
+    return {
+        "token": token,
+        "user_id": user_id,
+        "query": query,
+        "candidate_kind": str(payload.get("candidate_kind", "")).strip().lower(),
+        "candidate_id": str(payload.get("candidate_id", "")).strip(),
+        "routing_decision": dict(payload.get("routing_decision", {}) or {}),
+        "action_decision": dict(payload.get("action_decision", {}) or {}),
+        "payload": dict(payload.get("payload", {}) or {}),
+        "safety_decision": dict(payload.get("safety_decision", {}) or {}),
+        "execution_decision": dict(payload.get("execution_decision", {}) or {}),
+        "issued_at": issued_at,
     }
     return _sign_pending_payload(payload, signing_secret=signing_secret)
 

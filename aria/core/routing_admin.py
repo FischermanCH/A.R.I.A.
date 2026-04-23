@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
+from aria.core.action_planner import debug_bounded_action_plan_decision
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.execution_dry_run import (
+    build_execution_preview_dry_run,
+    build_payload_dry_run,
+    evaluate_guardrail_confirm_dry_run,
+)
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.router_llm import RouterLLMBoundedCandidate, debug_bounded_router_llm_decision
 from aria.core.routing_index import (
     DEFAULT_CONNECTION_ROUTING_KINDS,
     RoutingIndexStore,
@@ -15,6 +24,10 @@ from aria.core.routing_index import (
     routing_documents_fingerprint,
 )
 from aria.core.routing_resolver import RoutingDecision, RoutingResolver, infer_preferred_connection_kind
+
+
+_ROUTING_REFRESH_TASKS: dict[str, asyncio.Task[dict[str, Any]]] = {}
+_ROUTING_REFRESH_TASKS_LOCK = threading.Lock()
 
 
 def routing_index_instance_key(settings: Any) -> str:
@@ -60,6 +73,45 @@ def _decision_payload(decision: RoutingDecision) -> dict[str, Any]:
     }
 
 
+def _default_single_profile_decision(
+    available_connection_pools: dict[str, dict[str, Any]],
+    *,
+    preferred_kind: str = "",
+) -> RoutingDecision:
+    clean_preferred = normalize_connection_kind(preferred_kind)
+    if clean_preferred:
+        pool = available_connection_pools.get(clean_preferred, {})
+        if isinstance(pool, dict) and len(pool) == 1:
+            ref = next(iter(pool.keys()))
+            return RoutingDecision(
+                kind=clean_preferred,
+                ref=str(ref).strip(),
+                source="default_single_profile",
+                score=1.0,
+                reason="single configured profile",
+            )
+        return RoutingDecision()
+
+    candidates: list[tuple[str, str]] = []
+    for kind, pool in sorted((available_connection_pools or {}).items()):
+        if not isinstance(pool, dict):
+            continue
+        for ref in pool.keys():
+            clean_ref = str(ref).strip()
+            if clean_ref:
+                candidates.append((normalize_connection_kind(kind), clean_ref))
+    if len(candidates) == 1:
+        kind, ref = candidates[0]
+        return RoutingDecision(
+            kind=kind,
+            ref=ref,
+            source="default_single_profile",
+            score=1.0,
+            reason="single configured profile",
+        )
+    return RoutingDecision()
+
+
 def _candidate_reject_reason(
     candidate: dict[str, Any],
     available_connection_pools: dict[str, dict[str, Any]],
@@ -91,6 +143,85 @@ def _safe_candidate_payload_preview(payload: dict[str, Any]) -> dict[str, Any]:
         "supported_actions": list(payload.get("supported_actions", []) or [])[:8],
         "target_hints": list(payload.get("target_hints", []) or [])[:8],
     }
+
+
+def _read_row_text(row: Any, name: str) -> str:
+    if isinstance(row, dict):
+        return str(row.get(name, "") or "").strip()
+    return str(getattr(row, name, "") or "").strip()
+
+
+def _read_row_list(row: Any, name: str) -> list[str]:
+    raw = row.get(name, []) if isinstance(row, dict) else getattr(row, name, [])
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    return []
+
+
+def _bounded_llm_candidates(
+    deterministic: RoutingDecision,
+    accepted_candidates: list[dict[str, Any]],
+    available_connection_pools: dict[str, dict[str, Any]],
+) -> list[RouterLLMBoundedCandidate]:
+    rows: list[RouterLLMBoundedCandidate] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _add(candidate: RouterLLMBoundedCandidate) -> None:
+        if candidate.key in seen:
+            return
+        seen.add(candidate.key)
+        rows.append(candidate)
+
+    if deterministic.found:
+        kind = normalize_connection_kind(deterministic.kind)
+        ref = str(deterministic.ref or "").strip()
+        pool_row = available_connection_pools.get(kind, {}).get(ref)
+        matching_qdrant = next(
+            (
+                candidate
+                for candidate in accepted_candidates
+                if normalize_connection_kind(str(candidate.get("kind", "") or "")) == kind
+                and str(candidate.get("ref", "") or "").strip() == ref
+            ),
+            None,
+        )
+        payload = dict((matching_qdrant or {}).get("payload", {}) or {})
+        aliases = list(payload.get("aliases", []) or []) or _read_row_list(pool_row or {}, "aliases")
+        tags = list(payload.get("tags", []) or []) or _read_row_list(pool_row or {}, "tags")
+        supported_actions = list(payload.get("supported_actions", []) or [])
+        target_hints = list(payload.get("target_hints", []) or [])
+        _add(
+            RouterLLMBoundedCandidate(
+                kind=kind,
+                ref=ref,
+                source=str(deterministic.source or "deterministic"),
+                score=float(deterministic.score or 0.0),
+                title=str(payload.get("title", "") or _read_row_text(pool_row or {}, "title")),
+                description=str(payload.get("description", "") or _read_row_text(pool_row or {}, "description")),
+                aliases=aliases[:8],
+                tags=tags[:8],
+                supported_actions=supported_actions[:8],
+                target_hints=target_hints[:8],
+            )
+        )
+
+    for candidate in accepted_candidates:
+        payload = dict(candidate.get("payload", {}) or {})
+        _add(
+            RouterLLMBoundedCandidate(
+                kind=normalize_connection_kind(str(candidate.get("kind", "") or "")),
+                ref=str(candidate.get("ref", "") or "").strip(),
+                source=str(candidate.get("source", "") or "qdrant_routing"),
+                score=float(candidate.get("score", 0.0) or 0.0),
+                title=str(payload.get("title", "") or "").strip(),
+                description=str(payload.get("description", "") or "").strip(),
+                aliases=list(payload.get("aliases", []) or [])[:8],
+                tags=list(payload.get("tags", []) or [])[:8],
+                supported_actions=list(payload.get("supported_actions", []) or [])[:8],
+                target_hints=list(payload.get("target_hints", []) or [])[:8],
+            )
+        )
+    return rows
 
 
 def _debug_candidate_rows(
@@ -464,13 +595,121 @@ async def rebuild_connection_routing_index(
             await _maybe_close(qdrant)
 
 
-async def test_connection_routing_query(
+def _routing_index_needs_refresh(status: dict[str, Any]) -> bool:
+    status_value = str(status.get("status", "") or "").strip().lower()
+    if status_value == "error":
+        return False
+    try:
+        document_count = int(status.get("document_count", 0) or 0)
+    except (TypeError, ValueError):
+        document_count = 0
+    if document_count <= 0:
+        return False
+    if bool(status.get("stale")):
+        return True
+    if status_value == "warn":
+        return True
+    try:
+        indexed_count = int(status.get("indexed_count", 0) or 0)
+    except (TypeError, ValueError):
+        indexed_count = 0
+    return status_value == "ok" and indexed_count < document_count
+
+
+def _active_refresh_task(collection_name: str) -> asyncio.Task[dict[str, Any]] | None:
+    with _ROUTING_REFRESH_TASKS_LOCK:
+        task = _ROUTING_REFRESH_TASKS.get(collection_name)
+        if task is not None and task.done():
+            _ROUTING_REFRESH_TASKS.pop(collection_name, None)
+            return None
+        return task
+
+
+def _register_refresh_task(
+    collection_name: str,
+    task: asyncio.Task[dict[str, Any]],
+) -> tuple[asyncio.Task[dict[str, Any]], bool]:
+    with _ROUTING_REFRESH_TASKS_LOCK:
+        current = _ROUTING_REFRESH_TASKS.get(collection_name)
+        if current is not None and not current.done():
+            return current, False
+        _ROUTING_REFRESH_TASKS[collection_name] = task
+
+    def _cleanup(done_task: asyncio.Task[dict[str, Any]]) -> None:
+        with _ROUTING_REFRESH_TASKS_LOCK:
+            if _ROUTING_REFRESH_TASKS.get(collection_name) is done_task:
+                _ROUTING_REFRESH_TASKS.pop(collection_name, None)
+
+    task.add_done_callback(_cleanup)
+    return task, True
+
+
+async def ensure_connection_routing_index_ready(
+    settings: Any,
+    *,
+    qdrant_client: Any | None = None,
+    embedding_client: Any | None = None,
+    wait: bool = True,
+) -> dict[str, Any]:
+    status = await build_connection_routing_index_status(settings, qdrant_client=qdrant_client)
+    payload: dict[str, Any] = {
+        "status": dict(status),
+        "refresh_attempted": False,
+        "refresh_started": False,
+        "refresh_result": None,
+    }
+    if not _routing_index_needs_refresh(status):
+        return payload
+
+    collection_name = routing_connections_collection_name(settings)
+
+    if qdrant_client is not None or embedding_client is not None:
+        refresh_result = await rebuild_connection_routing_index(
+            settings,
+            qdrant_client=qdrant_client,
+            embedding_client=embedding_client,
+        )
+        payload["refresh_attempted"] = True
+        payload["refresh_started"] = True
+        payload["refresh_result"] = dict(refresh_result)
+        payload["status"] = dict(refresh_result)
+        return payload
+
+    async def _do_refresh() -> dict[str, Any]:
+        return await rebuild_connection_routing_index(
+            settings,
+            embedding_client=embedding_client,
+        )
+
+    task = _active_refresh_task(collection_name)
+    created = False
+    if task is None:
+        candidate = asyncio.create_task(_do_refresh(), name=f"routing-index-refresh:{collection_name}")
+        task, created = _register_refresh_task(collection_name, candidate)
+        if task is not candidate:
+            candidate.cancel()
+
+    payload["refresh_attempted"] = True
+    payload["refresh_started"] = created or task is not None
+    if not wait:
+        return payload
+
+    refresh_result = await task
+    payload["refresh_result"] = dict(refresh_result)
+    payload["status"] = dict(refresh_result)
+    return payload
+
+
+async def resolve_connection_routing_chain(
     settings: Any,
     query: str,
     *,
     preferred_kind: str = "",
+    llm_ignore_deterministic: bool = False,
     qdrant_client: Any | None = None,
     embedding_client: Any | None = None,
+    llm_client: Any | None = None,
+    language: str = "",
     limit: int = 5,
     score_threshold: float = 0.0,
 ) -> dict[str, Any]:
@@ -493,6 +732,12 @@ async def test_connection_routing_query(
         available_pools,
         preferred_kind=effective_preferred,
     )
+    default_single = RoutingDecision()
+    if not deterministic.found:
+        default_single = _default_single_profile_decision(
+            available_pools,
+            preferred_kind=effective_preferred,
+        )
 
     qdrant_enabled, qdrant_reason = _memory_is_qdrant(settings)
     qdrant_error = ""
@@ -535,10 +780,32 @@ async def test_connection_routing_query(
         preferred_kind=effective_preferred,
     )
     accepted_candidates = [candidate for candidate in candidate_rows if bool(candidate.get("accepted"))]
+    llm_qdrant_only = bool(llm_ignore_deterministic)
+    llm_deterministic = RoutingDecision() if llm_qdrant_only else deterministic
+    llm_debug = await debug_bounded_router_llm_decision(
+        clean_query,
+        llm_client=llm_client,
+        language=language,
+        deterministic_hint=(
+            f"{deterministic.kind}/{deterministic.ref} via {deterministic.source}"
+            if deterministic.found and not llm_qdrant_only
+            else ""
+        ),
+        candidates=_bounded_llm_candidates(
+            llm_deterministic,
+            accepted_candidates,
+            available_pools,
+        ),
+    )
+    llm_debug["mode"] = "qdrant_only" if llm_qdrant_only else "default"
+    llm_debug["deterministic_hint_used"] = not llm_qdrant_only
 
     if deterministic.found:
         decision = deterministic
         message = f"Deterministic routing matched {deterministic.kind}/{deterministic.ref} via {deterministic.source}."
+    elif default_single.found:
+        decision = default_single
+        message = f"Single configured profile selected {default_single.kind}/{default_single.ref}."
     elif accepted_candidates:
         winner = accepted_candidates[0]
         decision = RoutingDecision(
@@ -560,6 +827,37 @@ async def test_connection_routing_query(
     else:
         status = "warn"
 
+    decision_payload = _decision_payload(decision)
+    decision_payload["routing_ask_user"] = bool((llm_debug or {}).get("ask_user"))
+    decision_payload["routing_confidence"] = str((llm_debug or {}).get("confidence", "") or "").strip().lower()
+    decision_payload["routing_message"] = str((llm_debug or {}).get("message", "") or "").strip()
+
+    action_debug = await debug_bounded_action_plan_decision(
+        clean_query,
+        llm_client=llm_client,
+        routing_decision=decision_payload,
+        language=language,
+    )
+    payload_debug = build_payload_dry_run(
+        clean_query,
+        settings=settings,
+        routing_decision=decision_payload,
+        action_decision=dict((action_debug or {}).get("decision", {}) or {}),
+    )
+    safety_debug = evaluate_guardrail_confirm_dry_run(
+        settings,
+        payload_debug=payload_debug,
+        routing_decision=decision_payload,
+        language=language,
+    )
+    execution_debug = build_execution_preview_dry_run(
+        routing_decision=decision_payload,
+        action_decision=dict((action_debug or {}).get("decision", {}) or {}),
+        payload_debug=payload_debug,
+        safety_debug=safety_debug,
+        language=language,
+    )
+
     return {
         "status": status,
         "visual_status": status,
@@ -569,6 +867,7 @@ async def test_connection_routing_query(
         "requested_preferred_kind": requested_preferred,
         "inferred_preferred_kind": inferred_preferred,
         "available_counts": available_counts,
+        "llm_ignore_deterministic": llm_qdrant_only,
         "deterministic": _decision_payload(deterministic),
         "qdrant": {
             "enabled": qdrant_enabled,
@@ -579,6 +878,38 @@ async def test_connection_routing_query(
             "candidates": candidate_rows,
         },
         "decision": _decision_payload(decision),
+        "llm_debug": llm_debug,
+        "action_debug": action_debug,
+        "payload_debug": payload_debug,
+        "safety_debug": safety_debug,
+        "execution_debug": execution_debug,
         "executed": False,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def test_connection_routing_query(
+    settings: Any,
+    query: str,
+    *,
+    preferred_kind: str = "",
+    llm_ignore_deterministic: bool = False,
+    qdrant_client: Any | None = None,
+    embedding_client: Any | None = None,
+    llm_client: Any | None = None,
+    language: str = "",
+    limit: int = 5,
+    score_threshold: float = 0.0,
+) -> dict[str, Any]:
+    return await resolve_connection_routing_chain(
+        settings,
+        query,
+        preferred_kind=preferred_kind,
+        llm_ignore_deterministic=llm_ignore_deterministic,
+        qdrant_client=qdrant_client,
+        embedding_client=embedding_client,
+        llm_client=llm_client,
+        language=language,
+        limit=limit,
+        score_threshold=score_threshold,
+    )

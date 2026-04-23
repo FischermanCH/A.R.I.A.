@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 
-DEFAULT_RELEASE_SUFFIX = "alpha121"
+DEFAULT_RELEASE_SUFFIX = "alpha122"
 
 
 def _read_installed_package_version(default: str = "0.1.0") -> str:

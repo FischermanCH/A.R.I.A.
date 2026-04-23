@@ -9,7 +9,7 @@ import posixpath
 import re
 import smtplib
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, time as dt_time, timedelta, timezone
 from email import message_from_bytes
 from email.header import make_header, decode_header
 from email.message import EmailMessage
@@ -17,13 +17,14 @@ from email.utils import parsedate_to_datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Awaitable, Callable
-from urllib.error import URLError
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import Request as URLRequest, urlopen
 
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.config import RoutingLanguageConfig
 from aria.core.guardrails import evaluate_guardrail, resolve_guardrail_profile
+from aria.core.notes_context import search_note_hits
 from aria.core.safe_fix import format_held_packages_summary
 from aria.skills.base import SkillResult
 
@@ -749,6 +750,74 @@ class CustomSkillRuntime:
             return raw
 
     @staticmethod
+    def _google_calendar_time_bounds(range_hint: str) -> tuple[datetime, datetime, int]:
+        now = datetime.now().astimezone()
+        start_of_today = datetime.combine(now.date(), dt_time.min, tzinfo=now.tzinfo)
+        clean = str(range_hint or "").strip().lower()
+        if clean == "today":
+            return start_of_today, start_of_today + timedelta(days=1), 12
+        if clean == "tomorrow":
+            start = start_of_today + timedelta(days=1)
+            return start, start + timedelta(days=1), 12
+        if clean == "day_after_tomorrow":
+            start = start_of_today + timedelta(days=2)
+            return start, start + timedelta(days=1), 12
+        if clean == "this_week":
+            start = start_of_today
+            return start, start + timedelta(days=7), 20
+        if clean == "next_week":
+            days_until_next_week = 7 - start_of_today.weekday()
+            start = start_of_today + timedelta(days=days_until_next_week)
+            return start, start + timedelta(days=7), 20
+        if clean == "next":
+            return now, now + timedelta(days=30), 5
+        return now, now + timedelta(days=14), 10
+
+    @staticmethod
+    def _google_calendar_range_label(range_hint: str, *, language: str = "de") -> str:
+        clean = str(range_hint or "").strip().lower()
+        labels = {
+            "today": _msg(language, "heute", "today"),
+            "tomorrow": _msg(language, "morgen", "tomorrow"),
+            "day_after_tomorrow": _msg(language, "übermorgen", "the day after tomorrow"),
+            "this_week": _msg(language, "diese Woche", "this week"),
+            "next_week": _msg(language, "nächste Woche", "next week"),
+            "next": _msg(language, "den nächsten Termin", "the next appointment"),
+            "upcoming": _msg(language, "die nächsten Termine", "the upcoming events"),
+        }
+        return labels.get(clean, labels["upcoming"])
+
+    @staticmethod
+    def _format_google_calendar_event_time(event: dict[str, Any], *, language: str = "de") -> str:
+        start = dict(event.get("start", {}) or {})
+        date_value = str(start.get("date", "") or "").strip()
+        datetime_value = str(start.get("dateTime", "") or "").strip()
+        if date_value:
+            try:
+                parsed = datetime.fromisoformat(date_value)
+                return parsed.strftime("%Y-%m-%d") + _msg(language, " · ganztägig", " · all-day")
+            except Exception:
+                return date_value
+        if datetime_value:
+            try:
+                parsed = datetime.fromisoformat(datetime_value.replace("Z", "+00:00"))
+                return parsed.astimezone().strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                return datetime_value
+        return ""
+
+    @staticmethod
+    def _google_calendar_token_request_body(connection: Any) -> bytes:
+        return urlencode(
+            {
+                "client_id": str(getattr(connection, "client_id", "") or "").strip(),
+                "client_secret": str(getattr(connection, "client_secret", "") or "").strip(),
+                "refresh_token": str(getattr(connection, "refresh_token", "") or "").strip(),
+                "grant_type": "refresh_token",
+            }
+        ).encode("utf-8")
+
+    @staticmethod
     def _clean_feed_summary(value: str, limit: int = 220) -> str:
         raw = str(value or "").strip()
         if not raw:
@@ -1227,6 +1296,127 @@ class CustomSkillRuntime:
 
     def execute_rss_read(self, connection_ref: str, *, language: str = "de") -> str:
         return self._run_rss_read_step(connection_ref, language=language)
+
+    def execute_google_calendar_read(
+        self,
+        connection_ref: str,
+        range_hint: str = "upcoming",
+        search_query: str = "",
+        *,
+        language: str = "de",
+    ) -> str:
+        connection = self._get_connection_profile("google_calendar", connection_ref)
+        calendar_id = str(getattr(connection, "calendar_id", "primary") or "primary").strip() or "primary"
+        client_id = str(getattr(connection, "client_id", "") or "").strip()
+        client_secret = str(getattr(connection, "client_secret", "") or "").strip()
+        refresh_token = str(getattr(connection, "refresh_token", "") or "").strip()
+        timeout_seconds = int(getattr(connection, "timeout_seconds", 10) or 10)
+        if not client_id:
+            raise ValueError(_msg(language, "Google-Client-ID fehlt im Profil.", "Google client ID is missing in the profile."))
+        if not client_secret:
+            raise ValueError(_msg(language, "Google-Client-Secret fehlt im Profil.", "Google client secret is missing in the profile."))
+        if not refresh_token:
+            raise ValueError(_msg(language, "Google-Refresh-Token fehlt im Profil.", "Google refresh token is missing in the profile."))
+
+        token_request = URLRequest(
+            "https://oauth2.googleapis.com/token",
+            data=self._google_calendar_token_request_body(connection),
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": "ARIA/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(token_request, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
+                token_payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        except HTTPError as exc:
+            raise ValueError(
+                _msg(
+                    language,
+                    f"Google-Kalender-Anmeldung fehlgeschlagen: HTTP {exc.code}. Bitte Verbindung erneut prüfen.",
+                    f"Google Calendar sign-in failed: HTTP {exc.code}. Please re-check the connection.",
+                )
+            ) from exc
+        except URLError as exc:
+            raise ValueError(_msg(language, f"Google-Kalender-Verbindung fehlgeschlagen: {exc}", f"Google Calendar connection failed: {exc}")) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(_msg(language, f"Google-Kalender-Anmeldung fehlgeschlagen: {exc}", f"Google Calendar sign-in failed: {exc}")) from exc
+
+        access_token = str((token_payload or {}).get("access_token", "") or "").strip()
+        if not access_token:
+            raise ValueError(_msg(language, "Google hat kein Zugriffstoken zurückgegeben.", "Google did not return an access token."))
+
+        start_at, end_at, max_results = self._google_calendar_time_bounds(range_hint)
+        query_pairs: list[tuple[str, str]] = [
+            ("singleEvents", "true"),
+            ("orderBy", "startTime"),
+            ("showDeleted", "false"),
+            ("maxResults", str(max_results)),
+            ("timeMin", start_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")),
+            ("timeMax", end_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")),
+        ]
+        clean_search = str(search_query or "").strip()
+        if clean_search:
+            query_pairs.append(("q", clean_search))
+        events_url = (
+            f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events?"
+            + urlencode(query_pairs)
+        )
+        events_request = URLRequest(
+            events_url,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "User-Agent": "ARIA/1.0",
+            },
+            method="GET",
+        )
+        try:
+            with urlopen(events_request, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
+                events_payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        except HTTPError as exc:
+            raise ValueError(
+                _msg(
+                    language,
+                    f"Google-Kalender-Abruf fehlgeschlagen: HTTP {exc.code}. Bitte Kalender-ID und Berechtigungen prüfen.",
+                    f"Google Calendar fetch failed: HTTP {exc.code}. Please check the calendar ID and permissions.",
+                )
+            ) from exc
+        except URLError as exc:
+            raise ValueError(_msg(language, f"Google-Kalender-Abruf fehlgeschlagen: {exc}", f"Google Calendar fetch failed: {exc}")) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(_msg(language, f"Google-Kalender-Abruf fehlgeschlagen: {exc}", f"Google Calendar fetch failed: {exc}")) from exc
+
+        calendar_summary = str((events_payload or {}).get("summary", "") or "").strip() or calendar_id
+        items = list((events_payload or {}).get("items", []) or [])
+        if not items:
+            base = _msg(
+                language,
+                f"Keine Termine für {self._google_calendar_range_label(range_hint, language=language)} in `{calendar_summary}` gefunden.",
+                f"No events found for {self._google_calendar_range_label(range_hint, language=language)} in `{calendar_summary}`.",
+            )
+            if clean_search:
+                base += _msg(language, f" Filter: {clean_search}", f" Filter: {clean_search}")
+            return base
+
+        header = _msg(
+            language,
+            f"Kalender `{calendar_summary}` für {self._google_calendar_range_label(range_hint, language=language)}:",
+            f"Calendar `{calendar_summary}` for {self._google_calendar_range_label(range_hint, language=language)}:",
+        )
+        lines = [header]
+        for index, item in enumerate(items[:max_results], start=1):
+            event = dict(item or {})
+            summary = str(event.get("summary", "") or "").strip() or _msg(language, "(ohne Titel)", "(untitled)")
+            when = self._format_google_calendar_event_time(event, language=language)
+            location = str(event.get("location", "") or "").strip()
+            line = f"{index}. {summary}"
+            if when:
+                line += f" [{when}]"
+            lines.append(line)
+            if location:
+                lines.append(f"   {_msg(language, 'Ort', 'Location')}: {location}")
+        return self.truncate_text("\n".join(lines), 1800)
 
     def execute_webhook_send(self, connection_ref: str, content: str, *, language: str = "de") -> str:
         connection = self._get_connection_profile("webhook", connection_ref)
@@ -2077,12 +2267,20 @@ class CustomSkillRuntime:
             web_search_skill = self.web_search_skill_getter()
             if web_search_skill is not None:
                 web_query = self.extract_web_search_query(message, routing_profile)
+                note_hits = await search_note_hits(
+                    base_dir=BASE_DIR,
+                    username=user_id,
+                    settings=self.settings,
+                    query=web_query,
+                    limit=3,
+                )
                 web_result = await web_search_skill.execute(
                     web_query,
                     {
                         "action": "search",
                         "user_id": user_id,
                         "language": language,
+                        "note_context_hits": [hit.as_dict() for hit in note_hits],
                     },
                 )
                 web_result.skill_name = "web_search"

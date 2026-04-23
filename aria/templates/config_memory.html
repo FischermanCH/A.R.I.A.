@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
+<main class="config-layout memory-config-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
   <section class="config-card">
     <div class="page-title-row"><span>{{ icon('memories', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_memory.setup_title', 'Memory setup (Qdrant)') }}</h2></div>
     <p>{{ tr(request, 'config_memory.setup_subtitle', 'Without selection, the default user collection is used automatically:') }} <code>{{ default_collection }}</code></p>
@@ -17,15 +18,6 @@
       <span class="meta-badge">{{ tr(request, 'config_memory.active', 'Active') }}: {{ active_collection }}</span>
       <span class="meta-badge">{{ tr(request, 'config_memory.default', 'Default') }}: {{ default_collection }}</span>
       <span class="meta-badge">Qdrant: {% if qdrant_overview.reachable %}{{ tr(request, 'config_memory.reachable', 'reachable') }}{% else %}{{ tr(request, 'config_memory.unreachable', 'unreachable') }}{% endif %}</span>
-    </div>
-
-    <div class="inline-actions">
-      {% if request.state.auth_role == "admin" and request.state.debug_mode and qdrant_overview.dashboard_url %}
-      <a class="nav-link" href="{{ qdrant_overview.dashboard_url }}" target="_blank" rel="noopener noreferrer">{{ tr(request, 'config_memory.qdrant_dashboard', 'Qdrant dashboard') }}</a>
-      <span class="hint-text"><code>{{ qdrant_overview.qdrant_url }}</code></span>
-      {% else %}
-      <span class="hint-text">{{ tr(request, 'config_memory.qdrant_admin_only', 'Qdrant link visible in admin mode only (On).') }}</span>
-      {% endif %}
     </div>
     {% if qdrant_overview.error %}
     <div class="alert err">{{ tr(request, 'config_memory.qdrant_error', 'Qdrant error') }}: {{ qdrant_overview.error }}</div>
@@ -58,17 +50,73 @@
       </article>
     </div>
 
-    <form method="post" action="/memories/config/backend-save" class="editor-form">
-      <label for="memory_enabled">{{ tr(request, 'config_memory.memory_enabled', 'Memory backend enabled') }}</label>
-      <select id="memory_enabled" name="enabled">
-        <option value="1" {% if memory_cfg.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.on', 'on') }}</option>
-        <option value="0" {% if not memory_cfg.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.off', 'off') }}</option>
-      </select>
+    <section id="qdrant-access" class="memory-qdrant-access-card">
+      <div class="memory-section-head">
+        <div class="memory-section-title-wrap">
+          <span class="memory-section-icon">{{ icon('settings', 'ui-action-icon') }}</span>
+          <div>
+            <h2>{{ tr(request, 'config_memory.qdrant_access_title', 'Qdrant-Zugriff') }}</h2>
+            <p>{{ tr(request, 'config_memory.qdrant_access_desc', 'Ein zentraler Ort fuer Dashboard, URL und API-Key fuer Copy/Paste.') }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="memory-qdrant-access-grid">
+        <label class="memory-qdrant-access-item">
+          <span>{{ tr(request, 'config_memory.qdrant_url', 'Qdrant URL') }}</span>
+          <span class="memory-qdrant-access-row">
+            <input type="text" value="{{ memory_cfg.qdrant_url }}" readonly data-copy-source="qdrant-url">
+            <button type="button" class="memory-qdrant-copy-button" data-copy-target="qdrant-url">
+              {{ icon('copy', 'ui-action-icon') }}
+              <span>{{ tr(request, 'config_memory.copy_action', 'Kopieren') }}</span>
+            </button>
+          </span>
+        </label>
 
+        <label class="memory-qdrant-access-item">
+          <span>{{ tr(request, 'config_memory.qdrant_api_key', 'Qdrant API Key') }}</span>
+          <span class="memory-qdrant-access-row">
+            <input
+              type="password"
+              value="{{ qdrant_api_key_value if has_qdrant_api_key else tr(request, 'config_memory.secret_not_set', 'Kein API Key gespeichert') }}"
+              readonly
+              data-copy-source="qdrant-key"
+              data-copy-value="{{ qdrant_api_key_value if has_qdrant_api_key else '' }}"
+            >
+            <button type="button" class="memory-qdrant-copy-button" data-copy-target="qdrant-key" {% if not has_qdrant_api_key %}disabled{% endif %}>
+              {{ icon('copy', 'ui-action-icon') }}
+              <span>{{ tr(request, 'config_memory.copy_action', 'Kopieren') }}</span>
+            </button>
+          </span>
+          <small class="hint-text">
+            {% if has_qdrant_api_key %}
+            {{ tr(request, 'config_memory.secret_copy_hint', 'Der aktuell geladene Key wird hier nur fuer Admin-Copy/Paste angezeigt.') }}
+            {% else %}
+            {{ tr(request, 'config_memory.secret_optional_hint', 'Only needed when this Qdrant instance is protected by an API key.') }}
+            {% endif %}
+          </small>
+        </label>
+      </div>
+      <div class="inline-actions">
+        {% if request.state.auth_role == "admin" and request.state.debug_mode and qdrant_dashboard_url %}
+        <button
+          type="button"
+          class="nav-link memory-qdrant-dashboard-button"
+          data-dashboard-url="{{ qdrant_dashboard_url }}"
+          {% if has_qdrant_api_key %}data-copy-target="qdrant-key"{% endif %}
+        >{{ tr(request, 'config_memory.qdrant_dashboard_with_key', 'Qdrant Dashboard + API-Key kopieren') if has_qdrant_api_key else tr(request, 'config_memory.qdrant_dashboard', 'Qdrant dashboard') }}</button>
+        {% else %}
+        <span class="hint-text">{{ tr(request, 'config_memory.qdrant_admin_only', 'Qdrant link visible in admin mode only (On).') }}</span>
+        {% endif %}
+        <span class="memory-qdrant-copy-status" data-copy-status>{{ tr(request, 'config_memory.copy_status_idle', '') }}</span>
+      </div>
+    </section>
+
+    <form method="post" action="/memories/config/backend-save" class="editor-form">
       <label for="memory_backend">{{ tr(request, 'config_memory.backend', 'Backend') }}</label>
       <select id="memory_backend" name="backend">
         <option value="qdrant" selected>Qdrant</option>
       </select>
+      <small class="hint-text">{{ tr(request, 'config_memory.backend_always_on_hint', 'Memory bleibt aktiv, solange dieses Qdrant-Setup konfiguriert ist.') }}</small>
 
       <label for="memory_qdrant_url">{{ tr(request, 'config_memory.qdrant_url', 'Qdrant URL') }}</label>
       <input
@@ -181,7 +229,7 @@
       >
       <button type="submit">{{ tr(request, 'config_memory.save_settings', 'Save settings') }}</button>
     </form>
-    <form method="post" action="/memories/config/compress" class="editor-form">
+    <form method="post" action="/memories/config/compress" class="editor-form memory-config-secondary-action">
       <button type="submit">{{ tr(request, 'config_memory.move_now', 'Move now') }}</button>
       <small class="hint-text">{{ tr(request, 'config_memory.move_now_hint', 'Processes only day-context collections that are older than the configured threshold.') }}</small>
     </form>
@@ -191,7 +239,7 @@
 
     <hr class="config-divider">
 
-    <h2>{{ tr(request, 'config_memory.auto_title', 'Auto-memory') }}</h2>
+    <h2 id="auto-memory">{{ tr(request, 'config_memory.auto_title', 'Auto-memory') }}</h2>
     <p>{{ tr(request, 'config_memory.auto_subtitle', 'Extracts facts without code words and uses session + user memory during recall.') }}</p>
 
     <div class="meta-row">
@@ -243,4 +291,105 @@
     </form>
   </section>
 </main>
+<script>
+  (() => {
+    const status = document.querySelector('[data-copy-status]');
+    const setStatus = (value) => {
+      if (status) status.textContent = value;
+    };
+
+    const fallbackCopyText = (value) => {
+      const helper = document.createElement('textarea');
+      helper.value = value;
+      helper.setAttribute('readonly', 'readonly');
+      helper.style.position = 'fixed';
+      helper.style.top = '-1000px';
+      helper.style.left = '-1000px';
+      helper.style.opacity = '0';
+      document.body.appendChild(helper);
+      helper.focus();
+      helper.select();
+      helper.setSelectionRange(0, helper.value.length);
+      const copied = document.execCommand('copy');
+      document.body.removeChild(helper);
+      if (!copied) {
+        throw new Error('fallback copy failed');
+      }
+    };
+
+    const copyText = async (value) => {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+      fallbackCopyText(value);
+    };
+
+    const getCopyValue = (key) => {
+      const input = document.querySelector(`[data-copy-source="${key}"]`);
+      if (!input) return '';
+      const rawValue = input.getAttribute('data-copy-value');
+      return rawValue !== null ? rawValue : input.value;
+    };
+
+    for (const button of document.querySelectorAll('[data-copy-target]')) {
+      button.addEventListener('click', async () => {
+        const key = button.getAttribute('data-copy-target');
+        if (!key || button.disabled) return;
+        const value = getCopyValue(key);
+        if (!value) {
+          setStatus('{{ tr(request, "config_memory.copy_status_failed", "Copy fehlgeschlagen") }}');
+          return;
+        }
+        try {
+          await copyText(value);
+          setStatus('{{ tr(request, "config_memory.copy_status_done", "Kopiert") }}');
+        } catch (_error) {
+          setStatus('{{ tr(request, "config_memory.copy_status_failed", "Copy fehlgeschlagen") }}');
+        }
+      });
+    }
+
+    for (const button of document.querySelectorAll('[data-dashboard-url]')) {
+      button.addEventListener('click', async () => {
+        const dashboardUrl = button.getAttribute('data-dashboard-url');
+        if (!dashboardUrl) return;
+        const copyKey = button.getAttribute('data-copy-target');
+        const dashboardWindow = window.open(dashboardUrl, '_blank', 'noopener');
+        const dashboardOpened = Boolean(dashboardWindow);
+        if (!copyKey) {
+          setStatus(
+            dashboardOpened
+              ? '{{ tr(request, "config_memory.dashboard_status_opened", "Dashboard geöffnet") }}'
+              : '{{ tr(request, "config_memory.dashboard_status_open_failed", "Dashboard konnte nicht geöffnet werden") }}'
+          );
+          return;
+        }
+        const value = getCopyValue(copyKey);
+        if (!value) {
+          setStatus(
+            dashboardOpened
+              ? '{{ tr(request, "config_memory.dashboard_status_opened", "Dashboard geöffnet") }}'
+              : '{{ tr(request, "config_memory.dashboard_status_open_failed", "Dashboard konnte nicht geöffnet werden") }}'
+          );
+          return;
+        }
+        try {
+          await copyText(value);
+          setStatus(
+            dashboardOpened
+              ? '{{ tr(request, "config_memory.dashboard_status_opened_and_copied", "Dashboard geöffnet · API-Key kopiert") }}'
+              : '{{ tr(request, "config_memory.dashboard_status_copied_only", "API-Key kopiert") }}'
+          );
+        } catch (_error) {
+          setStatus(
+            dashboardOpened
+              ? '{{ tr(request, "config_memory.dashboard_status_opened_without_copy", "Dashboard geöffnet · Key nicht kopiert") }}'
+              : '{{ tr(request, "config_memory.copy_status_failed", "Copy fehlgeschlagen") }}'
+          );
+        }
+      });
+    }
+  })();
+</script>
 {% endblock %}

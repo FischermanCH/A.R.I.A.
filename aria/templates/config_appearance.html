@@ -1,16 +1,9 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="floating-card">
-    <div class="page-title-row"><span>{{ icon('appearance', 'page-title-icon') }}</span><h3>{{ tr(request, 'config_appearance.title', 'Appearance & Theme') }}</h3></div>
-    <p>{{ tr(request, 'config_appearance.subtitle', 'Choose a calmer or bolder visual style for your personal ARIA workspace.') }}</p>
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_appearance.saved', 'Appearance saved.') }}</div>
-    {% endif %}
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
+<main class="config-layout config-domain-layout config-domain-surface-layout config-appearance-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+  <section class="floating-card config-domain-section">
     <form method="post" action="/config/appearance/save" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>

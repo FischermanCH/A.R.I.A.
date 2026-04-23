@@ -105,10 +105,13 @@ It is designed for people who want:
 - auto-memory extraction
 - manual memory creation and editing
 - memory search and maintenance views
+- standalone Notes workspace under `/notes`
+- Markdown-first notes with Qdrant-backed semantic search
 - document upload directly in `Memory`
 - `txt`, `md`, and `pdf` with embedded text supported for RAG v1
 - grouped document management in `Memory Map`
 - pre-alpha web search via self-hosted `SearXNG`
+- watched websites as a lighter source type for pages without RSS feeds
 
 ### Skills and automation
 
@@ -131,6 +134,8 @@ Current connection families include:
 - `Webhook`
 - `HTTP API`
 - `SearXNG`
+- `Google Calendar`
+- `Watched Websites`
 - `RSS`
 - `SMTP`
 - `IMAP`
@@ -146,11 +151,13 @@ Examples of what ARIA can already do:
 - access remote file areas via `SMB`
 - read `RSS` feeds
 - search the web via configured `SearXNG`
+- ask for upcoming calendar events via configured `Google Calendar`
 - send to `Discord`
 - call configured `HTTP APIs`
 - send to `Webhook` targets
 - send and read mail via `SMTP` / `IMAP`
 - publish to `MQTT`
+- keep Markdown notes and use them as additional context for web research
 
 ### Security and operations
 
@@ -177,6 +184,7 @@ ARIA is not just a chat frontend.
 It is becoming a compact local automation and assistant layer that can:
 
 - remember relevant context
+- keep explicit user-written notes separate from Memory
 - talk to real systems
 - stay understandable
 - stay operable by one person or a small team

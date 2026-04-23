@@ -1,0 +1,7 @@
+<section class="floating-card skills-save">
+  {% if not skills_readonly %}
+  <p class="hint-text">{{ tr(request, 'skills.auto_save', 'Änderungen an den Schaltern werden automatisch gespeichert.') }}</p>
+  {% else %}
+  <p class="hint-text">{{ tr(request, 'skills.readonly_hint', 'Skills are visible in user mode, but editing, importing and toggling are disabled.') }}</p>
+  {% endif %}
+</section>

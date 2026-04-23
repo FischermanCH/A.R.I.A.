@@ -1,23 +1,10 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('routing', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_routing.title', 'Routing & Memory Rules') }}</h2></div>
-    <p>{{ tr(request, 'config_routing.subtitle', 'Plain-text rules for router and memory extraction. One line = one entry.') }}</p>
+<main class="config-layout config-domain-layout config-domain-surface-layout config-routing-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
 
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_routing.saved', 'Routing configuration saved.') }}</div>
-    {% endif %}
-
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
-
-    {% if info_message %}
-    <div class="alert ok">{{ info_message }}</div>
-    {% endif %}
-
+  <section class="config-card floating-card config-domain-section">
     {% set index_status = routing_index_status or {} %}
     <section class="routing-index-card stats-health-card status-{{ index_status.visual_status or 'warn' }}">
       <div class="stats-health-card-head">
@@ -104,115 +91,8 @@
           <button type="submit">{{ tr(request, 'config_routing.index_rebuild', 'Rebuild routing index') }}</button>
         </form>
         <a class="button-like" href="/config/routing-index/status">{{ tr(request, 'config_routing.index_json', 'JSON status') }}</a>
+        <a class="button-like" href="/config/workbench/routing?scope={{ selected_scope }}&return_to={{ return_to|urlencode if return_to else '%2Fconfig' }}">{{ tr(request, 'config_routing.open_workbench', 'Routing-Workbench öffnen') }}</a>
       </div>
-    </section>
-
-    <section class="routing-testbench-card stats-health-card status-{{ routing_test_result.visual_status if routing_test_result else 'warn' }}">
-      <div class="stats-health-card-head">
-        <div class="stats-health-title">
-          <span class="health-lamp status-{{ routing_test_result.visual_status if routing_test_result else 'warn' }}"></span>
-          <div>
-            <strong>{{ tr(request, 'config_routing.testbench_title', 'Routing Testbench') }}</strong>
-            <small class="stats-health-state">{{ tr(request, 'config_routing.testbench_subtitle', 'Dry-run: shows how ARIA would resolve a target. Nothing is executed.') }}</small>
-          </div>
-        </div>
-      </div>
-      <form method="get" action="/config/routing" class="editor-form routing-testbench-form">
-        <input type="hidden" name="scope" value="{{ selected_scope }}">
-        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-        <label for="routing_query">{{ tr(request, 'config_routing.test_query', 'User prompt') }}</label>
-        <input id="routing_query" name="routing_query" value="{{ routing_test_query or '' }}" placeholder="{{ tr(request, 'config_routing.test_query_placeholder', 'Example: Run uptime on pihole1') }}">
-        <label for="routing_kind">{{ tr(request, 'config_routing.test_kind', 'Preferred kind') }}</label>
-        <select id="routing_kind" name="routing_kind">
-          {% for option in routing_test_kind_options %}
-          <option value="{{ option }}" {% if option == routing_test_kind %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit">{{ tr(request, 'config_routing.test_run', 'Test routing') }}</button>
-      </form>
-
-      {% if routing_test_result %}
-      {% set test = routing_test_result %}
-      <div class="routing-testbench-result">
-        <p class="stats-health-summary">{{ test.message }}</p>
-        <small class="stats-health-detail">
-          {{ tr(request, 'config_routing.test_no_execution', 'Dry-run only: no command, message, feed or file action was executed.') }}
-        </small>
-        {% if test.inferred_preferred_kind and test.requested_preferred_kind == 'auto' %}
-        <small class="stats-health-detail">
-          {{ tr(request, 'config_routing.test_inferred_kind', 'Auto preferred kind inferred') }}:
-          <code>{{ test.inferred_preferred_kind }}</code>
-        </small>
-        {% endif %}
-
-        <div class="stats-health-grid routing-testbench-grid">
-          <article class="stats-health-card status-{{ 'ok' if test.decision.found else 'warn' }}">
-            <div class="stats-health-title">
-              <span class="health-lamp status-{{ 'ok' if test.decision.found else 'warn' }}"></span>
-              <strong>{{ tr(request, 'config_routing.test_decision', 'Final decision') }}</strong>
-            </div>
-            {% if test.decision.found %}
-            <p class="stats-health-summary"><code>{{ test.decision.kind }}/{{ test.decision.ref }}</code></p>
-            <small class="stats-health-detail">{{ test.decision.source }} · {{ "%.3f"|format(test.decision.score) }} · {{ test.decision.reason or '-' }}</small>
-            {% else %}
-            <p class="stats-health-summary">{{ tr(request, 'config_routing.test_no_match', 'No match') }}</p>
-            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_no_match_hint', 'Rebuild the index or improve title, description, aliases and tags on the connection profile.') }}</small>
-            {% endif %}
-          </article>
-
-          <article class="stats-health-card status-{{ 'ok' if test.deterministic.found else 'warn' }}">
-            <div class="stats-health-title">
-              <span class="health-lamp status-{{ 'ok' if test.deterministic.found else 'warn' }}"></span>
-              <strong>{{ tr(request, 'config_routing.test_deterministic', 'Deterministic') }}</strong>
-            </div>
-            {% if test.deterministic.found %}
-            <p class="stats-health-summary"><code>{{ test.deterministic.kind }}/{{ test.deterministic.ref }}</code></p>
-            <small class="stats-health-detail">{{ test.deterministic.source }} · {{ test.deterministic.reason }}</small>
-            {% else %}
-            <p class="stats-health-summary">{{ tr(request, 'config_routing.test_no_match', 'No match') }}</p>
-            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_deterministic_hint', 'No exact profile name or alias matched.') }}</small>
-            {% endif %}
-          </article>
-
-          <article class="stats-health-card status-{{ 'error' if test.qdrant.error else ('ok' if test.qdrant.accepted_count else 'warn') }}">
-            <div class="stats-health-title">
-              <span class="health-lamp status-{{ 'error' if test.qdrant.error else ('ok' if test.qdrant.accepted_count else 'warn') }}"></span>
-              <strong>{{ tr(request, 'config_routing.test_qdrant', 'Qdrant candidates') }}</strong>
-            </div>
-            <p class="stats-health-summary">{{ test.qdrant.accepted_count }}/{{ test.qdrant.candidate_count }}</p>
-            {% if test.qdrant.error %}
-            <small class="stats-health-detail">{{ test.qdrant.error }}</small>
-            {% elif test.qdrant.message %}
-            <small class="stats-health-detail">{{ test.qdrant.message }}</small>
-            {% else %}
-            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_qdrant_hint', 'Accepted / returned candidates from the generated routing collection.') }}</small>
-            {% endif %}
-          </article>
-        </div>
-
-        {% if test.qdrant.candidates %}
-        <div class="routing-candidate-list">
-          <strong>{{ tr(request, 'config_routing.test_candidates', 'Candidate details') }}</strong>
-          {% for candidate in test.qdrant.candidates %}
-          <article class="routing-candidate-item status-{{ 'ok' if candidate.accepted else 'warn' }}">
-            <div class="routing-candidate-head">
-              <span class="health-lamp status-{{ 'ok' if candidate.accepted else 'warn' }}"></span>
-              <strong><code>{{ candidate.kind }}/{{ candidate.ref }}</code></strong>
-              <span class="status-badge">{{ "%.3f"|format(candidate.score) }}</span>
-            </div>
-            <small class="stats-health-detail">{{ candidate.reason or candidate.payload.title or '-' }}</small>
-            {% if candidate.reject_reason %}
-            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_rejected', 'Rejected') }}: {{ candidate.reject_reason }}</small>
-            {% endif %}
-            {% if candidate.payload.tags %}
-            <small class="stats-health-detail">{{ tr(request, 'config_routing.test_tags', 'Tags') }}: {{ candidate.payload.tags|join(', ') }}</small>
-            {% endif %}
-          </article>
-          {% endfor %}
-        </div>
-        {% endif %}
-      </div>
-      {% endif %}
     </section>
 
     <form method="get" action="/config/routing" class="editor-form">

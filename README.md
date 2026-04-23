@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha121`
-- `alpha121` was internally verified end-to-end on a real managed install before publication, including update-button flow, config/profile persistence, Qdrant-backed memory persistence, and SSH-routing regressions
+- Current public alpha release: `0.1.0-alpha122`
+- `alpha122` rolls up the internally tested `alpha122` to `alpha167` line, including Notes, Watched Websites, Google Calendar read-only, the unified routing/planner path, and broader UI/runtime cleanup
 
 ## One-line summary
 

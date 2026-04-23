@@ -12,6 +12,7 @@ from urllib.request import urlopen
 
 UPDATE_HELPER_URL_SECRET = "updates.helper_url"
 UPDATE_HELPER_TOKEN_SECRET = "updates.helper_token"
+_SERVICE_RESTART_TARGETS = {"qdrant", "searxng"}
 
 
 @dataclass(slots=True)
@@ -147,5 +148,23 @@ def trigger_update_helper_run(config: UpdateHelperConfig, *, timeout: float = 2.
         method="POST",
         path="/run",
         payload={"action": "run-update"},
+        timeout=timeout,
+    )
+
+
+def trigger_update_helper_service_restart(
+    config: UpdateHelperConfig,
+    service: str,
+    *,
+    timeout: float = 2.5,
+) -> dict[str, Any]:
+    target = str(service or "").strip().lower()
+    if target not in _SERVICE_RESTART_TARGETS:
+        raise ValueError(f"Unsupported service restart target: {service}")
+    return _request_json(
+        config,
+        method="POST",
+        path="/service/restart",
+        payload={"action": "restart-service", "service": target},
         timeout=timeout,
     )

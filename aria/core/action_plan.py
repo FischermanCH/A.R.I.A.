@@ -42,6 +42,27 @@ class ActionPlan:
         return not self.missing_fields
 
 
+def _requested_ref_is_soft_hint(value: str) -> bool:
+    clean = str(value or "").strip().lower()
+    if not clean:
+        return False
+    generic_tail_terms = (
+        "channel",
+        "kanal",
+        "profile",
+        "profil",
+        "server",
+        "mailbox",
+        "inbox",
+        "topic",
+        "broker",
+        "feed",
+        "endpoint",
+        "api",
+    )
+    return " " in clean or clean.endswith(generic_tail_terms)
+
+
 def build_action_plan(
     draft: CapabilityDraft,
     hints: MemoryHints,
@@ -60,6 +81,11 @@ def build_action_plan(
     if requested_connection_ref:
         if connection_ref and connection_ref.lower() == requested_connection_ref.lower():
             resolution_source = resolution_source or "requested_exact"
+        elif connection_ref and _requested_ref_is_soft_hint(requested_connection_ref):
+            requested_connection_ref = ""
+            resolution_source = resolution_source or "requested_hint"
+        elif _requested_ref_is_soft_hint(requested_connection_ref):
+            requested_connection_ref = ""
         else:
             connection_ref = ""
             resolution_source = "requested_missing"
@@ -73,6 +99,7 @@ def build_action_plan(
             path = "."
         elif draft.capability in {
             "feed_read",
+            "calendar_read",
             "webhook_send",
             "discord_send",
             "api_request",

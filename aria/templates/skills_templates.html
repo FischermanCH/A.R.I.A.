@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="skills-layout skills-clean-layout skills-surface-layout skills-templates-layout">
+  {% include "_skills_nav.html" %}
+  {% include "_skills_page_header.html" %}
+  <section class="floating-card skills-templates-overview">
+    <div class="memory-health-grid">
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'skills.templates_title', 'Vorlagen') }}</h3>
+        </div>
+        <p>{{ sample_count }}</p>
+        <small>{{ tr(request, 'skills.overview_templates_meta', 'importierbare Samples') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'skills.templates_categories_title', 'Kategorien') }}</h3>
+        </div>
+        <p>{{ sample_category_count }}</p>
+        <small>{{ tr(request, 'skills.templates_categories_meta', 'unterschiedliche Typen in der Vorlagen-Bibliothek') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ 'warn' if skills_readonly else 'ok' }}"></span>
+          <h3>{{ tr(request, 'skills.overview_mode_title', 'Modus') }}</h3>
+        </div>
+        <p>{{ tr(request, 'skills.overview_mode_readonly', 'Nur ansehen') if skills_readonly else tr(request, 'skills.templates_import_ready', 'Import bereit') }}</p>
+        <small>{{ tr(request, 'skills.templates_import_meta_readonly', 'Vorlagen bleiben sichtbar, Import ist im User-Modus aber gesperrt.') if skills_readonly else tr(request, 'skills.templates_import_meta', 'Jede Vorlage kann direkt als eigener Skill importiert werden.') }}</small>
+      </article>
+    </div>
+  </section>
+  {% include "_skills_samples_section.html" %}
+</main>
+{% endblock %}

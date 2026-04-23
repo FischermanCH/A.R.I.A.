@@ -1,0 +1,14 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card config-domain-section">
+  <h3>{{ tr(request, 'config.admin_mode_off_title', 'Admin mode is currently off') }}</h3>
+  <p class="hint-text">{{ tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Users > Admin On/Off.') }}</p>
+  <div class="config-submenu">
+    <a class="config-submenu-item" href="/config/users?return_to={{ page_return_to | urlencode }}#admin-mode">
+      <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+      <span class="submenu-copy">
+        <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Users & Access') }}</span>
+        <span class="submenu-desc">{{ tr(request, 'config.admin_mode_off_link_desc', 'There you can turn admin mode back on.') }}</span>
+      </span>
+    </a>
+  </div>
+</section>

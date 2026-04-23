@@ -210,7 +210,107 @@ UI_THEME_OPTIONS = (
     "crt-amber",
     "deep-space",
 )
-UI_BACKGROUND_OPTIONS = ("grid", "aurora", "mesh", "nodes")
+UI_BACKGROUND_FILE_EXTENSIONS = (".png", ".webp", ".jpg", ".jpeg", ".svg", ".avif")
+UI_BACKGROUND_DEFAULT = "grid-signal"
+UI_BACKGROUND_LEGACY_ALIASES = {
+    "grid": "grid-signal",
+    "aurora": "aurora-glow",
+    "mesh": "mesh-weave",
+    "nodes": "nodes-field",
+}
+
+
+def _ui_static_dir(static_dir: Path | None = None) -> Path:
+    if static_dir is not None:
+        return static_dir
+    return Path(__file__).resolve().parents[1] / "static"
+
+
+def _background_file_slug(path: Path) -> str:
+    stem = path.stem
+    if stem.startswith("background-"):
+        return stem[len("background-") :].strip().lower()
+    return ""
+
+
+def _background_label_from_slug(slug: str) -> str:
+    clean = str(slug or "").strip().replace("_", "-")
+    raw_parts = [part for part in clean.split("-") if part]
+    if not raw_parts:
+        return "Custom Background"
+    acronyms = {
+        "ai": "AI",
+        "api": "API",
+        "aria": "ARIA",
+        "crt": "CRT",
+        "css": "CSS",
+        "html": "HTML",
+        "json": "JSON",
+        "lcars": "LCARS",
+        "llm": "LLM",
+        "pdf": "PDF",
+        "png": "PNG",
+        "qdrant": "Qdrant",
+        "rss": "RSS",
+        "searxng": "SearXNG",
+        "sftp": "SFTP",
+        "smb": "SMB",
+        "ssh": "SSH",
+        "svg": "SVG",
+        "ui": "UI",
+        "webp": "WebP",
+    }
+    parts: list[str] = []
+    idx = 0
+    while idx < len(raw_parts):
+        part = raw_parts[idx]
+        if part.isdigit() and idx + 1 < len(raw_parts) and raw_parts[idx + 1] == "bit":
+            parts.append(f"{part}-Bit")
+            idx += 2
+            continue
+        parts.append(acronyms.get(part, part.capitalize() if not part.isdigit() else part))
+        idx += 1
+    return " ".join(parts)
+
+
+def _canonical_ui_background_slug(value: str | None) -> str:
+    clean = str(value or "").strip().lower()
+    return UI_BACKGROUND_LEGACY_ALIASES.get(clean, clean)
+
+
+def discover_ui_background_files(static_dir: Path | None = None) -> list[dict[str, str]]:
+    root = _ui_static_dir(static_dir)
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for ext in UI_BACKGROUND_FILE_EXTENSIONS:
+        for path in sorted(root.glob(f"background-*{ext}")):
+            slug = _background_file_slug(path)
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            rows.append(
+                {
+                    "value": slug,
+                    "label_key": "",
+                    "fallback": _background_label_from_slug(slug),
+                    "asset_url": f"/static/{path.name}",
+                }
+            )
+    return rows
+
+
+def resolve_ui_background_asset_url(value: str | None, static_dir: Path | None = None) -> str | None:
+    clean = _canonical_ui_background_slug(value)
+    if not clean:
+        return None
+    for row in discover_ui_background_files(static_dir):
+        if row["value"] == clean:
+            return row["asset_url"]
+    return None
+
+
+def ui_background_values(static_dir: Path | None = None) -> tuple[str, ...]:
+    return tuple(row["value"] for row in discover_ui_background_files(static_dir))
 
 
 def normalize_ui_theme(value: str | None) -> str:
@@ -218,9 +318,16 @@ def normalize_ui_theme(value: str | None) -> str:
     return clean if clean in UI_THEME_OPTIONS else "matrix"
 
 
-def normalize_ui_background(value: str | None) -> str:
-    clean = str(value or "").strip().lower()
-    return clean if clean in UI_BACKGROUND_OPTIONS else "grid"
+def normalize_ui_background(value: str | None, static_dir: Path | None = None) -> str:
+    clean = _canonical_ui_background_slug(value)
+    options = ui_background_values(static_dir)
+    if clean and clean in options:
+        return clean
+    if UI_BACKGROUND_DEFAULT in options:
+        return UI_BACKGROUND_DEFAULT
+    if options:
+        return options[0]
+    return UI_BACKGROUND_DEFAULT
 
 
 class UIConfig(BaseModel):
@@ -381,6 +488,14 @@ class HTTPAPIConnectionConfig(ConnectionMetaConfig):
     guardrail_ref: str = ""
 
 
+class GoogleCalendarConnectionConfig(ConnectionMetaConfig):
+    calendar_id: str = "primary"
+    client_id: str = ""
+    client_secret: str = ""
+    refresh_token: str = ""
+    timeout_seconds: int = 10
+
+
 class RSSConnectionConfig(ConnectionMetaConfig):
     feed_url: str = ""
     group_name: str = ""
@@ -422,6 +537,7 @@ class ConnectionsConfig(BaseModel):
     email: dict[str, EmailConnectionConfig] = Field(default_factory=dict)
     imap: dict[str, IMAPConnectionConfig] = Field(default_factory=dict)
     http_api: dict[str, HTTPAPIConnectionConfig] = Field(default_factory=dict)
+    google_calendar: dict[str, GoogleCalendarConnectionConfig] = Field(default_factory=dict)
     rss: dict[str, RSSConnectionConfig] = Field(default_factory=dict)
     searxng: dict[str, SearXNGConnectionConfig] = Field(default_factory=dict)
     mqtt: dict[str, MQTTConnectionConfig] = Field(default_factory=dict)
@@ -780,6 +896,9 @@ def _apply_secure_store_overrides(data: dict[str, Any], config_path: Path) -> di
     merged["connections"].setdefault("http_api", {})
     if not isinstance(merged["connections"]["http_api"], dict):
         merged["connections"]["http_api"] = {}
+    merged["connections"].setdefault("google_calendar", {})
+    if not isinstance(merged["connections"]["google_calendar"], dict):
+        merged["connections"]["google_calendar"] = {}
     merged["connections"].setdefault("rss", {})
     if not isinstance(merged["connections"]["rss"], dict):
         merged["connections"]["rss"] = {}
@@ -828,6 +947,15 @@ def _apply_secure_store_overrides(data: dict[str, Any], config_path: Path) -> di
         auth_token = store.get_secret(f"connections.http_api.{ref}.auth_token", default="")
         if auth_token:
             row["auth_token"] = auth_token
+    for ref, row in list(merged["connections"]["google_calendar"].items()):
+        if not isinstance(row, dict):
+            continue
+        client_secret = store.get_secret(f"connections.google_calendar.{ref}.client_secret", default="")
+        refresh_token = store.get_secret(f"connections.google_calendar.{ref}.refresh_token", default="")
+        if client_secret:
+            row["client_secret"] = client_secret
+        if refresh_token:
+            row["refresh_token"] = refresh_token
     for ref, row in list(merged["connections"]["mqtt"].items()):
         if not isinstance(row, dict):
             continue

@@ -20,14 +20,14 @@ Repository and full documentation:
 
 Current public alpha release:
 
-- `0.1.0-alpha121`
+- `0.1.0-alpha122`
 
-- safer managed updates with host-vs-container validation for `config`, `prompts`, and `data`, plus the documented recovery helper `./aria-stack.sh repair`
-- Qdrant-backed routing index admin/debug tooling under `/config/routing`, including rebuild, testbench output, and live-routing controls
-- `Memory Map` now shows routing collections as a dedicated system branch instead of leaving them easy to overlook
-- SSH and SFTP connections now support a `Service URL`, metadata drafting via LLM, and stronger language-aware routing hints
-- natural uptime / health questions such as `How long has my DNS server been online?` can route directly to SSH `uptime`
-- runtime reloads now swap their live bundle atomically, which makes config-save and profile-change flows more predictable
+- `Notes / Notizen` as a real Markdown-first product path with board view, folders, chat/toolbox entry points, and Qdrant-backed semantic recall
+- `Watched Websites / Beobachtete Webseiten` as a new connection type for sources without RSS, including automatic metadata and grouping
+- `Google Calendar` as the first personal end-user integration with guided setup and read-only calendar queries
+- a more unified routing/planner/guardrail path between live chat and the routing workbench
+- calmer domain hubs for `Memories`, `Connections`, and `Skills`, plus broader UI/doc cleanup around the newer product surfaces
+- controlled restart actions for `qdrant` and `searxng` from `/config/operations`
 
 ## What you need
 

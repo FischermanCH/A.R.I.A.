@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('llm', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_llm.title', 'Chat LLM Configuration') }}</h2></div>
-    <p>{{ tr(request, 'config_llm.subtitle', 'LLM parameters are editable; sensitive fields (API key) are stored in the secure database.') }}</p>
+<main class="config-layout config-domain-layout config-domain-surface-layout config-llm-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+
+  <section class="floating-card config-domain-section">
     {% with
       heading=tr(request, 'context_help.llm_title', 'Kurz erklärt'),
       body=tr(request, 'context_help.llm_body', 'Hier legst du API Base, Modell, Timeout und Limits für das Chat-Gehirn fest. Wenn Antworten abgeschnitten sind oder Modell-Loads scheitern, ist diese Seite der erste Prüfpunkt.'),
@@ -12,18 +13,6 @@
     %}
       {% include "_context_help.html" %}
     {% endwith %}
-
-    {% if saved %}
-    <div class="alert ok">{{ tr(request, 'config_llm.saved', 'LLM configuration saved.') }}</div>
-    {% endif %}
-
-    {% if error_message %}
-    <div class="alert err">{{ error_message }}</div>
-    {% endif %}
-
-    {% if info_message %}
-    <div class="alert ok">{{ info_message }}</div>
-    {% endif %}
 
     <div class="meta-row">
       <span class="meta-badge">{{ tr(request, 'config_llm.active_profile', 'Active profile') }}: {{ active_llm_profile }}</span>
@@ -39,47 +28,66 @@
     </article>
     {% endif %}
 
-    <div class="alert info">
-      <strong>{{ tr(request, 'config_llm.active_profile', 'Active profile') }}:</strong> <code>{{ active_llm_meta.active_name }}</code><br>
-      <strong>Model:</strong> <code>{{ active_llm_meta.model or '-' }}</code><br>
-      <strong>API Base:</strong> <code>{{ active_llm_meta.api_base or '-' }}</code>
+    <div class="config-group-grid config-llm-overview-grid">
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config_llm.active_profile', 'Active profile') }}</h3>
+        <p><code>{{ active_llm_meta.active_name }}</code></p>
+        <small class="hint-text">{{ tr(request, 'config_llm.save_help', 'Save updates the active profile. To create or overwrite a named profile, enter a profile name below and use "Save as profile".') }}</small>
+      </article>
+      <article class="config-group-card">
+        <h3>Runtime</h3>
+        <p><strong>Model:</strong> <code>{{ active_llm_meta.model or '-' }}</code></p>
+        <p><strong>API Base:</strong> <code>{{ active_llm_meta.api_base or '-' }}</code></p>
+      </article>
     </div>
+  </section>
 
-    <div class="alert info">
-      {{ tr(request, 'config_llm.save_help', 'Save updates the active profile. To create or overwrite a named profile, enter a profile name below and use "Save as profile".') }}
+  <section class="floating-card config-domain-section">
+    <div class="config-group-grid config-llm-profile-grid">
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</h3>
+        <p>{{ tr(request, 'config_llm.test_hint', 'Prüfe zuerst den aktiven Chat-Provider, bevor du Profile umstellst oder speicherst.') }}</p>
+        <form method="post" action="/config/llm/test" class="editor-form compact-form">
+          <div class="inline-actions">
+            <button type="submit">{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config_llm.load_profile', 'Load profile') }}</h3>
+        <form method="post" action="/config/llm/profile/load" class="editor-form compact-form">
+          <label for="profile_name_load">{{ tr(request, 'config_llm.load_profile', 'Load profile') }}</label>
+          <div class="inline-actions">
+            <select id="profile_name_load" name="profile_name">
+              {% for p in llm_profiles %}
+              <option value="{{ p }}" {% if p == active_llm_profile %}selected{% endif %}>{{ p }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">{{ tr(request, 'config_llm.load_profile_btn', 'Load profile') }}</button>
+          </div>
+        </form>
+      </article>
+
+      <article class="config-group-card">
+        <h3>{{ tr(request, 'config_llm.delete_profile', 'Delete profile') }}</h3>
+        <form method="post" action="/config/llm/profile/delete" class="editor-form compact-form">
+          <label for="profile_name_delete">{{ tr(request, 'config_llm.delete_profile', 'Delete profile') }}</label>
+          <div class="inline-actions">
+            <select id="profile_name_delete" name="profile_name">
+              {% for p in llm_profiles %}
+              <option value="{{ p }}" {% if p == active_llm_profile %}selected{% endif %}>{{ p }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="danger-btn">{{ tr(request, 'config_llm.delete_profile_btn', 'Delete profile') }}</button>
+          </div>
+          <small class="hint-text">{{ tr(request, 'config_llm.delete_profile_hint', 'Active profile cannot be deleted.') }}</small>
+        </form>
+      </article>
     </div>
+  </section>
 
-    <form method="post" action="/config/llm/test" class="editor-form">
-      <div class="inline-actions">
-        <button type="submit">{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</button>
-      </div>
-    </form>
-
-    <form method="post" action="/config/llm/profile/load" class="editor-form">
-      <label for="profile_name_load">{{ tr(request, 'config_llm.load_profile', 'Load profile') }}</label>
-      <div class="inline-actions">
-        <select id="profile_name_load" name="profile_name">
-          {% for p in llm_profiles %}
-          <option value="{{ p }}" {% if p == active_llm_profile %}selected{% endif %}>{{ p }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit">{{ tr(request, 'config_llm.load_profile_btn', 'Load profile') }}</button>
-      </div>
-    </form>
-
-    <form method="post" action="/config/llm/profile/delete" class="editor-form">
-      <label for="profile_name_delete">{{ tr(request, 'config_llm.delete_profile', 'Delete profile') }}</label>
-      <div class="inline-actions">
-        <select id="profile_name_delete" name="profile_name">
-          {% for p in llm_profiles %}
-          <option value="{{ p }}" {% if p == active_llm_profile %}selected{% endif %}>{{ p }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit" class="danger-btn">{{ tr(request, 'config_llm.delete_profile_btn', 'Delete profile') }}</button>
-      </div>
-      <small class="hint-text">{{ tr(request, 'config_llm.delete_profile_hint', 'Active profile cannot be deleted.') }}</small>
-    </form>
-
+  <section class="floating-card config-domain-section">
     <form method="post" action="/config/llm/save" class="editor-form">
       <label for="provider-preset">{{ tr(request, 'config_llm.provider_preset', 'Provider preset') }}</label>
       <select id="provider-preset">

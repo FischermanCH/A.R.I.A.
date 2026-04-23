@@ -171,6 +171,9 @@ def test_parse_config_backup_payload_rejects_invalid_prompt_paths() -> None:
 def _build_test_config_app(base_dir: Path) -> FastAPI:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
+    templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("agent_text", lambda _request, fallback="ARIA": fallback)
     store = _make_store(base_dir / "data" / "auth" / "aria_secure.sqlite")
     raw = {
         "aria": {"host": "0.0.0.0", "port": 8800},
@@ -189,6 +192,7 @@ def _build_test_config_app(base_dir: Path) -> FastAPI:
         request.state.lang = "en"
         request.state.cookie_names = {}
         request.state.csrf_token = "test-csrf"
+        request.state.release_meta = SimpleNamespace(label="0.0-test")
         return await call_next(request)
 
     def _read_raw() -> dict:
@@ -264,6 +268,18 @@ def test_config_backup_export_route_returns_attachment(tmp_path: Path) -> None:
     assert "attachment; filename=" in response.headers["content-disposition"]
     payload = response.json()
     assert payload["schema_version"] == BACKUP_SCHEMA_VERSION
+
+
+def test_config_backup_page_includes_memory_export_hub_entry(tmp_path: Path) -> None:
+    app = _build_test_config_app(tmp_path)
+    client = TestClient(app)
+
+    response = client.get("/config/backup")
+
+    assert response.status_code == 200
+    assert "Import / Export" in response.text
+    assert "/memories/export?type=all&amp;sort=updated_desc" in response.text
+    assert "Download memory export" in response.text
 
 
 def test_config_backup_import_route_restores_backup_and_redirects(tmp_path: Path) -> None:

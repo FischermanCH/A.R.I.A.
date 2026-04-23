@@ -1,0 +1,27 @@
+{% from "_icons.html" import icon %}
+<nav class="memory-subnav" aria-label="{{ tr(request, 'config.nav_label', 'Settings navigation') }}">
+  <a class="memory-subnav-item{% if config_nav == 'overview' %} active{% endif %}" href="/config">
+    {{ icon('settings', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.overview_title', 'Einstellungen') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if config_nav == 'intelligence' %} active{% endif %}" href="/config/intelligence">
+    {{ icon('llm', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.h1', 'Intelligenz abstimmen') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if config_nav == 'persona' %} active{% endif %}" href="/config/persona">
+    {{ icon('prompts', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.persona_title', 'Persönlichkeit & Stil') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if config_nav == 'access' %} active{% endif %}" href="/config/access">
+    {{ icon('security', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.access_title', 'Zugriff & Sicherheit') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if config_nav == 'operations' %} active{% endif %}" href="/config/operations">
+    {{ icon('updates', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.operations_title', 'Betrieb & Transfer') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if config_nav == 'workbench' %} active{% endif %}" href="/config/workbench">
+    {{ icon('routing', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.workbench_title', 'Workbench (Advanced)') }}</span>
+  </a>
+</nav>

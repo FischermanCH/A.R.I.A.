@@ -1,68 +1,59 @@
 {% extends "base.html" %}
 {% block content %}
 {% from "_icons.html" import icon %}
-<section class="panel">
-  <div class="page-head">
-    <div>
-      <p class="section-kicker">{{ tr(request, 'base.nav_help', 'Hilfe') }}</p>
-      <h2>{{ tr(request, 'help.title', 'ARIA Hilfe') }}</h2>
-      <p>{{ tr(request, 'help.subtitle', 'ARIA nutzt lokal dieselben Wiki- und Hilfe-Dateien wie auf GitHub, damit die Dokumentation nur einmal gepflegt werden muss.') }}</p>
-    </div>
-  </div>
-
-  <div class="product-doc-grid help-link-grid">
-    <a href="/product-info" class="product-doc-card help-product-link">
-      <div class="product-doc-card-head">
-        <span class="product-doc-icon">{{ icon('product') }}</span>
-        <strong>{{ tr(request, 'base.nav_product_info', 'Produkt-Info') }}</strong>
-      </div>
-      <p>{{ tr(request, 'help.product_info_hint', 'Technischer Überblick, Feature-Liste, Architektur und Roadmap.') }}</p>
-    </a>
-
-    <a href="/updates" class="product-doc-card help-product-link">
-      <div class="product-doc-card-head">
-        <span class="product-doc-icon">{{ icon('updates') }}</span>
-        <strong>{{ tr(request, 'base.nav_updates', 'Updates') }}</strong>
-        {% if request.state.update_status.update_available %}
-        <span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>
-        {% endif %}
-      </div>
-      <p>{{ tr(request, 'help.updates_hint', 'Installierte Version, neueste öffentliche Version und Release Notes ansehen.') }}</p>
-    </a>
-  </div>
-
-  {% for section in help_sections %}
-  <section class="docs-section">
-    <div class="page-head docs-section-head">
-      <div>
-        <h3>{{ tr(request, section.label_i18n, section.label_default) }}</h3>
-      </div>
-    </div>
-    <div class="product-doc-grid">
-      {% for help_doc in section.docs %}
+<section class="panel docs-clean-layout">
+  <nav class="help-doc-inline-nav" aria-label="{{ tr(request, 'help.toc_label', 'Inhaltsverzeichnis') }}">
+    <div class="help-doc-pill-row">
+      {% for help_doc in help_docs %}
+      {% if help_doc.id not in ['qdrant', 'searxng'] %}
       <a
         href="/help?doc={{ help_doc.id }}"
-        class="product-doc-card {% if selected_doc.id == help_doc.id %}is-active{% endif %}"
+        class="help-doc-pill{% if selected_doc.id == help_doc.id %} is-active{% endif %}"
         aria-current="{{ 'page' if selected_doc.id == help_doc.id else 'false' }}"
       >
-        <div class="product-doc-card-head">
-          <span class="product-doc-icon">{{ icon(help_doc.icon) }}</span>
-          <strong>{{ tr(request, help_doc.label_i18n, help_doc.label_default) }}</strong>
-        </div>
-        <p>{{ tr(request, help_doc.summary_i18n, help_doc.summary_default) }}</p>
+        <span class="help-doc-pill-icon">{{ icon(help_doc.icon) }}</span>
+        <span>{{ tr(request, help_doc.label_i18n, help_doc.label_default) }}</span>
       </a>
+      {% endif %}
       {% endfor %}
+      <a href="/licenses" class="help-doc-pill" aria-current="false">
+        <span class="help-doc-pill-icon">{{ icon('files') }}</span>
+        <span>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</span>
+      </a>
+    </div>
+  </nav>
+
+  <section class="help-third-party-strip" aria-label="{{ tr(request, 'help.third_party_title', 'Wichtige Dienste & Lizenz') }}">
+    <div class="help-third-party-head">
+      <p class="section-kicker">{{ tr(request, 'help.third_party_title', 'Wichtige Dienste & Lizenz') }}</p>
+      <p>{{ tr(request, 'help.third_party_subtitle', 'Qdrant und SearXNG sind zentrale externe Dienste fuer Wissen und Websuche in ARIA. Die Lizenzseite sammelt ausserdem die wichtigsten Open-Source-Lizenzen.') }}</p>
+    </div>
+    <div class="help-third-party-grid">
+      <a href="/help?doc=qdrant" class="help-third-party-card">
+        <span class="help-third-party-icon">{{ icon('memories') }}</span>
+        <span class="help-third-party-copy">
+          <strong>{{ tr(request, 'help.doc_qdrant', 'Qdrant') }}</strong>
+          <span>{{ tr(request, 'help.doc_qdrant_summary', 'Wofuer ARIA Qdrant nutzt, was dort gespeichert wird und worauf man im Betrieb achten sollte.') }}</span>
+        </span>
+      </a>
+      <a href="/help?doc=searxng" class="help-third-party-card">
+        <span class="help-third-party-icon">{{ icon('searxng') }}</span>
+        <span class="help-third-party-copy">
+          <strong>{{ tr(request, 'help.doc_searxng', 'SearXNG') }}</strong>
+          <span>{{ tr(request, 'help.doc_searxng_summary', 'Wie ARIA die SearXNG-Websuche nutzt und warum der Dienst bewusst separat im Stack bleibt.') }}</span>
+        </span>
+      </a>
+      <a href="/licenses" class="help-third-party-card">
+        <span class="help-third-party-icon">{{ icon('files') }}</span>
+        <span class="help-third-party-copy">
+          <strong>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</strong>
+        </span>
+      </a>
     </div>
   </section>
-  {% endfor %}
-
-  <div class="help-source-chip">
-    <span class="stat-label">{{ tr(request, 'help.source_label', 'Quelle') }}</span>
-    <code>{{ help_path }}</code>
-  </div>
 
   {% if help_text %}
-  <article class="doc-markdown">
+  <article class="doc-markdown help-doc-article docs-content-surface">
     {{ help_html }}
   </article>
   {% else %}

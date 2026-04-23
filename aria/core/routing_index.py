@@ -16,7 +16,19 @@ from aria.core.connection_semantic_resolver import build_connection_aliases
 
 
 ROUTING_INDEX_VERSION = 1
-DEFAULT_CONNECTION_ROUTING_KINDS: tuple[str, ...] = ("ssh", "sftp", "rss", "discord", "http_api")
+DEFAULT_CONNECTION_ROUTING_KINDS: tuple[str, ...] = (
+    "ssh",
+    "sftp",
+    "smb",
+    "google_calendar",
+    "rss",
+    "discord",
+    "http_api",
+    "webhook",
+    "email",
+    "imap",
+    "mqtt",
+)
 
 _SECRET_FIELD_NAMES = {
     "api_key",
@@ -58,6 +70,15 @@ _CONNECTION_ACTIONS: dict[str, tuple[str, ...]] = {
         "neueste meldungen",
         "nachrichten",
     ),
+    "google_calendar": (
+        "read calendar",
+        "today agenda",
+        "tomorrow agenda",
+        "next appointment",
+        "kalender lesen",
+        "heutige termine",
+        "naechster termin",
+    ),
     "discord": (
         "send message",
         "notify",
@@ -65,6 +86,38 @@ _CONNECTION_ACTIONS: dict[str, tuple[str, ...]] = {
         "discord nachricht",
         "alarmieren",
         "meldung senden",
+    ),
+    "webhook": (
+        "send webhook",
+        "post webhook",
+        "callback",
+        "event hook",
+        "webhook senden",
+        "webhook triggern",
+    ),
+    "email": (
+        "send email",
+        "send mail",
+        "alert mail",
+        "mail senden",
+        "email senden",
+        "benachrichtigung per mail",
+    ),
+    "imap": (
+        "read mailbox",
+        "search mailbox",
+        "inbox lesen",
+        "emails lesen",
+        "mailbox durchsuchen",
+        "postfach durchsuchen",
+    ),
+    "mqtt": (
+        "publish topic",
+        "mqtt publish",
+        "event bus",
+        "topic senden",
+        "mqtt nachricht",
+        "broker event",
     ),
     "http_api": (
         "call api",
@@ -80,7 +133,12 @@ _LANGUAGE_HINTS: dict[str, tuple[str, ...]] = {
     "ssh": ("run", "execute", "status", "uptime", "health", "fuehre", "starte", "pruefe", "status"),
     "sftp": ("read", "list", "file", "directory", "lies", "zeige", "datei", "ordner"),
     "rss": ("news", "latest", "feed", "headlines", "neu", "meldungen", "nachrichten"),
+    "google_calendar": ("calendar", "kalender", "termine", "meeting", "appointment", "today", "tomorrow", "heute", "morgen"),
     "discord": ("send", "notify", "alert", "sende", "schicke", "melde", "alarmiere"),
+    "webhook": ("webhook", "hook", "callback", "endpoint", "send", "poste", "sende"),
+    "email": ("email", "mail", "smtp", "send", "sende", "schicke"),
+    "imap": ("imap", "mailbox", "postfach", "inbox", "lesen", "suche"),
+    "mqtt": ("mqtt", "broker", "topic", "publish", "sende", "schicke"),
     "http_api": ("api", "call", "endpoint", "health", "rufe", "hole", "status"),
 }
 

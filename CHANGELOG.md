@@ -6,6 +6,74 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+No entries yet.
+
+## [0.1.0-alpha.122] - 2026-04-24
+
+Public roll-up release covering the internally tested `alpha122` to `alpha167` line since the previous public `alpha121` release.
+
+### Added
+- ARIA now has a first real personal end-user path:
+  - a dedicated `Google Calendar` connection type with secure secret storage, a guided setup flow, and a read-only live test
+  - natural calendar prompts such as `was steht heute in meinem kalender?` and `wann ist mein naechster termin?` now route into the shared planner/guardrail execution path
+- ARIA now has a first `Notes / Notizen` product path:
+  - a dedicated `/notes` surface with folders, board view, editor, delete, move, and Markdown export
+  - Markdown files are the source of truth while Qdrant is used as a derived semantic index
+  - notes can already be created, searched, and opened from chat and the toolbox
+- ARIA now has a first `Watched Websites / Beobachtete Webseiten` connection type:
+  - URL-first profile creation for websites without RSS
+  - automatic title/description/alias/tag suggestions
+  - grouping and connection health checks through the same connection status pipeline
+- `/config/operations` now includes helper-backed restart actions for `qdrant` and `searxng`
+
+### Changed
+- the routing stack now behaves much more like one product path instead of separate chat/debug worlds:
+  - live chat and the routing workbench share the same routing, planner, payload, and guardrail chain for supported connection kinds
+  - Qdrant routing indexes rebuild more automatically, so users do not have to babysit the index manually
+  - follow-ups, confirmations, and target hints are handled more consistently across chat and admin tooling
+- the UI was cleaned up substantially across the domain hubs:
+  - `Memories`, `Connections`, and `Skills` no longer repeat redundant `Next steps` teaser blocks above the real hub navigation
+  - the overall menu/domain structure is calmer and more product-like
+- `Notes` now behave more like a small file explorer:
+  - default board-first view without an already open editor
+  - direct board/editor switching instead of hidden lower-page editors
+  - a standalone surface instead of hanging off the Memory sub-navigation
+- the Memory Map now treats Notes as a first-class knowledge branch:
+  - per-user `aria_notes_<user>` collections are shown explicitly
+  - the graph now includes `Notizen` as a dedicated branch back to `/notes`
+- user-facing docs were refreshed for the current product shape:
+  - `README.md`
+  - product docs
+  - wiki drafts
+  - help pages for Memory, Notes, Connections, SearXNG, and Qdrant
+- the web layer was significantly simplified internally:
+  - large pieces of `main.py` and `aria/web/config_routes.py` were moved into clearer route/helper modules
+  - this release keeps behavior but reduces monolith pressure and maintenance drift
+
+### Fixed
+- the memory setup no longer exposes a normal UI toggle that can silently disable the whole memory backend; saving the Qdrant setup now keeps Memory enabled
+- skill toggles no longer disable each other just because the current page only posted one skill group
+- natural SSH disk checks such as `check mal die festplatte auf meinen dns server` now normalize to `df -h` instead of trying to execute the whole sentence as a shell command
+- `Admin mode off` hints now lead directly to the real admin-mode toggle, and the old users-surface save path no longer falls into `Not Found`
+- Notes editor overflow and width regressions in Safari/Firefox were fixed, and the board/editor flow no longer hides created folders or forces awkward scrolling
+- watched website connection flows now jump directly into create/edit mode instead of landing at the top of a longer page
+- connection test messaging for webhook, HTTP API, SMTP, and IMAP is clearer around auth, permission, TLS/SSL, timeout, and reachability failures
+
+### Security
+- controlled restart actions for `qdrant` and `searxng` now ask for explicit browser confirmation before execution
+- guarded outbound and connection-backed actions now keep stronger `allow / ask_user / block` behavior across the unified planner path
+
+### Known Limitations
+- Google Calendar is intentionally read-only in this release
+- Google Calendar setup is guided in-product, but still uses a manual Google OAuth / OAuth Playground flow
+- refresh tokens from Google test-mode projects can still expire after seven days unless the Google-side app moves beyond testing
+
+### Upgrade Notes
+- a hard browser reload is recommended after upgrading because this release includes broader UI, CSS, and navigation changes
+- if you use managed installs, `/updates` and `./aria-stack.sh update` remain the supported update paths
+- if you use Google Calendar, finish the in-product setup flow once after upgrading; no automatic account migration is needed
+- Notes use Markdown as the source of truth and Qdrant only as the derived search index, so semantic note search still expects a working Qdrant-backed Memory setup
+
 ## [0.1.0-alpha.121] - 2026-04-16
 
 Public roll-up release covering the already internally tested `alpha111` to `alpha121` line since the previous public `alpha110` release.

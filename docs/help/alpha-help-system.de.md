@@ -12,6 +12,7 @@ Gut geeignet für:
 
 - einen eigenen AI-Workspace im Browser
 - Memory mit Qdrant
+- Notizen als eigenen Markdown-Arbeitsbereich
 - SSH / SFTP / SMB / RSS / Discord / HTTP-API / Webhook / Mail / MQTT
 - Custom Skills, die mehrere Schritte automatisieren
 
@@ -76,6 +77,31 @@ Auf `/memories` kannst du Erinnerungen:
 
 Wenn du explizit etwas löschen willst, kannst du im Chat mit Formulierungen wie `vergiss ...` arbeiten oder direkt auf `/memories` löschen.
 
+Wichtig zur Abgrenzung:
+
+- `Memory` ist ARIAs semantisches Erinnern
+- `Notizen` sind dein bewusst geschriebener Markdown-Bereich unter `/notes`
+- Notizen werden zwar fuer Suche in Qdrant indiziert, gehoeren aber produktisch **nicht** in den Memory-Bereich
+
+## Notizen
+
+Unter `/notes` findest du einen eigenstaendigen Arbeitsbereich:
+
+- links Ordnernavigation wie in einem kleinen Explorer
+- rechts ein Zettel-Board mit Vorschau
+- darunter den Editor fuer die ausgewaehlte Notiz
+
+Notizen sind absichtlich:
+
+- editierbar
+- exportierbar als Markdown
+- getrennt von Memory
+
+ARIA kann Notizen auch im Chat anlegen, z. B. ueber Formulierungen wie:
+
+- `notiere ...`
+- `halte fest ...`
+
 ## Connections
 
 Unter `/config` verwaltest du externe Verbindungen.
@@ -116,6 +142,21 @@ Je besser Titel / Aliase / Tags gepflegt sind, desto eher trifft ARIA bei freien
   - Zeitbereich
 - fuer Routing helfen klare Profilnamen und Tags, z. B. `youtube` fuer Videos oder `startpage` fuer Buecher
 - im Chat kannst du dann bewusst Formulierungen wie `websuche ...` oder `recherchiere im web ...` verwenden
+
+### Beobachtete Webseiten
+
+- fuer Seiten ohne RSS-Feed
+- du gibst vor allem die URL an
+- ARIA kann Titel, Kurzbeschreibung, Tags und Gruppe automatisch vorschlagen
+- spaeter lassen sich solche Quellen gut mit Websuche und Notizen kombinieren
+
+### Google Calendar
+
+- erster persoenlicher `read-only` Produktpfad
+- eigener Setup-Flow auf der Connection-Seite mit Google-Links pro Schritt
+- gedacht fuer alltaegliche Fragen wie:
+  - `was steht heute an?`
+  - `wann ist mein naechster termin?`
 
 ### RSS
 

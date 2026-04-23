@@ -6,7 +6,7 @@ This wiki is meant to stay practical:
 
 - what ARIA is
 - how to deploy it quickly
-- how memory, skills, and connections work
+- how memory, notes, skills, and connections work
 - how releases and upgrades are handled
 
 The same core docs are also intended to appear locally under `/help`, so ARIA and GitHub stay aligned.
@@ -20,9 +20,16 @@ Recommended first steps:
 
 1. `Quick Start`
 2. `Memory`
-3. `Skills`
-4. `Connections`
+3. `Connections`
+4. `Skills`
 5. `Releases and Upgrades`
+
+Current product focus in the ALPHA line:
+
+- `Memory` for facts, preferences, document recall, and maintenance
+- `Notes` as a standalone Markdown-first workspace under `/notes`
+- `Watched Websites` as a lighter source type next to RSS
+- `Google Calendar` as the first personal `read-only` daily-use path
 
 Core references still live in the main repo:
 

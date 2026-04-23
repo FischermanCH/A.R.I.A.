@@ -1,0 +1,43 @@
+<section class="stat-card">
+  <div class="connection-status-stack">
+    <div class="connection-status-head">
+      <h2>{{ tr(request, 'stats.connections_live_title', 'Live-Status aller konfigurierten Verbindungen') }}</h2>
+      <small>{{ tr(request, 'stats.connections_live_hint', 'ARIA prüft hier alle konfigurierten Verbindungen und aktualisiert den Status beim Öffnen der Seite.') }}</small>
+    </div>
+    {% if connection_status_rows %}
+    <div class="connection-status-grid">
+      {% for item in connection_status_rows %}
+      {% if item.edit_url %}
+      <a href="{{ item.edit_url }}" class="connection-test-card connection-test-card-link status-{{ item.status }}">
+      {% else %}
+      <article class="connection-test-card status-{{ item.status }}">
+      {% endif %}
+        <div class="connection-test-head">
+          <span class="health-lamp status-{{ item.status }}"></span>
+          <strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
+          <span class="connection-current-badge">
+            <span class="stats-connection-kind-icon">{{ icon(item.kind_icon, 'submenu-icon') }}</span>
+            {{ item.kind }}
+            {% if item.kind_alpha %}<span class="alpha-flag">{{ tr(request, 'config_conn.alpha_flag', 'Alpha!') }}</span>{% endif %}
+          </span>
+        </div>
+        <small class="connection-status-target">{{ item.target }}</small>
+        {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+        {% if item.last_success_at %}
+        <small class="connection-status-target">{{ tr(request, 'config_conn.last_success', 'Last success') }}: {{ item.last_success_at|replace('T', ' ') }}</small>
+        {% endif %}
+        <small>{{ item.message }}</small>
+      {% if item.edit_url %}
+      </a>
+      {% else %}
+      </article>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="skill-summary">
+      <span>{{ tr(request, 'stats.connections_live_empty', 'Noch keine Verbindungen konfiguriert. Sobald Profile gespeichert sind, zeigt ARIA sie hier mit Live-Status an.') }}</span>
+    </div>
+    {% endif %}
+  </div>
+</section>

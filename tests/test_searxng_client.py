@@ -133,3 +133,71 @@ def test_web_search_skill_localizes_english_output() -> None:
     assert result.metadata["detail_lines"] == [
         "Source: Rabbit R1 turns into Android agent · https://example.org/rabbit · startpage news · 2025-02-27"
     ]
+
+
+def test_web_search_skill_can_prepend_notes_context() -> None:
+    class FakeClient:
+        async def search(self, **kwargs):
+            _ = kwargs
+            return type(
+                "Resp",
+                (),
+                {
+                    "query": "google calendar oauth",
+                    "results": [
+                        SearXNGSearchResult(
+                            title="Google OAuth Docs",
+                            url="https://example.org/google-oauth",
+                            snippet="Audience and test users guide.",
+                            engine="duckduckgo",
+                        )
+                    ],
+                },
+            )()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient())
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "google calendar oauth",
+            {
+                "language": "de",
+                "note_context_hits": [
+                    {
+                        "note_id": "n1",
+                        "title": "Google OAuth",
+                        "folder": "Recherche",
+                        "relative_path": "Recherche/google-oauth.md",
+                        "updated_at": "2026-04-23T12:00:00+00:00",
+                        "score": 0.91,
+                        "snippet": "Audience, Test users und OAuth Playground",
+                    }
+                ],
+            },
+        )
+    )
+
+    assert result.success is True
+    assert "Notiz-Kontext für die Suche" in result.content
+    assert "Google OAuth (Recherche): Audience, Test users und OAuth Playground" in result.content
+    assert result.metadata["detail_lines"][0] == "Notiz-Kontext: Google OAuth · Recherche"

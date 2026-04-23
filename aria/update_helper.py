@@ -13,6 +13,7 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from fastapi import FastAPI
+from fastapi import Body
 from fastapi import Header
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
@@ -38,8 +39,21 @@ LOCAL_ENV_FILE = str(os.environ.get("ARIA_UPDATE_LOCAL_ENV_FILE", "/mnt/NAS/aria
 LOCAL_IMAGE_REF = str(os.environ.get("ARIA_UPDATE_LOCAL_IMAGE_REF", "aria:alpha-local") or "aria:alpha-local").strip()
 LOCAL_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_SERVICE_NAME", "aria") or "aria").strip()
 LOCAL_QDRANT_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_QDRANT_SERVICE_NAME", "aria-qdrant") or "aria-qdrant").strip()
+LOCAL_SEARXNG_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_SEARXNG_SERVICE_NAME", "aria-searxng") or "aria-searxng").strip()
 LOCAL_COMPOSE_PROJECT_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_PROJECT_NAME", "") or "").strip()
 STATE_LOCK = threading.Lock()
+SERVICE_RESTART_TARGETS = {
+    "qdrant": {
+        "label": "Qdrant",
+        "managed_service": "qdrant",
+        "local_service": LOCAL_QDRANT_SERVICE_NAME,
+    },
+    "searxng": {
+        "label": "SearXNG",
+        "managed_service": "searxng",
+        "local_service": LOCAL_SEARXNG_SERVICE_NAME,
+    },
+}
 
 app = FastAPI(title="ARIA Update Helper")
 
@@ -404,6 +418,98 @@ def _run_update_worker() -> None:
     _run_managed_update_worker()
 
 
+def _service_restart_spec(service: str) -> dict[str, str]:
+    target = str(service or "").strip().lower()
+    spec = SERVICE_RESTART_TARGETS.get(target)
+    if spec is None:
+        raise RuntimeError(f"Unsupported service restart target: {service}")
+    return {"id": target, **spec}
+
+
+def _run_managed_service_restart_worker(service: str) -> None:
+    spec = _service_restart_spec(service)
+    label = spec["label"]
+    managed_service = spec["managed_service"]
+    _update_state(
+        status="running",
+        running=True,
+        current_step=f"restart_{service}",
+        last_started_at=_now_iso(),
+        last_finished_at="",
+        last_error="",
+        last_result="",
+    )
+    try:
+        LOG_PATH.write_text("", encoding="utf-8")
+        _write_log_line(f"[{_now_iso()}] {label} restart started.")
+        _run_logged(
+            _compose_base_command() + ["up", "-d", "--no-deps", "--force-recreate", managed_service],
+            step=f"Restart {label} service",
+        )
+        _write_log_line(f"[{_now_iso()}] {label} restart completed successfully.")
+        _update_state(
+            status="ok",
+            running=False,
+            current_step="",
+            last_finished_at=_now_iso(),
+            last_result=f"{label} restarted successfully.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _write_log_line(f"[{_now_iso()}] ERROR: {exc}")
+        _update_state(
+            status="error",
+            running=False,
+            current_step="",
+            last_finished_at=_now_iso(),
+            last_error=str(exc),
+            last_result=f"{label} restart failed.",
+        )
+
+
+def _run_internal_local_service_restart_worker(service: str) -> None:
+    spec = _service_restart_spec(service)
+    label = spec["label"]
+    local_service = spec["local_service"]
+    _update_state(
+        status="running",
+        running=True,
+        current_step=f"restart_{service}",
+        last_started_at=_now_iso(),
+        last_finished_at="",
+        last_error="",
+        last_result="",
+    )
+    try:
+        LOG_PATH.write_text("", encoding="utf-8")
+        _write_log_line(f"[{_now_iso()}] {label} restart started.")
+        _run_logged(["docker", "restart", local_service], step=f"Restart {label} container")
+        _write_log_line(f"[{_now_iso()}] {label} restart completed successfully.")
+        _update_state(
+            status="ok",
+            running=False,
+            current_step="",
+            last_finished_at=_now_iso(),
+            last_result=f"{label} restarted successfully.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _write_log_line(f"[{_now_iso()}] ERROR: {exc}")
+        _update_state(
+            status="error",
+            running=False,
+            current_step="",
+            last_finished_at=_now_iso(),
+            last_error=str(exc),
+            last_result=f"{label} restart failed.",
+        )
+
+
+def _run_service_restart_worker(service: str) -> None:
+    if HELPER_MODE == "internal-local":
+        _run_internal_local_service_restart_worker(service)
+        return
+    _run_managed_service_restart_worker(service)
+
+
 @app.on_event("startup")
 def _normalize_state_after_restart() -> None:
     state = _load_state()
@@ -411,8 +517,8 @@ def _normalize_state_after_restart() -> None:
         state["running"] = False
         state["status"] = "error"
         state["current_step"] = ""
-        state["last_error"] = "Updater service restarted while an update was running."
-        state["last_result"] = "Previous update was interrupted."
+        state["last_error"] = "Updater service restarted while an operation was running."
+        state["last_result"] = "Previous operation was interrupted."
         state["last_finished_at"] = _now_iso()
         _save_state(state)
 
@@ -458,6 +564,48 @@ def run_update(x_aria_update_token: str | None = Header(default=None, alias="X-A
         worker = threading.Thread(target=_run_update_worker, daemon=True, name="aria-managed-update")
         worker.start()
     return JSONResponse(status_code=202, content={"ok": True, "status": "accepted", "running": True})
+
+
+@app.post("/service/restart")
+def restart_service(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    x_aria_update_token: str | None = Header(default=None, alias="X-ARIA-Update-Token"),
+) -> JSONResponse:
+    _require_auth(x_aria_update_token)
+    service = str((payload or {}).get("service", "") or "").strip().lower()
+    if service not in SERVICE_RESTART_TARGETS:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "detail": f"Unsupported service restart target: {service or '-'}"},
+        )
+    with STATE_LOCK:
+        state = _load_state()
+        if state.get("running"):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "ok": False,
+                    "detail": "Another helper operation is already running.",
+                    "status": state.get("status", "running"),
+                    "running": True,
+                },
+            )
+        worker = threading.Thread(
+            target=_run_service_restart_worker,
+            args=(service,),
+            daemon=True,
+            name=f"aria-service-restart-{service}",
+        )
+        worker.start()
+    return JSONResponse(
+        status_code=202,
+        content={
+            "ok": True,
+            "status": "accepted",
+            "running": True,
+            "service": service,
+        },
+    )
 
 
 def main() -> None:

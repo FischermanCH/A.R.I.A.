@@ -52,10 +52,23 @@ CONNECTION_ADMIN_SPECS: dict[str, dict[str, Any]] = {
         "secret_keys": ["connections.http_api.{ref}.auth_token"],
         "success_message": "HTTP-API-Profil gelöscht",
     },
+    "google_calendar": {
+        "health_prefix": "google_calendar",
+        "secret_keys": [
+            "connections.google_calendar.{ref}.client_secret",
+            "connections.google_calendar.{ref}.refresh_token",
+        ],
+        "success_message": "Google-Calendar-Profil gelöscht",
+    },
     "rss": {
         "health_prefix": "rss",
         "secret_keys": [],
         "success_message": "RSS-Profil gelöscht",
+    },
+    "website": {
+        "health_prefix": "website",
+        "secret_keys": [],
+        "success_message": "Webseiten-Profil gelöscht",
     },
     "searxng": {
         "health_prefix": "searxng",
@@ -95,6 +108,11 @@ CONNECTION_CREATE_SPECS: dict[str, dict[str, Any]] = {
         "required": ["feed_url"],
         "success_message": "RSS-Profil erstellt",
     },
+    "website": {
+        "section": "website",
+        "required": ["url"],
+        "success_message": "Webseiten-Profil erstellt",
+    },
     "webhook": {
         "section": "webhook",
         "required": ["url"],
@@ -104,6 +122,11 @@ CONNECTION_CREATE_SPECS: dict[str, dict[str, Any]] = {
         "section": "http_api",
         "required": ["base_url"],
         "success_message": "HTTP-API-Profil erstellt",
+    },
+    "google_calendar": {
+        "section": "google_calendar",
+        "required": ["calendar_id", "client_id", "client_secret", "refresh_token"],
+        "success_message": "Google-Calendar-Profil erstellt",
     },
     "searxng": {
         "section": "searxng",
@@ -148,6 +171,10 @@ CONNECTION_UPDATE_SPECS: dict[str, dict[str, Any]] = {
         "section": "rss",
         "success_message": "RSS-Profil aktualisiert",
     },
+    "website": {
+        "section": "website",
+        "success_message": "Webseiten-Profil aktualisiert",
+    },
     "webhook": {
         "section": "webhook",
         "success_message": "Webhook-Profil aktualisiert",
@@ -155,6 +182,10 @@ CONNECTION_UPDATE_SPECS: dict[str, dict[str, Any]] = {
     "http_api": {
         "section": "http_api",
         "success_message": "HTTP-API-Profil aktualisiert",
+    },
+    "google_calendar": {
+        "section": "google_calendar",
+        "success_message": "Google-Calendar-Profil aktualisiert",
     },
     "searxng": {
         "section": "searxng",
@@ -434,6 +465,17 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
     elif clean_kind == "rss":
         rows[ref] = {
             "feed_url": str(row_value.get("feed_url", "")).strip(),
+            "group_name": str(row_value.get("group_name", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+    elif clean_kind == "website":
+        rows[ref] = {
+            "url": str(row_value.get("url", "")).strip(),
+            "group_name": str(row_value.get("group_name", "")).strip(),
             "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
             "title": str(row_value.get("title", "")).strip(),
             "description": str(row_value.get("description", "")).strip(),
@@ -469,6 +511,20 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
             if not store:
                 raise ValueError("Security Store ist für HTTP-API-Tokens erforderlich.")
             store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
+    elif clean_kind == "google_calendar":
+        rows[ref] = {
+            "calendar_id": str(row_value.get("calendar_id", "primary")).strip() or "primary",
+            "client_id": str(row_value.get("client_id", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        if not store:
+            raise ValueError("Security Store ist für Google-Calendar-Secrets erforderlich.")
+        store.set_secret(f"connections.google_calendar.{ref}.client_secret", str(row_value.get("client_secret", "")).strip())
+        store.set_secret(f"connections.google_calendar.{ref}.refresh_token", str(row_value.get("refresh_token", "")).strip())
     elif clean_kind == "mqtt":
         rows[ref] = {
             "host": str(row_value.get("host", "")).strip(),
@@ -626,6 +682,18 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         feed_url = str(update_payload.get("feed_url", "")).strip()
         if feed_url:
             row_value["feed_url"] = feed_url
+        group_name = str(update_payload.get("group_name", "")).strip()
+        if group_name:
+            row_value["group_name"] = group_name
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+    elif clean_kind == "website":
+        url = str(update_payload.get("url", "")).strip()
+        if url:
+            row_value["url"] = url
+        group_name = str(update_payload.get("group_name", "")).strip()
+        if group_name:
+            row_value["group_name"] = group_name
         if "timeout_seconds" in update_payload:
             row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
     elif clean_kind == "webhook":
@@ -651,6 +719,22 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
             if not store:
                 raise ValueError("Security Store ist für HTTP-API-Tokens erforderlich.")
             store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
+    elif clean_kind == "google_calendar":
+        for field in ("calendar_id", "client_id"):
+            value = str(update_payload.get(field, "")).strip()
+            if value:
+                row_value[field] = value
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+        client_secret = str(update_payload.get("client_secret", "")).strip()
+        refresh_token = str(update_payload.get("refresh_token", "")).strip()
+        if client_secret or refresh_token:
+            if not store:
+                raise ValueError("Security Store ist für Google-Calendar-Secrets erforderlich.")
+            if client_secret:
+                store.set_secret(f"connections.google_calendar.{ref}.client_secret", client_secret)
+            if refresh_token:
+                store.set_secret(f"connections.google_calendar.{ref}.refresh_token", refresh_token)
     elif clean_kind == "mqtt":
         for field in ("host", "user", "topic"):
             value = str(update_payload.get(field, "")).strip()

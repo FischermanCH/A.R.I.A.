@@ -1,0 +1,27 @@
+{% from "_icons.html" import icon %}
+<section class="floating-card config-domain-intro">
+  <div class="page-title-row"><span>{{ icon('settings', 'page-title-icon') }}</span><h2>{{ config_page_heading }}</h2></div>
+  {% if error_message %}
+  <div class="alert err">{{ error_message }}</div>
+  {% endif %}
+  {% if saved %}
+  <div class="alert ok">{{ tr(request, 'config.saved', 'Konfiguration gespeichert.') }}</div>
+  {% endif %}
+  {% if info_message %}
+  <div class="alert ok">{{ info_message }}</div>
+  {% endif %}
+  {% if show_overview_checks %}
+  <div class="memory-health-grid">
+    {% for check in overview_checks %}
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ check.status }}"></span>
+        <h3>{{ check.title }}</h3>
+      </div>
+      <p>{{ check.summary }}</p>
+      <small>{{ check.meta }}</small>
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

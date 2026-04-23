@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="skills-layout skills-clean-layout skills-overview-layout">
+  {% include "_skills_nav.html" %}
+  {% include "_skills_page_header.html" %}
+
+  <section class="floating-card skills-overview-links">
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/skills/start">
+        <span class="submenu-icon-wrap">{{ icon('plus', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'skills.start_title', 'Skill starten') }}</span><span class="submenu-desc">{{ tr(request, 'skills.start_page_card_desc', 'Wizard und JSON-Import an einem Startpunkt, ohne die eigentlichen Skill-Listen zu überladen.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/skills/mine">
+        <span class="submenu-icon-wrap">{{ icon('skills', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'skills.my_skills_title', 'Meine Skills') }}</span><span class="submenu-desc">{{ tr(request, 'skills.mine_page_card_desc', 'Nur deine eigenen Fähigkeiten, getrennt von Core und Vorlagen.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/skills/system">
+        <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'skills.system_title', 'Core / System') }}</span><span class="submenu-desc">{{ tr(request, 'skills.system_page_card_desc', 'Die eingebauten Grundfähigkeiten von ARIA gebündelt an einem eigenen Ort.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/skills/templates">
+        <span class="submenu-icon-wrap">{{ icon('upload', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'skills.templates_title', 'Vorlagen') }}</span><span class="submenu-desc">{{ tr(request, 'skills.templates_page_card_desc', 'Mitgelieferte Sample-Skills als getrennte Vorlagen-Bibliothek.') }}</span></span>
+      </a>
+    </div>
+  </section>
+</main>
+{% endblock %}

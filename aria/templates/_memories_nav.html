@@ -1,0 +1,21 @@
+{% from "_icons.html" import icon %}
+<nav class="memory-subnav" aria-label="{{ tr(request, 'memories_overview.nav_label', 'Memory Navigation') }}">
+  <a class="memory-subnav-item{% if memory_nav == 'overview' %} active{% endif %}" href="/memories">
+    {{ icon('memories', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'memories_overview.hub_link', 'Memory-Übersicht') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if memory_nav == 'explorer' %} active{% endif %}" href="/memories/explorer">
+    {{ icon('searxng', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'memories_overview.explorer_title', 'Memory Explorer') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if memory_nav == 'map' %} active{% endif %}" href="/memories/map">
+    {{ icon('memories', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'memories.map', 'Memory Map') }}</span>
+  </a>
+  {% if request.state.can_access_advanced_config %}
+  <a class="memory-subnav-item{% if memory_nav == 'setup' %} active{% endif %}" href="/memories/config">
+    {{ icon('settings', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'memories.setup', 'Memory-Setup') }}</span>
+  </a>
+  {% endif %}
+</nav>

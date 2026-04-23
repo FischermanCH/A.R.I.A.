@@ -1,0 +1,33 @@
+<section class="floating-card connections-section">
+  {% if request.state.can_access_advanced_config %}
+  <h3>{{ tr(request, 'connections_overview.section_samples_title', 'Mitgelieferte Beispiel-Verbindungen') }}</h3>
+  <p class="hint-text">{{ tr(request, 'connections_overview.section_samples_desc', 'Beispielprofile aus /app/samples/connections zum schnellen Import in deine ARIA-Instanz.') }}</p>
+  <div class="config-group-grid">
+    {% for sample in sample_connection_rows %}
+    <article class="config-group-card">
+      <div class="skill-card-head">
+        <h3>{{ sample.title }}</h3>
+        <span class="skill-state is-off">{{ sample.label }}</span>
+      </div>
+      {% if sample.description %}
+      <p>{{ sample.description }}</p>
+      {% endif %}
+      <p class="hint-text">{{ sample.ref }} · {{ sample.file_name }}</p>
+      <form class="inline-form" method="post" action="/config/connections/import-sample">
+        <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">
+        <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
+        <button type="submit">{{ tr(request, 'config.sample_connections_import_btn', 'Sample importieren') }}</button>
+      </form>
+    </article>
+    {% else %}
+    <article class="config-group-card">
+      <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Sample-Connections gefunden') }}</h3>
+      <p>{{ tr(request, 'config.sample_connections_empty_desc', 'Im Container wurde kein samples/connections-Verzeichnis gefunden.') }}</p>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade Admin-Modus') }}</h3>
+  <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktiviertem Admin-Modus wird dieser Bereich sichtbar.') }}</p>
+  {% endif %}
+</section>

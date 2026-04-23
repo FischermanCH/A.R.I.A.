@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout">
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' %}hidden{% endif %}>
+    {% if website_selected_explicit %}
+    {% if website_test_status == 'ok' or website_test_status == 'error' %}
+    <article class="connection-test-card status-{{ website_test_status }}">
+      <div class="connection-test-head">
+        <span class="health-lamp status-{{ website_test_status }}"></span>
+        <strong>{% if website_test_status == 'ok' %}{{ tr(request,'config_conn.website_test_ok','Website connection test successful') }}{% else %}{{ tr(request,'config_conn.website_test_error','Website connection test failed') }}{% endif %}</strong>
+      </div>
+      <small>{% if website_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+
+    <div class="connection-status-grid">
+      {% for item in website_status_rows %}
+      {% if item.selected %}
+      <article class="connection-test-card status-{{ item.status }} current-profile">
+        <div class="connection-test-head">
+          <span class="health-lamp status-{{ item.status }}"></span>
+          <strong>{{ item.display_name }}</strong>
+          {% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}
+          <span class="connection-current-badge">{{ tr(request,'config_conn.current','Current') }}</span>
+        </div>
+        <small class="connection-status-target">{{ item.target }}</small>
+        {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+        {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
+        <small>{{ item.message }}</small>
+      </article>
+      {% endif %}
+      {% endfor %}
+    </div>
+
+    <form method="post" action="/config/connections/websites/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_website_ref }}">
+      {% set schema_fields = website_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'website_edit' %}
+      {% set meta_llm_kind = 'website' %}
+      {% set meta_llm_endpoint = '/config/connections/websites/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['url', 'group_name'] %}
+      {% set meta_values = selected_website %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request,'config_conn.website_save_profile','Save watched website') }}</button>
+    </form>
+
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'website' %}
+    {% set delete_ref = selected_website_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="connection-status-stack">
+      <div class="connection-status-head">
+        <h2>{{ tr(request,'config_conn.website_groups_title','Beobachtete Quellen') }}</h2>
+        <small>{{ tr(request,'config_conn.website_groups_hint','ARIA gruppiert beobachtete Webseiten nach ihrer Kategorie, damit Quellen mit ähnlichem Thema beieinander bleiben.') }}</small>
+      </div>
+      {% if website_status_groups %}
+      <div class="rss-group-stack">
+        {% for group in website_status_groups %}
+        <details class="skill-details rss-group-card" {% if loop.first %}open{% endif %}>
+          <summary>
+            <div>
+              <h3>{{ group.name }}</h3>
+              <small>{{ group.total }} {{ tr(request,'config_conn.profiles','Profiles') }} · {{ group.healthy }} {{ tr(request,'config_conn.healthy','Healthy') }} · {{ group.issues }} {{ tr(request,'config_conn.issues','Issues') }}</small>
+            </div>
+          </summary>
+          <div class="skill-details-content connection-status-grid">
+            {% for item in group.rows %}
+            <a
+              href="/config/connections/websites?mode=edit&website_ref={{ item.ref|urlencode }}"
+              class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}"
+            >
+              <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}</div>
+              <small class="connection-status-target">{{ item.target }}</small>
+              {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
+              {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
+              <small>{{ item.message }}</small>
+            </a>
+            {% endfor %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="skill-summary"><span>{{ tr(request,'config_conn.website_no_profiles_hint','No watched websites yet. Save a source and ARIA will test it automatically.') }}</span></div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+
+    <div class="skill-summary connection-flow-note">
+      <strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong>
+      <span>{{ tr(request,'config_conn.website_recommended_flow_text','1) URL eintragen. 2) Metadaten per LLM ergänzen lassen. 3) Speichern. 4) ARIA testet die Quelle und ordnet sie in eine Gruppe ein.') }}</span>
+    </div>
+
+    <form method="post" action="/config/connections/websites/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = website_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'website_new' %}
+      {% set meta_llm_kind = 'website' %}
+      {% set meta_llm_endpoint = '/config/connections/websites/suggest-metadata' %}
+      {% set meta_llm_source_fields = ['url', 'group_name'] %}
+      {% set meta_values = {} %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request,'config_conn.website_save_profile','Save watched website') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

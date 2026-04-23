@@ -1,0 +1,14 @@
+{% if not skills_readonly %}
+<script>
+  (function () {
+    const form = document.getElementById("skills-toggles-form");
+    if (!form) return;
+    const boxes = form.querySelectorAll('input[type="checkbox"]');
+    boxes.forEach(function (box) {
+      box.addEventListener("change", function () {
+        form.submit();
+      });
+    });
+  })();
+</script>
+{% endif %}

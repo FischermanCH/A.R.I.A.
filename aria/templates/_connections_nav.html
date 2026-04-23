@@ -1,0 +1,19 @@
+{% from "_icons.html" import icon %}
+<nav class="memory-subnav" aria-label="{{ tr(request, 'connections_overview.nav_label', 'Verbindungs-Navigation') }}">
+  <a class="memory-subnav-item{% if connections_nav == 'overview' %} active{% endif %}" href="/connections">
+    {{ icon('connections', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'connections_overview.title', 'Verbindungen') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if connections_nav == 'status' %} active{% endif %}" href="/connections/status">
+    {{ icon('stats', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'connections_overview.nav_status', 'Live-Status') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if connections_nav == 'types' %} active{% endif %}" href="/connections/types">
+    {{ icon('settings', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'connections_overview.section_types_title', 'Verbindungstypen') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if connections_nav == 'templates' %} active{% endif %}" href="/connections/templates">
+    {{ icon('upload', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'connections_overview.nav_templates', 'Vorlagen') }}</span>
+  </a>
+</nav>

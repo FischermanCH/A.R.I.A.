@@ -41,6 +41,256 @@ DailyTimeFromCron = Callable[[str], str]
 BASE_DIR = Path(__file__).resolve().parents[2]
 SAMPLE_SKILLS_DIR = BASE_DIR / "samples" / "skills"
 
+_SKILL_TYPE_PRESETS: dict[str, dict[str, Any]] = {
+    "custom": {
+        "label": "Custom",
+        "hint": "Freier Skill ohne starke Vorgaben. Du bestimmst Schritte und Details selbst.",
+        "category": "custom",
+        "description": "",
+        "default_step_type": "ssh_run",
+        "default_step_name": "",
+        "default_params": {},
+    },
+    "health_check": {
+        "label": "Health Check",
+        "hint": "Fuehrt einen sicheren Status-Check auf einem Host oder Dienst aus.",
+        "category": "monitoring",
+        "description": "Prueft einen Host oder Dienst und liefert einen kurzen Status.",
+        "default_step_type": "ssh_run",
+        "default_step_name": "Health Check",
+        "default_params": {
+            "command": "uptime",
+        },
+    },
+    "monitor": {
+        "label": "Monitor",
+        "hint": "Liest eine Quelle aus und bereitet neue Ereignisse oder Aenderungen fuer Folge-Schritte vor.",
+        "category": "monitoring",
+        "description": "Liest eine Quelle aus und bereitet Aenderungen fuer weitere Schritte vor.",
+        "default_step_type": "rss_read",
+        "default_step_name": "Quelle lesen",
+        "default_params": {},
+    },
+    "notify": {
+        "label": "Notify",
+        "hint": "Sendet eine kurze Benachrichtigung an Discord oder in den Chat.",
+        "category": "automation",
+        "description": "Sendet eine kurze Benachrichtigung an einen Ausgabekanal.",
+        "default_step_type": "discord_send",
+        "default_step_name": "Benachrichtigung senden",
+        "default_params": {
+            "message": "Status-Update:\n{prev_output}",
+        },
+    },
+    "fetch": {
+        "label": "Fetch",
+        "hint": "Liest Daten oder Dateien aus einer Connection und gibt sie an weitere Schritte weiter.",
+        "category": "automation",
+        "description": "Liest Daten oder Dateien aus einer Connection.",
+        "default_step_type": "sftp_read",
+        "default_step_name": "Daten lesen",
+        "default_params": {
+            "remote_path": "/",
+        },
+    },
+    "sync": {
+        "label": "Sync",
+        "hint": "Schreibt vorbereitete Inhalte kontrolliert zurueck auf ein Zielsystem.",
+        "category": "automation",
+        "description": "Schreibt vorbereitete Inhalte kontrolliert auf ein Zielsystem.",
+        "default_step_type": "sftp_write",
+        "default_step_name": "Daten schreiben",
+        "default_params": {
+            "remote_path": "/",
+            "content": "{prev_output}",
+        },
+    },
+}
+
+_SKILL_TYPE_ALLOWED_STEP_TYPES: dict[str, list[str]] = {
+    "custom": [
+        "ssh_run",
+        "sftp_read",
+        "sftp_write",
+        "smb_read",
+        "smb_write",
+        "rss_read",
+        "llm_transform",
+        "discord_send",
+        "chat_send",
+    ],
+    "health_check": ["ssh_run", "llm_transform", "discord_send", "chat_send"],
+    "monitor": ["rss_read", "llm_transform", "discord_send", "chat_send"],
+    "notify": ["discord_send", "chat_send", "llm_transform"],
+    "fetch": ["sftp_read", "smb_read", "llm_transform", "discord_send", "chat_send"],
+    "sync": ["sftp_write", "smb_write", "llm_transform", "discord_send", "chat_send"],
+}
+
+_SKILL_TYPE_FOLLOWUP_STEPS: dict[str, list[dict[str, Any]]] = {
+    "custom": [],
+    "health_check": [
+        {
+            "step_type": "llm_transform",
+            "label": "Zusammenfassen",
+            "name": "Kurz auswerten",
+            "params": {
+                "prompt": "Fasse das Ergebnis kurz und klar zusammen:\n{prev_output}",
+            },
+        },
+        {
+            "step_type": "discord_send",
+            "label": "An Discord senden",
+            "name": "Status an Discord",
+            "params": {
+                "message": "Health Check Ergebnis:\n{prev_output}",
+            },
+        },
+        {
+            "step_type": "chat_send",
+            "label": "Im Chat antworten",
+            "name": "Antwort an Chat",
+            "params": {
+                "chat_message": "Health Check Ergebnis:\n{prev_output}",
+            },
+        },
+    ],
+    "monitor": [
+        {
+            "step_type": "llm_transform",
+            "label": "Aenderungen zusammenfassen",
+            "name": "Aenderungen auswerten",
+            "params": {
+                "prompt": "Pruefe die gelesenen Daten auf neue oder wichtige Aenderungen und fasse sie kurz zusammen:\n{prev_output}",
+            },
+        },
+        {
+            "step_type": "discord_send",
+            "label": "Als Alert senden",
+            "name": "Alert an Discord",
+            "params": {
+                "message": "Monitor-Update:\n{prev_output}",
+            },
+        },
+    ],
+    "notify": [
+        {
+            "step_type": "llm_transform",
+            "label": "Nachricht vorbereiten",
+            "name": "Nachricht verdichten",
+            "params": {
+                "prompt": "Formuliere aus dem vorherigen Ergebnis eine kurze, freundliche Benachrichtigung:\n{prev_output}",
+            },
+        },
+        {
+            "step_type": "chat_send",
+            "label": "Auch im Chat senden",
+            "name": "Antwort an Chat",
+            "params": {
+                "chat_message": "Benachrichtigung:\n{prev_output}",
+            },
+        },
+    ],
+    "fetch": [
+        {
+            "step_type": "llm_transform",
+            "label": "Inhalt zusammenfassen",
+            "name": "Inhalt auswerten",
+            "params": {
+                "prompt": "Fasse den gelesenen Inhalt kurz zusammen und hebe Wichtiges hervor:\n{prev_output}",
+            },
+        },
+        {
+            "step_type": "discord_send",
+            "label": "Ergebnis an Discord",
+            "name": "Ergebnis senden",
+            "params": {
+                "message": "Fetch-Ergebnis:\n{prev_output}",
+            },
+        },
+    ],
+    "sync": [
+        {
+            "step_type": "chat_send",
+            "label": "Sync bestaetigen",
+            "name": "Sync bestaetigen",
+            "params": {
+                "chat_message": "Sync abgeschlossen:\n{prev_output}",
+            },
+        },
+        {
+            "step_type": "discord_send",
+            "label": "Sync an Discord melden",
+            "name": "Sync melden",
+            "params": {
+                "message": "Sync abgeschlossen:\n{prev_output}",
+            },
+        },
+    ],
+}
+
+_SKILL_TYPE_CONNECTION_CHOICES: dict[str, list[dict[str, str]]] = {
+    "custom": [],
+    "health_check": [
+        {
+            "kind": "ssh",
+            "label": "SSH-Verbindung",
+            "field": "connection_ref",
+            "step_type": "ssh_run",
+            "hint": "Waehle den Host oder Dienst, auf dem der Check laufen soll.",
+        }
+    ],
+    "monitor": [
+        {
+            "kind": "rss",
+            "label": "RSS-Quelle",
+            "field": "rss_connection_ref",
+            "step_type": "rss_read",
+            "hint": "Waehle die Quelle, die der Monitor beobachten soll.",
+        }
+    ],
+    "notify": [
+        {
+            "kind": "discord",
+            "label": "Discord-Ziel",
+            "field": "discord_connection_ref",
+            "step_type": "discord_send",
+            "hint": "Waehle den Kanal oder Webhook fuer Benachrichtigungen.",
+        }
+    ],
+    "fetch": [
+        {
+            "kind": "sftp",
+            "label": "SFTP-Verbindung",
+            "field": "sftp_connection_ref",
+            "step_type": "sftp_read",
+            "hint": "Waehle die Quelle, aus der Dateien oder Daten gelesen werden.",
+        },
+        {
+            "kind": "smb",
+            "label": "SMB-Verbindung",
+            "field": "smb_connection_ref",
+            "step_type": "smb_read",
+            "hint": "Alternativ kannst du statt SFTP auch einen SMB-Share lesen.",
+        },
+    ],
+    "sync": [
+        {
+            "kind": "sftp",
+            "label": "SFTP-Ziel",
+            "field": "sftp_connection_ref",
+            "step_type": "sftp_write",
+            "hint": "Waehle das Zielsystem, auf das geschrieben werden soll.",
+        },
+        {
+            "kind": "smb",
+            "label": "SMB-Ziel",
+            "field": "smb_connection_ref",
+            "step_type": "smb_write",
+            "hint": "Alternativ kannst du statt SFTP auch auf einen SMB-Share schreiben.",
+        },
+    ],
+}
+
 
 def _sanitize_return_to(value: str | None) -> str:
     candidate = str(value or "").strip()
@@ -221,6 +471,112 @@ def _build_sample_skill_rows() -> list[dict[str, str]]:
     return rows
 
 
+def _sanitize_skill_type(value: str | None) -> str:
+    key = str(value or "").strip().lower()
+    return key if key in _SKILL_TYPE_PRESETS else "custom"
+
+
+def _skill_type_options() -> list[dict[str, str]]:
+    return [
+        {
+            "key": key,
+            "label": str(meta.get("label", key)).strip() or key,
+            "hint": str(meta.get("hint", "")).strip(),
+        }
+        for key, meta in _SKILL_TYPE_PRESETS.items()
+    ]
+
+
+def _skill_type_allowed_steps() -> dict[str, list[str]]:
+    return {key: list(values) for key, values in _SKILL_TYPE_ALLOWED_STEP_TYPES.items()}
+
+
+def _skill_type_followup_steps() -> dict[str, list[dict[str, Any]]]:
+    return {key: [dict(item) for item in values] for key, values in _SKILL_TYPE_FOLLOWUP_STEPS.items()}
+
+
+def _skill_type_connection_choices() -> dict[str, list[dict[str, str]]]:
+    return {key: [dict(item) for item in values] for key, values in _SKILL_TYPE_CONNECTION_CHOICES.items()}
+
+
+def _connection_options_by_kind(settings: Any) -> dict[str, list[dict[str, str]]]:
+    connections = getattr(settings, "connections", None)
+    return {
+        "ssh": _build_connection_options(getattr(connections, "ssh", {}) or {}),
+        "sftp": _build_connection_options(getattr(connections, "sftp", {}) or {}),
+        "smb": _build_connection_options(getattr(connections, "smb", {}) or {}),
+        "rss": _build_connection_options(getattr(connections, "rss", {}) or {}),
+        "discord": _build_connection_options(getattr(connections, "discord", {}) or {}),
+    }
+
+
+def _infer_skill_type(loaded: dict[str, Any] | None) -> str:
+    if not isinstance(loaded, dict) or not loaded:
+        return "health_check"
+    steps = _normalize_skill_steps_manifest((loaded or {}).get("steps", []))
+    if len(steps) != 1:
+        return "custom"
+    step = steps[0] if isinstance(steps[0], dict) else {}
+    step_type = str(step.get("type", "")).strip().lower()
+    if step_type == "ssh_run":
+        return "health_check"
+    if step_type == "rss_read":
+        return "monitor"
+    if step_type in {"discord_send", "chat_send"}:
+        return "notify"
+    if step_type in {"sftp_read", "smb_read"}:
+        return "fetch"
+    if step_type in {"sftp_write", "smb_write"}:
+        return "sync"
+    return "custom"
+
+
+def _apply_skill_type_defaults(
+    *,
+    skill_type: str,
+    wizard_mode: str,
+    skill_category: str,
+    skill_description: str,
+    steps: list[dict[str, Any]],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    clean_type = _sanitize_skill_type(skill_type)
+    clean_mode = _sanitize_wizard_mode(wizard_mode)
+    if clean_mode != "simple" or clean_type == "custom":
+        return skill_category, skill_description, steps
+
+    preset = _SKILL_TYPE_PRESETS.get(clean_type, _SKILL_TYPE_PRESETS["custom"])
+    effective_category = str(skill_category or "").strip() or "custom"
+    if effective_category == "custom":
+        effective_category = str(preset.get("category", "custom")).strip() or "custom"
+    effective_description = str(skill_description or "").strip() or str(preset.get("description", "")).strip()
+
+    if not steps:
+        steps = [
+            {
+                "id": "s1",
+                "name": str(preset.get("default_step_name", "")).strip(),
+                "type": str(preset.get("default_step_type", "ssh_run")).strip() or "ssh_run",
+                "params": dict(preset.get("default_params", {}) or {}),
+                "on_error": "stop",
+            }
+        ]
+        return effective_category, effective_description, steps
+
+    first = dict(steps[0] or {})
+    first["type"] = str(preset.get("default_step_type", first.get("type", "ssh_run"))).strip() or "ssh_run"
+    if not str(first.get("name", "")).strip():
+        first["name"] = str(preset.get("default_step_name", "")).strip()
+    params = first.get("params", {})
+    if not isinstance(params, dict):
+        params = {}
+    for key, value in dict(preset.get("default_params", {}) or {}).items():
+        if not str(params.get(key, "")).strip():
+            params[key] = str(value).strip()
+    first["params"] = params
+    steps = [first, *steps[1:]]
+    return effective_category, effective_description, steps
+
+
 def _normalize_custom_cfg(raw: dict[str, Any]) -> dict[str, Any]:
     skills_cfg = raw.get("skills", {})
     if not isinstance(skills_cfg, dict):
@@ -389,6 +745,50 @@ def _extract_steps_from_form(form: Any) -> list[dict[str, Any]]:
     return steps
 
 
+def _sanitize_wizard_mode(value: str | None) -> str:
+    mode = str(value or "").strip().lower()
+    return "advanced" if mode == "advanced" else "simple"
+
+
+def _default_wizard_mode(loaded: dict[str, Any] | None) -> str:
+    if not isinstance(loaded, dict) or not loaded:
+        return "simple"
+    steps = loaded.get("steps", [])
+    if not isinstance(steps, list):
+        steps = []
+    if len(steps) > 1:
+        return "advanced"
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("on_error", "stop")).strip().lower() == "continue":
+            return "advanced"
+        if isinstance(step.get("condition"), dict) and step.get("condition"):
+            return "advanced"
+    if str((loaded.get("ui", {}) or {}).get("config_path", "")).strip():
+        return "advanced"
+    return "simple"
+
+
+_SKILL_SURFACE_PATHS = {
+    "/skills",
+    "/skills/start",
+    "/skills/mine",
+    "/skills/system",
+    "/skills/templates",
+}
+
+
+def _skill_surface_path(candidate: str | None, *, fallback: str = "/skills") -> str:
+    clean = _sanitize_return_to(candidate)
+    if clean:
+        parsed = urlparse(clean)
+        path = parsed.path or ""
+        if path in _SKILL_SURFACE_PATHS:
+            return path
+    return fallback
+
+
 def register_skills_routes(
     app: FastAPI,
     *,
@@ -407,37 +807,276 @@ def register_skills_routes(
     daily_time_to_cron: DailyTimeToCron,
     daily_time_from_cron: DailyTimeFromCron,
 ) -> None:
-    @app.get("/skills", response_class=HTMLResponse)
-    async def skills_page(request: Request, saved: int = 0, error: str = "", info: str = "") -> HTMLResponse:
+    def _build_skills_overview_checks(
+        *,
+        lang: str,
+        skill_rows: list[dict[str, Any]],
+        custom_rows: list[dict[str, Any]],
+        sample_skill_rows: list[dict[str, str]],
+        advanced_mode: bool,
+    ) -> list[dict[str, str]]:
+        return [
+            {
+                "title": translate(lang, "skills.my_skills_title", "Meine Skills"),
+                "status": "ok" if custom_rows else "warn",
+                "summary": str(len(custom_rows)),
+                "meta": translate(lang, "skills.overview_custom_meta", "{count} aktiv").replace(
+                    "{count}", str(sum(1 for row in custom_rows if bool(row.get("enabled"))))
+                ),
+            },
+            {
+                "title": translate(lang, "skills.system_title", "Core / System"),
+                "status": "ok" if skill_rows else "warn",
+                "summary": str(len(skill_rows)),
+                "meta": translate(lang, "skills.overview_core_meta", "{count} aktiv").replace(
+                    "{count}", str(sum(1 for row in skill_rows if bool(row.get("enabled"))))
+                ),
+            },
+            {
+                "title": translate(lang, "skills.templates_title", "Vorlagen"),
+                "status": "ok" if sample_skill_rows else "warn",
+                "summary": str(len(sample_skill_rows)),
+                "meta": translate(lang, "skills.overview_templates_meta", "importierbare Samples"),
+            },
+            {
+                "title": translate(lang, "skills.overview_mode_title", "Modus"),
+                "status": "ok" if advanced_mode else "warn",
+                "summary": (
+                    translate(lang, "skills.overview_mode_edit", "Bearbeiten")
+                    if advanced_mode
+                    else translate(lang, "skills.overview_mode_readonly", "Nur ansehen")
+                ),
+                "meta": (
+                    translate(lang, "skills.overview_mode_meta_admin", "Admin-Modus aktiv")
+                    if advanced_mode
+                    else translate(lang, "skills.overview_mode_meta_readonly", "Aenderungen sind gerade gesperrt")
+                ),
+            },
+        ]
+
+    def _build_skills_page_context(
+        request: Request,
+        *,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        logical_back_fallback: str = "/skills",
+        page_return_to: str = "/skills",
+        skills_nav: str = "overview",
+        page_heading: str,
+        show_overview_checks: bool = False,
+    ) -> dict[str, Any]:
         settings = get_settings()
         username = get_username_from_request(request)
         lang = str(getattr(request.state, "lang", "de") or "de")
-        return_to = _set_logical_back_url(request, fallback="/")
+        _set_logical_back_url(request, fallback=logical_back_fallback)
         custom_cfg = _normalize_custom_cfg(read_raw_config())
         custom_manifests, custom_errors = _load_custom_skill_manifests()
         advanced_mode = bool(getattr(request.state, "can_access_advanced_config", False))
+        skill_rows = _build_skill_rows(lang, settings, translate)
+        custom_rows = _build_custom_rows(
+            custom_manifests,
+            custom_cfg,
+            lang,
+            localize_custom_skill_description,
+            daily_time_from_cron,
+        )
+        sample_skill_rows = _build_sample_skill_rows()
+        overview_checks = _build_skills_overview_checks(
+            lang=lang,
+            skill_rows=skill_rows,
+            custom_rows=custom_rows,
+            sample_skill_rows=sample_skill_rows,
+            advanced_mode=advanced_mode,
+        )
+        has_custom_skills = bool(custom_rows)
+        next_steps = [
+            {
+                "icon": "plus",
+                "title": translate(
+                    lang,
+                    "skills.next_step_create_title_empty" if not has_custom_skills else "skills.next_step_create_title_more",
+                    "Ersten Skill erstellen" if not has_custom_skills else "Neuen Skill erstellen",
+                ),
+                "desc": translate(
+                    lang,
+                    "skills.next_step_create_desc_empty" if not has_custom_skills else "skills.next_step_create_desc_more",
+                    (
+                        "Der Wizard bleibt der schnellste Einstieg fuer einen ersten gefuehrten Skill."
+                        if not has_custom_skills
+                        else "Nutze den Wizard fuer einen weiteren gefuehrten Skill, ohne erst JSON von Hand zu pflegen."
+                    ),
+                ),
+                "href": "/skills/start",
+                "badge": translate(lang, "skills.next_step_badge_wizard", "Wizard"),
+            },
+            {
+                "icon": "upload",
+                "title": translate(
+                    lang,
+                    "skills.next_step_template_title",
+                    "Vorlage uebernehmen" if not has_custom_skills else "Weitere Vorlage pruefen",
+                ),
+                "desc": translate(
+                    lang,
+                    "skills.next_step_template_desc",
+                    (
+                        "Sample-Skills geben dir einen schnellen Startpunkt, wenn du den Ablauf nicht ganz von null bauen willst."
+                    ),
+                ),
+                "href": "/skills/templates",
+                "badge": str(len(sample_skill_rows)),
+            },
+            {
+                "icon": "skills",
+                "title": translate(
+                    lang,
+                    "skills.next_step_manage_title_mine" if has_custom_skills else "skills.next_step_manage_title_system",
+                    "Eigene Skills pruefen" if has_custom_skills else "Core / System kennenlernen",
+                ),
+                "desc": translate(
+                    lang,
+                    "skills.next_step_manage_desc_mine" if has_custom_skills else "skills.next_step_manage_desc_system",
+                    (
+                        "Hier siehst du nur deine eigenen Faehigkeiten und kannst sie weiterentwickeln oder aufraeumen."
+                        if has_custom_skills
+                        else "Schau dir zuerst die eingebauten Faehigkeiten an, bevor du eigene Skills daneben aufbaust."
+                    ),
+                ),
+                "href": "/skills/mine" if has_custom_skills else "/skills/system",
+                "badge": str(len(custom_rows)) if has_custom_skills else str(len(skill_rows)),
+            },
+        ]
+        return {
+            "title": settings.ui.title,
+            "username": username,
+            "saved": bool(saved),
+            "error_message": error,
+            "info_message": format_skill_routing_info(lang, info),
+            "skill_rows": skill_rows,
+            "custom_rows": custom_rows,
+            "sample_skill_rows": sample_skill_rows,
+            "custom_errors": custom_errors,
+            "skills_readonly": not advanced_mode,
+            "page_return_to": _skill_surface_path(page_return_to, fallback="/skills"),
+            "overview_checks": overview_checks,
+            "active_core_count": sum(1 for row in skill_rows if bool(row.get("enabled"))),
+            "active_custom_count": sum(1 for row in custom_rows if bool(row.get("enabled"))),
+            "custom_count": len(custom_rows),
+            "sample_count": len(sample_skill_rows),
+            "sample_category_count": len(
+                {str(row.get("category", "")).strip().lower() for row in sample_skill_rows if str(row.get("category", "")).strip()}
+            ),
+            "next_steps": next_steps,
+            "skills_nav": skills_nav,
+            "skills_page_heading": page_heading,
+            "show_overview_checks": bool(show_overview_checks),
+        }
+
+    def _render_skills_surface(
+        request: Request,
+        *,
+        template_name: str,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        logical_back_fallback: str = "/skills",
+        page_return_to: str = "/skills",
+        skills_nav: str = "overview",
+        page_heading: str,
+        show_overview_checks: bool = False,
+    ) -> HTMLResponse:
+        context = _build_skills_page_context(
+            request,
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback=logical_back_fallback,
+            page_return_to=page_return_to,
+            skills_nav=skills_nav,
+            page_heading=page_heading,
+            show_overview_checks=show_overview_checks,
+        )
         return templates.TemplateResponse(
             request=request,
-            name="skills.html",
-            context={
-                "title": settings.ui.title,
-                "username": username,
-                "saved": bool(saved),
-                "error_message": error,
-                "info_message": format_skill_routing_info(lang, info),
-                "skill_rows": _build_skill_rows(lang, settings, translate),
-                "custom_rows": _build_custom_rows(
-                    custom_manifests,
-                    custom_cfg,
-                    lang,
-                    localize_custom_skill_description,
-                    daily_time_from_cron,
-                ),
-                "sample_skill_rows": _build_sample_skill_rows(),
-                "custom_errors": custom_errors,
-                "skills_readonly": not advanced_mode,
-                "return_to": return_to,
-            },
+            name=template_name,
+            context=context,
+        )
+
+    @app.get("/skills", response_class=HTMLResponse)
+    async def skills_page(request: Request, saved: int = 0, error: str = "", info: str = "") -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _render_skills_surface(
+            request,
+            template_name="skills_overview.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/",
+            page_return_to="/skills",
+            skills_nav="overview",
+            page_heading=translate(lang, "skills.title", "Fähigkeiten"),
+            show_overview_checks=True,
+        )
+
+    @app.get("/skills/start", response_class=HTMLResponse)
+    async def skills_start_page(request: Request, saved: int = 0, error: str = "", info: str = "") -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _render_skills_surface(
+            request,
+            template_name="skills_start.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/skills",
+            page_return_to="/skills/start",
+            skills_nav="start",
+            page_heading=translate(lang, "skills.start_title", "Skill starten"),
+        )
+
+    @app.get("/skills/mine", response_class=HTMLResponse)
+    async def skills_mine_page(request: Request, saved: int = 0, error: str = "", info: str = "") -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _render_skills_surface(
+            request,
+            template_name="skills_mine.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/skills",
+            page_return_to="/skills/mine",
+            skills_nav="mine",
+            page_heading=translate(lang, "skills.my_skills_title", "Meine Skills"),
+        )
+
+    @app.get("/skills/system", response_class=HTMLResponse)
+    async def skills_system_page(request: Request, saved: int = 0, error: str = "", info: str = "") -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _render_skills_surface(
+            request,
+            template_name="skills_system.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/skills",
+            page_return_to="/skills/system",
+            skills_nav="system",
+            page_heading=translate(lang, "skills.system_title", "Core / System"),
+        )
+
+    @app.get("/skills/templates", response_class=HTMLResponse)
+    async def skills_templates_page(request: Request, saved: int = 0, error: str = "", info: str = "") -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _render_skills_surface(
+            request,
+            template_name="skills_templates.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/skills",
+            page_return_to="/skills/templates",
+            skills_nav="templates",
+            page_heading=translate(lang, "skills.templates_title", "Vorlagen"),
         )
 
     @app.post("/skills/save")
@@ -447,20 +1086,23 @@ def register_skills_routes(
         auto_memory_enabled: str = Form("0"),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        surface_path = _skill_surface_path(return_to, fallback="/skills")
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=readonly", request, fallback="/", return_to=return_to)
         try:
             form = await request.form()
             raw = read_raw_config()
             raw.setdefault("memory", {})
             if not isinstance(raw["memory"], dict):
                 raw["memory"] = {}
-            raw["memory"]["enabled"] = str(memory_enabled).strip().lower() in {"1", "true", "on", "yes"}
+            if "memory_enabled" in form:
+                raw["memory"]["enabled"] = str(memory_enabled).strip().lower() in {"1", "true", "on", "yes"}
 
             raw.setdefault("auto_memory", {})
             if not isinstance(raw["auto_memory"], dict):
                 raw["auto_memory"] = {}
-            raw["auto_memory"]["enabled"] = str(auto_memory_enabled).strip().lower() in {"1", "true", "on", "yes"}
+            if "auto_memory_enabled" in form:
+                raw["auto_memory"]["enabled"] = str(auto_memory_enabled).strip().lower() in {"1", "true", "on", "yes"}
 
             raw.setdefault("skills", {})
             if not isinstance(raw["skills"], dict):
@@ -473,6 +1115,8 @@ def register_skills_routes(
             known_ids = {row["id"] for row in custom_manifest_rows}
             for skill_id in known_ids:
                 key = f"custom_enabled__{skill_id}"
+                if key not in form:
+                    continue
                 raw["skills"]["custom"].setdefault(skill_id, {})
                 if not isinstance(raw["skills"]["custom"][skill_id], dict):
                     raw["skills"]["custom"][skill_id] = {}
@@ -485,10 +1129,10 @@ def register_skills_routes(
 
             write_raw_config(raw)
             reload_runtime()
-            return _redirect_with_return_to("/skills?saved=1", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?saved=1", request, fallback="/", return_to=return_to)
         except (OSError, ValueError) as exc:
             return _redirect_with_return_to(
-                f"/skills?error={quote_plus(str(exc))}",
+                f"{surface_path}?error={quote_plus(str(exc))}",
                 request,
                 fallback="/",
                 return_to=return_to,
@@ -498,6 +1142,7 @@ def register_skills_routes(
     async def skills_wizard_page(
         request: Request,
         skill_id: str = "",
+        mode: str = "",
         saved: int = 0,
         error: str = "",
         info: str = "",
@@ -536,6 +1181,8 @@ def register_skills_routes(
         connections_text = ", ".join(connections_value) if isinstance(connections_value, list) else ""
         loaded_schedule = _normalize_skill_schedule_manifest((loaded or {}).get("schedule", {}))
         loaded_schedule["time_24h"] = daily_time_from_cron(str(loaded_schedule.get("cron", "")))
+        wizard_mode = _sanitize_wizard_mode(mode) if mode else _default_wizard_mode(loaded)
+        selected_skill_type = _infer_skill_type(loaded)
 
         return templates.TemplateResponse(
             request=request,
@@ -546,6 +1193,15 @@ def register_skills_routes(
                 "saved": bool(saved),
                 "error_message": error,
                 "info_message": format_skill_routing_info(lang, info),
+                "skills_nav": "start",
+                "skills_page_heading": translate(
+                    lang,
+                    "skills.wizard_page_heading",
+                    "Bestehenden Skill bearbeiten" if loaded else "Neuen Skill erstellen",
+                ),
+                "skills_readonly": False,
+                "custom_errors": [],
+                "show_overview_checks": False,
                 "skill": loaded or {},
                 "category_options": category_options,
                 "ssh_connection_options": _build_connection_options(get_settings().connections.ssh),
@@ -560,6 +1216,14 @@ def register_skills_routes(
                 "step_forms": _build_step_forms(loaded),
                 "schedule": loaded_schedule,
                 "return_to": return_to,
+                "wizard_mode": wizard_mode,
+                "skill_type_options": _skill_type_options(),
+                "selected_skill_type": selected_skill_type,
+                "skill_type_presets_json": _SKILL_TYPE_PRESETS,
+                "skill_type_allowed_steps_json": _skill_type_allowed_steps(),
+                "skill_type_followup_steps_json": _skill_type_followup_steps(),
+                "skill_type_connection_choices_json": _skill_type_connection_choices(),
+                "connection_options_by_kind_json": _connection_options_by_kind(settings),
             },
         )
 
@@ -572,6 +1236,7 @@ def register_skills_routes(
         skill_version: str = Form("0.1.0"),
         skill_description: str = Form(""),
         skill_category: str = Form("custom"),
+        skill_type: str = Form("health_check"),
         skill_router_keywords: str = Form(""),
         skill_connections: str = Form(""),
         skill_prompt_file: str = Form(""),
@@ -584,6 +1249,7 @@ def register_skills_routes(
         skill_ui_config_path: str = Form(""),
         skill_ui_hint: str = Form(""),
         enabled_default: str = Form("0"),
+        wizard_mode: str = Form("simple"),
         return_to: str = Form(""),
     ) -> RedirectResponse:
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
@@ -599,6 +1265,14 @@ def register_skills_routes(
             prompt_file = str(skill_prompt_file).strip() or f"prompts/skills/{resolved_id}.md"
             auto_generate = str(auto_generate_keywords).strip().lower() in {"1", "true", "on", "yes"}
             steps = _extract_steps_from_form(form)
+            clean_mode = _sanitize_wizard_mode(wizard_mode)
+            skill_category, skill_description, steps = _apply_skill_type_defaults(
+                skill_type=skill_type,
+                wizard_mode=clean_mode,
+                skill_category=skill_category,
+                skill_description=skill_description,
+                steps=steps,
+            )
             if not steps:
                 raise ValueError("Bitte mindestens einen aktiven Step konfigurieren.")
             schedule_enabled_bool = str(schedule_enabled).strip().lower() in {"1", "true", "on", "yes"}
@@ -668,14 +1342,15 @@ def register_skills_routes(
             if auto_generate and keywords:
                 info_suffix = f"&info={quote_plus(f'keywords:auto:{len(keywords)}')}"
             return _redirect_with_return_to(
-                f"/skills/wizard?skill_id={quote_plus(clean['id'])}&saved=1{info_suffix}",
+                f"/skills/wizard?skill_id={quote_plus(clean['id'])}&mode={quote_plus(clean_mode)}&saved=1{info_suffix}",
                 request,
                 fallback="/skills",
                 return_to=return_to,
             )
         except (OSError, ValueError) as exc:
+            clean_mode = _sanitize_wizard_mode(wizard_mode)
             return _redirect_with_return_to(
-                f"/skills/wizard?error={quote_plus(str(exc))}",
+                f"/skills/wizard?mode={quote_plus(clean_mode)}&error={quote_plus(str(exc))}",
                 request,
                 fallback="/skills",
                 return_to=return_to,
@@ -688,11 +1363,12 @@ def register_skills_routes(
         skill_file: UploadFile = File(...),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        surface_path = _skill_surface_path(return_to, fallback="/skills")
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=readonly", request, fallback="/", return_to=return_to)
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return _redirect_with_return_to("/skills?error=csrf_failed", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             payload = await skill_file.read()
             raw = json.loads(payload.decode("utf-8"))
@@ -700,14 +1376,14 @@ def register_skills_routes(
                 raise ValueError("Import erwartet ein JSON-Objekt.")
             clean = _save_custom_skill_manifest(raw)
             return _redirect_with_return_to(
-                f"/skills?saved=1&info=imported:{quote_plus(clean['id'])}",
+                f"{surface_path}?saved=1&info=imported:{quote_plus(clean['id'])}",
                 request,
                 fallback="/",
                 return_to=return_to,
             )
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
             return _redirect_with_return_to(
-                f"/skills?error={quote_plus(str(exc))}",
+                f"{surface_path}?error={quote_plus(str(exc))}",
                 request,
                 fallback="/",
                 return_to=return_to,
@@ -720,11 +1396,12 @@ def register_skills_routes(
         csrf_token: str = Form(""),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        surface_path = _skill_surface_path(return_to, fallback="/skills")
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=readonly", request, fallback="/", return_to=return_to)
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return _redirect_with_return_to("/skills?error=csrf_failed", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             clean_name = Path(str(sample_file or "").strip()).name
             if not clean_name or not clean_name.endswith(".json"):
@@ -737,14 +1414,14 @@ def register_skills_routes(
                 raise ValueError("Import erwartet ein JSON-Objekt.")
             clean = _save_custom_skill_manifest(raw)
             return _redirect_with_return_to(
-                f"/skills?saved=1&info=imported:{quote_plus(clean['id'])}",
+                f"{surface_path}?saved=1&info=imported:{quote_plus(clean['id'])}",
                 request,
                 fallback="/",
                 return_to=return_to,
             )
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
             return _redirect_with_return_to(
-                f"/skills?error={quote_plus(str(exc))}",
+                f"{surface_path}?error={quote_plus(str(exc))}",
                 request,
                 fallback="/",
                 return_to=return_to,
@@ -757,11 +1434,12 @@ def register_skills_routes(
         csrf_token: str = Form(""),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        surface_path = _skill_surface_path(return_to, fallback="/skills")
         if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
-            return _redirect_with_return_to("/skills?error=readonly", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=readonly", request, fallback="/", return_to=return_to)
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            return _redirect_with_return_to("/skills?error=csrf_failed", request, fallback="/", return_to=return_to)
+            return _redirect_with_return_to(f"{surface_path}?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             result = _delete_custom_skill_manifest(skill_id)
             raw = read_raw_config()
@@ -770,14 +1448,14 @@ def register_skills_routes(
             reload_runtime()
             info_value = quote_plus(f"deleted:{result['id']}")
             return _redirect_with_return_to(
-                f"/skills?saved=1&info={info_value}",
+                f"{surface_path}?saved=1&info={info_value}",
                 request,
                 fallback="/",
                 return_to=return_to,
             )
         except (OSError, ValueError) as exc:
             return _redirect_with_return_to(
-                f"/skills?error={quote_plus(str(exc))}",
+                f"{surface_path}?error={quote_plus(str(exc))}",
                 request,
                 fallback="/",
                 return_to=return_to,

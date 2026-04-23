@@ -1,23 +1,10 @@
 {% extends "base.html" %}
-{% from "_icons.html" import icon %}
 {% block content %}
-<main class="config-layout">
-  <section class="config-card floating-card">
-    <div class="page-title-row"><span>{{ icon('users', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_users.title', 'Team & Access') }}</h2></div>
-    <p>{{ tr(request, 'config_users.subtitle', 'Create users and manage roles. Leave password empty to keep it unchanged.') }}</p>
+<main class="config-layout config-domain-layout config-domain-surface-layout config-users-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
 
-    {% if saved %}
-    <p class="hint-text">{{ tr(request, 'config_users.saved', 'Saved.') }}</p>
-    {% endif %}
-    {% if info_message %}
-    <p class="hint-text">{{ info_message }}</p>
-    {% endif %}
-    {% if error_message %}
-    <p class="error-text">{{ error_message }}</p>
-    {% endif %}
-  </section>
-
-  <section class="config-card floating-card">
+  <section id="admin-mode" class="config-card floating-card config-domain-section">
     <h3>{{ tr(request, 'config_users.admin_toggle', 'Admin On/Off') }}</h3>
     <p class="hint-text">{{ tr(request, 'config_users.admin_toggle_hint', 'Shows technical UI details (debug view) for admins only.') }}</p>
     <p class="hint-text">{{ tr(request, 'config_users.admin_mode_explainer', 'Admin-Modus blendet tiefere Systembereiche wie LLM, Embeddings, Security, Logs und den Datei-Editor ein. User-Modus bleibt absichtlich schlanker für den Alltag. Rollenrechte und Admin-Modus sind zwei getrennte Dinge: nur Admins können diesen Schalter überhaupt nutzen.') }}</p>
@@ -42,7 +29,7 @@
     </form>
   </section>
 
-  <section class="config-card floating-card">
+  <section class="config-card floating-card config-domain-section">
     <h3>{{ tr(request, 'config_users.login_bootstrap', 'Login & Bootstrap') }}</h3>
     <p class="hint-text">{{ tr(request, 'config_users.login_bootstrap_hint', 'Persönliche Login- und Erststart-Einstellungen für diese ARIA-Instanz.') }}</p>
     <p class="hint-text">{{ tr(request, 'config_users.bootstrap_explainer', 'Solange noch kein Benutzer existiert, kann ARIA den ersten Login als Bootstrap-Admin anlegen. Nach dem ersten Setup sollte Bootstrap gesperrt bleiben, damit auf einer leeren oder fehlerhaften User-DB nicht versehentlich wieder ein neuer Admin erzeugt wird.') }}</p>
@@ -75,7 +62,7 @@
     </form>
   </section>
 
-  <section class="config-card floating-card">
+  <section class="config-card floating-card config-domain-section">
     <h3>{{ tr(request, 'config_users.create_user', 'Create new user') }}</h3>
     <p class="hint-text">{{ tr(request, 'config_users.create_user_hint', 'Neue Benutzer starten mit der gewählten Rolle. Für den aktuellen ALPHA-Stand ist ARIA trotzdem primär als Personal-Single-User-System gedacht; geteilte Ownership/RBAC kommen später als separater Architekturblock.') }}</p>
     <form class="editor-form" method="post" action="/config/users/create">
@@ -92,7 +79,7 @@
     </form>
   </section>
 
-  <section class="config-card floating-card">
+  <section class="config-card floating-card config-domain-section">
     <h3>{{ tr(request, 'config_users.existing_users', 'Existing users') }}</h3>
     <div class="users-card-list">
       {% for row in users %}

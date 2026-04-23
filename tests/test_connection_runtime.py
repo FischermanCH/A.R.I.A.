@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import ssl
+import smtplib
 from urllib.error import HTTPError, URLError
 
 from aria.core import connection_runtime
@@ -266,6 +268,48 @@ def test_rss_connection_test_reads_beyond_initial_8kb_chunk(monkeypatch) -> None
     )
 
     assert message == "Feed geladen: Long Feed · Neueste Artikel: Entry 0 | Entry 1 | Entry 2"
+
+
+def test_friendly_http_api_test_error_message_maps_auth_failure() -> None:
+    exc = HTTPError("https://api.example.org/health", 401, "Unauthorized", hdrs=None, fp=None)
+
+    message = connection_runtime.friendly_http_api_test_error_message(exc, lang="de")
+
+    assert "Anmeldung" in message
+
+
+def test_friendly_google_calendar_test_error_message_maps_auth_failure() -> None:
+    exc = HTTPError("https://oauth2.googleapis.com/token", 401, "Unauthorized", hdrs=None, fp=None)
+
+    message = connection_runtime.friendly_google_calendar_test_error_message(exc, lang="de")
+
+    assert "Anmeldung" in message or "Refresh-Token" in message
+    assert "Token" in message
+
+
+def test_friendly_webhook_test_error_message_maps_not_found() -> None:
+    exc = HTTPError("https://example.org/webhook", 404, "Not Found", hdrs=None, fp=None)
+
+    message = connection_runtime.friendly_webhook_test_error_message(exc, lang="de")
+
+    assert "404" in message or "gelöscht" in message
+
+
+def test_friendly_smtp_test_error_message_maps_authentication_error() -> None:
+    exc = smtplib.SMTPAuthenticationError(535, b"Authentication failed")
+
+    message = connection_runtime.friendly_smtp_test_error_message(exc, lang="de")
+
+    assert "Anmeldung" in message
+    assert "Passwort" in message or "Konto" in message
+
+
+def test_friendly_imap_test_error_message_maps_ssl_error() -> None:
+    exc = ssl.SSLError("certificate verify failed")
+
+    message = connection_runtime.friendly_imap_test_error_message(exc, lang="de")
+
+    assert "TLS" in message or "SSL" in message
 
 
 def test_extract_rss_preview_titles_supports_atom_feed() -> None:

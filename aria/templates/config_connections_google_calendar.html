@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout">
+  {% set google_enable_api_url = "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" %}
+  {% set google_branding_url = "https://console.cloud.google.com/auth/branding" %}
+  {% set google_audience_url = "https://console.cloud.google.com/auth/audience" %}
+  {% set google_clients_url = "https://console.cloud.google.com/auth/clients" %}
+  {% set google_oauth_playground_url = "https://developers.google.com/oauthplayground/" %}
+  {% set google_calendar_settings_url = "https://calendar.google.com/calendar/u/0/r/settings" %}
+  {% include "_connection_page_intro.html" %}
+  {% include "_connection_status_block.html" %}
+  {% include "_connection_mode_nav.html" %}
+
+  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_google_calendar_ref %}hidden{% endif %}>
+    {% if selected_google_calendar_ref %}
+    {% if google_calendar_test_status == 'ok' or google_calendar_test_status == 'error' %}
+    <article class="connection-test-card status-{{ google_calendar_test_status }}">
+      <div class="connection-test-head"><span class="health-lamp status-{{ google_calendar_test_status }}"></span><strong>{% if google_calendar_test_status == 'ok' %}{{ tr(request,'config_conn.google_calendar_test_ok','Google Calendar connection test successful') }}{% else %}{{ tr(request,'config_conn.google_calendar_test_error','Google Calendar connection test failed') }}{% endif %}</strong></div>
+      <small>{% if google_calendar_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
+    </article>
+    {% endif %}
+    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="{{ selected_google_calendar_ref }}">
+      {% set schema_fields = google_calendar_edit_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'google_calendar_edit' %}
+      {% set meta_values = selected_google_calendar %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request,'config_conn.google_calendar_save_profile','Save Google Calendar profile') }}</button>
+    </form>
+    <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
+    <p>{{ tr(request,'config_conn.delete_profile_hint','Löscht das aktuell geladene Profil inklusive Secure-Store-Secrets und Health-Status.') }}</p>
+    {% set delete_kind = 'google_calendar' %}
+    {% set delete_ref = selected_google_calendar_ref %}
+    {% set delete_extra_hint = '' %}
+    {% include "_connection_delete_inline.html" %}
+    {% else %}
+    <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
+    <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
+    {% endif %}
+  </section>
+
+  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+    <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
+    <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
+    <section class="connection-setup-guide">
+      <style>
+        .sc {
+          background: color-mix(in srgb, var(--color-background-primary) 92%, var(--color-background-secondary) 8%);
+          border: 1px solid color-mix(in srgb, var(--color-border-secondary) 70%, var(--color-border-tertiary) 30%);
+          border-radius: var(--border-radius-lg);
+          padding: 0.9rem 1rem;
+          margin-bottom: 0.6rem;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+        }
+        .sh { display: flex; align-items: center; gap: 12px; margin-bottom: 0.45rem; }
+        .sn { width: 30px; height: 30px; border-radius: 50%; background: #EEEDFE; color: #3C3489; font-size: 14px; font-weight: 500; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .st { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+        .connection-setup-guide ol { margin: 0; padding-left: 0; list-style: none; counter-reset: steps; }
+        .connection-setup-guide ol li { font-size: 13px; color: var(--color-text-secondary); padding: 0.3rem 0 0.3rem 28px; line-height: 1.45; border-top: 0.5px solid var(--color-border-tertiary); position: relative; counter-increment: steps; }
+        .connection-setup-guide ol li:first-child { border-top: none; }
+        .connection-setup-guide ol li::before { content: counter(steps); position: absolute; left: 0; top: 0.35rem; width: 18px; height: 18px; border-radius: 50%; background: var(--color-background-secondary); color: var(--color-text-tertiary); font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: 500; }
+        .connection-setup-guide ol li strong { color: var(--color-text-primary); font-weight: 500; }
+        .connection-setup-guide a.act { display: inline-flex; align-items: center; gap: 4px; color: #185FA5; text-decoration: underline; font-weight: 500; font-size: 13px; }
+        .connection-setup-guide a.act:hover { color: #0C447C; }
+        .connection-setup-guide code { font-family: monospace; font-size: 11px; background: var(--color-background-secondary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-primary); word-break: break-all; }
+        .warn { font-size: 12px; color: #633806; background: #FAEEDA; border-left: 2px solid #EF9F27; padding: 7px 10px; margin-top: 10px; }
+        .note { font-size: 12px; color: var(--color-text-secondary); border-left: 2px solid var(--color-border-secondary); padding: 7px 10px; margin-top: 10px; }
+      </style>
+
+      <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0 0 1.25rem;">
+        Jeden Schritt von oben nach unten abarbeiten. Blau unterstrichene Links oeffnen und danach hierher zurueckkehren.
+      </p>
+
+      <div class="sc">
+        <div class="sh"><div class="sn">1</div><div class="st">Google Calendar API aktivieren</div></div>
+        <ol>
+          <li><a class="act" href="{{ google_enable_api_url }}" target="_blank" rel="noopener noreferrer">Google Calendar API ↗</a> oeffnen</li>
+          <li>Schaltflaeche <strong>Aktivieren</strong> klicken</li>
+          <li>Seite laedt neu - oben erscheint «API aktiviert» ✓</li>
+        </ol>
+      </div>
+
+      <div class="sc">
+        <div class="sh"><div class="sn">2</div><div class="st">OAuth-Branding einrichten</div></div>
+        <ol>
+          <li><a class="act" href="{{ google_branding_url }}" target="_blank" rel="noopener noreferrer">OAuth Branding ↗</a> oeffnen</li>
+          <li>Schaltflaeche <strong>Jetzt starten</strong> klicken</li>
+          <li>Feld <strong>App-Name</strong>: beliebigen Namen eintragen, z.B. «ARIA»</li>
+          <li>Feld <strong>Nutzer-Support-E-Mail</strong>: deine E-Mail-Adresse auswaehlen</li>
+          <li>Ganz unten <strong>Kontakt-E-Mail des Entwicklers</strong>: gleiche E-Mail-Adresse eintragen</li>
+          <li><strong>Weiter</strong> -> <strong>Weiter</strong> -> <strong>Erstellen</strong> klicken</li>
+        </ol>
+      </div>
+
+      <div class="sc">
+        <div class="sh"><div class="sn">3</div><div class="st">Dich selbst als Testnutzer eintragen</div></div>
+        <ol>
+          <li><a class="act" href="{{ google_audience_url }}" target="_blank" rel="noopener noreferrer">Testnutzer (Audience) ↗</a> oeffnen</li>
+          <li>Schaltflaeche <strong>Nutzer hinzufuegen</strong> klicken</li>
+          <li>Deine eigene Google-E-Mail-Adresse eintragen</li>
+          <li><strong>Hinzufuegen</strong> -> <strong>Speichern</strong> klicken</li>
+        </ol>
+      </div>
+
+      <div class="sc">
+        <div class="sh"><div class="sn">4</div><div class="st">OAuth-Client anlegen</div></div>
+        <ol>
+          <li><a class="act" href="{{ google_clients_url }}" target="_blank" rel="noopener noreferrer">OAuth Clients ↗</a> oeffnen</li>
+          <li>Schaltflaeche <strong>Client erstellen</strong> klicken</li>
+          <li>Anwendungstyp: <strong>Webanwendung</strong> auswaehlen</li>
+          <li>Name: beliebig, z.B. «ARIA Web Client»</li>
+          <li>Abschnitt <strong>Autorisierte Weiterleitungs-URIs</strong> -> <strong>URI hinzufuegen</strong> klicken</li>
+          <li>Genau diesen Wert einfuegen: <code>https://developers.google.com/oauthplayground</code></li>
+          <li><strong>Erstellen</strong> klicken</li>
+          <li>Popup erscheint - <strong>Client-ID</strong> und <strong>Client-Secret</strong> notieren oder JSON herunterladen</li>
+        </ol>
+      </div>
+
+      <div class="sc">
+        <div class="sh"><div class="sn">5</div><div class="st">Refresh-Token holen</div></div>
+        <ol>
+          <li><a class="act" href="{{ google_oauth_playground_url }}" target="_blank" rel="noopener noreferrer">OAuth Playground ↗</a> oeffnen</li>
+          <li>Oben rechts <strong>Zahnrad-Symbol</strong> klicken</li>
+          <li>Haekchen bei <strong>Use your own OAuth credentials</strong> setzen</li>
+          <li><strong>OAuth Client ID</strong> und <strong>OAuth Client Secret</strong> aus Schritt 4 eintragen - Zahnrad schliessen</li>
+          <li>Links im Textfeld <strong>Input your own scopes</strong> diesen Wert eintragen: <code>https://www.googleapis.com/auth/calendar.readonly</code></li>
+          <li>Schaltflaeche <strong>Authorize APIs</strong> klicken</li>
+          <li>Dein Google-Konto auswaehlen</li>
+          <li>Warnung «App nicht verifiziert» erscheint -> <strong>Erweitert</strong> klicken -> <strong>Weiter zu ARIA</strong> klicken -> <strong>Zulassen</strong> klicken</li>
+          <li>Zurueck im Playground: Schaltflaeche <strong>Exchange authorization code for tokens</strong> klicken</li>
+          <li>Links unter <strong>Refresh token</strong> den langen Code kopieren und aufbewahren</li>
+        </ol>
+        <div class="warn">Tritt die Warnung «App nicht verifiziert» nicht auf, sondern eine Fehlermeldung, pruefe ob deine E-Mail in Schritt 3 korrekt eingetragen ist.</div>
+      </div>
+
+      <div class="sc">
+        <div class="sh"><div class="sn">6</div><div class="st">Werte in ARIA eintragen</div></div>
+        <ol>
+          <li><strong>Client-ID</strong> aus Schritt 4 einfuegen</li>
+          <li><strong>Client-Secret</strong> aus Schritt 4 einfuegen</li>
+          <li><strong>Refresh-Token</strong> aus Schritt 5 einfuegen</li>
+          <li><strong>Kalender-ID</strong>: fuer den Hauptkalender einfach <code>primary</code> eingeben</li>
+          <li>Fuer einen anderen Kalender: <a class="act" href="{{ google_calendar_settings_url }}" target="_blank" rel="noopener noreferrer">Google Calendar Einstellungen ↗</a> oeffnen -> Kalender anklicken -> <strong>Einstellungen und Freigabe</strong> -> ganz unten «Kalender integrieren» -> Kalender-ID kopieren</li>
+          <li>Profil speichern</li>
+        </ol>
+        <div class="note">Nach dem Speichern testet ARIA die Verbindung sofort. Bei Fehler: pruefe ob Schritt 3 (Testnutzer) korrekt ausgefuellt ist.</div>
+      </div>
+    </section>
+    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off">
+      <input type="hidden" name="original_ref" value="">
+      {% set schema_fields = google_calendar_new_form_fields %}
+      {% include "_connection_schema_fields.html" %}
+      {% set meta_prefix = 'google_calendar_new' %}
+      {% set meta_values = {} %}
+      {% include "_connection_metadata_fields.html" %}
+      <button type="submit">{{ tr(request,'config_conn.google_calendar_save_profile','Save Google Calendar profile') }}</button>
+    </form>
+  </section>
+</main>
+{% endblock %}

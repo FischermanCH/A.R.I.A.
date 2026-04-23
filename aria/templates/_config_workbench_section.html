@@ -1,0 +1,21 @@
+{% from "_icons.html" import icon %}
+{% if request.state.can_access_advanced_config %}
+<section class="floating-card config-domain-section">
+  <div class="config-submenu">
+    <a class="config-submenu-item" href="/config/workbench/routing?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.workbench_routing_title', 'Routing Workbench') }}</span><span class="submenu-desc">{{ tr(request, 'config.workbench_routing_menu_desc', 'Dedicated dry-run page for routing, action planning, payloads, and execution preview.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="/config/files?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.files_title', 'File Editor') }}</span><span class="submenu-desc">{{ tr(request, 'config.files_desc', 'Direct access to relevant text files without an IDE.') }}</span></span>
+    </a>
+    <a class="config-submenu-item" href="/config/error-interpreter?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
+    </a>
+  </div>
+</section>
+{% else %}
+{% include '_config_admin_notice.html' %}
+{% endif %}
