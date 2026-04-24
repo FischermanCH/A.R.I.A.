@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha126`
-- `alpha126` is the follow-up public hotfix on top of `alpha125`: the managed updater now runs stack operations through a host-path-aware helper instead of trying to drive host Docker Compose with in-container `/managed` paths, and it also restores the configured persona name in the app header.
+- Current public alpha release: `0.1.0-alpha127`
+- `alpha127` is the follow-up public hotfix on top of `alpha126`: it keeps the repaired managed updater path and makes `/updates` easier to discover in the main menu by exposing it as its own destination with a clear `Update verfügbar` hint when a newer release exists.
 
 ## One-line summary
 

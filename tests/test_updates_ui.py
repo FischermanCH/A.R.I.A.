@@ -50,6 +50,67 @@ def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -
     assert "hart neu laden" in response.text or "hard reload" in response.text
 
 
+def test_authenticated_menu_surfaces_updates_destination_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main_mod,
+        "_get_update_status",
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
+            "current_label": "0.1.0-alpha126",
+            "latest_label": "0.1.0-alpha127",
+            "latest_tag": "v0.1.0-alpha.127",
+            "update_available": True,
+            "checked_at": "2026-04-24T08:00:00+00:00",
+            "source": "github-tags",
+            "release_notes": "## [0.1.0-alpha.127] - 2026-04-24",
+            "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005
+
+    client = TestClient(main_mod.app)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
+    response = client.get("/updates")
+
+    assert response.status_code == 200
+    assert 'href="/updates"' in response.text
+    assert "menu-update-chip" in response.text
+    assert "Update verf" in response.text or "Update avail" in response.text
+
+
+def test_authenticated_menu_keeps_updates_destination_visible_when_current(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main_mod,
+        "_get_update_status",
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
+            "current_label": "0.1.0-alpha126",
+            "latest_label": "0.1.0-alpha126",
+            "latest_tag": "v0.1.0-alpha.126",
+            "update_available": False,
+            "checked_at": "2026-04-24T08:00:00+00:00",
+            "source": "github-tags",
+            "release_notes": "## [0.1.0-alpha.126] - 2026-04-24",
+            "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005
+
+    client = TestClient(main_mod.app)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
+    response = client.get("/updates")
+
+    assert response.status_code == 200
+    assert 'href="/updates"' in response.text
+    assert "menu-update-chip" not in response.text
+
+
 def test_updates_page_renders_release_notes(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,

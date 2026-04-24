@@ -9,7 +9,7 @@ Zweck:
 - groessere Zukunftsthemen stehen in `docs/backlog/future-features.md`
 
 Aktueller Release-Stand:
-- public: `0.1.0-alpha126`
+- public: `0.1.0-alpha127`
 - lokal / intern: `0.1.0-alpha167`
 
 ## Jetzt

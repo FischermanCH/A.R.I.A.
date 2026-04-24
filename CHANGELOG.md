@@ -8,6 +8,17 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 No entries yet.
 
+## [0.1.0-alpha.127] - 2026-04-24
+
+Public hotfix release on top of `0.1.0-alpha.126`.
+
+### Changed
+- the main user menu now exposes `Updates` as its own destination instead of only hinting availability with the small header lamp; when a newer release exists, the menu entry itself is marked with `Update verfügbar`, so users can see immediately where to go
+
+### Upgrade Notes
+- this release is recommended if users already noticed the update lamp but had to guess that the update flow lives under `/updates`
+- the managed update-path fixes from `alpha126` remain the base for this release and should now be easier to discover in normal everyday use
+
 ## [0.1.0-alpha.126] - 2026-04-24
 
 Public hotfix release on top of `0.1.0-alpha.125`.

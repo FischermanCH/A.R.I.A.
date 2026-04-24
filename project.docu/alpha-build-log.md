@@ -1350,3 +1350,24 @@ Zweck:
   - fehlgeschlagene Managed-Updates fuehren nach einem kaputten `validate` jetzt automatisch genau einen `repair` aus
   - stale roter `/updates`-Status heilt sich automatisch, sobald `./aria-stack.sh validate` wieder sauber ist
   - `repair` / `restart` / `update` behandeln jetzt die komplette Runtime-Gruppe inklusive `qdrant`, `searxng-valkey` und `searxng`
+
+### Public release 0.1.0-alpha.127
+
+- Oeffentliche Versionslinie von `0.1.0-alpha126` auf `0.1.0-alpha127` angehoben.
+- Fokus bewusst eng auf Discoverability fuer den Update-Pfad gelegt.
+- Git:
+  - Tag: `v0.1.0-alpha.127`
+- Docker Hub:
+  - `fischermanch/aria:0.1.0-alpha.127`
+  - `fischermanch/aria:alpha`
+  - Digest: `sha256:c12478e91fb52f75476df7a68ba07b8f2074ca0ec5969045b3149a7f18f380f5`
+- Release-Schwerpunkte:
+  - `Updates` ist im Hauptmenue jetzt ein eigener Zielpunkt statt nur implizit ueber das kleine Header-Laempchen auffindbar
+  - wenn ein neuer Stand verfuegbar ist, markiert das Menue den Eintrag direkt mit `Update verfuegbar`
+  - der reparierte Managed-Update-Pfad aus `alpha126` bleibt Basis und ist fuer Admins dadurch im Alltag schneller auffindbar
+- Tests:
+  - voller Testlauf: `643 passed, 23 warnings`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha127-local.tar`
+- Release-Label:
+  - `0.1.0-alpha127`

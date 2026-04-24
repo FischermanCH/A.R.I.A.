@@ -21,7 +21,8 @@
   {% set nav_skills_active = current_path.startswith('/skills') %}
   {% set nav_connections_active = current_path == '/connections' or current_path.startswith('/config/connections') %}
   {% set nav_stats_active = current_path.startswith('/stats') or current_path.startswith('/activities') %}
-  {% set nav_config_active = current_path == '/config' or current_path.startswith('/config/') or current_path.startswith('/updates') %}
+  {% set nav_updates_active = current_path.startswith('/updates') %}
+  {% set nav_config_active = current_path == '/config' or current_path.startswith('/config/') %}
   {% set nav_help_active = current_path.startswith('/help') or current_path.startswith('/product-info') or current_path.startswith('/licenses') %}
   <div class="app-shell">
     <header class="topbar">
@@ -72,6 +73,13 @@
             <a href="/skills" class="user-menu-link user-menu-link-icon{% if nav_skills_active %} is-active{% endif %}">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Skills') }}</span></a>
             <a href="/connections" class="user-menu-link user-menu-link-icon{% if nav_connections_active %} is-active{% endif %}">{{ icon('connections') }}<span>{{ tr(request, 'base.nav_connections', 'Connections') }}</span></a>
             <a href="/config" class="user-menu-link user-menu-link-icon{% if nav_config_active %} is-active{% endif %}">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Settings') }}</span></a>
+            <a href="/updates" class="user-menu-link user-menu-link-icon{% if nav_updates_active %} is-active{% endif %}">
+              {{ icon('updates') }}
+              <span>{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
+              {% if update_status and update_status.update_available %}
+              <span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>
+              {% endif %}
+            </a>
             <a href="/stats" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
             <a href="/help" class="user-menu-link user-menu-link-icon{% if nav_help_active %} is-active{% endif %}">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
             <div class="user-menu-divider" aria-hidden="true"></div>
