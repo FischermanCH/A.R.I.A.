@@ -77,14 +77,35 @@ def test_managed_install_host_dir_prefers_mount_source_from_current_container(tm
     assert update_helper._managed_install_host_dir() == str(tmp_path)
 
 
-def test_managed_update_worker_refreshes_stack_from_target_image_before_compose_pull(tmp_path: Path, monkeypatch) -> None:
+def test_managed_host_stack_helper_command_uses_real_host_path(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(update_helper, "_managed_install_host_dir", lambda: str(tmp_path))
+
+    command = update_helper._managed_host_stack_helper_command("update", image="fischermanch/aria:0.1.0-alpha125")
+
+    assert command == [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "-v",
+        f"{tmp_path}:{tmp_path}",
+        "-w",
+        str(tmp_path),
+        "fischermanch/aria:0.1.0-alpha125",
+        f"{tmp_path}/aria-stack.sh",
+        "update",
+    ]
+
+
+def test_managed_update_worker_refreshes_stack_from_target_image_before_host_update(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / ".env").write_text("ARIA_IMAGE=fischermanch/aria:0.1.0-alpha108\n", encoding="utf-8")
     (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     (tmp_path / "aria-stack.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     monkeypatch.setattr(update_helper, "INSTALL_DIR", tmp_path)
+    monkeypatch.setattr(update_helper, "STATE_DIR", tmp_path / ".aria-updater")
     monkeypatch.setattr(update_helper, "LOG_PATH", tmp_path / "update.log")
-    monkeypatch.setattr(update_helper, "_compose_base_command", lambda: ["docker", "compose"])
-    monkeypatch.setattr(update_helper, "_compose_services", lambda: ["aria"])
+    monkeypatch.setattr(update_helper, "_managed_install_host_dir", lambda: str(tmp_path))
     monkeypatch.setattr(update_helper, "_wait_for_health", lambda: None)
     monkeypatch.setattr(update_helper, "_write_log_line", lambda _message: None)
     monkeypatch.setattr(update_helper, "_update_state", lambda **_updates: {})
@@ -101,9 +122,7 @@ def test_managed_update_worker_refreshes_stack_from_target_image_before_compose_
     assert steps == [
         "Pull ARIA target image for stack refresh",
         "Refresh managed stack files",
-        "Pull updated images",
-        "Recreate updated services",
-        "Validate managed services",
+        "Run managed host update",
     ]
 
 
@@ -136,8 +155,7 @@ def test_managed_update_worker_continues_when_stack_refresh_fails(tmp_path: Path
     monkeypatch.setattr(update_helper, "INSTALL_DIR", tmp_path)
     monkeypatch.setattr(update_helper, "STATE_DIR", tmp_path / ".aria-updater")
     monkeypatch.setattr(update_helper, "LOG_PATH", tmp_path / "update.log")
-    monkeypatch.setattr(update_helper, "_compose_base_command", lambda: ["docker", "compose"])
-    monkeypatch.setattr(update_helper, "_compose_services", lambda: ["aria"])
+    monkeypatch.setattr(update_helper, "_managed_install_host_dir", lambda: str(tmp_path))
     monkeypatch.setattr(update_helper, "_wait_for_health", lambda: None)
     monkeypatch.setattr(update_helper, "_update_state", lambda **_updates: {})
 
@@ -156,9 +174,7 @@ def test_managed_update_worker_continues_when_stack_refresh_fails(tmp_path: Path
     update_helper._run_managed_update_worker()
 
     assert steps == [
-        "Pull updated images",
-        "Recreate updated services",
-        "Validate managed services",
+        "Run managed host update",
     ]
     log_text = (tmp_path / "update.log").read_text(encoding="utf-8")
     assert "WARNING" in log_text
@@ -171,8 +187,7 @@ def test_managed_update_worker_repairs_once_when_validate_fails(tmp_path: Path, 
     monkeypatch.setattr(update_helper, "INSTALL_DIR", tmp_path)
     monkeypatch.setattr(update_helper, "STATE_DIR", tmp_path / ".aria-updater")
     monkeypatch.setattr(update_helper, "LOG_PATH", tmp_path / "update.log")
-    monkeypatch.setattr(update_helper, "_compose_base_command", lambda: ["docker", "compose"])
-    monkeypatch.setattr(update_helper, "_compose_services", lambda: ["aria", "qdrant"])
+    monkeypatch.setattr(update_helper, "_managed_install_host_dir", lambda: str(tmp_path))
     monkeypatch.setattr(update_helper, "_wait_for_health", lambda: None)
 
     state_updates: list[dict[str, object]] = []
@@ -187,8 +202,8 @@ def test_managed_update_worker_repairs_once_when_validate_fails(tmp_path: Path, 
 
     def _capture(command: list[str], *, step: str) -> None:
         calls.append(step)
-        if step == "Validate managed services":
-            raise RuntimeError("Validate managed services failed with exit code 1")
+        if step == "Run managed host update":
+            raise RuntimeError("Run managed host update failed with exit code 1")
 
     monkeypatch.setattr(update_helper, "_run_logged", _capture)
 
@@ -197,9 +212,7 @@ def test_managed_update_worker_repairs_once_when_validate_fails(tmp_path: Path, 
     assert calls == [
         "Pull ARIA target image for stack refresh",
         "Refresh managed stack files",
-        "Pull updated images",
-        "Recreate updated services",
-        "Validate managed services",
+        "Run managed host update",
         "Repair managed services",
     ]
     assert any(update.get("current_step") == "repair_runtime" for update in state_updates)

@@ -235,6 +235,55 @@ def _refresh_managed_stack_files_from_target_image() -> None:
     )
 
 
+def _managed_host_runner_command(
+    inner_command: list[str],
+    *,
+    image: str | None = None,
+) -> list[str]:
+    host_install_dir = _managed_install_host_dir()
+    image_ref = str(image or _managed_target_image() or "").strip() or "fischermanch/aria:alpha"
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "-v",
+        f"{host_install_dir}:{host_install_dir}",
+        "-w",
+        host_install_dir,
+        image_ref,
+        *inner_command,
+    ]
+
+
+def _managed_host_stack_helper_command(
+    *args: str,
+    image: str | None = None,
+) -> list[str]:
+    host_install_dir = _managed_install_host_dir()
+    return _managed_host_runner_command([f"{host_install_dir}/aria-stack.sh", *args], image=image)
+
+
+def _managed_host_compose_command(
+    *args: str,
+    image: str | None = None,
+) -> list[str]:
+    host_install_dir = _managed_install_host_dir()
+    return _managed_host_runner_command(
+        [
+            "docker",
+            "compose",
+            "--env-file",
+            f"{host_install_dir}/.env",
+            "-f",
+            f"{host_install_dir}/docker-compose.yml",
+            *args,
+        ],
+        image=image,
+    )
+
+
 def _try_refresh_managed_stack_files_from_target_image() -> bool:
     try:
         _refresh_managed_stack_files_from_target_image()
@@ -392,7 +441,7 @@ def _reconcile_stale_error_state() -> dict[str, Any]:
         if not _state_has_stale_failure(state):
             return state
 
-        ok, _detail = _run_quickcheck(_stack_helper_command("validate"))
+        ok, _detail = _run_quickcheck(_managed_host_stack_helper_command("validate"))
         if not ok:
             return state
 
@@ -424,8 +473,8 @@ def _wait_for_health(*, timeout_seconds: float = 120.0, sleep_seconds: float = 2
     raise RuntimeError(f"ARIA healthcheck did not recover: {HEALTH_URL}")
 
 
-def _validate_managed_services_with_repair_fallback() -> bool:
-    validate_command = _stack_helper_command("validate")
+def _validate_managed_services_with_repair_fallback(*, image: str | None = None) -> bool:
+    validate_command = _managed_host_stack_helper_command("validate", image=image)
     try:
         _run_logged(validate_command, step="Validate managed services")
         return False
@@ -435,7 +484,7 @@ def _validate_managed_services_with_repair_fallback() -> bool:
             f"Running one automatic repair attempt. Detail: {exc}"
         )
         _update_state(current_step="repair_runtime")
-        _run_logged(_stack_helper_command("repair"), step="Repair managed services")
+        _run_logged(_managed_host_stack_helper_command("repair", image=image), step="Repair managed services")
         return True
 
 
@@ -454,24 +503,24 @@ def _run_managed_update_worker() -> None:
         _write_log_line(f"[{_now_iso()}] ARIA managed update started.")
         if not (INSTALL_DIR / ".env").exists() or not (INSTALL_DIR / "docker-compose.yml").exists():
             raise RuntimeError(f"Managed install directory incomplete: {INSTALL_DIR}")
+        target_image = _managed_target_image()
         _try_refresh_managed_stack_files_from_target_image()
 
-        services = _compose_services()
-        if not services:
-            raise RuntimeError("No updatable compose services found.")
-        _update_state(current_step="pull_images")
-        _run_logged(_compose_base_command() + ["pull", *services], step="Pull updated images")
-
-        _update_state(current_step="restart_services")
-        _run_logged(
-            _compose_base_command() + ["up", "-d", "--force-recreate", *services],
-            step="Recreate updated services",
-        )
+        _update_state(current_step="host_update")
+        try:
+            _run_logged(_managed_host_stack_helper_command("update", image=target_image), step="Run managed host update")
+            auto_repaired = False
+        except Exception as exc:  # noqa: BLE001
+            _write_log_line(
+                f"[{_now_iso()}] WARNING: Managed host update failed. "
+                f"Running one automatic repair attempt. Detail: {exc}"
+            )
+            _update_state(current_step="repair_runtime")
+            _run_logged(_managed_host_stack_helper_command("repair", image=target_image), step="Repair managed services")
+            auto_repaired = True
 
         _update_state(current_step="healthcheck")
         _wait_for_health()
-        _update_state(current_step="validate_runtime")
-        auto_repaired = _validate_managed_services_with_repair_fallback()
         if auto_repaired:
             _write_log_line(f"[{_now_iso()}] ARIA managed update completed successfully after automatic repair.")
         else:
@@ -580,7 +629,7 @@ def _run_managed_service_restart_worker(service: str) -> None:
         LOG_PATH.write_text("", encoding="utf-8")
         _write_log_line(f"[{_now_iso()}] {label} restart started.")
         _run_logged(
-            _compose_base_command() + ["up", "-d", "--no-deps", "--force-recreate", managed_service],
+            _managed_host_compose_command("up", "-d", "--no-deps", "--force-recreate", managed_service),
             step=f"Restart {label} service",
         )
         _write_log_line(f"[{_now_iso()}] {label} restart completed successfully.")

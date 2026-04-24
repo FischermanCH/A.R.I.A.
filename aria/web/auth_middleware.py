@@ -21,6 +21,7 @@ ReleaseMetaReader = Callable[[Path], dict[str, Any]]
 UpdateStatusGetter = Callable[[str], dict[str, Any]]
 AuthSessionWithReasonResolver = Callable[[Request], tuple[dict[str, Any] | None, str]]
 AuthManagerGetter = Callable[[], Any | None]
+AgentNameGetter = Callable[[], str]
 StringSanitizer = Callable[[str | None], str]
 CsrfSanitizer = Callable[[str | None], str]
 CsrfTokenFactory = Callable[[], str]
@@ -49,6 +50,7 @@ class AuthMiddlewareDeps:
     get_update_status: UpdateStatusGetter
     get_auth_session_from_request_with_reason: AuthSessionWithReasonResolver
     get_auth_manager: AuthManagerGetter
+    get_agent_name: AgentNameGetter
     sanitize_username: StringSanitizer
     sanitize_role: StringSanitizer
     sanitize_csrf_token: CsrfSanitizer
@@ -94,7 +96,7 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
         resolved_lang = deps.resolve_lang(requested_lang, default_lang=str(settings.ui.language or "de"))
         request.state.lang = resolved_lang
         request.state.supported_languages = deps.available_languages()
-        request.state.agent_name = str(settings.ui.title or "ARIA").strip() or "ARIA"
+        request.state.agent_name = str(deps.get_agent_name() or settings.ui.title or "ARIA").strip() or "ARIA"
         request.state.release_meta = deps.read_release_meta(deps.base_dir)
         request.state.update_status = deps.get_update_status(request.state.release_meta["label"])
         raw_auth_cookie = str(deps.request_cookie_value(request, deps.auth_cookie) or "").strip()

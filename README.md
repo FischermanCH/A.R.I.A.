@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha125`
-- `alpha125` is a focused public hotfix on top of `alpha124` and hardens managed updates end to end: failed post-update validation now triggers one automatic `repair`, stale red helper states self-heal once the stack validates cleanly again, and repair/update flows recreate the full managed runtime group including Qdrant and SearXNG sidecars.
+- Current public alpha release: `0.1.0-alpha126`
+- `alpha126` is the follow-up public hotfix on top of `alpha125`: the managed updater now runs stack operations through a host-path-aware helper instead of trying to drive host Docker Compose with in-container `/managed` paths, and it also restores the configured persona name in the app header.
 
 ## One-line summary
 

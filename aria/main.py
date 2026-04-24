@@ -861,6 +861,7 @@ def _build_app() -> FastAPI:
             get_update_status=lambda current_label: globals()["_get_update_status"](current_label),
             get_auth_session_from_request_with_reason=_get_auth_session_from_request_with_reason,
             get_auth_manager=_get_auth_manager,
+            get_agent_name=_agent_name_value,
             sanitize_username=_sanitize_username,
             sanitize_role=_sanitize_role,
             sanitize_csrf_token=_sanitize_csrf_token,

@@ -8,6 +8,18 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 No entries yet.
 
+## [0.1.0-alpha.126] - 2026-04-24
+
+Public hotfix release on top of `0.1.0-alpha.125`.
+
+### Fixed
+- managed GUI updates no longer try to run the critical stack `update` / `repair` / `validate` path via in-container `/managed/...` compose calls; the updater now executes those operations through a short-lived helper container that uses the real host stack path, which fixes the recurring config-sync and stale-mount regressions seen on real managed installs like `whity` and `neo`
+- the app header now uses the configured persona/agent name again instead of falling back to `settings.ui.title`, so renamed assistants such as `J.O.E.` show up correctly next to the logo
+
+### Upgrade Notes
+- this release is recommended immediately for managed installs using `/updates`
+- if a previous `alpha125` update left the stack drifted, run `./aria-stack.sh repair` once after upgrading; future managed updates should then stay on the corrected host-path-aware update flow
+
 ## [0.1.0-alpha.125] - 2026-04-24
 
 Public hotfix release on top of `0.1.0-alpha.124`.
