@@ -173,8 +173,45 @@ def _managed_target_image() -> str:
     return image or "fischermanch/aria:alpha"
 
 
+def _managed_install_host_dir() -> str:
+    install_dir = str(INSTALL_DIR)
+    container_id = str(os.environ.get("HOSTNAME", "") or "").strip()
+    if not container_id:
+        return install_dir
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", container_id],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return install_dir
+    if result.returncode != 0 or not result.stdout.strip():
+        return install_dir
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return install_dir
+    if not isinstance(payload, list) or not payload:
+        return install_dir
+    mounts = payload[0].get("Mounts", [])
+    if not isinstance(mounts, list):
+        return install_dir
+    for mount in mounts:
+        if not isinstance(mount, dict):
+            continue
+        destination = str(mount.get("Destination", "") or "").strip()
+        source = str(mount.get("Source", "") or "").strip()
+        if destination == install_dir and source:
+            return source
+    return install_dir
+
+
 def _refresh_managed_stack_files_from_target_image() -> None:
     image = _managed_target_image()
+    host_install_dir = _managed_install_host_dir()
     _run_logged(["docker", "pull", image], step="Pull ARIA target image for stack refresh")
     _run_logged(
         [
@@ -182,7 +219,7 @@ def _refresh_managed_stack_files_from_target_image() -> None:
             "run",
             "--rm",
             "-v",
-            f"{INSTALL_DIR}:/managed",
+            f"{host_install_dir}:/managed",
             image,
             "/app/docker/setup-compose-stack.sh",
             "--install-dir",

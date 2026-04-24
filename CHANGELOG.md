@@ -8,6 +8,17 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 No entries yet.
 
+## [0.1.0-alpha.124] - 2026-04-24
+
+Public hotfix release on top of `0.1.0-alpha.123`.
+
+### Fixed
+- managed GUI updates now resolve the real host-side source path behind the updater's `/managed` bind mount before they call `docker run ... /app/docker/setup-compose-stack.sh`; this fixes the false `/managed/.env` lookup on existing managed installs
+
+### Upgrade Notes
+- this release supersedes `alpha123` for managed installs using `/updates`
+- if a previous GUI update stopped during `Refresh managed stack files`, upgrade to this release once and rerun the managed update
+
 ## [0.1.0-alpha.123] - 2026-04-24
 
 Public hotfix release on top of `0.1.0-alpha.122`.

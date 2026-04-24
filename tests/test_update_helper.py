@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +20,7 @@ def test_managed_target_image_prefers_install_env(tmp_path: Path, monkeypatch) -
 def test_refresh_managed_stack_files_from_target_image_uses_target_image(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / ".env").write_text("ARIA_IMAGE=fischermanch/aria:0.1.0-alpha108\n", encoding="utf-8")
     monkeypatch.setattr(update_helper, "INSTALL_DIR", tmp_path)
+    monkeypatch.setattr(update_helper, "_managed_install_host_dir", lambda: str(tmp_path))
 
     calls: list[tuple[str, list[str]]] = []
 
@@ -48,6 +51,30 @@ def test_refresh_managed_stack_files_from_target_image_uses_target_image(tmp_pat
             ],
         ),
     ]
+
+
+def test_managed_install_host_dir_prefers_mount_source_from_current_container(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(update_helper, "INSTALL_DIR", Path("/managed"))
+    monkeypatch.setenv("HOSTNAME", "abc123")
+
+    inspect_payload = json.dumps(
+        [
+            {
+                "Mounts": [
+                    {"Destination": "/other", "Source": "/srv/other"},
+                    {"Destination": "/managed", "Source": str(tmp_path)},
+                ]
+            }
+        ]
+    )
+
+    def _fake_run(command: list[str], **kwargs):  # noqa: ANN003
+        assert command == ["docker", "inspect", "abc123"]
+        return SimpleNamespace(returncode=0, stdout=inspect_payload)
+
+    monkeypatch.setattr(update_helper.subprocess, "run", _fake_run)
+
+    assert update_helper._managed_install_host_dir() == str(tmp_path)
 
 
 def test_managed_update_worker_refreshes_stack_from_target_image_before_compose_pull(tmp_path: Path, monkeypatch) -> None:

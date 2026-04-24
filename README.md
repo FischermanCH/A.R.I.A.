@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha123`
-- `alpha123` is a focused public hotfix on top of `alpha122` and keeps the same feature set while hardening managed GUI updates for existing installs whose stack refresh helper cannot re-open the managed `.env` cleanly.
+- Current public alpha release: `0.1.0-alpha124`
+- `alpha124` is a focused public hotfix on top of `alpha123` and fixes the managed GUI updater so its stack refresh helper reuses the real host bind-mount source instead of the in-container path `/managed`.
 
 ## One-line summary
 
