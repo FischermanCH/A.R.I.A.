@@ -195,6 +195,18 @@ def _refresh_managed_stack_files_from_target_image() -> None:
     )
 
 
+def _try_refresh_managed_stack_files_from_target_image() -> bool:
+    try:
+        _refresh_managed_stack_files_from_target_image()
+    except Exception as exc:  # noqa: BLE001
+        _write_log_line(
+            f"[{_now_iso()}] WARNING: Stack-Dateien konnten nicht automatisch aktualisiert werden. "
+            f"Der laufende Update-Pfad nutzt die vorhandenen Managed-Dateien weiter. Detail: {exc}"
+        )
+        return False
+    return True
+
+
 def _run_logged(command: list[str], *, step: str) -> None:
     _write_log_line(f"[{_now_iso()}] {step}")
     _write_log_line(f"$ {' '.join(command)}")
@@ -320,7 +332,7 @@ def _run_managed_update_worker() -> None:
         _write_log_line(f"[{_now_iso()}] ARIA managed update started.")
         if not (INSTALL_DIR / ".env").exists() or not (INSTALL_DIR / "docker-compose.yml").exists():
             raise RuntimeError(f"Managed install directory incomplete: {INSTALL_DIR}")
-        _refresh_managed_stack_files_from_target_image()
+        _try_refresh_managed_stack_files_from_target_image()
 
         services = _compose_services()
         if not services:

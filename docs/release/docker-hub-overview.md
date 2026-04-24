@@ -20,7 +20,7 @@ Repository and full documentation:
 
 Current public alpha release:
 
-- `0.1.0-alpha122`
+- `0.1.0-alpha123`
 
 - `Notes / Notizen` as a real Markdown-first product path with board view, folders, chat/toolbox entry points, and Qdrant-backed semantic recall
 - `Watched Websites / Beobachtete Webseiten` as a new connection type for sources without RSS, including automatic metadata and grouping

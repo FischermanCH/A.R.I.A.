@@ -8,6 +8,17 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 No entries yet.
 
+## [0.1.0-alpha.123] - 2026-04-24
+
+Public hotfix release on top of `0.1.0-alpha.122`.
+
+### Fixed
+- managed GUI updates no longer abort the whole update run just because the stack-file refresh helper cannot re-open the managed install through `docker run ... /app/docker/setup-compose-stack.sh`; existing managed installs now continue with their current `.env` and `docker-compose.yml` instead of failing early with `Bestehende Env-Datei nicht gefunden: /managed/.env`
+
+### Upgrade Notes
+- this release is recommended immediately for managed installs using `/updates`
+- if a previous `alpha122` GUI update already pulled the image but stopped during stack refresh, rerun the managed update after upgrading to this hotfix
+
 ## [0.1.0-alpha.122] - 2026-04-24
 
 Public roll-up release covering the internally tested `alpha122` to `alpha167` line since the previous public `alpha121` release.

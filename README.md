@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha122`
-- `alpha122` rolls up the internally tested `alpha122` to `alpha167` line, including Notes, Watched Websites, Google Calendar read-only, the unified routing/planner path, and broader UI/runtime cleanup
+- Current public alpha release: `0.1.0-alpha123`
+- `alpha123` is a focused public hotfix on top of `alpha122` and keeps the same feature set while hardening managed GUI updates for existing installs whose stack refresh helper cannot re-open the managed `.env` cleanly.
 
 ## One-line summary
 
