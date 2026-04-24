@@ -689,16 +689,31 @@ validate_runtime() {
 }
 
 runtime_update_services() {
-  local services=("aria")
+  local preferred_services=("qdrant" "searxng-valkey" "searxng" "aria" "aria-updater")
+  local configured_services=()
+  local selected_services=()
   local line=""
+  local preferred=""
+
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
-    if [[ "$line" == "aria-updater" ]]; then
-      services+=("aria-updater")
-      break
-    fi
+    configured_services+=("$line")
   done < <(run_compose config --services 2>/dev/null || true)
-  printf '%s\n' "${services[@]}"
+
+  for preferred in "${preferred_services[@]}"; do
+    for line in "${configured_services[@]}"; do
+      if [[ "$line" == "$preferred" ]]; then
+        selected_services+=("$line")
+        break
+      fi
+    done
+  done
+
+  if [[ "${#selected_services[@]}" -eq 0 ]]; then
+    selected_services=("aria")
+  fi
+
+  printf '%s\n' "${selected_services[@]}"
 }
 
 repair_runtime() {

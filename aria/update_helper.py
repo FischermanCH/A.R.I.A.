@@ -42,6 +42,9 @@ LOCAL_QDRANT_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_QDRANT_SERVICE
 LOCAL_SEARXNG_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_SEARXNG_SERVICE_NAME", "aria-searxng") or "aria-searxng").strip()
 LOCAL_COMPOSE_PROJECT_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_PROJECT_NAME", "") or "").strip()
 STATE_LOCK = threading.Lock()
+STATUS_RECONCILE_LOCK = threading.Lock()
+STATUS_RECONCILE_INTERVAL_SECONDS = 15.0
+_last_status_reconcile_monotonic = 0.0
 SERVICE_RESTART_TARGETS = {
     "qdrant": {
         "label": "Qdrant",
@@ -264,6 +267,23 @@ def _run_logged(command: list[str], *, step: str) -> None:
         raise RuntimeError(f"{step} failed with exit code {process.returncode}.")
 
 
+def _run_quickcheck(command: list[str], *, timeout_seconds: float = 120.0) -> tuple[bool, str]:
+    try:
+        process = subprocess.run(
+            command,
+            cwd=str(INSTALL_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    output = str(process.stdout or "").strip()
+    return process.returncode == 0, output
+
+
 def _run_logged_with_env(
     command: list[str],
     *,
@@ -340,6 +360,56 @@ def _compose_services() -> list[str]:
     return [service for service in services if service not in EXCLUDED_SERVICES]
 
 
+def _stack_helper_command(*args: str) -> list[str]:
+    return [str(INSTALL_DIR / "aria-stack.sh"), *args]
+
+
+def _state_has_stale_failure(state: dict[str, Any]) -> bool:
+    if state.get("running"):
+        return False
+    normalized = str(state.get("status", "") or "").strip().lower()
+    last_error = str(state.get("last_error", "") or "").strip()
+    last_result = str(state.get("last_result", "") or "").strip().lower()
+    return normalized in {"error", "failed"} or bool(last_error) or "failed" in last_result
+
+
+def _reconcile_stale_error_state() -> dict[str, Any]:
+    global _last_status_reconcile_monotonic
+
+    state = _load_state()
+    if not _state_has_stale_failure(state):
+        return state
+    if not (INSTALL_DIR / "aria-stack.sh").exists():
+        return state
+
+    with STATUS_RECONCILE_LOCK:
+        now = time.monotonic()
+        if now - _last_status_reconcile_monotonic < STATUS_RECONCILE_INTERVAL_SECONDS:
+            return _load_state()
+        _last_status_reconcile_monotonic = now
+
+        state = _load_state()
+        if not _state_has_stale_failure(state):
+            return state
+
+        ok, _detail = _run_quickcheck(_stack_helper_command("validate"))
+        if not ok:
+            return state
+
+        _write_log_line(
+            f"[{_now_iso()}] INFO: Managed stack validated cleanly after a previous helper error. "
+            "Resetting helper status to ok."
+        )
+        return _update_state(
+            status="ok",
+            running=False,
+            current_step="",
+            last_error="",
+            last_result="Managed stack healthy after repair.",
+            last_finished_at=state.get("last_finished_at") or _now_iso(),
+        )
+
+
 def _wait_for_health(*, timeout_seconds: float = 120.0, sleep_seconds: float = 2.0) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -352,6 +422,21 @@ def _wait_for_health(*, timeout_seconds: float = 120.0, sleep_seconds: float = 2
             pass
         time.sleep(sleep_seconds)
     raise RuntimeError(f"ARIA healthcheck did not recover: {HEALTH_URL}")
+
+
+def _validate_managed_services_with_repair_fallback() -> bool:
+    validate_command = _stack_helper_command("validate")
+    try:
+        _run_logged(validate_command, step="Validate managed services")
+        return False
+    except Exception as exc:  # noqa: BLE001
+        _write_log_line(
+            f"[{_now_iso()}] WARNING: Validate failed after update. "
+            f"Running one automatic repair attempt. Detail: {exc}"
+        )
+        _update_state(current_step="repair_runtime")
+        _run_logged(_stack_helper_command("repair"), step="Repair managed services")
+        return True
 
 
 def _run_managed_update_worker() -> None:
@@ -386,14 +471,17 @@ def _run_managed_update_worker() -> None:
         _update_state(current_step="healthcheck")
         _wait_for_health()
         _update_state(current_step="validate_runtime")
-        _run_logged([str(INSTALL_DIR / "aria-stack.sh"), "validate"], step="Validate managed services")
-        _write_log_line(f"[{_now_iso()}] ARIA managed update completed successfully.")
+        auto_repaired = _validate_managed_services_with_repair_fallback()
+        if auto_repaired:
+            _write_log_line(f"[{_now_iso()}] ARIA managed update completed successfully after automatic repair.")
+        else:
+            _write_log_line(f"[{_now_iso()}] ARIA managed update completed successfully.")
         _update_state(
             status="ok",
             running=False,
             current_step="",
             last_finished_at=_now_iso(),
-            last_result="Update completed successfully.",
+            last_result="Update completed successfully after automatic repair." if auto_repaired else "Update completed successfully.",
         )
     except Exception as exc:  # noqa: BLE001
         _write_log_line(f"[{_now_iso()}] ERROR: {exc}")
@@ -585,7 +673,7 @@ def health() -> dict[str, Any]:
 @app.get("/status")
 def status(x_aria_update_token: str | None = Header(default=None, alias="X-ARIA-Update-Token")) -> dict[str, Any]:
     _require_auth(x_aria_update_token)
-    state = _load_state()
+    state = _reconcile_stale_error_state()
     state["supported"] = True
     state["reachable"] = True
     state["install_dir"] = str(INSTALL_DIR)

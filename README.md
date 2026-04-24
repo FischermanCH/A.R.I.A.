@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha124`
-- `alpha124` is a focused public hotfix on top of `alpha123` and fixes the managed GUI updater so its stack refresh helper reuses the real host bind-mount source instead of the in-container path `/managed`.
+- Current public alpha release: `0.1.0-alpha125`
+- `alpha125` is a focused public hotfix on top of `alpha124` and hardens managed updates end to end: failed post-update validation now triggers one automatic `repair`, stale red helper states self-heal once the stack validates cleanly again, and repair/update flows recreate the full managed runtime group including Qdrant and SearXNG sidecars.
 
 ## One-line summary
 
