@@ -8,6 +8,18 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 No entries yet.
 
+## [0.1.0-alpha.167] - 2026-04-25
+
+Public release aligned with the internally tested `alpha167` code line.
+
+### Changed
+- the main menu now only shows `Updates` when a newer release is actually available; the old permanent entry added noise on installs that were already current
+- ARIA now treats the visible release label as one shared product version line again instead of reinforcing a separate public-vs-internal numbering story in the UI and docs
+
+### Upgrade Notes
+- this release intentionally brings the public Docker/GitHub line onto the same visible release number as the internal ARIA line
+- managed and internal-local update paths can still differ technically, but the product should now report the same release label for the same code line
+
 ## [0.1.0-alpha.127] - 2026-04-24
 
 Public hotfix release on top of `0.1.0-alpha.126`.

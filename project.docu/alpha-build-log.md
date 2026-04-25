@@ -1,6 +1,6 @@
 # ARIA — Alpha Build Log
 
-Stand: 2026-04-22
+Stand: 2026-04-25
 
 Zweck:
 - nachvollziehen, **was bereits in Alpha-Builds gelandet ist**
@@ -12,6 +12,9 @@ Zweck:
 ### alpha167
 
 - enthaelt den kompletten Fixstand bis einschliesslich `alpha166`
+- Refresh 2026-04-25:
+  - sichtbare Release-Kennung und Public-Release-Linie sind jetzt bewusst wieder auf denselben `alpha167`-Stand gezogen
+  - der `Updates`-Menueintrag erscheint nur noch, wenn wirklich ein neuer Release verfuegbar ist
 - Memory Map / Notes:
   - die `aria_notes_<user>`-Collection aus Qdrant erscheint jetzt sichtbar in der `Memory Map`
   - Notes bekommen dort einen eigenen Block `Notes-Collections` statt still unsichtbar im Backend zu bleiben
@@ -22,7 +25,7 @@ Zweck:
 - Google Calendar:
   - die Schritt-Karten im Setup sind kompakter zusammengerueckt und visuell klarer als einzelne Schritte gerahmt
 - Verifikation:
-  - voller Testlauf: `634 passed, 11 warnings`
+  - voller Testlauf: `643 passed, 23 warnings`
 - Artefakt:
   - `/mnt/NAS/aria-images/aria-alpha167-local.tar`
 - Release-Label:

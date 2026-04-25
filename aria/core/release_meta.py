@@ -5,8 +5,7 @@ import os
 import tomllib
 from pathlib import Path
 
-
-DEFAULT_RELEASE_SUFFIX = "alpha127"
+DEFAULT_RELEASE_LABEL = "0.1.0-alpha167"
 
 
 def _read_installed_package_version(default: str = "0.1.0") -> str:
@@ -16,6 +15,13 @@ def _read_installed_package_version(default: str = "0.1.0") -> str:
         return default
     except Exception:
         return default
+
+
+def _version_from_release_label(release_label: str) -> str:
+    text = str(release_label or "").strip()
+    if not text:
+        return ""
+    return text.split("-", 1)[0].strip()
 
 
 def read_release_meta(base_dir: Path) -> dict[str, str]:
@@ -29,9 +35,10 @@ def read_release_meta(base_dir: Path) -> dict[str, str]:
     except Exception:
         pass
 
-    release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip()
-    if not release_label:
-        release_label = f"{version}-{DEFAULT_RELEASE_SUFFIX}"
+    release_label = str(os.getenv("ARIA_RELEASE_LABEL", "") or "").strip() or DEFAULT_RELEASE_LABEL
+    version_from_label = _version_from_release_label(release_label)
+    if version_from_label:
+        version = version_from_label
 
     return {
         "version": version,

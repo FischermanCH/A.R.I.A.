@@ -81,7 +81,7 @@ def test_authenticated_menu_surfaces_updates_destination_when_available(monkeypa
     assert "Update verf" in response.text or "Update avail" in response.text
 
 
-def test_authenticated_menu_keeps_updates_destination_visible_when_current(monkeypatch) -> None:
+def test_authenticated_menu_hides_updates_destination_when_current(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
@@ -107,7 +107,7 @@ def test_authenticated_menu_keeps_updates_destination_visible_when_current(monke
     response = client.get("/updates")
 
     assert response.status_code == 200
-    assert 'href="/updates"' in response.text
+    assert 'href="/updates"' not in response.text
     assert "menu-update-chip" not in response.text
 
 

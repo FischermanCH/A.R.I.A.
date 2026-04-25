@@ -603,8 +603,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha127`
-- `alpha127` is the follow-up public hotfix on top of `alpha126`: it keeps the repaired managed updater path and makes `/updates` easier to discover in the main menu by exposing it as its own destination with a clear `Update verfügbar` hint when a newer release exists.
+- Current public alpha release: `0.1.0-alpha167`
+- `alpha167` is the shared public/internal code line: it keeps the repaired managed updater path, only surfaces `Updates` in the main menu when a newer release really exists, and restores one visible product version line instead of separate public-vs-internal numbering.
 
 ## One-line summary
 

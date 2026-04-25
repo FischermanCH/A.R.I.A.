@@ -78,7 +78,7 @@ Current release principles:
 
 - public release notes are maintained in `CHANGELOG.md`
 - Docker tags follow public alpha tags
-- internal TAR builds can move faster than public tags
+- internal TAR delivery can differ from registry installs, but the visible ARIA release label should stay aligned with the same published code line
 - `aria-setup` is now the preferred fresh Docker install path
 - generic non-managed installs should not be assumed to support the browser update button unless they explicitly include a matching helper path
 

@@ -11,7 +11,7 @@ Aktuelle Release-Prinzipien:
 
 - oeffentliche Release Notes werden in `CHANGELOG.md` gepflegt
 - Docker-Tags folgen den oeffentlichen Alpha-Tags
-- interne Builds koennen schneller laufen als Public-Tags
+- interne TAR-Wege duerfen sich als Transportweg unterscheiden, aber die sichtbare ARIA-Release-Kennung soll auf derselben veroeffentlichten Code-Linie bleiben
 - ein direktes In-App-Update ist bewusst noch nicht eingebaut
 - der bevorzugte frische Docker-Installationsweg ist jetzt `aria-setup`, das ein kontrolliertes Compose-Verzeichnis mit vorhersagbaren Update-Befehlen anlegt
 
