@@ -61,6 +61,9 @@
         <h3>{{ row.title }}</h3>
         <span class="skill-state {{ row.promotion_class }}">{{ row.promotion_label }}</span>
       </div>
+      {% if row.review_next_action_label %}
+      <p class="hint-text">{{ row.review_next_action_label }}</p>
+      {% endif %}
       <p>{{ row.summary or row.preview }}</p>
       <div class="memory-health-grid learned-review-grid">
         <article class="memory-health-card">

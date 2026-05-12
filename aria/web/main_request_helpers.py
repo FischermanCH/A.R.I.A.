@@ -83,6 +83,14 @@ def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelper
             skill_id = value.split(":", 1)[1]
             text = deps.translate(lang, "skills.learned_promoted_info", "Learned recipe promoted into stored recipe: {skill}.")
             return text.format(skill=skill_id)
+        if value.startswith("learned_dismissed:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "skills.learned_dismissed_info", "Learned recipe kept for observation: {skill}.")
+            return text.format(skill=skill_id)
+        if value.startswith("learned_deleted:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "skills.learned_deleted_info", "Learned recipe deleted: {skill}.")
+            return text.format(skill=skill_id)
         return value
 
     def _localize_stored_recipe_description(manifest: dict[str, Any], lang: str) -> str:

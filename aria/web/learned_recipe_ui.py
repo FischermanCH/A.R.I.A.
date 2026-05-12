@@ -17,8 +17,8 @@ from aria.core.recipe_promotion_contract import (
 _LEARNED_RECIPE_UI_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
 
-def _learned_recipe_ui_text(key: str, default: str = "", **values: object) -> str:
-    template = _LEARNED_RECIPE_UI_I18N.t("de", f"learned_recipe_ui.{key}", default or key)
+def _learned_recipe_ui_text(language: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _LEARNED_RECIPE_UI_I18N.t(language or "de", f"learned_recipe_ui.{key}", default or key)
     if not values:
         return template
     try:
@@ -65,17 +65,17 @@ def normalize_learned_recipe_sort(value: str | None) -> str:
     return clean if clean in LEARNED_RECIPE_SORT_VALUES else LEARNED_RECIPE_SORT_LAST_SUCCESS
 
 
-def _promotion_state_label(state: str) -> str:
+def _promotion_state_label(state: str, *, language: str | None = None) -> str:
     clean = str(state or "").strip().lower()
     if clean == PROMOTION_STATE_OBSERVED:
-        return _learned_recipe_ui_text("state_observed", "Observed")
+        return _learned_recipe_ui_text(language, "state_observed", "Observed")
     if clean == PROMOTION_STATE_REVIEW_READY:
-        return _learned_recipe_ui_text("state_review_ready", "Review ready")
+        return _learned_recipe_ui_text(language, "state_review_ready", "Review ready")
     if clean == PROMOTION_STATE_ELIGIBLE:
-        return _learned_recipe_ui_text("state_eligible", "Promotion due")
+        return _learned_recipe_ui_text(language, "state_eligible", "Promotion due")
     if clean == PROMOTION_STATE_PROMOTED:
-        return _learned_recipe_ui_text("state_promoted", "Promoted")
-    return _learned_recipe_ui_text("state_unknown", "Unknown")
+        return _learned_recipe_ui_text(language, "state_promoted", "Promoted")
+    return _learned_recipe_ui_text(language, "state_unknown", "Unknown")
 
 
 def _promotion_state_class(state: str) -> str:
@@ -123,12 +123,12 @@ def _audit_action_label(entry: dict[str, Any]) -> str:
     return str(entry.get("preview", "") or "").strip()
 
 
-def _review_safety_label(entry: dict[str, Any], promotion_state: str) -> str:
+def _review_safety_label(entry: dict[str, Any], promotion_state: str, *, language: str | None = None) -> str:
     if promotion_state == PROMOTION_STATE_PROMOTED:
-        return _learned_recipe_ui_text("review_safety_promoted", "Promoted: executable stored recipe")
+        return _learned_recipe_ui_text(language, "review_safety_promoted", "Promoted: executable stored recipe")
     if str(entry.get("stored_recipe_id", "") or "").strip():
-        return _learned_recipe_ui_text("review_safety_stored_recipe", "Stored recipe exists")
-    return _learned_recipe_ui_text("review_safety_context_only", "Context only: not directly executable")
+        return _learned_recipe_ui_text(language, "review_safety_stored_recipe", "Stored recipe exists")
+    return _learned_recipe_ui_text(language, "review_safety_context_only", "Context only: not directly executable")
 
 
 def _review_safety_class(promotion_state: str) -> str:
@@ -139,7 +139,20 @@ def _review_safety_class(promotion_state: str) -> str:
     return "status-muted"
 
 
-def build_learned_recipe_row(source: dict[str, Any] | None) -> dict[str, Any]:
+def _review_next_action_label(
+    entry: dict[str, Any],
+    promotion_state: str,
+    *,
+    language: str | None = None,
+) -> str:
+    if promotion_state == PROMOTION_STATE_PROMOTED:
+        return _learned_recipe_ui_text(language, "next_action_open_stored", "Open stored recipe for review")
+    if is_stored_recipe_promotable_capability(entry.get("capability", "")):
+        return _learned_recipe_ui_text(language, "next_action_promote", "Review and promote if still correct")
+    return _learned_recipe_ui_text(language, "next_action_context_only", "Keep as planner context")
+
+
+def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | None = None) -> dict[str, Any]:
     entry = normalize_learned_recipe_store_entry(source)
     promotion_state = str(entry.get("promotion_state", "") or "").strip().lower()
     last_success_at = str(entry.get("last_success_at", "") or "").strip()
@@ -147,7 +160,7 @@ def build_learned_recipe_row(source: dict[str, Any] | None) -> dict[str, Any]:
     scope = dict(entry.get("recipe_scope", {}) or {})
     return {
         **entry,
-        "promotion_label": _promotion_state_label(promotion_state),
+        "promotion_label": _promotion_state_label(promotion_state, language=language),
         "promotion_class": _promotion_state_class(promotion_state),
         "scope_label": _scope_label(entry),
         "last_success_label": last_success_at.replace("T", " ").replace("Z", " UTC") if last_success_at else "",
@@ -156,14 +169,15 @@ def build_learned_recipe_row(source: dict[str, Any] | None) -> dict[str, Any]:
         "learning_origin": str(scope.get("learning_origin", "") or "").strip(),
         "review_target_label": _target_label(entry),
         "review_action_label": _audit_action_label(entry),
-        "review_safety_label": _review_safety_label(entry, promotion_state),
+        "review_safety_label": _review_safety_label(entry, promotion_state, language=language),
         "review_safety_class": _review_safety_class(promotion_state),
+        "review_next_action_label": _review_next_action_label(entry, promotion_state, language=language),
         "can_promote_to_stored_recipe": is_stored_recipe_promotable_capability(entry.get("capability", "")) and promotion_state != PROMOTION_STATE_PROMOTED,
     }
 
 
-def build_learned_recipe_rows(entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    rows = [build_learned_recipe_row(item) for item in list(entries or []) if isinstance(item, dict)]
+def build_learned_recipe_rows(entries: list[dict[str, Any]] | None, *, language: str | None = None) -> list[dict[str, Any]]:
+    rows = [build_learned_recipe_row(item, language=language) for item in list(entries or []) if isinstance(item, dict)]
     return rows
 
 

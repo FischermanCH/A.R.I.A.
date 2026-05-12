@@ -12,7 +12,7 @@ import aria.web.recipes_routes as recipes_routes_module
 from aria.web.recipes_routes import register_recipe_routes
 
 
-def _build_recipes_app() -> TestClient:
+def _build_recipes_app(*, language: str = "de") -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
@@ -24,7 +24,7 @@ def _build_recipes_app() -> TestClient:
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
         request.state.can_access_advanced_config = True
-        request.state.lang = "en"
+        request.state.lang = language
         request.state.csrf_token = "test-csrf"
         request.state.release_meta = {"label": "test"}
         request.state.auth_role = "admin"
@@ -165,6 +165,35 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Hat funktioniert" in response.text
     assert "uptime &amp;&amp; df -h /" in response.text
     assert "Nur Kontext: nicht direkt ausführbar" in response.text
+    assert "Reviewen und promoten, wenn weiterhin korrekt" in response.text
+
+
+def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:
+    monkeypatch.setattr(
+        recipes_routes_module,
+        "load_learned_recipe_store_entries",
+        lambda: [
+            {
+                "title": "Monitoring Quick Check",
+                "summary": "Short check.",
+                "intent": "server_health_check",
+                "connection_kind": "ssh",
+                "connection_ref": "ubnsrv-netalert",
+                "capability": "ssh_command",
+                "chosen_action": "uptime && df -h /",
+                "experience_count": 5,
+                "promotion_state": "eligible",
+            }
+        ],
+    )
+    client = _build_recipes_app(language="en")
+
+    response = client.get("/recipes/learned")
+
+    assert response.status_code == 200
+    assert "Promotion due" in response.text
+    assert "Review and promote if still correct" in response.text
+    assert "Context only: not directly executable" in response.text
 
 
 def test_recipes_learned_page_links_to_promoted_stored_recipe(monkeypatch) -> None:
@@ -363,6 +392,39 @@ def test_recipes_learned_admin_actions_update_store(monkeypatch, tmp_path) -> No
     )
     assert delete.status_code == 303
     assert learned_store.load_learned_recipe_store_entries() == []
+
+
+def test_recipes_learned_admin_action_preserves_filtered_return_to(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
+    learned_store.invalidate_learned_recipe_store_cache()
+    learned_store.save_learned_recipe_store_entry(
+        {
+            "recipe_id": "learned-ssh-health-check",
+            "intent": "health_check",
+            "connection_kind": "ssh",
+            "capability": "ssh_command",
+            "chosen_action": "uptime",
+            "experience_count": 5,
+            "promotion_state": "eligible",
+        }
+    )
+    client = _build_recipes_app()
+
+    response = client.post(
+        "/recipes/learned/dismiss",
+        data={
+            "recipe_id": "learned-ssh-health-check",
+            "csrf_token": "test-csrf",
+            "return_to": "/recipes/learned?state=eligible&kind=ssh&sort=experience",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/recipes/learned?state=eligible&kind=ssh&sort=experience&saved=1&info=")
+    assert location.count("?") == 1
+    assert "return_to=%2Frecipes%2Flearned%3Fstate%3Deligible%26kind%3Dssh%26sort%3Dexperience" in location
 
 
 def test_recipes_save_preserves_return_to() -> None:

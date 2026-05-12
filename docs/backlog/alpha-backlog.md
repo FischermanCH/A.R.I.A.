@@ -17,7 +17,7 @@ Aktueller Release-Stand:
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
-- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier
+- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX
 
 ## Offen Auf Einen Blick
 
@@ -28,7 +28,7 @@ Aktueller Release-Stand:
 - Zielbild: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus
 
 2. Recipes UX weiter ausbauen
-- Review-/Promote-Flows fuer Learned Recipes schaerfen
+- Review-/Promote-Flows fuer Learned Recipes weiter anhand echter Nutzung schaerfen
 - Templates besser kuratieren
 - Rezept-Ausfuehrungen fuer User lesbarer zusammenfassen
 - strukturierte Recipe-Outputs und Recipe-Fehler-/Skip-Zustaende weiter verbessern

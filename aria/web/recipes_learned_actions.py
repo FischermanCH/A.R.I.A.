@@ -13,6 +13,12 @@ LEARNED_RECIPE_ACTION_DELETE = "delete"
 _DISMISS_PROMOTION_HINT = "admin:Dismissed from review for now; collect fresh evidence before revisiting."
 
 
+def _append_recipe_action_info(target: str, info: str) -> str:
+    clean_target = str(target or "").strip() or "/recipes/learned"
+    separator = "&" if "?" in clean_target else "?"
+    return f"{clean_target}{separator}saved=1&info={quote_plus(info)}"
+
+
 def learned_recipe_admin_success_url(*, action: str, recipe_id: str, surface_path: str) -> str:
     clean_action = str(action or "").strip().lower()
     clean_recipe_id = str(recipe_id or "").strip()
@@ -36,4 +42,4 @@ def learned_recipe_admin_success_url(*, action: str, recipe_id: str, surface_pat
     else:
         raise ValueError(f"Unknown learned recipe admin action: {clean_action}")
 
-    return f"{target}?saved=1&info={quote_plus(info)}"
+    return _append_recipe_action_info(target, info)

@@ -3215,7 +3215,9 @@
     "steps": "Steps",
     "title": "Rezepte",
     "trigger": "Trigger",
-    "wizard_auto_keywords": "Trigger automatisch via LLM erzeugen, wenn Feld leer ist"
+    "wizard_auto_keywords": "Trigger automatisch via LLM erzeugen, wenn Feld leer ist",
+    "learned_dismissed_info": "Gelerntes Rezept bleibt zur Beobachtung: {skill}.",
+    "learned_deleted_info": "Gelerntes Rezept gelöscht: {skill}."
   },
   "skills.core_auto_memory_desc": "Automatische Fakten-Extraktion ohne Codewörter.",
   "skills.learned_origin": "Lernquelle",
@@ -3600,5 +3602,8 @@
   "website_runtime.group_list_header": "Beobachtete Webseiten in `{group}`: {count} Einträge.",
   "website_runtime.groups_prefix": "Gruppen: ",
   "website_runtime.list_header": "Deine beobachteten Webseiten: {count} Einträge.",
-  "website_runtime.read_header": "Beobachtete Webseite: **{title}** · `{ref}`"
+  "website_runtime.read_header": "Beobachtete Webseite: **{title}** · `{ref}`",
+  "learned_recipe_ui.next_action_context_only": "Als Planner-Kontext behalten",
+  "learned_recipe_ui.next_action_open_stored": "Gespeichertes Rezept zur Review öffnen",
+  "learned_recipe_ui.next_action_promote": "Reviewen und promoten, wenn weiterhin korrekt"
 }

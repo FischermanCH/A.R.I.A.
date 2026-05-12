@@ -306,7 +306,7 @@ def register_recipe_routes(
         _set_logical_back_url(request, fallback=logical_back_fallback)
         custom_cfg = _normalize_custom_cfg(read_raw_config())
         custom_manifests, custom_errors = _load_stored_recipe_manifests()
-        learned_all_rows = build_learned_recipe_rows(load_learned_recipe_store_entries())
+        learned_all_rows = build_learned_recipe_rows(load_learned_recipe_store_entries(), language=lang)
         effective_learned_filter = normalize_learned_recipe_filter(learned_filter)
         effective_learned_kind_filter = normalize_learned_recipe_kind_filter(learned_kind_filter, learned_all_rows)
         effective_learned_sort = normalize_learned_recipe_sort(learned_sort)

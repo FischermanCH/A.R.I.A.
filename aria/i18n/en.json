@@ -3214,7 +3214,9 @@
     "steps": "Steps",
     "title": "Recipes",
     "trigger": "Trigger",
-    "wizard_auto_keywords": "Auto-generate trigger keywords via LLM when empty"
+    "wizard_auto_keywords": "Auto-generate trigger keywords via LLM when empty",
+    "learned_dismissed_info": "Learned recipe kept for observation: {skill}.",
+    "learned_deleted_info": "Learned recipe deleted: {skill}."
   },
   "skills.core_auto_memory_desc": "Automatic fact extraction without code words.",
   "skills.learned_origin": "Learning source",
@@ -3599,5 +3601,8 @@
   "website_runtime.group_list_header": "Watched websites in `{group}`: {count} entries.",
   "website_runtime.groups_prefix": "Groups: ",
   "website_runtime.list_header": "Your watched websites: {count} entries.",
-  "website_runtime.read_header": "Watched website: **{title}** · `{ref}`"
+  "website_runtime.read_header": "Watched website: **{title}** · `{ref}`",
+  "learned_recipe_ui.next_action_context_only": "Keep as planner context",
+  "learned_recipe_ui.next_action_open_stored": "Open stored recipe for review",
+  "learned_recipe_ui.next_action_promote": "Review and promote if still correct"
 }
