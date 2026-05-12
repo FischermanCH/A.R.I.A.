@@ -26,28 +26,16 @@ Aktueller Release-Stand:
 - Recipes-UX nachgezogen: Sample-Vorlagen zeigen Schritt-/Connection-/Trigger-/Schedule-/Side-Effect-Metadaten, Learned-Recipe-Review zeigt Contract/Policy/Runtime-Boundary plus Review-Reife, und Recipe Result View formatiert Schritte mit ausgefuehrt/uebersprungen-Zaehlern
 - Operator Guardrail nachgezogen: Recipe Experience Memory wird auf `/stats` als Reachability-/Learning-Memory-Signal sichtbar
 - Agentic-Boundaries nachgezogen: Debug-Boundaries sind zentral definiert und `agentic_runtime` markiert Runtime-Ausfuehrung explizit
+- Connection-Modularisierung abgeschlossen fuer diese Alpha-Runde: Connection Action Contracts exportieren Manifest-Zeilen und `docs/product/connection-provider-manifest-checklist.md` beschreibt die deklarative Provider-Bruecke
+- Admin/Observability abgeschlossen fuer diese Alpha-Runde: `/stats` Operator Guardrail hat stabile Row-Keys und `docs/product/operator-observability-guardrails.md` dokumentiert Release-/Kosten-/Update-Semantik
+- Legacy-/Recipe-Cleanup abgeschlossen fuer diese Alpha-Runde: `docs/product/legacy-recipe-compatibility-audit.md` enthaelt jetzt ein explizites Migration-Gate fuer alte Skill-Bruecken
 
 ## Offen Auf Einen Blick
 
-1. Connection-Modularisierung vorbereiten
-- gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen; Registry/Pool-Bindings sind jetzt contract-backed
-- Side-Effect-Boundary fuer write/send/publish Capabilities ist per Contract-Test abgesichert
-- Provider-spezifische Logik hinter kleinen Adaptern halten
-- neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
-- langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
+Keine unmittelbaren Produkt-/Cleanup-Blocker fuer diese Alpha-Runde.
 
-2. Admin/Observability abrunden
-- Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten, Kosten-Tracking und Recipe Experience Memory sind jetzt eigene Guardrail-Signale
-- Kosten-/Token-Tracking als Release-Guardrail aktiv halten; Tracking-Ausfaelle und Kostenluecken werden jetzt explizit bewertet
-- Pricing-Alias-/Manual-Overrides auditierbar halten; Refresh-/Settings-Sync ist jetzt abgesichert
-
-3. Legacy-/Recipe-Cleanup fortsetzen
-- dokumentierter Ist-Zustand liegt in `docs/product/legacy-recipe-compatibility-audit.md`
-- `samples/recipes/` ist die oeffentliche Sample-Oberflaeche; `samples/skills/` bleibt nur Backcompat-Fallback
-- Compatibility-Bruecken behalten, solange alte Configs/Imports sie brauchen
-- sichtbare UI-/Doku-Begriffe recipe-first halten
-- alte `skill_*` Namen nur fuer Backcompat dulden
-- `skills:` Config-Root, `/skills*` Redirects und alte i18n-/CSS-Kompatibilitaet nicht ohne expliziten Migration-Release entfernen
+Naechster sinnvoller Schritt:
+- interner Build, Smoke-Test nach `docs/release/internal-build-smoke-test.md`, danach nur bei gruenem Update-Pfad neuer Public-Push
 
 ## Dauer-Guardrails
 
@@ -58,6 +46,9 @@ Aktueller Release-Stand:
 - Agentic Live-Ausreisser zuerst in `docs/product/agentic-live-regression-dossier.md` als Kontext-, Resolver-, Policy-/Guardrail-, Runtime-/Summary- oder Observability-/Kostenluecke klassifizieren
 - keine neuen Agentic-Spezialfaelle auf Verdacht bauen; Zielbild bleibt Kontext anreichern, LLM bounded Action-Draft, Policy/Guardrail entscheidet, Runtime fuehrt aus
 - Recipes UX nur anhand echter neuer Recipe-Ausgaben/Live-Ausreisser weiter schaerfen; Templates, Review-/Promote-Flows und strukturierte Outputs nicht auf Verdacht aufblasen
+- Connection-Modularisierung ueber `docs/product/connection-action-contract.md` und `docs/product/connection-provider-manifest-checklist.md` contract-backed halten; neue Provider duerfen keine Pipeline-Sidepaths bauen
+- Operator Guardrail nach `docs/product/operator-observability-guardrails.md` pflegen; Kosten-/Token-Tracking-Ausfaelle bleiben Release-Fehler
+- Legacy-Skill-Bruecken nur nach dem Migration-Gate in `docs/product/legacy-recipe-compatibility-audit.md` entfernen
 - i18n strict vor groesseren Releases laufen lassen: `scripts/audit_i18n_code_literals.py --strict`
 - deutsche UI-/Runtime-Texte gehoeren in `aria/i18n/*.json`
 - deutsche Eingabe-/Routing-Lexika gehoeren in `aria/lexicons/*.json`
@@ -87,4 +78,7 @@ Aktueller Release-Stand:
 - Alpha-Build-Historie: `project.docu/alpha-build-log.md`
 - Public-Release-Text: `docs/release/github-release-v0.1.0-alpha.251.md`
 - Public-Rollup-Hintergrund: `docs/release/public-alpha-rollup-alpha167-to-next.md`
+- Connection-Manifeste: `docs/product/connection-provider-manifest-checklist.md`
+- Operator Guardrail: `docs/product/operator-observability-guardrails.md`
+- Legacy Recipe Compatibility: `docs/product/legacy-recipe-compatibility-audit.md`
 - Zukunftsthemen: `docs/backlog/future-features.md`

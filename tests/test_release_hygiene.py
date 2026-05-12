@@ -35,6 +35,10 @@ def test_source_runtime_assets_are_present_for_container_builds() -> None:
         ROOT / "config" / "config.example.yaml",
         ROOT / "config" / "secrets.env.example",
         ROOT / "docs" / "release" / "internal-build-smoke-test.md",
+        ROOT / "docs" / "product" / "connection-action-contract.md",
+        ROOT / "docs" / "product" / "connection-provider-manifest-checklist.md",
+        ROOT / "docs" / "product" / "operator-observability-guardrails.md",
+        ROOT / "docs" / "product" / "legacy-recipe-compatibility-audit.md",
     ]
 
     missing = [path.relative_to(ROOT).as_posix() for path in required_files if not path.exists()]
@@ -55,3 +59,14 @@ def test_sample_recipe_manifests_are_recipe_first() -> None:
         prompt_file = str(payload.get("prompt_file", "") or "").strip()
         if prompt_file:
             assert prompt_file.startswith("prompts/recipes/"), path.name
+
+
+def test_legacy_recipe_compatibility_policy_is_explicit() -> None:
+    audit = (ROOT / "docs" / "product" / "legacy-recipe-compatibility-audit.md").read_text(encoding="utf-8")
+
+    assert "Muss vorerst bleiben" in audit
+    assert "Darf nicht neu verwendet werden" in audit
+    assert "Migration-Gate" in audit
+    assert "`skills:`" in audit
+    assert "`/skills*`" in audit
+    assert "recipe-first" in audit

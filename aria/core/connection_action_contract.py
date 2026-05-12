@@ -30,6 +30,18 @@ class ConnectionActionContract:
             payload[clean_key] = str(getattr(plan, clean_attr, "") or "").strip()
         return payload
 
+    def manifest_row(self) -> dict[str, Any]:
+        return {
+            "capability": self.capability,
+            "family": self.family,
+            "operation": self.operation,
+            "executors": list(self.executors),
+            "policy_family": self.policy_family,
+            "required_fields": list(self.required_fields),
+            "payload_fields": [{"payload": key, "plan": attr} for key, attr in self.payload_fields],
+            "side_effect": self.side_effect,
+        }
+
 
 def _contract(
     capability: str,
@@ -186,6 +198,10 @@ def connection_action_contract(capability: str) -> ConnectionActionContract | No
 
 def connection_action_contracts() -> list[ConnectionActionContract]:
     return list(_CONNECTION_ACTION_CONTRACTS.values())
+
+
+def connection_action_manifest_rows() -> list[dict[str, Any]]:
+    return [contract.manifest_row() for contract in connection_action_contracts()]
 
 
 def connection_action_executor_bindings() -> list[tuple[str, str]]:

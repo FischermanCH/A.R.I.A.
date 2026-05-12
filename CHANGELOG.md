@@ -18,6 +18,8 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Learned Recipe review cards now expose the underlying Connection Action Contract boundary (`family`, `policy`, `runtime`, side-effect state), making promoted/context-only candidates easier to audit before adoption.
 - Learned Recipe review cards now show a localized review-maturity hint, separating strong promotion evidence from candidates that still need a target, action, or more successful runs.
 - Bundled recipe template cards now show step count, connection families, trigger count, schedule/manual state, step types, and whether a template has side effects that require confirmation/policy review.
+- Added `connection_action_manifest_rows()` plus `docs/product/connection-provider-manifest-checklist.md` as the bridge from today's Python-backed connection contracts to future declarative provider manifests.
+- Added `docs/product/operator-observability-guardrails.md` to document the `/stats` release/operations guardrail rows, status semantics, cost-tracking strictness, and maintenance rules.
 
 ### Changed
 - `agentic_runtime` debug lines now include `boundary=runtime_execution`, making runtime execution visually separate from context enrichment, LLM drafts, and policy decisions.
@@ -36,6 +38,8 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Bundled sample-manifest regression coverage is now recipe-first: `samples/recipes/` is pinned as the public import surface, `/recipes` links are required there, and `samples/skills/` is verified only as a parity fallback for old installs.
 - Stored recipe step output now keeps its legacy marker for compatibility but also renders a clearer recipe run status, readable per-step states, skipped steps, technical run details, and result text.
 - Recipe Result View summaries now include executed/skipped step counts ahead of the detailed step list, making multi-step recipe output easier to scan.
+- Operator Guardrail rows now carry stable machine-readable keys, so tests and future UI/admin tooling do not have to infer row meaning from visual order.
+- The Legacy Recipe Compatibility Audit now includes an explicit migration gate for removing old Skill-era bridges instead of leaving those compatibility seams as vague cleanup debt.
 
 ### Fixed
 - Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.

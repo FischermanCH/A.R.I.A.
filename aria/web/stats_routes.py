@@ -789,6 +789,18 @@ def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: An
     }
 
 
+OPERATOR_GUARDRAIL_ROW_KEYS = (
+    "release",
+    "gateway",
+    "pricing",
+    "cost_tracking",
+    "recipe_memory",
+    "preflight",
+    "health",
+    "updates",
+)
+
+
 def _guardrail_row(
     *,
     key: str,
@@ -802,6 +814,7 @@ def _guardrail_row(
     if clean_status not in {"ok", "warn", "error"}:
         clean_status = "warn"
     return {
+        "key": key,
         "label_key": f"stats.operator_guardrail_{key}",
         "fallback": fallback,
         "status": clean_status,

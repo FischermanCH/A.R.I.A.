@@ -41,10 +41,13 @@ Ein neuer Connection-Typ sollte mindestens liefern:
 - Eintrag im Connection-Katalog und UI-Konfiguration.
 - Capability-Eintrag oder bestehende Capability-Bindung im Capability-Katalog.
 - Contract-Eintrag in `connection_action_contract.py`.
+- Exportierbare Manifest-Zeile via `connection_action_manifest_rows()`; das ist die vorbereitete Bruecke zu spaeteren deklarativen Provider-Manifests.
 - Executor-Adapter in der Runtime, registriert ueber `ExecutorRegistry`.
 - Capability-Routing-Pools werden aus den Executor-Kinds des Contracts abgeleitet; neue Typen duerfen dort nicht mehr als harte Pipeline-Liste auftauchen.
 - Policy/Guardrail-Familie oder bewusste Wiederverwendung einer vorhandenen Familie.
 - Regressionstest, dass `capability_executor_bindings()` durch `connection_action_contract()` abgedeckt ist.
+
+Siehe auch: `docs/product/connection-provider-manifest-checklist.md`.
 
 ## Nicht erlaubt
 

@@ -7,6 +7,7 @@ from aria.core.connection_action_contract import connection_action_binding_is_su
 from aria.core.connection_action_contract import connection_action_executor_bindings
 from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.connection_action_contract import connection_action_contracts
+from aria.core.connection_action_contract import connection_action_manifest_rows
 from aria.core.connection_action_contract import runtime_operation_for_capability
 from aria.core.connection_action_contract import runtime_payload_for_action_plan
 
@@ -97,3 +98,27 @@ def test_runtime_operation_and_payload_are_contract_backed() -> None:
     assert runtime_payload_for_action_plan(mqtt) == {"topic": "aria/events", "message": "Deployment finished"}
     assert runtime_operation_for_capability("mail_search") == "read"
     assert runtime_payload_for_action_plan(mail) == {"selector": "", "query": "backup failed"}
+
+
+def test_connection_action_manifest_rows_are_declarative_and_complete() -> None:
+    rows = connection_action_manifest_rows()
+    by_capability = {row["capability"]: row for row in rows}
+
+    assert set(by_capability) == {contract.capability for contract in connection_action_contracts()}
+    assert by_capability["ssh_command"] == {
+        "capability": "ssh_command",
+        "family": "command",
+        "operation": "run_command",
+        "executors": ["ssh"],
+        "policy_family": "ssh_readonly",
+        "required_fields": ["connection_ref", "content"],
+        "payload_fields": [{"payload": "command", "plan": "content"}],
+        "side_effect": False,
+    }
+    for row in rows:
+        assert row["capability"]
+        assert row["family"]
+        assert row["operation"]
+        assert row["executors"]
+        assert row["policy_family"]
+        assert isinstance(row["side_effect"], bool)

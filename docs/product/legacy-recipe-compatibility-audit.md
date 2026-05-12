@@ -37,3 +37,13 @@ Erst nach einem expliziten Migrationsrelease entfernen:
 - Derselbe Test stellt sicher, dass `samples/skills/` nur als paritaetische Legacy-Referenz existiert.
 - Recipe-Routen-Tests pruefen, dass sichtbare Seiten keine alten Skill-Labels anzeigen.
 - Backcompat-Wrapper enthalten kurze Modul-Docstrings mit Verweis auf die neuen Recipe-Module.
+
+## Migration-Gate
+
+Legacy-Bruecken werden nur entfernt, wenn alle Punkte erfuellt sind:
+
+- Ein Release-Text nennt die Entfernung und den Migrationspfad explizit.
+- Alte Config-/Backup-Daten werden automatisch oder per dokumentiertem Admin-Schritt auf `recipes` migriert.
+- `/skills*`-URLs liefern mindestens einen Release-Zyklus lang klare Redirect-/Hinweis-Texte.
+- Tests belegen, dass neue UI, Samples, Hilfe und Wiki recipe-first bleiben.
+- Externe Imports fuer die alten Wrapper sind bewusst als Breaking Change akzeptiert.

@@ -13,6 +13,7 @@ from aria.core import connection_runtime
 import aria.core.learned_recipe_store as learned_store
 import aria.web.stats_routes as stats_routes
 from aria.web.stats_routes import (
+    OPERATOR_GUARDRAIL_ROW_KEYS,
     _attach_connection_edit_urls,
     _build_model_gateway_meta,
     _build_operator_guardrail_meta,
@@ -651,12 +652,30 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
     assert meta["warn_count"] == 3
     assert meta["error_count"] == 0
     assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "ok", "warn", "warn"]
+    assert [row["key"] for row in meta["rows"]] == list(OPERATOR_GUARDRAIL_ROW_KEYS)
     assert meta["rows"][0]["fallback"] == "Release metadata"
     assert meta["rows"][2]["summary"] == "42 model tokens are still unpriced."
     assert meta["rows"][3]["fallback"] == "Cost tracking"
     assert meta["rows"][4]["fallback"] == "Recipe Experience Memory"
     assert meta["rows"][4]["detail"] == "1 collections · 4 points"
     assert meta["rows"][7]["url"] == "/updates"
+
+
+def test_operator_guardrail_rows_are_machine_addressable_without_recipe_memory() -> None:
+    meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
+        pricing_meta={"has_unpriced_usage": False, "unpriced_model_tokens": 0},
+        model_gateway={"status": "ok", "chat_model": "x", "embedding_model": "y", "usage_meter_shared": True, "token_tracking_enabled": True},
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha251", "update_available": False},
+        recipe_experience_memory=None,
+        language="en",
+    )
+
+    expected_without_optional_memory = [key for key in OPERATOR_GUARDRAIL_ROW_KEYS if key != "recipe_memory"]
+    assert [row["key"] for row in meta["rows"]] == expected_without_optional_memory
+    assert all(row["label_key"] == f"stats.operator_guardrail_{row['key']}" for row in meta["rows"])
 
 
 def test_build_operator_guardrail_meta_escalates_errors() -> None:
