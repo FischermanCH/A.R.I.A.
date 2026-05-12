@@ -20,9 +20,9 @@ Repository and full documentation:
 
 Current public alpha release on Docker Hub:
 
-- `0.1.0-alpha167`
+- `0.1.0-alpha251`
 
-Next public alpha rollup focus:
+Current public alpha focus:
 
 - Recipes are now the visible automation model; legacy Skills remain only as compatibility bridges where needed.
 - ARIA now uses an LLM-assisted action flow: enrich context, propose a bounded action draft, then let policy and guardrails decide execution.
@@ -31,6 +31,7 @@ Next public alpha rollup focus:
 - `/stats` now shows token/cost usage, pricing coverage, Model Gateway Audit, and Recipe Experience Memory more clearly.
 - Pricing uses LiteLLM's public model-pricing JSON as primary source, with cache, fallback, and manual override support.
 - Managed updates are safer: normal `aria-stack.sh update` refreshes/recreates only `aria`; Qdrant, SearXNG, Valkey, and volumes stay untouched.
+- Host-side updates fail closed on host-port conflicts before recreating ARIA.
 - LLM Prompt Debug gives admins a redacted view into prompts, responses, model, operation, duration, and token usage.
 
 ## What you need

@@ -1,10 +1,10 @@
-# ARIA Public Alpha Rollup - since 0.1.0-alpha167
+# ARIA 0.1.0-alpha251 - Public Alpha Rollup since 0.1.0-alpha167
 
-Draft for the next GitHub Release and Docker Hub announcement.
+GitHub Release and Docker Hub announcement source for `v0.1.0-alpha.251`.
 
 ## Summary
 
-This release is the largest ARIA alpha rollup since `0.1.0-alpha167`.
+`0.1.0-alpha251` is the largest ARIA alpha rollup since `0.1.0-alpha167`.
 
 ARIA has moved from a mostly deterministic chat/router with legacy Skills toward a recipe-first, LLM-assisted action architecture. The visible product language is now `Recipes`, while legacy Skill compatibility remains only where it is still needed for old data and routes.
 

@@ -11,70 +11,38 @@ Zweck:
 Aktueller Release-Stand:
 - eine sichtbare Release-Kennung pro Code-Linie
 - aktuell gebaut: `0.1.0-alpha251`
-- aktuell in Arbeit: Public-Release-Closure / Public-Push-Vorbereitung
-- public zuletzt veroeffentlicht: `0.1.0-alpha167`
+- public veroeffentlicht: `0.1.0-alpha251`
+- aktueller Fokus: Post-Public-Stabilisierung und naechste Agentic-/Recipe-Bloecke
 
 ## Offen auf einen Blick
 
-Nach `alpha247` ausgewertet:
-- Multi-Target SSH ist live gruen: `check mal ob meine server noch genug festplatten platz haben` prueft 13 SSH-Ziele ohne Rueckfrage
-- Restart-Safety ist live gruen: `starte meinen dns server neu` erzeugt einen mutierenden Draft und wird blockiert
-- Live-Sequenz ist gruen: Management-HD, DNS-Health, API-Reachability, Discord-One-Click-Confirm, SMB-Root-Listing
-- keinen weiteren Build starten, bis der Build explizit angefordert wird
-
-Nach `alpha248` ausgewertet:
-- Multi-Target SSH mit Operator-Wording ist live gruen: `check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht`
-- all-ok Antwort bleibt kurz: `Gesamt: 13/13 SSH-Ziele unauffaellig. Kein Handlungsbedarf.`
-- Detailspur enthaelt weiterhin alle ausgefuehrten SSH-Ziele
-- RSS-Security-News brauchen nutzbaren Haupttext statt Ein-Zeilen-Digest; Fix vorbereitet: Links, Quelle, Zeit und Kurztext bleiben im Chat sichtbar
-- kleine Nachzuege: `requested_ref=n server` sauberer extrahieren; Guardrail-ID-Tippfehler `ssh-healtcheck` bereinigen
-
-`alpha249` gebaut:
-- enthaelt RSS-Digest-Verbesserung mit Links/Quelle/Zeit/Kurztext
-- enthaelt Public-Update-Safety-Nachzug im internen Build-Image
-- Artefakt: `/mnt/NAS/aria-images/aria-alpha249-local.tar`
-- Image: `fischermanch/aria:0.1.0-alpha.249` / `aria:alpha-local`
-- Image-ID: `sha256:7c9a875daba4991020b09961641ddeb11b8d553ec3f20be0719073bf5cc19173`
-- Verifikation: RSS-/Pipeline-/Release-Hygiene `203 passed`; Update-Helper-/Host-Update-/Managed-Setup-/Update-UI-/Release-Hygiene `36 passed`; Compile/Syntax/Diff/Container-Smoke gruen
-
-Nach `alpha249`-Live-Test vorbereitet, noch nicht gebaut:
-- RSS-Digests geben URLs jetzt explizit als `Link:`-Zeile aus, damit Copy/Paste die Links nicht verliert
-- `requested_ref=n server` Parser-Artefakt entfernt; generische Plural-SSH-Prompts bleiben ohne falschen Zielnamen
-- Verifikation: gezielte RSS/Router-Tests `72 passed`; Pipeline/Release-Hygiene `184 passed`; Compile und `git diff --check` gruen
-
-`alpha250` gebaut:
-- enthaelt die Nachzuege aus dem `alpha249`-Live-Test
-- Artefakt: `/mnt/NAS/aria-images/aria-alpha250-local.tar`
-- Image: `fischermanch/aria:0.1.0-alpha.250` / `aria:alpha-local`
-- Image-ID: `sha256:6169fdcfff5a2d0f39de4d073c7455a34db77b87ea654cf7116553974792a6ad`
-- Verifikation: RSS-/Router-/Pipeline-/Release-Hygiene `256 passed`; Compile/Diff/Container-Smoke gruen
-
-`alpha251` gebaut:
-- enthaelt Host-Update-Port-Preflight fuer Public-Release-Safety
-- Artefakt: `/mnt/NAS/aria-images/aria-alpha251-local.tar`
-- Image: `fischermanch/aria:0.1.0-alpha.251` / `aria:alpha-local`
-- Image-ID: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
-- Verifikation: kompletter Testlauf `1023 passed`; i18n strict, Compile, Diff, Container-Smoke gruen
-- Update-Pfad-Test: isolierter Managed-Stack auf Port `18831`, nur `aria` recreated, Qdrant/SearXNG/Valkey stabil
+- Public `alpha251` ist auf GitHub und Docker Hub veroeffentlicht
+- Docker Tags: `fischermanch/aria:0.1.0-alpha.251` und `fischermanch/aria:alpha`
+- Docker Digest: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
+- Live-Updates auf NOX und joe sind laut Live-Test gruen
+- Update-Pfad gilt fuer den Moment als stabilisiert: normaler Managed-Update-Pfad recreatet nur `aria`; Host-Helper bricht bei Host-Port-Konflikten vor Recreate ab
+- GitHub Release-Objekt ist noch manuell/mit Token nachzuziehen; Textbasis: `docs/release/public-alpha-rollup-alpha167-to-next.md`
 
 Naechste Produkt-/Cleanup-Bloecke:
-- Public-Release-Closure `alpha251`: finaler Build erst nach gruenem Testlauf und sauberem Update-Pfad
-- Public Push/Tag erst nach letzter Freigabe, weil `alpha251` noch den Host-Update-Port-Preflight nachzieht
-- Nach Public: Agentic Intelligence nach Live-Testdaten weiter vereinheitlichen, nicht auf Verdacht neue Spezialfaelle bauen
-- Nach Public: Legacy-/Recipe-Cleanup weiterfuehren, aber Safety- und Backcompat-Bruecken bewusst erhalten
-
-Pre-Public-Cleanup:
-- Git-Hygiene: Arbeitsbaum ist gross und muss vor Public Release in reviewbare Bloecke/Commits zerlegt werden
-- Docker-Hygiene: viele alte Alpha-Images und Build-Cache sind lokal vorhanden; Cleanup erst nach Update-Pfad-Freigabe und ohne laufenden Stack zu gefaehrden
-- Update-Safety: generierter Managed-Stack-Helper wurde so geaendert, dass `update` nur `aria` pullt/recreatet; Verifikation: Update-/UI-/Release-Hygiene-Tests `34 passed` vor Host-Helper-Nachzug, danach Host-Update-/Update-UI-/Release-Hygiene-Tests `36 passed`; Docker-/Update-Skript-Syntax gruen
-- Update-Safety-Nachzug: Host-Update-Helper kann per `--target-image` alte Fixed-Tag-Installs sicher auf ein neues Image heben, refreshed Managed-Stack-Dateien aus dem Ziel-Image und recreatet weiter nur `aria`
-- Echte Alt-zu-Neu-Probe mit temporaerem `alpha167`-Managed-Stack: Host-Helper recreated nur `aria`; Qdrant/SearXNG/Valkey-Container blieben stabil. Finaler Helper-Refresh-Test braucht den naechsten Build, weil `aria:alpha-local` aktuell noch `alpha248` ohne diesen Host-Helper-Nachzug enthaelt
-- Verifikation nach Host-Update-Nachzug: Host-Update-/Update-UI-/Release-Hygiene-Tests `36 passed`; Docker-/Update-Skript-Syntax gruen
-- Docker-Cleanup erledigt: lokale alte ARIA-Testtags `alpha167` und `alpha239`-`alpha245` entfernt; Build-Cache bewusst fuer den naechsten Build behalten
-- Public-Release-Kommunikation nachgezogen: kuratierter GitHub/Docker-Hub Rollup-Text seit `alpha167` liegt in `docs/release/public-alpha-rollup-alpha167-to-next.md`; README und Docker-Hub-Overview beschreiben jetzt Recipes, LLM-assisted Action Planning und sichere Update-Pfade statt Skills-first Architektur
-- Update-Pfad-Blocker gefunden und behoben: Host-Update-Helper prueft jetzt Compose-Host-Ports vor `up --force-recreate` und bricht sauber ab, wenn z.B. ein Host-Uvicorn bereits `8800` belegt
-- Isolierter Managed-Stack-Test auf Port `18831`: Host-Helper hat nur `aria` recreated; Qdrant/SearXNG/Valkey-Container-IDs blieben stabil; `/health` danach gruen
-- Lokale Besonderheit: der interne `aria` Docker-Container ist nach dem absichtlich provozierten Port-Konflikt `Created`; die laufende Host-Uvicorn-Instanz auf Port `8800` ist gesund. Vor einem echten lokalen Docker-Switch muss der Host-Port bewusst freigemacht werden.
+1. Agentic Intelligence weiter vereinheitlichen
+  - echte Live-Ausreisser sammeln und als Dossier-/Policy-/Resolver-Luecke klassifizieren
+  - keine neuen Spezialfaelle auf Verdacht bauen
+  - LLM-Drafts, deterministische Normalisierung, Guardrails und Runtime in Debug/Kosten weiter klar trennen
+2. Recipes UX weiter ausbauen
+  - Review-/Promote-Flows fuer Learned Recipes schaerfen
+  - Templates besser kuratieren
+  - Rezept-Ausfuehrungen fuer User lesbarer zusammenfassen
+3. Connection-Modularisierung vorbereiten
+  - gemeinsame Action-Draft-/Policy-/Runtime-Vertraege weiter vereinheitlichen
+  - Provider-spezifische Logik hinter kleinen Adaptern halten
+  - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
+4. Admin/Observability abrunden
+  - LLM Prompt Debug, Model Gateway Audit, Pricing Coverage und Update-Status als Operator-Werkzeuge weiter zusammenziehen
+  - Kosten-/Token-Tracking als Release-Guardrail aktiv halten
+5. Legacy-/Recipe-Cleanup fortsetzen
+  - Compatibility-Bruecken behalten, solange alte Configs/Imports sie brauchen
+  - sichtbare UI-/Doku-Begriffe recipe-first halten
+  - alte `skill_*` Namen nur fuer Backcompat dulden
 
 ## Jetzt
 
