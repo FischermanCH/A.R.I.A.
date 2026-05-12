@@ -1821,6 +1821,86 @@ class Pipeline:
             return "attention"
         return "ok"
 
+    @staticmethod
+    def _storage_size_to_gib(value: str, unit: str) -> float | None:
+        try:
+            amount = float(str(value or "").strip().replace(",", "."))
+        except ValueError:
+            return None
+        clean_unit = str(unit or "").strip().lower()
+        if not clean_unit:
+            return amount
+        clean_unit = clean_unit.rstrip("b")
+        multipliers = {
+            "k": 1 / (1024 * 1024),
+            "ki": 1 / (1024 * 1024),
+            "m": 1 / 1024,
+            "mi": 1 / 1024,
+            "g": 1,
+            "gi": 1,
+            "t": 1024,
+            "ti": 1024,
+        }
+        multiplier = multipliers.get(clean_unit)
+        if multiplier is None:
+            return None
+        return amount * multiplier
+
+    @classmethod
+    def _extract_free_disk_threshold_gib(cls, message: str) -> tuple[float, str] | None:
+        clean = str(message or "").strip().lower()
+        if not clean:
+            return None
+        has_disk_context = any(
+            token in clean
+            for token in (
+                "festplatte",
+                "festplatten",
+                "speicherplatz",
+                "disk",
+                "disks",
+                "filesystem",
+                "dateisystem",
+            )
+        )
+        has_free_context = any(token in clean for token in ("frei", "freien", "free", "available", "avail"))
+        if not has_disk_context or not has_free_context:
+            return None
+        match = re.search(r"(?:mehr\s+als|mindestens|minimum|at\s+least|more\s+than)?\s*(\d+(?:[.,]\d+)?)\s*(tib|tb|gib|gb|g|mib|mb|m)\b", clean)
+        if not match:
+            return None
+        value = match.group(1)
+        unit = match.group(2)
+        threshold = cls._storage_size_to_gib(value, unit)
+        if threshold is None or threshold <= 0:
+            return None
+        label_value = value.replace(",", ".")
+        label_unit = unit.upper()
+        if label_unit == "G":
+            label_unit = "GB"
+        elif label_unit == "M":
+            label_unit = "MB"
+        return threshold, f"{label_value}{label_unit}"
+
+    @classmethod
+    def _extract_summary_free_disk_gib(cls, text: str) -> tuple[float, str] | None:
+        clean = str(text or "").strip()
+        if not clean:
+            return None
+        patterns = (
+            r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>tib|tb|gib|gb|g|mib|mb|m)\s+frei\b",
+            r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>tib|tb|gib|gb|g|mib|mb|m)\s+free\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, clean, flags=re.IGNORECASE)
+            if not match:
+                continue
+            gib = cls._storage_size_to_gib(match.group("value"), match.group("unit"))
+            if gib is None:
+                continue
+            return gib, f"{match.group('value')}{match.group('unit')}"
+        return None
+
     def _multi_target_ssh_operator_summary(
         self,
         *,
@@ -3919,6 +3999,7 @@ class Pipeline:
         errors: list[str] = []
         success_count = 0
         original_count = len(refs)
+        free_disk_threshold = self._extract_free_disk_threshold_gib(str(resolved.get("query", "") or ""))
         allowed_refs, blocked_refs, preflight_detail_lines = self._preflight_multi_target_ssh_refs(refs, command)
         if self._routing_debug_enabled():
             detail_lines.extend(preflight_detail_lines)
@@ -3960,11 +4041,37 @@ class Pipeline:
             success_count += 1
             clean_text = str(result_text or "").strip()
             if clean_text:
+                state = self._multi_target_ssh_result_state(clean_text)
+                threshold_text = ""
+                free_disk = self._extract_summary_free_disk_gib(clean_text) if free_disk_threshold else None
+                if free_disk_threshold and free_disk:
+                    threshold_gib, threshold_label = free_disk_threshold
+                    free_gib, free_label = free_disk
+                    if free_gib < threshold_gib:
+                        state = "attention"
+                        threshold_text = _pipeline_text(
+                            language,
+                            "multi_target_ssh_disk_threshold_below",
+                            "`{ref}` below requested free-disk threshold {threshold}: {free} free.",
+                            ref=ref,
+                            threshold=threshold_label,
+                            free=free_label,
+                        )
+                    elif state == "ok":
+                        threshold_text = _pipeline_text(
+                            language,
+                            "multi_target_ssh_disk_threshold_ok",
+                            "`{ref}` has at least {threshold} free ({free}).",
+                            ref=ref,
+                            threshold=threshold_label,
+                            free=free_label,
+                        )
                 result_records.append(
                     {
                         "ref": ref,
-                        "state": self._multi_target_ssh_result_state(clean_text),
-                        "text": clean_text,
+                        "state": state,
+                        "text": threshold_text or clean_text,
+                        "raw_text": clean_text,
                     }
                 )
 
@@ -4005,11 +4112,44 @@ class Pipeline:
                 "No SSH target returned output.",
             )
         else:
-            operator_summary = self._multi_target_ssh_operator_summary(
-                language=language,
-                target_count=original_count,
-                records=result_records,
-            )
+            threshold_records = [row for row in result_records if str(row.get("raw_text", "") or "").strip()] if free_disk_threshold else []
+            if free_disk_threshold and threshold_records:
+                threshold_gib, threshold_label = free_disk_threshold
+                threshold_ok = 0
+                threshold_below = 0
+                for row in threshold_records:
+                    parsed_free = self._extract_summary_free_disk_gib(str(row.get("raw_text", "") or ""))
+                    if not parsed_free:
+                        continue
+                    if parsed_free[0] >= threshold_gib:
+                        threshold_ok += 1
+                    else:
+                        threshold_below += 1
+                if threshold_below <= 0:
+                    operator_summary = _pipeline_text(
+                        language,
+                        "multi_target_ssh_disk_threshold_all_ok",
+                        "Overall: {ok_count}/{count} SSH targets have at least {threshold} free. No action required.",
+                        ok_count=threshold_ok,
+                        count=original_count,
+                        threshold=threshold_label,
+                    )
+                else:
+                    operator_summary = _pipeline_text(
+                        language,
+                        "multi_target_ssh_disk_threshold_mixed",
+                        "Overall: {ok_count}/{count} SSH targets have at least {threshold} free; {below_count} are below the requested threshold.",
+                        ok_count=threshold_ok,
+                        count=original_count,
+                        below_count=threshold_below,
+                        threshold=threshold_label,
+                    )
+            else:
+                operator_summary = self._multi_target_ssh_operator_summary(
+                    language=language,
+                    target_count=original_count,
+                    records=result_records,
+                )
             summary = f"{operator_summary} {relevant_summary}".strip()
         if errors:
             text = _pipeline_text(

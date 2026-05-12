@@ -7644,6 +7644,50 @@ def test_pipeline_multi_target_ssh_operator_summary_flags_attention() -> None:
     assert "srv-ok" not in text
 
 
+def test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "srv-ok": {"host": "172.31.1.10", "user": "root", "title": "OK server"},
+                    "srv-low": {"host": "172.31.1.11", "user": "root", "title": "Low disk server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_execute(plan, *, language="de"):
+        if plan.connection_ref == "srv-low":
+            return "Festplattencheck für `srv-low`: Root-Dateisystem /: 47% belegt, 7.1G frei (ok)."
+        return "Festplattencheck für `srv-ok`: Root-Dateisystem /: 35% belegt, 12G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    _, text, _, errors = asyncio.run(
+        pipeline._execute_multi_target_ssh_action(
+            resolved={"query": "habe ich auf meinen servern ueberall mehr als 10gb freien festplattenspeicher?"},
+            payload={
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_refs": ["srv-ok", "srv-low"],
+                "content": "df -h",
+            },
+            action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert errors == []
+    assert "Gesamt: 1/2 SSH-Ziele haben mindestens 10GB frei; 1 liegen unter der gewuenschten Schwelle." in text
+    assert "`srv-low` unterschreitet die gewuenschte freie Festplatten-Schwelle 10GB: 7.1G frei." in text
+    assert "srv-ok" not in text
+
+
 def test_pipeline_agentic_ssh_policy_marks_complex_chain_for_confirmation() -> None:
     settings = Settings.model_validate(
         {
