@@ -7759,6 +7759,112 @@ def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> No
     assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
 
 
+def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "pihole2": {"host": "172.31.1.11", "user": "root"},
+                    "ubnsrv-syncthing": {"host": "172.31.1.12", "user": "root"},
+                    "ubnsrv-mgmt-master": {"host": "172.31.1.13", "user": "root"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class RepairingSummaryLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            self.last_messages = messages
+            operation = kwargs.get("operation")
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": (
+                                "Nein, nicht alle Server haben mehr als 10 GB Reserve. "
+                                "Von 3 Servern unterschreiten 3 die 10-GB-Schwelle: "
+                                "pihole2, ubnsrv-syncthing und ubnsrv-mgmt-master."
+                            ),
+                            "confidence": "high",
+                            "reason": "initial flexible summary with incorrect count",
+                            "facts": {
+                                "threshold_gib": 10,
+                                "threshold_label": "10GB",
+                                "below_threshold_refs": [
+                                    "pihole2",
+                                    "ubnsrv-syncthing",
+                                    "ubnsrv-mgmt-master",
+                                ],
+                                "near_threshold_refs": ["ubnsrv-mgmt-master"],
+                                "ok_refs": [],
+                            },
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary_repair":
+                payload = json.loads(messages[-1]["content"])
+                assert "extra_below_refs=ubnsrv-mgmt-master" in payload["validation_issues"]
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": (
+                                "Nein, nicht ueberall: 2 von 3 Servern liegen unter 10GB Reserve: "
+                                "`pihole2` (7.1G frei) und `ubnsrv-syncthing` (9.5G frei). "
+                                "`ubnsrv-mgmt-master` liegt mit 12G knapp darueber."
+                            ),
+                            "confidence": "high",
+                            "reason": "repaired against measured df output",
+                            "facts": {
+                                "threshold_gib": 10,
+                                "threshold_label": "10GB",
+                                "below_threshold_refs": ["pihole2", "ubnsrv-syncthing"],
+                                "near_threshold_refs": ["ubnsrv-mgmt-master"],
+                                "ok_refs": ["ubnsrv-mgmt-master"],
+                            },
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=RepairingSummaryLLM())
+
+    async def fake_execute(plan, *, language="de"):
+        if plan.connection_ref == "pihole2":
+            return "Festplattencheck für `pihole2`: Root-Dateisystem /: 47% belegt, 7.1G frei (ok)."
+        if plan.connection_ref == "ubnsrv-syncthing":
+            return "Festplattencheck für `ubnsrv-syncthing`: Root-Dateisystem /: 45% belegt, 9.5G frei (ok)."
+        return "Festplattencheck für `ubnsrv-mgmt-master`: Root-Dateisystem /: 35% belegt, 12G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    _, text, detail_lines, errors = asyncio.run(
+        pipeline._execute_multi_target_ssh_action(
+            resolved={"query": "habe ich auf meinen servern überall mehr als zehn gigabyte reserve auf der festplatte?"},
+            payload={
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_refs": ["pihole2", "ubnsrv-syncthing", "ubnsrv-mgmt-master"],
+                "content": "df -h",
+            },
+            action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert errors == []
+    assert "2 von 3 Servern" in text
+    assert "3 die 10-GB-Schwelle" not in text
+    assert "`ubnsrv-mgmt-master` liegt mit 12G knapp darueber" in text
+    assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
+    assert any("validation=repair" in line for line in detail_lines)
+
+
 def test_pipeline_agentic_ssh_policy_marks_complex_chain_for_confirmation() -> None:
     settings = Settings.model_validate(
         {

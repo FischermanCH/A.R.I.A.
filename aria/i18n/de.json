@@ -2562,6 +2562,7 @@
   "pipeline.multi_target_ssh_disk_threshold_below": "`{ref}` unterschreitet die gewuenschte freie Festplatten-Schwelle {threshold}: {free} frei.",
   "pipeline.multi_target_ssh_disk_threshold_mixed": "Gesamt: {ok_count}/{count} SSH-Ziele haben mindestens {threshold} frei; {below_count} liegen unter der gewuenschten Schwelle.",
   "pipeline.multi_target_ssh_disk_threshold_ok": "`{ref}` hat mindestens {threshold} frei ({free}).",
+  "pipeline.multi_target_ssh_disk_threshold_validated_mixed": "Nein, nicht ueberall: {below_count}/{count} SSH-Ziele liegen unter {threshold}: {below_refs}. Die anderen {ok_count} Ziele erfuellen die Schwelle.",
   "pipeline.multi_target_ssh_no_output": "Kein SSH-Ziel hat eine Ausgabe geliefert.",
   "pipeline.multi_target_ssh_operator_mixed": "Gesamt: {ok_count} ok, {attention_count} auffaellig, {blocked_count} blockiert, {error_count} Fehler.",
   "pipeline.multi_target_ssh_operator_ok": "Gesamt: {ok_count}/{count} SSH-Ziele unauffaellig. Kein Handlungsbedarf.",

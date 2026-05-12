@@ -1901,6 +1901,125 @@ class Pipeline:
             return gib, f"{match.group('value')}{match.group('unit')}"
         return None
 
+    @classmethod
+    def _multi_target_ssh_free_disk_measurements(cls, records: list[dict[str, str]]) -> list[dict[str, Any]]:
+        measurements: list[dict[str, Any]] = []
+        for row in records:
+            parsed = cls._extract_summary_free_disk_gib(str(row.get("raw_text", "") or row.get("text", "") or ""))
+            ref = str(row.get("ref", "") or "").strip()
+            if not ref or not parsed:
+                continue
+            measurements.append({"ref": ref, "free_gib": parsed[0], "free_label": parsed[1]})
+        return measurements
+
+    @staticmethod
+    def _multi_target_ssh_payload_facts(payload: dict[str, Any]) -> dict[str, Any]:
+        facts = payload.get("facts")
+        return facts if isinstance(facts, dict) else {}
+
+    @staticmethod
+    def _multi_target_ssh_summary_mentioned_below_count(summary: str) -> int | None:
+        clean = str(summary or "").strip().lower()
+        if not clean:
+            return None
+        patterns = (
+            r"\b(\d+)\s+von\s+\d+\s+(?:server|servern|ssh-ziele|ssh targets|targets|hosts)\s+(?:unterschreiten|liegen\s+unter|sind\s+unter|below)",
+            r"\b(?:von\s+\d+\s+servern\s+)?(?:unterschreiten|liegen\s+unter|sind\s+unter|below)\s+(\d+)\b",
+            r"\b(\d+)\s+(?:server|servern|ssh-ziele|ssh targets|targets|hosts)\s+(?:unterschreiten|liegen\s+unter|sind\s+unter|below)",
+            r"\b(\d+)\s+(?:die\s+)?(?:10-?gb|schwelle|threshold).{0,32}(?:unterschreiten|unter|below)",
+            r"\b(?:unterschreiten|unter|below).{0,32}\b(\d+)\s+(?:server|servern|targets|hosts)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, clean)
+            if not match:
+                continue
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _multi_target_ssh_refs_from_fact(value: Any) -> set[str]:
+        if not isinstance(value, list):
+            return set()
+        return {str(item or "").strip() for item in value if str(item or "").strip()}
+
+    def _validate_multi_target_ssh_summary_facts(
+        self,
+        *,
+        summary: str,
+        payload: dict[str, Any],
+        records: list[dict[str, str]],
+    ) -> tuple[float | None, str, list[str], list[str], list[dict[str, Any]]]:
+        facts = self._multi_target_ssh_payload_facts(payload)
+        raw_threshold = facts.get("threshold_gib")
+        threshold_gib: float | None = None
+        try:
+            if raw_threshold is not None:
+                threshold_gib = float(raw_threshold)
+        except (TypeError, ValueError):
+            threshold_gib = None
+        threshold_label = str(facts.get("threshold_label", "") or "").strip()
+        if threshold_gib is None or threshold_gib <= 0:
+            return None, threshold_label, [], [], []
+        if not threshold_label:
+            threshold_label = f"{threshold_gib:g}GB"
+        measurements = self._multi_target_ssh_free_disk_measurements(records)
+        if not measurements:
+            return threshold_gib, threshold_label, [], [], []
+        expected_below = {row["ref"] for row in measurements if float(row["free_gib"]) < threshold_gib}
+        expected_ok = {row["ref"] for row in measurements if float(row["free_gib"]) >= threshold_gib}
+        llm_below = self._multi_target_ssh_refs_from_fact(facts.get("below_threshold_refs"))
+        issues: list[str] = []
+        if llm_below and llm_below != expected_below:
+            missing = sorted(expected_below - llm_below)
+            extra = sorted(llm_below - expected_below)
+            if missing:
+                issues.append(f"missing_below_refs={','.join(missing)}")
+            if extra:
+                issues.append(f"extra_below_refs={','.join(extra)}")
+        mentioned_below_count = self._multi_target_ssh_summary_mentioned_below_count(summary)
+        if mentioned_below_count is not None and mentioned_below_count != len(expected_below):
+            issues.append(f"below_count_mismatch=summary:{mentioned_below_count},measured:{len(expected_below)}")
+        return threshold_gib, threshold_label, sorted(expected_below), sorted(expected_ok), issues
+
+    def _build_validated_multi_target_ssh_threshold_summary(
+        self,
+        *,
+        language: str | None,
+        target_count: int,
+        threshold_label: str,
+        below_refs: list[str],
+        measurements: list[dict[str, Any]],
+    ) -> str:
+        by_ref = {str(row["ref"]): row for row in measurements}
+        free_word = "free" if str(language or "").lower().startswith("en") else "frei"
+        below_parts = [
+            f"`{ref}` ({str(by_ref.get(ref, {}).get('free_label', '?'))} {free_word})"
+            for ref in below_refs
+        ]
+        ok_count = max(0, target_count - len(below_refs))
+        if not below_refs:
+            return _pipeline_text(
+                language,
+                "multi_target_ssh_disk_threshold_all_ok",
+                "Overall: {ok_count}/{count} SSH targets have at least {threshold} free. No action required.",
+                ok_count=ok_count,
+                count=target_count,
+                threshold=threshold_label,
+            )
+        return _pipeline_text(
+            language,
+            "multi_target_ssh_disk_threshold_validated_mixed",
+            "No, not everywhere: {below_count}/{count} SSH targets are below {threshold}: {below_refs}. The other {ok_count} targets meet the threshold.",
+            below_count=len(below_refs),
+            count=target_count,
+            threshold=threshold_label,
+            below_refs=", ".join(below_parts),
+            ok_count=ok_count,
+        )
+
     def _multi_target_ssh_operator_summary(
         self,
         *,
@@ -1975,8 +2094,12 @@ class Pipeline:
                     "Do not propose or execute commands. Do not invent data. "
                     "Answer the user's exact question from the given results. "
                     "If the user mentions a threshold, compare every result against that threshold. "
+                    "When a free-disk threshold is relevant, include a facts object with threshold_gib, "
+                    "threshold_label, below_threshold_refs, near_threshold_refs, and ok_refs. "
                     "Keep the response concise and action-oriented. "
-                    'Return JSON only: {"summary":"...","confidence":"low|medium|high","reason":"..."}'
+                    'Return JSON only: {"summary":"...","confidence":"low|medium|high","reason":"...",'
+                    '"facts":{"threshold_gib":null,"threshold_label":"","below_threshold_refs":[],'
+                    '"near_threshold_refs":[],"ok_refs":[]}}'
                 ),
             },
             {
@@ -2008,6 +2131,77 @@ class Pipeline:
         if confidence not in {"high", "medium"}:
             return "", f"Routing Debug: multi_target_ssh_summary skipped reason=low_confidence confidence={confidence or '-'}"
         reason = str(payload.get("reason", "") or "").strip()
+        threshold_gib, threshold_label, below_refs, _ok_refs, validation_issues = (
+            self._validate_multi_target_ssh_summary_facts(summary=summary, payload=payload, records=records)
+        )
+        if validation_issues and threshold_gib:
+            measurements = self._multi_target_ssh_free_disk_measurements(records)
+            repair_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Repair an ARIA operator summary. The previous summary contradicted measured SSH "
+                        "disk facts. Use the measured facts as authoritative. Do not propose commands. "
+                        "Return JSON only with the same schema as before."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "language": lang,
+                            "user_question": str(message or "").strip(),
+                            "executed_command": str(command or "").strip(),
+                            "previous_response": payload,
+                            "validation_issues": validation_issues,
+                            "validated_measurements": measurements,
+                            "expected_below_threshold_refs": below_refs,
+                            "threshold_gib": threshold_gib,
+                            "threshold_label": threshold_label,
+                            "deterministic_fallback_summary": str(fallback_summary or "").strip(),
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ]
+            try:
+                repair_response = await self.llm_client.chat(
+                    repair_messages,
+                    operation="ssh_multi_target_summary_repair",
+                )
+                repair_payload = self._extract_json_object(getattr(repair_response, "content", "") or "")
+                repair_summary = str(repair_payload.get("summary", "") or "").strip()
+                repair_confidence = str(repair_payload.get("confidence", "") or "").strip().lower()
+                _repair_threshold, _repair_label, _repair_below, _repair_ok, repair_issues = (
+                    self._validate_multi_target_ssh_summary_facts(
+                        summary=repair_summary,
+                        payload=repair_payload,
+                        records=records,
+                    )
+                )
+                if repair_summary and repair_confidence in {"high", "medium"} and not repair_issues:
+                    repair_reason = str(repair_payload.get("reason", "") or "").strip()
+                    return (
+                        repair_summary,
+                        "Routing Debug: multi_target_ssh_summary "
+                        f"agentic_source=llm_decision confidence={repair_confidence} "
+                        f"validation=repair reason={repair_reason or '-'}",
+                    )
+            except Exception:
+                pass
+            validated_summary = self._build_validated_multi_target_ssh_threshold_summary(
+                language=language,
+                target_count=len(records),
+                threshold_label=threshold_label,
+                below_refs=below_refs,
+                measurements=measurements,
+            )
+            return (
+                validated_summary,
+                "Routing Debug: multi_target_ssh_summary "
+                f"agentic_source=llm_decision confidence={confidence} validation=fallback "
+                f"reason=fact_validation_failed issues={';'.join(validation_issues)}",
+            )
         debug_line = (
             "Routing Debug: multi_target_ssh_summary "
             f"agentic_source=llm_decision confidence={confidence} reason={reason or '-'}"

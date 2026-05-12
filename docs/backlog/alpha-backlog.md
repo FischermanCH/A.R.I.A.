@@ -30,6 +30,7 @@ Aktueller Release-Stand:
 - Operator Guardrail nachgezogen: Recipe Experience Memory wird auf `/stats` als Reachability-/Learning-Memory-Signal sichtbar
 - Agentic-Boundaries nachgezogen: Debug-Boundaries sind zentral definiert und `agentic_runtime` markiert Runtime-Ausfuehrung explizit
 - Multi-SSH-Summary nachgezogen: ausgefuehrte Read-only-Resultate werden durch einen bounded LLM-Summary-Schritt dynamisch gegen die Userfrage zusammengefasst; deterministische freie-Festplatten-Schwellen bleiben nur als Fallback/Guardrail erhalten
+- Multi-SSH-Summary-Qualitaet nachgezogen: LLM-Summaries liefern strukturierte Schwellen-Fakten, harte `df -h`-Messwerte werden validiert, und Widersprueche laufen in einen bounded LLM-Repair statt in statische Spezialfaelle
 - Connection-Modularisierung abgeschlossen fuer diese Alpha-Runde: Connection Action Contracts exportieren Manifest-Zeilen und `docs/product/connection-provider-manifest-checklist.md` beschreibt die deklarative Provider-Bruecke
 - Admin/Observability abgeschlossen fuer diese Alpha-Runde: `/stats` Operator Guardrail hat stabile Row-Keys und `docs/product/operator-observability-guardrails.md` dokumentiert Release-/Kosten-/Update-Semantik
 - Legacy-/Recipe-Cleanup abgeschlossen fuer diese Alpha-Runde: `docs/product/legacy-recipe-compatibility-audit.md` enthaelt jetzt ein explizites Migration-Gate fuer alte Skill-Bruecken

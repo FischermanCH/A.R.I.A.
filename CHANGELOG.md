@@ -43,6 +43,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - The Legacy Recipe Compatibility Audit now includes an explicit migration gate for removing old Skill-era bridges instead of leaving those compatibility seams as vague cleanup debt.
 
 ### Fixed
+- Multi-target SSH LLM summaries now carry structured threshold facts and are validated against the measured read-only `df -h` results; if the first LLM summary contradicts hard measurements, ARIA asks the LLM for a bounded repair and only falls back to a measured threshold summary if repair fails.
 - Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.
 - Multi-target SSH LLM summaries no longer pass unsupported per-call `temperature` overrides to the shared `LLMClient`; skipped or failed summary calls now leave a routing-debug line instead of silently falling back to the old deterministic summary.
 - German disk-space questions such as `hab ich noch genug speicherplatz auf meinen servern?` no longer get misclassified as `memory_store` just because `speicherplatz` contains the memory-store verb stem `speicher`.
