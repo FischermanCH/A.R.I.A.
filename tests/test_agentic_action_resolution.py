@@ -16,6 +16,8 @@ from aria.core.agentic_action_resolution import (
     normalize_agentic_policy_action,
     ssh_policy_result,
 )
+from aria.core.agentic_prompt_flow import agentic_debug_boundary_phases
+from aria.core.agentic_prompt_flow import normalize_agentic_debug_boundary
 from aria.core.connection_dossiers import build_file_target_dossier
 from aria.core.connection_dossiers import build_message_target_dossier
 from aria.core.connection_dossiers import build_read_target_dossier
@@ -238,6 +240,27 @@ def test_agentic_debug_line_uses_one_format_for_capabilities() -> None:
     assert "boundary=draft_policy" in line
     assert "agentic_source=llm_decision" in line
     assert "policy=ssh_readonly" in line
+
+
+def test_agentic_debug_boundaries_map_to_prompt_flow_phases() -> None:
+    assert agentic_debug_boundary_phases("context_enrichment") == ("context_enrichment",)
+    assert agentic_debug_boundary_phases("draft") == ("llm_action_proposal",)
+    assert agentic_debug_boundary_phases("policy") == ("policy_guardrail_decision",)
+    assert agentic_debug_boundary_phases("draft_policy") == ("llm_action_proposal", "policy_guardrail_decision")
+    assert agentic_debug_boundary_phases("runtime_execution") == ("runtime_execution",)
+    assert normalize_agentic_debug_boundary("unknown") == "context_enrichment"
+
+
+def test_agentic_runtime_debug_line_uses_runtime_boundary() -> None:
+    line = agentic_debug_line(
+        "agentic_runtime",
+        connection_ref="event-bus",
+        fields={"kind": "mqtt", "capability": "mqtt_publish", "operation": "publish"},
+        boundary="runtime_execution",
+    )
+
+    assert "boundary=runtime_execution" in line
+    assert "kind=mqtt" in line
 
 
 def test_file_target_dossier_excludes_secrets_for_modular_agentic_resolution() -> None:

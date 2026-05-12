@@ -13,6 +13,31 @@ AGENTIC_PROMPT_FLOW_PHASES: tuple[str, ...] = (
     "runtime_execution",
 )
 
+AGENTIC_BOUNDARY_CONTEXT = "context_enrichment"
+AGENTIC_BOUNDARY_DRAFT = "draft"
+AGENTIC_BOUNDARY_POLICY = "policy"
+AGENTIC_BOUNDARY_DRAFT_POLICY = "draft_policy"
+AGENTIC_BOUNDARY_RUNTIME = "runtime_execution"
+
+AGENTIC_DEBUG_BOUNDARY_PHASES: dict[str, tuple[str, ...]] = {
+    AGENTIC_BOUNDARY_CONTEXT: ("context_enrichment",),
+    AGENTIC_BOUNDARY_DRAFT: ("llm_action_proposal",),
+    AGENTIC_BOUNDARY_POLICY: ("policy_guardrail_decision",),
+    AGENTIC_BOUNDARY_DRAFT_POLICY: ("llm_action_proposal", "policy_guardrail_decision"),
+    AGENTIC_BOUNDARY_RUNTIME: ("runtime_execution",),
+}
+
+
+def normalize_agentic_debug_boundary(value: str) -> str:
+    clean = str(value or "").strip().lower()
+    if clean in AGENTIC_DEBUG_BOUNDARY_PHASES:
+        return clean
+    return AGENTIC_BOUNDARY_CONTEXT
+
+
+def agentic_debug_boundary_phases(boundary: str) -> tuple[str, ...]:
+    return AGENTIC_DEBUG_BOUNDARY_PHASES[normalize_agentic_debug_boundary(boundary)]
+
 
 @dataclass(slots=True)
 class AgenticPromptFlow:

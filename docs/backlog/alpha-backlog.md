@@ -25,13 +25,14 @@ Aktueller Release-Stand:
 - Interner Build-Smoke-Test liegt in `docs/release/internal-build-smoke-test.md`
 - Recipes-UX nachgezogen: Learned-Recipe-Review zeigt jetzt Contract/Policy/Runtime-Boundary und Recipe Result View formatiert uebersprungene Schritte lesbar
 - Operator Guardrail nachgezogen: Recipe Experience Memory wird auf `/stats` als Reachability-/Learning-Memory-Signal sichtbar
+- Agentic-Boundaries nachgezogen: Debug-Boundaries sind zentral definiert und `agentic_runtime` markiert Runtime-Ausfuehrung explizit
 
 ## Offen Auf Einen Blick
 
 1. Agentic Intelligence weiter vereinheitlichen
 - echte Live-Ausreisser weiter in `docs/product/agentic-live-regression-dossier.md` als Dossier-/Policy-/Resolver-Luecke klassifizieren
 - keine neuen Spezialfaelle auf Verdacht bauen
-- LLM-Drafts, deterministische Normalisierung, Guardrails und Runtime in Debug/Kosten weiter klar trennen
+- LLM-Drafts, deterministische Normalisierung, Guardrails und Runtime in Debug/Kosten weiter klar trennen; Debug-Boundaries sind jetzt zentral gepinnt, weitere Arbeit anhand echter Ausreisser
 - Zielbild: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus
 
 2. Recipes UX weiter ausbauen

@@ -13,6 +13,7 @@ from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints, buil
 from aria.core.action_candidate_taxonomy import is_recipe_candidate_kind
 from aria.core.action_candidate_taxonomy import normalize_action_candidate_kind
 from aria.core.action_planner import debug_bounded_action_plan_decision
+from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_CONTEXT
 from aria.core.agentic_prompt_flow import agentic_prompt_flow_debug_line
 from aria.core.agentic_prompt_flow import build_agentic_prompt_flow
 from aria.core.bounded_planner import debug_bounded_planner_decision
@@ -5099,7 +5100,7 @@ class Pipeline:
             f"Routing Debug: pre_rag_action_gate action_path={action_path} "
             f"capability={capability} kind={kind} explicit_ref={explicit_ref} "
             f"requested_ref={requested_ref} path={path} content={content} "
-            "boundary=context_enrichment"
+            f"boundary={AGENTIC_BOUNDARY_CONTEXT}"
         )
         if reason:
             line = f"{line} reason={reason}"

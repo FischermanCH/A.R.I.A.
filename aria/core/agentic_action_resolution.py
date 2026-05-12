@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_DRAFT
+from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_DRAFT_POLICY
+from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_POLICY
+from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_RUNTIME
+from aria.core.agentic_prompt_flow import normalize_agentic_debug_boundary
+
 
 AGENTIC_POLICY_ACTIONS = {"allow", "ask_user", "block"}
 
@@ -350,6 +356,7 @@ def agentic_debug_line(
     fields: dict[str, Any] | None = None,
     draft: AgenticActionDraft | None = None,
     policy: AgenticPolicyResult | None = None,
+    boundary: str = "",
 ) -> str:
     parts = [f"Routing Debug: {str(label or '').strip()}", f"ref={str(connection_ref or '').strip() or '-'}"]
     for key, value in dict(fields or {}).items():
@@ -358,12 +365,16 @@ def agentic_debug_line(
             continue
         clean_value = str(value if value is not None else "").strip() or "-"
         parts.append(f"{clean_key}={clean_value}")
-    if draft is not None and policy is not None:
-        parts.append("boundary=draft_policy")
-    elif draft is not None:
-        parts.append("boundary=draft")
-    elif policy is not None:
-        parts.append("boundary=policy")
+    clean_boundary = str(boundary or "").strip()
+    if not clean_boundary:
+        if draft is not None and policy is not None:
+            clean_boundary = AGENTIC_BOUNDARY_DRAFT_POLICY
+        elif draft is not None:
+            clean_boundary = AGENTIC_BOUNDARY_DRAFT
+        elif policy is not None:
+            clean_boundary = AGENTIC_BOUNDARY_POLICY
+    if clean_boundary:
+        parts.append(f"boundary={normalize_agentic_debug_boundary(clean_boundary)}")
     if draft is not None:
         parts.append(draft.as_debug_suffix())
     if policy is not None:
@@ -393,4 +404,5 @@ def agentic_runtime_debug_line(
         "agentic_runtime",
         connection_ref=connection_ref,
         fields=fields,
+        boundary=AGENTIC_BOUNDARY_RUNTIME,
     )

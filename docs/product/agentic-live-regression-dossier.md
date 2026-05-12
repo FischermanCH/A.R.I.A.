@@ -33,7 +33,15 @@ Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen 
 - `action_path=missing_capability_target`: Capability erkannt, aber kein passendes Ziel konfiguriert.
 - `action_path=no_action`: Gate hat nicht uebernommen; finaler Chat/RAG darf weiterlaufen.
 
-Jede Debug-Zeile markiert `boundary=context_enrichment`. Das ist absichtlich vor Policy und Runtime: Diese Schicht sammelt Hinweise und startet bounded Drafts, entscheidet aber nicht ueber Sicherheit.
+Die Agentic-Boundaries sind maschinenlesbar und muessen zum Prompt-Flow passen:
+
+- `boundary=context_enrichment`: sichere Hinweise sammeln, keine Ausfuehrungsentscheidung.
+- `boundary=draft`: LLM oder Resolver hat einen bounded Action-Draft vorgeschlagen.
+- `boundary=policy`: Policy/Guardrail hat ohne neuen Draft entschieden.
+- `boundary=draft_policy`: Draft plus Policy-Entscheid sind gemeinsam sichtbar.
+- `boundary=runtime_execution`: Runtime fuehrt eine bereits erlaubte oder bestaetigte Aktion aus.
+
+Das trennt Kontext, LLM-Vorschlag, Guardrail und Runtime im Debug. Diese Trennung ist absichtlich: Kontext und LLM koennen helfen, aber nur Policy/Guardrails entscheiden ueber Ausfuehrung.
 
 ## Testanker
 
@@ -45,5 +53,7 @@ Die wichtigsten Live-Regressions liegen in:
 - `tests/test_pipeline.py::test_pipeline_final_chat_keeps_pre_rag_no_action_debug_visible`
 - `tests/test_router.py::test_router_speicherplatz_is_not_memory_store`
 - `tests/test_capability_router.py::test_capability_router_detects_plural_speicherplatz_server_question`
+- `tests/test_agentic_action_resolution.py::test_agentic_debug_boundaries_map_to_prompt_flow_phases`
+- `tests/test_agentic_runtime_debug.py::test_runtime_debug_line_exposes_normalized_ssh_execution_boundary`
 
 Neue reale Ausreisser werden zuerst hier klassifiziert: Kontextluecke, Resolverluecke, Policy-/Guardrail-Luecke, Runtime-/Summary-Luecke oder Observability-/Kostenluecke.

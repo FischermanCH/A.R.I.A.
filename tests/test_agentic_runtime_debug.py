@@ -23,6 +23,7 @@ def test_runtime_debug_line_exposes_normalized_ssh_execution_boundary() -> None:
     assert "capability=ssh_command" in line
     assert "operation=run_command" in line
     assert "command=uptime -p" in line
+    assert "boundary=runtime_execution" in line
 
 
 def test_runtime_debug_line_uses_family_operations_for_messages_and_reads() -> None:
