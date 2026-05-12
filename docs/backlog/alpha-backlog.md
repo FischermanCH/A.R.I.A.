@@ -29,31 +29,25 @@ Aktueller Release-Stand:
 
 ## Offen Auf Einen Blick
 
-1. Agentic Intelligence weiter vereinheitlichen
-- echte Live-Ausreisser weiter in `docs/product/agentic-live-regression-dossier.md` als Dossier-/Policy-/Resolver-Luecke klassifizieren
-- keine neuen Spezialfaelle auf Verdacht bauen
-- LLM-Drafts, deterministische Normalisierung, Guardrails und Runtime in Debug/Kosten weiter klar trennen; Debug-Boundaries sind jetzt zentral gepinnt, weitere Arbeit anhand echter Ausreisser
-- Zielbild: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus
-
-2. Recipes UX weiter ausbauen
+1. Recipes UX weiter ausbauen
 - Review-/Promote-Flows fuer Learned Recipes weiter anhand echter Nutzung schaerfen; Contract/Policy/Runtime-Boundary ist sichtbar, weitere Arbeit nur anhand neuer Live-Ausreisser
 - Templates besser kuratieren
 - Recipe Result View weiter anhand echter Recipe-Ausgaben schaerfen; Step-Marker fuer ausgefuehrte und uebersprungene Schritte sind jetzt lesbar normalisiert
 - strukturierte Recipe-Outputs weiter verbessern, sobald mehr reale Multi-Step-Rezepte vorliegen
 
-3. Connection-Modularisierung vorbereiten
+2. Connection-Modularisierung vorbereiten
 - gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen; Registry/Pool-Bindings sind jetzt contract-backed
 - Side-Effect-Boundary fuer write/send/publish Capabilities ist per Contract-Test abgesichert
 - Provider-spezifische Logik hinter kleinen Adaptern halten
 - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
 
-4. Admin/Observability abrunden
+3. Admin/Observability abrunden
 - Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten, Kosten-Tracking und Recipe Experience Memory sind jetzt eigene Guardrail-Signale
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten; Tracking-Ausfaelle und Kostenluecken werden jetzt explizit bewertet
 - Pricing-Alias-/Manual-Overrides auditierbar halten; Refresh-/Settings-Sync ist jetzt abgesichert
 
-5. Legacy-/Recipe-Cleanup fortsetzen
+4. Legacy-/Recipe-Cleanup fortsetzen
 - dokumentierter Ist-Zustand liegt in `docs/product/legacy-recipe-compatibility-audit.md`
 - `samples/recipes/` ist die oeffentliche Sample-Oberflaeche; `samples/skills/` bleibt nur Backcompat-Fallback
 - Compatibility-Bruecken behalten, solange alte Configs/Imports sie brauchen
@@ -67,6 +61,8 @@ Aktueller Release-Stand:
 - kein generiertes `*.egg-info/`, `build/`, `dist/` oder `*.whl` im Workspace oder Commit
 - neue Runtime-Assets muessen von `tests/test_package_data_contract.py` oder `tests/test_release_hygiene.py` abgedeckt bleiben
 - `CHANGELOG.md` fuer alle sichtbaren Produkt-/Architektur-Aenderungen fortschreiben
+- Agentic Live-Ausreisser zuerst in `docs/product/agentic-live-regression-dossier.md` als Kontext-, Resolver-, Policy-/Guardrail-, Runtime-/Summary- oder Observability-/Kostenluecke klassifizieren
+- keine neuen Agentic-Spezialfaelle auf Verdacht bauen; Zielbild bleibt Kontext anreichern, LLM bounded Action-Draft, Policy/Guardrail entscheidet, Runtime fuehrt aus
 - i18n strict vor groesseren Releases laufen lassen: `scripts/audit_i18n_code_literals.py --strict`
 - deutsche UI-/Runtime-Texte gehoeren in `aria/i18n/*.json`
 - deutsche Eingabe-/Routing-Lexika gehoeren in `aria/lexicons/*.json`

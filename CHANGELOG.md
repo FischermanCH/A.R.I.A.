@@ -19,6 +19,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Changed
 - `agentic_runtime` debug lines now include `boundary=runtime_execution`, making runtime execution visually separate from context enrichment, LLM drafts, and policy decisions.
+- The active alpha backlog now removes the completed Agentic Intelligence block from the open work list and keeps only the ongoing live-regression dossier process as a standing guardrail.
 - `pre_rag_action_gate` debug output now includes the context-enrichment boundary plus target/path/content hints, and final chat/RAG responses in debug mode show an explicit `action_path=no_action` line when the Agentic gate intentionally declines to take over.
 - The live agentic routing regression now covers the natural German prompt `habe ich genügend freien speicherplatz auf meinen servern?`, ensuring it stays out of `memory_store`/RAG and fans out through the bounded SSH multi-target disk check.
 - Learned Recipe review cards now show a localized next-action hint, localize row status/safety labels with the active UI language, and preserve state/kind/sort filters after Promote/Dismiss/Delete actions.
