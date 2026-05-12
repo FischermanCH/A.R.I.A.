@@ -1951,7 +1951,7 @@ class Pipeline:
         language: str | None,
     ) -> tuple[str, str]:
         if self.llm_client is None or not records:
-            return "", ""
+            return "", "Routing Debug: multi_target_ssh_summary skipped reason=no_llm_client_or_records"
         result_rows: list[dict[str, str]] = []
         for row in records:
             text = str(row.get("raw_text", "") or row.get("text", "") or "").strip()
@@ -1996,18 +1996,17 @@ class Pipeline:
         try:
             response = await self.llm_client.chat(
                 messages,
-                temperature=0,
                 operation="ssh_multi_target_summary",
             )
         except Exception:
-            return "", ""
+            return "", "Routing Debug: multi_target_ssh_summary skipped reason=llm_error"
         payload = self._extract_json_object(getattr(response, "content", "") or "")
         summary = str(payload.get("summary", "") or "").strip()
         if not summary:
-            return "", ""
+            return "", "Routing Debug: multi_target_ssh_summary skipped reason=empty_or_invalid_response"
         confidence = str(payload.get("confidence", "") or "").strip().lower()
         if confidence not in {"high", "medium"}:
-            return "", ""
+            return "", f"Routing Debug: multi_target_ssh_summary skipped reason=low_confidence confidence={confidence or '-'}"
         reason = str(payload.get("reason", "") or "").strip()
         debug_line = (
             "Routing Debug: multi_target_ssh_summary "

@@ -7709,6 +7709,7 @@ def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> No
             self.calls += 1
             self.last_messages = messages
             if kwargs.get("operation") == "ssh_multi_target_summary":
+                assert "temperature" not in kwargs
                 payload = json.loads(messages[-1]["content"])
                 assert payload["user_question"] == "ist auf jeder maschine noch eine reserve von zehn gigabyte vorhanden?"
                 assert payload["targets"][1]["ref"] == "srv-low"
