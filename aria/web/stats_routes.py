@@ -1371,25 +1371,7 @@ async def _refresh_pricing_snapshot(
     )
     raw["pricing"] = pricing_section
     _write_raw_config(base_dir, raw)
-
-    settings.pricing.enabled = True
-    settings.pricing.currency = "USD"
-    settings.pricing.last_updated = str(snapshot.get("last_updated", "") or "").strip()
-    settings.pricing.default_source_name = str(snapshot.get("default_source_name", "") or "").strip()
-    settings.pricing.default_source_url = str(snapshot.get("default_source_url", "") or "").strip()
-    settings.pricing.source = "litellm_github"
-    settings.pricing.litellm_cache_file = str(getattr(pricing, "litellm_cache_file", "data/pricing/litellm_model_prices.json") or "data/pricing/litellm_model_prices.json")
-    settings.pricing.refresh_interval_days = int(getattr(pricing, "refresh_interval_days", 7) or 7)
-    settings.pricing.chat_models = {
-        str(model): ChatPricingModelConfig.model_validate(entry)
-        for model, entry in chat_models.items()
-        if isinstance(entry, dict)
-    }
-    settings.pricing.embedding_models = {
-        str(model): EmbeddingPricingModelConfig.model_validate(entry)
-        for model, entry in embedding_models.items()
-        if isinstance(entry, dict)
-    }
+    _sync_pricing_settings(settings, pricing_section)
     return snapshot
 
 

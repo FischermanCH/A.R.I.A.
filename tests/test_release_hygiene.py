@@ -34,6 +34,7 @@ def test_source_runtime_assets_are_present_for_container_builds() -> None:
         ROOT / "samples" / "security" / "guardrails.sample.yaml",
         ROOT / "config" / "config.example.yaml",
         ROOT / "config" / "secrets.env.example",
+        ROOT / "docs" / "release" / "internal-build-smoke-test.md",
     ]
 
     missing = [path.relative_to(ROOT).as_posix() for path in required_files if not path.exists()]

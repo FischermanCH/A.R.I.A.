@@ -21,6 +21,8 @@ Aktueller Release-Stand:
 - Connection-Modularisierung nachgezogen: Executor-Registry und Capability-Routing-Pools haengen nun am Connection Action Contract statt an stillen Runtime-Sidepaths
 - Operator Guardrail nachgezogen: `/stats` prueft Release-Metadaten jetzt explizit neben Gateway, Pricing, Preflight, Health und Update-Pfad
 - Kosten-/Token-Guardrail nachgezogen: `/stats` markiert deaktiviertes Token-Tracking/UsageMeter-Bypasses als Release-Fehler und Kostenluecken als Warnung
+- Pricing-Overrides nachgezogen: LiteLLM-Refresh synchronisiert manuelle Aliase/Preise wieder sichtbar in den laufenden Settings-State
+- Interner Build-Smoke-Test liegt in `docs/release/internal-build-smoke-test.md`
 
 ## Offen Auf Einen Blick
 
@@ -45,7 +47,7 @@ Aktueller Release-Stand:
 4. Admin/Observability abrunden
 - Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten sind jetzt eigener Guardrail-Check
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten; Tracking-Ausfaelle und Kostenluecken werden jetzt explizit bewertet
-- Pricing-Alias-/Manual-Overrides auditierbar halten
+- Pricing-Alias-/Manual-Overrides auditierbar halten; Refresh-/Settings-Sync ist jetzt abgesichert
 
 5. Legacy-/Recipe-Cleanup fortsetzen
 - dokumentierter Ist-Zustand liegt in `docs/product/legacy-recipe-compatibility-audit.md`

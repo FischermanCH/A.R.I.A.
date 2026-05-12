@@ -1043,6 +1043,9 @@ llm:
 pricing:
   enabled: false
   currency: USD
+  model_aliases:
+    company/fast-chat: company/private-chat
+    company/fast-embed: company/private-embed
   chat_models:
     company/private-chat:
       input_per_million: 1.23
@@ -1114,12 +1117,32 @@ pricing:
     assert "openai/text-embedding-3-small" in raw
     assert "company/private-chat" in raw
     assert "company/private-embed" in raw
+    assert "company/fast-chat" in raw
+    assert "company/fast-embed" in raw
     assert snapshot["last_updated"] == "2026-04-02"
     assert settings.pricing.enabled is True
+    assert settings.pricing.model_aliases["company/fast-chat"] == "company/private-chat"
+    assert settings.pricing.model_aliases["company/fast-embed"] == "company/private-embed"
     assert settings.pricing.chat_models["openai/gpt-4o-mini"].input_per_million == 0.01
     assert settings.pricing.chat_models["company/private-chat"].output_per_million == 4.56
     assert settings.pricing.embedding_models["company/private-embed"].input_per_million == 0.77
     assert settings.pricing.embedding_models["openai/text-embedding-3-small"].input_per_million == 0.02
+
+    pricing_meta = _build_pricing_meta(
+        {
+            "chat_tokens_by_model": {"company/fast-chat": 100},
+            "chat_prompt_tokens_by_model": {"company/fast-chat": 80},
+            "chat_completion_tokens_by_model": {"company/fast-chat": 20},
+            "embedding_tokens_by_model": {"company/fast-embed": 50},
+            "embedding_prompt_tokens_by_model": {"company/fast-embed": 50},
+        },
+        settings,
+        lambda catalog, model: catalog.get(model),
+    )
+    assert pricing_meta["has_unpriced_usage"] is False
+    assert any(row["model"] == "company/private-chat" and row["is_manual"] for row in pricing_meta["source_rows"])
+    assert any(row["model"] == "company/private-embed" and row["is_manual"] for row in pricing_meta["source_rows"])
+    assert {"alias": "company/fast-chat", "target": "company/private-chat"} in pricing_meta["alias_rows"]
 
 
 def test_manual_pricing_admin_helpers_persist_alias_and_price(tmp_path) -> None:
