@@ -116,6 +116,20 @@ class KeywordRouter:
     def _normalize_keywords(values: list[str]) -> tuple[str, ...]:
         return tuple(str(item).lower().strip() for item in values if str(item).strip())
 
+    @staticmethod
+    def _contains_store_keyword(text: str, keyword: str) -> bool:
+        clean = str(keyword or "").strip().lower()
+        if not clean:
+            return False
+        if " " in clean:
+            return clean in text
+        # Store verbs like "speicher" must not match nouns such as "speicherplatz".
+        pattern = rf"(?<![a-z0-9äöüß]){re.escape(clean)}e?(?![a-z0-9äöüß])"
+        return re.search(pattern, text, re.IGNORECASE) is not None
+
+    def _contains_store_intent(self, text: str, store_keywords: tuple[str, ...]) -> bool:
+        return any(self._contains_store_keyword(text, keyword) for keyword in store_keywords)
+
     def classify(self, message: str, routing: RoutingLanguageConfig | None = None) -> RouterDecision:
         text = message.lower().strip()
         active = routing or self._default_routing
@@ -131,7 +145,7 @@ class KeywordRouter:
         if self._contains_forget_intent(text, memory_forget_keywords):
             return RouterDecision(intents=["memory_forget"], level=1)
 
-        if any(keyword in text for keyword in memory_store_keywords):
+        if self._contains_store_intent(text, memory_store_keywords):
             intents.append("memory_store")
 
         if any(keyword in text for keyword in memory_recall_keywords):

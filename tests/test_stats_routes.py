@@ -199,6 +199,48 @@ def test_build_settings_connection_status_rows_uses_cache_only_for_large_groups(
     assert calls[4] == ("discord", "alerts", True, False)
 
 
+
+def test_build_settings_connection_status_rows_can_force_cached_only(monkeypatch) -> None:
+    calls: list[tuple[str, str, bool, bool]] = []
+
+    def fake_build_connection_status_row(
+        kind: str,
+        ref: str,
+        row: object,
+        *,
+        page_probe: bool = False,
+        cached_only: bool = False,
+        base_dir: Path | None = None,
+        lang: str = "de",
+    ) -> dict[str, str]:
+        del row, base_dir, lang
+        calls.append((kind, ref, page_probe, cached_only))
+        return {"kind_key": kind, "kind": kind.upper(), "ref": ref, "status": "ok"}
+
+    monkeypatch.setattr(connection_runtime, "build_connection_status_row", fake_build_connection_status_row)
+    monkeypatch.setattr(connection_runtime, "ordered_connection_kinds", lambda: ["rss", "discord"])
+
+    settings = SimpleNamespace(
+        connections=SimpleNamespace(
+            rss={"feed-a": {}, "feed-b": {}},
+            discord={"alerts": {}},
+        )
+    )
+
+    rows = connection_runtime.build_settings_connection_status_rows(
+        settings,
+        page_probe=False,
+        cached_only=True,
+        cached_only_threshold=4,
+    )
+
+    assert len(rows) == 3
+    assert calls == [
+        ("rss", "feed-a", False, True),
+        ("rss", "feed-b", False, True),
+        ("discord", "alerts", False, True),
+    ]
+
 def test_attach_connection_edit_urls_maps_rows_to_edit_pages() -> None:
     rows = [
         {"kind": "SFTP", "ref": "srv-a", "status": "ok"},

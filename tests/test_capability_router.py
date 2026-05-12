@@ -824,6 +824,21 @@ def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
     assert draft.content == ""
 
 
+
+def test_capability_router_detects_plural_speicherplatz_server_question() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "hab ich noch genug speicherplatz auf meinen servern ?",
+        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == ""
+    assert draft.content == ""
+
 def test_capability_router_detects_english_file_read_phrase() -> None:
     router = CapabilityRouter()
     draft = router.classify(

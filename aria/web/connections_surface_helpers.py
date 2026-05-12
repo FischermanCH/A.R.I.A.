@@ -111,6 +111,7 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
             build_settings_connection_status_rows(
                 settings,
                 page_probe=connections_nav in {"overview", "status"},
+                cached_only=connections_nav not in {"overview", "status"},
                 cached_only_threshold=4,
                 base_dir=BASE_DIR,
                 lang=lang,

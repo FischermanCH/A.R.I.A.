@@ -96,3 +96,16 @@ def test_router_english_recipe_status_intent() -> None:
     router = KeywordRouter(routing)
     decision = router.classify("What skills are active right now?")
     assert decision.intents == ["recipe_status"]
+
+def test_router_speicherplatz_is_not_memory_store() -> None:
+    router = KeywordRouter(RoutingConfig())
+    decision = router.classify("hab ich noch genug speicherplatz auf meinen servern ?")
+
+    assert decision.intents == ["chat"]
+
+
+def test_router_speichere_still_maps_to_memory_store() -> None:
+    router = KeywordRouter(RoutingConfig())
+    decision = router.classify("Speichere, dass mein NAS nachts Backups macht")
+
+    assert decision.intents == ["memory_store"]

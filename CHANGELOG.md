@@ -8,6 +8,8 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ### Fixed
 - Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.
+- German disk-space questions such as `hab ich noch genug speicherplatz auf meinen servern?` no longer get misclassified as `memory_store` just because `speicherplatz` contains the memory-store verb stem `speicher`.
+- `/connections/types` now uses cached/last-known connection status rows instead of live-probing every configured service while rendering the type hub, so slow RSS or network endpoints no longer block that page load.
 
 ## [0.1.0-alpha251] - 2026-05-12
 

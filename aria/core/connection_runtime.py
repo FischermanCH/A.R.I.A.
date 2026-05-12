@@ -1246,6 +1246,7 @@ def build_settings_connection_status_rows(
     settings: Any,
     *,
     page_probe: bool = True,
+    cached_only: bool = False,
     cached_only_threshold: int | None = None,
     base_dir: Path | None = None,
     lang: str = "de",
@@ -1262,7 +1263,9 @@ def build_settings_connection_status_rows(
             except Exception:
                 items = {}
         refs = sorted(items.keys())
-        use_cached_only = bool(page_probe) and cached_only_threshold is not None and len(refs) >= max(1, int(cached_only_threshold))
+        use_cached_only = bool(cached_only) or (
+            bool(page_probe) and cached_only_threshold is not None and len(refs) >= max(1, int(cached_only_threshold))
+        )
         for ref in refs:
             row = items.get(ref)
             if row is None:
