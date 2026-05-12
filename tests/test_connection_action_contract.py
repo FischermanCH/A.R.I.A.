@@ -3,6 +3,9 @@ from __future__ import annotations
 from aria.core.action_plan import ActionPlan
 from aria.core.capability_catalog import capability_executor_bindings
 from aria.core.connection_action_contract import connection_action_contract
+from aria.core.connection_action_contract import connection_action_binding_is_supported
+from aria.core.connection_action_contract import connection_action_executor_bindings
+from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.connection_action_contract import connection_action_contracts
 from aria.core.connection_action_contract import runtime_operation_for_capability
 from aria.core.connection_action_contract import runtime_payload_for_action_plan
@@ -16,6 +19,26 @@ def test_every_executor_binding_has_a_connection_action_contract() -> None:
             missing.append((connection_kind, capability))
 
     assert missing == []
+
+
+def test_connection_action_contract_is_the_executor_binding_source() -> None:
+    assert set(connection_action_executor_bindings()) == set(capability_executor_bindings())
+    assert connection_action_executor_kinds() == (
+        "ssh",
+        "http_api",
+        "sftp",
+        "smb",
+        "webhook",
+        "discord",
+        "email",
+        "mqtt",
+        "rss",
+        "google_calendar",
+        "imap",
+        "website",
+    )
+    assert connection_action_binding_is_supported("ssh", "ssh_command") is True
+    assert connection_action_binding_is_supported("rss", "ssh_command") is False
 
 
 def test_connection_action_contracts_keep_policy_and_runtime_boundaries_explicit() -> None:

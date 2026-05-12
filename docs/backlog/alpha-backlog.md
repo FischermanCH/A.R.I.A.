@@ -18,6 +18,7 @@ Aktueller Release-Stand:
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
 - nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract, Recipe Result View, Operator Guardrail, Legacy/Recipe Compatibility Audit
+- Connection-Modularisierung nachgezogen: Executor-Registry und Capability-Routing-Pools haengen nun am Connection Action Contract statt an stillen Runtime-Sidepaths
 
 ## Offen Auf Einen Blick
 
@@ -34,7 +35,7 @@ Aktueller Release-Stand:
 - strukturierte Recipe-Outputs weiter verbessern, sobald mehr reale Multi-Step-Rezepte vorliegen
 
 3. Connection-Modularisierung vorbereiten
-- gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen
+- gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen; Registry/Pool-Bindings sind jetzt contract-backed
 - Provider-spezifische Logik hinter kleinen Adaptern halten
 - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten

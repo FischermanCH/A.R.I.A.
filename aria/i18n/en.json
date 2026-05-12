@@ -2049,6 +2049,7 @@
   "execution_dry_run_text.message_96": "This SSH command leaves the read-only operations contract and is blocked.",
   "execution_dry_run_text.message_98": "This SSH command does not match the configured allowlist for this profile.",
   "executor_registry.missing_executor": "No executor registered for {connection_kind}:{capability}",
+  "executor_registry.unsupported_binding": "Unsupported executor binding {connection_kind}:{capability}; add or update the Connection Action Contract first",
   "google_calendar_support.access_refused": "{prefix}: Google refused access. Please check the OAuth scopes, API enablement, and calendar permissions.",
   "google_calendar_support.access_refused_scope": "{prefix}: Google refused access. Please check the OAuth scopes, test users, and calendar permissions.",
   "google_calendar_support.api_not_enabled": "{prefix}: The Google Calendar API is not enabled for this project yet. Please enable the API in Google Cloud and wait a moment.",

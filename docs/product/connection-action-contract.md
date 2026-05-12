@@ -28,6 +28,7 @@ Dieses Dokument beschreibt den kleinen gemeinsamen Vertrag, den neue Connection-
 4. **Executor Adapter**
    - Technische Ausfuehrung je Connection-Kind.
    - Wird ueber `ExecutorRegistry` an `(connection_kind, capability)` gebunden.
+   - Die Registry akzeptiert nur Bindings, die im Connection Action Contract fuer diese Capability als Executor-Kind deklariert sind.
 
 5. **Runtime Debug / Observability**
    - `agentic_runtime` Debug-Zeilen kommen aus demselben Contract.
@@ -41,6 +42,7 @@ Ein neuer Connection-Typ sollte mindestens liefern:
 - Capability-Eintrag oder bestehende Capability-Bindung im Capability-Katalog.
 - Contract-Eintrag in `connection_action_contract.py`.
 - Executor-Adapter in der Runtime, registriert ueber `ExecutorRegistry`.
+- Capability-Routing-Pools werden aus den Executor-Kinds des Contracts abgeleitet; neue Typen duerfen dort nicht mehr als harte Pipeline-Liste auftauchen.
 - Policy/Guardrail-Familie oder bewusste Wiederverwendung einer vorhandenen Familie.
 - Regressionstest, dass `capability_executor_bindings()` durch `connection_action_contract()` abgedeckt ist.
 

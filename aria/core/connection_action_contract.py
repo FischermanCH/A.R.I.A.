@@ -6,6 +6,7 @@ from typing import Any
 from aria.core.action_plan import ActionPlan
 from aria.core.capability_catalog import capability_executor_kinds
 from aria.core.capability_catalog import normalize_capability
+from aria.core.connection_catalog import normalize_connection_kind
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +186,35 @@ def connection_action_contract(capability: str) -> ConnectionActionContract | No
 
 def connection_action_contracts() -> list[ConnectionActionContract]:
     return list(_CONNECTION_ACTION_CONTRACTS.values())
+
+
+def connection_action_executor_bindings() -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for contract in connection_action_contracts():
+        for executor in contract.executors:
+            clean_kind = normalize_connection_kind(executor)
+            if clean_kind:
+                rows.append((clean_kind, contract.capability))
+    return rows
+
+
+def connection_action_executor_kinds() -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for connection_kind, _capability in connection_action_executor_bindings():
+        if connection_kind in seen:
+            continue
+        seen.add(connection_kind)
+        rows.append(connection_kind)
+    return tuple(rows)
+
+
+def connection_action_binding_is_supported(connection_kind: str, capability: str) -> bool:
+    clean_kind = normalize_connection_kind(connection_kind)
+    contract = connection_action_contract(capability)
+    if contract is None:
+        return False
+    return clean_kind in set(contract.executors)
 
 
 def runtime_operation_for_capability(capability: str) -> str:

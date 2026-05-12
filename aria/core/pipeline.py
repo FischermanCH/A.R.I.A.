@@ -18,7 +18,6 @@ from aria.core.agentic_prompt_flow import build_agentic_prompt_flow
 from aria.core.bounded_planner import debug_bounded_planner_decision
 from aria.core.capability_catalog import (
     capability_executor_kinds,
-    capability_executor_bindings,
     capability_matches_connection_kind,
     normalize_capability,
 )
@@ -41,6 +40,8 @@ from aria.core.connection_semantic_resolver import format_routing_decision_recor
 from aria.core.connection_semantic_resolver import message_has_connection_disambiguation_terms
 from aria.core.connection_semantic_resolver import normalize_connection_alias
 from aria.core.connection_semantic_resolver import split_connection_tokens
+from aria.core.connection_action_contract import connection_action_executor_bindings
+from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.config import RoutingLanguageConfig, Settings
 from aria.core.context import ContextAssembler
 from aria.core.routing_index import RoutingIndexStore
@@ -365,7 +366,7 @@ class Pipeline:
             "mqtt_publish": self._capability_executor.execute_mqtt_publish,
             "ssh_command": self._capability_executor.execute_ssh_command,
         }
-        for connection_kind, capability in capability_executor_bindings():
+        for connection_kind, capability in connection_action_executor_bindings():
             handler = handler_map.get(capability)
             if handler is not None:
                 self._executor_registry.register(connection_kind, capability, handler)
@@ -4940,7 +4941,7 @@ class Pipeline:
 
     def _capability_routing_connection_pools(self) -> dict[str, dict[str, Any]]:
         connection_pools: dict[str, dict[str, Any]] = {}
-        for kind in ("ssh", "sftp", "smb", "google_calendar", "rss", "website", "webhook", "discord", "http_api", "email", "imap", "mqtt"):
+        for kind in connection_action_executor_kinds():
             clean_kind = normalize_connection_kind(kind)
             rows = getattr(getattr(self.settings, "connections", object()), clean_kind, {})
             if isinstance(rows, dict) and rows:
