@@ -1941,6 +1941,80 @@ class Pipeline:
             if str(row.get("state", "") or "") != "ok" and str(row.get("text", "") or "").strip()
         ]
 
+    async def _multi_target_ssh_llm_operator_summary(
+        self,
+        *,
+        message: str,
+        command: str,
+        records: list[dict[str, str]],
+        fallback_summary: str,
+        language: str | None,
+    ) -> tuple[str, str]:
+        if self.llm_client is None or not records:
+            return "", ""
+        result_rows: list[dict[str, str]] = []
+        for row in records:
+            text = str(row.get("raw_text", "") or row.get("text", "") or "").strip()
+            if not text:
+                continue
+            result_rows.append(
+                {
+                    "ref": str(row.get("ref", "") or "").strip(),
+                    "state": str(row.get("state", "") or "").strip(),
+                    "result": text,
+                }
+            )
+        if not result_rows:
+            return "", ""
+        lang = "en" if str(language or "").lower().startswith("en") else "de"
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You summarize already executed ARIA multi-target SSH read-only results. "
+                    "Do not propose or execute commands. Do not invent data. "
+                    "Answer the user's exact question from the given results. "
+                    "If the user mentions a threshold, compare every result against that threshold. "
+                    "Keep the response concise and action-oriented. "
+                    'Return JSON only: {"summary":"...","confidence":"low|medium|high","reason":"..."}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "language": lang,
+                        "user_question": str(message or "").strip(),
+                        "executed_command": str(command or "").strip(),
+                        "targets": result_rows,
+                        "deterministic_fallback_summary": str(fallback_summary or "").strip(),
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ]
+        try:
+            response = await self.llm_client.chat(
+                messages,
+                temperature=0,
+                operation="ssh_multi_target_summary",
+            )
+        except Exception:
+            return "", ""
+        payload = self._extract_json_object(getattr(response, "content", "") or "")
+        summary = str(payload.get("summary", "") or "").strip()
+        if not summary:
+            return "", ""
+        confidence = str(payload.get("confidence", "") or "").strip().lower()
+        if confidence not in {"high", "medium"}:
+            return "", ""
+        reason = str(payload.get("reason", "") or "").strip()
+        debug_line = (
+            "Routing Debug: multi_target_ssh_summary "
+            f"agentic_source=llm_decision confidence={confidence} reason={reason or '-'}"
+        )
+        return summary, debug_line
+
     async def _prepare_ssh_plural_multi_target_command(
         self,
         resolved: dict[str, Any],
@@ -4151,6 +4225,17 @@ class Pipeline:
                     records=result_records,
                 )
             summary = f"{operator_summary} {relevant_summary}".strip()
+            llm_summary, llm_debug_line = await self._multi_target_ssh_llm_operator_summary(
+                message=str(resolved.get("query", "") or ""),
+                command=command,
+                records=result_records,
+                fallback_summary=summary,
+                language=language,
+            )
+            if llm_summary:
+                summary = llm_summary
+            if llm_debug_line and self._routing_debug_enabled():
+                detail_lines.append(llm_debug_line)
         if errors:
             text = _pipeline_text(
                 language,

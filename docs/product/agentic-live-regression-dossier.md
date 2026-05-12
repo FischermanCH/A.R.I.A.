@@ -16,7 +16,7 @@ Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen 
 | Prompt-Familie | Erwarteter Pfad | Wichtige Regression |
 | --- | --- | --- |
 | `habe ich genuegend freien speicherplatz auf meinen servern?` | Pre-RAG Action Gate -> SSH multi-target -> `df -h` | Darf nicht als `memory_store`, RAG-Chat, RSS oder einzelner alter Server enden. |
-| `habe ich auf meinen servern ueberall mehr als 10gb freien festplattenspeicher?` | SSH multi-target -> `df -h` -> Operator-Summary mit User-Schwelle | Darf generische `ok`-Disk-Zusammenfassungen nicht uebernehmen, wenn freie-GiB-Schwelle unterschritten wird. |
+| `habe ich auf meinen servern ueberall mehr als 10gb freien festplattenspeicher?` | SSH multi-target -> `df -h` -> bounded LLM Operator-Summary ueber Runtime-Resultate | Darf generische `ok`-Disk-Zusammenfassungen nicht uebernehmen, wenn freie-GiB-Schwelle unterschritten wird; freie Formulierungen wie `zehn Gigabyte Reserve` muessen durch die Summary-Schicht verstanden werden. |
 | `wie sieht die hd auf meinem management server aus` | Pre-RAG Action Gate -> SSH single-target -> bounded LLM command draft -> Policy -> Runtime | Darf nicht mit irrelevanten Dokumenten wie Kamera-Handbuechern beantwortet werden. |
 | `ist mein dns server ok` | SSH Healthcheck ueber Guardrail-Fallback | Darf keinen blockierten Bare-`uptime`-Fehler produzieren. |
 | `starte meinen dns server neu` | LLM erkennt mutierenden Restart-Befehl -> SSH Policy blockiert | Darf nicht in einen harmlosen Healthcheck umgebogen werden. |
@@ -50,6 +50,7 @@ Die wichtigsten Live-Regressions liegen in:
 
 - `tests/test_pipeline.py::test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded`
 - `tests/test_pipeline.py::test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_generic_server_alias`
+- `tests/test_pipeline.py::test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold`
 - `tests/test_pipeline.py::test_pipeline_routes_hd_question_on_management_server_before_rag_chat`
 - `tests/test_pipeline.py::test_pipeline_final_chat_keeps_pre_rag_no_action_debug_visible`

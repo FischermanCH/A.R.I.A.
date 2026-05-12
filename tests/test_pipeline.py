@@ -7688,6 +7688,76 @@ def test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold()
     assert "srv-ok" not in text
 
 
+def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-ok": {"host": "172.31.1.10", "user": "root", "title": "OK server"},
+                    "srv-low": {"host": "172.31.1.11", "user": "root", "title": "Low disk server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class SummaryLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            self.last_messages = messages
+            if kwargs.get("operation") == "ssh_multi_target_summary":
+                payload = json.loads(messages[-1]["content"])
+                assert payload["user_question"] == "ist auf jeder maschine noch eine reserve von zehn gigabyte vorhanden?"
+                assert payload["targets"][1]["ref"] == "srv-low"
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": (
+                                "Nicht ueberall: `srv-low` liegt mit 7.1G frei unter der gewuenschten "
+                                "Reserve von zehn Gigabyte. `srv-ok` ist unauffaellig."
+                            ),
+                            "confidence": "high",
+                            "reason": "compared user threshold phrased as words against disk results",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = SummaryLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_execute(plan, *, language="de"):
+        if plan.connection_ref == "srv-low":
+            return "Festplattencheck für `srv-low`: Root-Dateisystem /: 47% belegt, 7.1G frei (ok)."
+        return "Festplattencheck für `srv-ok`: Root-Dateisystem /: 35% belegt, 12G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    _, text, detail_lines, errors = asyncio.run(
+        pipeline._execute_multi_target_ssh_action(
+            resolved={"query": "ist auf jeder maschine noch eine reserve von zehn gigabyte vorhanden?"},
+            payload={
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_refs": ["srv-ok", "srv-low"],
+                "content": "df -h",
+            },
+            action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert errors == []
+    assert llm.calls == 1
+    assert "Nicht ueberall" in text
+    assert "srv-low" in text
+    assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
+
+
 def test_pipeline_agentic_ssh_policy_marks_complex_chain_for_confirmation() -> None:
     settings = Settings.model_validate(
         {
