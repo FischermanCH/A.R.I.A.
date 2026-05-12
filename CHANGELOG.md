@@ -9,6 +9,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ### Added
 - Added `docs/product/agentic-live-regression-dossier.md` as the active live-test dossier for Agentic Action Flow regressions, linking real prompts to expected routing, policy, runtime, debug, and cost behavior.
 - Added `aria/core/connection_action_contract.py` and `docs/product/connection-action-contract.md` as the shared contract layer for capability operation, executor-kind, policy-family, required-field, side-effect, and runtime-debug metadata.
+- Added `docs/product/legacy-recipe-compatibility-audit.md` to make the remaining Skill-era bridges explicit: public surfaces stay recipe-first, while old imports, `/skills*` redirects, `skills:` config roots, and `skill_*` log/config fields remain compatibility seams until a deliberate migration release removes them.
 - Added `aria/core/recipe_result_view.py` as the shared presentation layer for stored recipe execution summaries, skipped/error-continue step labels, and friendly recipe runtime error text.
 - Added an Operator Guardrail card on `/stats` that combines Model Gateway Audit, Pricing Coverage, Startup Preflight, runtime health, and update-path status into one release/operations readiness view.
 
@@ -17,6 +18,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - The live agentic routing regression now covers the natural German prompt `habe ich genügend freien speicherplatz auf meinen servern?`, ensuring it stays out of `memory_store`/RAG and fans out through the bounded SSH multi-target disk check.
 - Learned Recipe review cards now show a localized next-action hint, localize row status/safety labels with the active UI language, and preserve state/kind/sort filters after Promote/Dismiss/Delete actions.
 - Agentic runtime debug operation/payload rendering now uses the shared Connection Action Contract instead of a local capability `if` chain, so future connection types have one explicit place to declare their runtime shape.
+- Bundled sample-manifest regression coverage is now recipe-first: `samples/recipes/` is pinned as the public import surface, `/recipes` links are required there, and `samples/skills/` is verified only as a parity fallback for old installs.
 - Stored recipe step output now keeps its legacy marker for compatibility but also renders a clearer recipe run status, readable per-step states, skipped steps, technical run details, and result text.
 
 ### Fixed

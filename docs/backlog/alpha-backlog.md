@@ -17,7 +17,7 @@ Aktueller Release-Stand:
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
-- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract, Recipe Result View, Operator Guardrail
+- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract, Recipe Result View, Operator Guardrail, Legacy/Recipe Compatibility Audit
 
 ## Offen Auf Einen Blick
 
@@ -45,10 +45,12 @@ Aktueller Release-Stand:
 - Pricing-Alias-/Manual-Overrides auditierbar halten
 
 5. Legacy-/Recipe-Cleanup fortsetzen
+- dokumentierter Ist-Zustand liegt in `docs/product/legacy-recipe-compatibility-audit.md`
+- `samples/recipes/` ist die oeffentliche Sample-Oberflaeche; `samples/skills/` bleibt nur Backcompat-Fallback
 - Compatibility-Bruecken behalten, solange alte Configs/Imports sie brauchen
 - sichtbare UI-/Doku-Begriffe recipe-first halten
 - alte `skill_*` Namen nur fuer Backcompat dulden
-- `skills:` Config-Root, `/skills*` Redirects und alte i18n-/CSS-Kompatibilitaet nicht ohne Migrationspfad entfernen
+- `skills:` Config-Root, `/skills*` Redirects und alte i18n-/CSS-Kompatibilitaet nicht ohne expliziten Migration-Release entfernen
 
 ## Dauer-Guardrails
 
