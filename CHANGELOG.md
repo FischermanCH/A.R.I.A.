@@ -4,7 +4,7 @@ All notable changes to ARIA should be documented in this file.
 
 Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgrade Notes`
 
-## [Unreleased]
+## [0.1.0-alpha251] - 2026-05-12
 
 ### Fixed
 - The host-side update helper now preflights published Compose ports before recreating the ARIA service. If a new Compose plan would publish a host port that is already occupied by something other than the current ARIA container, the update aborts before touching the running stack instead of failing mid-recreate.
