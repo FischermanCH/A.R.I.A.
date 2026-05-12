@@ -9,13 +9,37 @@ Zweck:
 
 ## Vorbereitet fuer naechsten Build
 
-- `alpha253` ist gebaut und fuer den internen Smoke-Test bereit.
+- Kein weiterer Build vorbereitet; `alpha254` ist gebaut und fuer den internen Live-Test bereit.
 - Naechster bewusst zu pruefender Punkt:
   - interner Update-Button auf ARIA testen
   - Smoke-Test: freie Multi-SSH-Summary muss LLM-Tokens zeigen und flexible Schwellen wie `zehn Gigabyte Reserve` verstehen
   - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren
 
 ## Bereits gebaut
+
+### alpha254
+
+- repariert den `alpha253`-Nachzug:
+  - Multi-Target-SSH LLM-Summaries nutzen jetzt den zentralen `LLMClient` ohne unsupported per-call `temperature`-Argument
+  - wenn der Summary-Call ausfaellt, bleibt ein Debug-Hinweis sichtbar statt still auf die alte deterministische Summary zurueckzufallen
+  - erwartet im Live-Test: Tokens/Kosten > 0 und Debug-Zeile `multi_target_ssh_summary agentic_source=llm_decision`
+- Verifikation:
+  - Vorbuild-Regressionsblock: `11 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` 200
+  - CLI-Version: `0.1.0-alpha254`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha254-local.tar`
+  - TAR-SHA256: `fa84f8f06fbf516860b66798def546f126eaca523e5270f2321ab19afeda421f`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.254`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:677cd3f044cbb913e1abf470819832b8c17e3f897d41be0b1c16c1fcac62a06e`
+  - Image-Size: `242470698` bytes
+  - Created: `2026-05-13T00:54:20.480574858+02:00`
+- Release-Label:
+  - `0.1.0-alpha254`
 
 ### alpha253
 

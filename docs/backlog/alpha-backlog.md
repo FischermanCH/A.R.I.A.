@@ -10,13 +10,13 @@ Zweck:
 - groessere Zukunftsthemen stehen in `docs/backlog/future-features.md`
 
 Aktueller Release-Stand:
-- aktuell gebaut: `0.1.0-alpha253`
+- aktuell gebaut: `0.1.0-alpha254`
 - public veroeffentlicht: `0.1.0-alpha251`
 - Public Docker Tags: `fischermanch/aria:0.1.0-alpha.251` und `fischermanch/aria:alpha`
 - Public Docker Digest: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
-- interner Docker Build: `fischermanch/aria:0.1.0-alpha.253` / `aria:alpha-local`
-- internes TAR: `/mnt/NAS/aria-images/aria-alpha253-local.tar`
-- interner Image-Digest: `sha256:024838b1e509eb3e4286d0c8d9898805b7b9b0210fbb627a9c86cf334c9f5c96`
+- interner Docker Build: `fischermanch/aria:0.1.0-alpha.254` / `aria:alpha-local`
+- internes TAR: `/mnt/NAS/aria-images/aria-alpha254-local.tar`
+- interner Image-Digest: `sha256:677cd3f044cbb913e1abf470819832b8c17e3f897d41be0b1c16c1fcac62a06e`
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
@@ -33,14 +33,14 @@ Aktueller Release-Stand:
 - Connection-Modularisierung abgeschlossen fuer diese Alpha-Runde: Connection Action Contracts exportieren Manifest-Zeilen und `docs/product/connection-provider-manifest-checklist.md` beschreibt die deklarative Provider-Bruecke
 - Admin/Observability abgeschlossen fuer diese Alpha-Runde: `/stats` Operator Guardrail hat stabile Row-Keys und `docs/product/operator-observability-guardrails.md` dokumentiert Release-/Kosten-/Update-Semantik
 - Legacy-/Recipe-Cleanup abgeschlossen fuer diese Alpha-Runde: `docs/product/legacy-recipe-compatibility-audit.md` enthaelt jetzt ein explizites Migration-Gate fuer alte Skill-Bruecken
-- interner Build erstellt: `0.1.0-alpha253` enthaelt den LLM-backed Multi-SSH-Operator-Summary-Nachzug und ist fuer Smoke-Test vorgesehen
+- interner Build erstellt: `0.1.0-alpha254` repariert den LLM-backed Multi-SSH-Operator-Summary-Call aus `alpha253` und ist fuer den internen Live-Test bereit
 
 ## Offen Auf Einen Blick
 
 Keine unmittelbaren Produkt-/Cleanup-Blocker fuer diese Alpha-Runde.
 
 Naechster sinnvoller Schritt:
-- Public-Push fuer `alpha252` nur nach bewusster Freigabe; vorher keine weiteren Produkt-/Cleanup-Blocker offen
+- Public-Push erst nach gruenem `alpha254`-Live-Test; vorher keine weiteren Produkt-/Cleanup-Blocker offen
 
 ## Dauer-Guardrails
 
