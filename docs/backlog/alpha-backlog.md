@@ -17,7 +17,7 @@ Aktueller Release-Stand:
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
-- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX
+- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract
 
 ## Offen Auf Einen Blick
 
@@ -34,7 +34,7 @@ Aktueller Release-Stand:
 - strukturierte Recipe-Outputs und Recipe-Fehler-/Skip-Zustaende weiter verbessern
 
 3. Connection-Modularisierung vorbereiten
-- gemeinsame Action-Draft-/Policy-/Runtime-Vertraege weiter vereinheitlichen
+- gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen
 - Provider-spezifische Logik hinter kleinen Adaptern halten
 - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
