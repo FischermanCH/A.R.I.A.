@@ -622,6 +622,7 @@ def test_build_model_gateway_meta_flags_split_usage_meter() -> None:
 
 def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updates() -> None:
     meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
         pricing_meta={
             "has_unpriced_usage": True,
             "unpriced_model_tokens": 42,
@@ -638,16 +639,18 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
     )
 
     assert meta["overall_status"] == "warn"
-    assert meta["ok_count"] == 2
+    assert meta["ok_count"] == 3
     assert meta["warn_count"] == 3
     assert meta["error_count"] == 0
-    assert [row["status"] for row in meta["rows"]] == ["ok", "warn", "ok", "warn", "warn"]
-    assert meta["rows"][1]["summary"] == "42 model tokens are still unpriced."
-    assert meta["rows"][4]["url"] == "/updates"
+    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "warn", "warn"]
+    assert meta["rows"][0]["fallback"] == "Release metadata"
+    assert meta["rows"][2]["summary"] == "42 model tokens are still unpriced."
+    assert meta["rows"][5]["url"] == "/updates"
 
 
 def test_build_operator_guardrail_meta_escalates_errors() -> None:
     meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
         pricing_meta={"has_unpriced_usage": False, "unpriced_model_tokens": 0},
         model_gateway={"status": "error", "chat_model": "x", "embedding_model": "y"},
         preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
@@ -659,6 +662,22 @@ def test_build_operator_guardrail_meta_escalates_errors() -> None:
     assert meta["overall_status"] == "error"
     assert meta["error_count"] == 1
     assert meta["summary"] == "Mindestens eine Operator-Guardrail meldet aktuell einen Fehler."
+
+
+def test_build_operator_guardrail_meta_treats_missing_release_metadata_as_error() -> None:
+    meta = _build_operator_guardrail_meta(
+        release_meta={"label": "", "version": ""},
+        pricing_meta={"has_unpriced_usage": False, "unpriced_model_tokens": 0},
+        model_gateway={"status": "ok", "chat_model": "x", "embedding_model": "y"},
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={"current_label": "", "latest_label": "", "update_available": False},
+        language="en",
+    )
+
+    assert meta["overall_status"] == "error"
+    assert meta["rows"][0]["status"] == "error"
+    assert meta["rows"][0]["summary"] == "Release metadata is incomplete."
 
 
 def test_build_recipe_experience_memory_meta_counts_qdrant_collections(monkeypatch) -> None:

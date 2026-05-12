@@ -19,6 +19,7 @@ Aktueller Release-Stand:
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
 - nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract, Recipe Result View, Operator Guardrail, Legacy/Recipe Compatibility Audit
 - Connection-Modularisierung nachgezogen: Executor-Registry und Capability-Routing-Pools haengen nun am Connection Action Contract statt an stillen Runtime-Sidepaths
+- Operator Guardrail nachgezogen: `/stats` prueft Release-Metadaten jetzt explizit neben Gateway, Pricing, Preflight, Health und Update-Pfad
 
 ## Offen Auf Einen Blick
 
@@ -41,7 +42,7 @@ Aktueller Release-Stand:
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
 
 4. Admin/Observability abrunden
-- Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen
+- Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten sind jetzt eigener Guardrail-Check
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten
 - Pricing-Alias-/Manual-Overrides auditierbar halten
 

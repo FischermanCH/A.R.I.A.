@@ -12,6 +12,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added `docs/product/legacy-recipe-compatibility-audit.md` to make the remaining Skill-era bridges explicit: public surfaces stay recipe-first, while old imports, `/skills*` redirects, `skills:` config roots, and `skill_*` log/config fields remain compatibility seams until a deliberate migration release removes them.
 - Added `aria/core/recipe_result_view.py` as the shared presentation layer for stored recipe execution summaries, skipped/error-continue step labels, and friendly recipe runtime error text.
 - Added an Operator Guardrail card on `/stats` that combines Model Gateway Audit, Pricing Coverage, Startup Preflight, runtime health, and update-path status into one release/operations readiness view.
+- Added explicit release metadata validation to the `/stats` Operator Guardrail, so missing or inconsistent release labels/versions are surfaced before a public build or update test is trusted.
 
 ### Changed
 - `pre_rag_action_gate` debug output now includes the context-enrichment boundary plus target/path/content hints, and final chat/RAG responses in debug mode show an explicit `action_path=no_action` line when the Agentic gate intentionally declines to take over.

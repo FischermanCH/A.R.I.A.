@@ -814,6 +814,7 @@ def _guardrail_row(
 
 def _build_operator_guardrail_meta(
     *,
+    release_meta: dict[str, Any],
     pricing_meta: dict[str, Any],
     model_gateway: dict[str, Any],
     preflight_meta: dict[str, Any],
@@ -837,10 +838,32 @@ def _build_operator_guardrail_meta(
     health_status = str(health_meta.get("overall_status", "warn") or "warn").strip().lower()
     update_available = bool(update_status.get("update_available"))
     update_status_value = "warn" if update_available else "ok"
-    current_label = str(update_status.get("current_label", "") or "-").strip() or "-"
+    release_label = str(release_meta.get("label", "") or "").strip()
+    release_version = str(release_meta.get("version", "") or "").strip()
+    current_label = str(update_status.get("current_label", "") or release_label or "-").strip() or "-"
     latest_label = str(update_status.get("latest_label", "") or current_label).strip() or current_label
+    update_current_label = str(update_status.get("current_label", "") or "").strip()
+    release_status = "ok"
+    release_summary = _stats_route_text(language, "operator_guardrail_release_ok", "Release metadata is present.")
+    if not release_label or not release_version:
+        release_status = "error"
+        release_summary = _stats_route_text(language, "operator_guardrail_release_error", "Release metadata is incomplete.")
+    elif update_current_label and update_current_label != release_label:
+        release_status = "warn"
+        release_summary = _stats_route_text(language, "operator_guardrail_release_warn", "Release metadata differs from update status.")
+    release_detail = f"{release_label or '-'} · {release_version or '-'}"
+    if update_current_label and update_current_label != release_label:
+        release_detail = f"{release_detail} · update: {update_current_label}"
 
     rows = [
+        _guardrail_row(
+            key="release",
+            fallback="Release metadata",
+            status=release_status,
+            summary=release_summary,
+            detail=release_detail,
+            url="/updates",
+        ),
         _guardrail_row(
             key="gateway",
             fallback="Model Gateway",
@@ -1913,6 +1936,7 @@ def register_stats_routes(
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
         update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
         operator_guardrail = _build_operator_guardrail_meta(
+            release_meta=release_meta,
             pricing_meta=pricing_meta,
             model_gateway=model_gateway,
             preflight_meta=preflight_meta,
