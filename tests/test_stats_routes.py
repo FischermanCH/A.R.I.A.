@@ -15,6 +15,7 @@ import aria.web.stats_routes as stats_routes
 from aria.web.stats_routes import (
     _attach_connection_edit_urls,
     _build_model_gateway_meta,
+    _build_operator_guardrail_meta,
     _build_preflight_meta,
     _build_pricing_meta,
     _build_recipe_experience_memory_meta,
@@ -617,6 +618,47 @@ def test_build_model_gateway_meta_flags_split_usage_meter() -> None:
     assert meta["has_unpriced_usage"] is True
     assert meta["unpriced_model_tokens"] == 42
     assert [row["status"] for row in meta["rows"]] == ["error", "error", "warn", "warn"]
+
+
+def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updates() -> None:
+    meta = _build_operator_guardrail_meta(
+        pricing_meta={
+            "has_unpriced_usage": True,
+            "unpriced_model_tokens": 42,
+            "priced_seen_chat_count": 1,
+            "chat_seen_count": 2,
+            "priced_seen_embedding_count": 0,
+            "embedding_seen_count": 1,
+        },
+        model_gateway={"status": "ok", "chat_model": "claude-sonnet-4-5", "embedding_model": "openai/embed-small"},
+        preflight_meta={"overall_status": "ok", "ok_count": 4, "warn_count": 0, "error_count": 0, "checked_at": "2026-05-12T10:00:00Z"},
+        health_meta={"overall_status": "warn", "ok_count": 6, "warn_count": 1, "error_count": 0},
+        update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha252", "update_available": True},
+        language="en",
+    )
+
+    assert meta["overall_status"] == "warn"
+    assert meta["ok_count"] == 2
+    assert meta["warn_count"] == 3
+    assert meta["error_count"] == 0
+    assert [row["status"] for row in meta["rows"]] == ["ok", "warn", "ok", "warn", "warn"]
+    assert meta["rows"][1]["summary"] == "42 model tokens are still unpriced."
+    assert meta["rows"][4]["url"] == "/updates"
+
+
+def test_build_operator_guardrail_meta_escalates_errors() -> None:
+    meta = _build_operator_guardrail_meta(
+        pricing_meta={"has_unpriced_usage": False, "unpriced_model_tokens": 0},
+        model_gateway={"status": "error", "chat_model": "x", "embedding_model": "y"},
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha251", "update_available": False},
+        language="de",
+    )
+
+    assert meta["overall_status"] == "error"
+    assert meta["error_count"] == 1
+    assert meta["summary"] == "Mindestens eine Operator-Guardrail meldet aktuell einen Fehler."
 
 
 def test_build_recipe_experience_memory_meta_counts_qdrant_collections(monkeypatch) -> None:

@@ -35,6 +35,66 @@
     </p>
   </section>
 
+  <section class="stat-card stats-diagnostic-card" id="operator-guardrail">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.operator_guardrail_title', 'Operator Guardrail') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.operator_guardrail_subtitle', 'Compact release/operations view across gateway, pricing, preflight, health and update path.') }}</p>
+      </div>
+      <span class="health-meter status-{{ operator_guardrail.overall_status }}">
+        <span class="health-lamp status-{{ operator_guardrail.overall_status }}"></span>
+        <span>
+          {% if operator_guardrail.overall_status == 'ok' %}
+            {{ tr(request, 'stats.health_ok', 'OK') }}
+          {% elif operator_guardrail.overall_status == 'warn' %}
+            {{ tr(request, 'stats.health_warn', 'Warn') }}
+          {% else %}
+            {{ tr(request, 'stats.health_error', 'Error') }}
+          {% endif %}
+        </span>
+      </span>
+    </div>
+    <p class="stats-health-summary">{{ operator_guardrail.summary }}</p>
+    <div class="health-meter-row">
+      <span class="health-meter status-ok">
+        <span class="health-lamp status-ok"></span>
+        <span>{{ operator_guardrail.ok_count }}</span>
+      </span>
+      <span class="health-meter status-warn">
+        <span class="health-lamp status-warn"></span>
+        <span>{{ operator_guardrail.warn_count }}</span>
+      </span>
+      <span class="health-meter status-error">
+        <span class="health-lamp status-error"></span>
+        <span>{{ operator_guardrail.error_count }}</span>
+      </span>
+    </div>
+    <div class="stats-health-grid">
+      {% for row in operator_guardrail.rows %}
+        {% if row.url %}
+        <a href="{{ row.url }}" class="stats-health-card stats-health-card-link status-{{ row.visual_status }}">
+        {% else %}
+        <article class="stats-health-card status-{{ row.visual_status }}">
+        {% endif %}
+          <div class="stats-health-card-head">
+            <div class="stats-health-title">
+              <span class="health-lamp status-{{ row.visual_status }}"></span>
+              <strong>{{ tr(request, row.label_key, row.fallback) }}</strong>
+            </div>
+          </div>
+          <p class="stats-health-summary">{{ row.summary }}</p>
+          {% if row.detail %}
+          <small class="stats-health-detail">{{ row.detail }}</small>
+          {% endif %}
+        {% if row.url %}
+        </a>
+        {% else %}
+        </article>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </section>
+
   {% if reset_done is not none %}
   <div class="alert ok">
     {{ tr(request, 'stats.reset_done', 'Statistiken und Aktivitäten wurden zurückgesetzt.') }}
@@ -136,7 +196,7 @@
       </div>
     </article>
 
-    <article class="stat-card stats-cluster stats-diagnostic-card">
+    <article class="stat-card stats-cluster stats-diagnostic-card" id="model-gateway-audit">
       <div class="stats-health-head">
         <div>
           <h2>{{ tr(request, 'stats.gateway_title', 'Model Gateway Audit') }}</h2>

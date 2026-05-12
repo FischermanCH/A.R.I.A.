@@ -10,6 +10,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added `docs/product/agentic-live-regression-dossier.md` as the active live-test dossier for Agentic Action Flow regressions, linking real prompts to expected routing, policy, runtime, debug, and cost behavior.
 - Added `aria/core/connection_action_contract.py` and `docs/product/connection-action-contract.md` as the shared contract layer for capability operation, executor-kind, policy-family, required-field, side-effect, and runtime-debug metadata.
 - Added `aria/core/recipe_result_view.py` as the shared presentation layer for stored recipe execution summaries, skipped/error-continue step labels, and friendly recipe runtime error text.
+- Added an Operator Guardrail card on `/stats` that combines Model Gateway Audit, Pricing Coverage, Startup Preflight, runtime health, and update-path status into one release/operations readiness view.
 
 ### Changed
 - `pre_rag_action_gate` debug output now includes the context-enrichment boundary plus target/path/content hints, and final chat/RAG responses in debug mode show an explicit `action_path=no_action` line when the Agentic gate intentionally declines to take over.

@@ -789,6 +789,135 @@ def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: An
     }
 
 
+def _guardrail_row(
+    *,
+    key: str,
+    fallback: str,
+    status: str,
+    summary: str,
+    detail: str = "",
+    url: str = "",
+) -> dict[str, str]:
+    clean_status = str(status or "").strip().lower()
+    if clean_status not in {"ok", "warn", "error"}:
+        clean_status = "warn"
+    return {
+        "label_key": f"stats.operator_guardrail_{key}",
+        "fallback": fallback,
+        "status": clean_status,
+        "visual_status": clean_status,
+        "summary": str(summary or "").strip(),
+        "detail": str(detail or "").strip(),
+        "url": str(url or "").strip(),
+    }
+
+
+def _build_operator_guardrail_meta(
+    *,
+    pricing_meta: dict[str, Any],
+    model_gateway: dict[str, Any],
+    preflight_meta: dict[str, Any],
+    health_meta: dict[str, Any],
+    update_status: dict[str, Any],
+    language: str = "de",
+) -> dict[str, Any]:
+    pricing_status = "warn" if bool(pricing_meta.get("has_unpriced_usage")) else "ok"
+    pricing_summary = (
+        _stats_route_text(
+            language,
+            "operator_guardrail_pricing_warn",
+            "{tokens} unpriced model tokens.",
+            tokens=int(pricing_meta.get("unpriced_model_tokens", 0) or 0),
+        )
+        if pricing_status == "warn"
+        else _stats_route_text(language, "operator_guardrail_pricing_ok", "All seen model usage is priced.")
+    )
+    gateway_status = str(model_gateway.get("status", "warn") or "warn").strip().lower()
+    preflight_status = str(preflight_meta.get("overall_status", "warn") or "warn").strip().lower()
+    health_status = str(health_meta.get("overall_status", "warn") or "warn").strip().lower()
+    update_available = bool(update_status.get("update_available"))
+    update_status_value = "warn" if update_available else "ok"
+    current_label = str(update_status.get("current_label", "") or "-").strip() or "-"
+    latest_label = str(update_status.get("latest_label", "") or current_label).strip() or current_label
+
+    rows = [
+        _guardrail_row(
+            key="gateway",
+            fallback="Model Gateway",
+            status=gateway_status,
+            summary=_stats_route_text(language, "operator_guardrail_gateway_summary", "UsageMeter and token log path are checked."),
+            detail=f"{model_gateway.get('chat_model', '-')} · {model_gateway.get('embedding_model', '-')}",
+            url="/stats#model-gateway-audit",
+        ),
+        _guardrail_row(
+            key="pricing",
+            fallback="Pricing coverage",
+            status=pricing_status,
+            summary=pricing_summary,
+            detail=(
+                f"Chat {pricing_meta.get('priced_seen_chat_count', 0)}/{pricing_meta.get('chat_seen_count', 0)}"
+                f" · Embedding {pricing_meta.get('priced_seen_embedding_count', 0)}/{pricing_meta.get('embedding_seen_count', 0)}"
+            ),
+            url="/stats#stats-pricing-details",
+        ),
+        _guardrail_row(
+            key="preflight",
+            fallback="Startup preflight",
+            status=preflight_status,
+            summary=_stats_route_text(
+                language,
+                "operator_guardrail_preflight_summary",
+                "{ok} ok · {warn} warn · {error} error",
+                ok=int(preflight_meta.get("ok_count", 0) or 0),
+                warn=int(preflight_meta.get("warn_count", 0) or 0),
+                error=int(preflight_meta.get("error_count", 0) or 0),
+            ),
+            detail=str(preflight_meta.get("checked_at", "") or ""),
+        ),
+        _guardrail_row(
+            key="health",
+            fallback="Runtime health",
+            status=health_status,
+            summary=_stats_route_text(
+                language,
+                "operator_guardrail_health_summary",
+                "{ok} ok · {warn} warn · {error} error",
+                ok=int(health_meta.get("ok_count", 0) or 0),
+                warn=int(health_meta.get("warn_count", 0) or 0),
+                error=int(health_meta.get("error_count", 0) or 0),
+            ),
+        ),
+        _guardrail_row(
+            key="updates",
+            fallback="Update path",
+            status=update_status_value,
+            summary=(
+                _stats_route_text(language, "operator_guardrail_update_warn", "Newer public version available.")
+                if update_available
+                else _stats_route_text(language, "operator_guardrail_update_ok", "No newer public version detected.")
+            ),
+            detail=f"{current_label} → {latest_label}",
+            url="/updates",
+        ),
+    ]
+    statuses = [row["status"] for row in rows]
+    overall_status = "error" if "error" in statuses else ("warn" if "warn" in statuses else "ok")
+    if overall_status == "ok":
+        summary = _stats_route_text(language, "operator_guardrail_overall_ok", "Release and operations guardrails look healthy.")
+    elif overall_status == "warn":
+        summary = _stats_route_text(language, "operator_guardrail_overall_warn", "At least one operator guardrail needs review.")
+    else:
+        summary = _stats_route_text(language, "operator_guardrail_overall_error", "At least one operator guardrail currently fails.")
+    return {
+        "overall_status": overall_status,
+        "summary": summary,
+        "ok_count": sum(1 for row in rows if row["status"] == "ok"),
+        "warn_count": sum(1 for row in rows if row["status"] == "warn"),
+        "error_count": sum(1 for row in rows if row["status"] == "error"),
+        "rows": rows,
+    }
+
+
 async def _build_recipe_experience_memory_meta(settings: Any) -> dict[str, Any]:
     memory = getattr(settings, "memory", object())
     enabled = bool(getattr(memory, "enabled", False))
@@ -1783,6 +1912,14 @@ def register_stats_routes(
         routing_index_meta = await build_connection_routing_index_status(settings)
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
         update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
+        operator_guardrail = _build_operator_guardrail_meta(
+            pricing_meta=pricing_meta,
+            model_gateway=model_gateway,
+            preflight_meta=preflight_meta,
+            health_meta=health_meta,
+            update_status=update_status,
+            language=language,
+        )
         source_usage_rows = _build_source_usage_rows(stats)
         model_totals = _build_stats_model_totals(stats)
         activity_data = await pipeline.token_tracker.get_recent_activities(
@@ -1830,6 +1967,7 @@ def register_stats_routes(
                 'routing_index_meta': routing_index_meta,
                 'release_meta': release_meta,
                 'update_status': update_status,
+                'operator_guardrail': operator_guardrail,
                 'source_usage_rows': source_usage_rows,
                 'model_totals': model_totals,
                 'activities': activity_data,

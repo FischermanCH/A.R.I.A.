@@ -17,7 +17,7 @@ Aktueller Release-Stand:
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
-- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract, Recipe Result View
+- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier, Learned-Recipe-Review-UX, Connection Action Contract, Recipe Result View, Operator Guardrail
 
 ## Offen Auf Einen Blick
 
@@ -40,7 +40,7 @@ Aktueller Release-Stand:
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
 
 4. Admin/Observability abrunden
-- LLM Prompt Debug, Model Gateway Audit, Pricing Coverage und Update-Status als Operator-Werkzeuge weiter zusammenziehen
+- Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten
 - Pricing-Alias-/Manual-Overrides auditierbar halten
 
