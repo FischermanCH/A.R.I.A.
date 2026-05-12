@@ -1,4 +1,4 @@
-# ARIA Help: Security, Secrets, and Guardrails
+# Security, Secrets, and Guardrails
 
 Updated: 2026-05-12
 

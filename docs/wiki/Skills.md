@@ -1,31 +1,9 @@
-# Recipes
+# Skills are now Recipes
 
-ARIA recipes are curated JSON manifests with structured steps, routing metadata, and guardrail-aware execution paths. Legacy skill manifests are still readable for compatibility, but the product language and new examples are recipe-first.
+ARIA used the term `Skills` in older alpha builds. The current product language is `Recipes`.
 
-Current capability families include:
+Use the Recipes page instead:
 
-- SSH
-- SFTP
-- SMB
-- RSS
-- Discord
-- Webhook
-- HTTP API
-- SMTP / IMAP
-- MQTT
-- LLM transform steps
+- [[Recipes]]
 
-Useful references:
-
-- [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
-- [`samples/recipes/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/recipes)
-- [`samples/skills/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/skills) for legacy/backcompat samples
-
-For release testing, sample recipes are especially useful because they provide repeatable workflows.
-
-Current sample directions include:
-
-- read-only SSH checks such as health and disk usage
-- RSS to chat or RSS to Discord digests
-- simple SFTP reads and config previews
-- SMB read/list examples
+Legacy skill manifests may still be readable for compatibility, but new documentation, samples, and UI language are recipe-first.

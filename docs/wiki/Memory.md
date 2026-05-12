@@ -1,39 +1,88 @@
 # Memory
 
-ARIA uses typed memory with Qdrant.
+Updated: 2026-05-12
 
-Current memory layers include:
+## Purpose
 
-- facts
+Memory is ARIA's semantic knowledge store. It is separate from notes, logs, and raw runtime results.
+
+ARIA uses Memory for:
+
+- stable facts about the user and environment
 - preferences
 - session context
-- rolled-up knowledge
-- document collections for RAG uploads
+- longer-term rollups
+- document RAG
+- Experience Memory for safe learned action patterns
 
-Important current behavior:
+## What deliberately does not go into memory automatically
 
-- auto-memory no longer stores every transient question
-- stable user facts and preferences are kept
-- capability results are not written into memory by default
-- document uploads live in `/memories`
-- document management lives in `/memories/map`
-- the main `Memory` view also groups entries by type and offers quick type cards
-- document recall uses an internal guide index with summary + keywords before ARIA drills into matching document chunks
-- chat details show document recall sources with file name, collection, and chunk reference
-- session compression now produces explicit weekly and monthly rollups with metadata such as bucket, period and source count
-- `/memories/map` shows these rollups in a dedicated section instead of leaving them hidden as generic knowledge only
-- `/memories/map` now also includes a simple read-only memory graph that makes types, collections, document groups and rollups visible at a glance
-- embedding changes in `/config/embeddings` now require explicit confirmation when memory already exists, and the page links directly to the JSON export first
-- memory and document payloads now carry an embedding fingerprint so ARIA does not silently mix different embedding generations during recall or document routing
-- supported RAG v1 formats:
-  - `txt`
-  - `md`
-  - `pdf` with embedded text only
-- scan PDFs / OCR are not part of v1
+- every transient question
+- complete SSH/SMB/RSS snapshots
+- technical logs without lasting value
+- mutating action proposals without review
 
-Useful references:
+This reduces memory noise and prevents ARIA from turning random one-off events into durable assumptions.
 
-- [`docs/help/memory.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/memory.md)
-- [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
-- [`docs/product/architecture-summary.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/architecture-summary.md)
-- [`docs/product/rag-v1-plan.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/rag-v1-plan.md)
+## Store types
+
+### Facts and preferences
+
+Long-term knowledge ARIA may reuse later.
+
+### Session context
+
+Working memory for active tasks and previous turns.
+
+### Rollups
+
+Compressed weekly/monthly or work-context summaries. Rollups help without pulling every old chat detail into every prompt.
+
+### Document collections
+
+RAG v1 for uploads under `/memories`. Supported formats are text, Markdown, and PDFs with embedded text. OCR/scan PDFs are not part of v1.
+
+### Experience Memory
+
+Successful safe recipe/guardrail/action patterns can be stored as planner context. They help ARIA propose actions, but do not replace policy or guardrails.
+
+## Recall
+
+Recall can combine:
+
+1. direct facts/preferences
+2. session context
+3. rollups
+4. document guides and matching chunks
+5. Experience Memory for action planning
+
+Chat details show sources, collection, and chunk references when document recall was used.
+
+## UI
+
+- `/memories` for entries, search, editing, deletion, and JSON export
+- `/memories/map` for collections, document groups, rollups, and structure
+- `/config/embeddings` for embedding model and safety confirmation when memory already exists
+
+## Embedding fingerprint
+
+Memory and document entries carry an embedding fingerprint. This prevents ARIA from silently mixing old and new embedding generations during recall or document routing.
+
+## Forgetting
+
+Entries can be deleted directly in `/memories`. In chat, ARIA can recognize explicit forget requests, but destructive operations should ask for confirmation.
+
+## Why answers can feel thin
+
+- Memory is disabled or Qdrant is unreachable
+- embedding model changed and old entries no longer match
+- too few or wrong memories exist
+- the request is more of an action prompt and is routed to the Agentic Action Flow before RAG
+- Top-K or recall limits are too conservative
+
+## Test hints
+
+- use `remember ...` for explicit storage
+- ask about the same fact later
+- check `/stats` and chat details for recall sources
+- check `/memories/map` for collection/rollup structure

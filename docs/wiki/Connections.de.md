@@ -1,8 +1,8 @@
 # Connections
 
-Connections sind explizite Profile zu externen Systemen.
+Connections sind explizite Profile zu externen Systemen. Sie sind eine der wichtigsten Grundlagen fuer ARIAs agentisches Routing.
 
-Aktuell unterstuetzte Familien sind:
+Unterstuetzte Familien:
 
 - SSH
 - SFTP
@@ -18,43 +18,33 @@ Aktuell unterstuetzte Familien sind:
 - IMAP
 - MQTT
 
-Die Routing-Qualitaet steigt, wenn Connection-Metadaten gepflegt sind:
+## Metadaten sind wichtig
+
+Pflege:
 
 - Titel
 - Kurzbeschreibung
 - Aliase
 - Tags
+- Notizen zum Zweck der Verbindung
 
-`SearXNG` wird als eigener self-hosted Suchdienst im Stack behandelt.
-ARIA nutzt bewusst nur die JSON-Search-API und kann Web-Quellen direkt in den Chat-Details ausweisen.
+ARIA nutzt diese Informationen fuer deterministisches Routing, semantisches Routing und LLM-Action-Kontext. Gute Metadaten machen Prompts wie `mein dns server`, `management server` oder `security news` deutlich zuverlaessiger.
 
-Die Stack-URL ist fuer SearXNG-Profile in ARIA normalerweise fest:
+## Agentic Action Flow
 
-- `http://searxng:8080`
+Bei Action-Prompts kann ARIA Connection-Metadaten, Qdrant-Kandidaten, aktuellen Kontext und LLM-Drafts kombinieren. Policy und Guardrails entscheiden weiterhin, ob die Aktion erlaubt ist, bestaetigt werden muss oder blockiert wird.
 
-Pro Profil pflegst du vor allem:
+## Beispiele
 
-- Profilname
-- Titel / Kurzbeschreibung / Aliase / Tags fuer Routing
-- Sprache
-- SafeSearch
-- wenige sinnvolle Kategorien
-- wenige bevorzugte Engines
-- Trefferzahl und Zeitbereich
-
-Neuere persoenliche / wissensnahe Verbindungstypen:
-
-- `Beobachtete Webseiten`
-  - fuer einzelne Quellen ohne RSS-Feed
-  - URL-first anlegen
-  - Titel, Kurzbeschreibung, Tags und Gruppe koennen automatisch vorgeschlagen werden
-- `Google Calendar`
-  - read-only ausgelegt
-  - eigener gefuehrter Setup-Flow ueber Google Cloud + Google-Login direkt in ARIA
-  - gedacht fuer Fragen wie `was steht heute an?`
+- SSH: read-only Health- und Disk-Checks
+- SMB/SFTP: Dateien innerhalb erlaubter Pfade listen oder lesen
+- HTTP API: konfigurierte Health-Endpunkte pruefen
+- Discord/Webhook: ausgehende Nachrichten mit Bestaetigung
+- RSS: Digests mit Titel, Quelle, Datum, Kurztext und Link
+- SearXNG: offene Websuche ueber den separaten Stack-Service
 
 Nuetzliche Referenzen:
 
-- [`docs/help/help-system.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/help-system.md)
+- [`docs/help/alpha-help-system.de.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/alpha-help-system.de.md)
 - [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
 - [`docs/setup/setup-overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/setup-overview.md)

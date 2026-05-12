@@ -1,4 +1,4 @@
-# ARIA Help: Pricing and USD Costs
+# Pricing and USD Costs
 
 Updated: 2026-05-12
 

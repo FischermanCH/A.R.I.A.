@@ -336,8 +336,8 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
     {
         "id": "skills",
         "label_i18n": "help.doc_skills",
-        "label_default": "Skills",
-        "path": "docs/wiki/Skills.md",
+        "label_default": "Recipes",
+        "path": "docs/wiki/Recipes.md",
         "summary_i18n": "help.doc_skills_summary",
         "summary_default": "How recipes are structured, how triggers work, and how ARIA executes them.",
         "icon": "skills",

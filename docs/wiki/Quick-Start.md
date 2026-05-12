@@ -2,31 +2,39 @@
 
 ARIA is designed to get from container to usable web UI quickly.
 
-Recommended path:
+## Recommended path
 
-1. start ARIA with `aria-setup` or manual Docker Compose
+1. install with `aria-setup` or a deliberate Docker Compose setup
 2. open the web UI
 3. create the first bootstrap user
-4. configure:
-   - chat LLM
-   - embeddings
-   - memory
-   - first connections under `/connections/types`
-5. test the first prompt
+4. configure chat LLM and embeddings
+5. open `/stats` and check preflight, pricing coverage, and gateway audit
+6. create first connections under `/connections/types`
+7. test a simple prompt
 
-Useful first daily-use areas after setup:
+## Useful first prompts
 
-- `/notes` for quick Markdown notes
-- `/connections/types` for RSS, Watched Websites, or Google Calendar
-- `/memories` for semantic memory and documents
+- `is my dns server ok`
+- `check whether my servers still have enough free disk space`
+- `check whether the api is reachable`
+- `summarize the latest it-security news`
 
-Core deployment references:
+## First daily-use areas
+
+- `/notes` for Markdown notes
+- `/memories` and `/memories/map` for memory and documents
+- `/connections/types` for external systems
+- `/recipes` for automation
+- `/config/workbench/routing` for action/routing dry-runs
+
+## Deployment notes
+
+- LAN/VPN is recommended
+- direct public internet exposure is not recommended for the alpha
+- managed installs should use the update helper instead of manually replacing random containers
+- keep volumes and compose project names stable
+
+References:
 
 - [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
 - [`docs/setup/setup-overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/setup-overview.md)
-
-Notes:
-
-- ARIA is currently a personal single-user system
-- LAN / VPN is recommended
-- public internet exposure is not recommended for the current ALPHA line

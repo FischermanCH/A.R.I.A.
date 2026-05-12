@@ -1,8 +1,8 @@
 # Connections
 
-Connections are explicit profiles to external systems.
+Connections are explicit profiles to external systems. They are one of the most important inputs for ARIA's agentic routing.
 
-Supported families currently include:
+Supported families include:
 
 - SSH
 - SFTP
@@ -18,43 +18,33 @@ Supported families currently include:
 - IMAP
 - MQTT
 
-Routing quality improves when connection metadata is maintained:
+## Metadata matters
+
+Maintain:
 
 - title
 - short description
 - aliases
 - tags
+- notes about what the connection is for
 
-`SearXNG` is handled as a separate self-hosted search service in the stack.
-ARIA uses only the JSON search API and can surface web sources directly in chat details.
+ARIA uses this information for deterministic routing, semantic routing, and LLM action context. Good metadata makes prompts like `my dns server`, `management server`, or `security news` much more reliable.
 
-The stack URL is usually fixed for SearXNG profiles in ARIA:
+## Agentic Action Flow
 
-- `http://searxng:8080`
+For action prompts, ARIA can combine connection metadata, Qdrant candidates, recent context, and LLM drafts. Policy and guardrails still decide whether the action is allowed, asks for confirmation, or is blocked.
 
-Per profile, you mainly manage:
+## Examples
 
-- profile name
-- title / short description / aliases / tags for routing
-- language
-- SafeSearch
-- a few sensible categories
-- a few preferred engines
-- result count and time range
-
-Newer personal / knowledge-oriented connection types:
-
-- `Watched Websites`
-  - for individual sources without an RSS feed
-  - URL-first setup
-  - title, short description, tags, and group can be suggested automatically
-- `Google Calendar`
-  - intentionally read-only for now
-  - guided setup flow via Google Cloud plus direct Google sign-in from ARIA
-  - meant for questions like `what is on my calendar today?`
+- SSH: read-only health and disk checks
+- SMB/SFTP: list or read files within allowed paths
+- HTTP API: configured health endpoint checks
+- Discord/Webhook: outgoing messages with confirmation
+- RSS: digests with title, source, date, summary, and link
+- SearXNG: open web search via the separate stack service
 
 Useful references:
 
-- [`docs/help/help-system.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/help-system.md)
+- [`docs/help/alpha-help-system.en.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/help/alpha-help-system.en.md)
 - [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
 - [`docs/setup/setup-overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/setup/setup-overview.md)

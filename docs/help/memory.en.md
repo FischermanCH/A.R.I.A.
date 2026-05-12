@@ -1,142 +1,88 @@
 # ARIA Help: Memory and Stores
 
-Updated: 2026-04-06
+Updated: 2026-05-12
 
 ## Purpose
 
-This document explains how ARIA stores knowledge, which Qdrant collections are used, and how answers are later reconstructed from that knowledge.
+Memory is ARIA's semantic knowledge store. It is separate from notes, logs, and raw runtime results.
 
-## What deliberately does not go into semantic memory
+ARIA uses Memory for:
 
-Not every chat message is knowledge. Operational recipe triggers are therefore not stored as day-context by default.
+- stable facts about the user and environment
+- preferences
+- session context
+- longer-term rollups
+- document RAG
+- Experience Memory for safe learned action patterns
 
-Examples:
+## What deliberately does not go into memory automatically
 
-- `systemupdate mgmt-master`
-- raw recipe or tool triggers
-- technical control commands
-- execution prompts without lasting knowledge
+- every transient question
+- complete SSH/SMB/RSS snapshots
+- technical logs without lasting value
+- mutating action proposals without review
 
-Goals:
-
-- Qdrant should contain stable knowledge where possible
-- less memory noise
-- better recall quality with fewer irrelevant hits
-
-Existing older entries can be cleaned up via maintenance:
-
-`./aria.sh maintenance`
-
-The output includes a counter such as:
-
-`noise=<count>`
+This reduces memory noise and prevents ARIA from turning random one-off events into durable assumptions.
 
 ## Store types
 
-ARIA currently works with four main memory layers per user:
+### Facts and preferences
 
-### 1. User facts store
+Long-term knowledge ARIA may reuse later.
 
-Schema:
+### Session context
 
-`aria_facts_<username>`
+Working memory for active tasks and previous turns.
 
-Purpose:
+### Rollups
 
-- long-term user knowledge
-- stable facts that remain relevant
-- explicit `remember ...` requests are written here
+Compressed weekly/monthly or work-context summaries. Rollups help without pulling every old chat detail into every prompt.
 
-### 2. Day context (Qdrant)
+### Document collections
 
-Schema:
+RAG v1 for uploads under `/memories`. Supported formats are text, Markdown, and PDFs with embedded text. OCR/scan PDFs are not part of v1.
 
-`aria_sessions_<username>_YYMMDD`
+### Experience Memory
 
-Purpose:
+Successful safe recipe/guardrail/action patterns can be stored as planner context. They help ARIA propose actions, but do not replace policy or guardrails.
 
-- short- to medium-term working context
-- automatic memory extraction per day
-- easier to manage than random session IDs
+## Recall
 
-### 3. Context memory (rollup)
+Recall can combine:
 
-Schema:
+1. direct facts/preferences
+2. session context
+3. rollups
+4. document guides and matching chunks
+5. Experience Memory for action planning
 
-`aria_context-mem_<username>`
+Chat details show sources, collection, and chunk references when document recall was used.
 
-Purpose:
+## UI
 
-- compressed knowledge from older day-context collections
-- less collection sprawl in Qdrant
-- still available for recall
+- `/memories` for entries, search, editing, deletion, and JSON export
+- `/memories/map` for collections, document groups, rollups, and structure
+- `/config/embeddings` for embedding model and safety confirmation when memory already exists
 
-### 4. Document collections (RAG v1)
+## Embedding fingerprint
 
-Schema:
+Memory and document entries carry an embedding fingerprint. This prevents ARIA from silently mixing old and new embedding generations during recall or document routing.
 
-`aria_docs_<name>`
+## Forgetting
 
-Purpose:
+Entries can be deleted directly in `/memories`. In chat, ARIA can recognize explicit forget requests, but destructive operations should ask for confirmation.
 
-- uploaded RAG documents
-- chunk-based import for `txt`, `md`, and `pdf` with embedded text
-- intentionally separated from facts, preferences, and rollup knowledge
+## Why answers can feel thin
 
-Important:
+- Memory is disabled or Qdrant is unreachable
+- embedding model changed and old entries no longer match
+- too few or wrong memories exist
+- the request is more of an action prompt and is routed to the Agentic Action Flow before RAG
+- Top-K or recall limits are too conservative
 
-- document collections are their own knowledge source
-- they should not be mixed with normal fact, preference, or session collections
-- if all chunks of a document collection are gone, ARIA removes the empty collection automatically
+## Test hints
 
-## Write behaviour
-
-### Explicit store
-
-Example:
-
-`Remember that my intranet runs on 10.0.0.10.`
-
-Behaviour:
-
-- ARIA detects `memory_store`
-- the content is written to the user facts store
-- duplicate facts are deduplicated where possible
-
-### Auto-memory
-
-With auto-memory enabled, ARIA separates extracted content into:
-
-- Facts -> `aria_facts_<user>`
-- Preferences -> `aria_preferences_<user>`
-- Session context -> `aria_sessions_<user>_<YYMMDD>`
-
-Transient one-off questions and raw tool/action prompts are no longer turned into session context automatically unless they contain a clear fact or preference signal.
-
-## How recall works
-
-For a recall question, ARIA combines multiple knowledge sources:
-
-1. user facts
-2. day context
-3. rollup knowledge
-4. an internal per-user document guide index
-5. matching document collections (`aria_docs_*`) when document knowledge is relevant
-
-Document recall is deliberately two-stage:
-
-1. on upload, ARIA creates a compact internal guide entry per document
-2. a recall question first searches this guide index
-3. only the best matching documents are then searched deeply by chunk
-
-If a document was used, ARIA now shows the source in chat details:
-
-- document name
-- target collection
-- chunk reference, for example `Chunk 12/108`
-
-## Forget with confirmation
-
-ARIA requires an explicit confirmation code before deleting matched memory entries. Without a valid code, nothing is removed.
-
-The pending delete state is signed in the browser cookie, so tampering with it blocks the delete flow.
+- use `remember ...` for explicit storage
+- ask about the same fact later
+- check `/stats` and chat details for recall sources
+- check `/memories/map` for collection/rollup structure

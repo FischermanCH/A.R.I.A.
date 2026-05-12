@@ -2,39 +2,40 @@
 
 Welcome to the ARIA wiki.
 
-This wiki is meant to stay practical:
+Current public alpha: `0.1.0-alpha251`.
 
-- what ARIA is
-- how to deploy it quickly
-- how memory, notes, recipes, and connections work
-- how releases and upgrades are handled
+ARIA is a small self-hosted AI assistant for people who want control instead of platform sprawl. The current product line is recipe-first, connection-aware, and uses LLMs for bounded action planning while guardrails decide what may actually run.
 
-The same core docs are also intended to appear locally under `/help`, so ARIA and GitHub stay aligned.
-
-For the main repository entry point, start with:
-
-- [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
-- [`CONTRIBUTING.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CONTRIBUTING.md)
-
-Recommended first steps:
+## Start here
 
 1. `Quick Start`
 2. `Memory`
 3. `Connections`
 4. `Recipes`
 5. `Releases and Upgrades`
+6. `Pricing`
+7. `Security`
 
-Current product focus in the ALPHA line:
+## Current product focus
 
-- `Memory` for facts, preferences, document recall, and maintenance
-- `Notes` as a standalone Markdown-first workspace under `/notes`
-- `Watched Websites` as a lighter source type next to RSS
-- `Google Calendar` as the first personal `read-only` daily-use path
+- Memory and document RAG with Qdrant
+- Notes as a Markdown workspace
+- explicit Connections with aliases/tags for routing
+- Recipes instead of legacy Skills
+- Agentic Action Flow: enriched context, LLM draft, policy/guardrail, runtime
+- one-click confirmation for outgoing actions
+- visible token/cost tracking
+- controlled managed updates
 
-Core references still live in the main repo:
+The same core docs are available locally inside ARIA under `/help`.
+
+- `Alpha-Help-System` for the full local alpha help
+- `Help-System` for documentation maintenance notes
+
+## Core references
 
 - [`README.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/README.md)
-- [`CONTRIBUTING.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CONTRIBUTING.md)
+- [`CHANGELOG.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/CHANGELOG.md)
 - [`docs/product/overview.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/overview.md)
 - [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
 - [`docs/product/architecture-summary.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/architecture-summary.md)
