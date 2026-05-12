@@ -124,7 +124,7 @@ class KeywordRouter:
         if " " in clean:
             return clean in text
         # Store verbs like "speicher" must not match nouns such as "speicherplatz".
-        pattern = rf"(?<![a-z0-9äöüß]){re.escape(clean)}e?(?![a-z0-9äöüß])"
+        pattern = rf"(?<!\w){re.escape(clean)}e?(?!\w)"
         return re.search(pattern, text, re.IGNORECASE) is not None
 
     def _contains_store_intent(self, text: str, store_keywords: tuple[str, ...]) -> bool:

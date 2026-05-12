@@ -8825,7 +8825,38 @@ def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> N
     assert result.text == "Festplattencheck für `ubnsrv-mgmt-master`: Root-Dateisystem /: 37% belegt, 19G frei (ok)."
     assert llm.calls >= 1
     assert "Arlo" not in result.text
-    assert result.detail_lines[0] == "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh"
+    assert result.detail_lines[0].startswith(
+        "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh"
+    )
+    assert "boundary=context_enrichment" in result.detail_lines[0]
+
+
+def test_pipeline_final_chat_keeps_pre_rag_no_action_debug_visible() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    result = asyncio.run(
+        pipeline.process(
+            "was ist deine lieblingsfarbe?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert result.detail_lines[0] == (
+        "Routing Debug: pre_rag_action_gate action_path=no_action capability=- kind=- "
+        "explicit_ref=- requested_ref=- path=- content=- boundary=context_enrichment "
+        "reason=no_capability_draft"
+    )
 
 
 def test_pipeline_salvages_partial_read_only_ssh_output(monkeypatch) -> None:
@@ -10142,7 +10173,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                             }
                         )
                     )
-                if "festplatten" in lower or "hd" in lower:
+                if "festplatten" in lower or "speicherplatz" in lower or "hd" in lower:
                     return FakeLLMResponse(
                         json.dumps(
                             {
@@ -10196,7 +10227,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
 
     multi = asyncio.run(
         pipeline.process(
-            "check mal ob meine server noch genug festplatten platz haben",
+            "habe ich genügend freien speicherplatz auf meinen servern?",
             user_id="u1",
             source="test",
             language="de",
@@ -10206,6 +10237,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
     assert multi.pending_action is None
     assert len([call for call in ssh_calls if call[1] == "df -h"]) == 3
     assert "Mehrere SSH-Ziele geprueft (3)." in multi.text
+    assert "memory_store" not in multi.intents
     assert any("multi_target_ssh_preflight_result allowed=3 blocked=0" in line for line in multi.detail_lines)
     assert not any("rss/" in line for line in multi.detail_lines)
 

@@ -17,12 +17,12 @@ Aktueller Release-Stand:
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
-- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`
+- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`, Agentic Live Regression Dossier
 
 ## Offen Auf Einen Blick
 
 1. Agentic Intelligence weiter vereinheitlichen
-- echte Live-Ausreisser sammeln und als Dossier-/Policy-/Resolver-Luecke klassifizieren
+- echte Live-Ausreisser weiter in `docs/product/agentic-live-regression-dossier.md` als Dossier-/Policy-/Resolver-Luecke klassifizieren
 - keine neuen Spezialfaelle auf Verdacht bauen
 - LLM-Drafts, deterministische Normalisierung, Guardrails und Runtime in Debug/Kosten weiter klar trennen
 - Zielbild: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus

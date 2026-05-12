@@ -6,9 +6,17 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+### Added
+- Added `docs/product/agentic-live-regression-dossier.md` as the active live-test dossier for Agentic Action Flow regressions, linking real prompts to expected routing, policy, runtime, debug, and cost behavior.
+
+### Changed
+- `pre_rag_action_gate` debug output now includes the context-enrichment boundary plus target/path/content hints, and final chat/RAG responses in debug mode show an explicit `action_path=no_action` line when the Agentic gate intentionally declines to take over.
+- The live agentic routing regression now covers the natural German prompt `habe ich genügend freien speicherplatz auf meinen servern?`, ensuring it stays out of `memory_store`/RAG and fans out through the bounded SSH multi-target disk check.
+
 ### Fixed
 - Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.
 - German disk-space questions such as `hab ich noch genug speicherplatz auf meinen servern?` no longer get misclassified as `memory_store` just because `speicherplatz` contains the memory-store verb stem `speicher`.
+- The memory-store keyword boundary regex now uses Unicode word boundaries instead of an inline German character class, keeping the `speicherplatz` fix while passing the strict i18n literal audit.
 - `/connections/types` now uses cached/last-known connection status rows instead of live-probing every configured service while rendering the type hub, so slow RSS or network endpoints no longer block that page load.
 
 ## [0.1.0-alpha251] - 2026-05-12

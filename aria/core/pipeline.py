@@ -5079,16 +5079,59 @@ class Pipeline:
                 return False
         return False
 
+    def _pre_rag_gate_debug_line(
+        self,
+        *,
+        action_path: str,
+        capability_draft: Any | None,
+        reason: str = "",
+    ) -> str:
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or "").strip()) or "-"
+        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or "")) or "-"
+        explicit_ref = str(getattr(capability_draft, "explicit_connection_ref", "") or "").strip() or "-"
+        requested_ref = str(getattr(capability_draft, "requested_connection_ref", "") or "").strip() or "-"
+        path = str(getattr(capability_draft, "path", "") or "").strip() or "-"
+        content = str(getattr(capability_draft, "content", "") or "").strip() or "-"
+        line = (
+            f"Routing Debug: pre_rag_action_gate action_path={action_path} "
+            f"capability={capability} kind={kind} explicit_ref={explicit_ref} "
+            f"requested_ref={requested_ref} path={path} content={content} "
+            "boundary=context_enrichment"
+        )
+        if reason:
+            line = f"{line} reason={reason}"
+        return line
+
     def _prepend_pre_rag_gate_debug(self, result: PipelineResult, *, action_path: str, capability_draft: Any | None) -> PipelineResult:
         if not self._routing_debug_enabled():
             return result
-        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or "").strip()) or "-"
-        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or "")) or "-"
         result.detail_lines = [
-            f"Routing Debug: pre_rag_action_gate action_path={action_path} capability={capability} kind={kind}",
+            self._pre_rag_gate_debug_line(action_path=action_path, capability_draft=capability_draft),
             *list(result.detail_lines or []),
         ]
         return result
+
+    def _pre_rag_no_action_debug_lines(
+        self,
+        *,
+        capability_draft: Any | None,
+        custom_intents: list[str],
+    ) -> list[str]:
+        if not self._routing_debug_enabled():
+            return []
+        if custom_intents:
+            reason = "recipe_candidates_present"
+        elif capability_draft is None:
+            reason = "no_capability_draft"
+        else:
+            reason = "no_routable_action"
+        return [
+            self._pre_rag_gate_debug_line(
+                action_path="no_action",
+                capability_draft=capability_draft,
+                reason=reason,
+            )
+        ]
 
     @_pre_rag_usage_scope
     async def _try_pre_rag_action_gate(
@@ -5449,7 +5492,13 @@ class Pipeline:
             and any(is_recipe_intent(str(intent)) for intent in merged_intents)
             and all(str(intent) == "chat" or is_recipe_intent(str(intent)) for intent in merged_intents)
         ):
-            skill_detail_lines = self._collect_skill_detail_lines(skill_results)
+            skill_detail_lines = [
+                *self._pre_rag_no_action_debug_lines(
+                    capability_draft=capability_draft,
+                    custom_intents=custom_intents,
+                ),
+                *self._collect_skill_detail_lines(skill_results),
+            ]
             duration_ms = int((time.perf_counter() - start) * 1000)
             usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
             await self.token_tracker.log(
@@ -5578,7 +5627,13 @@ class Pipeline:
             },
         )
 
-        skill_detail_lines = self._collect_skill_detail_lines(skill_results)
+        skill_detail_lines = [
+            *self._pre_rag_no_action_debug_lines(
+                capability_draft=capability_draft,
+                custom_intents=custom_intents,
+            ),
+            *self._collect_skill_detail_lines(skill_results),
+        ]
 
         return PipelineResult(
             request_id=request_id,
