@@ -833,6 +833,24 @@ def _build_operator_guardrail_meta(
         if pricing_status == "warn"
         else _stats_route_text(language, "operator_guardrail_pricing_ok", "All seen model usage is priced.")
     )
+    cost_tracking_status = "ok"
+    cost_tracking_summary = _stats_route_text(language, "operator_guardrail_cost_tracking_ok", "Token and cost tracking are active.")
+    token_tracking_enabled = model_gateway.get("token_tracking_enabled")
+    usage_meter_shared = model_gateway.get("usage_meter_shared")
+    if token_tracking_enabled is False:
+        cost_tracking_status = "error"
+        cost_tracking_summary = _stats_route_text(language, "operator_guardrail_cost_tracking_error", "Token tracking is disabled.")
+    elif usage_meter_shared is False:
+        cost_tracking_status = "error"
+        cost_tracking_summary = _stats_route_text(language, "operator_guardrail_cost_tracking_meter_error", "Model calls are not all behind the shared UsageMeter.")
+    elif bool(pricing_meta.get("has_estimated_cost_gap")):
+        cost_tracking_status = "warn"
+        cost_tracking_summary = _stats_route_text(language, "operator_guardrail_cost_tracking_gap", "Estimated costs are higher than logged costs.")
+    cost_tracking_detail = (
+        f"{int(model_gateway.get('model_total_tokens', 0) or 0)} tokens"
+        f" · logged ${float(pricing_meta.get('logged_total_cost_usd', 0.0) or 0.0):.6f}"
+        f" · estimated ${float(pricing_meta.get('estimated_total_cost_usd', 0.0) or 0.0):.6f}"
+    )
     gateway_status = str(model_gateway.get("status", "warn") or "warn").strip().lower()
     preflight_status = str(preflight_meta.get("overall_status", "warn") or "warn").strip().lower()
     health_status = str(health_meta.get("overall_status", "warn") or "warn").strip().lower()
@@ -882,6 +900,14 @@ def _build_operator_guardrail_meta(
                 f" · Embedding {pricing_meta.get('priced_seen_embedding_count', 0)}/{pricing_meta.get('embedding_seen_count', 0)}"
             ),
             url="/stats#stats-pricing-details",
+        ),
+        _guardrail_row(
+            key="cost_tracking",
+            fallback="Cost tracking",
+            status=cost_tracking_status,
+            summary=cost_tracking_summary,
+            detail=cost_tracking_detail,
+            url="/stats#model-gateway-audit",
         ),
         _guardrail_row(
             key="preflight",

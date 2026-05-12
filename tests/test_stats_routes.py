@@ -631,7 +631,14 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
             "priced_seen_embedding_count": 0,
             "embedding_seen_count": 1,
         },
-        model_gateway={"status": "ok", "chat_model": "claude-sonnet-4-5", "embedding_model": "openai/embed-small"},
+        model_gateway={
+            "status": "ok",
+            "chat_model": "claude-sonnet-4-5",
+            "embedding_model": "openai/embed-small",
+            "usage_meter_shared": True,
+            "token_tracking_enabled": True,
+            "model_total_tokens": 123,
+        },
         preflight_meta={"overall_status": "ok", "ok_count": 4, "warn_count": 0, "error_count": 0, "checked_at": "2026-05-12T10:00:00Z"},
         health_meta={"overall_status": "warn", "ok_count": 6, "warn_count": 1, "error_count": 0},
         update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha252", "update_available": True},
@@ -639,13 +646,14 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
     )
 
     assert meta["overall_status"] == "warn"
-    assert meta["ok_count"] == 3
+    assert meta["ok_count"] == 4
     assert meta["warn_count"] == 3
     assert meta["error_count"] == 0
-    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "warn", "warn"]
+    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "warn", "warn"]
     assert meta["rows"][0]["fallback"] == "Release metadata"
     assert meta["rows"][2]["summary"] == "42 model tokens are still unpriced."
-    assert meta["rows"][5]["url"] == "/updates"
+    assert meta["rows"][3]["fallback"] == "Cost tracking"
+    assert meta["rows"][6]["url"] == "/updates"
 
 
 def test_build_operator_guardrail_meta_escalates_errors() -> None:
@@ -662,6 +670,66 @@ def test_build_operator_guardrail_meta_escalates_errors() -> None:
     assert meta["overall_status"] == "error"
     assert meta["error_count"] == 1
     assert meta["summary"] == "Mindestens eine Operator-Guardrail meldet aktuell einen Fehler."
+
+
+def test_build_operator_guardrail_meta_treats_disabled_token_tracking_as_error() -> None:
+    meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
+        pricing_meta={
+            "has_unpriced_usage": False,
+            "unpriced_model_tokens": 0,
+            "logged_total_cost_usd": 0.0,
+            "estimated_total_cost_usd": 0.0,
+        },
+        model_gateway={
+            "status": "warn",
+            "chat_model": "x",
+            "embedding_model": "y",
+            "usage_meter_shared": True,
+            "token_tracking_enabled": False,
+            "model_total_tokens": 0,
+        },
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha251", "update_available": False},
+        language="de",
+    )
+
+    cost_row = meta["rows"][3]
+    assert meta["overall_status"] == "error"
+    assert cost_row["status"] == "error"
+    assert cost_row["summary"] == "Token-Tracking ist deaktiviert."
+
+
+def test_build_operator_guardrail_meta_warns_on_estimated_cost_gap() -> None:
+    meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
+        pricing_meta={
+            "has_unpriced_usage": False,
+            "unpriced_model_tokens": 0,
+            "logged_total_cost_usd": 0.001,
+            "estimated_total_cost_usd": 0.009,
+            "has_estimated_cost_gap": True,
+        },
+        model_gateway={
+            "status": "ok",
+            "chat_model": "x",
+            "embedding_model": "y",
+            "usage_meter_shared": True,
+            "token_tracking_enabled": True,
+            "model_total_tokens": 1200,
+        },
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha251", "update_available": False},
+        language="en",
+    )
+
+    cost_row = meta["rows"][3]
+    assert meta["overall_status"] == "warn"
+    assert cost_row["status"] == "warn"
+    assert cost_row["summary"] == "Estimated costs are higher than logged costs."
+    assert "1200 tokens" in cost_row["detail"]
 
 
 def test_build_operator_guardrail_meta_treats_missing_release_metadata_as_error() -> None:

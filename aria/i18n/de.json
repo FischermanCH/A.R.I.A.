@@ -3442,6 +3442,7 @@
   "stats.none": "keine",
   "stats.operator_guardrail_gateway": "Model Gateway",
   "stats.operator_guardrail_gateway_summary": "UsageMeter und Token-Log-Pfad werden geprueft.",
+  "stats.operator_guardrail_cost_tracking": "Kosten-Tracking",
   "stats.operator_guardrail_health": "Runtime-Health",
   "stats.operator_guardrail_health_summary": "{ok} ok · {warn} Warnung · {error} Fehler",
   "stats.operator_guardrail_overall_error": "Mindestens eine Operator-Guardrail meldet aktuell einen Fehler.",
@@ -3559,6 +3560,10 @@
     "update_helper_error": "GUI-Update-Helper meldet einen Fehler."
   },
   "stats_routes.operator_guardrail_gateway_summary": "UsageMeter und Token-Log-Pfad werden geprueft.",
+  "stats_routes.operator_guardrail_cost_tracking_error": "Token-Tracking ist deaktiviert.",
+  "stats_routes.operator_guardrail_cost_tracking_gap": "Geschaetzte Kosten liegen hoeher als geloggte Kosten.",
+  "stats_routes.operator_guardrail_cost_tracking_meter_error": "Modellaufrufe laufen nicht vollstaendig ueber den gemeinsamen UsageMeter.",
+  "stats_routes.operator_guardrail_cost_tracking_ok": "Token- und Kosten-Tracking sind aktiv.",
   "stats_routes.operator_guardrail_health_summary": "{ok} ok · {warn} Warnung · {error} Fehler",
   "stats_routes.operator_guardrail_overall_error": "Mindestens eine Operator-Guardrail meldet aktuell einen Fehler.",
   "stats_routes.operator_guardrail_overall_ok": "Release- und Betriebs-Guardrails sehen gesund aus.",
