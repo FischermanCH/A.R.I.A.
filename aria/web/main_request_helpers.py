@@ -16,7 +16,7 @@ CookieValueResolver = Callable[[Request, str], str]
 @dataclass(frozen=True)
 class MainRequestHelperDeps:
     translate: Translator
-    custom_skill_desc_i18n_fallbacks: dict[str, dict[str, str]]
+    stored_recipe_desc_i18n_fallbacks: dict[str, dict[str, str]]
     get_auth_session_from_request: AuthSessionResolver
     request_cookie_value: CookieValueResolver
     username_cookie: str
@@ -24,8 +24,8 @@ class MainRequestHelperDeps:
 
 @dataclass(frozen=True)
 class MainRequestHelpers:
-    format_skill_routing_info: Callable[[str, str], str]
-    localize_custom_skill_description: Callable[[dict[str, Any], str], str]
+    format_recipe_routing_info: Callable[[str, str], str]
+    localize_stored_recipe_description: Callable[[dict[str, Any], str], str]
     sanitize_username: Callable[[str | None], str]
     get_username_from_request: Callable[[Request], str]
     sanitize_role: Callable[[str | None], str]
@@ -35,7 +35,7 @@ class MainRequestHelpers:
 
 
 def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelpers:
-    def _format_skill_routing_info(lang: str, raw_info: str) -> str:
+    def _format_recipe_routing_info(lang: str, raw_info: str) -> str:
         value = str(raw_info or "").strip()
         if not value:
             return ""
@@ -49,7 +49,7 @@ def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelper
                 text = deps.translate(
                     lang,
                     "config_skill_routing.info_suggest_all",
-                    "LLM suggestion applied: {updated} skills updated, {total} keywords generated.",
+                    "LLM suggestion applied: {updated} stored recipes updated, {total} keywords generated.",
                 )
                 return text.format(updated=updated, total=total)
         if value.startswith("suggest:"):
@@ -60,7 +60,7 @@ def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelper
                 text = deps.translate(
                     lang,
                     "config_skill_routing.info_suggest_one",
-                    "LLM suggestion applied for {skill}: {total} keywords generated.",
+                    "LLM suggestion applied for {skill}: {total} recipe keywords generated.",
                 )
                 return text.format(skill=skill_id, total=total)
         if value.startswith("keywords:auto:"):
@@ -73,15 +73,19 @@ def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelper
             return text.format(total=total)
         if value.startswith("deleted:"):
             skill_id = value.split(":", 1)[1]
-            text = deps.translate(lang, "skills.deleted_info", "Skill deleted: {skill}.")
+            text = deps.translate(lang, "skills.deleted_info", "Stored recipe deleted: {skill}.")
             return text.format(skill=skill_id)
         if value.startswith("imported:"):
             skill_id = value.split(":", 1)[1]
-            text = deps.translate(lang, "skills.imported_info", "Skill imported: {skill}.")
+            text = deps.translate(lang, "skills.imported_info", "Stored recipe imported: {skill}.")
+            return text.format(skill=skill_id)
+        if value.startswith("learned_promoted:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "skills.learned_promoted_info", "Learned recipe promoted into stored recipe: {skill}.")
             return text.format(skill=skill_id)
         return value
 
-    def _localize_custom_skill_description(manifest: dict[str, Any], lang: str) -> str:
+    def _localize_stored_recipe_description(manifest: dict[str, Any], lang: str) -> str:
         lang_code = str(lang or "de").strip().lower() or "de"
         i18n_map = manifest.get("description_i18n", {})
         if isinstance(i18n_map, dict):
@@ -91,7 +95,7 @@ def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelper
         fallback = str(manifest.get("description", "")).strip()
         if lang_code == "de":
             return fallback
-        mapped = deps.custom_skill_desc_i18n_fallbacks.get(fallback, {}).get(lang_code, "")
+        mapped = deps.stored_recipe_desc_i18n_fallbacks.get(fallback, {}).get(lang_code, "")
         return str(mapped or fallback)
 
     def _sanitize_username(value: str | None) -> str:
@@ -135,8 +139,8 @@ def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelper
         return raw
 
     return MainRequestHelpers(
-        format_skill_routing_info=_format_skill_routing_info,
-        localize_custom_skill_description=_localize_custom_skill_description,
+        format_recipe_routing_info=_format_recipe_routing_info,
+        localize_stored_recipe_description=_localize_stored_recipe_description,
         sanitize_username=_sanitize_username,
         get_username_from_request=_get_username_from_request,
         sanitize_role=_sanitize_role,

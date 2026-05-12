@@ -197,3 +197,42 @@ def test_notes_create_folder_redirects_into_visible_folder_context(tmp_path: Pat
     assert 'class="notes-folder-link is-active"' in page.text
     assert ">ARIA<" in page.text
     assert 'class="notes-editor-form"' in page.text
+
+
+def test_notes_rename_folder_moves_notes_and_updates_metadata(tmp_path: Path) -> None:
+    client, _index = _build_notes_app(tmp_path)
+    store = NotesStore(tmp_path / "data" / "notes")
+    note = store.save_note("tester", title="Area 41 Plan", folder="Projekte/ARIA", body="Ordnerpfad aktualisieren")
+
+    redirect = client.post(
+        "/notes/folders/rename",
+        data={"folder": "Projekte/ARIA", "new_folder": "Projekte/AREA41"},
+        follow_redirects=False,
+    )
+
+    assert redirect.status_code == 303
+    assert "folder=Projekte%2FAREA41" in redirect.headers["location"]
+    page = client.get(redirect.headers["location"])
+    assert page.status_code == 200
+    assert "Ordner umbenannt: Projekte/AREA41" in page.text
+    assert ">AREA41<" in page.text
+
+    moved = store.get_note("tester", note.note_id)
+    assert moved is not None
+    assert moved.folder == "Projekte/AREA41"
+    assert moved.path.exists()
+    raw = moved.path.read_text(encoding="utf-8")
+    assert "folder: Projekte/AREA41" in raw
+    assert not (tmp_path / "data" / "notes" / "tester" / "Projekte" / "ARIA").exists()
+
+
+def test_notes_page_resolves_folder_case_insensitively(tmp_path: Path) -> None:
+    client, _index = _build_notes_app(tmp_path)
+    store = NotesStore(tmp_path / "data" / "notes")
+    store.save_note("tester", title="Area 41 Plan", folder="Area41", body="Ordnerpfad aktualisieren")
+
+    response = client.get("/notes?folder=area41")
+
+    assert response.status_code == 200
+    assert "Area 41 Plan" in response.text
+    assert 'href="/notes?folder=Area41"' in response.text

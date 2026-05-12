@@ -10,12 +10,12 @@ Zweck:
 
 ## Überblick
 
-ARIA ist ein self-hosted AI Assistant mit browser-first UI, deterministischer Pipeline, Memory via Qdrant und modularen Connections/Skills für echte Systeme.
+ARIA ist ein self-hosted AI Assistant mit browser-first UI, deterministischer Pipeline, Memory via Qdrant und modularen Connections/Rezepten für echte Systeme.
 
 Der zentrale Architekturgedanke ist: **strukturierte Pfade zuerst, LLM erst wenn nötig**.
 
 Das bedeutet:
-- Custom Skills und Capability-Routing werden vor dem generischen Chat-LLM geprüft
+- gespeicherte Rezepte und Capability-Routing werden vor dem generischen Chat-LLM geprüft
 - Memory-Operationen laufen über explizite Intents
 - das LLM bleibt für freie Sprache, Transformation und Zusammenfassung zuständig
 - technische Aktionen selbst bleiben in kontrollierten Runtime-Modulen
@@ -26,7 +26,7 @@ Der Stack ist bewusst schlank:
 - LiteLLM
 - Qdrant
 - SQLite / lokaler Secure Store
-- YAML/JSON-Dateien für Config, Skills, Logs und Runtime-State
+- YAML/JSON-Dateien für Config, Rezepte, Logs und Runtime-State
 
 Kein React-/Node-Frontend-Build, keine zwingende Cloud-Abhängigkeit im Kernbetrieb.
 
@@ -47,7 +47,7 @@ Wichtige Eigenschaften:
 - kein React/Node-Buildprozess
 - responsive UI inklusive Theme-/Background-System
 - `/` als Chat-UI
-- `/stats`, `/skills`, `/memories`, `/config/*`, `/help` als UI-Seiten
+- `/stats`, `/recipes`, `/memories`, `/config/*`, `/help` als UI-Seiten
 - `/health` als Healthcheck
 - `POST /v1/chat/completions` als OpenAI-kompatibler API-Endpoint
 
@@ -55,7 +55,7 @@ Wichtige Module:
 - `aria/main.py`
 - `aria/web/stats_routes.py`
 - `aria/web/activities_routes.py`
-- `aria/web/skills_routes.py`
+- `aria/web/recipes_routes.py`
 - `aria/web/memories_routes.py`
 - `aria/web/config_routes.py`
 - `aria/templates/*`
@@ -67,7 +67,7 @@ Das Herzstück ist `aria/core/pipeline.py`. Dort wird jede Anfrage in einer fest
 
 Aufgaben dieser Schicht:
 - Routing-Entscheid
-- Custom-Skill-Ausführung
+- Rezept-Ausführung
 - Capability-Ausführung
 - Memory Store / Recall / Forget
 - Context Assembly
@@ -114,7 +114,7 @@ Wichtige Module:
 - `aria/core/connection_runtime.py`
 - `aria/core/connection_semantic_resolver.py`
 - `aria/core/ssh_runtime.py`
-- `aria/core/skill_runtime.py`
+- `aria/core/recipe_runtime.py`
 - `aria/core/guardrails.py`
 - `aria/core/safe_fix.py`
 
@@ -135,8 +135,8 @@ Persistenz liegt bewusst außerhalb des ersetzbaren ARIA-App-Codes und verteilt 
 
 **YAML / JSON / Textdateien**
 - `config/config.yaml` als zentrale Runtime-Konfiguration
-- `prompts/` für Persona- und Skill-Prompts
-- `data/skills/*.json` für Custom-Skill-Manifeste
+- `prompts/` für Persona- und Rezept-Prompts
+- `data/recipes/*.json` für gespeicherte Rezept-Manifeste
 - `data/logs/*.jsonl` für Token-/Activity-Logs
 - `data/runtime/*.json` für Caches und Runtime-State
 
@@ -159,19 +159,19 @@ Das Routing ist deterministisch priorisiert und bewusst nicht als blindes LLM-Kl
 
 ## Routing-Reihenfolge
 
-### 1. Custom Skills
+### 1. Gespeicherte Rezepte
 
-Zuerst prüft ARIA aktive Skill-Manifeste aus `data/skills/`.
+Zuerst prüft ARIA aktive Rezept-Manifeste aus `data/recipes/`.
 
-Ein klar passender Custom Skill hat Vorrang vor generischem Capability-Routing. Das ist wichtig, damit explizit gebaute Workflows nicht von allgemeineren Connection-Aktionen überfahren werden.
+Ein klar passendes Rezept hat Vorrang vor generischem Capability-Routing. Das ist wichtig, damit explizit gebaute Workflows nicht von allgemeineren Connection-Aktionen überfahren werden.
 
 Wichtige Module:
-- `aria/core/custom_skills.py`
-- `aria/core/skill_runtime.py`
+- `aria/core/recipe_manifests.py`
+- `aria/core/recipe_runtime.py`
 
 ### 2. Capability Routing
 
-Wenn kein Skill gewinnt, prüft `aria/core/capability_router.py` auf strukturierte Capability-Intents wie Datei lesen/schreiben, Feed lesen, Discord senden oder HTTP-Requests.
+Wenn kein Rezept gewinnt, prüft `aria/core/capability_router.py` auf strukturierte Capability-Intents wie Datei lesen/schreiben, Feed lesen, Discord senden oder HTTP-Requests.
 
 Die Connection-Auflösung nutzt dabei nicht nur den technischen `ref`, sondern auch:
 - Titel
@@ -201,7 +201,7 @@ Wichtige Module:
 
 ### 4. LLM-Fallback
 
-Wenn kein Skill, keine Capability und kein Memory-Intent greift, geht die Anfrage in den normalen Chat-LLM-Pfad.
+Wenn kein Rezept, keine Capability und kein Memory-Intent greift, geht die Anfrage in den normalen Chat-LLM-Pfad.
 
 `aria/core/llm_client.py` nutzt LiteLLM als Provider-Abstraktion für OpenAI-, Anthropic-, OpenRouter- und Ollama-kompatible Modelle. Der Prompt-Kontext wird in `aria/core/context.py` aus Persona, Chat-History und optionalem Memory-Kontext zusammengesetzt.
 
@@ -217,9 +217,9 @@ ARIAs Ansatz ist deshalb: **strukturierte Signale für Routing, LLM für Sprache
 
 ---
 
-## Custom Skills
+## Gespeicherte Rezepte
 
-Custom Skills sind JSON-Manifeste mit einer geordneten Step-Liste. Sie werden im Browser-Wizard erstellt, bearbeitet, exportiert und importiert.
+Gespeicherte Rezepte sind JSON-Manifeste mit einer geordneten Step-Liste. Sie werden im Browser-Wizard erstellt, bearbeitet, exportiert und importiert.
 
 Beispiel:
 
@@ -253,7 +253,7 @@ Beispiel:
 }
 ```
 
-Die Skill Runtime führt Steps sequenziell aus und reicht Step-Output an Folgeschritte weiter.
+Die Rezept-Runtime führt Steps sequenziell aus und reicht Step-Output an Folgeschritte weiter.
 
 Unterstützte Step-Typen:
 - `ssh_run`
@@ -271,7 +271,7 @@ Unterstützte Step-Typen:
 - `llm_transform`
 - `chat_send`
 
-Sample-Skills liegen unter `samples/skills/`.
+Sample-Rezepte liegen unter `samples/recipes/`.
 
 ---
 
@@ -279,7 +279,7 @@ Sample-Skills liegen unter `samples/skills/`.
 
 ![ARIA Modularität und Persistenz](./aria_modularitaet_persistenz.svg)
 
-Ein wichtiger ARIA-Grundsatz ist, dass **der App-Container ersetzbar ist, während Config, Prompts, Skills, Logs und Memories in Volumes erhalten bleiben**.
+Ein wichtiger ARIA-Grundsatz ist, dass **der App-Container ersetzbar ist, während Config, Prompts, Rezepte, Logs und Memories in Volumes erhalten bleiben**.
 
 ## Connection-Profile
 
@@ -304,8 +304,8 @@ Typisches Compose-/Portainer-Setup:
 ```text
 aria
   /app/config   -> config.yaml, secrets.env
-  /app/prompts  -> Persona- und Skill-Prompts
-  /app/data     -> Skills, Logs, Chat-History, Runtime-Caches
+  /app/prompts  -> Persona- und Rezept-Prompts
+  /app/data     -> Rezepte, Logs, Chat-History, Runtime-Caches
 
 qdrant
   /qdrant/storage -> Vektor-DB / Collections
@@ -376,7 +376,7 @@ Wichtige Hilfe dazu:
 ## Observability und Statistiken
 
 ARIA schreibt und zeigt strukturiert:
-- Intent / Skill / Capability pro Anfrage
+- Intent / Rezept / Capability pro Anfrage
 - Token-Anzahl
 - USD-Kosten, wenn Pricing für das Modell bekannt ist
 - Laufzeit
@@ -387,8 +387,9 @@ ARIA schreibt und zeigt strukturiert:
 - Startup-Preflight und Systemzustand
 
 Pricing:
-- OpenAI/Anthropic über LiteLLM-Preisliste
-- OpenRouter über OpenRouter Models API
+- LiteLLM-GitHub-Preisliste als primaere Preisquelle
+- lokale gecachte Kopie unter `data/pricing/litellm_model_prices.json`
+- ARIA-bundled Notfallseed, falls weder Remote noch Cache verfuegbar ist
 - lokale Modelle können bewusst unbepreist bleiben
 
 Wichtige Module:
@@ -408,7 +409,7 @@ Aktueller Default-Stack:
 Wichtiger Architekturpunkt:
 - **Updates ersetzen nur den ARIA-Container**
 - **Qdrant-Container und Volumes bleiben erhalten**
-- dadurch bleiben Config, Secrets, Connections, Skills, Logs, Chat-History und Memories über Updates erhalten
+- dadurch bleiben Config, Secrets, Connections, Rezepte, Logs, Chat-History und Memories über Updates erhalten
 
 Konfiguration:
 - `config/config.yaml`
@@ -426,7 +427,7 @@ Für Versionierung und Release-Prozess:
 ## Aktuelle bewusste Architekturgrenzen und Designentscheidungen
 
 - ARIA ist aktuell primär ein **Personal Single-User System**
-- kein vollständiges Multi-User-/RBAC-/Sharing-Modell für Skills, Connections und Memories
+- kein vollständiges Multi-User-/RBAC-/Sharing-Modell für Rezepte, Connections und Memories
 - Capability-Ergebnisse laufen **absichtlich nicht** pauschal durch Auto-Memory; dauerhafte Speicherung solcher Resultate soll später nur über gezielte Summary-/State-Memory-Flows erfolgen
 - kein In-App-Container-Self-Updater
 - Home Assistant, Websuche, Dokument-Ingest, Streaming/SSE und größere Channel-Adapter sind Roadmap, nicht aktueller Release-Kern

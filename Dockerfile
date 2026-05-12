@@ -22,7 +22,7 @@ RUN apt-get update \
 COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker_cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[model-gateway]"
 
 RUN mkdir -p /app/data/auth /app/data/logs /app/data/skills /app/bootstrap \
     && cp -a /app/config /app/bootstrap/config \

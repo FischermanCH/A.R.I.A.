@@ -1,34 +1,28 @@
 # ARIA Samples
 
-Diese Sammlung enthält kleine Beispiel-Dateien für den ALPHA-Stand.
+Diese Sammlung enthaelt kleine Beispiel-Dateien fuer den Alpha-Stand.
 
-## Skills
+## Recipes
 
-Die Dateien unter `samples/skills/` sind direkte JSON-Manifeste für den Import unter `/skills`.
+Die Dateien unter `samples/recipes/` sind recipe-first JSON-Manifeste fuer den Import unter `/recipes`.
 
 Aktuelle Beispiele:
 
-- `echo-chat.json`: sicherer Demo-Skill ohne externe Verbindung
-- `ssh-healthcheck-template.json`: einfacher SSH-Uptime-/Healthcheck
-- `linux-updates-check-template.json`: read-only Linux-Update-Check via SSH
+- `discord-broadcast-template.json`: einfache Discord-Nachricht aus einem Rezept senden
 - `linux-fleet-healthcheck-to-discord-template.json`: mehrere Linux-Hosts read-only via SSH pruefen, per LLM bewerten und nur bei echtem Alarm nach Discord senden
-- `sftp-read-template.json`: einfacher Datei-Lesezugriff via SFTP
+- `linux-updates-check-template.json`: read-only Linux-Update-Check via SSH
 - `smb-share-list-template.json`: SMB-Share lesen und im Chat zusammenfassen
-- `discord-broadcast-template.json`: einfache Discord-Nachricht aus einem Skill senden
-- `rss-digest-to-discord-template.json`: RSS laden, per LLM kuratieren und nach Discord senden
-- `rss-headlines-to-chat-template.json`: einen RSS-Feed lesen und die wichtigsten Headlines direkt in den Chat schreiben
-- `ssh-disk-usage-template.json`: Linux-Dateisysteme via SSH pruefen und kompakt zusammenfassen
-- `ssh-service-status-template.json`: Status eines Systemd-Dienstes via SSH pruefen und einordnen
-- `ssh-memory-pressure-template.json`: RAM-Lage und groesste Prozesse via SSH kompakt zusammenfassen
-- `sftp-config-preview-template.json`: eine Konfigurationsdatei via SFTP lesen und die wichtigsten Punkte erklaeren
-- `rss-security-watch-template.json`: Security-/Ops-Meldungen aus einem RSS-Feed als kurze Watchlist kuratieren
+
+## Legacy Skill Samples
+
+Die Dateien unter `samples/skills/` bleiben vorerst als Legacy-/Backcompat-Referenz erhalten. Neue Tests, neue Doku und neue Produkttexte sollen `samples/recipes/` und `/recipes` verwenden.
 
 ## Connections
 
-Die Dateien unter `samples/connections/` sind neutrale Vorlagen. Dafür gibt es aktuell noch keinen direkten UI-Import. Sie dienen als Referenz für:
+Die Dateien unter `samples/connections/` sind neutrale Vorlagen. Dafuer gibt es aktuell noch keinen direkten UI-Import. Sie dienen als Referenz fuer:
 
-- manuelles Anlegen über die UI
-- spätere Import-/Export-Funktionen
+- manuelles Anlegen ueber die UI
+- spaetere Import-/Export-Funktionen
 - Dokumentation / Demo-Setups
 
 ## Security / Guardrails
@@ -44,6 +38,6 @@ Die Guardrail-Samples lassen sich in der Security-Seite direkt aus dem GUI impor
 Wichtig:
 
 - alle Werte sind Platzhalter
-- Secrets / Tokens / Passwörter sind bewusst leer oder neutral
-- bei Skills mit `ssh_run`, `sftp_read`, `sftp_write` oder `discord_send` müssen die referenzierten Connections vorher existieren
-- bei Skills mit `smb_read`, `smb_write` oder `rss_read` muss der entsprechende Build-Stand diese Step-Typen bereits enthalten
+- Secrets / Tokens / Passwoerter sind bewusst leer oder neutral
+- bei Rezepten mit `ssh_run`, `sftp_read`, `sftp_write` oder `discord_send` muessen die referenzierten Connections vorher existieren
+- bei Rezepten mit `smb_read`, `smb_write` oder `rss_read` muss der entsprechende Build-Stand diese Step-Typen bereits enthalten

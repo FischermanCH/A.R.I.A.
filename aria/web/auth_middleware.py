@@ -156,9 +156,9 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
         )
 
         needs_login = (
-            path in {"/", "/chat", "/stats", "/activities", "/memories", "/skills", "/set-username", "/set-auto-memory"}
+            path in {"/", "/chat", "/stats", "/activities", "/memories", "/recipes", "/set-username", "/set-auto-memory"}
             or path.startswith("/memories/")
-            or path.startswith("/skills/")
+            or path.startswith("/recipes/")
             or path.startswith("/stats/")
             or path.startswith("/activities/")
             or path.startswith("/config/")
@@ -217,7 +217,7 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
                         status_code=403,
                         content={
                             "code": "no_settings",
-                            "detail": deps.translate(request, "auth.no_settings", "Keine Berechtigung für Einstellungen."),
+                            "detail": deps.translate(request, "auth.no_settings", "No permission for settings."),
                         },
                     )
                 return RedirectResponse(url="/?error=no_settings", status_code=303)
@@ -229,7 +229,7 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
                         status_code=403,
                         content={
                             "code": "no_settings",
-                            "detail": deps.translate(request, "auth.no_settings", "Keine Berechtigung für Einstellungen."),
+                            "detail": deps.translate(request, "auth.no_settings", "No permission for settings."),
                         },
                     )
                 return RedirectResponse(url="/?error=no_settings", status_code=303)
@@ -260,7 +260,12 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
 
         protected_methods = {"POST", "PUT", "PATCH", "DELETE"}
         csrf_exempt_prefixes = ("/v1/", "/api/")
-        csrf_exempt_paths = {"/health", "/skills/import", "/config/connections/rss/import-opml", "/memories/upload"}
+        csrf_exempt_paths = {
+            "/health",
+            "/recipes/import",
+            "/config/connections/rss/import-opml",
+            "/memories/upload",
+        }
         if (
             request.method.upper() in protected_methods
             and path not in csrf_exempt_paths
@@ -293,7 +298,7 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
                             "detail": deps.translate(
                                 request,
                                 "auth.csrf_failed",
-                                "CSRF-Prüfung fehlgeschlagen. Bitte Seite neu laden.",
+                                "CSRF check failed. Please reload the page.",
                             ),
                         },
                     )

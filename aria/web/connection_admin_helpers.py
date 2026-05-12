@@ -4,6 +4,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from aria.core.connection_admin import ConnectionAdminError
+from aria.core.connection_admin import connection_admin_success_message
 from aria.core.routing_admin import ensure_connection_routing_index_ready
 
 
@@ -31,14 +33,16 @@ class ConnectionAdminHelpers:
         clean_kind = self._deps.normalize_connection_kind(kind)
         admin_spec = self._deps.connection_admin_specs.get(clean_kind)
         if not admin_spec:
-            raise ValueError("Unbekannter Connection-Typ.")
+            raise ConnectionAdminError("unknown_type")
+        success_message_key = str(admin_spec.get("success_message_key", "") or "")
         return {
             "section": clean_kind,
             "page": self._deps.connection_edit_page(clean_kind),
             "ref_query": self._deps.connection_ref_query_param(clean_kind),
             "secret_keys": list(admin_spec.get("secret_keys", [])),
             "health_prefix": str(admin_spec.get("health_prefix", clean_kind)),
-            "success_message": str(admin_spec.get("success_message", "Connection-Profil gelöscht")),
+            "success_message": connection_admin_success_message(admin_spec),
+            "success_message_key": success_message_key,
         }
 
     async def trigger_connection_routing_refresh(self, *, wait: bool = False) -> None:
@@ -46,6 +50,7 @@ class ConnectionAdminHelpers:
             await ensure_connection_routing_index_ready(
                 self._deps.settings,
                 embedding_client=self._deps.pipeline.embedding_client,
+                usage_meter=getattr(self._deps.pipeline, "usage_meter", None),
                 wait=wait,
             )
 
@@ -53,7 +58,7 @@ class ConnectionAdminHelpers:
         spec = self.get_connection_delete_spec(kind)
         ref = self._deps.sanitize_connection_name(ref_raw)
         if not ref:
-            raise ValueError("Connection-Ref ist ungültig.")
+            raise ConnectionAdminError("invalid_ref")
         raw = self._deps.read_raw_config()
         raw.setdefault("connections", {})
         if not isinstance(raw["connections"], dict):
@@ -63,7 +68,7 @@ class ConnectionAdminHelpers:
             raw["connections"][spec["section"]] = {}
         rows = raw["connections"][spec["section"]]
         if ref not in rows:
-            raise ValueError("Connection-Profil nicht gefunden.")
+            raise ConnectionAdminError("profile_not_found")
         rows.pop(ref, None)
         store = self._deps.get_secure_store(raw)
         if store:
@@ -85,7 +90,7 @@ class ConnectionAdminHelpers:
         original_ref_clean = self._deps.sanitize_connection_name(original_ref)
         is_create = not original_ref_clean
         if not ref:
-            raise ValueError("Connection-Ref ist ungültig.")
+            raise ConnectionAdminError("invalid_ref")
         raw = self._deps.read_raw_config()
         raw.setdefault("connections", {})
         if not isinstance(raw["connections"], dict):
@@ -96,12 +101,12 @@ class ConnectionAdminHelpers:
         rows = raw["connections"][spec["section"]]
         if is_create:
             if ref in rows:
-                raise ValueError("Connection-Profil existiert bereits.")
+                raise ConnectionAdminError("profile_exists", ref=ref)
         else:
             if original_ref_clean not in rows:
-                raise ValueError("Connection-Profil nicht gefunden.")
+                raise ConnectionAdminError("profile_not_found")
             if ref != original_ref_clean and ref in rows:
-                raise ValueError("Connection-Ref existiert bereits.")
+                raise ConnectionAdminError("profile_exists", ref=ref)
         store = self._deps.get_secure_store(raw)
         return raw, store, rows, ref, original_ref_clean, is_create
 

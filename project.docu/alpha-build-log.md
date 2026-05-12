@@ -1,13 +1,1264 @@
 # ARIA — Alpha Build Log
 
-Stand: 2026-04-25
+Stand: 2026-05-12
 
 Zweck:
 - nachvollziehen, **was bereits in Alpha-Builds gelandet ist**
 - festhalten, **was auf `dev` schon vorbereitet ist**
 - Build-Versionen und inhaltliche Aenderungen zusammen sichtbar machen
 
+## Vorbereitet fuer naechsten Build
+
+- `alpha251` ist gebaut und fuer den finalen Public-Release-Check bereit.
+- Naechster bewusst zu pruefender Punkt:
+  - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren.
+  - Danach GitHub-/Docker-Hub-Release-Text aus `docs/release/public-alpha-rollup-alpha167-to-next.md` verwenden.
+
 ## Bereits gebaut
+
+### alpha251
+
+- enthaelt den letzten Public-Update-Safety-Nachzug:
+  - `docker/aria-host-update.sh` prueft veroeffentlichte Compose-Host-Ports vor dem Service-Recreate
+  - wenn der neue Compose-Plan z.B. Port `8800` nutzen will, dieser Port aber von einem anderen Prozess belegt ist, bricht der Helper vor Veraenderungen am ARIA-Service ab
+  - isolierter Managed-Stack-Test auf Port `18831`: nur `aria` wurde recreated; Qdrant, SearXNG und Valkey behielten ihre Container-IDs
+- Verifikation:
+  - kompletter Testlauf: `1023 passed`
+  - i18n-Code-Literal-Audit strict: gruen
+  - `python -m compileall aria`: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha251`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha251-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.251`
+  - `aria:alpha-local`
+  - `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
+- Release-Label:
+  - `0.1.0-alpha251`
+
+### alpha250
+
+- enthaelt die kleinen Nachzuege aus dem `alpha249`-Live-Test:
+  - RSS-Digests zeigen den Link jetzt zusaetzlich als eigene `Link:`-Zeile, damit kopierter Chat-Text die URL sicher enthaelt
+  - pluraler SSH-Zielparser entfernt Artikelreste wie `requested_ref=n server`
+- Verifikation:
+  - RSS-/Router-/Pipeline-/Release-Hygiene-Vorbuild: `256 passed`
+  - `python -m compileall aria`: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha250`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha250-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.250`
+  - `aria:alpha-local`
+  - `sha256:6169fdcfff5a2d0f39de4d073c7455a34db77b87ea654cf7116553974792a6ad`
+- Release-Label:
+  - `0.1.0-alpha250`
+- Live-Testplan nach Deployment:
+  - RSS-Security-News: Hauptantwort muss pro Eintrag `Link: https://...` enthalten
+  - Multi-Target SSH: Debug soll kein `requested_ref=n server` mehr zeigen
+
+### alpha249
+
+- enthaelt die Nachzuege aus dem `alpha248`-Live-Test
+- RSS-Digest-Praesentation:
+  - Kategorie-/Gruppenfeeds behalten jetzt klickbare Links, Quelle, Zeitstempel und Kurztext im Chat-Haupttext
+  - die alte Ein-Zeilen-Zusammenfassung bleibt nicht mehr der einzige sichtbare Nutzen fuer den User
+- Public-Update-Safety:
+  - der generierte Managed-Stack-Helper `aria-stack.sh update` pullt/recreatet jetzt nur noch den `aria` Service
+  - stateful Sidecars wie Qdrant/SearXNG werden im normalen Update-Pfad nicht mehr recreated
+  - `repair` und `update-all` bleiben die bewussten Full-Stack-Pfade
+  - der Host-Update-Helper kann per `--target-image` alte Fixed-Tag-Installs gezielt auf ein neues Image heben, ohne den alten in-stack Helper auszufuehren
+  - Managed-Stack-Dateien werden dabei aus dem Ziel-Image refreshed und danach wieder auf die urspruengliche Datei-Owner-ID gesetzt
+  - echte Alt-zu-Neu-Probe vor Build mit temporaerem `alpha167`-Managed-Stack: nur `aria` wurde recreated; Qdrant, SearXNG und Valkey blieben mit gleicher Container-ID laufen
+- Verifikation:
+  - RSS-/Pipeline-/Release-Hygiene-Vorbuild: `203 passed`
+  - Update-Helper-/Host-Update-/Managed-Setup-/Update-UI-/Release-Hygiene-Tests: `36 passed`
+  - `python -m compileall aria`: gruen
+  - `git diff --check`: gruen
+  - Docker-Skript-Syntax: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha249`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha249-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.249`
+  - `aria:alpha-local`
+  - `sha256:7c9a875daba4991020b09961641ddeb11b8d553ec3f20be0719073bf5cc19173`
+- Release-Label:
+  - `0.1.0-alpha249`
+- Live-Testplan nach Deployment:
+  - RSS-Security-News: Hauptantwort muss mehrere Eintraege mit klickbarem Link, Quelle, Zeit/Kurztext zeigen
+  - Update-Button: interner Update-Pfad soll `aria-alpha249-local.tar` nutzen und nur `aria` ersetzen
+  - Regression: Multi-Target SSH, DNS-Restart-Block, Management-HD, DNS-Health, API-Check, Discord-One-Click, SMB-Root-Listing
+
+### alpha248
+
+- enthaelt den Operator-Summary-Nachzug aus dem `alpha247`-Live-Test
+- Multi-Target SSH:
+  - all-ok Flottenchecks geben im Chat nur noch ein kompaktes Operator-Fazit aus, z. B. `Gesamt: 13/13 SSH-Ziele unauffaellig. Kein Handlungsbedarf.`
+  - gemischte Multi-Target-Ergebnisse zeigen im Chat nur noch Auffaelligkeiten, blockierte Ziele und Fehler
+  - OK-Hostdetails bleiben in der technischen Detailspur erhalten
+  - Regression nutzt das Live-Wording: `check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht`
+- Verifikation:
+  - finaler Vor-Build-Regressionsblock: `317 passed`
+  - `python -m compileall aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha248`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha248-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.248`
+  - `aria:alpha-local`
+  - `sha256:5c8643293a062dbbb009fa4a293df689ca9c9a6688504d94e1825fe33142f9a3`
+- Release-Label:
+  - `0.1.0-alpha248`
+- Live-Testplan nach Deployment:
+  - `check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht`: kompakte all-ok Antwort mit `Kein Handlungsbedarf`
+  - Details pruefen: alle SSH-Ziele sollen weiterhin in der technischen Spur sichtbar bleiben
+- Live-Test nach Deployment:
+  - `check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht`: `13/13` SSH-Ziele geprueft, kompakte all-ok Antwort mit `Kein Handlungsbedarf`
+  - Details enthalten weiterhin alle 13 SSH-Runtime-Ausfuehrungen
+  - Plural-Scope gewinnt korrekt gegen einen einzelnen semantischen LLM-Zielvorschlag
+  - Nachzuege fuer spaeter: `requested_ref=n server` Parser-Artefakt und Guardrail-ID `ssh-healtcheck`
+
+### alpha247
+
+- enthaelt den Live-Test-Nachzug aus `alpha246`
+- Multi-Target SSH:
+  - Live-Test-Befund: `check mal ob meine server noch genug festplatten platz haben` blieb in `alpha246` weiterhin in der SSH-Profil-Rueckfrage haengen
+  - Ursache: der plurale SSH-Scope wurde zwar erkannt, aber nach Bounded Planner/Template-Normalisierung blieb wieder ein stale `connection_ref`-Missing-Input als finale Action-Struktur uebrig
+  - Fix: plurale SSH-Multi-Target-Actions werden jetzt nach Bounded Planner und Template-Normalisierung nochmals finalisiert
+  - Fix: wenn der Command-Draft dann noch leer ist, wird der Agentic SSH Resolver spaet erneut gefragt und das Ergebnis als Multi-Target-Payload mit `connection_refs` gesetzt
+- Model-Gateway / Pricing:
+  - LiteLLM ist keine harte ARIA-Basisdependency mehr; das Python-Paket definiert ein optionales `model-gateway`-Extra
+  - Docker installiert dieses Extra explizit, und LLM/Embedding-Clients laden LiteLLM erst beim konkreten Gateway-Call
+  - Pricing bleibt damit von einem installierten LiteLLM-Python-Paket entkoppelt; LiteLLM GitHub Pricing JSON bleibt nur Preislistenquelle
+- Backlog:
+  - der aktive Alpha-Backlog ist komprimiert; alte Build-Historie liegt im Buildlog/Changelog, waehrend `docs/backlog/alpha-backlog.md` nur aktuelle Blocker, Live-Test-Fokus und naechste Cleanup-Schritte zeigt
+- Verifikation:
+  - gezielte Mehrzahl-/Live-Sequenz-Regressions: `7 passed`
+  - breiter Pipeline/Planner/Dry-Run/Agentic/i18n-Core-Block: `267 passed`
+  - Gateway-/Kosten-/Stats-Regressionen: `46 passed`
+  - finaler Vor-Build-Regressionsblock: `313 passed`
+  - `python -m compileall aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha247`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha247-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.247`
+  - `aria:alpha-local`
+  - `sha256:78108f7d9c48f70e28ea929de3b2708b99319e03a6687d326fa24bb842c0f741`
+- Release-Label:
+  - `0.1.0-alpha247`
+- Live-Testplan nach Deployment:
+  - `check mal ob meine server noch genug festplatten platz haben`: SSH Multi-Target, keine Ziel-Rueckfrage, kein RSS/Stored-Recipe/Single-Host-Memory-Hint
+  - `starte meinen dns server neu`: mutierender Restart-Draft sichtbar, Policy blockiert, keine Healthcheck-Ausfuehrung
+  - `wie sieht die hd auf meinem management server aus`: `ssh/ubnsrv-mgmt-master`, LLM-Draft `df -h`, Tokens/Kosten sichtbar
+  - `ist mein dns server ok`: Guardrail-Healthcheck-Bundle auf `ssh/pihole1`
+  - `pruef ob die api erreichbar ist`: `http_api/n8n-test-http-api`, Pfad `/`, allow
+  - `schick eine testnachricht an discord: alpha247 laeuft`: One-Click-Confirm und Versand via Discord-Profil
+  - `zeige mir die folder auf dem share Ronny Fischer`: SMB-Root-Listing `.` ohne Rueckfrage
+- Live-Test nach Deployment:
+  - `check mal ob meine server noch genug festplatten platz haben`: `13/13` SSH-Ziele geprueft, alle unauffaellig, Multi-Target-Payload korrekt
+  - `starte meinen dns server neu`: mutierender `sudo systemctl restart pihole-FTL`-Draft sichtbar und policyseitig blockiert
+  - `wie sieht die hd auf meinem management server aus`: `ssh/ubnsrv-mgmt-master`, `df -h`, Tokens/Kosten sichtbar
+  - `ist mein dns server ok`: `ssh/pihole1`, Guardrail-Healthcheck-Bundle und Health-Zusammenfassung
+  - `pruef ob die api erreichbar ist`: `http_api/n8n-test-http-api`, Pfad `/`, allow
+  - `schick eine testnachricht an discord: alpha247 laeuft`: One-Click-Confirm und Versand erfolgreich
+  - `zeige mir die folder auf dem share Ronny Fischer`: `smb/fischer_ronny`, Root-Listing `.`
+
+### alpha246
+
+- enthaelt den Live-Test-Nachzug aus `alpha245`
+- Multi-Target SSH:
+  - Live-Test-Befund: `check mal ob meine server noch genug festplatten platz haben` erkannte zwar pluralen SSH-Scope, blieb aber ohne Command-Draft in der Ziel-Rueckfrage haengen
+  - Fix: plurale SSH-Zielwuensche mit leerem Command-Draft holen jetzt einen bounded read-only SSH-Command ueber den Agentic SSH Resolver, bevor Multi-Target-Ausfuehrung entschieden wird
+  - Fix: Multi-Target-Actions setzen die alte Single-Target-Action-Decision auf ready, damit kein stale `connection_ref`-Missing-Input mehr im Chat auftaucht
+- Restart-Safety:
+  - Live-Test-Befund: `starte meinen dns server neu` wurde faelschlich in einen erlaubten Healthcheck-Fallback umgebogen
+  - Fix: mutierende SSH-Wuensche blockieren Guardrail-Healthcheck-Fallbacks hart; ARIA zeigt den mutierenden Draft und laesst Policy/Guardrail blockieren
+- Regression:
+  - Live-Test-Sequenz als Regression vorbereitet: Multi-Target-SSH, Management-HD, DNS-Health, Restart-Block, API-Reachability, Discord-Pending/Confirm, SMB-Root-Listing
+- Verifikation:
+  - gezielte Ausreisser-/Live-Sequenz-Regressions: `6 passed`
+  - breiter Pipeline/Planner/Dry-Run/Agentic/i18n-Core-Block: `266 passed`
+  - `python -m compileall aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha246`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha246-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.246`
+  - `aria:alpha-local`
+  - `sha256:9089de7625bf800aad3854b686ac2d1bb839bb062e336078c02f9e75427a09a8`
+- Release-Label:
+  - `0.1.0-alpha246`
+- Live-Testplan nach Deployment:
+  - `check mal ob meine server noch genug festplatten platz haben`: SSH Multi-Target, kein RSS/Stored-Recipe/Single-Host-Memory-Hint, keine Ziel-Rueckfrage
+  - `wie sieht die hd auf meinem management server aus`: `ssh/ubnsrv-mgmt-master`, LLM-Draft `df -h`, Policy allow, Tokens/Kosten sichtbar
+  - `ist mein dns server ok`: Guardrail-Healthcheck-Bundle auf `ssh/pihole1`
+  - `starte meinen dns server neu`: mutierender Restart-Draft sichtbar, Policy blockiert, keine Healthcheck-Ausfuehrung
+  - `pruef ob die api erreichbar ist`: `http_api/n8n-test-http-api`, Pfad `/`, allow
+  - `schick eine testnachricht an discord: alpha246 laeuft`: One-Click-Confirm und Versand via Discord-Profil
+  - `zeige mir die folder auf dem share Ronny Fischer`: SMB-Root-Listing `.` ohne Rueckfrage
+
+### alpha245
+
+- enthaelt den Multi-Target-/Agentic-Contract-Nachzug aus dem `alpha244`-Live-Test
+- Multi-Target SSH:
+  - plurale SSH-Zielwuensche wie `check mal ob meine server noch genug festplatten platz haben` werden bei sicheren Read-only-Commands als bounded Multi-Target-Action vorbereitet
+  - ARIA fuehrt dabei den Command nicht ueber ein altes Fleet-Recipe aus und waehlt keinen alten Single-Host-Memory-Hint, sondern laesst jedes SSH-Profil einzeln durch die normale SSH-Runtime/Policy laufen
+  - vor der Ausfuehrung wird jedes SSH-Ziel einzeln gegen Profil-Allowlist, Guardrail-Allowterms und SSH-Readonly-Policy geprueft
+  - gemischte Zielmengen laufen partiell: erlaubte Ziele werden ausgefuehrt, blockierte Ziele erscheinen als Teilfehler in der lokalisierten Zusammenfassung
+  - die Antwort bekommt eine lokalisierte Multi-Target-Zusammenfassung, damit im Chat klar ist, dass mehrere Ziele bewusst geprueft wurden
+  - Multi-Target-Antworten bekommen vor den Hostdetails eine kompakte Operator-Lage mit ok/auffaellig/blockiert/Fehler-Zaehlern
+- Agentic Contract:
+  - SSH, HTTP API, File, Messaging und Read nutzen jetzt denselben LLM-Systemprompt-Vertrag: Kontext-Dossier anreichern, LLM nur bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet danach
+- Verifikation:
+  - Pipeline/Agentic-Fokus: `201 passed`
+  - breiter Pipeline/Planner/Dry-Run/Agentic/i18n-Core-Block: `263 passed`
+  - `python -m compileall aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha245`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha245-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.245`
+  - `aria:alpha-local`
+  - `sha256:e05be41b4f9af4b346971d98949451bc23d8ae24442e4e96b2aaaa3103b70fbe`
+- Release-Label:
+  - `0.1.0-alpha245`
+- Live-Testplan nach Deployment:
+  - `check mal ob meine server noch genug festplatten platz haben`: SSH Multi-Target, Operator-Zusammenfassung, kein RSS/Stored-Recipe/Single-Host-Memory-Hint
+  - `wie sieht die hd auf meinem management server aus`: `ssh/ubnsrv-mgmt-master`, LLM-Draft `df -h`, Policy allow, Tokens/Kosten sichtbar
+  - `ist mein dns server ok`: Guardrail-Healthcheck-Bundle auf `ssh/pihole1`
+  - `starte meinen dns server neu`: mutierender Restart-Draft sichtbar, Policy blockiert, keine Ausfuehrung
+  - `pruef ob die api erreichbar ist`: `http_api/n8n-test-http-api`, Pfad `/`, allow
+  - `schick eine testnachricht an discord: alpha245 laeuft`: One-Click-Confirm und Versand via Discord-Profil
+  - `zeige mir die folder auf dem share Ronny Fischer`: SMB-Root-Listing `.` ohne Rueckfrage
+
+### alpha244
+
+- enthaelt den UX-/Kontext-Nachzug aus dem `alpha243`-Live-Test
+- Chat Confirm:
+  - One-Click-Buttons senden intern weiter den signierten Confirm-Command, zeigen im Chat aber nur noch den geklickten Buttontext statt `bestaetige aktion ...`
+  - die manuelle Token-Eingabe bleibt als Compatibility-Fallback erhalten
+- Recent File Context:
+  - `im gleichen Ordner` unterscheidet jetzt zwischen zuletzt gelistetem Ordner und zuletzt geoeffneter Datei
+  - nach einem Listing von `/tmp` bleibt der Follow-up daher in `/tmp`, statt auf `/` zurueckzufallen
+- Verifikation:
+  - gezielte Chat-/Same-Ordner-Regression: `3 passed`
+  - breiter Chat/Pipeline/Planner/Dry-Run/i18n/Release-Block: `258 passed`
+  - `python -m compileall aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha244`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha244-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.244`
+  - `aria:alpha-local`
+  - `sha256:05d55038e76d505a0589d3370d625c62fbd6c8a433c83eb9bfec3c0620c6a759`
+- Release-Label:
+  - `0.1.0-alpha244`
+
+### alpha243
+
+- enthaelt den Live-Test-Nachzug fuer Chat-Confirm, SSH-Block-Preview und Recent-File-Kontext
+- Chat Confirm:
+  - One-Click-Buttons fuer pending Chat-Actions senden jetzt neben dem sichtbaren Confirm-Text auch den signierten Pending-Action-Payload an `/chat`
+  - damit funktioniert der Klick auch dann, wenn der Browser den Pending-Cookie aus der vorherigen AJAX-Antwort noch nicht persistiert hat
+  - der Server prueft weiter Signatur, User, Alter und Token; die manuelle Token-Eingabe bleibt als Compatibility-Fallback erhalten
+- Agentic SSH:
+  - blockierte SSH-Previews werden neu aufgebaut, wenn der Agentic Resolver einen alten generischen Probe-Command durch den tatsaechlich gemeinten Command ersetzt
+  - `starte meinen dns server neu` soll dadurch den mutierenden Restart-Command zeigen, den die Policy blockiert, statt wieder `uptime`
+- Recent File Context:
+  - `im gleichen Ordner` ueberschreibt jetzt auch Default-Pfadhalter wie `.` in expliziten oder Single-Profile SFTP/SMB-Pfaden
+- Verifikation:
+  - `tests/test_chat_tooling.py`: `18 passed`
+  - `tests/test_pipeline.py`: `173 passed`
+  - `tests/test_action_planner.py tests/test_execution_dry_run.py tests/test_i18n_core_surfaces.py`: `62 passed`
+  - breiter Fix-Block: `253 passed`
+  - `python -m compileall aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha243`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha243-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.243`
+  - `aria:alpha-local`
+  - `sha256:7badb7447e66122e3a948eefedbbfa0de20c16077055760dbc8b66efc33cd7e9`
+- Release-Label:
+  - `0.1.0-alpha243`
+
+### alpha242
+
+- enthaelt den Closure-Fix fuer plurale SSH-Zielwuensche und die Build-Vorbereitung nach `alpha241`
+- Agentic Routing:
+  - plurale SSH-Zielwuensche wie `meine Server` unterdruecken Stored-Recipe-Kandidaten jetzt auch dann, wenn der Capability-Draft noch keinen konkreten Command enthaelt
+  - ARIA bleibt bounded und fragt nach dem SSH-Ziel, statt ein altes Fleet-Recipe oder einen Single-Host-Memory-Hint auszufuehren
+- Verifikation:
+  - fokussierter Closure-Regressionsblock: `190 passed`
+  - Nachpruefung Regression + Release-Hygiene: `5 passed`
+  - `python -m compileall aria tests`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha242`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha242-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.242`
+  - `aria:alpha-local`
+  - `sha256:ba47bf0fa3a7656973362cad942d808d51cc704c396cd7b59f06b4485d0875e4`
+- Release-Label:
+  - `0.1.0-alpha242`
+
+### alpha241
+
+- enthaelt den Token-/Kosten-Tracking-Fix fuer Agentic Action-Pfade
+- Token-/Kosten-Tracking:
+  - Agentic Pre-RAG Action-Pfade laufen jetzt in einem Request-Usage-Scope
+  - LLM-Entscheidungen fuer SSH/HTTP/File/Messaging/Read werden dadurch im sichtbaren `PipelineResult`, Chat-Badge und Token-Log mitgezaehlt
+  - fruehe Action-Antworten zeigen nicht mehr irrefuehrend `0 tokens`, wenn vorher ein LLM fuer die Action-Entscheidung genutzt wurde
+- Verifikation:
+  - gezielte Pipeline-/Usage-/Gateway-/Stats-Regression: `58 passed`
+  - `python -m compileall -q aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha241`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha241-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.241`
+  - `aria:alpha-local`
+  - `sha256:325b27a1c3808f01eba659e358a003b35894d5b36e3dfbfdb166c10be8b9a8a5`
+- Release-Label:
+  - `0.1.0-alpha241`
+
+### alpha240
+
+- enthaelt den One-Click-Confirm-Fix fuer pending Chat-Actions
+- Chat-Pending-Actions:
+  - ausgehende Aktionen wie Discord-Send zeigen im Chat jetzt einen One-Click-Button `Aktion ausführen`
+  - der Button sendet intern weiter den signierten Confirm-Befehl ueber den bestehenden `/chat`-Flow; Guardrails, Pending-Cookie, CSRF und Token-Ablauf bleiben aktiv
+  - die manuelle Token-Eingabe bleibt als Fallback/Compatibility erhalten, wird aber nicht mehr als primaerer UX-Pfad angezeigt
+- Chat-Frontend:
+  - das bestehende Fetch-Submit-Handling kann nun auch Button-Aktionen absenden, ohne einen eventuell vorhandenen Composer-Draft zu loeschen
+  - ein kleiner Pending-Status-JS-Bug wurde dabei bereinigt (`likelyRecipe` statt altem `likelySkill`-Variablennamen)
+- Verifikation:
+  - gezielte Chat-/i18n-/Release-Regression: `22 passed`
+  - `python -m compileall -q aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha240`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha240-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.240`
+  - `aria:alpha-local`
+  - `sha256:074b1be4e02f364a90b2ab40ffc1699648944423ca0d64a2146824a5c4a61ee4`
+- Release-Label:
+  - `0.1.0-alpha240`
+
+### alpha239
+
+- enthaelt die Nachzuege aus dem ersten `alpha238`-Live-Test
+- Agentic Routing:
+  - generische HTTP-API-Erreichbarkeitsfragen wie `pruef ob die api erreichbar ist` behandeln Statuswoerter nicht mehr als Profilnamen und koennen bei genau einem HTTP-API-Profil direkt den Health-/Root-Pfad nutzen
+  - SMB-/SFTP-Listenfragen ohne Pfad werden fuer `file_list` als Root-Listing `.` normalisiert, statt erneut nach einem Dateipfad zu fragen
+  - frische Discord-Sendeanfragen werden nicht mehr als Antwort auf ein altes pending SMB-Pfadfeld verbraucht
+  - natuerliche SSH-Uptime-/Disk-Begriffe bleiben im Router Intent-/Ziel-Hinweise; der konkrete Command wird danach vom Agentic SSH Resolver vorgeschlagen und weiterhin durch Guardrails entschieden
+- Verifikation:
+  - fokussierte Routing-/Pending-/Package-/Release-/i18n-Regressionen: `73 passed` plus `8 passed`
+  - `python -m compileall -q aria`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha239`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha239-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.239`
+  - `aria:alpha-local`
+  - `sha256:c2e5b1f5d4db86cb6a9e23cc3e5e7fc0d4c4081074cfac7045fedfccad7c0f9e`
+- Release-Label:
+  - `0.1.0-alpha239`
+
+### alpha235
+
+- enthaelt die Admin-Debug-Sicht fuer echte LLM-Gateway-Prompts
+- LLM Debugging:
+  - `/config/llm/debug` zeigt die letzten zentralen `LLMClient`-Calls mit Prompt-Messages, Response, Source, Operation, Modell, Dauer und Token-Nutzung
+  - der Audit-Log ist ein begrenzter In-Memory-Ringbuffer und schreibt keine Prompt-Daten auf Disk
+  - API Keys, Tokens, Passwoerter und Discord-Webhook-URLs werden vor Anzeige maskiert
+  - der Log kann per Admin-Button geleert werden
+- Verifikation:
+  - gezielte LLM-Audit-/Gateway-/Package-/i18n-Regression: `5 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha235`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha235-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.235`
+  - `aria:alpha-local`
+  - `sha256:6c61a2257a403cc505c58012a7e6a06ad209113ef789b9f419d9e3e84d1d21f1`
+- Release-Label:
+  - `0.1.0-alpha235`
+
+### alpha234
+
+- enthaelt den Hotfix fuer das `alpha233`-Live-Feedback
+- Agentic Routing / SSH:
+  - weiche/ordinale Zielhinweise wie `zweiten dns server` werden per semantischem LLM ueber alle verfuegbaren Profile disambiguiert
+  - alias-basierte Ersttreffer wie `dns server -> pihole1` bleiben dadurch Kandidaten, aber nicht mehr automatisch Wahrheit
+  - mutierende SSH-Wuensche bekommen eine zweite LLM-Mutating-Intent-Runde, wenn das erste Proposal die Absicht durch `uptime` oder eine andere generische Statusprobe maskiert
+  - die Policy blockiert danach die tatsaechlich gemeinte mutierende Operation
+- Verifikation:
+  - gezielte Live-Feedback-Regression: `5 passed`
+  - Agentic-/Planner-Regressionsblock: `31 passed`
+  - Semantic-/Action-Planner-/Dry-Run-Regressionsblock: `73 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha234`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha234-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.234`
+  - `aria:alpha-local`
+  - `sha256:4dbc7036c74de4ed5df9bc779cfc4d7ede3697e961d8f854e72edbff30a479ce`
+- Release-Label:
+  - `0.1.0-alpha234`
+
+### alpha233
+
+- enthaelt den Hotfix fuer das `alpha232`-Live-Feedback
+- Agentic Routing / SSH:
+  - explizite User-Commands wie `uptime` bleiben explizite Commands und werden nicht mehr zu einem kompletten Healthcheck-Bundle erweitert
+  - natuerliche Health-/Statusfragen duerfen weiterhin das erlaubte Guardrail-Healthcheck-Bundle nutzen
+  - mutierende SSH-Wuensche werden vom LLM-Resolver als die tatsaechlich gemeinte Operation modelliert, damit die SSH-Policy den echten Command blockiert
+  - plurale Server-Wuensche wie `meine Server` duerfen nicht mehr durch semantische LLM-Verbindungswahl auf einen einzelnen Host reduziert werden
+- Verifikation:
+  - gezielte Live-Feedback-Regression: `5 passed`
+  - Agentic-/Planner-Regressionsblock: `31 passed`
+  - Action-Planner-/Dry-Run-Regressionsblock: `61 passed`
+  - Connection-Semantic-/Pipeline-Regressionsblock: `14 passed`
+  - Release-/Package-/i18n-Hygiene: `10 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha233`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha233-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.233`
+  - `aria:alpha-local`
+  - `sha256:ba5dc0c325ae6781f5e31afa7d9c6153149c466c8ee571a1d7a5c49010e6d91d`
+- Release-Label:
+  - `0.1.0-alpha233`
+
+### alpha232
+
+- enthaelt den Agentic-Architektur-Nachzug nach `alpha231`
+- Agentic Routing / Planner:
+  - Bounded Planner promptet jetzt explizit mit dem Vertrag `context_enrichment -> llm_action_proposal -> policy_guardrail_decision -> runtime_execution`
+  - deterministische Kandidaten, Dossiers, Session Context und Experience Memory sind damit klar Kontext, nicht finale Produktentscheidung
+  - Planner-Result und Routing-Debug geben den Agentic-Flow zurueck
+  - natuerliche SSH-Statusfragen mit generischem `uptime`-Draft fragen zuerst den bounded SSH-LLM-Command-Resolver nach einem konkreten Vorschlag
+  - explizite User-Commands wie `uptime` bleiben explizite Commands; Guardrails entscheiden weiter `allow|ask_user|block`
+- Verifikation:
+  - gezielte Agentic-/Planner-/Release-Regression: `35 passed`
+  - Action-Planner-/Dry-Run-Regressionsblock: `61 passed`
+  - Release-Hygiene: `4 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha232`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha232-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.232`
+  - `aria:alpha-local`
+  - `sha256:bc53eefcb1b4fab37602750c9b1798753c5636059b49b318c2a2ffbdc0389bfd`
+- Release-Label:
+  - `0.1.0-alpha232`
+
+### alpha231
+
+- enthaelt den Hotfix fuer das `alpha230`-Live-Routing-Feedback
+- Agentic Routing / Memory Assist:
+  - Plural-/Fleet-Zielwuensche wie `meine Server` duerfen nicht mehr durch alte Memory-Hints auf ein einzelnes vorheriges SSH-Profil gezwungen werden
+  - Memory Assist erkennt pluralen Zielscope ueber ein deklaratives Lexikon in `aria/lexicons/memory_assist.json`
+  - der bounded SSH-Draft bleibt erhalten; bei mehreren SSH-Profilen fragt ARIA nach dem Ziel, bis ein sicherer Multi-Target-Pfad existiert
+- Verifikation:
+  - gezielte Memory-/Pipeline-Regression: `3 passed`
+  - Package-Data-Regression: `2 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha231`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha231-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.231`
+  - `aria:alpha-local`
+  - `sha256:6680ae4b5253a037d617363839c078266036eaa06abfde75c4dd27cccbc9636c`
+- Release-Label:
+  - `0.1.0-alpha231`
+
+### alpha230
+
+- enthaelt den Hotfix fuer das `alpha229`-Live-Routing-Feedback
+- Agentic Routing / Guardrails:
+  - konkrete SSH-Diskspace-Drafts (`ssh_command` + `df -h`) unterdruecken widersprechende Stored-Recipe-Kandidaten
+  - einfache Diskspace-Fragen koennen dadurch nicht mehr als altes Fleet-Recipe enden oder `recipe_manifest_missing` ausloesen
+  - der normale `ssh_run_command`-Template-/Policy-Pfad bleibt aktiv und fragt bei mehreren SSH-Profilen nach dem Ziel
+  - die Regel ist bewusst eng auf `df -h` begrenzt, damit legitime Health-Recipes weiter funktionieren
+- Verifikation:
+  - breiter Routing-/Planner-/Dry-Run-Regressionsblock: `221 passed`
+  - Release-Hygiene: `4 passed`
+  - `python3 -m compileall aria tests`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha230`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha230-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.230`
+  - `aria:alpha-local`
+  - `sha256:e6bf66a5d03461ddea1666b31c8d83917355b7801e0c2a55b0906661e874f850`
+- Release-Label:
+  - `0.1.0-alpha230`
+
+### alpha229
+
+- enthaelt den Hotfix fuer das `alpha228`-Live-Routing-Feedback
+- Agentic Routing / Guardrails:
+  - Unified Routing uebergibt die vom Capability-Draft gesetzte Connection-Familie an die Live-Routing-Chain
+  - SSH-Diskspace-Drafts wie `df -h` koennen dadurch nicht mehr durch RSS-/Qdrant-Routing-Kandidaten ueberschrieben werden
+  - natuerliche Pluralfragen ueber Server-Festplattenplatz bleiben bei SSH und fragen nach dem Ziel, statt RSS-Feeds zu lesen
+  - mutierende SSH-Anfragen behandeln generische Template-Kommandos wie `uptime` nicht mehr als echten User-Command
+  - dadurch kann der bounded SSH-Resolver gefaehrliche Aktionen erkennen und die Policy blockiert sie weiter sauber
+- Verifikation:
+  - breiter Routing-/Planner-/Dry-Run-Regressionsblock: `217 passed`
+  - Release-Hygiene: `4 passed`
+  - `python3 -m compileall aria tests`: gruen
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha229`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha229-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.229`
+  - `aria:alpha-local`
+  - `sha256:db3986ecc5259dfc7a2eda2a3dc853329e7c59a2678739757e26a1847285173d`
+- Release-Label:
+  - `0.1.0-alpha229`
+
+### alpha228
+
+- enthaelt die Testfeedback-Nachzuege nach `alpha227`
+- Agentic Routing / Guardrails:
+  - SSH-Health-/Statusfragen ersetzen ein geblocktes nacktes `uptime` wieder durch das konfigurierte erlaubte Healthcheck-Guardrail-Bundle
+  - natuerliche SSH-Diskspace-Fragen erzeugen jetzt einen bounded `df -h`-Draft
+  - Pluralfragen ueber Server-Festplattenplatz fragen bei mehreren SSH-Profilen nach dem Ziel, statt ein altes Fleet-Health-Recipe oder einen generischen Server-Alias zu nehmen
+  - sehr kurze Connection-Refs/Aliase wie `a`/`b` matchen nicht mehr auf beliebige Buchstaben innerhalb normaler Woerter
+  - SFTP-/SMB-List nutzt `.` als gueltigen Root-/Share-Default statt unnoetig nach einem Pfad zu fragen
+  - klare Discord-/Messaging-Anfragen fallen ohne passendes Messaging-Profil nicht mehr auf alten SMB-/File-Kontext zurueck
+  - `/connections/types` rendert ohne Live-Probes; Statuschecks bleiben auf `/connections/status`
+- Verifikation:
+  - fokussierter Buildblock: `42 passed`
+  - breiter Routing-/Planner-/Dry-Run-Regressionsblock: `257 passed`
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha228`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha228-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.228`
+  - `aria:alpha-local`
+  - `sha256:943576073a5e9c71d369f6a356948ecdedc94eb6589c4eaef8e730fa709eeb54`
+- Release-Label:
+  - `0.1.0-alpha228`
+
+### alpha227
+
+- enthaelt den Agentic-Intelligence-Schnitt nach `alpha226`
+- Agentic Intelligence:
+  - gemeinsamer `AgenticActionDraft`-/`AgenticPolicyResult`-Contract eingefuehrt
+  - SSH- und HTTP-API-Agentic-Pfade nutzen gemeinsame Draft-, Policy- und Debug-Helfer
+  - Debug markiert jetzt explizit LLM-Draft, Quelle/Operation und Policy-Entscheid in einem gemeinsamen Format
+  - File-Operationen haben einen generischen `file_operation`-Draft fuer SFTP/SMB list/read/write und ein secret-freies Dossier als Vorbereitung fuer modulare Connections
+  - ein bounded File-LLM-Resolver ergaenzt fehlende Pfade/Inhalte fuer unvollstaendige SFTP-/SMB-Drafts, ohne klare bestehende Drafts erneut durch ein LLM zu schicken
+  - Messaging-Operationen haben einen generischen Draft fuer Discord/Webhook/Email/MQTT und ein secret-freies Message-Dossier
+  - ein bounded Messaging-LLM-Resolver ergaenzt nur fehlende Inhalte/Topics; vollstaendige Outbound-Drafts bleiben ohne LLM und laufen weiter durch Confirm/Guardrails
+  - Read-Operationen haben einen generischen read-only Draft fuer RSS, Google Calendar, IMAP Mail/Search und beobachtete Websites sowie ein secret-freies Read-Dossier
+  - ein bounded Read-LLM-Resolver ergaenzt nur fehlende Selector-/Query-Felder; vollstaendige Read-Drafts bleiben ohne LLM und behalten normale Routing-/Candidate-Debugdaten
+  - Policy-Actions werden im Agentic-Core kanonisch auf `allow`, `ask_user` oder `block` normalisiert
+  - Dry-Run-Debug fuer SSH, HTTP API, File, Messaging und Read zeigt jetzt denselben Draft-vs-Policy-Vertrag
+  - deterministische Helfer sind als Routing-Hint, Normalizer, Policy, Runtime, Summary oder Compatibility klassifiziert; Product-Logic-Hardcodes sind nicht als Boundary-Rolle erlaubt
+  - Agentic-Debugzeilen markieren Draft/Policy-Boundaries explizit, und die Runtime-Grenze wird bei aktivem Debug als `agentic_runtime` sichtbar
+  - aktive POC-Namen im bounded Planner wurden bereinigt; `bounded_planner_poc` bleibt nur als Legacy-Fallback fuer alte Config-Daten lesbar
+  - freie Agentic-Formulierungen sind per Regression fuer File, Messaging, Read/Mail und HTTP-Status abgesichert; mutierende SSH-/HTTP-Drafts bleiben trotz LLM-Flexibilitaet in der Policy-Grenze
+  - Ziel: LLMs schlagen Actions vor, Guardrails/Policies entscheiden, Runtime fuehrt nur erlaubte normalisierte Plaene aus
+- Verifikation:
+  - `python3 -m compileall aria tests`: gruen
+  - buildnaher Regressionsblock: `116 passed`
+  - Volltest: `987 passed`, 4 warnings
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha227`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha227-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.227`
+  - `aria:alpha-local`
+  - `sha256:d4df84bf5946fa3073dfebd2d2e5f4c6f3eb2938a1d102b4b649bbb8cdd16852`
+- Release-Label:
+  - `0.1.0-alpha227`
+
+### alpha226
+
+- enthaelt die Backlog-Closure-Nachzuege nach `alpha225`
+- Recipe / Experience Memory:
+  - Recipe Experience Memory kann aus `/stats` bewusst in den Learned-Recipe-Review uebernommen werden
+  - Web/Search-Ergebnisse nutzen denselben Core-Vertrag als Context-only Review-Kandidaten
+  - nicht-promotable Capabilities zeigen im Learned-Recipe-Review keinen Stored-Recipe-Promote-Button mehr
+  - Learned-Recipe-Store-Previews bleiben sprachneutral/stabil, UI-Lokalisierung bleibt getrennt
+- Recipe-First Cleanup / Guardrails:
+  - Recipe-Legacy intern weiter reduziert
+  - Experience Memory Recall/Fingerprints, Monolithen-Schnitt, I18N-/Package-Guardrails und Pricing-Admin-Nachzuege sind enthalten
+- Verifikation:
+  - `python3 -m compileall aria tests`: gruen
+  - buildnaher Regressionsblock: `312 passed`
+  - Release-/Stats-/Recipes-/Experience-Regressionen: `58 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha226`
+  - Container-Pricing-Check: `source LiteLLM GitHub pricing JSON`
+  - Container-Pricing-Check: `chat 3312`, `embedding 189`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha226-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.226`
+  - `aria:alpha-local`
+  - `sha256:bc2ec6e25023784223dedc2b25dd3d35c3a1bd7cc4dfa8005b48b03740d60eed`
+- Release-Label:
+  - `0.1.0-alpha226`
+
+### alpha225
+
+- enthaelt den Stats-Diagnose-Layout-Nachzug nach `alpha224`
+- Stats / UI:
+  - Model Gateway Audit und Recipe Experience Memory werden jetzt als volle Diagnose-Zeilen untereinander gerendert
+  - dadurch entsteht neben den langen Karten keine leere dritte Spalte mehr
+  - die internen LED-Felder der Diagnose-Karten bleiben auf Desktop mehrspaltig lesbar
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Stats-/i18n-Regressionen: `29 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha225`
+  - Container-Pricing-Check: `source LiteLLM GitHub pricing JSON`
+  - Container-Pricing-Check: `chat 3310`, `embedding 189`, `second_used_cache True`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha225-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.225`
+  - `aria:alpha-local`
+  - `sha256:533c19770c460e81346e1d14a9acf980c5fc6f3475fe28b92e49486e616a4cec`
+- Release-Label:
+  - `0.1.0-alpha225`
+
+### alpha224
+
+- enthaelt den Stats-UI-Korrektur-Nachzug nach `alpha223`
+- Stats / Pricing:
+  - Kosten-Kachel nutzt jetzt eine stabile LED-Matrix statt gemischter Label-/Wert-Zeilen
+  - geschaetzte USD, geloggte USD, Durchschnitt und bepreiste Anfragen bleiben jeweils in eigenen Mini-Panels zusammen
+  - Pricing-Status zeigt weiterhin die aktive LiteLLM-GitHub-Preisquelle und den lokalen Cache explizit
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Stats-/i18n-Regressionen: `29 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha224`
+  - Container-Pricing-Check: `source LiteLLM GitHub pricing JSON`
+  - Container-Pricing-Check: `chat 3310`, `embedding 189`, `second_used_cache True`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha224-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.224`
+  - `aria:alpha-local`
+  - `sha256:7922bb959b0fb236ceb82350b43e0c2098dc59bd0b31d574ef96e140db6af970`
+- Release-Label:
+  - `0.1.0-alpha224`
+
+### alpha223
+
+- enthaelt den Stats-UI-Nachzug nach `alpha222`
+- Stats / Pricing:
+  - Pricing-Status zeigt die aktive LiteLLM-GitHub-Preisquelle und den lokalen Cache explizit
+  - Kosten-Kachel nutzt eine kompakte Hero/List-Darstellung, damit geschaetzte USD, geloggte USD, Durchschnitt und bepreiste Anfragen die Header-Reihe nicht mehr strecken
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Stats-/Pricing-/i18n-Regressionen: `41 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha223`
+  - Container-Pricing-Check: `source LiteLLM GitHub pricing JSON`
+  - Container-Pricing-Check: `chat 3310`, `embedding 189`, `second_used_cache True`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha223-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.223`
+  - `aria:alpha-local`
+  - `sha256:aaab54d2d13d4bc8f48867720229576bfd20fffa80d9e3028a2c53192cfe6b6c`
+- Release-Label:
+  - `0.1.0-alpha223`
+
+### alpha222
+
+- enthaelt den LiteLLM-GitHub-Pricing-Cache-Nachzug nach `alpha221`
+- Stats / Pricing:
+  - LiteLLM `model_prices_and_context_window.json` ist jetzt die primaere Preisquelle fuer Modellpreise
+  - ARIA cached die letzte gute Kopie lokal unter `data/pricing/litellm_model_prices.json`
+  - Startup aktualisiert den Cache nur, wenn er aelter als 7 Tage ist
+  - `/stats -> Preise aktualisieren` erzwingt einen frischen Remote-Download
+  - bei GitHub-Ausfall nutzt ARIA den lokalen Cache weiter; ohne Cache bleibt ein kleiner ARIA-Notfallseed
+  - lokale/custom Preise und markierte manuelle Overrides bleiben beim Refresh erhalten
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Pricing-/Stats-/Usage-/Gateway-/i18n-/Config-Regressionen: `25 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha222`
+  - Container-Pricing-Check: `source LiteLLM GitHub pricing JSON`
+  - Container-Pricing-Check: `chat 3306`, `embedding 189`, `second_used_cache True`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha222-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.222`
+  - `aria:alpha-local`
+  - `sha256:a82c121730b58d287a970f68c18758998896a043963a567f5ec3aa6e14415016`
+- Release-Label:
+  - `0.1.0-alpha222`
+
+### alpha221
+
+- enthaelt den Pricing-Alias-Fix fuer OpenAI-compatible/LiteLLM-Deployment-Namen nach `alpha220`
+- Stats / Pricing:
+  - `pricing.model_aliases` ist jetzt Teil der Pricing-Konfiguration
+  - `embed-small` und `openai/embed-small` werden standardmaessig auf `openai/text-embedding-3-small` gemappt
+  - UsageMeter, Stats-Coverage und historische Kostenschaetzung nutzen dieselbe Alias-Aufloesung
+  - unbepreiste Embedding-Tokens fuer `openai/embed-small` sollen dadurch nicht mehr als False Positive erscheinen
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Pricing-/Stats-/Usage-/Pipeline-/Gateway-/i18n-/Config-Regressionen: `50 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha221`
+  - Container-Pricing-Check: `openai/embed-small priced: True 0.02`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha221-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.221`
+  - `aria:alpha-local`
+  - `sha256:7f2e4a7b302f958ab9e529bff7b0ac566a47fad4340a6af1cac60de2b36dcdfa`
+- Release-Label:
+  - `0.1.0-alpha221`
+
+### alpha220
+
+- enthaelt die Pricing-Entkopplung von der LiteLLM-Paket-Preisliste nach `alpha219`
+- Stats / Pricing:
+  - `aria/core/pricing_catalog.py` importiert kein `litellm` mehr
+  - Pricing liest kein `litellm.model_cost` mehr
+  - die Kostenlogik nutzt einen expliziten ARIA-bundled Pricing Seed fuer gaengige OpenAI-/Anthropic-Modelle
+  - OpenRouter bleibt als optionale Live-Anreicherung mit kurzem Timeout aktiv
+  - LiteLLM bleibt in diesem Build noch Runtime-Adapter fuer Modellaufrufe in `LLMClient` und `EmbeddingClient`, aber nicht mehr Preisquelle
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Pricing-/Stats-/Usage-/Pipeline-/Gateway-/i18n-Regressionen: `43 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha220`
+  - Container-Pricing-Check: `pricing imports litellm: False`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha220-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.220`
+  - `aria:alpha-local`
+  - `sha256:bf17f9b27cd1021c1da9845aaccce9377f6d9edace9c10e278644f6139f8e985`
+- Release-Label:
+  - `0.1.0-alpha220`
+
+### alpha219
+
+- enthaelt den Pricing-Refresh-UX-/Timeout-Nachzug nach `alpha218`
+- Stats / Pricing:
+  - Pricing-Refresh nutzt den ARIA-bundled Pricing Seed als primaere Offline-Quelle
+  - OpenRouter bleibt als optionale Zusatzquelle aktiv, hat aber nur noch einen kurzen Timeout, damit `/stats` nicht lange auf eine externe API wartet
+  - Refresh-Button zeigt waehrend des HTMX-Requests einen sichtbaren Inline-Indikator
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Pricing-/Stats-/Usage-/i18n-Regressionen: `41 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha219`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha219-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.219`
+  - `aria:alpha-local`
+  - `sha256:a92b7b641b1d5357b10592474fb9da63b41f7c7614a0e304b4e7e3fc68bb8c12`
+- Release-Label:
+  - `0.1.0-alpha219`
+
+### alpha218
+
+- enthaelt den sichtbaren `/stats` Pricing-Nachzug nach `alpha217`
+- Stats / Pricing:
+  - Pricing-Refresh zeigt nach dem Klick ein sichtbares Ergebnis im Details-Panel
+  - Refresh-Ergebnis enthaelt Chat-/Embedding-Modellanzahl, Aktualisierungsdatum und eventuelle Fehler
+  - Pricing-Details listen jetzt exakt die unbepreisten Modellnamen samt Tokenzahl, damit Custom-Deployment-Aliase gezielt gemappt werden koennen
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Pricing-/Stats-/Usage-/Gateway-/i18n-/Package-Regressionen: `41 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha218`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha218-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.218`
+  - `aria:alpha-local`
+  - `sha256:cd459c89002d174aa519b466ca80887bd912c192a12b292c8c3ce7a84485f9fd`
+- Release-Label:
+  - `0.1.0-alpha218`
+
+### alpha217
+
+- enthaelt den Pricing-/Stats-Nachzug nach `alpha216`
+- Stats / Pricing:
+  - Pricing-Aufloesung nutzt jetzt die volle bepreiste LiteLLM-Provider-Matrix statt nur OpenAI/Anthropic
+  - erkennbare Azure-, AWS-Bedrock-, OpenRouter-, Gemini-, Mistral-, Cohere-, Ollama- und weitere LiteLLM-Modellnamen koennen dadurch ohne manuelle Preislistenpflege bepreist werden
+  - OpenRouter-Live-API bleibt als zusaetzliche Refresh-Quelle erhalten
+  - LLMs bleiben bewusst nicht die Preis-Wahrheit; sie koennen spaeter hoechstens bei unklaren Deployment-Namen als Mapping-Hilfe dienen
+  - Unpriced-Warnung in `/stats` ist jetzt eine kompakte Statuszeile mit Details-Link statt layoutsprengendem Langtext
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - Pricing-/Stats-/Usage-/Gateway-/i18n-/Package-Regressionen: `41 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha217`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha217-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.217`
+  - `aria:alpha-local`
+  - `sha256:af8165d500c85d5d1de7e02197ba2f6a9cf0ad4d1f39161134fde47da6abe42a`
+- Release-Label:
+  - `0.1.0-alpha217`
+
+### alpha216
+
+- enthaelt den Cleanup-/Buildnachzug nach `alpha215`
+- i18n / Packaging:
+  - i18n-Code-Literal-Audit ist jetzt als strikte Guardrail abgesichert
+  - Runtime-Assets wie i18n-Dateien, Lexicons, Templates und Static Assets sind als Package-Data deklariert
+- Model Gateway / Kosten:
+  - Contract-Test blockiert direkte OpenAI-/Anthropic-SDK-Nutzung und direkte LiteLLM-Bypaesse ausserhalb von `LLMClient` / `EmbeddingClient`
+  - `UsageMeter` bepreist bekannte Claude-Chat-Modelle und OpenAI-Embedding-Modelle ueber den zentralen LiteLLM-Pricing-Fallback mit non-zero USD
+  - `/stats` trennt geloggte USD von geschaetzten USD und zeigt den Model-Gateway-Audit fuer Live-Pruefung
+- Experience Memory / Learned Recipes:
+  - Planner-Debug zeigt Recipe-Experience-Treffer mit Score, Ziel, Success-Count und zuvor funktionierender Aktion
+  - Learned-Recipe-Review zeigt User-Formulierung, Ziel, zuvor funktionierende Aktion und Safety-Status sichtbarer
+  - Healthcheck-Experience-End-to-End-Pfad ist per Regression abgesichert
+- Recipe-first UI / Runtime:
+  - Learned-Recipe-Admin-UI und Recipes-Hub/Wizard nutzen recipe-first i18n-Keys statt sichtbarer Legacy-Skill-Keys
+  - `recipes_routes.py` wurde entlang klarer UI-/Wizard-/Learned-/Import-Helfer geschnitten
+  - `recipe_runtime.py` wurde entlang Runtime-Adaptern, Step-Executor und RSS-Gruppenlogik weiter entkernt
+  - Runtime-Datei reduziert: 2384 -> 819 Zeilen
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - buildnaher Regression-Block: `285 passed`
+  - Model-Gateway-/Usage-/Stats-/i18n-/Packaging-Block: `36 passed`
+  - `scripts/audit_i18n_code_literals.py --strict`: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha216`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha216-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.216`
+  - `aria:alpha-local`
+  - `sha256:bd47428b02fa961daced3a0c2ba312aece039363f830ae71d6f57c67ef0ad87d`
+- Release-Label:
+  - `0.1.0-alpha216`
+
+### alpha215
+
+- enthaelt den Self-Learning-/Experience-Memory-Schnitt nach `alpha214`
+- Stats / Model Gateway Audit:
+  - Token-Nutzung wird in `/stats` als kompakte vertikale Token-Karte dargestellt, damit Chat-/Embedding-/Gesamtwerte die Symmetrie von Tokens/Kosten/Ressourcen nicht mehr sprengen
+  - `/stats` zeigt eine neue `Model Gateway Audit`-Kachel mit aktivem Chat-Modell, aktivem Embedding-Modell, gemeinsamem `UsageMeter`-Status, Memory-Embedding-Wiring, Token-Log-Status und unbepreisten Tokens
+  - die Kostenkarte warnt sichtbar, wenn Modell-Tokens gemessen wurden, aber fuer mindestens ein verwendetes Modell kein USD-Preis aufgeloest werden kann
+  - Pricing-Coverage zeigt jetzt `bepreist / gesehen` statt die bisher missverstaendliche Gesamtzahl konfigurierter Preislistenmodelle
+- Metering-Architektur:
+  - Memory-Embedding-Fallbacks und Memory-Maintenance nutzen jetzt ebenfalls den gemeinsamen `UsageMeter`
+  - ein neuer Contract-Test verhindert direkte `litellm`-Runtime-Calls ausserhalb von `LLMClient` und `EmbeddingClient`
+- Connection-UX:
+  - leere Connection-Detailseiten, die aus `/connections/types` geoeffnet werden, fallen jetzt automatisch in den Create-Modus statt beide Hauptbereiche zu verstecken
+  - Discord-Connection-Seite bekommt den Toggle-Section-Builder wieder sauber ueber die Helper-Dependencies und rendert dadurch unter `/config/connections/discord?return_to=/connections/types` korrekt
+- SSH-Healthcheck / Guardrails:
+  - natuerliche Statusfragen wie `wie geht es meinem dns server` gelten jetzt fuer den Guardrail-Fallback als Health-/Statusanfrage
+  - wenn der Planner daraus nur `uptime` ableitet, kann ARIA auf das erlaubte Healthcheck-Bundle aus der Guardrail wechseln statt wegen `ssh_command_not_in_allow_list` zu blockieren
+  - volle SSH-Healthcheck-Antworten enden mit einem lesbaren Fazit wie `Fazit: unauffaellig` oder `Fazit: Handlungsbedarf`
+- Self-Learning:
+  - erfolgreiche Template-Ausfuehrungen werden als Learned-Recipe-Kandidaten aufgezeichnet
+  - erfolgreiche Recipe-/Guardrail-Laeufe werden zusaetzlich als `Recipe Experience Memory` semantisch in Qdrant indiziert
+  - passende Experience-Treffer gehen nur als Kontext in den bounded Planner, nicht als direkter Executor
+  - `/stats` zeigt Experience-Memory-Collections/-Punkte
+  - die Learned-Recipe-Review-UI zeigt User-Formulierung sowie Lernquelle
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - fokussierter Stats-/i18n-/Usage-/Gateway-/Memory-Block: `42 passed`
+  - Config-/Connection-Regressionen: `132 passed`
+  - Planner-/Dry-run-/SSH-/Learning-Regressionen: `82 passed`
+  - Recipe-Experience-/Stats-/Result-Summary-Regressionen: `131 passed`
+  - voller Testlauf: `922 passed`, 4 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha215`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha215-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.215`
+  - `aria:alpha-local`
+  - `sha256:1cf919a623da3439e83a34e3de4752dcecc492572d703f673d44af130dc73742`
+- Release-Label:
+  - `0.1.0-alpha215`
+
+### alpha214
+
+- enthaelt den Backlog-/Hardening-Schnitt nach `alpha213`
+- Backlog / Betrieb:
+  - oberer Alpha-Backlog wurde entdupliziert und auf echte Build-Blocker reduziert
+  - Learning Loop / Self-Learning bleibt als Roadmap-Thema in `docs/backlog/future-features.md`, nicht als aktueller Build-Blocker
+  - Qdrant-Diagnose warnt jetzt auch, wenn lokaler Storage vorhanden ist, aber kein lesbares Collection-Layout gefunden wird
+- Sicherheit:
+  - Login-Rate-Limit fuer wiederholte fehlgeschlagene Passwortversuche
+  - Runtime-Signing-Secrets werden nicht mehr leer initialisiert
+  - Pending-Action-Signing und Memory-Forget-Signing sind getrennt
+- UI / Recipe-first:
+  - Connection-Profile werden auf allen Connection-Seiten direkt sichtbar gerendert; altes Count-/Collapse-Verhalten entfernt
+  - sichtbare Recipe-/Skill-Wording-Reste in Templates, i18n und Sample-Rezepten weiter bereinigt
+  - Recipe-Routen nutzen intern lesbarere `core_recipe_rows` / `sample_recipe_rows` statt produktiv falscher Skill-Row-Namen
+- Update-Helper:
+  - FastAPI lifespan statt `on_event`
+  - timezone-aware UTC-Timestamps statt `datetime.utcnow()`
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - fokussierte Vor-Build-Regression: `201 passed`, 4 Warnungen
+  - voller Testlauf: `907 passed`, 4 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha214`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha214-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.214`
+  - `aria:alpha-local`
+  - `sha256:6da179cdf3736c7a7025c12a6b13649bc8896959d35f637843dedee472514273`
+- Release-Label:
+  - `0.1.0-alpha214`
+
+### alpha213
+
+- enthaelt die Politur nach dem `pihole1` Healthcheck-Live-Test und dem Recipe-Wording-Cleanup
+- SSH-Healthcheck / Antwortqualitaet:
+  - Journal-Rohzeilen werden nicht mehr direkt als Nutzerantwort ausgegeben
+  - Journal-Funde werden nach Risiko/Kategorie zusammengefasst, z. B. sudo-/Login-Geraeusche statt `pam_unix`-Rohtext
+  - kritische Muster wie Storage-/Dateisystem-/OOM-/Crash-Fehler bleiben als echte Risiken sichtbar
+  - doppelte `ssh_command_guardrail_fallback`-Debugzeile aus dem Existing-Command-Pfad entfernt
+- Recipe-UI / Legacy-Wording:
+  - Start-/Mine-/Templates-Seiten vermeiden neue `Skill`-Produktbegriffe
+  - mitgelieferte `samples/recipes` sprechen von Rezepten statt Beispielskills und verweisen auf `/recipes`
+  - sichtbare Admin-/Stats-/Memory-Texte wie `Skill-Prompts`, `Skill Routing` und `Memory Skill nicht aktiv` wurden auf Rezept-/Memory-Wording gezogen
+  - alte `/skills*`-Redirects und `prompts/skills`-Normalisierung bleiben als technische Legacy-Bruecken erhalten
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - `./.venv/bin/pytest -q`: `897 passed`, 23 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha213`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha213-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.213`
+  - `aria:alpha-local`
+  - `sha256:5c0f6c7b384c85c40103f8a7d2c2f42971b42f0cbd3204581967325a63bbe8d3`
+- Release-Label:
+  - `0.1.0-alpha213`
+
+### alpha212
+
+- enthaelt den Fix fuer den Legacy-`uptime`-Template-Pfad beim Guardrail-first SSH-Healthcheck
+- Planner / Guardrails:
+  - vorhandene Template-Kommandos wie `uptime` beenden die SSH-Aufloesung nicht mehr zu frueh
+  - bei Healthcheck-Anfragen wird auch dieser bestehende Template-Content gegen die Guardrail-Allow-Liste geprueft
+  - wenn `uptime` nicht exakt erlaubt ist, aber ein Guardrail-Healthcheck-Bundle existiert, ersetzt ARIA `uptime` durch das vollstaendige Bundle
+  - verhindert den Live-Fall: `ARIA wuerde ... blockieren: SSH command: uptime`
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - `./.venv/bin/pytest -q`: `896 passed`, 23 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha212-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.212`
+  - `aria:alpha-local`
+  - `sha256:ed138b6318bbfe9ef166faf5a5e70b2afbb4558a097cf87d88d28b31940b1bcc`
+- Release-Label:
+  - `0.1.0-alpha212`
+
+### alpha211
+
+- enthaelt den Healthcheck-aware SSH-Result-Summarizer nach dem `pihole1` Live-Test
+- Result-Summarizer:
+  - Full-Healthcheck-Bundles werden als `Server-Healthcheck` statt als reiner Festplattencheck zusammengefasst
+  - `uptime -p` wird erkannt und als Laufzeit ausgegeben
+  - `systemctl --failed --no-pager` wird als Anzahl fehlgeschlagener systemd-Units zusammengefasst
+  - `journalctl -p 3 -xb --no-pager -n 40` wird als Fehlerausschnitt ausgewertet bzw. als leerer Fehlerausschnitt gemeldet
+  - bestehende Disk-/Kurzcheck-/Docker-Zusammenfassungen bleiben unveraendert
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - `./.venv/bin/pytest -q`: `895 passed`, 23 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha211-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.211`
+  - `aria:alpha-local`
+  - `sha256:0a15a348cfa47de99b9f2a93df18cbf6213d523d455367618785df206128ff99`
+- Release-Label:
+  - `0.1.0-alpha211`
+
+### alpha210
+
+- enthaelt die Nachschaerfung fuer Guardrail-first SSH-Healthchecks nach dem Live-Test mit `pihole1`
+- Planner / Guardrails:
+  - bei echten Health-/Healthcheck-Anfragen nutzt ARIA das komplette Guardrail-Healthcheck-Bundle deterministisch
+  - wenn das LLM nur eine Teilmenge der erlaubten Healthcheck-Kommandos auswaehlt, wird diese Teilmenge durch das vollstaendige Guardrail-Bundle ersetzt
+  - Disk-only- und Spezialchecks bleiben davon getrennt und werden nicht blind zum Full-Healthcheck erweitert
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - `./.venv/bin/pytest -q`: `893 passed`, 23 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha210-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.210`
+  - `aria:alpha-local`
+  - `sha256:1dcf2d191aaa4bf9c38fbf286b4da50024ef65ef3d9855b778b3d9de48f74803`
+- Release-Label:
+  - `0.1.0-alpha210`
+
+### alpha209
+
+- enthaelt den Guardrail-first SSH-Healthcheck fuer den Live-Test ohne manuell erstelltes Rezept
+- Planner / Guardrails:
+  - SSH-Zieldossiers geben `guardrail_allow_terms` an den agentischen SSH-Planer weiter
+  - Health-/Status-Anfragen fallen auf exakt erlaubte Guardrail-Kommandos zurueck, wenn das LLM einen unbekannten Probe-Befehl wie `pihole status` vorschlaegt
+  - mutierende SSH-Kommandos bleiben weiterhin blockiert; Pipes und Fallback-Ketten bleiben bestaetigungspflichtig
+- Policy / Runtime:
+  - `systemctl --failed --no-pager` ist als read-only Statusform erlaubt
+  - exakt allowlist-gedeckte Healthcheck-Bundles duerfen als direkte SSH-Ausfuehrung laufen
+  - Dry-run und Runtime nutzen dieselbe kombinierte Allow-Liste aus Connection und Guardrail
+- Verifikation:
+  - `python3 -m compileall aria`: gruen
+  - `./.venv/bin/pytest -q`: `892 passed`, 23 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha209-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.209`
+  - `aria:alpha-local`
+  - `sha256:35875ed322ea469c19ec297e82b9fa13f94a8085198bd9cfa168fc67a73ecb3d`
+- Release-Label:
+  - `0.1.0-alpha209`
+
+### alpha208
+
+- enthaelt den stabilisierten Recipe-first Stand nach dem letzten Cleanup vor dem Live-Test
+- Stabilisierung / Cleanup:
+  - `/recipes`-Templates wurden von `skills_*` / `_skills_*` auf `recipes_*` / `_recipes_*` umbenannt
+  - `recipes_routes.py` nutzt intern sichtbarere Recipe-Namen fuer lokale Helper, Render-Funktionen und Page-Handler
+  - sichtbare Hilfe-/Produkt-/i18n-Texte wurden weiter von `Skill` auf `Rezept` gezogen
+  - bewusste Legacy-Bruecken sind im Backlog dokumentiert: `skills:` Config-Root, `/skills*` Redirects, `skills.*` i18n-Keys, CSS-Altklassen und lesende `data/skills`-/`prompts/skills`-Fallbacks
+- Verifikation:
+  - `python3 -m compileall -q aria`: gruen
+  - `./.venv/bin/pytest -q`: `887 passed`, 23 Warnungen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha208-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.208`
+  - `aria:alpha-local`
+  - `sha256:a8a64df23e59927515f63de073c823ad5905b73ca474ee8f16a975bc3119e1fa`
+- Release-Label:
+  - `0.1.0-alpha208`
+
+### alpha207
+
+- enthaelt den recipe-first Migrationsstand nach Phase 7 vor dem naechsten Live-Test
+- Migration / Produktpfad:
+  - aktive Produktpfade, Planner-Contracts, Pipeline- und Web-Dependencies sprechen jetzt deutlich staerker `recipe` statt `skill`
+  - `/recipes*` ist die klare Hauptoberflaeche; sichtbare Hilfe-/Architekturtexte wurden weiter auf Rezepte gezogen
+  - Learned Recipes bleiben konservativ: nur `promoted` + `stored_recipe_id` werden als ausfuehrbare Kandidaten geladen
+- Cleanup:
+  - produktive Web-/Config-Vertraege wurden auf `stored_recipe_*` / `format_recipe_*` umgestellt
+  - Pipeline- und Runtime-Restnamen wie `runtime_custom_skills` wurden auf `runtime_recipes` bereinigt
+  - `recipe_manifests.py` haengt nicht mehr an `_custom_skill_*`-Importnamen
+- Verifikation:
+  - `tests/test_action_planner.py tests/test_pipeline.py tests/test_skill_runtime_matching.py tests/test_skills_routes.py tests/test_config_routes.py tests/test_chat_tooling.py tests/test_router.py tests/test_token_tracker.py tests/test_error_handling.py tests/test_execution_dry_run.py`: `351 passed`
+  - `tests/test_router.py tests/test_token_tracker.py tests/test_error_handling.py tests/test_execution_dry_run.py`: `79 passed`
+  - `tests/test_skills_routes.py tests/test_config_routes.py`: `64 passed`
+  - `tests/test_config_backup.py`: `6 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha207-local.tar`
+- Release-Label:
+  - `0.1.0-alpha207`
+
+### alpha206
+
+- enthaelt den bereinigten Learned-Recipe-/Admin-Stand vor der naechsten Live-Runde
+- Learned Recipes / Promotion:
+  - Learned Candidates werden im normalen Planner jetzt nur noch dann als ausfuehrbare Kandidaten geladen, wenn sie `promoted` sind und bereits ein echtes `stored_recipe_id` haben
+  - damit bleibt `review_ready` / `eligible` Admin-/Review-Material und kippt nicht in den bestehenden Stored-Recipe-Runtime-Pfad
+  - `promote` auf `/skills/learned` uebernimmt jetzt ein Learned Recipe als echtes gespeichertes Rezept-Manifest
+- Admin-GUI:
+  - neue Learned-Recipe-Seite mit
+    - Promotion-Statusfiltern
+    - Connection-Kind-Filtern
+    - Sortierung nach letztem Erfolg / Erfahrung / Titel
+    - Admin-Aktionen `promote`, `dismiss`, `delete`
+    - Direktlink ins erzeugte gespeicherte Rezept mit Rueckweg in die gefilterte Learned-Ansicht
+- Verifikation:
+  - `tests/test_learned_recipe_store_contract.py tests/test_action_planner.py tests/test_bounded_planner.py tests/test_learned_recipe_promotion.py`: `44 passed`
+  - `tests/test_skills_routes.py`: `15 passed`
+  - `tests/test_chat_tooling.py tests/test_router.py tests/test_pipeline.py tests/test_error_handling.py`: `216 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha206-local.tar`
+- Release-Label:
+  - `0.1.0-alpha206`
+
+### alpha205
+
+- enthaelt den kompletten Fixstand nach dem Recipe-/Experience-Contract-Cleanup vor dem spaeteren echten Learned-Recipe-Umbau
+- Core / Cleanup:
+  - neuer gemeinsamer Vertrag in `aria/core/recipe_candidate_contract.py`
+  - `recipe_candidate_view.py`, `stored_recipe_manifest_view.py` und `execution_dry_run_payloads.py` nutzen jetzt denselben Recipe-/Experience-Boden
+  - `execution_dry_run_payloads.py` haelt keine eigenen Experience-Defaultreste fuer gespeicherte Rezepte mehr
+- Verifikation:
+  - `tests/test_recipe_candidate_contract.py tests/test_stored_recipe_manifest_view.py tests/test_execution_dry_run.py tests/test_action_planner.py tests/test_bounded_planner.py`: `66 passed`
+  - `tests/test_pipeline.py tests/test_capability_router.py tests/test_chat_tooling.py tests/test_execution_dry_run.py tests/test_action_planner.py tests/test_bounded_planner.py tests/test_stored_recipe_manifest_view.py tests/test_recipe_candidate_contract.py`: `296 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha205-local.tar`
+- Release-Label:
+  - `0.1.0-alpha205`
+
+### alpha204
+
+- enthaelt den kompletten Fixstand nach dem aktuellen Cleanup-Block vor dem naechsten groesseren Recipe-/Skill-Umbau
+- Core / Cleanup:
+  - `pipeline.py` weiter entkernt; Qdrant-/Routing-Helfer liegen jetzt in `aria/core/pipeline_qdrant_helpers.py`
+  - `execution_dry_run_payloads.py` family-naeher geschnitten; Template-Draft-/Payload-Helfer liegen jetzt in `aria/core/execution_dry_run_template_payloads.py`
+  - kleine Lesbarkeitsnachpflege in `aria/core/behavior_families.py`
+- Verifikation:
+  - `tests/test_pipeline.py tests/test_capability_router.py tests/test_chat_tooling.py tests/test_router.py tests/test_http_guardrails.py`: `251 passed`
+  - `tests/test_action_planner.py tests/test_pipeline.py tests/test_behavior_families.py tests/test_execution_dry_run.py`: `216 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha204-local.tar`
+- Release-Label:
+  - `0.1.0-alpha204`
+
+### alpha181
+
+- enthaelt den kompletten Fixstand bis einschliesslich `alpha180`
+- Routing / SSH:
+  - `semantic_llm` darf bei gesetzter `requested_connection_ref` nur noch dann ein SSH-Ziel erzwingen, wenn der gewaehlte Host diese Zielphrase auch wirklich stuetzt
+  - dadurch bleibt `backup server` bei fehlender starker Stuetze offen, statt kreativ auf `syncthing` zu springen
+  - gleichzeitig bleibt `monitoring server` weiter erlaubt, wenn Titel/Beschreibung/Aliase den Monitoring-Bezug klar tragen
+- Verifikation:
+  - `tests/test_pipeline.py` + `tests/test_capability_router.py`: `154 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha181-local.tar`
+- Release-Label:
+  - `0.1.0-alpha181`
+
+### alpha180
+
+- enthaelt den kompletten Fixstand bis einschliesslich `alpha179`
+- Routing / SSH:
+  - der `CapabilityRouter` behandelt generische SSH-Aliase wie `server` bei Hostrollen jetzt strenger
+  - wenn eine aktuelle Zielphrase wie `backup server` oder `monitoring server` vorliegt, darf ein schwacher frueher Alias-Treffer nicht mehr still als `explicit_ref` stehen bleiben
+  - `management server` bleibt dabei weiterhin als valider expliziter Treffer erhalten
+- Verifikation:
+  - `tests/test_capability_router.py` + `tests/test_pipeline.py`: `152 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha180-local.tar`
+- Release-Label:
+  - `0.1.0-alpha180`
+
+### alpha179
+
+- enthaelt den kompletten Fixstand bis einschliesslich `alpha178`
+- Routing / Planner / SSH:
+  - der aktive Unified-Routing-Pfad zeigt jetzt sichtbare Debug-Spuren fuer
+    - `capability_draft`
+    - `candidate_pool`
+    - `memory_hint`
+    - `memory_hint blocked`
+  - Prozess-Level-Regressionen sichern jetzt explizit ab, dass stale `memory_hint`-Treffer aktuelle Zielphrasen wie `backup server` nicht mehr still auf den Management-Host zwingen
+  - explizite SSH-Ziele werden im Unified-Pfad vor spaeteren Memory-Hinweisen festgezogen und dadurch nicht mehr von altem Kontext ueberfahren
+- Verifikation:
+  - `tests/test_pipeline.py`: `103 passed`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha179-local.tar`
+- Release-Label:
+  - `0.1.0-alpha179`
 
 ### alpha167
 
@@ -1067,7 +2318,7 @@ Zweck:
   - Activity-KPIs stehen in einer kompakten 4er-Reihe mit Mobile-Fallback
 - Pricing:
   - manueller Button `Preise aktualisieren` in `/stats`
-  - OpenAI-/Anthropic-Preise werden aus `litellm.model_cost` in die lokale ARIA-Preisliste uebernommen
+  - OpenAI-/Anthropic-Preise werden aus dem ARIA-bundled Pricing Seed in die lokale ARIA-Preisliste uebernommen
   - OpenRouter-Preise werden ueber `https://openrouter.ai/api/v1/models` synchronisiert
   - aktualisierte Preise werden in `config/config.yaml` persistiert
 - Connections:
@@ -1374,3 +2625,465 @@ Zweck:
   - `/mnt/NAS/aria-images/aria-alpha127-local.tar`
 - Release-Label:
   - `0.1.0-alpha127`
+
+### alpha168
+
+- Google Calendar:
+  - freundlichere und praezisere Fehlertexte fuer typische Google-OAuth-/API-Probleme wie widerrufene Tokens, deaktivierte API, fehlende Berechtigungen und Rate Limits
+  - natuerlichere Kalendersuche versteht auch einfache unquoted Formulierungen wie `nur Zahnarzttermine`
+  - kurze Follow-ups wie `und morgen?` koennen den letzten Kalenderkontext weiterverwenden
+  - Setup-Seite erklaert klarer, dass nach abgelaufenem Google-Login haeufig nur das Refresh-Token erneuert werden muss
+- Notizen / beobachtete Webseiten im Chat:
+  - Notiz-Ordner direkt im Chat auflisten
+  - Notizen pro Ordner im Chat auflisten
+  - Notizen ueber natuerliche Suchbegriffe direkt oeffnen
+  - beobachtete Webseiten im Chat oeffnen und gruppiert anzeigen
+  - Admin-Kurzbefehle fuer `beobachte https://...` und natuerlichere Website-Aenderungen wie Titel/Gruppe/URL
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha168` angehoben
+- Tests:
+  - gezielte Regressionen fuer Calendar, Notes, Websites, Admin-Shortcuts und Pipeline: `217 passed`
+- Build-Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha168-local.tar`
+- Release-Label:
+  - `0.1.0-alpha168`
+
+### alpha169
+
+- Google Calendar:
+  - echter Google-Login-Flow direkt aus ARIA statt manuellem OAuth-Playground-Copy/Paste
+  - neuer Button `Mit Google verbinden` auf der Google-Calendar-Verbindungsseite
+  - ARIA speichert das Refresh-Token serverseitig nach dem Google-Callback selbst
+  - Reconnect fuer abgelaufene oder widerrufene Tokens laeuft ueber denselben Login-Flow
+- Notizen / beobachtete Webseiten / Calendar-Hardening aus `alpha168` bleiben Basis
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha169` angehoben
+- Tests:
+  - gezielte Config-/Google-Calendar-Regressionen: `80 passed`
+  - weitere Pipeline-/Router-Regressionen: `126 passed`
+- Build-Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha169-local.tar`
+- Release-Label:
+  - `0.1.0-alpha169`
+
+### alpha170
+
+- Google Calendar:
+  - die Verbindungsseite zeigt jetzt nur noch den neuen Google-Login-zentrierten Produktpfad statt den alten manuellen Refresh-Token-Leitfaden
+  - der alte OAuth-Playground-/Handarbeitsweg ist aus der prominenten Setup-Anleitung entfernt
+- Notizen:
+  - Ordner koennen direkt in der Notes-Oberflaeche umbenannt werden
+  - der Editor erklaert jetzt explizit, dass eine Titelaenderung die Notiz umbenennt
+  - lange Notiztitel umbrechen im Board jetzt sauber und zerziehen das Layout nicht mehr
+  - `oeffne notizen in ordner ...` bleibt jetzt im Notes-Produktpfad statt in generische Datei-/SFTP-Flows zu kippen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha170` angehoben
+- Tests:
+  - gezielte Google-Calendar-/Notes-Regressionen: `66 passed`
+- Build-Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha170-local.tar`
+- Release-Label:
+  - `0.1.0-alpha170`
+
+### alpha171
+
+- Google Calendar:
+  - Upload einer Google OAuth Client JSON direkt in ARIA moeglich
+  - Client-ID und Client-Secret koennen dadurch automatisch aus der JSON uebernommen werden
+  - `Mit Google verbinden` nutzt den hochgeladenen OAuth-Client jetzt direkt weiter
+- Routing / RSS:
+  - RSS-Profile ziehen `group_name` jetzt staerker in die semantische Alias-Bildung ein
+  - bei mehreren RSS-Kandidaten darf ein bounded RSS-LLM-Resolver jetzt einen schwachen fruehen Alias-Treffer ueberstimmen
+  - Ziel: weniger Keyword-Hardcoding und bessere Feedauswahl bei Formulierungen wie `rss news tech was gibts neues`
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha171` angehoben
+- Tests:
+  - gezielte Config-/Routing-/Notes-Regressionen: `158 passed`
+- Build-Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha171-local.tar`
+- Release-Label:
+  - `0.1.0-alpha171`
+
+### alpha172
+
+- Routing / Planner / Live-Chat:
+  - gemeinsamer `candidate resolver` fuer Connection-Ziele weiter ausgebaut
+  - gemeinsamer `routing decision record` eingefuehrt und in den aktiven Unified-Routing-Pfad gehaengt
+  - Explain-/Debug-Spuren fuer Routing-Entscheidungen im Unified-Pfad ausgebaut
+  - bounded LLM fuer die Connection-Auswahl jetzt auch fuer weitere produktische Connection-Kinds nutzbar
+    - `discord`
+    - `google_calendar`
+    - `webhook`
+    - `email`
+  - starke Routing-Chain-/Qdrant-/Alias-Treffer bleiben weiterhin vorrangig und werden nicht spaeter nochmals weich ueberschrieben
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha172` angehoben
+- Tests:
+  - gezielte Routing-Regressionen: `102 passed`
+- Build-Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha172-local.tar`
+- Release-Label:
+  - `0.1.0-alpha172`
+
+### alpha173
+
+- Routing / RSS:
+  - gleich starke Alias-Treffer werden nicht mehr still per Ref-Sortierung entschieden
+  - mehrdeutige Alias-Matches enthalten sich jetzt deterministisch und geben an den bounded semantischen Re-Rank weiter
+  - das behebt speziell RSS-Faelle wie `rss ... tech news ...`, bei denen bisher der falsche Feed wegen Alias-Tie zu frueh gewonnen hat
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha173` angehoben
+- Tests:
+  - gezielte Routing-Regressionen: `100 passed`
+
+### alpha174
+
+- Retrieval-First Planner / SSH-POC:
+  - gemeinsames `PlannerCandidate`-/`PlannerInputSet`-Schema jetzt aktiv fuer Connection- und Action-Kandidaten
+  - erster bounded Planner als eigenes Modul eingefuehrt
+  - Planner-POC haengt jetzt im aktiven Unified-Routing-/Execution-Pfad
+  - bewusst nur fuer den SSH-Pilot und nur dann, wenn mehrere bounded Connection-Ziele vorliegen
+  - klare Ein-Ziel-SSH-Faelle bleiben deterministisch und schnell
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha174` angehoben
+- Tests:
+  - gezielte Planner-/Pipeline-Regressionen: `118 passed`
+
+### alpha175
+
+- SSH-/Infra-Routing:
+  - natuerliche Infra-Phrasen wie `backup server` und `monitoring server` triggern jetzt frueher den SSH-/Infra-Pfad statt in generischen Chat/RAG zu kippen
+  - explizite Zielphrasen wie `proxmox` werden nicht mehr still von alten `memory_hint`-Treffern auf andere Hosts umgebogen
+  - natuerliche Formulierungen wie `wie geht es dem monitoring server` werden als `ssh_command` mit `uptime` erkannt
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha175` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-Regressionen: `142 passed`
+
+### alpha176
+
+- SSH Planner POC:
+  - der bounded SSH-POC sieht fuer generische Host-/Status-Faelle jetzt nur noch die passenden SSH-Templates
+  - Custom Skills wie Fleet-/Discord-Healthchecks werden in diesem engen POC nicht mehr als Aktion fuer einzelne Host-Status-Fragen ausgewaehlt
+  - damit kippen Prompts wie `wie geht es dem monitoring server` nicht mehr in einen unpassenden Fleet-Healthcheck
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha176` angehoben
+- Tests:
+  - gezielte Pipeline-Regressionen: `97 passed`
+
+### alpha177
+
+- SSH-/Planner-/Routing-Nachzug:
+  - Short-Term Session Context wird jetzt in den bounded Planner eingespeist
+  - generische Ein-Wort-Labels wie `server`, `host`, `system` oder `node` duerfen keine harten Connection-Treffer mehr ausloesen
+  - dadurch springen Phrasen wie `backup server` nicht mehr still auf einen beliebigen Management-Host
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha177` angehoben
+- Tests:
+  - gezielte Resolver-/Pipeline-Regressionen: `110 passed`
+
+### alpha178
+
+- SSH-/Routing-Guard:
+  - semantische Zielphrasen wie `backup server`, `monitoring server` oder `management server` werden nicht mehr als blosse Soft-Hints abgewertet
+  - `memory_hint` darf kein Forced-Routing mehr ausloesen, wenn der User ein eigenes Server-Ziel nennt und der Memory-Treffer nicht dazu passt
+  - weiche Zielphrasen wie `alerts channel`, `mailbox` oder `topic` bleiben fuer Discord-/Mail-/MQTT-Faelle bewusst weich
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha178` angehoben
+- Tests:
+  - gezielte Pipeline-Regressionen: `101 passed`
+
+### alpha179
+
+- Unified-Routing-Debug / stale Memory:
+  - Live-Debug-Zeilen fuer `capability_draft`, `candidate_pool`, `memory_hint` und geblockte Memory-Hints direkt im aktiven Unified-Routing-Pfad sichtbar gemacht
+  - explizite SSH-Ziele werden im Prozesspfad jetzt vor stale `memory_hint` festgezogen
+  - Prozess-Level-Regressionen gegen alte `memory_hint`-Uebersteuerung hinzugefuegt
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha179` angehoben
+- Tests:
+  - gezielte Pipeline-Regressionen: `103 passed`
+
+### alpha180
+
+- Capability-Router / SSH-Zielphrasen:
+  - generische SSH-Aliase wie `server` duerfen aktuelle Zielphrasen wie `backup server` oder `monitoring server` nicht mehr still in einen falschen `explicit_ref` uebersetzen
+  - `management server` bleibt weiter ein gueltiger expliziter Treffer
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha180` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-Regressionen: `152 passed`
+
+### alpha181
+
+- Semantic-LLM-Guard fuer SSH-Ziele:
+  - `semantic_llm` darf bei gesetztem `requested_connection_ref` nur dann ein SSH-Ziel waehlen, wenn dieses Ziel die angefragte Rollenphrase auch wirklich stuetzt
+  - dadurch springt `backup server` nicht mehr frei auf `ubnsrv-syncthing`
+  - `monitoring server` kann weiter sinnvoll auf `ubnsrv-netalert` gehen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha181` angehoben
+- Tests:
+  - gezielte Pipeline-/Capability-Regressionen: `154 passed`
+
+### alpha182
+
+- SSH-Zielwahl / Pending-UX:
+  - fuer Rollenphrasen mit fehlendem SSH-Ziel wird jetzt sauber nach einem Profil gefragt, statt zu frueh einen Confirm-Token anzubieten
+  - fehlendes `connection_ref` kann in Pending-Follow-ups jetzt direkt mit einem Profilnamen gefuellt werden
+  - der semantische LLM-Rerank darf bei gesetzter Rollenphrase frueher eingreifen, auch wenn ein schwacher generischer Kandidat schon hoch scored
+  - die Fehlermeldung bei unbekannten Rollenprofilen wurde auf einen hilfreichen Klaerungspfad umgestellt
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha182` angehoben
+- Tests:
+  - gezielte Pipeline-/Chat-Regressionen: `116 passed`
+
+### alpha183
+
+- Pending-Flow / SSH-Zielklaerung:
+  - offene `connection_ref`-Rueckfragen konsumieren jetzt nur noch echte Profilnamen statt versehentlich eine komplett neue Anfrage als Zielprofil zu behandeln
+  - dadurch kann nach einer offenen `backup server`-Rueckfrage ein neuer Prompt wie `wie geht es dem monitoring server` wieder normal neu geroutet werden
+  - fehlende Zielprofile bleiben weiter sauber im Klaerungspfad statt in einen kaputten Confirm-/Execution-Pfad zu kippen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha183` angehoben
+- Tests:
+  - gezielte Pipeline-/Chat-Regressionen: `117 passed`
+
+### alpha184
+
+- SSH-Alias-Lernen / Pending-Chat:
+  - wenn ein fehlendes SSH-Zielprofil im Chat manuell nachgereicht wird, kann ARIA jetzt direkt anbieten, sich die urspruengliche Rollenphrase als Alias fuer das gewaehlte Profil zu merken
+  - offene `connection_ref`-Rueckfragen bleiben dabei weiter auf echte Profilnamen begrenzt und schlucken keine neue Anfrage
+- SSH-Antwortqualitaet:
+  - erfolgreiche `uptime`-Antworten werden fuer den Chat jetzt als kurze, menschlichere Statuszusammenfassung formatiert
+  - Detailzeilen mit Profil und ausgefuehrtem Befehl bleiben unveraendert sichtbar
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha184` angehoben
+- Tests:
+  - gezielte SSH-/Pipeline-/Chat-Regressionen: `120 passed`
+
+### alpha185
+
+- Versionslinien-Cleanup:
+  - frischer interner Build auf eigener, sauber neuer Versionsnummer statt weiterer Wiederverwendung von `alpha184`
+  - aktueller Code-Stand der SSH-Routing-/Pending-/Antwortverbesserungen wird damit eindeutig als `0.1.0-alpha185` ausgeliefert
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha185` angehoben
+- Tests:
+  - gezielte SSH-/Pipeline-/Chat-Regressionen: `169 passed`
+
+### alpha186
+
+- Kosten-/Stats-Cleanup:
+  - Notes-/Routing-Embedding-Pfade haengen jetzt konsistenter am gemeinsamen `usage_meter`
+  - Routing-Index-Refreshes im aktiven Runtime-/Pipeline-Pfad geben ihre Embedding-Kosten nicht mehr still an den Stats vorbei
+  - `/stats` zeigt oben jetzt getrennt `Chat Tokens`, `Embedding Tokens` und `All Model Tokens` statt nur einer zu flachen Gesamtanzeige
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha186` angehoben
+- Tests:
+  - gezielte Token-/Stats-/Notes-/Pipeline-Regressionen: `151 passed`
+
+### alpha187
+
+- Routing-/Antwortqualitaet:
+  - RSS-Themenphrasen wie `tech news` / `security news` werden nicht mehr zu frueh als expliziter Feedname festgezogen
+  - Notes-Ordner werden jetzt case-insensitiv auf vorhandene Ordner wie `Area41` aufgeloest
+  - SSH-Follow-ups wie `pruefe dort den status` und `beim monitoring server` bleiben besser im letzten SSH-Kontext
+  - SSH-Healthchecks laufen als begrenzter Kurzcheck ueber `uptime`, `df -h` und `systemctl --failed --no-pager`
+  - die Chat-Antworten fuer SSH-Kurzchecks und Alias-/Profilklaerungen sind knapper und hilfreicher formuliert
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha187` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-/Chat-/Notes-Regressionen: `196 passed`
+
+### alpha188
+
+- Routing-Hierarchie weiter geschaerft:
+  - frische SSH-Zielphrasen wie `backup server` oder `management server` werden nicht mehr vorschnell als blosse Follow-ups auf den letzten Host umgeschrieben
+  - echte SSH-Follow-ups wie `pruefe dort den status` oder `und wie sieht es beim monitoring server aus` bleiben weiter im letzten SSH-Kontext
+  - RSS-Themenwoerter erzeugen nicht mehr zu frueh ein kuenstliches `requested_connection_ref`
+  - mehrdeutige direkte RSS-Kategoriematches werden im Memory-/Direktmatch-Pfad nicht mehr blind auf den ersten Feed festgezogen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha188` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-Regressionen: `167 passed`
+
+### alpha189
+
+- Routing-/Planner-Nachzug:
+  - semantisch aufgeloeste SSH-Statusanfragen wie `wie geht es dem monitoring server` koennen jetzt denselben bounded `ssh_health_check`-Pfad wie explizite Health-Checks nutzen
+  - RSS-Themenanfragen mit gleich starken Kandidaten wie `tech news` oder `security news` werden nicht mehr frueh auf den ersten Alias-Gewinner festgezogen, sondern fallen in den spaeteren RSS-Verfeinerungspfad
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha189` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-Regressionen: `167 passed`
+
+### alpha190
+
+- Routing-/Antwort-Nachzug:
+  - semantische SSH-Statusanfragen wie `wie geht es dem monitoring server` laufen jetzt im aktiven Pfad ebenfalls ueber den bounded Kurzcheck statt nur ueber `uptime`
+  - RSS-Themenanfragen wie `tech news` oder `security news` fallen bei Kandidatengleichstand im Unified-Pfad nicht mehr direkt auf `kind_only`, sondern bekommen noch einen RSS-Refiner-Versuch
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha190` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-Regressionen: `169 passed`
+
+### alpha191
+
+- RSS-Priorisierung verfeinert:
+  - bei RSS-Themenanfragen mit Gleichstand werden eindeutige Gruppen-/Sammelprofile wie `alle-security-news` vor einzelnen Quellen bevorzugt
+  - wenn kein eindeutiges Gruppenprofil erkennbar ist, bleibt die semantische RSS-Verfeinerung aktiv statt wieder hart zu verdrahten
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha191` angehoben
+- Tests:
+  - gezielte Capability-/Pipeline-Regressionen: `170 passed`
+
+### alpha192
+
+- RSS-Kategorie-Digests:
+  - RSS-Kategorieanfragen wie `security news` oder `tech news` koennen jetzt ueber mehrere Feeds derselben Kategorie als gemeinsame Zusammenfassung laufen statt wieder auf eine einzelne Quelle zu kippen
+  - der Unified-Routing-Pfad markiert dafuer RSS-Gruppenplaene explizit, damit die Runtime eine Kategorieausgabe statt eines Einzel-Feed-Reads ausfuehrt
+  - Detailzeilen koennen jetzt die ausgefuehrte RSS-Kategorie statt nur eines einzelnen RSS-Profils anzeigen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha192` angehoben
+- Tests:
+  - Pipeline-/Capability-/RSS-Regressionen: `178 passed`
+
+### alpha193
+
+- RSS-Kategorie-Digests weiter verstaerkt:
+  - der Chat-/Routing-Pfad kann RSS-Kategorie-Zusammenfassungen jetzt auch dann bilden, wenn im Live-Setup nicht alle Feeds explizit ueber `group_name` gepflegt sind
+  - als Fallback werden gleichartige RSS-Themenkandidaten aus dem Refiner zu einem Kategorie-Bundle zusammengezogen statt wieder auf einen Einzel-Feed zu kippen
+  - damit sollen Anfragen wie `security news` oder `tech news` im Chat endlich an den sichtbaren Kategorien statt nur an einer Einzelquelle haengen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha193` angehoben
+- Tests:
+  - Pipeline-/Capability-/RSS-Regressionen: `179 passed`
+
+### alpha194
+
+- Web-Chat Stabilitaet:
+  - RSS-/Skill-Fehler im Web-Chat crashen nicht mehr ueber einen veralteten Helper-Aufruf in `chat_execution_flow`
+  - Discord-Alert-Zeilen fuer Skill-Fehler werden wieder ueber die zentrale UI-Helferfunktion aufbereitet
+  - damit sollen Kategorieanfragen wie `security news` bei Fehlern sauber antworten statt mit einer ASGI-Exception zu enden
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha194` angehoben
+- Tests:
+  - Chat-/Pipeline-/Capability-/RSS-Regressionen: `192 passed`
+
+### alpha199
+
+- Behavior-Family-Ausbau statt weiterer Connection-Einzelpfade:
+  - `sftp` + `smb` teilen jetzt denselben `file_operation`-Contract fuer Planner + Dry-Run
+  - `rss` + `website` teilen jetzt denselben `source_lookup`-Contract fuer Planner-Scoring + Preview + Input-Ableitung + Dry-Run
+  - `imap` nutzt jetzt denselben `mailbox_access`-Contract fuer Read/Search statt separater Planner-/Dry-Run-Aeste
+  - `http_api` nutzt jetzt denselben `request_target`-Contract fuer API-Requests statt separater Planner-/Dry-Run-Aeste
+- Website-Produktpfad weiter vereinheitlicht:
+  - beobachtete Webseiten laufen fuer Read/List/Gruppenfaelle jetzt staerker ueber den Unified-Routing-/Planner-/Executor-Pfad
+  - der alte Chat-Sonderflow bleibt nur noch fuer leichte Config-/Navigationsfaelle
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha199` angehoben
+- Tests:
+  - Behavior-/Planner-/Dry-Run-/Pipeline-/Website-/Capability-Regressionen: `249 passed`
+
+### alpha200
+
+- SSH-Operationsvertrag statt nur Prompt-/Review-Safety:
+  - neue zentrale `ssh_policy` validiert agentische SSH-Kommandos maschinenlesbar als `allow`, `ask_user` oder `block`
+  - mutierende Befehle, Redirects, Backgrounding und Shell-Injection-Konstrukte werden jetzt hart geblockt statt nur bestaetigt
+  - komplexe, aber read-only wirkende Ketten werden weiter erlaubt vorzuschlagen, aber systematisch auf Bestätigung gesetzt
+  - `allow_commands` wird jetzt strukturiert gematcht statt ueber unscharfe Substring-Treffer
+- Enforcement jetzt konsistent in mehreren Schichten:
+  - Guardrail-/Confirm-Dry-Run
+  - agentische SSH-Decision in der Pipeline
+  - direkte SSH-Runtime-Ausfuehrung
+  - Partial-Salvage von read-only SSH-Ergebnissen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha200` angehoben
+- Tests:
+  - SSH-Policy-/Dry-Run-/Runtime-/Pipeline-Regressionen: `176 passed`
+  - breiter Regression-Block: `131 passed`
+
+### alpha201
+
+- SSH-/API-Feinschliff nach echtem Live-Test:
+  - kurze read-only-SSH-Kurzchecks mit `uptime`, `df -h /`, `free -h` und einem einfachen `systemctl is-active ...` laufen jetzt ohne unnötige Bestätigung
+  - komplexere Shell-Ketten mit Fallbacks oder Pipes bleiben weiter bewusst im Bestätigungspfad
+  - operative Löschanfragen wie `lösche /tmp/test auf dem management server` kippen nicht mehr fälschlich in `memory_forget`
+  - generische Aliaswörter wie `server`, `host`, `api` oder `website` werden nicht mehr als harter Direkt-Match aus dem Memory-Pfad missbraucht
+  - API-Statusfragen mit Wörtern wie `erreichbar` werden jetzt konsistenter als `api_request` erkannt und für die Status-Zusammenfassung vorbereitet
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha201` angehoben
+- Tests:
+  - gezielter Live-Fix-Block: `162 passed`
+  - breiter Regression-Block: `152 passed`
+
+### alpha202
+
+- Mehrere Verbindungstypen in einem Sammelblock aufgezogen statt Einzel-Builds:
+  - `http_api` hat jetzt einen echten read-only Operationsvertrag mit `allow / ask / block`
+  - API-Status-/Health-Antworten fassen jetzt Version, Services und Laufzeit knapper zusammen
+  - `imap` liefert für Read/Search jetzt operator-taugliche Mailbox-Zusammenfassungen statt nur rohe Headerlisten
+  - `rss`-Kategorie-/Bundle-Fälle liefern jetzt kurze RSS-Digests mit Top-Themen und Quellen
+  - `website`-Read/List-Antworten zeigen Gruppe, Beschreibung und Tags sichtbarer statt nur Admin-Link-Dumps
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha202` angehoben
+- Tests:
+  - fokussierte API-/IMAP-/RSS-/Website-Blöcke jeweils grün
+  - breiter Regression-Block: `322 passed`
+### alpha236
+
+- LLM Prompt Debug nach Live-Test korrigiert:
+  - redigierte LLM-Audit-Eintraege werden zusaetzlich workeruebergreifend unter `data/runtime/llm_audit.jsonl` gehalten
+  - `/config/llm/debug` liest diese geteilten Eintraege, damit Chat-Worker und Debug-Seiten-Worker nicht auseinanderlaufen
+  - finale Chat-/RAG-Antworten taggen ihren Gateway-Call als `final_chat_response` inklusive Source, User, Request-ID, Prompt-Messages und LLM-Antwort
+  - Recipe-`llm_transform`-Schritte taggen ihre Calls als `recipe_runtime` / `llm_transform`
+  - `/config/workbench` verlinkt den LLM Prompt Debug jetzt sichtbar in der Workbench-Kachelgruppe
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha236` angehoben
+- Tests:
+  - LLM-Audit-/i18n-/Package-/Gateway-/Release-Regressionen: `10 passed`
+  - i18n-Code-Literal-Audit strict: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha236-local.tar`
+  - Image-ID: `sha256:8a9e92fe413f0fa71a5196a398dd5b18b3e565b3d452948b8ebe2e1b7146d892`
+### alpha237
+
+- Agentic Drift-Fix fuer Server-Diskfragen:
+  - Natural-SSH-Diskbegriffe erkennen jetzt auch `HD`, `HDD`, `hard drive`, `platte`, `platten` und `festplattenplatz`
+  - `wie sieht die hd auf meinem management server aus` wird vor dem allgemeinen RAG-Chat als bounded SSH-Diskcheck modelliert
+  - Regression mit irrelevanten Arlo-Memory-Treffern stellt sicher, dass der Pfad trotzdem `ssh_command` / `df -h` auf `ubnsrv-mgmt-master` bleibt
+- Workbench UI:
+  - `/config/workbench` zeigt den `LLM Prompt Debug` Link direkt in der Workbench-Kachelgruppe
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha237` angehoben
+- Tests:
+  - gezielte Pipeline-/Package-/Release-Regression: `10 passed`
+  - i18n-Code-Literal-Audit strict: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha237-local.tar`
+  - Image-ID: `sha256:ac49e3ede0618d49329c1a66e5a47e22d708c7ac15489d7461d91e5c876e3c3c`
+
+### alpha238
+
+- Agentic Core:
+  - generisches Pre-RAG Action Gate als expliziten Pipeline-Baustein eingefuehrt
+  - Chat-/Memory-Anfragen werden vor Dokumenten-RAG auf Capability-/Connection-Aktionen geprueft
+  - Debug-Ausgabe zeigt jetzt `pre_rag_action_gate` mit Action-Pfad, Capability und Connection-Kind
+  - bestehender Action-Pfad fuer SSH/HTTP/File/Messaging/Read bleibt bounded: LLM/Resolver duerfen vorschlagen, Policy/Runtime entscheiden
+- Regressionen:
+  - SSH-Diskfrage mit irrelevanten Arlo-Memory-Treffern bleibt `ssh_command` / `df -h`
+  - HTTP API, SMB/File, Discord, RSS und Calendar Sanity-Familien bleiben gruen
+- Versionslinie:
+  - interner Build auf `0.1.0-alpha238` angehoben
+- Tests:
+  - gezielte Pipeline-Familien-/Package-/Release-Regression: `13 passed`
+  - i18n-Code-Literal-Audit strict: gruen, 0 Findings
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha238-local.tar`
+  - Image-ID: `sha256:c2449242c6050c95074cf1e2c3b0e2eef8676377cc6115e3d12927ad6cf4582b`

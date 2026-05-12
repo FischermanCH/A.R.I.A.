@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
@@ -9,8 +10,22 @@ from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, P
 from aria.core.config import EmbeddingsConfig, MemoryConfig
 from aria.core.document_ingest import _chunk_text, _normalize_document_text
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.i18n import I18NStore
 from aria.core.notes_store import NoteRecord
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.usage_meter import UsageMeter
+
+_NOTES_INDEX_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _notes_index_text(key: str, default: str = "", **values: object) -> str:
+    template = _NOTES_INDEX_I18N.t("de", f"notes_index.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -42,10 +57,11 @@ class NotesIndex:
         memory: MemoryConfig,
         embeddings: EmbeddingsConfig,
         embedding_client: EmbeddingClient | None = None,
+        usage_meter: UsageMeter | None = None,
     ):
         self.memory = memory
         self.embeddings = embeddings
-        self.embedding_client = embedding_client or EmbeddingClient(embeddings)
+        self.embedding_client = embedding_client or EmbeddingClient(embeddings, usage_meter=usage_meter)
         self.timeout_seconds = embeddings.timeout_seconds
         self.qdrant = create_async_qdrant_client(
             url=memory.qdrant_url,
@@ -165,7 +181,7 @@ class NotesIndex:
             return {"indexed": True, "chunk_count": 0, "collection": self.collection_for_user(note.user_id)}
         vectors, usage = await self._embed_chunks(chunks, user_id=note.user_id)
         if not vectors:
-            raise RuntimeError("Notiz konnte nicht eingebettet werden.")
+            raise RuntimeError(_notes_index_text("embedding_failed", "Note could not be embedded."))
         collection_name = await self._ensure_collection_exists(self.collection_for_user(note.user_id), len(vectors[0]))
         await self.delete_note(user_id=note.user_id, note_id=note.note_id)
         points: list[PointStruct] = []
@@ -251,7 +267,7 @@ class NotesIndex:
             snippet = str(payload.get("text", "")).strip()
             candidate = NoteSearchHit(
                 note_id=note_id,
-                title=str(payload.get("note_title", "")).strip() or "Notiz",
+                title=str(payload.get("note_title", "")).strip() or _notes_index_text("note_fallback", "Note"),
                 folder=str(payload.get("note_folder", "")).strip(),
                 relative_path=str(payload.get("note_path", "")).strip(),
                 updated_at=str(payload.get("updated_at", "")).strip(),

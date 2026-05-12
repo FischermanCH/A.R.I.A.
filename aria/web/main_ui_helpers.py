@@ -12,6 +12,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from markupsafe import Markup
 
 from aria.core.capability_catalog import capability_badge
+from aria.core.i18n import I18NStore
+from aria.web.recipe_ui_contract import RECIPE_STATUS_BADGE_LABEL
+from aria.web.recipe_ui_contract import STORED_RECIPE_BADGE_LABEL
+from aria.web.stored_recipe_ui import build_stored_recipe_progress_hint
 
 try:
     import markdown as markdown_lib
@@ -22,8 +26,19 @@ LANGUAGE_LABELS = {
     "de": "Deutsch",
     "en": "English",
 }
+_MAIN_UI_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:https?://|/)[^\s)]+)\)")
+
+
+def _main_ui_text(language: str | None, key: str, default: str = "", **values: Any) -> str:
+    template = _MAIN_UI_I18N.t(language or "de", f"main_ui.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def replace_agent_name(text: str, agent_name: str) -> str:
@@ -32,48 +47,27 @@ def replace_agent_name(text: str, agent_name: str) -> str:
     return re.sub(r"\b(?:ARIA|Aria)\b", clean_name, raw)
 
 
-def build_client_skill_progress_hints(custom_manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_client_recipe_progress_hints(stored_recipe_manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for manifest in custom_manifests:
-        skill_id = str(manifest.get("id", "")).strip()
-        skill_name = str(manifest.get("name", "")).strip() or skill_id
-        if not skill_id:
-            continue
-        keywords = manifest.get("router_keywords", [])
-        if not isinstance(keywords, list):
-            keywords = []
-        triggers: list[str] = []
-        seen: set[str] = set()
-        for raw in [
-            skill_name.lower(),
-            skill_id.replace("-", " ").lower(),
-            *[str(item).strip().lower() for item in keywords],
-        ]:
-            if not raw or len(raw) < 3 or raw in seen:
-                continue
-            seen.add(raw)
-            triggers.append(raw)
-        steps = manifest.get("steps", [])
-        step_names: list[str] = []
-        if isinstance(steps, list):
-            for item in steps[:8]:
-                if not isinstance(item, dict):
-                    continue
-                name = str(item.get("name", "")).strip()
-                if name:
-                    step_names.append(name)
-        rows.append({"id": skill_id, "name": skill_name, "triggers": triggers, "steps": step_names})
+    for manifest in stored_recipe_manifests:
+        row = build_stored_recipe_progress_hint(manifest)
+        if row:
+            rows.append(row)
     return rows
+
+
+def build_client_skill_progress_hints(custom_manifests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return build_client_recipe_progress_hints(custom_manifests)
 
 
 def daily_time_to_cron(value: str) -> str:
     text = str(value or "").strip()
     if not re.fullmatch(r"\d{2}:\d{2}", text):
-        raise ValueError("Zeit muss im Format HH:MM sein.")
+        raise ValueError(_main_ui_text("de", "time_format_error", "Time must use HH:MM format."))
     hour = int(text[:2])
     minute = int(text[3:5])
     if hour < 0 or hour > 23 or minute < 0 or minute > 59:
-        raise ValueError("Zeit ausserhalb gültiger Grenzen.")
+        raise ValueError(_main_ui_text("de", "time_range_error", "Time is outside valid bounds."))
     return f"{minute} {hour} * * *"
 
 
@@ -147,9 +141,13 @@ def render_assistant_message_html(text: str) -> Markup:
     return Markup("<br>".join(lines))
 
 
-def intent_badge(intents: list[str], skill_errors: list[str] | None = None) -> tuple[str, str]:
-    if skill_errors:
-        text = " ".join(skill_errors).lower()
+def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> tuple[str, str]:
+    from aria.core.recipe_runtime_contract import RECIPE_STATUS_INTENT
+    from aria.core.recipe_runtime_contract import is_recipe_intent
+    from aria.core.recipe_runtime_contract import is_recipe_status_intent
+
+    if recipe_errors:
+        text = " ".join(recipe_errors).lower()
         if "memory_unavailable" in text:
             return "⚠", "memory_unavailable"
         if "embedding_failed" in text:
@@ -159,11 +157,11 @@ def intent_badge(intents: list[str], skill_errors: list[str] | None = None) -> t
         return "🧠", "memory_recall"
     if "memory_store" in intents:
         return "💾", "memory_store"
-    if "skill_status" in intents:
-        return "🧩", "skill_status"
+    if any(is_recipe_status_intent(intent) for intent in intents):
+        return "🧩", RECIPE_STATUS_BADGE_LABEL
     for intent in intents:
-        if str(intent).startswith("custom_skill:"):
-            return "🧩", "custom_skill"
+        if is_recipe_intent(str(intent)):
+            return "🧩", STORED_RECIPE_BADGE_LABEL
     for intent in intents:
         if not str(intent).startswith("capability:"):
             continue
@@ -179,22 +177,22 @@ def intent_badge(intents: list[str], skill_errors: list[str] | None = None) -> t
     return "💬", "chat"
 
 
-def friendly_error_text(skill_errors: list[str] | None) -> str:
-    text = " ".join(skill_errors or []).lower()
+def friendly_error_text(recipe_errors: list[str] | None, *, language: str = "de") -> str:
+    text = " ".join(recipe_errors or []).lower()
     if "memory_unavailable" in text:
-        return "Memory-Dienst nicht verfügbar. Ich antworte ohne gespeichertes Wissen."
+        return _main_ui_text(language, "memory_unavailable", "Memory service is unavailable. I will answer without stored knowledge.")
     if "embedding_failed" in text:
-        return "Textverarbeitung fehlgeschlagen. Bitte Modell/API-Key für Embeddings prüfen."
+        return _main_ui_text(language, "embedding_failed", "Text processing failed. Please check the embedding model/API key.")
     if "memory_error" in text:
-        return "Memory-Verarbeitung fehlgeschlagen. Ich antworte ohne Memory-Kontext."
+        return _main_ui_text(language, "memory_error", "Memory processing failed. I will answer without memory context.")
     if "capability_" in text:
-        return "Die Aktion konnte nicht vollständig ausgeführt werden. Bitte Profil, Ziel und Zugriffsrechte prüfen."
+        return _main_ui_text(language, "capability_error", "The action could not be completed. Please check profile, target, and access rights.")
     return ""
 
 
-def discord_alert_error_lines(skill_errors: list[str] | None, *, limit: int = 4) -> str:
+def discord_alert_error_lines(recipe_errors: list[str] | None, *, limit: int = 4) -> str:
     cleaned_rows: list[str] = []
-    for raw in list(skill_errors or [])[: max(1, int(limit or 4))]:
+    for raw in list(recipe_errors or [])[: max(1, int(limit or 4))]:
         text = str(raw or "").strip()
         if not text:
             continue
@@ -217,7 +215,8 @@ def discord_alert_error_lines(skill_errors: list[str] | None, *, limit: int = 4)
 
 
 def exception_response(request: Request, *, detail: str, status_code: int = 500) -> Response:
-    clean_detail = str(detail or "").strip() or "Unerwarteter Fehler."
+    lang = str(getattr(request.state, "lang", "de") or "de")
+    clean_detail = str(detail or "").strip() or _main_ui_text(lang, "unexpected_error", "Unexpected error.")
     path = str(request.url.path or "").strip()
     accept = str(request.headers.get("accept", "") or "").lower()
     agent_name = str(getattr(request.state, "agent_name", "") or "ARIA").strip() or "ARIA"
@@ -225,13 +224,13 @@ def exception_response(request: Request, *, detail: str, status_code: int = 500)
         return JSONResponse(status_code=status_code, content={"detail": clean_detail})
     if "text/html" in accept:
         html_body = (
-            "<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'>"
+            f"<!DOCTYPE html><html lang='{html.escape(lang[:2] or 'de')}'><head><meta charset='UTF-8'>"
             "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-            f"<title>{html.escape(agent_name)} Fehler</title><link rel='stylesheet' href='/static/style.css'></head>"
+            f"<title>{html.escape(_main_ui_text(lang, 'error_title', '{agent_name} error', agent_name=agent_name))}</title><link rel='stylesheet' href='/static/style.css'></head>"
             "<body><main class='config-layout'><section class='config-card'>"
-            f"<h2>{html.escape(agent_name)} konnte die Seite nicht sauber laden</h2>"
+            f"<h2>{html.escape(_main_ui_text(lang, 'page_load_failed', '{agent_name} could not load this page cleanly.', agent_name=agent_name))}</h2>"
             f"<p>{html.escape(clean_detail)}</p>"
-            "<p><a class='nav-link' href='/'>Zurück zum Chat</a></p>"
+            f"<p><a class='nav-link' href='/'>{html.escape(_main_ui_text(lang, 'back_to_chat', 'Back to chat'))}</a></p>"
             "</section></main></body></html>"
         )
         return HTMLResponse(status_code=status_code, content=html_body)

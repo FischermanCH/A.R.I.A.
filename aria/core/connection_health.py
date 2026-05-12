@@ -7,6 +7,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from aria.core.i18n import I18NStore
+
+_CONNECTION_HEALTH_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _connection_health_text(key: str, default: str = "", **values: object) -> str:
+    template = _CONNECTION_HEALTH_I18N.t("de", f"connection_health.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
 
 _HEALTH_CACHE_LOCK = threading.RLock()
 _HEALTH_CACHE: dict[str, Any] = {
@@ -97,7 +111,7 @@ def record_connection_health(ref: str, *, status: str, target: str, message: str
             send_discord_alerts(
                 settings,
                 category="connection_changes",
-                title="Verbindungsstatus geändert",
+                title=_connection_health_text("status_changed_title", "Connection status changed"),
                 lines=[
                     f"Ref: {ref}",
                     f"Ziel: {entry['last_target']}",

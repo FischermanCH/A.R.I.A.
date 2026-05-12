@@ -8,6 +8,14 @@ import aria.main as main_mod
 from aria.main import AUTH_COOKIE, CONNECTION_CREATE_PENDING_COOKIE, CSRF_COOKIE, FORGET_PENDING_COOKIE, ROUTED_ACTION_PENDING_COOKIE, app
 
 
+def test_runtime_signing_secrets_are_never_empty() -> None:
+    assert main_mod.AUTH_SIGNING_SECRET
+    assert main_mod.FORGET_SIGNING_SECRET
+    assert main_mod.PENDING_ACTION_SIGNING_SECRET
+    assert main_mod.AUTH_SIGNING_SECRET != main_mod.FORGET_SIGNING_SECRET
+    assert main_mod.PENDING_ACTION_SIGNING_SECRET != main_mod.FORGET_SIGNING_SECRET
+
+
 def _current_cookie_name(base_name: str, host: str = "testserver") -> str:
     return main_mod._cookie_name(base_name, public_url=f"http://{host}")
 
@@ -94,7 +102,7 @@ def test_json_fetch_with_invalid_auth_cookie_returns_session_expired_json_and_cl
         ("/", "/"),
         ("/stats", "/stats"),
         ("/memories", "/memories"),
-        ("/skills", "/skills"),
+        ("/recipes", "/recipes"),
         ("/config", "/config"),
         ("/config/llm?return_to=%2Fconfig", "/config/llm?return_to=%2Fconfig"),
     ],

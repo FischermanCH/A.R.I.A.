@@ -10,6 +10,7 @@ from aria.core.runtime_endpoint import _host_port_url
 
 
 ALERT_CATEGORY_FLAGS = {
+    "recipe_errors": "alert_skill_errors",
     "skill_errors": "alert_skill_errors",
     "safe_fix": "alert_safe_fix",
     "connection_changes": "alert_connection_changes",

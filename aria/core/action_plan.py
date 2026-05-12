@@ -11,6 +11,8 @@ class CapabilityDraft:
     requested_connection_ref: str = ""
     path: str = ""
     content: str = ""
+    plan_class: str = ""
+    behavior_profile: str = ""
     confidence: float = 0.0
     notes: list[str] = field(default_factory=list)
 
@@ -33,6 +35,8 @@ class ActionPlan:
     requested_connection_ref: str = ""
     path: str = ""
     content: str = ""
+    plan_class: str = ""
+    behavior_profile: str = ""
     missing_fields: list[str] = field(default_factory=list)
     resolution_source: str = ""
     notes: list[str] = field(default_factory=list)
@@ -84,14 +88,12 @@ def build_action_plan(
         elif connection_ref and _requested_ref_is_soft_hint(requested_connection_ref):
             requested_connection_ref = ""
             resolution_source = resolution_source or "requested_hint"
-        elif _requested_ref_is_soft_hint(requested_connection_ref):
-            requested_connection_ref = ""
         else:
             connection_ref = ""
             resolution_source = "requested_missing"
 
     missing_fields: list[str] = []
-    if not connection_ref:
+    if not connection_ref and draft.capability != "website_list":
         missing_fields.append("connection_ref")
     resolved_path = str(draft.path or "").strip() or str(hints.path or "").strip()
     if not resolved_path:
@@ -99,6 +101,8 @@ def build_action_plan(
             path = "."
         elif draft.capability in {
             "feed_read",
+            "website_read",
+            "website_list",
             "calendar_read",
             "webhook_send",
             "discord_send",
@@ -135,6 +139,8 @@ def build_action_plan(
         requested_connection_ref=requested_connection_ref,
         path=path,
         content=content,
+        plan_class=str(draft.plan_class or "").strip().lower(),
+        behavior_profile=str(draft.behavior_profile or "").strip().lower(),
         missing_fields=missing_fields,
         resolution_source=resolution_source,
         notes=list(draft.notes) + list(hints.notes),

@@ -3,6 +3,18 @@
 </article>
 <article class="msg msg-assistant">
   <div class="msg-text">{{ render_assistant_message_html(assistant_message) }}</div>
+  {% if routed_action_confirm_command %}
+  <div class="msg-actions" aria-label="{{ tr(request, 'chat.pending_action_actions_label', 'Pending action') }}">
+    <button
+      type="button"
+      class="chat-confirm-action js-chat-send-message"
+      data-message="{{ routed_action_confirm_command }}"
+      data-routed-action-pending="{{ routed_action_confirm_payload or '' }}"
+    >
+      {{ tr(request, 'chat.confirm_action_button', 'Run action') }}
+    </button>
+  </div>
+  {% endif %}
   <details class="msg-details">
     <summary>Details</summary>
     <div class="meta-badge">{{ badge_icon }} {{ badge_intent }} · {{ badge_tokens }} tokens · {{ badge_cost_usd }} · {{ badge_duration }}s</div>

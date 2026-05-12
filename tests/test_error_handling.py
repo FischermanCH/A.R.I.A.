@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from urllib.error import HTTPError
 
 from aria.main import (
-    _build_client_skill_progress_hints,
+    _build_client_recipe_progress_hints,
     _discord_alert_error_lines,
     _enable_bootstrap_admin_mode_in_raw_config,
     _is_allowed_edit_path,
@@ -13,18 +13,18 @@ from aria.main import (
     _render_assistant_message_html,
     _resolve_edit_file,
     _replace_agent_name,
-    _validate_custom_skill_manifest,
+    _validate_stored_recipe_manifest,
 )
 from aria.core.access import can_access_settings, is_advanced_config_path
 from aria.core.config import normalize_ui_background, normalize_ui_theme
 from aria.core.connection_runtime import friendly_discord_test_error_message
-from aria.core.skill_runtime import CustomSkillRuntime
+from aria.core.recipe_runtime import RecipeRuntime
 from aria.web.config_routes import _apply_factory_reset_to_raw_config
 from aria.web.config_routes import _friendly_ssh_setup_error_impl
 from aria.web.config_routes import _read_ssh_connections_impl
-from aria.web.skills_routes import _is_admin_mode_request
-from aria.web.skills_routes import _is_valid_csrf_submission
-from aria.web.skills_routes import _remove_custom_skill_config
+from aria.web.recipes_routes import _is_admin_mode_request
+from aria.web.recipes_routes import _is_valid_csrf_submission
+from aria.web.recipes_routes import _remove_custom_skill_config
 
 
 def test_friendly_memory_unavailable_message() -> None:
@@ -40,7 +40,7 @@ def test_friendly_embedding_failed_message() -> None:
 def test_discord_alert_error_lines_strip_multiline_smb_dump() -> None:
     text = _discord_alert_error_lines(
         [
-            "custom_skill_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file\n"
+            "recipe_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file\n"
             "==================== SMB Message 0 ====================\n"
             "SMB Header:\n"
             "-----------\n"
@@ -48,7 +48,7 @@ def test_discord_alert_error_lines_strip_multiline_smb_dump() -> None:
         ]
     )
 
-    assert text == "custom_skill_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file"
+    assert text == "recipe_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file"
     assert "SMB2_COM_TREE_CONNECT" not in text
 
 
@@ -70,8 +70,20 @@ def test_intent_badge_uses_feed_category() -> None:
     assert label == "feed_read"
 
 
-def test_validate_custom_skill_manifest_keeps_skill_name() -> None:
-    clean = _validate_custom_skill_manifest(
+def test_intent_badge_uses_recipe_labels_for_recipe_intents() -> None:
+    icon, label = _intent_badge(["custom_skill:linux-health"], [])
+    assert icon == "🧩"
+    assert label == "stored_recipe"
+
+
+def test_intent_badge_uses_recipe_status_label_for_status_intent() -> None:
+    icon, label = _intent_badge(["skill_status"], [])
+    assert icon == "🧩"
+    assert label == "recipe_status"
+
+
+def test_validate_stored_recipe_manifest_keeps_skill_name() -> None:
+    clean = _validate_stored_recipe_manifest(
         {
             "id": "linux-server-update",
             "name": "Linux Server Update",
@@ -90,8 +102,8 @@ def test_validate_custom_skill_manifest_keeps_skill_name() -> None:
     assert clean["connections"] == ["llm"]
 
 
-def test_validate_custom_skill_manifest_accepts_smb_and_rss_steps() -> None:
-    clean = _validate_custom_skill_manifest(
+def test_validate_stored_recipe_manifest_accepts_smb_and_rss_steps() -> None:
+    clean = _validate_stored_recipe_manifest(
         {
             "id": "news-briefing",
             "name": "News Briefing",
@@ -133,7 +145,7 @@ def test_render_assistant_message_html_renders_markdown_link() -> None:
 
 def test_clean_feed_summary_removes_html_and_truncates() -> None:
     raw = "<p>Hallo <strong>ARIA</strong> mit <a href='https://example.com'>Link</a> und etwas mehr Text für eine Summary.</p>"
-    cleaned = CustomSkillRuntime._clean_feed_summary(raw, limit=40)
+    cleaned = RecipeRuntime._clean_feed_summary(raw, limit=40)
     assert "ARIA" in cleaned
     assert "<strong>" not in cleaned
     assert cleaned.endswith("…")
@@ -146,7 +158,7 @@ def test_replace_agent_name_swaps_plain_aria_tokens_only() -> None:
 
 def test_file_editor_allows_only_catalog_edit_targets() -> None:
     assert _is_allowed_edit_path(Path(__file__).resolve().parents[1] / "prompts" / "persona.md") is True
-    assert _is_allowed_edit_path(Path(__file__).resolve().parents[1] / "prompts" / "skills" / "memory.md") is True
+    assert _is_allowed_edit_path(Path(__file__).resolve().parents[1] / "prompts" / "recipes" / "memory.md") is True
     assert _is_allowed_edit_path(Path(__file__).resolve().parents[1] / "docs" / "help" / "memory.md") is False
     assert _is_allowed_edit_path(Path(__file__).resolve().parents[1] / "aria" / "skills" / "example.py") is False
 
@@ -166,8 +178,8 @@ def test_file_editor_rejects_writing_readonly_help_file() -> None:
         raise AssertionError("readonly help file unexpectedly resolved as editable")
 
 
-def test_build_client_skill_progress_hints_includes_triggers_and_steps() -> None:
-    rows = _build_client_skill_progress_hints(
+def test_build_client_recipe_progress_hints_includes_triggers_and_steps() -> None:
+    rows = _build_client_recipe_progress_hints(
         [
             {
                 "id": "server-update-2nodes",
@@ -184,6 +196,9 @@ def test_build_client_skill_progress_hints_includes_triggers_and_steps() -> None
     assert rows[0]["id"] == "server-update-2nodes"
     assert "server update" in rows[0]["triggers"]
     assert rows[0]["steps"] == ["Update Server 1", "Update Server 2", "Zusammenfassen"]
+    assert rows[0]["candidate_role"] == "stored_recipe_candidate"
+    assert rows[0]["recipe_origin"] == "stored_recipe_manifest"
+    assert rows[0]["recipe_scope"] == {"connection_kinds": [], "step_types": []}
 
 
 def test_apply_factory_reset_to_raw_config_clears_runtime_sections() -> None:

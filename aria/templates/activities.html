@@ -22,7 +22,7 @@
 
   <section class="stat-card">
     <h2>{{ tr(request, 'activities.title', 'Aktivitäten & Runs') }}</h2>
-    <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Skill-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
+    <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Rezept-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
   </section>
 
   <section class="stat-card">
@@ -30,7 +30,7 @@
       <label for="kind">{{ tr(request, 'activities.filter_label', 'Bereich') }}</label>
       <select id="kind" name="kind">
         <option value="all" {% if activity_kind == "all" %}selected{% endif %}>{{ tr(request, 'activities.filter_all', 'Alle') }}</option>
-        <option value="skill" {% if activity_kind == "skill" %}selected{% endif %}>{{ tr(request, 'activities.filter_skill', 'Skills') }}</option>
+        <option value="recipe" {% if activity_kind == "recipe" %}selected{% endif %}>{{ tr(request, 'activities.filter_skill', 'Rezepte') }}</option>
         <option value="memory" {% if activity_kind == "memory" %}selected{% endif %}>{{ tr(request, 'activities.filter_memory', 'Memory') }}</option>
         <option value="system" {% if activity_kind == "system" %}selected{% endif %}>{{ tr(request, 'activities.filter_system', 'System') }}</option>
       </select>
@@ -47,7 +47,7 @@
   {% if activities.rows %}
     <section class="stats-details-content">
       {% for row in activities.rows %}
-        <details class="memory-card activity-card" {% if row.skill_errors %}open{% endif %}>
+        <details class="memory-card activity-card" {% if row.recipe_errors or row.skill_errors %}open{% endif %}>
           <summary class="memory-summary">
             <div class="memory-summary-main">
               <strong class="memory-title">{{ row.title }}</strong>
@@ -69,13 +69,14 @@
               <li><span>{{ tr(request, item.key, item.fallback) }}</span><strong>{{ item.value }}</strong></li>
               {% endfor %}
             </ul>
-            {% if row.skill_errors %}
+            {% set activity_errors = row.recipe_errors or row.skill_errors %}
+            {% if activity_errors %}
             <details class="stats-details activity-errors" open>
               <summary>{{ tr(request, 'activities.error_details', 'Fehlerdetails') }}</summary>
               <div class="stats-details-content">
                 <section class="stat-card">
                   <ul class="stats-list">
-                    {% for error in row.skill_errors %}
+                    {% for error in activity_errors %}
                     <li><span>{{ error }}</span></li>
                     {% endfor %}
                   </ul>

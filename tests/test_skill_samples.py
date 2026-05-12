@@ -31,7 +31,7 @@ ALLOWED_STEP_TYPES = {
 
 
 def test_sample_skill_manifests_are_valid_json_and_use_supported_step_types() -> None:
-    sample_dir = Path("/home/fischerman/ARIA/samples/skills")
+    sample_dir = Path("/home/fischerman/ARIA/samples/recipes")
     files = sorted(sample_dir.glob("*.json"))
 
     assert files

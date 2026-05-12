@@ -6,8 +6,10 @@ import hmac
 import json
 import re
 import time
+from pathlib import Path
 from typing import Any
 from typing import Callable
+from urllib.parse import urlparse
 
 from aria.core.connection_admin import CONNECTION_ADMIN_SPECS
 from aria.core.connection_admin import sanitize_connection_ref
@@ -21,67 +23,62 @@ from aria.core.connection_catalog import connection_summary_fields
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.connection_catalog import sanitize_connection_payload
 
+_CHAT_ADMIN_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "chat_admin_actions.json"
+
+
+def _load_chat_admin_lexicon() -> dict[str, Any]:
+    try:
+        raw = json.loads(_CHAT_ADMIN_LEXICON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not load chat admin lexicon: {_CHAT_ADMIN_LEXICON_PATH}") from exc
+    return raw if isinstance(raw, dict) else {}
+
+
+_CHAT_ADMIN_LEXICON = _load_chat_admin_lexicon()
 _CONNECTION_ACTION_VERBS: dict[str, str] = {
-    "create": r"(?:erstelle|erzeuge|lege an|erfasse|create)",
-    "update": r"(?:aktualisiere|update|ändere|aendere|bearbeite)",
+    str(key): str(value)
+    for key, value in dict(_CHAT_ADMIN_LEXICON.get("connection_action_verbs", {})).items()
+    if str(key).strip() and str(value).strip()
 }
 
 _CONNECTION_URL_FIELDS = {"webhook_url", "feed_url", "url", "base_url"}
 _CONNECTION_LEADING_VALUE_KEYWORDS = {
-    "host",
-    "user",
-    "key",
-    "key_path",
-    "schluesselpfad",
-    "keypfad",
-    "share",
-    "pfad",
-    "path",
-    "root",
-    "root_path",
-    "from",
-    "to",
-    "mailbox",
-    "topic",
-    "port",
-    "timeout",
-    "passwort",
-    "password",
-    "token",
-    "auth_token",
-    "auth-token",
-    "method",
-    "methode",
-    "strict",
-    "checking",
-    "host-key",
-    "allow",
-    "commands",
-    "titel",
-    "title",
-    "beschreibung",
-    "description",
-    "tags",
-    "tag",
-    "aliase",
-    "aliases",
-    "alias",
+    str(value).strip().lower()
+    for value in _CHAT_ADMIN_LEXICON.get("leading_value_keywords", [])
+    if str(value).strip()
 }
 
 SanitizeString = Callable[[str | None], str]
 NowProvider = Callable[[], float]
 
 
+def _lexicon_pattern(name: str) -> str:
+    patterns = _CHAT_ADMIN_LEXICON.get("patterns", {})
+    if not isinstance(patterns, dict):
+        return ""
+    return str(patterns.get(name) or "")
+
+
+def _lexicon_phrases(name: str) -> tuple[str, ...]:
+    phrases = _CHAT_ADMIN_LEXICON.get("phrases", {})
+    if not isinstance(phrases, dict):
+        return ()
+    raw = phrases.get(name, [])
+    if not isinstance(raw, list):
+        return ()
+    return tuple(str(value).strip().lower() for value in raw if str(value).strip())
+
+
 def _parse_forget_query(message: str) -> str:
     text = re.sub(r"\s+", " ", message).strip()
-    pattern = re.compile(r"^(vergiss|lösch|lösch|entfern|delete|remove)\s+", re.IGNORECASE)
+    pattern = re.compile(_lexicon_pattern("forget_query_prefix"), re.IGNORECASE)
     return pattern.sub("", text).strip(" .,:;!?") or text
 
 
 def _parse_forget_confirm_token(message: str) -> str | None:
     text = message.strip().lower()
     match = re.search(
-        r"(?:bestätige|bestätige|lösche|lösche|delete)\s+(?:jetzt\s+)?([a-z0-9]{6,16})",
+        _lexicon_pattern("forget_confirm_token"),
         text,
     )
     if not match:
@@ -92,7 +89,7 @@ def _parse_forget_confirm_token(message: str) -> str | None:
 def _parse_safe_fix_confirm_token(message: str) -> str | None:
     text = message.strip().lower()
     match = re.search(
-        r"(?:bestätige|bestätige|confirm)\s+(?:safe-?fix\s+|fix\s+)?([a-z0-9]{6,16})",
+        _lexicon_pattern("safe_fix_confirm_token"),
         text,
     )
     if not match:
@@ -103,7 +100,7 @@ def _parse_safe_fix_confirm_token(message: str) -> str | None:
 def _parse_connection_delete_request(message: str) -> tuple[str, str] | None:
     text = re.sub(r"\s+", " ", str(message or "")).strip()
     match = re.search(
-        r"(?:lösche|loesche|entferne|delete|remove)\s+(?:die\s+|das\s+|den\s+)?(?:(ssh|discord|sftp|smb|webhook|smtp|email|imap|http api|http-api|rss|mqtt)\s+)?(?:verbindung|profil)?\s*([a-z0-9._-]+)",
+        _lexicon_pattern("connection_delete_request"),
         text,
         re.IGNORECASE,
     )
@@ -117,7 +114,7 @@ def _parse_connection_delete_request(message: str) -> tuple[str, str] | None:
 def _parse_connection_delete_confirm_token(message: str) -> str | None:
     text = message.strip().lower()
     match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:verbindung\s+)?(?:(?:löschen|loeschen|delete)\s+)?([a-z0-9]{6,16})",
+        _lexicon_pattern("connection_delete_confirm_token"),
         text,
     )
     if not match:
@@ -130,10 +127,10 @@ def _extract_connection_create_metadata(text: str) -> dict[str, Any]:
         match = re.search(pattern, text, re.IGNORECASE)
         return str(match.group(1)).strip() if match else ""
 
-    title = _extract(r'(?:titel|title)\s+"([^"]+)"')
-    description = _extract(r'(?:beschreibung|description)\s+"([^"]+)"')
-    tags_raw = _extract(r'(?:tags|tag)\s+"([^"]+)"')
-    aliases_raw = _extract(r'(?:aliase|aliases|alias)\s+"([^"]+)"')
+    title = _extract(_lexicon_pattern("metadata_title"))
+    description = _extract(_lexicon_pattern("metadata_description"))
+    tags_raw = _extract(_lexicon_pattern("metadata_tags"))
+    aliases_raw = _extract(_lexicon_pattern("metadata_aliases"))
 
     payload: dict[str, Any] = {}
     if title:
@@ -171,11 +168,8 @@ def _match_connection_request_header(text: str, action: str) -> tuple[str, str, 
     verbs = _CONNECTION_ACTION_VERBS.get(action, "")
     if not verbs:
         return None
-    match = re.search(
-        rf"^{verbs}\s+(?:eine\s+|ein\s+)?(?P<alias>{alias_pattern})(?:\s+verbindung|\s+profil)?\s+(?P<ref>[a-z0-9._-]+)(?P<rest>.*)$",
-        text,
-        re.IGNORECASE,
-    )
+    header_pattern = _lexicon_pattern("connection_request_header").format(verbs=verbs, alias_pattern=alias_pattern)
+    match = re.search(header_pattern, text, re.IGNORECASE)
     if not match:
         return None
     alias = str(match.group("alias") or "").strip().lower()
@@ -274,7 +268,79 @@ def _parse_catalog_connection_request(message: str, action: str) -> dict[str, An
     return {"kind": kind, "ref": ref, "payload": clean_payload}
 
 
+def _website_ref_from_url(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    host = str(parsed.netloc or "").strip().lower()
+    host = host.split("@")[-1].split(":")[0]
+    host = re.sub(r"^www\.", "", host)
+    path = str(parsed.path or "").strip().strip("/")
+    parts: list[str] = []
+    if host:
+        parts.append(host.replace(".", "-"))
+    if path:
+        slug = re.sub(r"[^a-z0-9]+", "-", path.lower()).strip("-")
+        if slug:
+            parts.append(slug[:24])
+    return sanitize_connection_ref("-".join(parts[:2])[:48])
+
+
+def _parse_website_watch_shortcut(message: str) -> dict[str, Any] | None:
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    match = re.search(
+        _lexicon_pattern("website_watch_shortcut"),
+        text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    url = str(match.group(1) or "").strip().rstrip(").,;")
+    ref = _website_ref_from_url(url)
+    if not ref:
+        return None
+    payload = connection_chat_defaults("website")
+    payload.update(_extract_connection_create_metadata(text))
+    payload["url"] = url
+    clean_payload = sanitize_connection_payload("website", payload)
+    return {"kind": "website", "ref": ref, "payload": clean_payload}
+
+
+def _parse_website_update_shortcut(message: str) -> dict[str, Any] | None:
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    patterns = _CHAT_ADMIN_LEXICON.get("website_update_shortcuts", [])
+    if not isinstance(patterns, list):
+        patterns = []
+    for row in patterns:
+        if not isinstance(row, dict):
+            continue
+        pattern = str(row.get("pattern") or "")
+        match = re.search(pattern, text, re.IGNORECASE)
+        if not match:
+            continue
+        ref = sanitize_connection_ref(str(match.group(1) or "").strip())
+        if not ref:
+            return None
+        field = str(row.get("field") or "").strip()
+        group_index = int(row.get("group") or 2)
+        value = str(match.group(group_index) or "").strip()
+        rstrip_chars = str(row.get("rstrip") or "")
+        if rstrip_chars:
+            value = value.rstrip(rstrip_chars)
+        if not field or not value:
+            return None
+        payload = connection_chat_defaults("website")
+        payload.update(_extract_connection_create_metadata(text))
+        payload[field] = value
+        clean_payload = sanitize_connection_payload("website", payload)
+        if not clean_payload:
+            return None
+        return {"kind": "website", "ref": ref, "payload": clean_payload}
+    return None
+
+
 def _parse_connection_create_request(message: str) -> dict[str, Any] | None:
+    shortcut = _parse_website_watch_shortcut(message)
+    if shortcut is not None:
+        return shortcut
     return _parse_catalog_connection_request(message, "create")
 
 
@@ -303,7 +369,7 @@ def _format_connection_payload_summary(kind: str, payload: dict[str, Any]) -> li
 def _parse_connection_create_confirm_token(message: str) -> str | None:
     text = message.strip().lower()
     match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:verbindung\s+)?(?:(?:erstellen|erfassen|create)\s+)?([a-z0-9]{6,16})",
+        _lexicon_pattern("connection_create_confirm_token"),
         text,
     )
     if not match:
@@ -312,13 +378,16 @@ def _parse_connection_create_confirm_token(message: str) -> str | None:
 
 
 def _parse_connection_update_request(message: str) -> dict[str, Any] | None:
+    shortcut = _parse_website_update_shortcut(message)
+    if shortcut is not None:
+        return shortcut
     return _parse_catalog_connection_request(message, "update")
 
 
 def _parse_connection_update_confirm_token(message: str) -> str | None:
     text = message.strip().lower()
     match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:verbindung\s+)?(?:(?:aktualisieren|update|aendern|ändern)\s+)?([a-z0-9]{6,16})",
+        _lexicon_pattern("connection_update_confirm_token"),
         text,
     )
     if not match:
@@ -338,47 +407,17 @@ def _matches_chat_phrase(message: str, phrases: tuple[str, ...]) -> bool:
 
 
 def _parse_update_run_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "starte update",
-            "start update",
-            "führe update aus",
-            "fuehre update aus",
-            "run update",
-            "installiere update",
-            "update jetzt",
-            "jetzt updaten",
-            "kontrolliertes update starten",
-        ),
-    )
+    return _matches_chat_phrase(message, _lexicon_phrases("update_run"))
 
 
 def _parse_update_status_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "zeige update status",
-            "show update status",
-            "update status",
-            "status vom update",
-            "status des updates",
-            "läuft ein update",
-            "laeuft ein update",
-            "läuft gerade ein update",
-            "laeuft gerade ein update",
-            "update helper status",
-            "öffne update seite",
-            "oeffne update seite",
-            "open update page",
-        ),
-    )
+    return _matches_chat_phrase(message, _lexicon_phrases("update_status"))
 
 
 def _parse_update_confirm_token(message: str) -> str | None:
     text = _normalize_chat_command_text(message)
     match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:kontrolliertes\s+)?(?:update\s+)?([a-z0-9]{6,16})",
+        _lexicon_pattern("update_confirm_token"),
         text,
     )
     if not match:
@@ -389,7 +428,7 @@ def _parse_update_confirm_token(message: str) -> str | None:
 def _parse_routed_action_confirm_token(message: str) -> str | None:
     text = _normalize_chat_command_text(message)
     match = re.search(
-        r"(?:bestätige|bestaetige|confirm)\s+(?:aktion|ausfuehrung|ausführung|action|execute)\s+([a-z0-9]{6,16})",
+        _lexicon_pattern("routed_action_confirm_token"),
         text,
     )
     if not match:
@@ -398,62 +437,19 @@ def _parse_routed_action_confirm_token(message: str) -> str | None:
 
 
 def _parse_backup_export_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "exportiere config backup",
-            "export config backup",
-            "erstelle config backup",
-            "create config backup",
-            "download config backup",
-            "sichere aria config",
-            "backup der config",
-            "backup der konfig",
-        ),
-    )
+    return _matches_chat_phrase(message, _lexicon_phrases("backup_export"))
 
 
 def _parse_backup_import_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "importiere config backup",
-            "import config backup",
-            "restore config backup",
-            "spiele config backup ein",
-            "backup wiederherstellen",
-            "restore backup",
-        ),
-    )
+    return _matches_chat_phrase(message, _lexicon_phrases("backup_import"))
 
 
 def _parse_stats_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "zeige stats",
-            "show stats",
-            "zeige statistiken",
-            "show statistics",
-            "öffne stats",
-            "oeffne stats",
-        ),
-    )
+    return _matches_chat_phrase(message, _lexicon_phrases("stats"))
 
 
 def _parse_activities_request(message: str) -> bool:
-    return _matches_chat_phrase(
-        message,
-        (
-            "zeige aktivitäten",
-            "zeige aktivitaeten",
-            "show activities",
-            "zeige runs",
-            "show runs",
-            "öffne aktivitäten",
-            "oeffne aktivitaeten",
-        ),
-    )
+    return _matches_chat_phrase(message, _lexicon_phrases("activities"))
 
 
 def _sign_pending_payload(payload: dict[str, Any], *, signing_secret: str) -> str:

@@ -646,7 +646,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
                 )
             if operation == "action_plan_debug":
                 return SimpleNamespace(
-                    content='{"candidate_kind":"template","candidate_id":"ssh_health_check","intent":"health_check","confidence":"high","ask_user":false,"reason":"health check fits this request"}'
+                    content='{"candidate_kind":"template","candidate_id":"ssh_run_command","intent":"health_check","confidence":"high","ask_user":false,"reason":"health check fits this request"}'
                 )
             raise AssertionError(f"unexpected operation: {operation}")
 
@@ -667,7 +667,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
     assert meta["action_debug"]["status"] == "ok"
     assert meta["action_debug"]["decision"]["candidate_kind"] == "template"
     assert meta["action_debug"]["decision"]["candidate_kind_label"] == "Template"
-    assert meta["action_debug"]["decision"]["candidate_id"] == "ssh_health_check"
+    assert meta["action_debug"]["decision"]["candidate_id"] == "ssh_run_command"
     assert meta["action_debug"]["decision"]["intent_label"] == "Gesundheitscheck"
     assert meta["action_debug"]["decision"]["capability"] == "ssh_command"
     assert meta["action_debug"]["decision"]["capability_label"] == "SSH-Befehl"

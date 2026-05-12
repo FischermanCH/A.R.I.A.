@@ -7,7 +7,7 @@
 - Short 2-4 line summary of what changed and why this release matters.
 
 ### Added
-- New features, new connections, new skills, new UI areas, new themes, new docs.
+- New features, new connections, new recipes, new UI areas, new themes, new docs.
 
 ### Changed
 - Behaviour/UX/routing/architecture changes that are not strictly bugfixes.
@@ -33,7 +33,7 @@
 - one normal chat prompt
 - one Memory store/recall/export flow
 - one RSS flow
-- one SSH/SFTP/SMB/Discord skill flow
+- one SSH/SFTP/SMB/Discord recipe flow
 - mobile Safari/iPhone sanity check
 
 ### Docs
@@ -44,3 +44,12 @@
 - Help: `docs/help/help-system.md`
 - Changelog: `CHANGELOG.md`
 ```
+
+
+## Public Rollup Draft
+
+For the next public release after `0.1.0-alpha167`, start from:
+
+- `docs/release/public-alpha-rollup-alpha167-to-next.md`
+
+That file is the human-readable release narrative. `CHANGELOG.md` remains the detailed technical source.

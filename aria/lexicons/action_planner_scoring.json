@@ -1,0 +1,256 @@
+{
+  "action_preference_hints": {
+    "list_like": [
+      "list",
+      "liste",
+      "dateien",
+      "files",
+      "ordner",
+      "verzeichnis",
+      "directory",
+      "inhalt",
+      "contents"
+    ],
+    "publish_like": [
+      "publish",
+      "mqtt",
+      "topic",
+      "broker",
+      "event",
+      "payload"
+    ],
+    "read_like": [
+      "read",
+      "lies",
+      "lese",
+      "zeige",
+      "open",
+      "mail lesen",
+      "emails lesen",
+      "feed",
+      "news",
+      "calendar",
+      "kalender"
+    ],
+    "request_like": [
+      "api",
+      "request",
+      "fetch",
+      "call",
+      "endpoint",
+      "health",
+      "status"
+    ],
+    "search_like": [
+      "search",
+      "suche",
+      "finde",
+      "durchsuche",
+      "lookup"
+    ],
+    "send_like": [
+      "send",
+      "sende",
+      "schick",
+      "schicke",
+      "nachricht",
+      "message",
+      "notify",
+      "alert",
+      "mail"
+    ],
+    "status_like": [
+      "health",
+      "status",
+      "uptime",
+      "online",
+      "running",
+      "laeuft",
+      "läuft",
+      "wie geht",
+      "erreichbar"
+    ],
+    "write_like": [
+      "write",
+      "schreib",
+      "speicher",
+      "save",
+      "sync",
+      "update file"
+    ]
+  },
+  "intent_hints": {
+    "api_request": [
+      "api",
+      "request",
+      "fetch",
+      "call",
+      "endpoint"
+    ],
+    "health_check": [
+      "health",
+      "status",
+      "uptime",
+      "online",
+      "running",
+      "laeuft",
+      "läuft",
+      "pruef",
+      "prüf",
+      "check"
+    ],
+    "list_files": [
+      "list",
+      "liste",
+      "dateien",
+      "files",
+      "ordner",
+      "verzeichnis",
+      "directory"
+    ],
+    "publish_message": [
+      "mqtt",
+      "topic",
+      "broker",
+      "publish",
+      "event",
+      "nachricht",
+      "payload"
+    ],
+    "read_calendar": [
+      "calendar",
+      "kalender",
+      "termine",
+      "meeting",
+      "appointment",
+      "agenda",
+      "heute",
+      "morgen",
+      "today",
+      "tomorrow"
+    ],
+    "read_feed": [
+      "rss",
+      "feed",
+      "news",
+      "headlines",
+      "meldungen",
+      "nachrichten"
+    ],
+    "read_file": [
+      "read",
+      "open",
+      "cat",
+      "datei",
+      "file",
+      "hosts",
+      "config"
+    ],
+    "read_mail": [
+      "imap",
+      "mailbox",
+      "postfach",
+      "inbox",
+      "emails",
+      "mail lesen",
+      "read mail"
+    ],
+    "run_command": [
+      "run",
+      "execute",
+      "fuehre",
+      "führe",
+      "command",
+      "shell",
+      "systemctl",
+      "journalctl"
+    ],
+    "search_mail": [
+      "imap",
+      "mailbox",
+      "postfach",
+      "suche",
+      "search",
+      "finde",
+      "emails"
+    ],
+    "send_message": [
+      "send",
+      "message",
+      "nachricht",
+      "discord",
+      "channel",
+      "alert",
+      "notify"
+    ],
+    "write_file": [
+      "write",
+      "save",
+      "sync",
+      "speicher",
+      "schreib"
+    ]
+  },
+  "template_profile_terms": {
+    "calendar_read": [
+      "heute",
+      "today",
+      "morgen",
+      "tomorrow",
+      "next",
+      "naechst",
+      "nächst"
+    ],
+    "calendar_read_topic": [
+      "calendar",
+      "kalender",
+      "termine",
+      "meeting",
+      "appointment",
+      "agenda"
+    ],
+    "discord_send": [
+      "schick",
+      "sende",
+      "send",
+      "nachricht",
+      "message"
+    ],
+    "email_send": [
+      "mail",
+      "email",
+      "smtp",
+      "schick",
+      "sende",
+      "send"
+    ],
+    "mqtt_publish": [
+      "mqtt",
+      "topic",
+      "broker",
+      "publish",
+      "publiziere",
+      "sende",
+      "event"
+    ],
+    "ssh_status_like": [
+      "health",
+      "status",
+      "zustand",
+      "online",
+      "läuft",
+      "laeuft",
+      "wie geht",
+      "check server"
+    ],
+    "webhook_send": [
+      "webhook",
+      "hook",
+      "callback",
+      "poste",
+      "sende",
+      "send",
+      "payload"
+    ]
+  }
+}

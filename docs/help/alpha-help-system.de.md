@@ -14,7 +14,7 @@ Gut geeignet für:
 - Memory mit Qdrant
 - Notizen als eigenen Markdown-Arbeitsbereich
 - SSH / SFTP / SMB / RSS / Discord / HTTP-API / Webhook / Mail / MQTT
-- Custom Skills, die mehrere Schritte automatisieren
+- gespeicherte Rezepte, die mehrere Schritte automatisieren
 
 Noch nicht als Ziel gedacht:
 
@@ -32,7 +32,7 @@ Danach solltest du zuerst diese Dinge prüfen:
 2. `/config/embeddings` - Embedding-Modell für Memory
 3. `/stats` - Preflight, Qdrant, Modellstatus, Logs
 4. `/config` - Connections zu deinen Systemen
-5. `/skills` - Custom Skills importieren oder mit dem Wizard bauen
+5. `/recipes` - Rezepte importieren oder mit dem Wizard bauen
 
 ## Admin-Modus und User-Modus
 
@@ -45,11 +45,11 @@ Wenn dir Konfigurationsseiten fehlen, prüfe unter `/config/users`, ob **Admin a
 
 ## Chat und Message-Details
 
-Im Chat kannst du normal fragen oder über natürliche Prompts Connections und Skills triggern.
+Im Chat kannst du normal fragen oder über natürliche Prompts Connections und Rezepte triggern.
 
 Unter **Details** siehst du pro Antwort unter anderem:
 
-- welcher Intent / Skill / Capability genutzt wurde
+- welcher Intent / Rezept / Capability genutzt wurde
 - Token-Anzahl
 - Kosten in USD, falls ARIA für das Modell Preise kennt
 - Laufzeit
@@ -123,8 +123,8 @@ Je besser Titel / Aliase / Tags gepflegt sind, desto eher trifft ARIA bei freien
 
 ### Discord / Webhook / HTTP-API
 
-- Discord ist aktuell vor allem als Webhook-Ziel und Skill-Output-Kanal gedacht
-- für Discord-Connections kannst du z. B. Testposts und `Skill-Ziel erlauben` setzen
+- Discord ist aktuell vor allem als Webhook-Ziel und Rezept-Output-Kanal gedacht
+- für Discord-Connections kannst du z. B. Testposts und `Rezept-Ziel erlauben` setzen
 - HTTP-API und Webhook sind für gezielte Request-/Send-Flows gedacht
 
 ### SearXNG / Websuche
@@ -178,16 +178,16 @@ Hinweise:
 - die RSS-Seite zeigt in der Übersicht primär den letzten bekannten Cache-Status
 - wenn eine URL JSON statt RSS/Atom liefert, lege sie besser unter HTTP-API an
 
-## Skills
+## Rezepte
 
-Custom Skills sind JSON-Manifeste mit einer Liste von Steps.
+Gespeicherte Rezepte sind JSON-Manifeste mit einer Liste von Steps.
 
-Im Skill Wizard kannst du:
+Im Rezept-Wizard kannst du:
 
-- Skills erstellen / bearbeiten
+- Rezepte erstellen / bearbeiten
 - Steps hinzufügen, duplizieren, verschieben, löschen
-- Skills aktivieren / deaktivieren
-- Skills importieren / löschen
+- Rezepte aktivieren / deaktivieren
+- Rezepte importieren / löschen
 
 Wichtige Step-Typen:
 
@@ -204,7 +204,7 @@ Wichtige Step-Typen:
 - `llm_transform` nimmt eine technische Step-Ausgabe und lässt ein LLM daraus eine bessere Zusammenfassung oder Auswahl bauen
 - `chat_send` schreibt das Ergebnis direkt in den Chat
 
-Platzhalter im Skill-Prompt:
+Platzhalter im Rezept-Prompt:
 
 - `{prev_output}` = Ergebnis des direkt vorherigen Steps
 - `{s1_output}`, `{s2_output}`, ... = gezielt auf frühere Steps zugreifen
@@ -214,9 +214,9 @@ Damit kannst du z. B. mehrere RSS-Feeds in mehreren `rss_read`-Steps holen und d
 
 ## Mitgelieferte Samples
 
-ARIA bringt Beispiel-Skills und Beispiel-Connections mit.
+ARIA bringt Beispiel-Rezepte und Beispiel-Connections mit.
 
-- auf `/skills` kannst du Sample-Skills direkt importieren
+- auf `/recipes` kannst du Sample-Rezepte direkt importieren
 - auf `/config` kannst du Sample-Connections direkt importieren
 
 Die Samples sind bewusst Templates. In der Praxis musst du meistens Refs, Hosts, URLs oder Discord-Webhooks auf deine Umgebung anpassen.
@@ -237,13 +237,13 @@ Die grünen/gelben/roten Lämpchen zeigen dir schnell, wo etwas gesund ist und w
 
 ### Preise aktualisieren
 
-Wenn du OpenAI / Anthropic / OpenRouter nutzt und Kosten sehen willst, kannst du in `/stats` **Preise aktualisieren** ausführen.
+Wenn du externe LLM-/Embedding-Provider nutzt und Kosten sehen willst, kannst du in `/stats` **Preise aktualisieren** ausführen. ARIA nutzt dafuer die LiteLLM-GitHub-Preisliste und cached die letzte gute Kopie lokal.
 
 Lokale Modelle wie Ollama können absichtlich ohne USD-Preis erscheinen.
 
 ### Statistik-Reset
 
-Mit Statistik-Reset kannst du Token-/Kosten-/Activity-Daten zurücksetzen. Das löscht **nicht** deine Memories, Skills oder Connections.
+Mit Statistik-Reset kannst du Token-/Kosten-/Activity-Daten zurücksetzen. Das löscht **nicht** deine Memories, Rezepte oder Connections.
 
 ## Security
 
@@ -276,13 +276,13 @@ Prüfe:
 - ist Auto-Memory aktiv?
 - gibt es überhaupt passende Fakten/Präferenzen in `/memories`?
 
-### Skill triggert nicht
+### Rezept triggert nicht
 
 Prüfe:
 
-- Skill ist aktiv?
+- Rezept ist aktiv?
 - Trigger / Beschreibung / Aliase sind klar genug?
-- Custom-Skill-Routing kollidiert nicht mit einem zu generischen Prompt?
+- Rezept-Routing kollidiert nicht mit einem zu generischen Prompt?
 - verwendete Connection-Refs stimmen?
 
 ### Connection-Test ist rot

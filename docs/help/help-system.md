@@ -31,7 +31,7 @@ Das bringt fuer ARIA derzeit den groesseren Nutzen:
 
 - Quick Start
 - Memory und Dokumenten-RAG
-- Skills
+- Rezepte
 - Connections
 - Releases / Upgrades
 - Pricing
@@ -88,7 +88,7 @@ Mögliche Speicherorte später:
 **Titel:** Erster Start
 
 **Text:**  
-Beim ersten Start legst du den ersten ARIA-Benutzer an. Dieser erste Benutzer wird automatisch Admin und kann danach LLMs, Connections, Skills und Security-Einstellungen konfigurieren.
+Beim ersten Start legst du den ersten ARIA-Benutzer an. Dieser erste Benutzer wird automatisch Admin und kann danach LLMs, Connections, Rezepte und Security-Einstellungen konfigurieren.
 
 ### `llm.setup`
 
@@ -123,14 +123,14 @@ Mit Forget entfernst du gespeicherte Erinnerungen gezielt wieder aus Qdrant. Lee
 **Titel:** Titel, Kurzbeschreibung, Aliase, Tags
 
 **Text:**  
-Diese Metadaten sind nicht nur Beschreibungstext. ARIA nutzt sie beim Routing, um freie Chat-Fragen der passenden Connection oder dem passenden Skill zuzuordnen. Gute Aliase und kurze Beschreibungen verbessern die Trefferquote deutlich.
+Diese Metadaten sind nicht nur Beschreibungstext. ARIA nutzt sie beim Routing, um freie Chat-Fragen der passenden Connection oder dem passenden Rezept zuzuordnen. Gute Aliase und kurze Beschreibungen verbessern die Trefferquote deutlich.
 
 ### `ssh.profile`
 
 **Titel:** SSH-Profil
 
 **Text:**  
-Ein SSH-Profil beschreibt, wie ARIA einen Server erreicht: Host, Port, User, Authentifizierung und Timeout. Was ARIA dort konkret ausführen soll, wird meist über Skills oder Capability-Flows definiert.
+Ein SSH-Profil beschreibt, wie ARIA einen Server erreicht: Host, Port, User, Authentifizierung und Timeout. Was ARIA dort konkret ausführen soll, wird meist über Rezepte oder Capability-Flows definiert.
 
 ### `rss.group`
 
@@ -153,26 +153,26 @@ Aliase, Tags, Titel und Kurzbeschreibung helfen ARIA, Fragen wie „was gibt es 
 **Text:**  
 Dieses Intervall gilt global für alle RSS-Feeds. ARIA staffelt die Feed-Fälligkeit intern pro Feed, damit nicht alle Feeds gleichzeitig geprüft werden. Die RSS-Seite zeigt primär den letzten bekannten Cache-Status.
 
-### `skills.triggers`
+### `recipes.triggers`
 
-**Titel:** Skill-Trigger
+**Titel:** Rezept-Trigger
 
 **Text:**  
-Trigger sind Formulierungen oder Schlüsselbegriffe, mit denen ARIA einen Custom Skill aus freien Chat-Prompts erkennt. Je klarer Trigger und Skill-Beschreibung sind, desto zuverlässiger gewinnt der Skill gegenüber generischem Chat.
+Trigger sind Formulierungen oder Schlüsselbegriffe, mit denen ARIA ein eigenes Rezept aus freien Chat-Prompts erkennt. Je klarer Trigger und Rezept-Beschreibung sind, desto zuverlässiger gewinnt das Rezept gegenüber generischem Chat.
 
-### `skills.step_order`
+### `recipes.step_order`
 
 **Titel:** Step-Reihenfolge
 
 **Text:**  
-Custom Skills laufen in der sichtbaren Reihenfolge ab. Steps können dupliziert und verschoben werden. Das ist besonders hilfreich, wenn du denselben SSH-Check auf mehrere Server kopieren möchtest.
+Eigene Rezepte laufen in der sichtbaren Reihenfolge ab. Steps können dupliziert und verschoben werden. Das ist besonders hilfreich, wenn du denselben SSH-Check auf mehrere Server kopieren möchtest.
 
-### `skills.llm_transform`
+### `recipes.llm_transform`
 
 **Titel:** `llm_transform` vs `chat_send`
 
 **Text:**  
-`llm_transform` formt technische Step-Ausgaben in eine natürlichere Zusammenfassung um. `chat_send` gibt eine Message direkt in den Chat aus. Für angenehmere Skill-Antworten ist oft `ssh_run -> llm_transform -> chat_send` sinnvoll.
+`llm_transform` formt technische Step-Ausgaben in eine natürlichere Zusammenfassung um. `chat_send` gibt eine Message direkt in den Chat aus. Für angenehmere Rezept-Antworten ist oft `ssh_run -> llm_transform -> chat_send` sinnvoll.
 
 ### `guardrails.ssh`
 
@@ -186,7 +186,7 @@ Guardrails begrenzen, welche Befehle oder Aktionen über eine Connection erlaubt
 **Titel:** Kosten / Pricing
 
 **Text:**  
-Kosten werden nur angezeigt, wenn ARIA für das genutzte Modell einen Preis kennt. Für OpenAI/Anthropic nutzt ARIA eine LiteLLM-Preisliste, für OpenRouter eine API-Synchronisierung. Lokale Modelle können bewusst ohne Kostenwert erscheinen.
+Kosten werden nur angezeigt, wenn ARIA für das genutzte Modell einen Preis kennt. ARIA nutzt die LiteLLM-GitHub-Preisliste als primaere Quelle und cached die letzte gute Kopie lokal. Lokale Modelle können bewusst ohne Kostenwert erscheinen.
 
 ### `stats.preflight`
 

@@ -33,7 +33,7 @@ rules:
         interpreter = ErrorInterpreter(path)
         result = interpreter.interpret(
             language="de",
-            error_code="custom_skill_ssh_nonzero_exit",
+            error_code="recipe_ssh_nonzero_exit",
             stdout="",
             stderr="sudo: a password is required",
             exit_code=1,
@@ -66,7 +66,7 @@ rules:
         interpreter = ErrorInterpreter(path)
         result = interpreter.interpret(
             language="de",
-            error_code="custom_skill_ssh_nonzero_exit",
+            error_code="recipe_ssh_nonzero_exit",
             stdout="",
             stderr="some opaque failure",
             exit_code=1,

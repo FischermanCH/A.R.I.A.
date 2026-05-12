@@ -6,12 +6,25 @@ from typing import Any
 
 from aria.core.config import EmbeddingsConfig, LLMConfig, MemoryConfig, PromptConfig, Settings
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.i18n import I18NStore
 from aria.core.llm_client import LLMClient, LLMClientError
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
 from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
 from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.usage_meter import UsageMeter
+
+_RUNTIME_DIAGNOSTICS_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _runtime_diagnostics_text(key: str, default: str = "", **values: object) -> str:
+    template = _RUNTIME_DIAGNOSTICS_I18N.t("de", f"runtime_diagnostics.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def _now_iso() -> str:
@@ -43,7 +56,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
             "id": "qdrant",
             "status": "skipped",
             "summary_key": "qdrant_disabled",
-            "summary": "Memory deaktiviert.",
+            "summary": _runtime_diagnostics_text("qdrant_disabled", "Memory disabled."),
             "detail": "",
         }
     if str(memory.backend or "").strip().lower() != "qdrant":
@@ -51,7 +64,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
             "id": "qdrant",
             "status": "skipped",
             "summary_key": "qdrant_backend_inactive",
-            "summary": "Qdrant nicht als Backend aktiv.",
+            "summary": _runtime_diagnostics_text("qdrant_backend_inactive", "Qdrant is not the active backend."),
             "detail": "",
         }
 
@@ -82,7 +95,10 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
                 "id": "qdrant",
                 "status": "warn",
                 "summary_key": "qdrant_storage_warning",
-                "summary": "Qdrant erreichbar, aber gespeicherte Collections fehlen in der API.",
+                "summary": _runtime_diagnostics_text(
+                    "qdrant_storage_warning",
+                    "Qdrant is reachable, but stored collections are missing from the API.",
+                ),
                 "detail": str(storage_warning.get("message", "") or str(memory.qdrant_url or "").strip() or "-"),
                 "collection_count": len(collections),
             }
@@ -90,7 +106,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
             "id": "qdrant",
             "status": "ok",
             "summary_key": "qdrant_ok",
-            "summary": f"Qdrant erreichbar ({len(collections)} Collections).",
+            "summary": _runtime_diagnostics_text("qdrant_ok", "Qdrant reachable ({count} collections).", count=len(collections)),
             "detail": str(memory.qdrant_url or "").strip() or "-",
             "collection_count": len(collections),
         }
@@ -99,7 +115,7 @@ async def probe_qdrant(memory: MemoryConfig, *, base_dir: Path | None = None) ->
             "id": "qdrant",
             "status": "error",
             "summary_key": "qdrant_error",
-            "summary": "Qdrant nicht erreichbar.",
+            "summary": _runtime_diagnostics_text("qdrant_error", "Qdrant is not reachable."),
             "detail": str(exc),
         }
     finally:
@@ -133,7 +149,9 @@ async def probe_llm(llm: LLMConfig, usage_meter: UsageMeter | None = None) -> di
             "id": "llm",
             "status": status,
             "summary_key": "llm_ok" if content else "llm_empty",
-            "summary": "LLM erreichbar." if content else "LLM antwortet leer.",
+            "summary": _runtime_diagnostics_text("llm_ok", "LLM reachable.")
+            if content
+            else _runtime_diagnostics_text("llm_empty", "LLM returned an empty response."),
             "detail": str(llm.model or "").strip() or "-",
         }
     except LLMClientError as exc:
@@ -141,7 +159,7 @@ async def probe_llm(llm: LLMConfig, usage_meter: UsageMeter | None = None) -> di
             "id": "llm",
             "status": "error",
             "summary_key": "llm_error",
-            "summary": "LLM nicht erreichbar.",
+            "summary": _runtime_diagnostics_text("llm_error", "LLM is not reachable."),
             "detail": str(exc),
         }
 
@@ -156,7 +174,7 @@ async def probe_embeddings(
             "id": "embeddings",
             "status": "warn",
             "summary_key": "embeddings_missing_model",
-            "summary": "Embedding-Modell fehlt.",
+            "summary": _runtime_diagnostics_text("embeddings_missing_model", "Embedding model is missing."),
             "detail": "",
         }
     try:
@@ -175,7 +193,9 @@ async def probe_embeddings(
             "id": "embeddings",
             "status": "ok" if has_vector else "warn",
             "summary_key": "embeddings_ok" if has_vector else "embeddings_empty_vector",
-            "summary": "Embeddings erreichbar." if has_vector else "Embeddings antworten ohne Vektor.",
+            "summary": _runtime_diagnostics_text("embeddings_ok", "Embeddings reachable.")
+            if has_vector
+            else _runtime_diagnostics_text("embeddings_empty_vector", "Embeddings returned no vector."),
             "detail": str(embeddings.model or "").strip() or "-",
         }
     except Exception as exc:  # noqa: BLE001
@@ -183,7 +203,7 @@ async def probe_embeddings(
             "id": "embeddings",
             "status": "error",
             "summary_key": "embeddings_error",
-            "summary": "Embeddings nicht erreichbar.",
+            "summary": _runtime_diagnostics_text("embeddings_error", "Embeddings are not reachable."),
             "detail": str(exc),
         }
 
@@ -191,23 +211,25 @@ async def probe_embeddings(
 def probe_prompt_files(base_dir: Path, prompts: PromptConfig) -> dict[str, Any]:
     persona_path = (base_dir / str(prompts.persona or "").strip()).resolve()
     skills_dir = (base_dir / str(prompts.skills_dir or "").strip()).resolve()
+    legacy_skills_dir = (base_dir / "prompts" / "skills").resolve()
+    effective_skills_dir = skills_dir if skills_dir.exists() and skills_dir.is_dir() else legacy_skills_dir
 
     missing: list[str] = []
     if not persona_path.exists() or persona_path.suffix.lower() != ".md":
         missing.append("persona")
-    if not skills_dir.exists() or not skills_dir.is_dir():
+    if not effective_skills_dir.exists() or not effective_skills_dir.is_dir():
         missing.append("skills_dir")
 
     skill_prompt_count = 0
-    if skills_dir.exists() and skills_dir.is_dir():
-        skill_prompt_count = len([path for path in skills_dir.rglob("*.md") if path.is_file()])
+    if effective_skills_dir.exists() and effective_skills_dir.is_dir():
+        skill_prompt_count = len([path for path in effective_skills_dir.rglob("*.md") if path.is_file()])
 
     if missing:
         return {
             "id": "prompts",
             "status": "error",
             "summary_key": "prompts_incomplete",
-            "summary": "Prompt-Dateien unvollständig.",
+            "summary": _runtime_diagnostics_text("prompts_incomplete", "Prompt files are incomplete."),
             "detail": ", ".join(missing),
             "persona_path": str(persona_path),
             "skill_prompt_count": skill_prompt_count,
@@ -217,7 +239,7 @@ def probe_prompt_files(base_dir: Path, prompts: PromptConfig) -> dict[str, Any]:
         "id": "prompts",
         "status": "ok",
         "summary_key": "prompts_ok",
-        "summary": f"Prompt-Dateien ok ({skill_prompt_count} Skill-Prompts).",
+        "summary": _runtime_diagnostics_text("prompts_ok", "Prompt files ok ({count} recipe prompts).", count=skill_prompt_count),
         "detail": str(persona_path.relative_to(base_dir)).replace("\\", "/"),
         "persona_path": str(persona_path),
         "skill_prompt_count": skill_prompt_count,

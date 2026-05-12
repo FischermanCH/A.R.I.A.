@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.error import HTTPError
 
-from aria.core.skill_runtime import CustomSkillRuntime
+from aria.core.recipe_runtime import RecipeRuntime
 
 
 class _DummyResponse:
@@ -23,7 +25,7 @@ class _DummyResponse:
         return None
 
 
-def _runtime(*, webhook: object | None = None, http_api: object | None = None, guardrails: dict[str, object] | None = None) -> CustomSkillRuntime:
+def _runtime(*, webhook: object | None = None, http_api: object | None = None, guardrails: dict[str, object] | None = None) -> RecipeRuntime:
     settings = SimpleNamespace(
         connections=SimpleNamespace(
             webhook={"incident-hook": webhook} if webhook is not None else {},
@@ -31,7 +33,7 @@ def _runtime(*, webhook: object | None = None, http_api: object | None = None, g
         ),
         security=SimpleNamespace(guardrails=guardrails or {}),
     )
-    return CustomSkillRuntime(
+    return RecipeRuntime(
         settings=settings,
         llm_client=None,
         memory_skill_getter=lambda: None,
@@ -127,7 +129,81 @@ def test_execute_http_api_request_allows_compatible_guardrail() -> None:
         content_type="application/json",
     )
 
-    with patch("aria.core.skill_runtime.urlopen", return_value=response):
+    with patch("aria.core.recipe_runtime.urlopen", return_value=response):
         result = runtime.execute_http_api_request("inventory-api", "/health", "")
 
     assert '"status": "ok"' in result
+
+
+def test_execute_http_api_request_blocks_mutating_path_even_with_get() -> None:
+    runtime = _runtime(
+        http_api=SimpleNamespace(
+            base_url="https://inventory.local/api",
+            timeout_seconds=10,
+            method="GET",
+            health_path="/health",
+            auth_token="",
+            guardrail_ref="",
+        )
+    )
+
+    try:
+        runtime.execute_http_api_request("inventory-api", "/admin/restart", "")
+    except ValueError as exc:
+        assert "HTTP-API-Anfrage blockiert" in str(exc)
+        assert "http_api_mutating_path" in str(exc)
+    else:
+        raise AssertionError("HTTP API request should have been blocked by the readonly policy")
+
+
+def test_execute_http_api_request_requires_confirmation_for_post_method() -> None:
+    runtime = _runtime(
+        http_api=SimpleNamespace(
+            base_url="https://inventory.local/api",
+            timeout_seconds=10,
+            method="POST",
+            health_path="/health",
+            auth_token="",
+            guardrail_ref="",
+        )
+    )
+
+    try:
+        runtime.execute_http_api_request("inventory-api", "/search", '{"q":"aria"}')
+    except ValueError as exc:
+        assert "HTTP-API-Anfrage braucht Bestätigung" in str(exc)
+        assert "http_api_method_needs_confirmation" in str(exc)
+    else:
+        raise AssertionError("HTTP API request should have required confirmation")
+
+
+def test_execute_http_api_request_reports_404_with_health_path_hint() -> None:
+    runtime = _runtime(
+        http_api=SimpleNamespace(
+            base_url="https://inventory.local/api",
+            timeout_seconds=10,
+            method="GET",
+            health_path="/",
+            auth_token="",
+            guardrail_ref="",
+        )
+    )
+
+    error = HTTPError(
+        "https://inventory.local/api/health",
+        404,
+        "Not Found",
+        hdrs={},
+        fp=io.BytesIO(b'{"error":"missing route"}'),
+    )
+
+    with patch("aria.core.recipe_runtime.urlopen", side_effect=error):
+        try:
+            runtime.execute_http_api_request("inventory-api", "/health", "")
+        except ValueError as exc:
+            text = str(exc)
+            assert "HTTP-API-Aufruf fehlgeschlagen: HTTP 404 auf `/health` (GET)" in text
+            assert "Im Profil ist als Health-Pfad `/` konfiguriert." in text
+            assert 'Antwort: {"error":"missing route"}' in text
+        else:
+            raise AssertionError("HTTP API request should have surfaced the HTTP 404 details")

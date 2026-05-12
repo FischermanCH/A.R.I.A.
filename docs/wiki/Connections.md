@@ -50,7 +50,7 @@ Newer personal / knowledge-oriented connection types:
   - title, short description, tags, and group can be suggested automatically
 - `Google Calendar`
   - intentionally read-only for now
-  - guided setup flow via Google Cloud + OAuth Playground
+  - guided setup flow via Google Cloud plus direct Google sign-in from ARIA
   - meant for questions like `what is on my calendar today?`
 
 Useful references:

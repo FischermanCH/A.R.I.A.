@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -10,6 +11,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aria.core.i18n import I18NStore
 from aria.core.guardrails import (
     guardrail_is_compatible,
     guardrail_kind_label,
@@ -43,6 +45,17 @@ AuthEncoder = Callable[[str, str], str]
 IntGetter = Callable[[], int]
 CookieNameResolver = Callable[[Request, str, str], str]
 CookieScopeResolver = Callable[[Request], str]
+_CONFIG_ACCESS_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _config_access_text(lang: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _CONFIG_ACCESS_I18N.t(lang or "de", f"config_access_detail_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -264,7 +277,12 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
             )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
-            error = deps.friendly_route_error(lang, exc, "Guardrail konnte nicht gespeichert werden.", "Could not save guardrail.")
+            error = deps.friendly_route_error(
+                lang,
+                exc,
+                _config_access_text(lang, "guardrail_save_failed", "Could not save guardrail."),
+                "Could not save guardrail.",
+            )
             suffix = f"&guardrail_ref={quote_plus(deps.sanitize_connection_name(original_ref) or deps.sanitize_connection_name(guardrail_ref))}" if (original_ref or guardrail_ref) else ""
             return deps.redirect_with_return_to(
                 f"/config/security?error={quote_plus(error)}{suffix}",
@@ -304,7 +322,12 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
             return deps.redirect_with_return_to("/config/security?saved=1", request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
-            error = deps.friendly_route_error(lang, exc, "Guardrail konnte nicht gelöscht werden.", "Could not delete guardrail.")
+            error = deps.friendly_route_error(
+                lang,
+                exc,
+                _config_access_text(lang, "guardrail_delete_failed", "Could not delete guardrail."),
+                "Could not delete guardrail.",
+            )
             return deps.redirect_with_return_to(
                 f"/config/security?error={quote_plus(error)}",
                 request,

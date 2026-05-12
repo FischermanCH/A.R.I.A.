@@ -25,6 +25,7 @@ fi
 PORTAINER_URL="${PORTAINER_URL:-}"
 PORTAINER_API_KEY="${PORTAINER_API_KEY:-}"
 PORTAINER_INSECURE="${PORTAINER_INSECURE:-false}"
+HOST_UPDATE_LOCK_DIR=""
 
 log() {
   printf '[aria-host-update] %s\n' "$*"
@@ -47,7 +48,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   aria-host-update.sh detect
-  aria-host-update.sh update [--project NAME] [--stack-file PATH] [--env-file PATH] [--tar-dir PATH] [--dry-run]
+  aria-host-update.sh update [--project NAME] [--stack-file PATH] [--env-file PATH] [--tar-dir PATH] [--target-image IMAGE] [--dry-run]
   aria-host-update.sh help
 
 What it does:
@@ -65,6 +66,7 @@ Options:
                      Helpful for Portainer/custom stacks with own volume names.
   --env-file PATH    Optional env file for docker compose interpolation.
   --tar-dir PATH     TAR directory for internal alpha-local updates.
+  --target-image IMG Override ARIA_IMAGE for this update and persist it in the env file when available.
   --dry-run          Print the resolved plan without changing anything.
 
 Optional Portainer API env:
@@ -122,6 +124,13 @@ published_host_port() {
     return 0
   fi
   printf '%s\n' "$mapping" | awk -F: '{print $NF}' | tr -d '[:space:]'
+}
+
+published_host_ports() {
+  local container_name="$1"
+  docker port "$container_name" 2>/dev/null \
+    | awk -F: '{ port = $NF; gsub(/[[:space:]]/, "", port); if (port != "") print port }' \
+    | sort -u
 }
 
 mode_for_image() {
@@ -345,6 +354,73 @@ resolve_accessible_stack_file() {
   return 1
 }
 
+resolve_env_file() {
+  local override="$1"
+  local stack_file="$2"
+  local candidate
+
+  if [[ -n "$override" ]]; then
+    [[ -f "$override" ]] || die "Env-Datei nicht gefunden: $override"
+    printf '%s\n' "$override"
+    return 0
+  fi
+
+  if [[ -n "$stack_file" ]]; then
+    candidate="$(dirname "$stack_file")/.env"
+    if [[ -f "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  return 0
+}
+
+persist_env_value() {
+  local env_file="$1"
+  local key="$2"
+  local value="$3"
+
+  [[ -n "$env_file" ]] || return 0
+  [[ -f "$env_file" ]] || die "Env-Datei nicht gefunden: $env_file"
+
+  if grep -q "^${key}=" "$env_file"; then
+    python3 - "$env_file" "$key" "$value" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+key = sys.argv[2]
+value = sys.argv[3]
+lines = path.read_text(encoding="utf-8").splitlines()
+for idx, line in enumerate(lines):
+    if line.startswith(f"{key}="):
+        lines[idx] = f"{key}={value}"
+        break
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+  else
+    printf '\n%s=%s\n' "$key" "$value" >>"$env_file"
+  fi
+}
+
+refresh_managed_stack_files() {
+  local image="$1"
+  local stack_file="$2"
+  local stack_dir owner
+
+  [[ -n "$image" && -n "$stack_file" ]] || return 0
+  stack_dir="$(dirname "$stack_file")"
+  if [[ ! -f "$stack_dir/aria-stack.sh" ]]; then
+    return 0
+  fi
+  owner="$(stat -c '%u:%g' "$stack_dir")"
+
+  log "Aktualisiere Managed-Stack-Dateien aus '$image'."
+  docker run --rm -v "$stack_dir:/managed" "$image" /app/docker/setup-compose-stack.sh --install-dir /managed --upgrade-existing --force --no-start >/dev/null
+  docker run --rm --entrypoint sh -v "$stack_dir:/managed" "$image" -c "chown ${owner} /managed /managed/.env /managed/docker-compose.yml /managed/aria-stack.sh /managed/INSTALL.txt /managed/.aria-updater 2>/dev/null || true" >/dev/null
+}
+
 set_runtime_env() {
   local project="$1"
   local aria_container="$2"
@@ -479,6 +555,104 @@ validate_compose_plan() {
   fi
 
   docker compose "${compose_args[@]}" -f "$stack_file" config -q >/dev/null
+}
+
+compose_service_published_tcp_ports() {
+  local project="$1"
+  local stack_file="$2"
+  local env_file="$3"
+  local service_name="$4"
+  local config_json
+  local -a compose_args
+
+  compose_args=(-p "$project")
+  if [[ -n "$env_file" ]]; then
+    [[ -f "$env_file" ]] || die "Env-Datei nicht gefunden: $env_file"
+    compose_args+=(--env-file "$env_file")
+  fi
+
+  config_json="$(mktemp /tmp/aria-host-update-compose-config.XXXXXX.json)"
+  if ! docker compose "${compose_args[@]}" -f "$stack_file" config --format json >"$config_json"; then
+    rm -f "$config_json"
+    die "Konnte den Compose-Plan fuer Host-Port-Preflight nicht lesen."
+  fi
+
+  python3 - "$service_name" "$config_json" <<'PY'
+import json
+import sys
+
+service_name = sys.argv[1]
+config_path = sys.argv[2]
+with open(config_path, "r", encoding="utf-8") as handle:
+    data = json.load(handle)
+service = (data.get("services") or {}).get(service_name) or {}
+ports = service.get("ports") or []
+seen = set()
+for item in ports:
+    protocol = str(item.get("protocol") or "tcp").lower()
+    if protocol != "tcp":
+        continue
+    published = item.get("published")
+    if published in (None, ""):
+        continue
+    value = str(published).strip()
+    if not value or "-" in value:
+        continue
+    if value.isdigit() and value not in seen:
+        seen.add(value)
+        print(value)
+PY
+  local status=$?
+  rm -f "$config_json"
+  return "$status"
+}
+
+host_tcp_port_available() {
+  local port="$1"
+  python3 - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    sock.bind(("0.0.0.0", port))
+except OSError:
+    sys.exit(1)
+finally:
+    sock.close()
+PY
+}
+
+validate_host_ports_before_recreate() {
+  local project="$1"
+  local stack_file="$2"
+  local env_file="$3"
+  local service_name="$4"
+  local aria_container="$5"
+  local desired_ports desired_port current_port owned_by_current="false"
+
+  desired_ports="$(compose_service_published_tcp_ports "$project" "$stack_file" "$env_file" "$service_name")"
+
+  while IFS= read -r desired_port; do
+    [[ -n "$desired_port" ]] || continue
+    owned_by_current="false"
+    while IFS= read -r current_port; do
+      if [[ "$current_port" == "$desired_port" ]]; then
+        owned_by_current="true"
+        break
+      fi
+    done < <(published_host_ports "$aria_container")
+
+    if [[ "$owned_by_current" == "true" ]]; then
+      continue
+    fi
+
+    if ! host_tcp_port_available "$desired_port"; then
+      die "Host-Port $desired_port ist bereits belegt und gehoert nicht zum aktuellen ARIA-Container '$aria_container'. Update abgebrochen, bevor der ARIA-Service neu erstellt wird. Bitte Portbelegung pruefen oder den Stack-Port anpassen."
+    fi
+  done <<<"$desired_ports"
 }
 
 portainer_is_enabled() {
@@ -668,7 +842,8 @@ acquire_lock() {
   if ! mkdir "$lock_dir" 2>/dev/null; then
     die "Fuer Projekt '$project' laeuft bereits ein Host-Update oder ein Lock ist haengen geblieben: $lock_dir"
   fi
-  trap 'rm -rf "$lock_dir"' EXIT
+  HOST_UPDATE_LOCK_DIR="$lock_dir"
+  trap 'rm -rf "${HOST_UPDATE_LOCK_DIR:-}"' EXIT
 }
 
 update_project() {
@@ -677,7 +852,8 @@ update_project() {
   local env_file_override="$3"
   local tar_dir="$4"
   local dry_run="$5"
-  local project aria_container qdrant_container searxng_container image_ref mode stack_file="" stack_hint="" env_file old_runtime_image_id loaded_image_ref latest_tar use_portainer_api="false"
+  local target_image="$6"
+  local project aria_container qdrant_container searxng_container image_ref effective_image_ref mode stack_file="" stack_hint="" env_file old_runtime_image_id loaded_image_ref latest_tar use_portainer_api="false"
 
   project="$(resolve_project "$requested_project")"
   aria_container="$(container_for_service "$project" "$DEFAULT_SERVICE_NAME")"
@@ -685,8 +861,8 @@ update_project() {
   qdrant_container="$(container_for_service "$project" qdrant)"
   searxng_container="$(container_for_service "$project" searxng)"
   image_ref="$(inspect_config_image "$aria_container")"
-  mode="$(mode_for_image "$image_ref")"
-  env_file="$env_file_override"
+  effective_image_ref="${target_image:-$image_ref}"
+  mode="$(mode_for_image "$effective_image_ref")"
   stack_hint="$(stack_file_hint_path "$aria_container" || true)"
 
   if stack_file="$(resolve_accessible_stack_file "$aria_container" "$mode" "$stack_file_override")"; then
@@ -702,6 +878,15 @@ update_project() {
     else
       die "Konnte fuer Projekt '$project' keine Stack-Datei automatisch erkennen. Bitte --stack-file <pfad> angeben."
     fi
+  fi
+  if [[ "$use_portainer_api" != "true" ]]; then
+    env_file="$(resolve_env_file "$env_file_override" "$stack_file")"
+  else
+    env_file="$env_file_override"
+  fi
+
+  if [[ -n "$target_image" ]]; then
+    export ARIA_IMAGE="$target_image"
   fi
 
   set_runtime_env "$project" "$aria_container" "$qdrant_container" "$searxng_container"
@@ -720,8 +905,12 @@ update_project() {
   if [[ -n "$env_file" ]]; then
     log "Env-Datei: $env_file"
   fi
+  if [[ -n "$target_image" ]]; then
+    log "Ziel-Image: $target_image"
+  fi
   if [[ "$use_portainer_api" != "true" ]]; then
     validate_compose_plan "$project" "$stack_file" "$env_file"
+    validate_host_ports_before_recreate "$project" "$stack_file" "$env_file" "$DEFAULT_SERVICE_NAME" "$aria_container"
   fi
 
   if [[ "$mode" == "internal-local" ]]; then
@@ -729,9 +918,9 @@ update_project() {
     [[ -n "$latest_tar" ]] || die "Kein internes ARIA-TAR in $tar_dir gefunden."
     log "Neuestes TAR: $latest_tar"
   else
-    log "Image-Referenz: $image_ref"
-    if [[ "$mode" == "registry" && "$image_ref" != "fischermanch/aria:alpha" ]]; then
-      warn "Das laufende Image ist auf einen festen Tag gepinnt ($image_ref). Das Script zieht denselben Tag erneut; fuer einen Versionssprung muss auch der Stack auf den neuen Tag zeigen."
+    log "Image-Referenz: $effective_image_ref"
+    if [[ "$mode" == "registry" && "$effective_image_ref" != "fischermanch/aria:alpha" && -z "$target_image" ]]; then
+      warn "Das laufende Image ist auf einen festen Tag gepinnt ($effective_image_ref). Das Script zieht denselben Tag erneut; fuer einen Versionssprung muss auch der Stack auf den neuen Tag zeigen oder --target-image verwendet werden."
     fi
     if [[ "$mode" == "custom" ]]; then
       warn "Das laufende Image ist kein Standard-ARIA-Tag. Ich versuche trotzdem einen Compose-Pull/Recreate fuer den Service '$DEFAULT_SERVICE_NAME'."
@@ -743,8 +932,13 @@ update_project() {
       portainer_update_stack "$project" "$dry_run"
     elif [[ "$mode" == "internal-local" ]]; then
       log "Dry-run: wuerde '$latest_tar' laden, nach '$DEFAULT_INTERNAL_IMAGE_REF' taggen und dann nur den ARIA-Service neu erstellen."
+      [[ -n "$stack_file" ]] && log "Dry-run: wuerde Managed-Stack-Dateien aus '$DEFAULT_INTERNAL_IMAGE_REF' refreshen, falls '$stack_file' zu einem managed Install gehoert."
     else
-      log "Dry-run: wuerde 'docker compose pull $DEFAULT_SERVICE_NAME' und danach nur den ARIA-Service neu erstellen."
+      log "Dry-run: wuerde 'docker compose pull $DEFAULT_SERVICE_NAME' fuer '${effective_image_ref}' und danach nur den ARIA-Service neu erstellen."
+      if [[ -n "$target_image" && -n "$env_file" ]]; then
+        log "Dry-run: wuerde ARIA_IMAGE in '$env_file' auf '$target_image' setzen."
+      fi
+      [[ -n "$stack_file" ]] && log "Dry-run: wuerde Managed-Stack-Dateien aus '${effective_image_ref}' refreshen, falls '$stack_file' zu einem managed Install gehoert."
     fi
     return 0
   fi
@@ -765,6 +959,11 @@ update_project() {
   old_runtime_image_id="$(inspect_runtime_image_id "$aria_container")"
   [[ -n "$old_runtime_image_id" ]] || die "Konnte das bisher laufende Image des Containers '$aria_container' nicht lesen."
 
+  if [[ -n "$target_image" && -n "$env_file" ]]; then
+    log "Setze ARIA_IMAGE in der Env-Datei auf '$target_image'."
+    persist_env_value "$env_file" ARIA_IMAGE "$target_image"
+  fi
+
   if [[ "$mode" == "internal-local" ]]; then
     local docker_load_log
     docker_load_log="$(mktemp /tmp/aria-host-update-docker-load.XXXXXX.log)"
@@ -778,9 +977,11 @@ update_project() {
       log "Retagge geladenes Image: $loaded_image_ref -> $DEFAULT_INTERNAL_IMAGE_REF"
       docker tag "$loaded_image_ref" "$DEFAULT_INTERNAL_IMAGE_REF"
     fi
+    refresh_managed_stack_files "$DEFAULT_INTERNAL_IMAGE_REF" "$stack_file"
   else
     log "Hole neues Registry-Image fuer den ARIA-Service ..."
     run_registry_pull "$project" "$stack_file" "$env_file" "$DEFAULT_SERVICE_NAME"
+    refresh_managed_stack_files "$effective_image_ref" "$stack_file"
   fi
 
   log "Erstelle nur den ARIA-Service neu. Qdrant, SearXNG und Volumes bleiben unberuehrt."
@@ -792,7 +993,7 @@ update_project() {
   fi
 
   warn "Healthcheck nach Update fehlgeschlagen. Starte best-effort Rollback auf das vorher laufende Image."
-  docker tag "$old_runtime_image_id" "$image_ref"
+  docker tag "$old_runtime_image_id" "$effective_image_ref"
   run_compose_recreate "$project" "$stack_file" "$env_file" "$DEFAULT_SERVICE_NAME" || true
 
   if wait_for_aria_health "$aria_container"; then
@@ -815,11 +1016,12 @@ main() {
       print_detect_table
       ;;
     update)
-      local project=""
-      local stack_file=""
-      local env_file=""
-      local tar_dir="$DEFAULT_TAR_DIR"
-      local dry_run="false"
+  local project=""
+  local stack_file=""
+  local env_file=""
+  local tar_dir="$DEFAULT_TAR_DIR"
+  local dry_run="false"
+  local target_image=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --project)
@@ -838,6 +1040,10 @@ main() {
             tar_dir="${2:-}"
             shift 2
             ;;
+          --target-image)
+            target_image="${2:-}"
+            shift 2
+            ;;
           --dry-run)
             dry_run="true"
             shift
@@ -851,7 +1057,7 @@ main() {
             ;;
         esac
       done
-      update_project "$project" "$stack_file" "$env_file" "$tar_dir" "$dry_run"
+      update_project "$project" "$stack_file" "$env_file" "$tar_dir" "$dry_run" "$target_image"
       ;;
     help|-h|--help)
       usage

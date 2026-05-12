@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
+from datetime import timezone
 import inspect
 import json
 import os
@@ -31,13 +33,17 @@ from aria.core.connection_catalog import (
 )
 from aria.core.connection_runtime import build_settings_connection_status_rows
 from aria.core.config import get_master_key
+from aria.core.i18n import I18NStore
 from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import build_pricing_catalog_snapshot
+from aria.core.pricing_catalog import resolve_pricing_entry as resolve_catalog_pricing_entry
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
 from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
 from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.release_meta import read_release_meta
+from aria.core.recipe_experience_promotion import promote_recipe_experience_to_learned_review
+from aria.core.recipe_experience_memory import RECIPE_EXPERIENCE_COLLECTION_PREFIX
 from aria.core.routing_admin import build_connection_routing_index_status
 from aria.core.runtime_endpoint import resolve_runtime_url
 from aria.core.update_helper_client import fetch_update_helper_status
@@ -52,6 +58,17 @@ SettingsGetter = Callable[[], Any]
 PipelineGetter = Callable[[], Pipeline]
 PreflightGetter = Callable[[], Any]
 SecureStoreGetter = Callable[[], Any]
+_STATS_ROUTES_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _stats_route_text(language: str | None, key: str, default: str = "", **values: Any) -> str:
+    template = _STATS_ROUTES_I18N.t(language or "de", f"stats_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def _size_human(size_bytes: int) -> str:
@@ -338,7 +355,7 @@ async def _build_qdrant_storage_meta(base_dir: Path, settings: Any) -> dict[str,
     return {"size_human": "-", "path": "", "available": False}
 
 
-def _collapse_rss_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+def _collapse_rss_rows(rows: list[dict[str, str]], *, language: str = "de") -> list[dict[str, str]]:
     rss_rows = [row for row in rows if str(row.get("kind", "")).strip() == "RSS"]
     if not rss_rows:
         return rows
@@ -353,9 +370,9 @@ def _collapse_rss_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         "kind_icon": connection_icon_name("rss"),
         "kind_alpha": connection_is_alpha("rss"),
         "ref": connection_kind_label("rss"),
-        "target": f"{total} konfigurierte Feeds",
+        "target": _stats_route_text(language, "configured_feeds", "{total} configured feeds", total=total),
         "status": status,
-        "message": f"{healthy} grün · {issues} rot",
+        "message": _stats_route_text(language, "connection_summary", "{healthy} ok · {issues} error", healthy=healthy, issues=issues),
         "last_success_at": "",
         "edit_url": connection_edit_page("rss"),
         "chat_icon": connection_chat_emoji("rss"),
@@ -393,17 +410,22 @@ def _collapse_connection_kind_rows(
     warns = sum(1 for row in matching_rows if str(row.get("status", "")).strip().lower() == "warn")
     status = "error" if issues else ("warn" if warns else "ok")
     kind_label = connection_kind_label(normalized_kind)
-    item_label_de = "Feeds" if normalized_kind == "rss" else f"{kind_label}-Profile"
-    item_label_en = "feeds" if normalized_kind == "rss" else f"{kind_label} profiles"
-    target = _pick_text(
-        language,
-        f"{total} konfigurierte {item_label_de}",
-        f"{total} configured {item_label_en}",
+    item_label = (
+        _stats_route_text(language, "feeds_label", "feeds")
+        if normalized_kind == "rss"
+        else _stats_route_text(language, "profile_item_label", "{kind_label} profiles", kind_label=kind_label)
     )
-    parts = [f"{healthy} grün" if str(language).lower().startswith("de") else f"{healthy} ok"]
+    target = _stats_route_text(
+        language,
+        "configured_profiles",
+        "{total} configured {item_label}",
+        total=total,
+        item_label=item_label,
+    )
+    parts = [_stats_route_text(language, "healthy_count", "{count} ok", count=healthy)]
     if warns:
         parts.append(f"{warns} warn")
-    parts.append(f"{issues} rot" if str(language).lower().startswith("de") else f"{issues} error")
+    parts.append(_stats_route_text(language, "issue_count", "{count} error", count=issues))
     summary_card = {
         "kind_key": normalized_kind,
         "kind": kind_label,
@@ -481,25 +503,129 @@ def _attach_connection_edit_urls(rows: list[dict[str, Any]]) -> list[dict[str, A
     return enriched
 
 
+def _resolve_stats_pricing_entry(
+    catalog: dict[str, Any],
+    model: str,
+    resolve_pricing_entry: PricingResolver,
+    model_aliases: dict[str, str] | None = None,
+) -> Any | None:
+    clean = str(model or "").strip()
+    if not clean:
+        return None
+    try:
+        entry = resolve_pricing_entry(catalog, clean)
+    except Exception:
+        entry = None
+    if entry is not None:
+        return entry
+    return resolve_catalog_pricing_entry(catalog, clean, model_aliases=model_aliases)
+
+
+def _estimate_chat_cost_usd(entry: Any | None, prompt_tokens: int, completion_tokens: int) -> float | None:
+    if entry is None:
+        return None
+    return (
+        (int(prompt_tokens or 0) * float(getattr(entry, "input_per_million", 0.0) or 0.0))
+        + (int(completion_tokens or 0) * float(getattr(entry, "output_per_million", 0.0) or 0.0))
+    ) / 1_000_000
+
+
+def _estimate_embedding_cost_usd(entry: Any | None, input_tokens: int) -> float | None:
+    if entry is None:
+        return None
+    return (int(input_tokens or 0) * float(getattr(entry, "input_per_million", 0.0) or 0.0)) / 1_000_000
+
+
 def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_entry: PricingResolver) -> dict[str, Any]:
     chat_seen = [model for model in stats.get("chat_tokens_by_model", {}).keys() if str(model).strip()]
     embedding_seen = [model for model in stats.get("embedding_tokens_by_model", {}).keys() if str(model).strip()]
+    chat_tokens_by_model = dict(stats.get("chat_tokens_by_model", {}) or {})
+    chat_prompt_tokens_by_model = dict(stats.get("chat_prompt_tokens_by_model", {}) or {})
+    chat_completion_tokens_by_model = dict(stats.get("chat_completion_tokens_by_model", {}) or {})
+    embedding_tokens_by_model = dict(stats.get("embedding_tokens_by_model", {}) or {})
+    embedding_prompt_tokens_by_model = dict(stats.get("embedding_prompt_tokens_by_model", {}) or {})
+    chat_cost_by_model = dict(stats.get("chat_cost_usd_by_model", {}) or {})
+    embedding_cost_by_model = dict(stats.get("embedding_cost_usd_by_model", {}) or {})
 
     priced_chat_models = sorted(getattr(settings.pricing, "chat_models", {}).keys())
     priced_embedding_models = sorted(getattr(settings.pricing, "embedding_models", {}).keys())
 
+    def _has_logged_numeric_cost(cost_rows: dict[str, Any], model: str) -> bool:
+        return isinstance(cost_rows.get(model), (int, float))
+
+    def _is_priced_chat_model(model: str) -> bool:
+        return (
+            _resolve_stats_pricing_entry(getattr(settings.pricing, "chat_models", {}), model, resolve_pricing_entry, getattr(settings.pricing, "model_aliases", {}))
+            is not None
+            or _has_logged_numeric_cost(chat_cost_by_model, model)
+        )
+
+    def _is_priced_embedding_model(model: str) -> bool:
+        return (
+            _resolve_stats_pricing_entry(getattr(settings.pricing, "embedding_models", {}), model, resolve_pricing_entry, getattr(settings.pricing, "model_aliases", {}))
+            is not None
+            or _has_logged_numeric_cost(embedding_cost_by_model, model)
+        )
+
     unpriced_chat_models = sorted(
-        model for model in chat_seen if resolve_pricing_entry(getattr(settings.pricing, "chat_models", {}), model) is None
+        model for model in chat_seen if not _is_priced_chat_model(model)
     )
     unpriced_embedding_models = sorted(
-        model
-        for model in embedding_seen
-        if resolve_pricing_entry(getattr(settings.pricing, "embedding_models", {}), model) is None
+        model for model in embedding_seen if not _is_priced_embedding_model(model)
     )
+    priced_seen_chat_models = sorted(model for model in chat_seen if model not in unpriced_chat_models)
+    priced_seen_embedding_models = sorted(model for model in embedding_seen if model not in unpriced_embedding_models)
+    unpriced_chat_tokens = sum(int(chat_tokens_by_model.get(model, 0) or 0) for model in unpriced_chat_models)
+    unpriced_embedding_tokens = sum(int(embedding_tokens_by_model.get(model, 0) or 0) for model in unpriced_embedding_models)
+    unpriced_model_tokens = unpriced_chat_tokens + unpriced_embedding_tokens
+    unpriced_model_rows = [
+        {
+            "kind": "Chat",
+            "model": model,
+            "tokens": int(chat_tokens_by_model.get(model, 0) or 0),
+        }
+        for model in unpriced_chat_models
+    ] + [
+        {
+            "kind": "Embedding",
+            "model": model,
+            "tokens": int(embedding_tokens_by_model.get(model, 0) or 0),
+        }
+        for model in unpriced_embedding_models
+    ]
 
-    source_rows: list[dict[str, str]] = []
+    estimated_chat_cost_by_model: dict[str, float] = {}
+    estimated_embedding_cost_by_model: dict[str, float] = {}
+    for model in priced_seen_chat_models:
+        entry = _resolve_stats_pricing_entry(getattr(settings.pricing, "chat_models", {}), model, resolve_pricing_entry, getattr(settings.pricing, "model_aliases", {}))
+        prompt_tokens = int(chat_prompt_tokens_by_model.get(model, 0) or 0)
+        completion_tokens = int(chat_completion_tokens_by_model.get(model, 0) or 0)
+        if prompt_tokens <= 0 and completion_tokens <= 0:
+            prompt_tokens = int(chat_tokens_by_model.get(model, 0) or 0)
+        estimated_cost = _estimate_chat_cost_usd(entry, prompt_tokens, completion_tokens)
+        if estimated_cost is not None:
+            estimated_chat_cost_by_model[model] = estimated_cost
+    for model in priced_seen_embedding_models:
+        entry = _resolve_stats_pricing_entry(
+            getattr(settings.pricing, "embedding_models", {}),
+            model,
+            resolve_pricing_entry,
+            getattr(settings.pricing, "model_aliases", {}),
+        )
+        input_tokens = int(embedding_prompt_tokens_by_model.get(model, 0) or embedding_tokens_by_model.get(model, 0) or 0)
+        estimated_cost = _estimate_embedding_cost_usd(entry, input_tokens)
+        if estimated_cost is not None:
+            estimated_embedding_cost_by_model[model] = estimated_cost
+
+    logged_total_cost_usd = float(stats.get("total_cost_usd", 0.0) or 0.0)
+    estimated_total_cost_usd = sum(estimated_chat_cost_by_model.values()) + sum(
+        estimated_embedding_cost_by_model.values()
+    )
+    estimated_cost_gap_usd = max(0.0, estimated_total_cost_usd - logged_total_cost_usd)
+
+    source_rows: list[dict[str, Any]] = []
     for model in sorted(priced_chat_models):
-        entry = resolve_pricing_entry(getattr(settings.pricing, "chat_models", {}), model)
+        entry = _resolve_stats_pricing_entry(getattr(settings.pricing, "chat_models", {}), model, resolve_pricing_entry, getattr(settings.pricing, "model_aliases", {}))
         if entry is None:
             continue
         source_rows.append(
@@ -510,10 +636,16 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
                 "verified_at": str(getattr(entry, "verified_at", "") or "").strip() or "-",
                 "source_name": str(getattr(entry, "source_name", "") or "").strip() or "-",
                 "source_url": str(getattr(entry, "source_url", "") or "").strip(),
+                "is_manual": _is_manual_pricing_entry(entry),
             }
         )
     for model in sorted(priced_embedding_models):
-        entry = resolve_pricing_entry(getattr(settings.pricing, "embedding_models", {}), model)
+        entry = _resolve_stats_pricing_entry(
+            getattr(settings.pricing, "embedding_models", {}),
+            model,
+            resolve_pricing_entry,
+            getattr(settings.pricing, "model_aliases", {}),
+        )
         if entry is None:
             continue
         source_rows.append(
@@ -524,24 +656,232 @@ def _build_pricing_meta(stats: dict[str, Any], settings: Any, resolve_pricing_en
                 "verified_at": str(getattr(entry, "verified_at", "") or "").strip() or "-",
                 "source_name": str(getattr(entry, "source_name", "") or "").strip() or "-",
                 "source_url": str(getattr(entry, "source_url", "") or "").strip(),
+                "is_manual": _is_manual_pricing_entry(entry),
             }
         )
+
+    pricing_source = str(getattr(settings.pricing, "source", "") or "").strip()
+    default_source_name = str(getattr(settings.pricing, "default_source_name", "") or "").strip() or "-"
+    default_source_url = str(getattr(settings.pricing, "default_source_url", "") or "").strip()
+    if pricing_source == "litellm_github":
+        default_source_name = "LiteLLM GitHub pricing JSON + local cache"
+        default_source_url = "https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
+    alias_rows = [
+        {"alias": str(alias), "target": str(target)}
+        for alias, target in sorted(dict(getattr(settings.pricing, "model_aliases", {}) or {}).items())
+        if str(alias).strip() and str(target).strip()
+    ]
 
     return {
         "last_updated": str(getattr(settings.pricing, "last_updated", "") or "").strip() or "-",
         "currency": str(getattr(settings.pricing, "currency", "USD") or "USD").strip() or "USD",
         "enabled": bool(getattr(settings.pricing, "enabled", False)),
-        "default_source_name": str(getattr(settings.pricing, "default_source_name", "") or "").strip() or "-",
-        "default_source_url": str(getattr(settings.pricing, "default_source_url", "") or "").strip(),
+        "default_source_name": default_source_name,
+        "default_source_url": default_source_url,
+        "source": pricing_source or "-",
+        "litellm_cache_file": str(getattr(settings.pricing, "litellm_cache_file", "") or "").strip(),
+        "refresh_interval_days": int(getattr(settings.pricing, "refresh_interval_days", 7) or 7),
         "priced_chat_models": priced_chat_models,
         "priced_embedding_models": priced_embedding_models,
         "priced_chat_count": len(priced_chat_models),
         "priced_embedding_count": len(priced_embedding_models),
         "chat_seen_count": len(chat_seen),
         "embedding_seen_count": len(embedding_seen),
+        "priced_seen_chat_count": len(priced_seen_chat_models),
+        "priced_seen_embedding_count": len(priced_seen_embedding_models),
         "unpriced_chat_models": unpriced_chat_models,
         "unpriced_embedding_models": unpriced_embedding_models,
+        "unpriced_chat_tokens": unpriced_chat_tokens,
+        "unpriced_embedding_tokens": unpriced_embedding_tokens,
+        "unpriced_model_tokens": unpriced_model_tokens,
+        "unpriced_model_rows": sorted(
+            unpriced_model_rows,
+            key=lambda row: (-int(row.get("tokens", 0) or 0), str(row.get("kind", "")), str(row.get("model", ""))),
+        ),
+        "has_unpriced_usage": unpriced_model_tokens > 0,
+        "estimated_chat_cost_usd_by_model": estimated_chat_cost_by_model,
+        "estimated_embedding_cost_usd_by_model": estimated_embedding_cost_by_model,
+        "estimated_total_cost_usd": estimated_total_cost_usd,
+        "logged_total_cost_usd": logged_total_cost_usd,
+        "estimated_cost_gap_usd": estimated_cost_gap_usd,
+        "has_estimated_cost_gap": estimated_cost_gap_usd > 0.0000005,
         "source_rows": source_rows,
+        "alias_rows": alias_rows,
+        "alias_count": len(alias_rows),
+    }
+
+
+def _build_model_gateway_meta(stats: dict[str, Any], settings: Any, pipeline: Any, pricing_meta: dict[str, Any]) -> dict[str, Any]:
+    usage_meter = getattr(pipeline, "usage_meter", None)
+    llm_client = getattr(pipeline, "llm_client", None)
+    embedding_client = getattr(pipeline, "embedding_client", None)
+    memory_skill = getattr(pipeline, "memory_skill", None)
+
+    chat_model = str(getattr(llm_client, "model", "") or getattr(getattr(settings, "llm", object()), "model", "") or "").strip()
+    embedding_model = ""
+    resolve_model = getattr(embedding_client, "_resolve_model", None)
+    if callable(resolve_model):
+        try:
+            embedding_model = str(resolve_model() or "").strip()
+        except Exception:
+            embedding_model = ""
+    if not embedding_model:
+        embedding_model = str(getattr(embedding_client, "model", "") or getattr(getattr(settings, "embeddings", object()), "model", "") or "").strip()
+
+    llm_meter = getattr(llm_client, "usage_meter", None)
+    embedding_meter = getattr(embedding_client, "usage_meter", None)
+    memory_embedding_client = getattr(memory_skill, "embedding_client", None)
+    memory_meter = getattr(memory_embedding_client, "usage_meter", None)
+
+    token_tracking = getattr(settings, "token_tracking", object())
+    token_tracking_enabled = bool(getattr(token_tracking, "enabled", False))
+    log_file = str(getattr(token_tracking, "log_file", "") or "").strip()
+
+    rows = [
+        {
+            "label_key": "stats.gateway_chat_client",
+            "fallback": "Chat client",
+            "status": "ok" if usage_meter is not None and llm_meter is usage_meter else "error",
+            "detail": chat_model or "-",
+        },
+        {
+            "label_key": "stats.gateway_embedding_client",
+            "fallback": "Embedding client",
+            "status": "ok" if usage_meter is not None and embedding_meter is usage_meter else "error",
+            "detail": embedding_model or "-",
+        },
+        {
+            "label_key": "stats.gateway_memory_client",
+            "fallback": "Memory embeddings",
+            "status": (
+                "ok"
+                if memory_skill is not None and memory_embedding_client is embedding_client and memory_meter is usage_meter
+                else ("warn" if memory_skill is None else "error")
+            ),
+            "detail": "shared" if memory_skill is not None else "disabled",
+        },
+        {
+            "label_key": "stats.gateway_token_log",
+            "fallback": "Token log",
+            "status": "ok" if token_tracking_enabled else "warn",
+            "detail": log_file or "-",
+        },
+    ]
+
+    has_error = any(row["status"] == "error" for row in rows)
+    has_warn = any(row["status"] == "warn" for row in rows) or bool(pricing_meta.get("has_unpriced_usage"))
+    status = "error" if has_error else ("warn" if has_warn else "ok")
+    return {
+        "status": status,
+        "chat_model": chat_model or "-",
+        "embedding_model": embedding_model or "-",
+        "usage_meter_shared": usage_meter is not None and llm_meter is usage_meter and embedding_meter is usage_meter,
+        "token_tracking_enabled": token_tracking_enabled,
+        "log_file": log_file or "-",
+        "chat_total_tokens": int(stats.get("chat_total_tokens", 0) or 0),
+        "embedding_total_tokens": int(stats.get("embedding_total_tokens", 0) or 0),
+        "model_total_tokens": int(stats.get("model_total_tokens", 0) or 0),
+        "priced_seen_chat_count": int(pricing_meta.get("priced_seen_chat_count", 0) or 0),
+        "priced_seen_embedding_count": int(pricing_meta.get("priced_seen_embedding_count", 0) or 0),
+        "unpriced_model_tokens": int(pricing_meta.get("unpriced_model_tokens", 0) or 0),
+        "has_unpriced_usage": bool(pricing_meta.get("has_unpriced_usage")),
+        "rows": rows,
+    }
+
+
+async def _build_recipe_experience_memory_meta(settings: Any) -> dict[str, Any]:
+    memory = getattr(settings, "memory", object())
+    enabled = bool(getattr(memory, "enabled", False))
+    backend = str(getattr(memory, "backend", "") or "").strip().lower()
+    if not enabled or backend != "qdrant":
+        return {
+            "status": "warn",
+            "enabled": False,
+            "collection_count": 0,
+            "point_count": 0,
+            "collections": [],
+            "recent_rows": [],
+        }
+    client = create_async_qdrant_client(
+        url=str(getattr(memory, "qdrant_url", "") or "").strip(),
+        api_key=str(getattr(memory, "qdrant_api_key", "") or "").strip() or None,
+        timeout=float(getattr(memory, "timeout_seconds", 10) or 10),
+    )
+    collections: list[dict[str, Any]] = []
+    recent_rows: list[dict[str, Any]] = []
+    try:
+        resp = await client.get_collections()
+        names = [
+            str(getattr(item, "name", "") or "").strip()
+            for item in getattr(resp, "collections", []) or []
+            if str(getattr(item, "name", "") or "").strip().startswith(RECIPE_EXPERIENCE_COLLECTION_PREFIX)
+        ]
+        for name in sorted(names):
+            points = 0
+            try:
+                info = await client.get_collection(collection_name=name)
+                points = int(getattr(info, "points_count", 0) or getattr(info, "vectors_count", 0) or 0)
+            except Exception:
+                points = 0
+            collections.append({"name": name, "points": points})
+            if len(recent_rows) < 5:
+                try:
+                    scroll = getattr(client, "scroll", None)
+                    if callable(scroll):
+                        result = await scroll(collection_name=name, limit=5, with_payload=True, with_vectors=False)
+                        points_result = result[0] if isinstance(result, tuple) else getattr(result, "points", [])
+                        for point in list(points_result or []):
+                            payload = getattr(point, "payload", {}) or {}
+                            if str(payload.get("source", "") or "").strip() != "recipe_experience":
+                                continue
+                            recent_rows.append(
+                                {
+                                    "recipe_id": str(payload.get("recipe_id", "") or "").strip(),
+                                    "title": str(payload.get("title", "") or payload.get("recipe_id", "") or "").strip() or "-",
+                                    "target": "/".join(
+                                        part
+                                        for part in (
+                                            str(payload.get("connection_kind", "") or "").strip(),
+                                            str(payload.get("connection_ref", "") or "").strip(),
+                                        )
+                                        if part
+                                    )
+                                    or "-",
+                                    "intent": str(payload.get("intent", "") or "").strip(),
+                                    "connection_kind": str(payload.get("connection_kind", "") or "").strip(),
+                                    "connection_ref": str(payload.get("connection_ref", "") or "").strip(),
+                                    "capability": str(payload.get("capability", "") or "").strip(),
+                                    "action": str(payload.get("chosen_action", "") or payload.get("learned_from_action", "") or "").strip() or "-",
+                                    "summary": str(payload.get("experience_summary", "") or payload.get("summary", "") or "").strip(),
+                                    "user_message": str(payload.get("user_message", "") or "").strip(),
+                                    "experience_count": int(payload.get("experience_count", 0) or 0),
+                                    "origin": str(payload.get("learning_origin", "") or payload.get("promotion_state", "") or "").strip() or "-",
+                                    "updated_at": str(payload.get("updated_at", "") or payload.get("timestamp", "") or "").strip(),
+                                }
+                            )
+                            if len(recent_rows) >= 5:
+                                break
+                except Exception:
+                    pass
+    except Exception as exc:
+        return {
+            "status": "error",
+            "enabled": True,
+            "collection_count": 0,
+            "point_count": 0,
+            "collections": [],
+            "recent_rows": [],
+            "error": str(exc),
+        }
+    point_count = sum(int(row.get("points", 0) or 0) for row in collections)
+    return {
+        "status": "ok" if collections else "warn",
+        "enabled": True,
+        "collection_count": len(collections),
+        "point_count": point_count,
+        "collections": collections[:6],
+        "recent_rows": sorted(recent_rows, key=lambda row: str(row.get("updated_at", "") or ""), reverse=True)[:5],
+        "error": "",
     }
 
 
@@ -584,6 +924,19 @@ def _build_source_usage_rows(stats: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _build_stats_model_totals(stats: dict[str, Any]) -> dict[str, int]:
+    chat_total = int(stats.get("chat_total_tokens", 0) or 0)
+    embedding_total = int(stats.get("embedding_total_tokens", 0) or 0)
+    extraction_total = int(stats.get("extraction_total_tokens", 0) or 0)
+    model_total = int(stats.get("model_total_tokens", 0) or (chat_total + embedding_total + extraction_total) or 0)
+    return {
+        "chat_total_tokens": chat_total,
+        "embedding_total_tokens": embedding_total,
+        "extraction_total_tokens": extraction_total,
+        "model_total_tokens": model_total,
+    }
+
+
 def _read_raw_config(base_dir: Path) -> dict[str, Any]:
     path = _config_path(base_dir)
     if not path.exists():
@@ -600,12 +953,230 @@ def _write_raw_config(base_dir: Path, payload: dict[str, Any]) -> None:
         yaml.safe_dump(payload, handle, sort_keys=False, allow_unicode=True)
 
 
-async def _refresh_pricing_snapshot(settings: Any, base_dir: Path) -> dict[str, Any]:
-    snapshot = await build_pricing_catalog_snapshot(include_openrouter=True)
+def _today_utc_label() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _pricing_entry_text(entry: Any, field: str) -> str:
+    if isinstance(entry, dict):
+        return str(entry.get(field, "") or "").strip().lower()
+    return str(getattr(entry, field, "") or "").strip().lower()
+
+
+def _is_manual_pricing_entry(entry: Any) -> bool:
+    source_name = _pricing_entry_text(entry, "source_name")
+    notes = _pricing_entry_text(entry, "notes")
+    return "manual" in source_name or "custom" in source_name or "source=manual" in notes or "manual_override=true" in notes
+
+
+def _merge_refreshed_pricing_entries(existing: Any, refreshed: Any) -> dict[str, Any]:
+    existing_rows = dict(existing or {}) if isinstance(existing, dict) else {}
+    refreshed_rows = dict(refreshed or {}) if isinstance(refreshed, dict) else {}
+    merged: dict[str, Any] = {}
+
+    for model, entry in existing_rows.items():
+        if _is_manual_pricing_entry(entry):
+            merged[str(model)] = entry
+
+    for model, entry in refreshed_rows.items():
+        model_key = str(model)
+        if model_key not in merged:
+            merged[model_key] = entry
+
+    for model, entry in existing_rows.items():
+        model_key = str(model)
+        if model_key not in merged:
+            merged[model_key] = entry
+
+    return merged
+
+
+def _ensure_pricing_section(raw: dict[str, Any]) -> dict[str, Any]:
+    pricing_section = raw.get("pricing")
+    if not isinstance(pricing_section, dict):
+        pricing_section = {}
+        raw["pricing"] = pricing_section
+    pricing_section.setdefault("enabled", True)
+    pricing_section.setdefault("currency", "USD")
+    pricing_section.setdefault("source", "litellm_github")
+    pricing_section.setdefault("model_aliases", {})
+    pricing_section.setdefault("chat_models", {})
+    pricing_section.setdefault("embedding_models", {})
+    return pricing_section
+
+
+def _normalize_pricing_kind(value: str) -> str:
+    clean = str(value or "").strip().lower().replace("-", "_")
+    if clean in {"chat", "chat_model", "llm"}:
+        return "chat"
+    if clean in {"embedding", "embed", "embeddings", "embedding_model"}:
+        return "embedding"
+    return ""
+
+
+def _pricing_table_key(kind: str) -> str:
+    normalized = _normalize_pricing_kind(kind)
+    return "chat_models" if normalized == "chat" else "embedding_models" if normalized == "embedding" else ""
+
+
+def _manual_pricing_notes(notes: str = "") -> str:
+    clean = str(notes or "").strip()
+    markers = ["source=manual", "manual_override=true"]
+    if clean:
+        existing = {part.strip().lower() for part in clean.split(";")}
+        additions = [marker for marker in markers if marker not in existing]
+        return "; ".join([clean, *additions]) if additions else clean
+    return "; ".join(markers)
+
+
+def _sync_pricing_settings(settings: Any, pricing_section: dict[str, Any]) -> None:
+    settings.pricing.enabled = bool(pricing_section.get("enabled", True))
+    settings.pricing.currency = str(pricing_section.get("currency", "USD") or "USD")
+    settings.pricing.last_updated = str(pricing_section.get("last_updated", "") or "")
+    settings.pricing.default_source_name = str(pricing_section.get("default_source_name", "") or "")
+    settings.pricing.default_source_url = str(pricing_section.get("default_source_url", "") or "")
+    settings.pricing.source = str(pricing_section.get("source", "litellm_github") or "litellm_github")
+    settings.pricing.litellm_cache_file = str(pricing_section.get("litellm_cache_file", "data/pricing/litellm_model_prices.json") or "data/pricing/litellm_model_prices.json")
+    settings.pricing.refresh_interval_days = int(pricing_section.get("refresh_interval_days", 7) or 7)
+    settings.pricing.model_aliases = {
+        str(alias): str(target)
+        for alias, target in dict(pricing_section.get("model_aliases", {}) or {}).items()
+        if str(alias).strip() and str(target).strip()
+    }
+    settings.pricing.chat_models = {
+        str(model): ChatPricingModelConfig.model_validate(entry)
+        for model, entry in dict(pricing_section.get("chat_models", {}) or {}).items()
+        if isinstance(entry, dict)
+    }
+    settings.pricing.embedding_models = {
+        str(model): EmbeddingPricingModelConfig.model_validate(entry)
+        for model, entry in dict(pricing_section.get("embedding_models", {}) or {}).items()
+        if isinstance(entry, dict)
+    }
+
+
+def _save_pricing_alias_override(settings: Any, base_dir: Path, *, alias: str, target: str) -> dict[str, Any]:
+    clean_alias = str(alias or "").strip()
+    clean_target = str(target or "").strip()
+    if not clean_alias or not clean_target:
+        raise ValueError("Alias and target model are required.")
+    raw = _read_raw_config(base_dir)
+    pricing_section = _ensure_pricing_section(raw)
+    aliases = pricing_section.get("model_aliases")
+    if not isinstance(aliases, dict):
+        aliases = {}
+        pricing_section["model_aliases"] = aliases
+    aliases[clean_alias] = clean_target
+    _write_raw_config(base_dir, raw)
+    _sync_pricing_settings(settings, pricing_section)
+    return {"kind": "alias", "alias": clean_alias, "target": clean_target}
+
+
+def _delete_pricing_alias_override(settings: Any, base_dir: Path, *, alias: str) -> dict[str, Any]:
+    clean_alias = str(alias or "").strip()
+    if not clean_alias:
+        raise ValueError("Alias is required.")
+    raw = _read_raw_config(base_dir)
+    pricing_section = _ensure_pricing_section(raw)
+    aliases = pricing_section.get("model_aliases")
+    if isinstance(aliases, dict):
+        aliases.pop(clean_alias, None)
+    _write_raw_config(base_dir, raw)
+    _sync_pricing_settings(settings, pricing_section)
+    return {"kind": "alias", "alias": clean_alias, "deleted": True}
+
+
+def _save_manual_pricing_model(
+    settings: Any,
+    base_dir: Path,
+    *,
+    kind: str,
+    model: str,
+    input_per_million: float,
+    output_per_million: float = 0.0,
+    source_name: str = "Manual",
+    source_url: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
+    normalized_kind = _normalize_pricing_kind(kind)
+    table_key = _pricing_table_key(normalized_kind)
+    clean_model = str(model or "").strip()
+    if not table_key or not clean_model:
+        raise ValueError("Model kind and model name are required.")
+    input_rate = float(input_per_million or 0.0)
+    output_rate = float(output_per_million or 0.0)
+    if input_rate < 0 or output_rate < 0:
+        raise ValueError("Pricing rates must not be negative.")
+    raw = _read_raw_config(base_dir)
+    pricing_section = _ensure_pricing_section(raw)
+    table = pricing_section.get(table_key)
+    if not isinstance(table, dict):
+        table = {}
+        pricing_section[table_key] = table
+    entry: dict[str, Any] = {
+        "input_per_million": input_rate,
+        "source_name": str(source_name or "").strip() or "Manual",
+        "source_url": str(source_url or "").strip(),
+        "verified_at": _today_utc_label(),
+        "notes": _manual_pricing_notes(notes),
+    }
+    if normalized_kind == "chat":
+        entry["output_per_million"] = output_rate
+    table[clean_model] = entry
+    pricing_section["last_updated"] = _today_utc_label()
+    _write_raw_config(base_dir, raw)
+    _sync_pricing_settings(settings, pricing_section)
+    return {"kind": normalized_kind, "model": clean_model, "entry": entry}
+
+
+def _delete_manual_pricing_model(settings: Any, base_dir: Path, *, kind: str, model: str) -> dict[str, Any]:
+    normalized_kind = _normalize_pricing_kind(kind)
+    table_key = _pricing_table_key(normalized_kind)
+    clean_model = str(model or "").strip()
+    if not table_key or not clean_model:
+        raise ValueError("Model kind and model name are required.")
+    raw = _read_raw_config(base_dir)
+    pricing_section = _ensure_pricing_section(raw)
+    table = pricing_section.get(table_key)
+    if isinstance(table, dict):
+        entry = table.get(clean_model)
+        if entry is not None and not _is_manual_pricing_entry(entry):
+            raise ValueError("Only manual pricing overrides can be deleted from this admin action.")
+        table.pop(clean_model, None)
+    _write_raw_config(base_dir, raw)
+    _sync_pricing_settings(settings, pricing_section)
+    return {"kind": normalized_kind, "model": clean_model, "deleted": True}
+
+
+async def _refresh_pricing_snapshot(
+    settings: Any,
+    base_dir: Path,
+    *,
+    force_litellm_refresh: bool = True,
+) -> dict[str, Any]:
+    pricing = getattr(settings, "pricing", None)
+    cache_file = Path(str(getattr(pricing, "litellm_cache_file", "data/pricing/litellm_model_prices.json") or "data/pricing/litellm_model_prices.json"))
+    if not cache_file.is_absolute():
+        cache_file = base_dir / cache_file
+    snapshot = await build_pricing_catalog_snapshot(
+        include_litellm=True,
+        include_openrouter=False,
+        litellm_cache_file=cache_file,
+        litellm_refresh_interval_days=int(getattr(pricing, "refresh_interval_days", 7) or 7),
+        force_litellm_refresh=force_litellm_refresh,
+    )
     raw = _read_raw_config(base_dir)
     pricing_section = raw.get("pricing")
     if not isinstance(pricing_section, dict):
         pricing_section = {}
+    chat_models = _merge_refreshed_pricing_entries(
+        pricing_section.get("chat_models"),
+        snapshot.get("chat_models"),
+    )
+    embedding_models = _merge_refreshed_pricing_entries(
+        pricing_section.get("embedding_models"),
+        snapshot.get("embedding_models"),
+    )
     pricing_section.update(
         {
             "enabled": True,
@@ -613,8 +1184,11 @@ async def _refresh_pricing_snapshot(settings: Any, base_dir: Path) -> dict[str, 
             "last_updated": snapshot.get("last_updated", ""),
             "default_source_name": snapshot.get("default_source_name", ""),
             "default_source_url": snapshot.get("default_source_url", ""),
-            "chat_models": snapshot.get("chat_models", {}),
-            "embedding_models": snapshot.get("embedding_models", {}),
+            "source": "litellm_github",
+            "litellm_cache_file": str(getattr(pricing, "litellm_cache_file", "data/pricing/litellm_model_prices.json") or "data/pricing/litellm_model_prices.json"),
+            "refresh_interval_days": int(getattr(pricing, "refresh_interval_days", 7) or 7),
+            "chat_models": chat_models,
+            "embedding_models": embedding_models,
         }
     )
     raw["pricing"] = pricing_section
@@ -625,17 +1199,39 @@ async def _refresh_pricing_snapshot(settings: Any, base_dir: Path) -> dict[str, 
     settings.pricing.last_updated = str(snapshot.get("last_updated", "") or "").strip()
     settings.pricing.default_source_name = str(snapshot.get("default_source_name", "") or "").strip()
     settings.pricing.default_source_url = str(snapshot.get("default_source_url", "") or "").strip()
+    settings.pricing.source = "litellm_github"
+    settings.pricing.litellm_cache_file = str(getattr(pricing, "litellm_cache_file", "data/pricing/litellm_model_prices.json") or "data/pricing/litellm_model_prices.json")
+    settings.pricing.refresh_interval_days = int(getattr(pricing, "refresh_interval_days", 7) or 7)
     settings.pricing.chat_models = {
         str(model): ChatPricingModelConfig.model_validate(entry)
-        for model, entry in dict(snapshot.get("chat_models", {}) or {}).items()
+        for model, entry in chat_models.items()
         if isinstance(entry, dict)
     }
     settings.pricing.embedding_models = {
         str(model): EmbeddingPricingModelConfig.model_validate(entry)
-        for model, entry in dict(snapshot.get("embedding_models", {}) or {}).items()
+        for model, entry in embedding_models.items()
         if isinstance(entry, dict)
     }
     return snapshot
+
+
+def _pricing_refresh_meta(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    payload = snapshot if isinstance(snapshot, dict) else {}
+    chat_models = payload.get("chat_models", {})
+    embedding_models = payload.get("embedding_models", {})
+    errors = payload.get("errors", [])
+    litellm_cache = payload.get("litellm_cache", {})
+    cache = litellm_cache if isinstance(litellm_cache, dict) else {}
+    return {
+        "refreshed": bool(payload),
+        "last_updated": str(payload.get("last_updated", "") or "").strip(),
+        "chat_model_count": len(chat_models) if isinstance(chat_models, dict) else 0,
+        "embedding_model_count": len(embedding_models) if isinstance(embedding_models, dict) else 0,
+        "cache_refreshed": bool(cache.get("refreshed", False)),
+        "cache_used": bool(cache.get("used_cache", False)),
+        "cache_file": str(cache.get("cache_file", "") or "").strip(),
+        "errors": [str(item) for item in errors] if isinstance(errors, list) else [],
+    }
 
 
 def _build_preflight_meta(payload: dict[str, Any], language: str, active_profiles: dict[str, str] | None = None) -> dict[str, Any]:
@@ -649,10 +1245,15 @@ def _build_preflight_meta(payload: dict[str, Any], language: str, active_profile
     summary_labels = {
         "prompts_ok": lambda row: _pick_text(
             language,
-            f"Prompt-Dateien ok ({int(row.get('skill_prompt_count', 0) or 0)} Skill-Prompts).",
-            f"Prompt files ok ({int(row.get('skill_prompt_count', 0) or 0)} skill prompts).",
+            _stats_route_text(
+                language,
+                "prompts_ok",
+                "Prompt files ok ({count} recipe prompts).",
+                count=int(row.get("skill_prompt_count", 0) or 0),
+            ),
+            "Prompt files ok ({count} recipe prompts).".format(count=int(row.get("skill_prompt_count", 0) or 0)),
         ),
-        "prompts_incomplete": lambda row: _pick_text(language, "Prompt-Dateien unvollständig.", "Prompt files incomplete."),
+        "prompts_incomplete": lambda row: _stats_route_text(language, "prompts_incomplete", "Prompt files incomplete."),
         "qdrant_disabled": lambda row: _pick_text(language, "Memory deaktiviert.", "Memory disabled."),
         "qdrant_backend_inactive": lambda row: _pick_text(language, "Qdrant nicht als Backend aktiv.", "Qdrant not active as backend."),
         "qdrant_ok": lambda row: _pick_text(
@@ -664,7 +1265,7 @@ def _build_preflight_meta(payload: dict[str, Any], language: str, active_profile
         "llm_ok": lambda row: _pick_text(language, "LLM erreichbar.", "LLM reachable."),
         "llm_empty": lambda row: _pick_text(language, "LLM antwortet leer.", "LLM responded empty."),
         "llm_error": lambda row: _pick_text(language, "LLM nicht erreichbar.", "LLM unavailable."),
-        "embeddings_missing_model": lambda row: _pick_text(language, "Embedding-Modell fehlt.", "Embedding model missing."),
+        "embeddings_missing_model": lambda row: _stats_route_text(language, "embeddings_missing_model", "Embedding model missing."),
         "embeddings_ok": lambda row: _pick_text(language, "Embeddings erreichbar.", "Embeddings reachable."),
         "embeddings_empty_vector": lambda row: _pick_text(language, "Embeddings antworten ohne Vektor.", "Embeddings responded without vector."),
         "embeddings_error": lambda row: _pick_text(language, "Embeddings nicht erreichbar.", "Embeddings unavailable."),
@@ -836,7 +1437,9 @@ async def _build_health_meta(
             "status": log_status,
             "summary": _pick_text(
                 language,
-                "Run-/Token-Logs verfügbar." if log_exists else "Noch keine Run-/Token-Logs vorhanden.",
+                _stats_route_text(language, "logs_available", "Run/token logs available.")
+                if log_exists
+                else _stats_route_text(language, "logs_missing", "No run/token logs yet."),
                 "Run/token logs available." if log_exists else "No run/token logs yet.",
             ),
             "detail": f"{log_path} · {log_size}",
@@ -909,7 +1512,7 @@ async def _build_health_meta(
             elif helper_status == "error":
                 helper_summary = _pick_text(
                     language,
-                    "GUI-Update-Helper meldet einen Fehler.",
+                    _stats_route_text(language, "update_helper_error", "GUI update helper reports an error."),
                     "GUI update helper reports an error.",
                 )
             else:
@@ -960,27 +1563,170 @@ def register_stats_routes(
     get_runtime_preflight: PreflightGetter,
     get_secure_store: SecureStoreGetter | None = None,
 ) -> None:
+    async def _pricing_panel_response(
+        request: Request,
+        *,
+        pricing_refresh: dict[str, Any] | None = None,
+        pricing_admin: dict[str, Any] | None = None,
+    ) -> Response:
+        settings = get_settings()
+        pipeline = get_pipeline()
+        stats = await pipeline.token_tracker.get_stats(days=7)
+        pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
+        return templates.TemplateResponse(
+            request=request,
+            name="_stats_pricing_panel.html",
+            context={
+                "stats": stats,
+                "pricing_meta": pricing_meta,
+                "pricing_refresh": pricing_refresh,
+                "pricing_admin": pricing_admin,
+            },
+        )
+
     @app.post("/stats/pricing/refresh")
     async def stats_pricing_refresh(request: Request) -> Response:
         can_access_advanced = bool(
             getattr(getattr(request, "state", object()), "can_access_advanced_config", False)
         )
         settings = get_settings()
+        refresh_meta: dict[str, Any] | None = None
         if can_access_advanced:
-            await _refresh_pricing_snapshot(settings, _project_root())
+            refresh_meta = _pricing_refresh_meta(await _refresh_pricing_snapshot(settings, _project_root()))
         if str(request.headers.get("HX-Request", "")).strip().lower() == "true":
-            pipeline = get_pipeline()
-            stats = await pipeline.token_tracker.get_stats(days=7)
-            pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
-            return templates.TemplateResponse(
-                request=request,
-                name="_stats_pricing_panel.html",
-                context={
-                    "stats": stats,
-                    "pricing_meta": pricing_meta,
-                },
-            )
+            return await _pricing_panel_response(request, pricing_refresh=refresh_meta)
         return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+
+    @app.post("/stats/pricing/alias")
+    async def stats_pricing_alias(
+        request: Request,
+        alias: str = Form(""),
+        target: str = Form(""),
+    ) -> Response:
+        if not bool(getattr(getattr(request, "state", object()), "can_access_advanced_config", False)):
+            return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+        status = "ok"
+        message = "Pricing alias saved."
+        try:
+            _save_pricing_alias_override(get_settings(), _project_root(), alias=alias, target=target)
+        except ValueError as exc:
+            status = "warn"
+            message = str(exc)
+        if str(request.headers.get("HX-Request", "")).strip().lower() == "true":
+            return await _pricing_panel_response(request, pricing_admin={"status": status, "message": message})
+        return RedirectResponse(f"/stats#stats-pricing-details", status_code=303)
+
+    @app.post("/stats/pricing/alias/delete")
+    async def stats_pricing_alias_delete(
+        request: Request,
+        alias: str = Form(""),
+    ) -> Response:
+        if not bool(getattr(getattr(request, "state", object()), "can_access_advanced_config", False)):
+            return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+        status = "ok"
+        message = "Pricing alias deleted."
+        try:
+            _delete_pricing_alias_override(get_settings(), _project_root(), alias=alias)
+        except ValueError as exc:
+            status = "warn"
+            message = str(exc)
+        if str(request.headers.get("HX-Request", "")).strip().lower() == "true":
+            return await _pricing_panel_response(request, pricing_admin={"status": status, "message": message})
+        return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+
+    @app.post("/stats/pricing/manual")
+    async def stats_pricing_manual(
+        request: Request,
+        kind: str = Form(""),
+        model: str = Form(""),
+        input_per_million: float = Form(0.0),
+        output_per_million: float = Form(0.0),
+        source_name: str = Form("Manual"),
+        source_url: str = Form(""),
+        notes: str = Form(""),
+    ) -> Response:
+        if not bool(getattr(getattr(request, "state", object()), "can_access_advanced_config", False)):
+            return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+        status = "ok"
+        message = "Manual pricing saved."
+        try:
+            _save_manual_pricing_model(
+                get_settings(),
+                _project_root(),
+                kind=kind,
+                model=model,
+                input_per_million=input_per_million,
+                output_per_million=output_per_million,
+                source_name=source_name,
+                source_url=source_url,
+                notes=notes,
+            )
+        except ValueError as exc:
+            status = "warn"
+            message = str(exc)
+        if str(request.headers.get("HX-Request", "")).strip().lower() == "true":
+            return await _pricing_panel_response(request, pricing_admin={"status": status, "message": message})
+        return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+
+    @app.post("/stats/pricing/manual/delete")
+    async def stats_pricing_manual_delete(
+        request: Request,
+        kind: str = Form(""),
+        model: str = Form(""),
+    ) -> Response:
+        if not bool(getattr(getattr(request, "state", object()), "can_access_advanced_config", False)):
+            return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+        status = "ok"
+        message = "Manual pricing deleted."
+        try:
+            _delete_manual_pricing_model(get_settings(), _project_root(), kind=kind, model=model)
+        except ValueError as exc:
+            status = "warn"
+            message = str(exc)
+        if str(request.headers.get("HX-Request", "")).strip().lower() == "true":
+            return await _pricing_panel_response(request, pricing_admin={"status": status, "message": message})
+        return RedirectResponse("/stats#stats-pricing-details", status_code=303)
+
+    @app.post("/stats/recipe-experience/review")
+    async def stats_recipe_experience_review(
+        request: Request,
+        recipe_id: str = Form(""),
+        title: str = Form(""),
+        intent: str = Form(""),
+        connection_kind: str = Form(""),
+        connection_ref: str = Form(""),
+        capability: str = Form(""),
+        action: str = Form(""),
+        summary: str = Form(""),
+        user_message: str = Form(""),
+        experience_count: int = Form(1),
+        origin: str = Form(""),
+        updated_at: str = Form(""),
+    ) -> RedirectResponse:
+        if not bool(getattr(getattr(request, "state", object()), "can_access_advanced_config", False)):
+            return RedirectResponse("/stats#recipe-experience-memory", status_code=303)
+        try:
+            row = promote_recipe_experience_to_learned_review(
+                {
+                    "recipe_id": recipe_id,
+                    "title": title,
+                    "intent": intent,
+                    "connection_kind": connection_kind,
+                    "connection_ref": connection_ref,
+                    "capability": capability,
+                    "chosen_action": action,
+                    "experience_summary": summary,
+                    "user_message": user_message,
+                    "experience_count": experience_count,
+                    "learning_origin": origin,
+                    "last_success_at": updated_at,
+                }
+            )
+            info = quote_plus(f"experience_review:{row.get('recipe_id', '')}")
+            return RedirectResponse(f"/recipes/learned?saved=1&info={info}", status_code=303)
+        except (OSError, ValueError) as exc:
+            error = quote_plus(str(exc))
+            return RedirectResponse(f"/stats?error={error}#recipe-experience-memory", status_code=303)
 
     @app.post("/stats/reset")
     async def stats_reset(request: Request, confirm_text: str = Form("")) -> RedirectResponse:
@@ -994,7 +1740,7 @@ def register_stats_routes(
         if str(confirm_text or "").strip().upper() != "RESET":
             error = _pick_text(
                 language,
-                'Bitte zur Bestätigung genau "RESET" eingeben.',
+                _stats_route_text(language, "reset_confirm_exact", 'Please type "RESET" exactly to confirm.'),
                 'Please type "RESET" exactly to confirm.',
             )
             return RedirectResponse(f"/stats?reset_error={quote_plus(error)}", status_code=303)
@@ -1019,6 +1765,8 @@ def register_stats_routes(
         stats = await pipeline.token_tracker.get_stats(days=7)
         username = get_username_from_request(request)
         pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
+        model_gateway = _build_model_gateway_meta(stats, settings, pipeline, pricing_meta)
+        recipe_experience_memory = await _build_recipe_experience_memory_meta(settings)
         language = str(getattr(getattr(request, "state", object()), "lang", "") or settings.ui.language or "de")
         health_meta = await _build_health_meta(settings, pipeline, language, request, get_secure_store=get_secure_store)
         preflight_payload = get_runtime_preflight() or {}
@@ -1036,6 +1784,7 @@ def register_stats_routes(
         release_meta = dict(getattr(getattr(request, "state", object()), "release_meta", {}) or _build_release_meta(base_dir))
         update_status = dict(getattr(getattr(request, "state", object()), "update_status", {}) or {})
         source_usage_rows = _build_source_usage_rows(stats)
+        model_totals = _build_stats_model_totals(stats)
         activity_data = await pipeline.token_tracker.get_recent_activities(
             user_id=username,
             limit=18,
@@ -1072,6 +1821,8 @@ def register_stats_routes(
                 'stats': stats,
                 'username': username,
                 'pricing_meta': pricing_meta,
+                'model_gateway': model_gateway,
+                'recipe_experience_memory': recipe_experience_memory,
                 'health_meta': health_meta,
                 'preflight_meta': preflight_meta,
                 'runtime_memory': runtime_memory,
@@ -1080,6 +1831,7 @@ def register_stats_routes(
                 'release_meta': release_meta,
                 'update_status': update_status,
                 'source_usage_rows': source_usage_rows,
+                'model_totals': model_totals,
                 'activities': activity_data,
                 'connection_status_rows': connection_status_rows,
                 'reset_done': reset_done,

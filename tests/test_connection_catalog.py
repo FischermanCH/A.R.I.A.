@@ -7,6 +7,7 @@ from aria.core.connection_catalog import (
     connection_menu_meta,
     connection_menu_rows,
     connection_overview_meta,
+    connection_routing_spec,
     connection_status_meta,
     connection_template_name,
     ordered_connection_kinds,
@@ -79,3 +80,16 @@ def test_searxng_catalog_exposes_web_search_defaults() -> None:
     assert fields["categories"]["type"] == "list"
     assert fields["engines"]["type"] == "list"
     assert connection_chat_emoji("searxng") == "🔎"
+
+
+def test_connection_routing_spec_prepares_website_and_searxng_action_preferences() -> None:
+    website = connection_routing_spec("website")
+    searxng = connection_routing_spec("searxng")
+
+    assert website.preferred_action_candidates["default"] == ["website_read"]
+    assert website.preferred_action_candidates["list_like"] == ["website_list"]
+    assert "beobachtete webseiten" in website.supported_actions
+
+    assert searxng.preferred_action_candidates["default"] == ["web_search"]
+    assert searxng.preferred_action_candidates["search_like"] == ["web_search"]
+    assert "search" in searxng.language_hints

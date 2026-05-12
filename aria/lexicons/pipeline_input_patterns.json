@@ -1,0 +1,5 @@
+{
+  "message": ["^(?:bitte\\s+)?(?:schick(?:e)?|send(?:e)?|schreib(?:e)?|post(?:e)?|publish)\\s+(?:bitte\\s+|einfach\\s+)*(?:(?:die|den|das)\\s+)?(?:nachricht|meldung|text)?\\s*(.+)$"],
+  "command": ["^(?:bitte\\s+)?(?:f(?:ü|ue)hre|run|execute|exec)\\s+(?:bitte\\s+|einfach\\s+)*(?:(?:den|das)\\s+)?(?:befehl|command)?\\s*(.+)$"],
+  "search_query": ["^(?:bitte\\s+)?(?:suche|such|search|finde|find)\\s+(?:bitte\\s+|einfach\\s+)*(?:nach\\s+)?(.+)$"]
+}

@@ -1,7 +1,15 @@
 import asyncio
 
 from aria.core.connection_catalog import connection_insert_template, connection_kind_label, connection_toolbox_keywords
-from aria.core.connection_semantic_resolver import ConnectionSemanticResolver, build_connection_aliases
+from aria.core.connection_semantic_resolver import (
+    ConnectionSemanticResolver,
+    SemanticConnectionCandidate,
+    SemanticConnectionHint,
+    build_connection_aliases,
+    build_routing_decision_record,
+    connection_label_match_score,
+    format_routing_decision_record,
+)
 
 
 def test_build_connection_aliases_includes_metadata_fields() -> None:
@@ -60,6 +68,34 @@ def test_connection_semantic_resolver_prefers_metadata_alias_match() -> None:
     assert hint.source == 'semantic_alias'
 
 
+def test_connection_semantic_resolver_collects_sorted_candidates() -> None:
+    resolver = ConnectionSemanticResolver(llm_client=None)
+
+    candidates = resolver.collect_connection_candidates(
+        "rss news tech was gibts neues",
+        {
+            "rss": {
+                "heise-online-news": {
+                    "feed_url": "https://www.heise.de/rss/heise-atom.xml",
+                    "title": "heise online News",
+                    "tags": ["news", "tech"],
+                },
+                "area41-feed": {
+                    "feed_url": "https://example.org/area41.xml",
+                    "title": "AREA41 Feed",
+                    "group_name": "News Tech",
+                },
+            }
+        },
+        preferred_kind="rss",
+    )
+
+    assert {item.connection_ref for item in candidates[:2]} == {"heise-online-news", "area41-feed"}
+    assert candidates[0].score >= candidates[1].score
+    assert candidates[0].source == "semantic_alias"
+    assert candidates[0].note.startswith("alias:")
+
+
 def test_connection_catalog_provides_shared_labels_templates_and_keywords() -> None:
     assert connection_kind_label("email") == "SMTP"
     assert "alerts-mail" in connection_insert_template("email", "create", "alerts-mail")
@@ -67,7 +103,7 @@ def test_connection_catalog_provides_shared_labels_templates_and_keywords() -> N
     assert "synology" in connection_toolbox_keywords("smb", ["nas-share"])
 
 
-def test_connection_semantic_resolver_can_use_llm_for_generic_connection_choice() -> None:
+def test_connection_semantic_resolver_prefers_single_plausible_candidate_without_llm() -> None:
     class FakeLLMResponse:
         def __init__(self, content: str) -> None:
             self.content = content
@@ -92,7 +128,7 @@ def test_connection_semantic_resolver_can_use_llm_for_generic_connection_choice(
 
     assert hint.connection_kind == "webhook"
     assert hint.connection_ref == "n8n-demo"
-    assert hint.source == "semantic_llm"
+    assert hint.source == "semantic_alias"
 
 
 def test_connection_semantic_resolver_builds_rss_aliases_from_metadata() -> None:
@@ -113,6 +149,21 @@ def test_connection_semantic_resolver_builds_rss_aliases_from_metadata() -> None
     assert "security" in aliases
 
 
+def test_build_connection_aliases_include_rss_group_name() -> None:
+    aliases = build_connection_aliases(
+        "rss",
+        "area41-feed",
+        {
+            "feed_url": "https://example.org/feed.xml",
+            "title": "AREA41 Feed",
+            "group_name": "News Tech",
+            "tags": ["lab"],
+        },
+    )
+
+    assert "news tech" in aliases
+
+
 def test_build_connection_aliases_adds_discord_alert_channel_hints() -> None:
     aliases = build_connection_aliases(
         "discord",
@@ -127,3 +178,66 @@ def test_build_connection_aliases_adds_discord_alert_channel_hints() -> None:
     assert "alerts channel" in aliases
     assert "alert channel" in aliases
     assert "logs channel" in aliases
+
+
+def test_build_connection_aliases_adds_website_docs_hints() -> None:
+    aliases = build_connection_aliases(
+        "website",
+        "aria-docs",
+        {
+            "url": "https://example.org/docs",
+            "group_name": "Docs",
+            "title": "ARIA Docs",
+            "description": "Technical documentation",
+            "tags": ["documentation", "aria"],
+        },
+    )
+
+    assert "aria docs" in aliases
+    assert "docs" in aliases
+    assert "documentation" in aliases
+    assert "dokumentation" in aliases
+
+
+def test_connection_label_match_score_ignores_generic_single_word_server_label() -> None:
+    assert connection_label_match_score("prüfe den status vom backup server", "server") == 0
+    assert connection_label_match_score("check health auf management server", "management server") > 0
+
+
+def test_routing_decision_record_formats_candidates_and_selection() -> None:
+    record = build_routing_decision_record(
+        stage="rss_semantic_refine",
+        preferred_kind="rss",
+        candidates=[
+            SemanticConnectionCandidate(
+                connection_kind="rss",
+                connection_ref="heise-online-news",
+                source="semantic_alias",
+                alias="news tech",
+                score=166,
+            ),
+            SemanticConnectionCandidate(
+                connection_kind="rss",
+                connection_ref="area41-feed",
+                source="semantic_alias",
+                alias="news tech",
+                score=171,
+            ),
+        ],
+        hint=SemanticConnectionHint(
+            connection_kind="rss",
+            connection_ref="area41-feed",
+            source="semantic_llm",
+            note="semantic_llm:category",
+        ),
+    )
+
+    lines = format_routing_decision_record(record)
+
+    assert lines[0].startswith("Routing: rss_semantic_refine candidates=2 preferred=rss -> ")
+    assert "`rss/heise-online-news` score=166 source=semantic_alias alias=news tech" in lines[0]
+    assert "`rss/area41-feed` score=171 source=semantic_alias alias=news tech" in lines[0]
+    assert lines[1] == (
+        "Routing: rss_semantic_refine selected `rss/area41-feed` "
+        "source=semantic_llm note=semantic_llm:category"
+    )

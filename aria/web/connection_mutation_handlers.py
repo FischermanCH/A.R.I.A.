@@ -2,20 +2,51 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote_plus, urlencode, urlparse
+from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
+
+from aria.core.connection_admin import ConnectionAdminError
+from aria.core.connection_admin import friendly_connection_admin_error_text
+from aria.core.google_calendar_support import friendly_google_calendar_error_message
+from aria.core.i18n import I18NStore
+from aria.core.runtime_endpoint import resolve_runtime_url
+
+_CONNECTION_MUTATION_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _connection_mutation_text(language: str | None, key: str, **values: Any) -> str:
+    template = _CONNECTION_MUTATION_I18N.t(str(language or "de"), f"connection_mutation.{key}", key)
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
+def _friendly_connection_mutation_error(language: str | None, exc: Exception, *, kind: str = "") -> str:
+    if isinstance(exc, ConnectionAdminError):
+        mutation_text = _connection_mutation_text(language, str(exc.code), **exc.params)
+        if mutation_text != exc.code:
+            return mutation_text
+        return friendly_connection_admin_error_text(exc, kind=kind, language=language)
+    return str(exc)
 
 
 @dataclass(frozen=True)
 class ConnectionMutationHandlerDeps:
     base_dir: Path
     msg: Any
+    get_settings: Any
+    get_secure_store: Any
     read_raw_config: Any
     write_raw_config: Any
     reload_runtime: Any
@@ -72,6 +103,8 @@ class ConnectionMutationHandlers:
     imap_save: Any
     http_api_save: Any
     google_calendar_save: Any
+    google_calendar_oauth_start: Any
+    google_calendar_oauth_callback: Any
     searxng_save: Any
     rss_save: Any
     website_save: Any
@@ -87,6 +120,8 @@ class ConnectionMutationHandlers:
 def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> ConnectionMutationHandlers:
     BASE_DIR = deps.base_dir
     _msg = deps.msg
+    _get_settings = deps.get_settings
+    _get_secure_store = deps.get_secure_store
     _read_raw_config = deps.read_raw_config
     _write_raw_config = deps.write_raw_config
     _reload_runtime = deps.reload_runtime
@@ -128,6 +163,117 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
     _ssh_keys_dir = deps.ssh_keys_dir
     _ensure_ssh_keypair = deps.ensure_ssh_keypair
     _autofill_website_connection_metadata = deps.autofill_website_connection_metadata
+    _google_calendar_oauth_pending_prefix = "connections.google_calendar.oauth_pending."
+
+    def _google_calendar_redirect_uri(request: Request) -> str:
+        base_url = resolve_runtime_url(_get_settings(), request).rstrip("/")
+        return f"{base_url}/config/connections/google-calendar/oauth/callback"
+
+    def _google_calendar_auth_url(*, client_id: str, redirect_uri: str, state: str) -> str:
+        params = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": "https://www.googleapis.com/auth/calendar.readonly",
+            "access_type": "offline",
+            "prompt": "consent",
+            "include_granted_scopes": "true",
+            "state": state,
+        }
+        return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+
+    async def _read_google_oauth_client_upload(oauth_client_file: UploadFile | None) -> tuple[str, str]:
+        if oauth_client_file is None:
+            return "", ""
+        filename = str(getattr(oauth_client_file, "filename", "") or "").strip()
+        if not filename:
+            return "", ""
+        raw_bytes = await oauth_client_file.read()
+        if not raw_bytes:
+            raise ConnectionAdminError("google_oauth_file_empty")
+        try:
+            payload = json.loads(raw_bytes.decode("utf-8", errors="strict"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ConnectionAdminError("google_oauth_invalid_json") from exc
+        if not isinstance(payload, dict):
+            raise ConnectionAdminError("google_oauth_invalid_format")
+        candidate = payload.get("web") or payload.get("installed") or payload
+        if not isinstance(candidate, dict):
+            raise ConnectionAdminError("google_oauth_invalid_web_client")
+        client_id_value = str(candidate.get("client_id", "") or "").strip()
+        client_secret_value = str(candidate.get("client_secret", "") or "").strip()
+        if not client_id_value or not client_secret_value:
+            raise ConnectionAdminError("google_oauth_missing_client_credentials")
+        return client_id_value, client_secret_value
+
+    async def _persist_google_calendar_profile(
+        *,
+        connection_ref: str,
+        original_ref: str,
+        connection_title: str,
+        connection_description: str,
+        connection_aliases: str,
+        connection_tags: str,
+        calendar_id: str,
+        client_id: str,
+        client_secret: str,
+        timeout_seconds: int,
+        require_refresh_token: bool,
+        oauth_client_file: UploadFile | None = None,
+    ) -> tuple[str, str, Any]:
+        upload_client_id, upload_client_secret = await _read_google_oauth_client_upload(oauth_client_file)
+        raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save(
+            "google_calendar",
+            connection_ref,
+            original_ref,
+        )
+        if not store:
+            raise ConnectionAdminError("security_store_required")
+        existing_secret_ref = original_ref_clean or ref
+        existing_client_secret = store.get_secret(
+            f"connections.google_calendar.{existing_secret_ref}.client_secret",
+            default="",
+        )
+        existing_refresh_token = store.get_secret(
+            f"connections.google_calendar.{existing_secret_ref}.refresh_token",
+            default="",
+        )
+        clean_client_id = str(client_id).strip() or upload_client_id
+        clean_client_secret = str(client_secret).strip() or upload_client_secret or existing_client_secret
+        if not clean_client_secret:
+            raise ConnectionAdminError("oauth_client_secret_missing")
+        if require_refresh_token and not str(existing_refresh_token).strip():
+            raise ConnectionAdminError("refresh_token_missing")
+        row_value = {
+            "calendar_id": str(calendar_id).strip() or "primary",
+            "client_id": clean_client_id,
+            "timeout_seconds": max(5, int(timeout_seconds)),
+            **_build_connection_metadata(
+                connection_title,
+                connection_description,
+                connection_aliases,
+                connection_tags,
+            ),
+        }
+        if not str(row_value.get("client_id", "")).strip():
+            raise ConnectionAdminError("oauth_client_id_missing")
+        await _finalize_connection_save(
+            "google_calendar",
+            raw=raw,
+            rows=rows,
+            ref=ref,
+            original_ref=original_ref_clean,
+            row_value=row_value,
+            store=store,
+            secret_renames=[
+                (
+                    f"connections.google_calendar.{original_ref_clean}.refresh_token",
+                    f"connections.google_calendar.{ref}.refresh_token",
+                ),
+            ] if original_ref_clean and original_ref_clean != ref else [],
+        )
+        store.set_secret(f"connections.google_calendar.{ref}.client_secret", clean_client_secret)
+        return ref, original_ref_clean, store
 
     def _normalize_website_url(value: str) -> str:
         clean = str(value or "").strip()
@@ -141,9 +287,9 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             clean = f"https://{clean}"
             parsed = urlparse(clean)
         if parsed.scheme not in {"http", "https"}:
-            raise ValueError("URL muss mit http:// oder https:// erreichbar sein.")
+            raise ConnectionAdminError("url_http_required")
         if not parsed.netloc:
-            raise ValueError("URL ist unvollständig.")
+            raise ConnectionAdminError("url_incomplete")
         return clean
 
     def _infer_website_group_name(
@@ -165,17 +311,17 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             ]
         )
         grouped_terms = [
-            (("docs", "documentation", "manual", "guide", "reference", "api"), ("Dokumentation", "Documentation")),
-            (("news", "blog", "release", "updates", "changelog"), ("News", "News")),
-            (("security", "cve", "incident", "advisory"), ("Security", "Security")),
-            (("github", "gitlab", "repo", "code", "developer"), ("Entwicklung", "Development")),
-            (("research", "paper", "study", "ai", "ml"), ("Forschung", "Research")),
-            (("status", "uptime", "monitor", "ops"), ("Betrieb", "Operations")),
-            (("product", "pricing", "shop", "store"), ("Produkte", "Products")),
+            (("docs", "documentation", "manual", "guide", "reference", "api"), "website_group_documentation"),
+            (("news", "blog", "release", "updates", "changelog"), "website_group_news"),
+            (("security", "cve", "incident", "advisory"), "website_group_security"),
+            (("github", "gitlab", "repo", "code", "developer"), "website_group_development"),
+            (("research", "paper", "study", "ai", "ml"), "website_group_research"),
+            (("status", "uptime", "monitor", "ops"), "website_group_operations"),
+            (("product", "pricing", "shop", "store"), "website_group_products"),
         ]
-        for terms, labels in grouped_terms:
+        for terms, label_key in grouped_terms:
             if any(term in haystack for term in terms):
-                return (labels[0] if lang.startswith("de") else labels[1])[:64]
+                return _connection_mutation_text(lang, label_key)[:64]
         parsed = urlparse(url)
         host = str(parsed.netloc or "").strip().lower()
         if host.startswith("www."):
@@ -184,7 +330,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             root = host.split(".", 1)[0].replace("-", " ").strip()
             if root:
                 return root[:64]
-        return ("Allgemein" if lang.startswith("de") else "General")[:64]
+        return _connection_mutation_text(lang, "website_group_general")[:64]
     async def config_connections_rss_poll_interval_save(
         request: Request,
         poll_interval_minutes: int = Form(60),
@@ -212,13 +358,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             _reload_runtime()
             return _redirect_with_return_to(
                 "/config/connections/rss?saved=1&mode=edit"
-                f"&info={quote_plus(_msg(lang, f'RSS-Ping-Intervall global auf {poll_interval} Minuten gesetzt.', f'Global RSS ping interval set to {poll_interval} minutes.'))}",
+                f"&info={quote_plus(_connection_mutation_text(lang, 'message_361', poll_interval=poll_interval))}",
                 request,
                 fallback="/config",
             )
         except (OSError, ValueError) as exc:
             return _redirect_with_return_to(
-                f"/config/connections/rss?mode=edit&error={quote_plus(str(exc))}",
+                f"/config/connections/rss?mode=edit&error={quote_plus(_friendly_connection_mutation_error(lang, exc))}",
                 request,
                 fallback="/config",
             )
@@ -237,6 +383,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 fallback="/config",
             )
         except (OSError, ValueError) as exc:
+            lang = str(getattr(request.state, "lang", "de") or "de")
             try:
                 spec = _get_connection_delete_spec(kind)
                 ref_query = str(spec.get("ref_query", "")).strip()
@@ -246,7 +393,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 target_page = "/config"
                 ref_suffix = ""
             return _redirect_with_return_to(
-                f"{target_page}?error={quote_plus(str(exc))}{ref_suffix}",
+                f"{target_page}?error={quote_plus(_friendly_connection_mutation_error(lang, exc))}{ref_suffix}",
                 request,
                 fallback="/config",
             )
@@ -280,12 +427,12 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             guardrail_rows = _read_guardrails()
             selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
             if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ValueError("Unbekanntes Guardrail-Profil.")
+                raise ConnectionAdminError("guardrail_unknown")
             if selected_guardrail_ref and not guardrail_is_compatible(
                 str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
                 "ssh",
             ):
-                raise ValueError("Guardrail-Profil passt nicht zu SSH.")
+                raise ConnectionAdminError("guardrail_incompatible", kind="SSH")
             should_exchange = str(run_key_exchange).strip().lower() in {"1", "true", "on", "yes"}
             clean_host = str(host).strip()
             clean_user = str(user).strip()
@@ -316,9 +463,9 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                     metadata["tags"],
                 ),
             }
-            info = _msg(lang, "Profil gespeichert", "Profile saved")
+            info = _connection_mutation_text(lang, "message_466")
             if metadata_autofilled:
-                info = f"{info} · {_msg(lang, 'Routing-Hinweise automatisch ergänzt', 'Routing hints filled automatically')}"
+                info = f"{info} · {_connection_mutation_text(lang, 'message_468')}"
             if should_exchange and login_password.strip():
                 exch_user, exch_key = _perform_ssh_key_exchange(
                     ref=ref,
@@ -330,29 +477,21 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 )
                 row_value["user"] = exch_user
                 row_value["key_path"] = str(exch_key)
-                info = _msg(lang, "Profil gespeichert + Key-Exchange erfolgreich", "Profile saved + key exchange successful")
+                info = _connection_mutation_text(lang, "message_480")
             matching_sftp_note = ""
             if _is_create and str(create_matching_sftp).strip().lower() in {"1", "true", "on", "yes"}:
                 connections = raw.setdefault("connections", {})
                 if not isinstance(connections, dict):
-                    raise ValueError("Ungültige Connection-Konfiguration.")
+                    raise ConnectionAdminError("invalid_config")
                 sftp_rows = connections.setdefault("sftp", {})
                 if not isinstance(sftp_rows, dict):
-                    raise ValueError("Ungültige SFTP-Sektion.")
+                    raise ConnectionAdminError("invalid_sftp_section")
                 sftp_ref = _derive_matching_sftp_ref(ref)
                 key_path_for_sftp = str(row_value.get("key_path", "")).strip()
                 if not key_path_for_sftp:
-                    matching_sftp_note = _msg(
-                        lang,
-                        "Passendes SFTP-Profil nicht erzeugt: erst SSH-Key speichern oder Key-Exchange ausführen.",
-                        "Matching SFTP profile not created: save an SSH key first or run key exchange.",
-                    )
+                    matching_sftp_note = _connection_mutation_text(lang, "message_492")
                 elif sftp_ref in sftp_rows:
-                    matching_sftp_note = _msg(
-                        lang,
-                        f"Passendes SFTP-Profil `{sftp_ref}` existiert bereits und blieb unverändert.",
-                        f"Matching SFTP profile `{sftp_ref}` already exists and was left unchanged.",
-                    )
+                    matching_sftp_note = _connection_mutation_text(lang, "message_498", sftp_ref=sftp_ref)
                 else:
                     sftp_rows[sftp_ref] = {
                         "host": clean_host,
@@ -368,11 +507,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                             metadata["tags"],
                         ),
                     }
-                    matching_sftp_note = _msg(
-                        lang,
-                        f"Passendes SFTP-Profil `{sftp_ref}` mitgespeichert",
-                        f"Matching SFTP profile `{sftp_ref}` created",
-                    )
+                    matching_sftp_note = _connection_mutation_text(lang, "message_518", sftp_ref=sftp_ref)
             await _finalize_connection_save(
                 "ssh",
                 raw=raw,
@@ -384,7 +519,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             if matching_sftp_note:
                 info = f"{info} · {matching_sftp_note}"
             if should_exchange and not login_password.strip():
-                info = _msg(lang, "Profil gespeichert (ohne Key-Exchange: Passwort fehlt)", "Profile saved (without key exchange: password missing)")
+                info = _connection_mutation_text(lang, "message_534")
                 if matching_sftp_note:
                     info = f"{info} · {matching_sftp_note}"
             test_result = build_connection_status_row(
@@ -397,13 +532,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             )
             if test_result["status"] == "ok":
                 return _redirect_with_return_to(
-                    f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _msg(lang, 'Verbindung erfolgreich getestet', 'connection test succeeded'))}"
+                    f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _connection_mutation_text(lang, 'message_547'))}"
                     f"&ref={quote_plus(ref)}&test_status=ok",
                     request,
                     fallback="/config",
                 )
             return _redirect_with_return_to(
-                f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _msg(lang, 'Verbindungstest fehlgeschlagen', 'connection test failed'))}"
+                f"/config/connections/ssh?saved=1&info={quote_plus(info + ' · ' + _connection_mutation_text(lang, 'message_553'))}"
                 f"&error={quote_plus(test_result['message'])}&ref={quote_plus(ref)}&test_status=error",
                 request,
                 fallback="/config",
@@ -440,13 +575,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("discord", connection_ref, original_ref)
             clean_webhook = str(webhook_url).strip()
             if not store:
-                raise ValueError("Security Store ist für Discord-Webhooks erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_webhook = store.get_secret(f"connections.discord.{existing_secret_ref}.webhook_url", default="")
             if not clean_webhook:
                 clean_webhook = existing_webhook
             if not clean_webhook:
-                raise ValueError("Discord-Webhook-URL fehlt.")
+                raise ConnectionAdminError("discord_webhook_missing")
             row_value = {
                 "timeout_seconds": max(5, int(timeout_seconds)),
                 "send_test_messages": str(send_test_messages).strip().lower() in {"1", "true", "on", "yes"},
@@ -491,7 +626,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/discord?error={quote_plus(str(exc))}&discord_ref={quote_plus(ref_hint)}",
+                f"/config/connections/discord?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='discord'))}&discord_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -518,22 +653,22 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("sftp", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für SFTP-Passwörter erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_password = store.get_secret(f"connections.sftp.{existing_secret_ref}.password", default="")
             clean_password = str(password).strip() or existing_password
             clean_key_path = str(key_path).strip()
             if not clean_password and not clean_key_path:
-                raise ValueError("SFTP braucht Passwort oder Key-Pfad.")
+                raise ConnectionAdminError("sftp_auth_missing")
             guardrail_rows = _read_guardrails()
             selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
             if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ValueError("Unbekanntes Guardrail-Profil.")
+                raise ConnectionAdminError("guardrail_unknown")
             if selected_guardrail_ref and not guardrail_is_compatible(
                 str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
                 "sftp",
             ):
-                raise ValueError("Guardrail-Profil passt nicht zu SFTP.")
+                raise ConnectionAdminError("guardrail_incompatible", kind="SFTP")
             clean_service_url = str(service_url).strip()
             metadata, metadata_autofilled = await _autofill_service_connection_metadata(
                 connection_ref=ref,
@@ -578,7 +713,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             )
             info = _connection_saved_test_info("SFTP", lang, success=True)
             if metadata_autofilled:
-                info = f"{info} · {_msg(lang, 'Routing-Hinweise automatisch ergänzt', 'Routing hints filled automatically')}"
+                info = f"{info} · {_connection_mutation_text(lang, 'message_728')}"
             test_row = _read_sftp_connections().get(ref, {})
             test_result = build_connection_status_row("sftp", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
@@ -590,7 +725,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 )
             info = _connection_saved_test_info("SFTP", lang, success=False)
             if metadata_autofilled:
-                info = f"{info} · {_msg(lang, 'Routing-Hinweise automatisch ergänzt', 'Routing hints filled automatically')}"
+                info = f"{info} · {_connection_mutation_text(lang, 'message_740')}"
             return _redirect_with_return_to(
                 f"/config/connections/sftp?saved=1&info={quote_plus(info)}"
                 f"&error={quote_plus(test_result['message'])}&sftp_ref={quote_plus(ref)}&sftp_test_status=error",
@@ -600,7 +735,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/sftp?error={quote_plus(str(exc))}&sftp_ref={quote_plus(ref_hint)}",
+                f"/config/connections/sftp?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='sftp'))}&sftp_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -626,21 +761,21 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("smb", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für SMB-Passwörter erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_password = store.get_secret(f"connections.smb.{existing_secret_ref}.password", default="")
             clean_password = str(password).strip() or existing_password
             if not clean_password:
-                raise ValueError("SMB-Passwort fehlt.")
+                raise ConnectionAdminError("smb_password_missing")
             guardrail_rows = _read_guardrails()
             selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
             if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ValueError("Unbekanntes Guardrail-Profil.")
+                raise ConnectionAdminError("guardrail_unknown")
             if selected_guardrail_ref and not guardrail_is_compatible(
                 str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
                 "smb",
             ):
-                raise ValueError("Guardrail-Profil passt nicht zu SMB.")
+                raise ConnectionAdminError("guardrail_incompatible", kind="SMB")
             row_value = {
                 "host": str(host).strip(),
                 "share": str(share).strip(),
@@ -683,7 +818,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/smb?error={quote_plus(str(exc))}&smb_ref={quote_plus(ref_hint)}",
+                f"/config/connections/smb?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='smb'))}&smb_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -706,21 +841,21 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("webhook", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für Webhook-URLs erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_url = store.get_secret(f"connections.webhook.{existing_secret_ref}.url", default="")
             clean_url = str(url).strip() or existing_url
             if not clean_url:
-                raise ValueError("Webhook-URL fehlt.")
+                raise ConnectionAdminError("webhook_url_missing")
             guardrail_rows = _read_guardrails()
             selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
             if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ValueError("Unbekanntes Guardrail-Profil.")
+                raise ConnectionAdminError("guardrail_unknown")
             if selected_guardrail_ref and not guardrail_is_compatible(
                 str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
                 "webhook",
             ):
-                raise ValueError("Guardrail-Profil passt nicht zu Webhook.")
+                raise ConnectionAdminError("guardrail_incompatible", kind="Webhook")
             row_value = {
                 "timeout_seconds": max(5, int(timeout_seconds)),
                 "method": str(method).strip().upper() or "POST",
@@ -760,7 +895,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/webhook?error={quote_plus(str(exc))}&webhook_ref={quote_plus(ref_hint)}",
+                f"/config/connections/webhook?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='webhook'))}&webhook_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -787,12 +922,12 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("email", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für SMTP-Passwörter erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_password = store.get_secret(f"connections.email.{existing_secret_ref}.password", default="")
             clean_password = str(password).strip() or existing_password
             if not clean_password:
-                raise ValueError("SMTP-Passwort fehlt.")
+                raise ConnectionAdminError("smtp_password_missing")
             row_value = {
                 "smtp_host": str(smtp_host).strip(),
                 "port": max(1, int(port)),
@@ -836,7 +971,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/smtp?error={quote_plus(str(exc))}&email_ref={quote_plus(ref_hint)}",
+                f"/config/connections/smtp?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='email'))}&email_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -861,12 +996,12 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("imap", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für IMAP-Passwörter erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_password = store.get_secret(f"connections.imap.{existing_secret_ref}.password", default="")
             clean_password = str(password).strip() or existing_password
             if not clean_password:
-                raise ValueError("IMAP-Passwort fehlt.")
+                raise ConnectionAdminError("imap_password_missing")
             row_value = {
                 "host": str(host).strip(),
                 "port": max(1, int(port)),
@@ -908,7 +1043,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/imap?error={quote_plus(str(exc))}&imap_ref={quote_plus(ref_hint)}",
+                f"/config/connections/imap?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='imap'))}&imap_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -932,19 +1067,19 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("http_api", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für HTTP-API-Tokens erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_token = store.get_secret(f"connections.http_api.{existing_secret_ref}.auth_token", default="")
             clean_token = str(auth_token).strip() or existing_token
             guardrail_rows = _read_guardrails()
             selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
             if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ValueError("Unbekanntes Guardrail-Profil.")
+                raise ConnectionAdminError("guardrail_unknown")
             if selected_guardrail_ref and not guardrail_is_compatible(
                 str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
                 "http_api",
             ):
-                raise ValueError("Guardrail-Profil passt nicht zu HTTP API.")
+                raise ConnectionAdminError("guardrail_incompatible", kind="HTTP API")
             row_value = {
                 "base_url": str(base_url).strip(),
                 "timeout_seconds": max(5, int(timeout_seconds)),
@@ -985,14 +1120,14 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/http-api?error={quote_plus(str(exc))}&http_api_ref={quote_plus(ref_hint)}",
+                f"/config/connections/http-api?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='http_api'))}&http_api_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
 
     async def config_google_calendar_connections_save(
         request: Request,
-        connection_ref: str = Form(...),
+        connection_ref: str = Form(""),
         original_ref: str = Form(""),
         connection_title: str = Form(""),
         connection_description: str = Form(""),
@@ -1003,48 +1138,33 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         client_secret: str = Form(""),
         refresh_token: str = Form(""),
         timeout_seconds: int = Form(10),
+        oauth_client_file: UploadFile | None = File(None),
     ) -> RedirectResponse:
         try:
             lang = str(getattr(request.state, "lang", "de") or "de")
-            raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("google_calendar", connection_ref, original_ref)
-            if not store:
-                raise ValueError("Security Store ist für Google-Calendar-Secrets erforderlich.")
-            existing_secret_ref = original_ref_clean or ref
-            existing_client_secret = store.get_secret(f"connections.google_calendar.{existing_secret_ref}.client_secret", default="")
-            existing_refresh_token = store.get_secret(f"connections.google_calendar.{existing_secret_ref}.refresh_token", default="")
-            clean_client_secret = str(client_secret).strip() or existing_client_secret
-            clean_refresh_token = str(refresh_token).strip() or existing_refresh_token
-            if not clean_client_secret:
-                raise ValueError("OAuth Client Secret fehlt.")
-            if not clean_refresh_token:
-                raise ValueError("Refresh-Token fehlt.")
-            row_value = {
-                "calendar_id": str(calendar_id).strip() or "primary",
-                "client_id": str(client_id).strip(),
-                "timeout_seconds": max(5, int(timeout_seconds)),
-                **_build_connection_metadata(connection_title, connection_description, connection_aliases, connection_tags),
-            }
-            store.set_secret(f"connections.google_calendar.{ref}.client_secret", clean_client_secret)
-            store.set_secret(f"connections.google_calendar.{ref}.refresh_token", clean_refresh_token)
-            await _finalize_connection_save(
-                "google_calendar",
-                raw=raw,
-                rows=rows,
-                ref=ref,
-                original_ref=original_ref_clean,
-                row_value=row_value,
-                store=store,
-                secret_renames=[
-                    (
-                        f"connections.google_calendar.{original_ref_clean}.client_secret",
-                        f"connections.google_calendar.{ref}.client_secret",
-                    ),
-                    (
-                        f"connections.google_calendar.{original_ref_clean}.refresh_token",
-                        f"connections.google_calendar.{ref}.refresh_token",
-                    ),
-                ] if original_ref_clean and original_ref_clean != ref else [],
+            effective_ref = str(connection_ref).strip() or str(original_ref).strip()
+            ref, original_ref_clean, store = await _persist_google_calendar_profile(
+                connection_ref=effective_ref,
+                original_ref=original_ref,
+                connection_title=connection_title,
+                connection_description=connection_description,
+                connection_aliases=connection_aliases,
+                connection_tags=connection_tags,
+                calendar_id=calendar_id,
+                client_id=client_id,
+                client_secret=client_secret,
+                timeout_seconds=timeout_seconds,
+                require_refresh_token=False,
+                oauth_client_file=oauth_client_file,
             )
+            clean_refresh_token = str(refresh_token).strip() or store.get_secret(
+                f"connections.google_calendar.{original_ref_clean or ref}.refresh_token",
+                default="",
+            )
+            if not clean_refresh_token:
+                raise ConnectionAdminError("google_refresh_token_required")
+            store.set_secret(f"connections.google_calendar.{ref}.refresh_token", clean_refresh_token)
+            _reload_runtime()
             test_row = _read_google_calendar_connections().get(ref, {})
             test_result = build_connection_status_row("google_calendar", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
@@ -1061,7 +1181,167 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/google-calendar?error={quote_plus(str(exc))}&google_calendar_ref={quote_plus(ref_hint)}",
+                f"/config/connections/google-calendar?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='google_calendar'))}&google_calendar_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
+
+    async def config_google_calendar_oauth_start(
+        request: Request,
+        connection_ref: str = Form(""),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        calendar_id: str = Form("primary"),
+        client_id: str = Form(""),
+        client_secret: str = Form(""),
+        timeout_seconds: int = Form(10),
+        oauth_client_file: UploadFile | None = File(None),
+    ) -> RedirectResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        try:
+            effective_ref = str(connection_ref).strip() or str(original_ref).strip()
+            ref, _original_ref_clean, store = await _persist_google_calendar_profile(
+                connection_ref=effective_ref,
+                original_ref=original_ref,
+                connection_title=connection_title,
+                connection_description=connection_description,
+                connection_aliases=connection_aliases,
+                connection_tags=connection_tags,
+                calendar_id=calendar_id,
+                client_id=client_id,
+                client_secret=client_secret,
+                timeout_seconds=timeout_seconds,
+                require_refresh_token=False,
+                oauth_client_file=oauth_client_file,
+            )
+            if not store:
+                raise ConnectionAdminError("security_store_required")
+            state_token = secrets.token_urlsafe(24)
+            pending_payload = json.dumps(
+                {
+                    "ref": ref,
+                    "iat": int(time.time()),
+                    "lang": lang,
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
+            store.set_secret(f"{_google_calendar_oauth_pending_prefix}{state_token}", pending_payload)
+            redirect_uri = _google_calendar_redirect_uri(request)
+            profile = _read_google_calendar_connections().get(ref, {})
+            auth_url = _google_calendar_auth_url(
+                client_id=str(profile.get("client_id", "") or "").strip(),
+                redirect_uri=redirect_uri,
+                state=state_token,
+            )
+            return RedirectResponse(url=auth_url, status_code=303)
+        except (OSError, ValueError) as exc:
+            ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
+            return _redirect_with_return_to(
+                f"/config/connections/google-calendar?mode=create&error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='google_calendar'))}&google_calendar_ref={quote_plus(ref_hint)}",
+                request,
+                fallback="/config",
+            )
+
+    async def config_google_calendar_oauth_callback(
+        request: Request,
+        state: str = "",
+        code: str = "",
+        error: str = "",
+    ) -> RedirectResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        ref_hint = ""
+        try:
+            raw = _read_raw_config()
+            store = _get_secure_store(raw)
+            if not store:
+                raise ConnectionAdminError("security_store_required")
+            state_token = str(state or "").strip()
+            if not state_token:
+                raise ConnectionAdminError("google_oauth_missing_state")
+            pending_key = f"{_google_calendar_oauth_pending_prefix}{state_token}"
+            pending_raw = store.get_secret(pending_key, default="")
+            store.delete_secret(pending_key)
+            if not pending_raw:
+                raise ConnectionAdminError("google_oauth_expired")
+            pending = json.loads(str(pending_raw))
+            ref = _sanitize_connection_name(str(pending.get("ref", "")))
+            ref_hint = ref
+            if not ref:
+                raise ConnectionAdminError("google_oauth_profile_missing")
+            if error:
+                raise ValueError(
+                    _connection_mutation_text(lang, "message_1289", error=error)
+                )
+            if not str(code or "").strip():
+                raise ConnectionAdminError("google_oauth_missing_code")
+            _raw, store, _rows, ref, _original_ref_clean, _ = _prepare_connection_save("google_calendar", ref, ref)
+            profile = _read_google_calendar_connections().get(ref, {})
+            client_id_value = str(profile.get("client_id", "")).strip()
+            client_secret_value = store.get_secret(f"connections.google_calendar.{ref}.client_secret", default="")
+            if not client_id_value or not client_secret_value:
+                raise ConnectionAdminError("oauth_client_incomplete")
+            timeout_seconds_value = max(5, int(profile.get("timeout_seconds", 10) or 10))
+            redirect_uri = _google_calendar_redirect_uri(request)
+            token_request = URLRequest(
+                "https://oauth2.googleapis.com/token",
+                data=urlencode(
+                    {
+                        "code": str(code).strip(),
+                        "client_id": client_id_value,
+                        "client_secret": client_secret_value,
+                        "redirect_uri": redirect_uri,
+                        "grant_type": "authorization_code",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+            )
+            with urlopen(token_request, timeout=timeout_seconds_value) as resp:  # noqa: S310
+                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+            if not isinstance(payload, dict):
+                payload = {}
+            refresh_token_value = str(payload.get("refresh_token", "") or "").strip() or store.get_secret(
+                f"connections.google_calendar.{ref}.refresh_token",
+                default="",
+            )
+            if not refresh_token_value:
+                raise ValueError(
+                    _connection_mutation_text(lang, "message_1329")
+                )
+            store.set_secret(f"connections.google_calendar.{ref}.refresh_token", refresh_token_value)
+            _reload_runtime()
+            test_row = _read_google_calendar_connections().get(ref, {})
+            test_result = build_connection_status_row(
+                "google_calendar",
+                ref,
+                test_row,
+                page_probe=False,
+                base_dir=BASE_DIR,
+                lang=lang,
+            )
+            if test_result["status"] == "ok":
+                return _redirect_with_return_to(
+                    f"/config/connections/google-calendar?saved=1&info={quote_plus(_connection_mutation_text(lang, 'message_1348'))}&google_calendar_ref={quote_plus(ref)}&google_calendar_test_status=ok",
+                    request,
+                    fallback="/config",
+                )
+            return _redirect_with_return_to(
+                f"/config/connections/google-calendar?saved=1&info={quote_plus(_connection_saved_test_info('Google Calendar', lang, success=False))}&error={quote_plus(test_result['message'])}&google_calendar_ref={quote_plus(ref)}&google_calendar_test_status=error",
+                request,
+                fallback="/config",
+            )
+        except (HTTPError, URLError, OSError, ValueError) as exc:
+            message = (
+                friendly_google_calendar_error_message(exc, lang=lang, operation="sign_in")
+                if isinstance(exc, (HTTPError, URLError))
+                else _friendly_connection_mutation_error(lang, exc, kind='google_calendar')
+            )
+            return _redirect_with_return_to(
+                f"/config/connections/google-calendar?mode=edit&error={quote_plus(message)}&google_calendar_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -1125,7 +1405,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/searxng?error={quote_plus(str(exc))}&searxng_ref={quote_plus(ref_hint)}",
+                f"/config/connections/searxng?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='searxng'))}&searxng_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -1149,13 +1429,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             raw, _store, rows, ref, original_ref_clean, create_new_mode = _prepare_connection_save("rss", connection_ref, original_ref)
             clean_feed_url = _normalize_rss_feed_url_for_dedupe(feed_url)
             if not clean_feed_url:
-                raise ValueError("Feed-URL fehlt.")
+                raise ConnectionAdminError("feed_url_missing")
             for existing_ref, row in rows.items():
                 if existing_ref == original_ref_clean:
                     continue
                 existing_feed_url = _normalize_rss_feed_url_for_dedupe(str(row.get("feed_url", "")).strip())
                 if existing_feed_url and existing_feed_url == clean_feed_url:
-                    raise ValueError(f"RSS-Feed-URL ist bereits im Profil '{existing_ref}' erfasst.")
+                    raise ConnectionAdminError("rss_feed_url_duplicate", ref=existing_ref)
             row_value = {
                 "feed_url": clean_feed_url,
                 "group_name": str(group_name or "").strip()[:64],
@@ -1186,7 +1466,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             return _redirect_with_return_to(target_url, request, fallback="/config")
         except (OSError, ValueError) as exc:
             original_ref_clean = _sanitize_connection_name(original_ref)
-            target_url = f"/config/connections/rss?error={quote_plus(str(exc))}"
+            target_url = f"/config/connections/rss?error={quote_plus(_friendly_connection_mutation_error(lang, exc))}"
             if original_ref_clean:
                 target_url += f"&rss_ref={quote_plus(original_ref_clean)}"
             else:
@@ -1210,14 +1490,14 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             raw, _store, rows, ref, original_ref_clean, _create_new_mode = _prepare_connection_save("website", connection_ref, original_ref)
             clean_url = _normalize_website_url(url)
             if not clean_url:
-                raise ValueError("URL fehlt.")
+                raise ConnectionAdminError("url_missing")
             for existing_ref, row in rows.items():
                 if existing_ref == original_ref_clean:
                     continue
                 existing_url_raw = str(row.get("url", "")).strip()
                 existing_url = _normalize_website_url(existing_url_raw) if existing_url_raw else ""
                 if existing_url and existing_url == clean_url:
-                    raise ValueError(f"URL ist bereits im Profil '{existing_ref}' erfasst.")
+                    raise ConnectionAdminError("website_url_duplicate", ref=existing_ref)
             metadata, metadata_autofilled = await _autofill_website_connection_metadata(
                 connection_ref=ref,
                 url=clean_url,
@@ -1258,7 +1538,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             test_result = build_connection_status_row("website", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             saved_info = _connection_saved_test_info("Website", lang, success=test_result["status"] == "ok")
             if metadata_autofilled:
-                saved_info = f"{saved_info} · {_msg(lang, 'Metadaten automatisch ergänzt', 'Metadata filled automatically')}"
+                saved_info = f"{saved_info} · {_connection_mutation_text(lang, 'message_1561')}"
             if test_result["status"] == "ok":
                 target_url = (
                     f"/config/connections/websites?saved=1&info={quote_plus(saved_info)}"
@@ -1272,7 +1552,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             return _redirect_with_return_to(target_url, request, fallback="/config")
         except (OSError, ValueError) as exc:
             original_ref_clean = _sanitize_connection_name(original_ref)
-            target_url = f"/config/connections/websites?error={quote_plus(str(exc))}"
+            target_url = f"/config/connections/websites?error={quote_plus(_friendly_connection_mutation_error(lang, exc))}"
             if original_ref_clean:
                 target_url += f"&website_ref={quote_plus(original_ref_clean)}"
             else:
@@ -1346,13 +1626,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             _reload_runtime()
             return _redirect_with_return_to(
                 "/config/connections/rss?saved=1&mode=edit"
-                f"&info={quote_plus(_msg(lang, f'OPML-Import abgeschlossen · {imported_count} Feeds importiert', f'OPML import completed · {imported_count} feeds imported'))}",
+                f"&info={quote_plus(_connection_mutation_text(lang, 'message_1649', imported_count=imported_count))}",
                 request,
                 fallback="/config",
             )
         except Exception as exc:  # noqa: BLE001
             return _redirect_with_return_to(
-                f"/config/connections/rss?create_new=1&error={quote_plus(str(exc))}",
+                f"/config/connections/rss?create_new=1&error={quote_plus(_friendly_connection_mutation_error(lang, exc))}",
                 request,
                 fallback="/config",
             )
@@ -1372,7 +1652,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         try:
             test_row = _read_rss_connections().get(ref)
             if not isinstance(test_row, dict):
-                raise ValueError("Connection-Profil nicht gefunden.")
+                raise ConnectionAdminError("profile_not_found")
             test_result = build_connection_status_row("rss", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] == "ok":
                 return _redirect_with_return_to(
@@ -1393,7 +1673,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             )
         except (OSError, ValueError) as exc:
             return _redirect_with_return_to(
-                f"/config/connections/rss?mode=edit&rss_ref={quote_plus(ref)}&rss_test_status=error&error={quote_plus(str(exc))}",
+                f"/config/connections/rss?mode=edit&rss_ref={quote_plus(ref)}&rss_test_status=error&error={quote_plus(_friendly_connection_mutation_error(lang, exc))}",
                 request,
                 fallback="/config",
             )
@@ -1418,12 +1698,12 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("mqtt", connection_ref, original_ref)
             if not store:
-                raise ValueError("Security Store ist für MQTT-Passwörter erforderlich.")
+                raise ConnectionAdminError("security_store_required")
             existing_secret_ref = original_ref_clean or ref
             existing_password = store.get_secret(f"connections.mqtt.{existing_secret_ref}.password", default="")
             clean_password = str(password).strip() or existing_password
             if not clean_password:
-                raise ValueError("MQTT-Passwort fehlt.")
+                raise ConnectionAdminError("mqtt_password_missing")
             row_value = {
                 "host": str(host).strip(),
                 "port": max(1, int(port)),
@@ -1465,7 +1745,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         except (OSError, ValueError) as exc:
             ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
             return _redirect_with_return_to(
-                f"/config/connections/mqtt?error={quote_plus(str(exc))}&mqtt_ref={quote_plus(ref_hint)}",
+                f"/config/connections/mqtt?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='mqtt'))}&mqtt_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -1478,11 +1758,11 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         try:
             ref = _sanitize_connection_name(connection_ref)
             if not ref:
-                raise ValueError("Connection-Ref ist ungültig.")
+                raise ConnectionAdminError("invalid_ref")
             overwrite_enabled = str(overwrite).strip().lower() in {"1", "true", "on", "yes"}
             existing = _ssh_keys_dir() / f"{ref}_ed25519"
             if (existing.exists() or existing.with_suffix(".pub").exists()) and not overwrite_enabled:
-                raise ValueError("Key existiert bereits. 'Overwrite' aktivieren zum Ersetzen.")
+                raise ConnectionAdminError("ssh_key_exists")
             key_path = _ensure_ssh_keypair(ref, overwrite=overwrite_enabled)
 
             raw = _read_raw_config()
@@ -1499,7 +1779,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             _write_raw_config(raw)
             _reload_runtime()
             return _redirect_with_return_to(
-                f"/config/connections/ssh?saved=1&info={quote_plus(_msg(str(getattr(request.state, 'lang', 'de') or 'de'), 'SSH-Key erstellt', 'SSH key created'))}&ref={quote_plus(ref)}",
+                f"/config/connections/ssh?saved=1&info={quote_plus(_connection_mutation_text(str(getattr(request.state, 'lang', 'de') or 'de'), 'message_1802'))}&ref={quote_plus(ref)}",
                 request,
                 fallback="/config",
             )
@@ -1512,8 +1792,13 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
+            detail = (
+                _friendly_connection_mutation_error(lang, exc, kind="ssh")
+                if isinstance(exc, ConnectionAdminError)
+                else _friendly_ssh_setup_error(lang, exc)
+            )
             return _redirect_with_return_to(
-                f"/config/connections/ssh?error={quote_plus(_friendly_ssh_setup_error(lang, exc))}",
+                f"/config/connections/ssh?error={quote_plus(detail)}",
                 request,
                 fallback="/config",
             )
@@ -1527,14 +1812,14 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         try:
             ref = _sanitize_connection_name(connection_ref)
             if not ref:
-                raise ValueError("Connection-Ref ist ungültig.")
+                raise ConnectionAdminError("invalid_ref")
             if not login_password.strip():
-                raise ValueError("Passwort fehlt.")
+                raise ConnectionAdminError("password_missing")
 
             rows = _read_ssh_connections()
             row = rows.get(ref)
             if not row:
-                raise ValueError("Connection-Profil nicht gefunden.")
+                raise ConnectionAdminError("profile_not_found")
             host = str(row.get("host", "")).strip()
             port = int(row.get("port", 22) or 22)
             profile_user = str(row.get("user", "")).strip()
@@ -1562,14 +1847,19 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             _write_raw_config(raw)
             _reload_runtime()
             return _redirect_with_return_to(
-                f"/config/connections/ssh?saved=1&info={quote_plus(_msg(str(getattr(request.state, 'lang', 'de') or 'de'), 'Key-Exchange erfolgreich', 'Key exchange successful'))}&ref={quote_plus(ref)}",
+                f"/config/connections/ssh?saved=1&info={quote_plus(_connection_mutation_text(str(getattr(request.state, 'lang', 'de') or 'de'), 'message_1870'))}&ref={quote_plus(ref)}",
                 request,
                 fallback="/config",
             )
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
+            detail = (
+                _friendly_connection_mutation_error(lang, exc, kind="ssh")
+                if isinstance(exc, ConnectionAdminError)
+                else _friendly_ssh_setup_error(lang, exc)
+            )
             return _redirect_with_return_to(
-                f"/config/connections/ssh?error={quote_plus(_friendly_ssh_setup_error(lang, exc))}",
+                f"/config/connections/ssh?error={quote_plus(detail)}",
                 request,
                 fallback="/config",
             )
@@ -1582,11 +1872,11 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             ref = _sanitize_connection_name(connection_ref)
             if not ref:
-                raise ValueError("Connection-Ref ist ungültig.")
+                raise ConnectionAdminError("invalid_ref")
             rows = _read_ssh_connections()
             row = rows.get(ref)
             if not row:
-                raise ValueError("Connection-Profil nicht gefunden.")
+                raise ConnectionAdminError("profile_not_found")
             test_result = build_connection_status_row("ssh", ref, row, page_probe=False, base_dir=BASE_DIR, lang=lang)
             if test_result["status"] != "ok":
                 raise ValueError(test_result["message"])
@@ -1598,7 +1888,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             )
         except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
             return _redirect_with_return_to(
-                f"/config/connections/ssh?error={quote_plus(str(exc))}&ref={quote_plus(connection_ref)}&test_status=error",
+                f"/config/connections/ssh?error={quote_plus(_friendly_connection_mutation_error(lang, exc))}&ref={quote_plus(connection_ref)}&test_status=error",
                 request,
                 fallback="/config",
             )
@@ -1615,6 +1905,8 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         imap_save=config_imap_connections_save,
         http_api_save=config_http_api_connections_save,
         google_calendar_save=config_google_calendar_connections_save,
+        google_calendar_oauth_start=config_google_calendar_oauth_start,
+        google_calendar_oauth_callback=config_google_calendar_oauth_callback,
         searxng_save=config_searxng_connections_save,
         rss_save=config_rss_connections_save,
         website_save=config_website_connections_save,

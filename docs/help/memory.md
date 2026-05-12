@@ -16,12 +16,12 @@ Wichtige Abgrenzung:
 
 ## Was bewusst nicht ins semantische Memory geht
 
-Nicht jede Chat-Nachricht ist Wissen. Operative Skill-Trigger werden deshalb nicht als Tages-Kontext gespeichert.
+Nicht jede Chat-Nachricht ist Wissen. Operative Rezept-Trigger werden deshalb nicht als Tages-Kontext gespeichert.
 
 Beispiele:
 
 - `systemupdate mgmt-master`
-- reine Skill-/Tool-Trigger
+- reine Rezept-/Tool-Trigger
 - technische Bedienbefehle
 - reine Ausführungsaufforderungen ohne dauerhaftes Wissen
 
@@ -340,7 +340,7 @@ Hinweis:
   - Startup-Lauf (automatisch beim ARIA-Start)
   - CLI-Lauf: `./aria.sh maintenance`
   - täglicher Cron-Lauf via `./aria.sh autostart-install` (03:17)
-  - Prompt-basiertes Summary-Template aus Datei: [`prompts/skills/memory_compress.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/prompts/skills/memory_compress.md)
+  - Prompt-basiertes Summary-Template aus Datei: [`prompts/recipes/memory_compress.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/prompts/recipes/memory_compress.md)
 
 Wichtig für den Button im UI:
 

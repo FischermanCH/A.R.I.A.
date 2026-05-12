@@ -287,6 +287,37 @@ def test_friendly_google_calendar_test_error_message_maps_auth_failure() -> None
     assert "Token" in message
 
 
+def test_friendly_google_calendar_test_error_message_maps_expired_refresh_token() -> None:
+    class _PayloadHttpError(HTTPError):
+        def __init__(self) -> None:
+            super().__init__("https://oauth2.googleapis.com/token", 400, "Bad Request", hdrs=None, fp=None)
+
+        def read(self) -> bytes:
+            return b'{"error":"invalid_grant","error_description":"Token has been expired or revoked."}'
+
+    message = connection_runtime.friendly_google_calendar_test_error_message(_PayloadHttpError(), lang="de")
+
+    assert "Refresh-Token" in message
+    assert "mit Google verbinden" in message
+
+
+def test_friendly_google_calendar_test_error_message_maps_api_not_enabled() -> None:
+    class _PayloadHttpError(HTTPError):
+        def __init__(self) -> None:
+            super().__init__("https://www.googleapis.com/calendar/v3/calendars/primary", 403, "Forbidden", hdrs=None, fp=None)
+
+        def read(self) -> bytes:
+            return (
+                b'{"error":{"code":403,"message":"Google Calendar API has not been used in project 123 before or it is disabled.",'
+                b'"status":"PERMISSION_DENIED"}}'
+            )
+
+    message = connection_runtime.friendly_google_calendar_test_error_message(_PayloadHttpError(), lang="de")
+
+    assert "API" in message
+    assert "aktiviert" in message or "einschalten" in message
+
+
 def test_friendly_webhook_test_error_message_maps_not_found() -> None:
     exc = HTTPError("https://example.org/webhook", 404, "Not Found", hdrs=None, fp=None)
 

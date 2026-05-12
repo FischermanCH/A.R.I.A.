@@ -8,15 +8,15 @@ Wiederverwendbare Kurz- und Langtexte f√ºr GitHub, Releases, About-Boxen und sp√
 
 **Variante A**
 
-Lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first interface.
+Lean, modular, self-hosted AI assistant with memory, recipes, secure connections, and a browser-first interface.
 
 **Variante B**
 
-Self-hosted AI assistant with memory, automation skills, modular connections, and a clear browser-first UI.
+Self-hosted AI assistant with memory, automation recipes, modular connections, and a clear browser-first UI.
 
 **Variante C**
 
-Local-first AI assistant for chat, memory, skills, and real system connections without platform bloat.
+Local-first AI assistant for chat, memory, recipes, and real system connections without platform bloat.
 
 ---
 
@@ -24,7 +24,7 @@ Local-first AI assistant for chat, memory, skills, and real system connections w
 
 ARIA is a lean, modular, self-hosted AI assistant built for people who want control instead of platform sprawl.
 
-It combines a browser-first chat UI, structured memory, configurable skills, and secure connections to real systems. ARIA is intentionally not trying to be a giant OpenWebUI-style suite. It is designed to stay understandable, extensible, and practical to run.
+It combines a browser-first chat UI, structured memory, recipe-driven automation, and secure connections to real systems. ARIA is intentionally not trying to be a giant OpenWebUI-style suite. It is designed to stay understandable, extensible, and practical to run.
 
 ---
 
@@ -36,7 +36,7 @@ It combines:
 
 - chat
 - structured memory
-- configurable skills
+- recipe-driven automation
 - modular connections
 - explicit security and role boundaries
 
@@ -54,7 +54,7 @@ It is designed for homelabs, self-hosted AI setups, internal assistants, and sma
 
 ## 5. Elevator Pitch
 
-ARIA is a lean self-hosted AI assistant with memory, skills, and secure system connections, built for real control instead of platform bloat.
+ARIA is a lean self-hosted AI assistant with memory, recipes, and secure system connections, built for real control instead of platform bloat.
 
 ---
 
@@ -62,13 +62,13 @@ ARIA is a lean self-hosted AI assistant with memory, skills, and secure system c
 
 ARIA is a local-first AI assistant built with FastAPI, Jinja, structured memory, modular connection handling, and a growing capability-based routing model.
 
-It supports chat, memory, custom skills, system integrations, and secure connection management through a browser-first interface without relying on a heavy frontend stack.
+It supports chat, memory, custom recipes, system integrations, and secure connection management through a browser-first interface without relying on a heavy frontend stack.
 
 ---
 
 ## 7. Release Notes Intro
 
-ARIA is evolving into a compact self-hosted assistant and automation layer with memory, skills, secure connections, and a clear browser-first UI.
+ARIA is evolving into a compact self-hosted assistant and automation layer with memory, recipes, secure connections, and a clear browser-first UI.
 
 This release continues that direction with improvements to modular connection handling, chat-driven administration, usability, and platform clarity.
 
@@ -100,4 +100,4 @@ It is a lean, self-hosted assistant built for people who want:
 
 If only one short reusable text should be used for GitHub, use this:
 
-ARIA is a lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first interface. It is built for real control instead of platform bloat.
+ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, and a browser-first interface. It is built for real control instead of platform bloat.

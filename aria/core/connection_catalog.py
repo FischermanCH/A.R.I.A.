@@ -1,14 +1,67 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
 from typing import Any
+
+from aria.core.i18n import I18NStore
+
+
+_CONNECTION_CATALOG_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+_CONNECTION_CATALOG_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "connection_catalog.json"
+
+
+def _load_connection_catalog_lexicon() -> dict[str, Any]:
+    try:
+        raw = json.loads(_CONNECTION_CATALOG_LEXICON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not load connection catalog lexicon: {_CONNECTION_CATALOG_LEXICON_PATH}") from exc
+    return raw if isinstance(raw, dict) else {}
+
+
+_CONNECTION_CATALOG_LEXICON = _load_connection_catalog_lexicon()
+
+
+def _catalog_lexicon_list(key: str) -> list[str]:
+    raw = _CONNECTION_CATALOG_LEXICON.get(key, [])
+    if not isinstance(raw, list):
+        return []
+    return [str(value).strip() for value in raw if str(value).strip()]
+
+
+def _catalog_text(key: str, default: str = "", *, language: str = "de") -> str:
+    return _CONNECTION_CATALOG_I18N.t(language, key, default or key)
+
+
+def _config_text(key: str, default: str = "", *, language: str = "de") -> str:
+    return _catalog_text(f"config_conn.{key}", default, language=language)
+
+
+def _field_text(key: str, default: str = "", *, language: str = "de") -> str:
+    return _catalog_text(f"connection_catalog.field.{key}", default, language=language)
 
 
 COMMON_METADATA_FIELD_SPECS: dict[str, dict[str, Any]] = {
-    "title": {"type": "str", "max_length": 160, "label": "Titel"},
-    "description": {"type": "str", "max_length": 512, "label": "Beschreibung"},
-    "aliases": {"type": "list", "max_items": 12, "item_max_length": 80, "label": "Aliase"},
-    "tags": {"type": "list", "max_items": 12, "item_max_length": 40, "label": "Tags"},
+    "title": {"type": "str", "max_length": 160, "label": _field_text("title", "Title")},
+    "description": {"type": "str", "max_length": 512, "label": _field_text("description", "Description")},
+    "aliases": {"type": "list", "max_items": 12, "item_max_length": 80, "label": _field_text("aliases", "Aliases")},
+    "tags": {"type": "list", "max_items": 12, "item_max_length": 40, "label": _field_text("tags", "Tags")},
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionRoutingSpec:
+    semantic_suffixes: list[str] = field(default_factory=list)
+    requested_ref_suffixes: list[str] = field(default_factory=list)
+    requested_ref_prefixes: list[str] = field(default_factory=list)
+    supported_actions: list[str] = field(default_factory=list)
+    language_hints: list[str] = field(default_factory=list)
+    preferred_action_candidates: dict[str, list[str]] = field(default_factory=dict)
+    follow_up_starter_terms: list[str] = field(default_factory=list)
+    follow_up_same_target_terms: list[str] = field(default_factory=list)
+    follow_up_time_terms: list[str] = field(default_factory=list)
+    follow_up_rewrite_prefix: str = ""
 
 CONNECTION_FIELD_CHAT_CATALOG: dict[str, dict[str, Any]] = {
     "host": {
@@ -161,18 +214,57 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "ref",
         "toolbox_keywords": ["ssh", "server", "remote shell", "shell", "host"],
         "semantic_suffixes": ["ssh", "server", "host"],
-        "create_insert": 'erstelle ssh {ref} server.example.local user admin key /app/data/ssh_keys/main-ssh_ed25519 titel "SSH Server" ',
-        "update_insert": 'aktualisiere ssh {ref} server.example.local user admin key /app/data/ssh_keys/main-ssh_ed25519 titel "SSH Server" ',
+        "requested_ref_suffixes": ["server", "host", "system", "node"],
+        "requested_ref_prefixes": ["auf", "bei", "beim", "via", "von", "vom", "on", "from"],
+        "routing_supported_actions": [
+            "run command",
+            "execute shell command",
+            "server status",
+            "health check",
+            "uptime",
+            "logs",
+            "linux host",
+            "befehl ausfuehren",
+            "server pruefen",
+        ],
+        "routing_language_hints": ["run", "execute", "status", "uptime", "health", "fuehre", "starte", "pruefe"],
+        "routing_preferred_action_candidates": {
+            "status_like": ["ssh_run_command"],
+            "bounded_planner": ["ssh_run_command"],
+        },
+        "routing_follow_up_starter_terms": ["und", "dann", "jetzt", "nochmal", "erneut", "wieder", "ok", "okay", "ansonsten"],
+        "routing_follow_up_same_target_terms": [
+            "dort",
+            "da",
+            "darauf",
+            "dabei",
+            "denselben",
+            "demselben",
+            "gleichen",
+            "wieder dort",
+            "nochmal dort",
+            "gleicher server",
+            "gleichen server",
+            "gleicher host",
+            "gleichen host",
+            "gleiches profil",
+            "selbes profil",
+        ],
+        "routing_follow_up_rewrite_prefix": "ssh",
+        "create_insert_key": "connection_catalog.insert.ssh.create",
+        "create_insert": _catalog_text("connection_catalog.insert.ssh.create", 'create ssh {ref} server.example.local user admin key /app/data/ssh_keys/main-ssh_ed25519 title "SSH Server" '),
+        "update_insert_key": "connection_catalog.insert.ssh.update",
+        "update_insert": _catalog_text("connection_catalog.insert.ssh.update", 'update ssh {ref} server.example.local user admin key /app/data/ssh_keys/main-ssh_ed25519 title "SSH Server" '),
         "fields": {
-            "host": {"type": "str", "max_length": 255, "label": "Host"},
-            "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
-            "user": {"type": "str", "max_length": 255, "label": "User"},
-            "service_url": {"type": "str", "max_length": 512, "label": "Service-URL"},
-            "key_path": {"type": "str", "max_length": 512, "label": "Key-Pfad"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "strict_host_key_checking": {"type": "str", "max_length": 32, "label": "Host-Key-Prüfung"},
-            "allow_commands": {"type": "list", "max_items": 20, "item_max_length": 200, "label": "Allow-Commands"},
-            "guardrail_ref": {"type": "str", "max_length": 64, "label": "Guardrail-Profil"},
+            "host": {"type": "str", "max_length": 255, "label": _config_text("host", "Host")},
+            "port": {"type": "int", "min": 1, "max": 65535, "label": _config_text("port", "Port")},
+            "user": {"type": "str", "max_length": 255, "label": _config_text("user", "User")},
+            "service_url": {"type": "str", "max_length": 512, "label": _config_text("ssh_service_url", "Service URL")},
+            "key_path": {"type": "str", "max_length": 512, "label": _field_text("key_path", "Key path")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "strict_host_key_checking": {"type": "str", "max_length": 32, "label": _config_text("host_key_checking", "Host key checking")},
+            "allow_commands": {"type": "list", "max_items": 20, "item_max_length": 200, "label": _config_text("allow_commands", "Allowed commands")},
+            "guardrail_ref": {"type": "str", "max_length": 64, "label": _field_text("guardrail_ref", "Guardrail profile")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -194,18 +286,36 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "sftp_ref",
         "toolbox_keywords": ["sftp", "ssh datei", "dateiserver", "remote file", "server datei"],
         "semantic_suffixes": ["server", "host", "sftp"],
-        "create_insert": 'erstelle sftp {ref} files.example.local user backup pfad /data titel "SFTP Server" ',
-        "update_insert": 'aktualisiere sftp {ref} files.example.local user backup pfad /data titel "SFTP Server" ',
+        "routing_supported_actions": [
+            "read file",
+            "list directory",
+            "write file",
+            "remote files",
+            "datei lesen",
+            "dateien anzeigen",
+            "server dateien",
+        ],
+        "routing_language_hints": ["read", "list", "file", "directory", "lies", "zeige", "datei", "ordner"],
+        "routing_preferred_action_candidates": {
+            "default": ["sftp_list_files"],
+            "list_like": ["sftp_list_files"],
+            "read_like": ["sftp_read_file"],
+            "write_like": ["sftp_write_file"],
+        },
+        "create_insert_key": "connection_catalog.insert.sftp.create",
+        "create_insert": _catalog_text("connection_catalog.insert.sftp.create", 'create sftp {ref} files.example.local user backup path /data title "SFTP Server" '),
+        "update_insert_key": "connection_catalog.insert.sftp.update",
+        "update_insert": _catalog_text("connection_catalog.insert.sftp.update", 'update sftp {ref} files.example.local user backup path /data title "SFTP Server" '),
         "fields": {
-            "host": {"type": "str", "max_length": 255, "label": "Host"},
-            "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
-            "user": {"type": "str", "max_length": 255, "label": "User"},
-            "service_url": {"type": "str", "max_length": 512, "label": "Service-URL"},
-            "password": {"type": "str", "max_length": 512, "label": "Passwort"},
-            "key_path": {"type": "str", "max_length": 512, "label": "Key-Pfad"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "root_path": {"type": "str", "max_length": 512, "label": "Pfad"},
-            "guardrail_ref": {"type": "str", "max_length": 64, "label": "Guardrail-Profil"},
+            "host": {"type": "str", "max_length": 255, "label": _config_text("host", "Host")},
+            "port": {"type": "int", "min": 1, "max": 65535, "label": _config_text("port", "Port")},
+            "user": {"type": "str", "max_length": 255, "label": _config_text("user", "User")},
+            "service_url": {"type": "str", "max_length": 512, "label": _config_text("ssh_service_url", "Service URL")},
+            "password": {"type": "str", "max_length": 512, "label": _field_text("password", "Password")},
+            "key_path": {"type": "str", "max_length": 512, "label": _field_text("key_path", "Key path")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "root_path": {"type": "str", "max_length": 512, "label": _field_text("path", "Path")},
+            "guardrail_ref": {"type": "str", "max_length": 64, "label": _field_text("guardrail_ref", "Guardrail profile")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -227,17 +337,35 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "smb_ref",
         "toolbox_keywords": ["smb", "share", "freigabe", "nas", "netzlaufwerk", "synology"],
         "semantic_suffixes": ["share", "nas", "freigabe"],
-        "create_insert": 'erstelle smb {ref} nas.example.local share docs user aria pfad / titel "NAS Share" ',
-        "update_insert": 'aktualisiere smb {ref} nas.example.local share docs pfad / titel "NAS Share" ',
+        "routing_supported_actions": [
+            "read file",
+            "list directory",
+            "write file",
+            "remote files",
+            "datei lesen",
+            "dateien anzeigen",
+            "server dateien",
+        ],
+        "routing_language_hints": ["read", "list", "file", "directory", "lies", "zeige", "datei", "ordner"],
+        "routing_preferred_action_candidates": {
+            "default": ["smb_list_files"],
+            "list_like": ["smb_list_files"],
+            "read_like": ["smb_read_file"],
+            "write_like": ["smb_write_file"],
+        },
+        "create_insert_key": "connection_catalog.insert.smb.create",
+        "create_insert": _catalog_text("connection_catalog.insert.smb.create", 'create smb {ref} nas.example.local share docs user aria path / title "NAS Share" '),
+        "update_insert_key": "connection_catalog.insert.smb.update",
+        "update_insert": _catalog_text("connection_catalog.insert.smb.update", 'update smb {ref} nas.example.local share docs path / title "NAS Share" '),
         "fields": {
-            "host": {"type": "str", "max_length": 255, "label": "Host"},
-            "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
-            "share": {"type": "str", "max_length": 255, "label": "Share"},
-            "user": {"type": "str", "max_length": 255, "label": "User"},
-            "password": {"type": "str", "max_length": 512, "label": "Passwort"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "root_path": {"type": "str", "max_length": 512, "label": "Pfad"},
-            "guardrail_ref": {"type": "str", "max_length": 64, "label": "Guardrail-Profil"},
+            "host": {"type": "str", "max_length": 255, "label": _config_text("host", "Host")},
+            "port": {"type": "int", "min": 1, "max": 65535, "label": _config_text("port", "Port")},
+            "share": {"type": "str", "max_length": 255, "label": _config_text("smb_share", "Share")},
+            "user": {"type": "str", "max_length": 255, "label": _config_text("user", "User")},
+            "password": {"type": "str", "max_length": 512, "label": _field_text("password", "Password")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "root_path": {"type": "str", "max_length": 512, "label": _field_text("path", "Path")},
+            "guardrail_ref": {"type": "str", "max_length": 64, "label": _field_text("guardrail_ref", "Guardrail profile")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -263,90 +391,107 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "discord_ref",
         "toolbox_keywords": ["discord", "alert", "alerts", "nachricht", "webhook"],
         "semantic_suffixes": ["discord", "channel"],
-        "create_insert": 'erstelle discord {ref} https://discord.example/webhook titel "Alerts Bot" ',
-        "update_insert": 'aktualisiere discord {ref} titel "Alerts Bot" ',
+        "requested_ref_suffixes": ["channel", "kanal", "profile", "profil", "server"],
+        "requested_ref_prefixes": ["discord", "an", "nach", "zu", "in", "to"],
+        "routing_supported_actions": [
+            "send message",
+            "notify",
+            "alert channel",
+            "discord nachricht",
+            "alarmieren",
+            "meldung senden",
+        ],
+        "routing_language_hints": ["send", "notify", "alert", "sende", "schicke", "melde", "alarmiere"],
+        "routing_preferred_action_candidates": {
+            "default": ["discord_send_message"],
+            "send_like": ["discord_send_message"],
+        },
+        "create_insert_key": "connection_catalog.insert.discord.create",
+        "create_insert": _catalog_text("connection_catalog.insert.discord.create", 'create discord {ref} https://discord.example/webhook title "Alerts Bot" '),
+        "update_insert_key": "connection_catalog.insert.discord.update",
+        "update_insert": _catalog_text("connection_catalog.insert.discord.update", 'update discord {ref} title "Alerts Bot" '),
         "ui_sections": {
             "behaviour": {
                 "title_key": "config_conn.discord_alerting_title",
-                "title": "Discord Alerting & Verhalten",
+                "title": _config_text("discord_alerting_title", "Discord alerting and behavior"),
                 "hint_key": "config_conn.discord_alerting_hint",
-                "hint": "Hier steuerst du, ob ARIA sichtbare Testposts senden darf und ob Skills dieses Profil aktiv als Discord-Ziel verwenden dürfen.",
+                "hint": _config_text("discord_alerting_hint", "Control whether ARIA may send visible test posts and whether recipes may use this profile as a Discord target."),
             },
             "events": {
                 "title_key": "config_conn.discord_event_routing_title",
-                "title": "ARIA Event-Routing nach Discord",
+                "title": _config_text("discord_event_routing_title", "ARIA event routing to Discord"),
                 "hint_key": "config_conn.discord_event_routing_hint",
-                "hint": "Diese Kategorien machen Discord zu einer kleinen Alarm- und Log-Zentrale für ARIA. Aktiviert werden nur wichtige Ereignisse, keine kompletten Rohlogs.",
+                "hint": _config_text("discord_event_routing_hint", "These categories turn Discord into a compact alert and log hub for ARIA."),
             },
         },
         "fields": {
-            "webhook_url": {"type": "str", "max_length": 512, "label": "Webhook-URL"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
+            "webhook_url": {"type": "str", "max_length": 512, "label": _config_text("discord_webhook_url", "Webhook URL")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
             "send_test_messages": {
                 "type": "bool",
-                "label": "Testnachrichten",
+                "label": _field_text("test_messages", "Test messages"),
                 "section": "behaviour",
                 "title_key": "config_conn.discord_send_test_messages",
-                "title": "Nerdige Testnachricht nach Discord senden",
+                "title": _config_text("discord_send_test_messages", "Send test message to Discord"),
                 "hint_key": "config_conn.discord_send_test_messages_hint",
-                "hint": "Wenn aktiv, sendet ARIA bei einem Verbindungstest eine sichtbare A.R.I.A-Handshake-Nachricht. Wenn aus, prüft ARIA den Webhook still ohne Testpost.",
+                "hint": _config_text("discord_send_test_messages_hint", "When enabled, ARIA sends a visible handshake message during connection tests."),
                 "toggle_key": "config_conn.discord_send_test_messages_toggle",
-                "toggle": "Testposts aktivieren",
+                "toggle": _config_text("discord_send_test_messages_toggle", "Enable test posts"),
             },
             "allow_skill_messages": {
                 "type": "bool",
-                "label": "Skill-Nachrichten",
+                "label": _field_text("recipe_messages", "Recipe messages"),
                 "section": "behaviour",
                 "title_key": "config_conn.discord_allow_skill_messages",
-                "title": "Skill-Nachrichten über dieses Profil erlauben",
+                "title": _config_text("discord_allow_skill_messages", "Allow recipe messages via this profile"),
                 "hint_key": "config_conn.discord_allow_skill_messages_hint",
-                "hint": "Wenn deaktiviert, können Skills dieses Discord-Profil nicht als Ziel für `discord_send` verwenden.",
+                "hint": _config_text("discord_allow_skill_messages_hint", "When disabled, recipes cannot use this Discord profile as a target."),
                 "toggle_key": "config_conn.discord_allow_skill_messages_toggle",
-                "toggle": "Skill-Ziel erlauben",
+                "toggle": _config_text("discord_allow_skill_messages_toggle", "Allow recipe target"),
             },
             "alert_skill_errors": {
                 "type": "bool",
-                "label": "Skill-Fehler",
+                "label": _field_text("recipe_errors", "Recipe errors"),
                 "section": "events",
                 "title_key": "config_conn.discord_alert_skill_errors",
-                "title": "Skill-Fehler melden",
+                "title": _config_text("discord_alert_skill_errors", "Report recipe errors"),
                 "hint_key": "config_conn.discord_alert_skill_errors_hint",
-                "hint": "Sendet eine Meldung nach Discord, wenn ein Skill im Lauf fehlschlägt.",
+                "hint": _config_text("discord_alert_skill_errors_hint", "Send a message to Discord when a recipe run fails."),
                 "toggle_key": "config_conn.discord_alert_skill_errors_toggle",
-                "toggle": "Skill-Fehler an Discord senden",
+                "toggle": _config_text("discord_alert_skill_errors_toggle", "Send recipe errors to Discord"),
             },
             "alert_safe_fix": {
                 "type": "bool",
-                "label": "Safe-Fix",
+                "label": _field_text("safe_fix", "Safe-fix"),
                 "section": "events",
                 "title_key": "config_conn.discord_alert_safe_fix",
-                "title": "Safe-Fix Meldungen",
+                "title": _config_text("discord_alert_safe_fix", "Safe-fix events"),
                 "hint_key": "config_conn.discord_alert_safe_fix_hint",
-                "hint": "Sendet Meldungen, wenn ein Safe-Fix bereitsteht oder ausgeführt wurde.",
+                "hint": _config_text("discord_alert_safe_fix_hint", "Send messages when a safe-fix is ready or has been executed."),
                 "toggle_key": "config_conn.discord_alert_safe_fix_toggle",
-                "toggle": "Safe-Fix Events senden",
+                "toggle": _config_text("discord_alert_safe_fix_toggle", "Send safe-fix events"),
             },
             "alert_connection_changes": {
                 "type": "bool",
-                "label": "Statuswechsel",
+                "label": _field_text("status_changes", "Status changes"),
                 "section": "events",
                 "title_key": "config_conn.discord_alert_connection_changes",
-                "title": "Verbindungsstatus-Änderungen",
+                "title": _config_text("discord_alert_connection_changes", "Connection status changes"),
                 "hint_key": "config_conn.discord_alert_connection_changes_hint",
-                "hint": "Sendet eine Meldung, wenn eine konfigurierte Verbindung von grün auf rot oder zurück wechselt.",
+                "hint": _config_text("discord_alert_connection_changes_hint", "Send a message when a configured connection changes status."),
                 "toggle_key": "config_conn.discord_alert_connection_changes_toggle",
-                "toggle": "Statuswechsel senden",
+                "toggle": _config_text("discord_alert_connection_changes_toggle", "Send status changes"),
             },
             "alert_system_events": {
                 "type": "bool",
-                "label": "System-Events",
+                "label": _field_text("system_events", "System events"),
                 "section": "events",
                 "title_key": "config_conn.discord_alert_system_events",
-                "title": "System-Events",
+                "title": _config_text("discord_alert_system_events", "System events"),
                 "hint_key": "config_conn.discord_alert_system_events_hint",
-                "hint": "Sendet kompakte Meldungen bei ARIA-Start und ähnlichen Systemereignissen.",
+                "hint": _config_text("discord_alert_system_events_hint", "Send compact messages on ARIA startup and similar system events."),
                 "toggle_key": "config_conn.discord_alert_system_events_toggle",
-                "toggle": "System-Events senden",
+                "toggle": _config_text("discord_alert_system_events_toggle", "Send system events"),
             },
             **COMMON_METADATA_FIELD_SPECS,
         },
@@ -369,25 +514,40 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "rss_ref",
         "toolbox_keywords": ["rss", "feed", "news", "feeds", "meldung"],
         "semantic_suffixes": ["feed", "rss", "news"],
-        "create_insert": 'erstelle rss {ref} https://example.org/feed.xml titel "Beispiel Feed" ',
-        "update_insert": 'aktualisiere rss {ref} titel "Beispiel Feed" ',
+        "routing_supported_actions": [
+            "read feed",
+            "latest news",
+            "headlines",
+            "feed lesen",
+            "neueste meldungen",
+            "nachrichten",
+        ],
+        "routing_language_hints": ["news", "latest", "feed", "headlines", "neu", "meldungen", "nachrichten"],
+        "routing_preferred_action_candidates": {
+            "default": ["rss_read_feed"],
+            "read_like": ["rss_read_feed"],
+        },
+        "create_insert_key": "connection_catalog.insert.rss.create",
+        "create_insert": _catalog_text("connection_catalog.insert.rss.create", 'create rss {ref} https://example.org/feed.xml title "Example Feed" '),
+        "update_insert_key": "connection_catalog.insert.rss.update",
+        "update_insert": _catalog_text("connection_catalog.insert.rss.update", 'update rss {ref} title "Example Feed" '),
         "fields": {
-            "feed_url": {"type": "str", "max_length": 512, "label": "Feed-URL"},
+            "feed_url": {"type": "str", "max_length": 512, "label": _config_text("rss_feed_url", "Feed URL")},
             "group_name": {
                 "type": "str",
                 "max_length": 64,
-                "label": "Gruppe / Kategorie",
+                "label": _config_text("rss_group_name", "Group / category"),
                 "label_key": "config_conn.rss_group_name",
                 "hint_key": "config_conn.rss_group_name_hint",
-                "hint": "Manuell gesetzte Gruppen bleiben beim LLM-Refresh unverändert. Leer lassen, wenn ARIA den Feed frei einsortieren darf.",
+                "hint": _config_text("rss_group_name_hint", "Manually assigned groups stay unchanged during LLM refresh."),
             },
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "poll_interval_minutes": {"type": "int", "min": 1, "max": 10080, "label": "Ping-Intervall (Minuten)"},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "poll_interval_minutes": {"type": "int", "min": 1, "max": 10080, "label": _field_text("poll_interval_minutes", "Ping interval (minutes)")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
     "website": {
-        "label": "Beobachtete Webseiten",
+        "label": _config_text("website_title", "Watched websites"),
         "icon": "http_api",
         "template_name": "config_connections_websites.html",
         "chat_aliases": ["website", "webseite", "webseiten", "web page", "webseiten quelle"],
@@ -403,19 +563,44 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "website_ref",
         "toolbox_keywords": ["website", "webseite", "seite", "quelle", "link", "url", "beobachten"],
         "semantic_suffixes": ["website", "webseite", "seite", "quelle", "link"],
-        "create_insert": 'erstelle website {ref} https://example.org titel "Beobachtete Quelle" ',
-        "update_insert": 'aktualisiere website {ref} https://example.org titel "Beobachtete Quelle" ',
+        "routing_supported_actions": [
+            "read website",
+            "open website source",
+            "list observed websites",
+            "webseite lesen",
+            "quelle oeffnen",
+            "beobachtete webseiten",
+        ],
+        "routing_language_hints": [
+            "website",
+            "webseite",
+            "seite",
+            "quelle",
+            "lesen",
+            "oeffne",
+            *_catalog_lexicon_list("website_routing_language_hints_extra"),
+            "beobachtet",
+        ],
+        "routing_preferred_action_candidates": {
+            "default": ["website_read"],
+            "read_like": ["website_read"],
+            "list_like": ["website_list"],
+        },
+        "create_insert_key": "connection_catalog.insert.website.create",
+        "create_insert": _catalog_text("connection_catalog.insert.website.create", 'create website {ref} https://example.org title "Watched Source" '),
+        "update_insert_key": "connection_catalog.insert.website.update",
+        "update_insert": _catalog_text("connection_catalog.insert.website.update", 'update website {ref} https://example.org title "Watched Source" '),
         "fields": {
-            "url": {"type": "str", "max_length": 512, "label": "URL"},
+            "url": {"type": "str", "max_length": 512, "label": _field_text("url", "URL")},
             "group_name": {
                 "type": "str",
                 "max_length": 64,
-                "label": "Gruppe / Kategorie",
+                "label": _config_text("rss_group_name", "Group / category"),
                 "label_key": "config_conn.rss_group_name",
                 "hint_key": "config_conn.website_group_name_hint",
-                "hint": "Leer lassen, wenn ARIA die Quelle automatisch einsortieren soll.",
+                "hint": _catalog_text("config_conn.website_group_name_hint", "Leave empty if ARIA should sort the source automatically."),
             },
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -437,14 +622,31 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "webhook_ref",
         "toolbox_keywords": ["webhook", "hook", "n8n", "automation"],
         "semantic_suffixes": ["webhook", "hook", "endpoint"],
-        "create_insert": 'erstelle webhook {ref} https://example.org/webhook titel "Webhook Demo" ',
-        "update_insert": "update webhook {ref} https://example.org/new-webhook ",
+        "requested_ref_suffixes": ["webhook", "hook"],
+        "requested_ref_prefixes": ["per", "via", "an", "to"],
+        "routing_supported_actions": [
+            "send webhook",
+            "post webhook",
+            "callback",
+            "event hook",
+            "webhook senden",
+            "webhook triggern",
+        ],
+        "routing_language_hints": ["webhook", "hook", "callback", "endpoint", "send", "poste", "sende"],
+        "routing_preferred_action_candidates": {
+            "default": ["webhook_send_message"],
+            "send_like": ["webhook_send_message"],
+        },
+        "create_insert_key": "connection_catalog.insert.webhook.create",
+        "create_insert": _catalog_text("connection_catalog.insert.webhook.create", 'create webhook {ref} https://example.org/webhook title "Webhook Demo" '),
+        "update_insert_key": "connection_catalog.insert.webhook.update",
+        "update_insert": _catalog_text("connection_catalog.insert.webhook.update", "update webhook {ref} https://example.org/new-webhook "),
         "fields": {
-            "url": {"type": "str", "max_length": 512, "label": "URL"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "method": {"type": "str", "max_length": 16, "label": "Methode"},
-            "content_type": {"type": "str", "max_length": 120, "label": "Content-Type"},
-            "guardrail_ref": {"type": "str", "max_length": 64, "label": "Guardrail-Profil"},
+            "url": {"type": "str", "max_length": 512, "label": _field_text("url", "URL")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "method": {"type": "str", "max_length": 16, "label": _config_text("webhook_method", "Method")},
+            "content_type": {"type": "str", "max_length": 120, "label": _config_text("webhook_content_type", "Content-Type")},
+            "guardrail_ref": {"type": "str", "max_length": 64, "label": _field_text("guardrail_ref", "Guardrail profile")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -466,15 +668,33 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "http_api_ref",
         "toolbox_keywords": ["http api", "api", "endpoint", "health", "status"],
         "semantic_suffixes": ["api", "endpoint"],
-        "create_insert": 'erstelle http api {ref} https://example.org/api /health titel "HTTP API" ',
-        "update_insert": "ändere http api {ref} https://example.org/api /health ",
+        "requested_ref_suffixes": ["api", "endpoint", "service"],
+        "requested_ref_prefixes": ["die", "der", "das", "the", "my", "mein", "meine", "meinen"],
+        "routing_supported_actions": [
+            "call api",
+            "http request",
+            "health endpoint",
+            "api status",
+            "api aufrufen",
+            "endpoint pruefen",
+        ],
+        "routing_language_hints": ["api", "call", "endpoint", "health", "rufe", "hole", "status"],
+        "routing_preferred_action_candidates": {
+            "default": ["http_api_request"],
+            "request_like": ["http_api_request"],
+            "status_like": ["http_api_request"],
+        },
+        "create_insert_key": "connection_catalog.insert.http_api.create",
+        "create_insert": _catalog_text("connection_catalog.insert.http_api.create", 'create http api {ref} https://example.org/api /health title "HTTP API" '),
+        "update_insert_key": "connection_catalog.insert.http_api.update",
+        "update_insert": _catalog_text("connection_catalog.insert.http_api.update", "update http api {ref} https://example.org/api /health "),
         "fields": {
-            "base_url": {"type": "str", "max_length": 512, "label": "Base-URL"},
-            "auth_token": {"type": "str", "max_length": 512, "label": "Auth-Token"},
-            "health_path": {"type": "str", "max_length": 255, "label": "Health-Pfad"},
-            "method": {"type": "str", "max_length": 16, "label": "Methode"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "guardrail_ref": {"type": "str", "max_length": 64, "label": "Guardrail-Profil"},
+            "base_url": {"type": "str", "max_length": 512, "label": _config_text("http_api_base_url", "Base URL")},
+            "auth_token": {"type": "str", "max_length": 512, "label": _config_text("http_api_auth_token", "Auth token")},
+            "health_path": {"type": "str", "max_length": 255, "label": _config_text("http_api_health_path", "Health path")},
+            "method": {"type": "str", "max_length": 16, "label": _config_text("webhook_method", "Method")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "guardrail_ref": {"type": "str", "max_length": 64, "label": _field_text("guardrail_ref", "Guardrail profile")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -496,14 +716,47 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "google_calendar_ref",
         "toolbox_keywords": ["google calendar", "kalender", "termine", "events", "calendar"],
         "semantic_suffixes": ["calendar", "kalender", "termine"],
-        "create_insert": 'erstelle google calendar {ref} primary titel "Google Kalender" ',
-        "update_insert": 'aktualisiere google calendar {ref} primary titel "Google Kalender" ',
+        "routing_supported_actions": [
+            "read calendar",
+            "today agenda",
+            "tomorrow agenda",
+            "next appointment",
+            "kalender lesen",
+            "heutige termine",
+            "naechster termin",
+        ],
+        "routing_language_hints": ["calendar", "kalender", "termine", "meeting", "appointment", "today", "tomorrow", "heute", "morgen"],
+        "routing_preferred_action_candidates": {
+            "default": ["google_calendar_read_events"],
+            "read_like": ["google_calendar_read_events"],
+        },
+        "routing_follow_up_starter_terms": ["und", "nur", "mit", "ohne", "was ist mit", "wie sieht es"],
+        "routing_follow_up_time_terms": [
+            "heute",
+            "morgen",
+            "diese woche",
+            "naechste woche",
+            "next week",
+            "today",
+            "tomorrow",
+            "this week",
+            "day after tomorrow",
+            "naechster termin",
+            "next appointment",
+            "next meeting",
+            *_catalog_lexicon_list("google_calendar_follow_up_time_terms_extra"),
+        ],
+        "routing_follow_up_rewrite_prefix": "Kalender",
+        "create_insert_key": "connection_catalog.insert.google_calendar.create",
+        "create_insert": _catalog_text("connection_catalog.insert.google_calendar.create", 'create google calendar {ref} primary title "Google Calendar" '),
+        "update_insert_key": "connection_catalog.insert.google_calendar.update",
+        "update_insert": _catalog_text("connection_catalog.insert.google_calendar.update", 'update google calendar {ref} primary title "Google Calendar" '),
         "fields": {
-            "calendar_id": {"type": "str", "max_length": 255, "label": "Calendar-ID"},
-            "client_id": {"type": "str", "max_length": 255, "label": "OAuth Client-ID"},
-            "client_secret": {"type": "str", "max_length": 512, "label": "OAuth Client Secret"},
-            "refresh_token": {"type": "str", "max_length": 1024, "label": "Refresh-Token"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
+            "calendar_id": {"type": "str", "max_length": 255, "label": _config_text("calendar_target", "Calendar ID")},
+            "client_id": {"type": "str", "max_length": 255, "label": _config_text("google_calendar_client_id", "OAuth client ID")},
+            "client_secret": {"type": "str", "max_length": 512, "label": _config_text("google_calendar_client_secret", "OAuth client secret")},
+            "refresh_token": {"type": "str", "max_length": 1024, "label": _config_text("google_calendar_refresh_token", "Refresh token")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -532,17 +785,33 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "searxng_ref",
         "toolbox_keywords": ["searxng", "websuche", "web search", "suche", "search", "internet"],
         "semantic_suffixes": ["searxng", "web", "search", "internet"],
-        "create_insert": 'erstelle searxng {ref} titel "Web Search" ',
-        "update_insert": 'aktualisiere searxng {ref} titel "Web Search" ',
+        "routing_supported_actions": [
+            "search web",
+            "web search",
+            "internet search",
+            "websuche",
+            "im internet suchen",
+            "suchanfrage",
+        ],
+        "routing_language_hints": ["search", "suche", "web", "internet", "finde", "suchanfrage"],
+        "routing_preferred_action_candidates": {
+            "default": ["web_search"],
+            "search_like": ["web_search"],
+            "read_like": ["web_search"],
+        },
+        "create_insert_key": "connection_catalog.insert.searxng.create",
+        "create_insert": _catalog_text("connection_catalog.insert.searxng.create", 'create searxng {ref} title "Web Search" '),
+        "update_insert_key": "connection_catalog.insert.searxng.update",
+        "update_insert": _catalog_text("connection_catalog.insert.searxng.update", 'update searxng {ref} title "Web Search" '),
         "fields": {
-            "base_url": {"type": "str", "max_length": 512, "label": "Base-URL"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
-            "language": {"type": "str", "max_length": 32, "label": "Sprache"},
-            "safe_search": {"type": "int", "min": 0, "max": 2, "label": "SafeSearch"},
-            "categories": {"type": "list", "max_items": 12, "item_max_length": 40, "label": "Kategorien"},
-            "engines": {"type": "list", "max_items": 20, "item_max_length": 40, "label": "Suchmaschinen"},
-            "time_range": {"type": "str", "max_length": 32, "label": "Zeitraum"},
-            "max_results": {"type": "int", "min": 1, "max": 20, "label": "Max. Treffer"},
+            "base_url": {"type": "str", "max_length": 512, "label": _config_text("http_api_base_url", "Base URL")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
+            "language": {"type": "str", "max_length": 32, "label": _config_text("searxng_language", "Language")},
+            "safe_search": {"type": "int", "min": 0, "max": 2, "label": _config_text("searxng_safe_search", "SafeSearch")},
+            "categories": {"type": "list", "max_items": 12, "item_max_length": 40, "label": _config_text("searxng_categories", "Categories")},
+            "engines": {"type": "list", "max_items": 20, "item_max_length": 40, "label": _config_text("searxng_engines", "Engines")},
+            "time_range": {"type": "str", "max_length": 32, "label": _config_text("searxng_time_range", "Time range")},
+            "max_results": {"type": "int", "min": 1, "max": 20, "label": _config_text("searxng_max_results", "Max results")},
             **COMMON_METADATA_FIELD_SPECS,
         },
     },
@@ -565,15 +834,32 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "mqtt_ref",
         "toolbox_keywords": ["mqtt", "topic", "broker", "publish", "event bus"],
         "semantic_suffixes": ["mqtt", "topic", "bus", "broker"],
-        "create_insert": 'erstelle mqtt {ref} mqtt.example.local topic aria/events titel "Event Bus" ',
-        "update_insert": "aktualisiere mqtt {ref} topic aria/events ",
+        "requested_ref_suffixes": ["broker"],
+        "requested_ref_prefixes": ["auf", "an", "to", "on"],
+        "routing_supported_actions": [
+            "publish topic",
+            "mqtt publish",
+            "event bus",
+            "topic senden",
+            "mqtt nachricht",
+            "broker event",
+        ],
+        "routing_language_hints": ["mqtt", "broker", "topic", "publish", "sende", "schicke"],
+        "routing_preferred_action_candidates": {
+            "default": ["mqtt_publish_message"],
+            "publish_like": ["mqtt_publish_message"],
+        },
+        "create_insert_key": "connection_catalog.insert.mqtt.create",
+        "create_insert": _catalog_text("connection_catalog.insert.mqtt.create", 'create mqtt {ref} mqtt.example.local topic aria/events title "Event Bus" '),
+        "update_insert_key": "connection_catalog.insert.mqtt.update",
+        "update_insert": _catalog_text("connection_catalog.insert.mqtt.update", "update mqtt {ref} topic aria/events "),
         "fields": {
-            "host": {"type": "str", "max_length": 255, "label": "Host"},
-            "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
-            "user": {"type": "str", "max_length": 255, "label": "User"},
-            "password": {"type": "str", "max_length": 512, "label": "Passwort"},
-            "topic": {"type": "str", "max_length": 255, "label": "Topic"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
+            "host": {"type": "str", "max_length": 255, "label": _config_text("host", "Host")},
+            "port": {"type": "int", "min": 1, "max": 65535, "label": _config_text("port", "Port")},
+            "user": {"type": "str", "max_length": 255, "label": _config_text("user", "User")},
+            "password": {"type": "str", "max_length": 512, "label": _field_text("password", "Password")},
+            "topic": {"type": "str", "max_length": 255, "label": _config_text("mqtt_topic", "Topic")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
             "use_tls": {"type": "bool", "label": "TLS"},
             **COMMON_METADATA_FIELD_SPECS,
         },
@@ -598,16 +884,31 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "email_ref",
         "toolbox_keywords": ["smtp", "email", "mail", "mail senden", "alerts mail"],
         "semantic_suffixes": ["mail", "email", "smtp"],
-        "create_insert": 'erstelle smtp {ref} smtp.example.local user ops@example.local from ops@example.local to admin@example.local titel "Alerts Mail" ',
-        "update_insert": "aktualisiere smtp {ref} from ops@example.local to admin@example.local ",
+        "routing_supported_actions": [
+            "send email",
+            "send mail",
+            "alert mail",
+            "mail senden",
+            "email senden",
+            "benachrichtigung per mail",
+        ],
+        "routing_language_hints": ["email", "mail", "smtp", "send", "sende", "schicke"],
+        "routing_preferred_action_candidates": {
+            "default": ["email_send_message"],
+            "send_like": ["email_send_message"],
+        },
+        "create_insert_key": "connection_catalog.insert.email.create",
+        "create_insert": _catalog_text("connection_catalog.insert.email.create", 'create smtp {ref} smtp.example.local user ops@example.local from ops@example.local to admin@example.local title "Alerts Mail" '),
+        "update_insert_key": "connection_catalog.insert.email.update",
+        "update_insert": _catalog_text("connection_catalog.insert.email.update", "update smtp {ref} from ops@example.local to admin@example.local "),
         "fields": {
-            "smtp_host": {"type": "str", "max_length": 255, "label": "SMTP-Host"},
-            "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
-            "user": {"type": "str", "max_length": 255, "label": "User"},
-            "password": {"type": "str", "max_length": 512, "label": "Passwort"},
-            "from_email": {"type": "str", "max_length": 255, "label": "Von"},
-            "to_email": {"type": "str", "max_length": 255, "label": "An"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
+            "smtp_host": {"type": "str", "max_length": 255, "label": _config_text("email_smtp_host", "SMTP host")},
+            "port": {"type": "int", "min": 1, "max": 65535, "label": _config_text("port", "Port")},
+            "user": {"type": "str", "max_length": 255, "label": _config_text("user", "User")},
+            "password": {"type": "str", "max_length": 512, "label": _field_text("password", "Password")},
+            "from_email": {"type": "str", "max_length": 255, "label": _config_text("email_from", "From")},
+            "to_email": {"type": "str", "max_length": 255, "label": _config_text("email_to", "To")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
             "starttls": {"type": "bool", "label": "STARTTLS"},
             "use_ssl": {"type": "bool", "label": "SSL"},
             **COMMON_METADATA_FIELD_SPECS,
@@ -633,15 +934,33 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "imap_ref",
         "toolbox_keywords": ["imap", "inbox", "postfach", "mailbox", "mail lesen"],
         "semantic_suffixes": ["inbox", "mailbox", "postfach", "imap"],
-        "create_insert": 'erstelle imap {ref} imap.example.local user ops@example.local mailbox INBOX titel "Ops Inbox" ',
-        "update_insert": "aktualisiere imap {ref} mailbox INBOX ",
+        "requested_ref_suffixes": ["mailbox", "postfach", "inbox"],
+        "requested_ref_prefixes": ["im", "in", "aus", "from"],
+        "routing_supported_actions": [
+            "read mailbox",
+            "search mailbox",
+            "inbox lesen",
+            "emails lesen",
+            "mailbox durchsuchen",
+            "postfach durchsuchen",
+        ],
+        "routing_language_hints": ["imap", "mailbox", "postfach", "inbox", "lesen", "suche"],
+        "routing_preferred_action_candidates": {
+            "default": ["imap_read_mailbox"],
+            "read_like": ["imap_read_mailbox"],
+            "search_like": ["imap_search_mailbox"],
+        },
+        "create_insert_key": "connection_catalog.insert.imap.create",
+        "create_insert": _catalog_text("connection_catalog.insert.imap.create", 'create imap {ref} imap.example.local user ops@example.local mailbox INBOX title "Ops Inbox" '),
+        "update_insert_key": "connection_catalog.insert.imap.update",
+        "update_insert": _catalog_text("connection_catalog.insert.imap.update", "update imap {ref} mailbox INBOX "),
         "fields": {
-            "host": {"type": "str", "max_length": 255, "label": "Host"},
-            "port": {"type": "int", "min": 1, "max": 65535, "label": "Port"},
-            "user": {"type": "str", "max_length": 255, "label": "User"},
-            "password": {"type": "str", "max_length": 512, "label": "Passwort"},
-            "mailbox": {"type": "str", "max_length": 255, "label": "Mailbox"},
-            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": "Timeout"},
+            "host": {"type": "str", "max_length": 255, "label": _config_text("host", "Host")},
+            "port": {"type": "int", "min": 1, "max": 65535, "label": _config_text("port", "Port")},
+            "user": {"type": "str", "max_length": 255, "label": _config_text("user", "User")},
+            "password": {"type": "str", "max_length": 512, "label": _field_text("password", "Password")},
+            "mailbox": {"type": "str", "max_length": 255, "label": _config_text("imap_mailbox", "Mailbox")},
+            "timeout_seconds": {"type": "int", "min": 1, "max": 300, "label": _config_text("timeout", "Timeout")},
             "use_ssl": {"type": "bool", "label": "SSL"},
             **COMMON_METADATA_FIELD_SPECS,
         },
@@ -672,13 +991,15 @@ def connection_example_ref(kind: str, connection_catalog: dict[str, list[str]] |
     return str(spec.get("example_ref") or "beispiel-connection")
 
 
-def connection_insert_template(kind: str, action: str, ref: str) -> str:
+def connection_insert_template(kind: str, action: str, ref: str, *, language: str = "de") -> str:
     clean_kind = normalize_connection_kind(kind)
     spec = CONNECTION_CATALOG.get(clean_kind, {})
     key = "create_insert" if str(action).strip().lower() == "create" else "update_insert"
-    template = str(spec.get(key) or "").strip()
+    template_key = str(spec.get(f"{key}_key") or "").strip()
+    template = _catalog_text(template_key, str(spec.get(key) or ""), language=language).strip() if template_key else str(spec.get(key) or "").strip()
     if not template:
-        verb = "erstelle" if key == "create_insert" else "aktualisiere"
+        verb_key = "create" if key == "create_insert" else "update"
+        verb = _catalog_text(f"connection_catalog.insert_verb.{verb_key}", verb_key, language=language)
         template = f"{verb} {clean_kind} {{ref}} "
     return template.format(ref=ref)
 
@@ -693,9 +1014,36 @@ def connection_toolbox_keywords(kind: str, refs: list[str]) -> list[str]:
 
 
 def connection_semantic_suffixes(kind: str) -> list[str]:
+    return list(connection_routing_spec(kind).semantic_suffixes)
+
+
+def connection_requested_ref_suffixes(kind: str) -> list[str]:
+    return list(connection_routing_spec(kind).requested_ref_suffixes)
+
+
+def connection_requested_ref_prefixes(kind: str) -> list[str]:
+    return list(connection_routing_spec(kind).requested_ref_prefixes)
+
+
+def connection_routing_spec(kind: str) -> ConnectionRoutingSpec:
     clean_kind = normalize_connection_kind(kind)
     spec = CONNECTION_CATALOG.get(clean_kind, {})
-    return [str(item).strip() for item in spec.get("semantic_suffixes", []) if str(item).strip()]
+    return ConnectionRoutingSpec(
+        semantic_suffixes=[str(item).strip() for item in spec.get("semantic_suffixes", []) if str(item).strip()],
+        requested_ref_suffixes=[str(item).strip() for item in spec.get("requested_ref_suffixes", []) if str(item).strip()],
+        requested_ref_prefixes=[str(item).strip() for item in spec.get("requested_ref_prefixes", []) if str(item).strip()],
+        supported_actions=[str(item).strip() for item in spec.get("routing_supported_actions", []) if str(item).strip()],
+        language_hints=[str(item).strip() for item in spec.get("routing_language_hints", []) if str(item).strip()],
+        preferred_action_candidates={
+            str(key).strip(): [str(item).strip() for item in list(value or []) if str(item).strip()]
+            for key, value in dict(spec.get("routing_preferred_action_candidates", {}) or {}).items()
+            if str(key).strip()
+        },
+        follow_up_starter_terms=[str(item).strip() for item in spec.get("routing_follow_up_starter_terms", []) if str(item).strip()],
+        follow_up_same_target_terms=[str(item).strip() for item in spec.get("routing_follow_up_same_target_terms", []) if str(item).strip()],
+        follow_up_time_terms=[str(item).strip() for item in spec.get("routing_follow_up_time_terms", []) if str(item).strip()],
+        follow_up_rewrite_prefix=str(spec.get("routing_follow_up_rewrite_prefix", "") or "").strip(),
+    )
 
 
 def connection_edit_page(kind: str) -> str:

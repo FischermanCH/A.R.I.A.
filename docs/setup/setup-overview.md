@@ -192,7 +192,7 @@ That backup contains:
 - connection profiles and routing metadata
 - secure-store secrets and user accounts
 - prompt files
-- custom skill manifests
+- custom recipe manifests
 - error interpreter rules
 
 It does not contain:
@@ -215,11 +215,15 @@ cd /opt/aria/aria
 ./aria-stack.sh update
 ```
 
+This normal path refreshes/recreates only the `aria` service. It deliberately leaves stateful sidecars such as Qdrant and SearXNG alone.
+
 For a future release that changes the stack layout itself, for example a new sidecar service:
 
 ```bash
 aria-setup upgrade --install-dir /opt/aria/aria
 ```
+
+Use `./aria-stack.sh update-all` or `./aria-stack.sh repair` only when release notes or recovery instructions explicitly call for full-stack work.
 
 Managed installs also expose a browser update button on:
 

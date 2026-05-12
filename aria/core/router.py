@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import re
 
 from aria.core.config import RoutingLanguageConfig
+from aria.core.i18n import I18NStore
+from aria.core.recipe_runtime_contract import RECIPE_STATUS_INTENT
+
+_ROUTER_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _router_terms(key: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    terms: list[str] = []
+    for lang in ("de", "en"):
+        raw = _ROUTER_I18N.t(lang, f"router.{key}", "")
+        terms.extend(term.strip().lower() for term in raw.split(",") if term.strip())
+    return tuple(dict.fromkeys(terms)) or fallback
 
 
 @dataclass
@@ -22,6 +35,43 @@ class KeywordRouter:
     def _contains_guarded_store_phrase(text: str) -> bool:
         return "vergiss nicht" in text
 
+    @staticmethod
+    def _looks_like_memory_object(text: str) -> bool:
+        memory_terms = _router_terms(
+            "memory_object_terms",
+            ("memory", "note", "notes", "fact", "facts", "alias"),
+        )
+        return any(term in text for term in memory_terms)
+
+    @staticmethod
+    def _looks_like_operational_delete(text: str) -> bool:
+        operational_terms = (
+            " server",
+            " host",
+            " ssh",
+            " docker",
+            " service",
+            " dienst",
+            " api",
+            " webseite",
+            " rss",
+            " postfach",
+            " mailbox",
+            " kalender",
+            " datei",
+            " file",
+            " ordner",
+            " verzeichnis",
+            " festplatte",
+            " disk",
+            "/",
+            " auf dem ",
+            " auf den ",
+            " auf der ",
+            " neu",
+        )
+        return any(term in text for term in operational_terms)
+
     def _contains_forget_intent(self, text: str, forget_keywords: tuple[str, ...]) -> bool:
         for keyword in forget_keywords:
             if not keyword:
@@ -29,6 +79,8 @@ class KeywordRouter:
             if keyword == "vergiss" and self._contains_guarded_store_phrase(text):
                 continue
             if keyword in text:
+                if self._looks_like_operational_delete(text) and not self._looks_like_memory_object(text):
+                    continue
                 return True
         return False
 
@@ -45,7 +97,7 @@ class KeywordRouter:
                 continue
         return tuple(rows)
 
-    def _contains_skill_status_intent(self, text: str, active: RoutingLanguageConfig) -> bool:
+    def _contains_recipe_status_intent(self, text: str, active: RoutingLanguageConfig) -> bool:
         skill_status_keywords = self._normalize_keywords(active.skill_status_keywords)
         if any(keyword in text for keyword in skill_status_keywords):
             return True
@@ -73,8 +125,8 @@ class KeywordRouter:
         web_search_keywords = self._normalize_keywords(active.web_search_keywords)
         intents: list[str] = []
 
-        if self._contains_skill_status_intent(text, active):
-            return RouterDecision(intents=["skill_status"], level=1)
+        if self._contains_recipe_status_intent(text, active):
+            return RouterDecision(intents=[RECIPE_STATUS_INTENT], level=1)
 
         if self._contains_forget_intent(text, memory_forget_keywords):
             return RouterDecision(intents=["memory_forget"], level=1)

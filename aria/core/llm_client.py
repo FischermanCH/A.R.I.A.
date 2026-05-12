@@ -1,17 +1,54 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
+from pathlib import Path
 from typing import Any
 import time
 
-from litellm import acompletion
-
 from aria.core.config import LLMConfig
+from aria.core.i18n import I18NStore
+from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG
 from aria.core.usage_meter import UsageMeter
+
+_LLM_CLIENT_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _llm_text(key: str, default: str = "", **values: object) -> str:
+    template = _LLM_CLIENT_I18N.t("de", f"llm_client.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 class LLMClientError(RuntimeError):
-    """Fehler beim Aufruf des LLM."""
+    """Raised when a model call fails or returns an unusable response."""
+
+
+def _load_litellm_acompletion() -> Any:
+    try:
+        return getattr(import_module("litellm"), "acompletion")
+    except ModuleNotFoundError as exc:
+        raise LLMClientError(
+            _llm_text(
+                "litellm_missing",
+                "LiteLLM is not installed. Install ARIA with the model gateway extra: pip install 'aria-agent[model-gateway]'.",
+            )
+        ) from exc
+    except AttributeError as exc:
+        raise LLMClientError(
+            _llm_text(
+                "litellm_missing_acompletion",
+                "LiteLLM is installed but does not expose acompletion(). Please update the litellm package.",
+            )
+        ) from exc
+
+
+async def _acompletion(**kwargs: Any) -> Any:
+    return await _load_litellm_acompletion()(**kwargs)
 
 
 @dataclass
@@ -45,7 +82,7 @@ class LLMClient:
     ) -> LLMResponse:
         start = time.perf_counter()
         try:
-            response = await acompletion(
+            response = await _acompletion(
                 model=self.model,
                 messages=messages,
                 api_base=self.api_base,
@@ -55,7 +92,18 @@ class LLMClient:
                 timeout=self.timeout_seconds,
             )
         except Exception as exc:  # noqa: BLE001
-            raise LLMClientError(f"LLM-Request fehlgeschlagen: {exc}") from exc
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            GLOBAL_LLM_AUDIT_LOG.record(
+                model=str(self.model or "").strip(),
+                messages=messages,
+                source=source,
+                operation=operation,
+                user_id=user_id,
+                request_id=request_id,
+                duration_ms=duration_ms,
+                error=str(exc),
+            )
+            raise LLMClientError(_llm_text("request_failed", "LLM request failed: {error}", error=exc)) from exc
 
         content = ""
         usage: dict[str, int] = {
@@ -81,8 +129,20 @@ class LLMClient:
 
         if not content.strip():
             finish_hint = f", finish_reason={finish_reason}" if finish_reason else ""
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            GLOBAL_LLM_AUDIT_LOG.record(
+                model=str(self.model or "").strip(),
+                messages=messages,
+                source=source,
+                operation=operation,
+                user_id=user_id,
+                request_id=request_id,
+                duration_ms=duration_ms,
+                usage=usage,
+                error=f"empty_response{finish_hint}",
+            )
             raise LLMClientError(
-                f"LLM-Response ohne Textinhalt vom Modell {self.model}{finish_hint}."
+                _llm_text("empty_response", "LLM response from model {model} did not contain text{finish_hint}.", model=self.model, finish_hint=finish_hint)
             )
 
         metered = False
@@ -99,6 +159,18 @@ class LLMClient:
                 duration_ms=duration_ms,
             )
             metered = True
+
+        GLOBAL_LLM_AUDIT_LOG.record(
+            model=str(self.model or "").strip(),
+            messages=messages,
+            source=source,
+            operation=operation,
+            user_id=user_id,
+            request_id=request_id,
+            duration_ms=int((time.perf_counter() - start) * 1000),
+            usage=usage,
+            response=content,
+        )
 
         return LLMResponse(
             content=content,

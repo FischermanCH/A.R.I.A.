@@ -1,0 +1,40 @@
+{
+  "connection_action_verbs": {
+    "create": "(?:erstelle|erzeuge|lege an|erfasse|create)",
+    "update": "(?:aktualisiere|update|ändere|aendere|bearbeite)"
+  },
+  "leading_value_keywords": [
+    "host", "user", "key", "key_path", "schluesselpfad", "keypfad", "share", "pfad", "path", "root", "root_path", "from", "to", "mailbox", "topic", "port", "timeout", "passwort", "password", "token", "auth_token", "auth-token", "method", "methode", "strict", "checking", "host-key", "allow", "commands", "titel", "title", "beschreibung", "description", "tags", "tag", "aliase", "aliases", "alias"
+  ],
+  "patterns": {
+    "forget_query_prefix": "^(vergiss|lösch|loesch|entfern|delete|remove)\\s+",
+    "forget_confirm_token": "(?:bestätige|bestaetige|lösche|loesche|delete)\\s+(?:jetzt\\s+)?([a-z0-9]{6,16})",
+    "safe_fix_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:safe-?fix\\s+|fix\\s+)?([a-z0-9]{6,16})",
+    "connection_delete_request": "(?:lösche|loesche|entferne|delete|remove)\\s+(?:die\\s+|das\\s+|den\\s+)?(?:(ssh|discord|sftp|smb|webhook|smtp|email|imap|http api|http-api|rss|mqtt)\\s+)?(?:verbindung|profil)?\\s*([a-z0-9._-]+)",
+    "connection_delete_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:verbindung\\s+)?(?:(?:löschen|loeschen|delete)\\s+)?([a-z0-9]{6,16})",
+    "connection_request_header": "^{verbs}\\s+(?:eine\\s+|ein\\s+)?(?P<alias>{alias_pattern})(?:\\s+verbindung|\\s+profil)?\\s+(?P<ref>[a-z0-9._-]+)(?P<rest>.*)$",
+    "metadata_title": "(?:titel|title)\\s+\"([^\"]+)\"",
+    "metadata_description": "(?:beschreibung|description)\\s+\"([^\"]+)\"",
+    "metadata_tags": "(?:tags|tag)\\s+\"([^\"]+)\"",
+    "metadata_aliases": "(?:aliase|aliases|alias)\\s+\"([^\"]+)\"",
+    "website_watch_shortcut": "^(?:beobachte|watch|track|fuege\\s+(?:die\\s+)?webseite\\s+hinzu|füge\\s+(?:die\\s+)?webseite\\s+hinzu|add\\s+(?:this\\s+)?website)\\s+(https?://\\S+)",
+    "connection_create_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:verbindung\\s+)?(?:(?:erstellen|erfassen|create)\\s+)?([a-z0-9]{6,16})",
+    "connection_update_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:verbindung\\s+)?(?:(?:aktualisieren|update|aendern|ändern)\\s+)?([a-z0-9]{6,16})",
+    "update_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:kontrolliertes\\s+)?(?:update\\s+)?([a-z0-9]{6,16})",
+    "routed_action_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:aktion|ausfuehrung|ausführung|action|execute)\\s+([a-z0-9]{6,16})"
+  },
+  "website_update_shortcuts": [
+    {"pattern": "^(?:aendere|ändere|aktualisiere|bearbeite|update)\\s+(?:die\\s+)?(?:beobachtete\\s+)?webseite\\s+([a-z0-9._-]+)\\s+titel\\s+\"([^\"]+)\"$", "field": "title", "group": 2},
+    {"pattern": "^(?:aendere|ändere|aktualisiere|bearbeite|update)\\s+(?:die\\s+)?(?:beobachtete\\s+)?webseite\\s+([a-z0-9._-]+)\\s+gruppe\\s+\"?([^\"]+?)\"?$", "field": "group_name", "group": 2},
+    {"pattern": "^(?:verschiebe|move)\\s+(?:die\\s+)?(?:beobachtete\\s+)?webseite\\s+([a-z0-9._-]+)\\s+(?:nach|in)\\s+\"?([^\"]+?)\"?$", "field": "group_name", "group": 2},
+    {"pattern": "^(?:aendere|ändere|aktualisiere|bearbeite|update)\\s+(?:die\\s+)?(?:beobachtete\\s+)?webseite\\s+([a-z0-9._-]+)\\s+url\\s+(https?://\\S+)$", "field": "url", "group": 2, "rstrip": ").,;"}
+  ],
+  "phrases": {
+    "update_run": ["starte update", "start update", "führe update aus", "fuehre update aus", "run update", "installiere update", "update jetzt", "jetzt updaten", "kontrolliertes update starten"],
+    "update_status": ["zeige update status", "show update status", "update status", "status vom update", "status des updates", "läuft ein update", "laeuft ein update", "läuft gerade ein update", "laeuft gerade ein update", "update helper status", "öffne update seite", "oeffne update seite", "open update page"],
+    "backup_export": ["exportiere config backup", "export config backup", "erstelle config backup", "create config backup", "download config backup", "sichere aria config", "backup der config", "backup der konfig"],
+    "backup_import": ["importiere config backup", "import config backup", "restore config backup", "spiele config backup ein", "backup wiederherstellen", "restore backup"],
+    "stats": ["zeige stats", "show stats", "zeige statistiken", "show statistics", "öffne stats", "oeffne stats"],
+    "activities": ["zeige aktivitäten", "zeige aktivitaeten", "show activities", "zeige runs", "show runs", "öffne aktivitäten", "oeffne aktivitaeten"]
+  }
+}

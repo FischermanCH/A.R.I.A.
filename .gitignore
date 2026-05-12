@@ -9,8 +9,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+*.egg-info/
 .venv/
 venv/
+build/
+dist/
+*.whl
 dist/*.tar
 dist/*.tar.gz
 dist/*.tgz

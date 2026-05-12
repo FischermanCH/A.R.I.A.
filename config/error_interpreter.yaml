@@ -2,6 +2,7 @@ rules:
   - id: timeout
     patterns:
       - "custom_skill_ssh_timeout"
+      - "recipe_ssh_timeout"
       - "timed? out"
       - "connection timed out"
     messages:
@@ -122,11 +123,11 @@ rules:
       de:
         title: "Ein benoetigter Befehl ist auf dem Zielsystem nicht vorhanden."
         cause: "Das Tool oder Paket existiert dort nicht oder der Pfad ist anders."
-        next_step: "Befehl manuell via SSH pruefen und das benoetigte Paket installieren oder den Skill anpassen."
+        next_step: "Befehl manuell via SSH pruefen und das benoetigte Paket installieren oder das Rezept anpassen."
       en:
         title: "A required command is missing on the target system."
         cause: "The tool or package is not installed there or the path differs."
-        next_step: "Check the command manually over SSH and install the needed package or adjust the skill."
+        next_step: "Check the command manually over SSH and install the needed package or adjust the recipe."
 
   - id: unknown_nonzero
     default: true

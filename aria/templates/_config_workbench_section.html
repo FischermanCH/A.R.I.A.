@@ -14,6 +14,10 @@
       <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
     </a>
+    <a class="config-submenu-item" href="/config/llm/debug?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'llm_debug.title', 'LLM Prompt Debug') }}</span><span class="submenu-desc">{{ tr(request, 'llm_debug.menu_desc', 'Inspect recent prompts, responses, source, operation, and token usage from the central LLM gateway.') }}</span></span>
+    </a>
   </div>
 </section>
 {% else %}

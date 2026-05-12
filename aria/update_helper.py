@@ -6,9 +6,10 @@ import re
 import subprocess
 import threading
 import time
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 from urllib.error import URLError
 from urllib.request import urlopen
 
@@ -23,6 +24,7 @@ INSTALL_DIR = Path(os.environ.get("ARIA_UPDATE_INSTALL_DIR", "/managed")).resolv
 STATE_DIR = Path(os.environ.get("ARIA_UPDATE_STATE_DIR", str(INSTALL_DIR / ".aria-updater"))).resolve()
 STATE_PATH = STATE_DIR / "state.json"
 LOG_PATH = STATE_DIR / "update.log"
+UPDATE_HELPER_LEXICON_PATH = Path(__file__).resolve().parent / "lexicons" / "update_helper.json"
 TOKEN = str(os.environ.get("ARIA_UPDATE_TOKEN", "") or "").strip()
 HELPER_HOST = str(os.environ.get("ARIA_UPDATE_HELPER_HOST", "0.0.0.0") or "0.0.0.0").strip() or "0.0.0.0"
 HELPER_PORT = int(str(os.environ.get("ARIA_UPDATE_HELPER_PORT", "8094") or "8094").strip() or "8094")
@@ -58,11 +60,18 @@ SERVICE_RESTART_TARGETS = {
     },
 }
 
-app = FastAPI(title="ARIA Update Helper")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _normalize_state_after_restart()
+    yield
+
+
+app = FastAPI(title="ARIA Update Helper", lifespan=_lifespan)
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _ensure_state_dir() -> None:
@@ -364,7 +373,14 @@ def _run_logged_with_env(
 
 
 _TIMESTAMP_LINE_RE = re.compile(r"^\[\d{4}-\d{2}-\d{2}T[^]]+\]\s")
-_FAILURE_DETAIL_RE = re.compile(r"(error|failed|traceback|exception|denied|not found|fehlgeschlagen)", re.IGNORECASE)
+try:
+    _UPDATE_HELPER_LEXICON = json.loads(UPDATE_HELPER_LEXICON_PATH.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    _UPDATE_HELPER_LEXICON = {}
+_FAILURE_DETAIL_RE = re.compile(
+    str(_UPDATE_HELPER_LEXICON.get("failure_detail_pattern") or "error|failed|traceback|exception"),
+    re.IGNORECASE,
+)
 
 
 def _latest_failure_detail(*, start_offset: int = 0) -> str:
@@ -696,7 +712,6 @@ def _run_service_restart_worker(service: str) -> None:
     _run_managed_service_restart_worker(service)
 
 
-@app.on_event("startup")
 def _normalize_state_after_restart() -> None:
     state = _load_state()
     if state.get("running"):

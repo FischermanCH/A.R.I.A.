@@ -9,6 +9,20 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 from urllib.request import Request as URLRequest, urlopen
 
+from aria.core.i18n import I18NStore
+
+_CONNECTION_READER_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _connection_reader_text(key: str, default: str = "", **values: object) -> str:
+    template = _CONNECTION_READER_I18N.t("de", f"connection_reader_helpers.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
 
 @dataclass(frozen=True)
 class ConnectionReaderHelperDeps:
@@ -114,7 +128,9 @@ def build_connection_reader_helpers(deps: ConnectionReaderHelperDeps) -> Connect
                     "timeout_seconds": int(value.get("timeout_seconds", 10) or 10),
                     "send_test_messages": bool(value.get("send_test_messages", True)),
                     "allow_skill_messages": bool(value.get("allow_skill_messages", True)),
+                    "allow_recipe_messages": bool(value.get("allow_skill_messages", True)),
                     "alert_skill_errors": bool(value.get("alert_skill_errors", False)),
+                    "alert_recipe_errors": bool(value.get("alert_skill_errors", False)),
                     "alert_safe_fix": bool(value.get("alert_safe_fix", False)),
                     "alert_connection_changes": bool(value.get("alert_connection_changes", False)),
                     "alert_system_events": bool(value.get("alert_system_events", False)),
@@ -767,7 +783,7 @@ def build_connection_reader_helpers(deps: ConnectionReaderHelperDeps) -> Connect
                 candidate = _sanitize_connection_name(f"{seed}-{idx}")
                 if candidate and candidate not in rows:
                     return candidate
-            raise ValueError("Kein freier RSS-Ref mehr für OPML-Import gefunden.")
+            raise ValueError(_connection_reader_text("rss_import_ref_exhausted", "No free RSS ref found for OPML import."))
 
     return ConnectionReaderHelperBundle(
         read_ssh_connections=_read_ssh_connections,

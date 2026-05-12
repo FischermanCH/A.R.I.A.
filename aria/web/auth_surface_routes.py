@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from logging import Logger
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 from uuid import uuid4
@@ -10,6 +12,8 @@ from uuid import uuid4
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+
+from aria.core.i18n import I18NStore
 
 
 SettingsGetter = Callable[[], Any]
@@ -26,6 +30,20 @@ BootstrapEnabler = Callable[[dict[str, Any]], dict[str, Any]]
 RuntimeReloader = Callable[[], None]
 DefaultCollectionResolver = Callable[[str], str]
 AuthEncoder = Callable[[str, str], str]
+LOGIN_RATE_LIMIT_MAX_FAILURES = 5
+LOGIN_RATE_LIMIT_WINDOW_SECONDS = 5 * 60
+LOGIN_RATE_LIMIT_BLOCK_SECONDS = 5 * 60
+_AUTH_SURFACE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _auth_text(language: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _AUTH_SURFACE_I18N.t(language or "de", f"auth_surface_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -55,6 +73,33 @@ class AuthSurfaceRouteDeps:
 
 
 def register_auth_surface_routes(app: FastAPI, deps: AuthSurfaceRouteDeps) -> None:
+    login_failures: dict[str, list[float]] = {}
+    login_blocked_until: dict[str, float] = {}
+
+    def _login_rate_limit_key(request: Request, username: str) -> str:
+        client_host = str(getattr(getattr(request, "client", None), "host", "") or "unknown").strip()
+        return f"{client_host}:{deps.sanitize_username(username).lower() or '-'}"
+
+    def _login_is_rate_limited(key: str, now: float) -> bool:
+        blocked_until = float(login_blocked_until.get(key, 0.0) or 0.0)
+        if blocked_until > now:
+            return True
+        if blocked_until:
+            login_blocked_until.pop(key, None)
+        return False
+
+    def _record_failed_login(key: str, now: float) -> None:
+        cutoff = now - LOGIN_RATE_LIMIT_WINDOW_SECONDS
+        attempts = [item for item in login_failures.get(key, []) if item >= cutoff]
+        attempts.append(now)
+        login_failures[key] = attempts
+        if len(attempts) >= LOGIN_RATE_LIMIT_MAX_FAILURES:
+            login_blocked_until[key] = now + LOGIN_RATE_LIMIT_BLOCK_SECONDS
+
+    def _clear_failed_logins(key: str) -> None:
+        login_failures.pop(key, None)
+        login_blocked_until.pop(key, None)
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request, next: str = "/", error: str = "", info: str = "") -> HTMLResponse:  # noqa: A002
         auth = deps.get_auth_session_from_request(request)
@@ -114,31 +159,35 @@ def register_auth_surface_routes(app: FastAPI, deps: AuthSurfaceRouteDeps) -> No
         target = str(next_path or "/")
         if not target.startswith("/"):
             target = "/"
+        rate_limit_key = _login_rate_limit_key(request, clean_username)
+        now = time.monotonic()
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        if _login_is_rate_limited(rate_limit_key, now):
+            msg = _auth_text(lang, "too_many_login_attempts", "Too many login attempts. Please wait briefly and try again.")
+            return RedirectResponse(url=f"/login?error={quote_plus(msg)}", status_code=303)
 
         manager = deps.get_auth_manager()
         if not manager:
+            msg = _auth_text(lang, "security_store_inactive", "Security store is not active. Please check secrets.env and security.")
             return RedirectResponse(
-                url="/login?error=Security+Store+nicht+aktiv.+Bitte+secrets.env+und+Security+prüfen.",
+                url=f"/login?error={quote_plus(msg)}",
                 status_code=303,
             )
         try:
             store = manager.store
             users = store.list_users()
-            lang = str(getattr(request.state, "lang", "de") or "de")
             if not users:
                 if bool(settings.security.bootstrap_locked):
+                    msg = _auth_text(lang, "bootstrap_locked", "Bootstrap is locked. Please create an admin in the config store or disable bootstrap_locked.")
                     return RedirectResponse(
-                        url="/login?error=Bootstrap+gesperrt.+Bitte+Admin+im+Config+Store+anlegen+oder+bootstrap_locked+deaktivieren.",
+                        url=f"/login?error={quote_plus(msg)}",
                         status_code=303,
                     )
                 if not clean_username:
-                    return RedirectResponse(url="/login?error=Bitte+Benutzernamen+eingeben", status_code=303)
+                    msg = _auth_text(lang, "username_required", "Please enter a username.")
+                    return RedirectResponse(url=f"/login?error={quote_plus(msg)}", status_code=303)
                 if str(password or "") != str(password_confirm or ""):
-                    msg = (
-                        "Passwörter stimmen nicht überein. Bitte beide Felder identisch eingeben."
-                        if lang.startswith("de")
-                        else "Passwords do not match. Please enter the same password in both fields."
-                    )
+                    msg = _auth_text(lang, "passwords_do_not_match", "Passwords do not match. Please enter the same password in both fields.")
                     return RedirectResponse(url=f"/login?error={quote_plus(msg)}", status_code=303)
                 try:
                     manager.upsert_user(clean_username, password, role="admin")
@@ -153,7 +202,10 @@ def register_auth_surface_routes(app: FastAPI, deps: AuthSurfaceRouteDeps) -> No
                     deps.logger.exception("Failed to auto-enable admin mode for first bootstrap user")
                 users = store.list_users()
             if not clean_username or not manager.verify(clean_username, password):
-                return RedirectResponse(url=f"/login?error={quote_plus('Login fehlgeschlagen')}", status_code=303)
+                if users:
+                    _record_failed_login(rate_limit_key, now)
+                return RedirectResponse(url=f"/login?error={quote_plus(_auth_text(lang, 'login_failed', 'Login failed'))}", status_code=303)
+            _clear_failed_logins(rate_limit_key)
             user = store.get_user(clean_username)
             canonical_username = deps.sanitize_username((user or {}).get("username")) or clean_username
             role = deps.sanitize_role((user or {}).get("role"))
@@ -200,7 +252,8 @@ def register_auth_surface_routes(app: FastAPI, deps: AuthSurfaceRouteDeps) -> No
             )
             return response
         except Exception:
-            return RedirectResponse(url=f"/login?error={quote_plus('Login fehlgeschlagen')}", status_code=303)
+            lang = str(getattr(request.state, "lang", "de") or "de")
+            return RedirectResponse(url=f"/login?error={quote_plus(_auth_text(lang, 'login_failed', 'Login failed'))}", status_code=303)
 
     @app.post("/logout")
     async def logout(request: Request) -> RedirectResponse:

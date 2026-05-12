@@ -3,6 +3,7 @@ from __future__ import annotations
 import yaml
 
 from aria.core.connection_admin import (
+    ConnectionAdminError,
     create_connection_profile,
     friendly_connection_admin_error_text,
     resolve_connection_target,
@@ -38,13 +39,17 @@ def test_resolve_connection_target_maps_smtp_to_email() -> None:
 
 
 def test_friendly_connection_admin_error_uses_field_label() -> None:
-    text = friendly_connection_admin_error_text(ValueError("Pflichtfeld fehlt: base_url"), kind="http_api", action="create")
+    text = friendly_connection_admin_error_text(
+        ConnectionAdminError("required_field", field="base_url"),
+        kind="http_api",
+        action="create",
+    )
     assert text == "Pflichtfeld fehlt: Base-URL."
 
 
 def test_friendly_connection_admin_error_hides_security_store_implementation_detail() -> None:
     text = friendly_connection_admin_error_text(
-        ValueError("Security Store ist für HTTP-API-Tokens erforderlich."),
+        ConnectionAdminError("security_store_required"),
         kind="http_api",
         action="create",
     )
@@ -52,7 +57,7 @@ def test_friendly_connection_admin_error_hides_security_store_implementation_det
 
 
 def test_friendly_connection_admin_error_for_missing_config_is_short() -> None:
-    text = friendly_connection_admin_error_text(ValueError("Konfigurationsdatei fehlt: /tmp/x/config.yaml"))
+    text = friendly_connection_admin_error_text(ConnectionAdminError("config_missing", config_path="/tmp/x/config.yaml"))
     assert text == "config.yaml fehlt."
 
 
@@ -953,6 +958,43 @@ def test_parse_connection_create_request_supports_rss() -> None:
     assert parsed["payload"]["feed_url"] == "https://www.heise.de/rss/heise-atom.xml"
 
 
+def test_parse_connection_create_request_supports_website_watch_shortcut() -> None:
+    parsed = chat_admin_actions._parse_connection_create_request(
+        'beobachte https://example.org/docs titel "ARIA Docs" tags "docs, aria"'
+    )
+
+    assert parsed is not None
+    assert parsed["kind"] == "website"
+    assert parsed["ref"] == "example-org-docs"
+    assert parsed["payload"]["url"] == "https://example.org/docs"
+    assert parsed["payload"]["title"] == "ARIA Docs"
+    assert parsed["payload"]["tags"] == ["docs", "aria"]
+
+
+def test_parse_connection_update_request_supports_website_shortcuts() -> None:
+    title_update = chat_admin_actions._parse_connection_update_request(
+        'ändere beobachtete webseite aria-docs titel "ARIA Dokumentation"'
+    )
+    assert title_update is not None
+    assert title_update["kind"] == "website"
+    assert title_update["ref"] == "aria-docs"
+    assert title_update["payload"]["title"] == "ARIA Dokumentation"
+
+    group_update = chat_admin_actions._parse_connection_update_request(
+        'verschiebe beobachtete webseite aria-docs nach "Team Wissen"'
+    )
+    assert group_update is not None
+    assert group_update["kind"] == "website"
+    assert group_update["payload"]["group_name"] == "Team Wissen"
+
+    url_update = chat_admin_actions._parse_connection_update_request(
+        "ändere beobachtete webseite aria-docs url https://example.org/new-docs"
+    )
+    assert url_update is not None
+    assert url_update["kind"] == "website"
+    assert url_update["payload"]["url"] == "https://example.org/new-docs"
+
+
 def test_parse_connection_create_request_supports_webhook_and_http_api() -> None:
     ssh = chat_admin_actions._parse_connection_create_request(
         'erstelle ssh mgmt-ssh 10.0.1.1 user aria key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519 allow "uptime; df -h"'
@@ -1238,7 +1280,7 @@ def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
         advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
-        skill_trigger_hints=["server update"],
+        recipe_trigger_hints=["server update"],
         connection_catalog={"ssh": ["mgmt-ssh"], "sftp": ["mgmt-sftp"], "smb": ["nas-share"], "rss": ["heise-news"], "discord": ["alerts-bot"], "mqtt": ["event-bus"], "email": ["alerts-mail"], "imap": ["ops-inbox"]},
     )
     assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
@@ -1263,7 +1305,7 @@ def test_build_chat_command_catalog_adds_suggested_group_for_recent_context() ->
         advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
-        skill_trigger_hints=["server update"],
+        recipe_trigger_hints=["server update"],
         connection_catalog={"discord": ["alerts-bot"], "rss": ["heise-news"]},
         recent_messages=["schicke bitte eine test nachricht nach discord an alerts bot"],
     )
@@ -1280,7 +1322,7 @@ def test_build_chat_command_catalog_omits_suggested_group_without_recent_context
         advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
-        skill_trigger_hints=["server update"],
+        recipe_trigger_hints=["server update"],
         connection_catalog={"discord": ["alerts-bot"], "rss": ["heise-news"]},
         recent_messages=[],
     )
@@ -1294,7 +1336,7 @@ def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
         advanced_mode=False,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
-        skill_trigger_hints=["server update"],
+        recipe_trigger_hints=["server update"],
         connection_catalog={"rss": ["heise-news"], "discord": ["alerts-bot"]},
     )
     assert any(entry["group"] == "commands" and entry["insert"] == "suche im internet nach " for entry in entries)
@@ -1309,7 +1351,7 @@ def test_build_chat_command_catalog_localizes_visible_inserts_for_english() -> N
         advanced_mode=True,
         recall_templates=["erinnerst du dich an"],
         store_templates=["merk dir"],
-        skill_trigger_hints=["server update"],
+        recipe_trigger_hints=["server update"],
         connection_catalog={"ssh": ["mgmt-ssh"], "discord": ["alerts-bot"]},
     )
     assert any(entry["group"] == "read" and entry["insert"] == "what do you know about " for entry in entries)

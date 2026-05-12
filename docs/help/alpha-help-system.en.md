@@ -14,7 +14,7 @@ Good fit for:
 - Memory with Qdrant
 - Notes as a separate Markdown workspace
 - SSH / SFTP / SMB / RSS / Discord / HTTP API / Webhook / Mail / MQTT
-- Custom Skills that automate multi-step flows
+- stored recipes that automate multi-step flows
 
 Not the current target:
 
@@ -32,7 +32,7 @@ After that, check these areas first:
 2. `/config/embeddings` - embedding model for Memory
 3. `/stats` - preflight, Qdrant, model status, logs
 4. `/config` - connections to your systems
-5. `/skills` - import Custom Skills or build them in the wizard
+5. `/recipes` - import recipes or build them in the wizard
 
 ## Admin mode and user mode
 
@@ -45,11 +45,11 @@ If config pages seem missing, open `/config/users` and check whether **Admin act
 
 ## Chat and message details
 
-You can chat normally, or trigger connections and skills through natural prompts.
+You can chat normally, or trigger connections and recipes through natural prompts.
 
 Under **Details** for each response, you can see:
 
-- which intent / skill / capability was used
+- which intent / recipe / capability was used
 - token count
 - USD cost, if ARIA knows pricing for that model
 - runtime
@@ -123,8 +123,8 @@ The better your titles / aliases / tags are, the more reliably ARIA can pick the
 
 ### Discord / Webhook / HTTP API
 
-- Discord is currently mainly a webhook target and skill output channel
-- on Discord connections, you can enable test posts and `Allow as skill target`
+- Discord is currently mainly a webhook target and recipe output channel
+- on Discord connections, you can enable test posts and `Allow as recipe target`
 - HTTP API and Webhook profiles are meant for targeted request/send flows
 
 ### SearXNG / Web Search
@@ -178,16 +178,16 @@ Notes:
 - the RSS overview mainly shows the last known cached status
 - if a URL returns JSON instead of RSS/Atom XML, add it as an HTTP API connection instead
 
-## Skills
+## Recipes
 
-Custom Skills are JSON manifests with an ordered list of steps.
+Stored recipes are JSON manifests with an ordered list of steps.
 
-In the Skill Wizard, you can:
+In the Recipe Wizard, you can:
 
-- create / edit skills
+- create / edit recipes
 - add, duplicate, reorder, and remove steps
-- enable / disable skills
-- import / delete skills
+- enable / disable recipes
+- import / delete recipes
 
 Important step types:
 
@@ -204,7 +204,7 @@ Important step types:
 - `llm_transform` takes technical step output and asks an LLM to turn it into a cleaner summary or selection
 - `chat_send` writes output directly back into the chat
 
-Useful placeholders in skill prompts:
+Useful placeholders in recipe prompts:
 
 - `{prev_output}` = output of the immediately previous step
 - `{s1_output}`, `{s2_output}`, ... = targeted access to earlier step outputs
@@ -214,9 +214,9 @@ That means you can fetch several RSS feeds in multiple `rss_read` steps and then
 
 ## Bundled samples
 
-ARIA ships sample skills and sample connections.
+ARIA ships sample recipes and sample connections.
 
-- on `/skills`, you can import bundled sample skills directly
+- on `/recipes`, you can import bundled sample recipes directly
 - on `/config`, you can import bundled sample connections directly
 
 These samples are templates on purpose. In real use, you usually need to adjust refs, hosts, URLs, or Discord webhooks to your own environment.
@@ -237,13 +237,13 @@ The green/yellow/red lamps should quickly tell you what is healthy and where to 
 
 ### Refresh pricing
 
-If you use OpenAI / Anthropic / OpenRouter and want cost numbers, run **Refresh pricing** on `/stats`.
+If you use external LLM or embedding providers and want cost numbers, run **Refresh pricing** on `/stats`. ARIA uses the LiteLLM GitHub pricing list and caches the last good copy locally.
 
 Local models like Ollama may intentionally show no USD pricing.
 
 ### Reset statistics
 
-Stats reset clears token/cost/activity data. It does **not** delete your Memories, Skills, or Connections.
+Stats reset clears token/cost/activity data. It does **not** delete your Memories, Recipes, or Connections.
 
 ## Security
 
@@ -276,14 +276,14 @@ Check:
 - is Auto-Memory enabled?
 - do matching facts/preferences actually exist in `/memories`?
 
-### A skill does not trigger
+### A recipe does not trigger
 
 Check:
 
-- is the skill enabled?
+- is the recipe enabled?
 - are trigger phrases / description / aliases specific enough?
 - is a generic prompt causing routing ambiguity?
-- do the connection refs in the skill match real connections?
+- do the connection refs in the recipe match real connections?
 
 ### A connection test is red
 

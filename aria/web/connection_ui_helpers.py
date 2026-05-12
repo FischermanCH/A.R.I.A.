@@ -256,9 +256,8 @@ def build_connection_intro(*, kind: str, summary_cards: list[dict[str, Any]]) ->
     }
 
 
-def build_connection_status_block(*, kind: str, rows: list[dict[str, Any]], collapse_threshold: int = 0) -> dict[str, Any]:
+def build_connection_status_block(*, kind: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     meta = connection_status_meta(kind)
-    should_collapse = collapse_threshold > 0 and len(rows) >= collapse_threshold
     return {
         "title_key": str(meta.get("title_key") or "").strip(),
         "title": str(meta.get("title") or "").strip(),
@@ -267,7 +266,6 @@ def build_connection_status_block(*, kind: str, rows: list[dict[str, Any]], coll
         "empty_key": str(meta.get("empty_key") or "").strip(),
         "empty_text": str(meta.get("empty_text") or "").strip(),
         "rows": rows,
-        "collapsed": should_collapse,
         "total_count": len(rows),
         "ok_count": sum(1 for item in rows if str(item.get("status", "")).strip().lower() == "ok"),
         "warn_count": sum(1 for item in rows if str(item.get("status", "")).strip().lower() == "warn"),

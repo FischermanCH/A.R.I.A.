@@ -9,11 +9,25 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from aria.core.i18n import I18NStore
+
+_SECURE_STORE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _secure_store_text(key: str, default: str = "", **values: object) -> str:
+    template = _SECURE_STORE_I18N.t("de", f"secure_store.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
 
 def decode_master_key(raw: str) -> bytes:
     value = (raw or "").strip()
     if not value:
-        raise ValueError("ARIA_MASTER_KEY fehlt.")
+        raise ValueError(_secure_store_text("master_key_missing", "ARIA_MASTER_KEY is missing."))
     # Support urlsafe base64 (recommended), std base64 and hex as fallback.
     try:
         data = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
@@ -30,9 +44,9 @@ def decode_master_key(raw: str) -> bytes:
     try:
         data = bytes.fromhex(value)
     except ValueError as exc:
-        raise ValueError("ARIA_MASTER_KEY ist ungültig (erwarte base64/hex).") from exc
+        raise ValueError(_secure_store_text("master_key_invalid", "ARIA_MASTER_KEY is invalid (expected base64/hex).")) from exc
     if len(data) != 32:
-        raise ValueError("ARIA_MASTER_KEY muss 32 Byte (AES-256) sein.")
+        raise ValueError(_secure_store_text("master_key_wrong_length", "ARIA_MASTER_KEY must be 32 bytes (AES-256)."))
     return data
 
 
@@ -91,7 +105,7 @@ class SecureConfigStore:
     def set_secret(self, key: str, value: str) -> None:
         clean_key = str(key).strip()
         if not clean_key:
-            raise ValueError("Secret-Key darf nicht leer sein.")
+            raise ValueError(_secure_store_text("secret_key_empty", "Secret key must not be empty."))
         clear = str(value)
         nonce = os.urandom(12)
         ciphertext = self._aesgcm.encrypt(nonce, clear.encode("utf-8"), clean_key.encode("utf-8"))
@@ -125,7 +139,7 @@ class SecureConfigStore:
         try:
             clear = self._aesgcm.decrypt(nonce, ciphertext, clean_key.encode("utf-8"))
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Secret konnte nicht entschluesselt werden: {clean_key}") from exc
+            raise ValueError(_secure_store_text("secret_decrypt_failed", "Secret could not be decrypted: {key}", key=clean_key)) from exc
         return clear.decode("utf-8")
 
     def delete_secret(self, key: str) -> None:
@@ -144,9 +158,9 @@ class SecureConfigStore:
     def upsert_user(self, username: str, password_hash: str, role: str = "user") -> None:
         user = str(username).strip()
         if not user:
-            raise ValueError("Username darf nicht leer sein.")
+            raise ValueError(_secure_store_text("username_empty", "Username must not be empty."))
         if not password_hash:
-            raise ValueError("Password-Hash fehlt.")
+            raise ValueError(_secure_store_text("password_hash_missing", "Password hash is missing."))
         with self._connect() as conn:
             conn.execute(
                 """
@@ -200,11 +214,11 @@ class SecureConfigStore:
         if clean_role not in {"admin", "user"}:
             clean_role = "user"
         if not user:
-            raise ValueError("Username darf nicht leer sein.")
+            raise ValueError(_secure_store_text("username_empty", "Username must not be empty."))
         with self._connect() as conn:
             row = conn.execute("SELECT username FROM users WHERE username = ?", (user,)).fetchone()
             if not row:
-                raise ValueError("User nicht gefunden.")
+                raise ValueError(_secure_store_text("user_not_found", "User not found."))
             conn.execute(
                 "UPDATE users SET role = ?, updated_at = datetime('now') WHERE username = ?",
                 (clean_role, user),
@@ -214,11 +228,11 @@ class SecureConfigStore:
     def set_user_active(self, username: str, active: bool) -> None:
         user = str(username).strip()
         if not user:
-            raise ValueError("Username darf nicht leer sein.")
+            raise ValueError(_secure_store_text("username_empty", "Username must not be empty."))
         with self._connect() as conn:
             row = conn.execute("SELECT username FROM users WHERE username = ?", (user,)).fetchone()
             if not row:
-                raise ValueError("User nicht gefunden.")
+                raise ValueError(_secure_store_text("user_not_found", "User not found."))
             conn.execute(
                 "UPDATE users SET active = ?, updated_at = datetime('now') WHERE username = ?",
                 (1 if bool(active) else 0, user),
@@ -229,16 +243,16 @@ class SecureConfigStore:
         old_user = str(old_username).strip()
         new_user = str(new_username).strip()
         if not old_user or not new_user:
-            raise ValueError("Username darf nicht leer sein.")
+            raise ValueError(_secure_store_text("username_empty", "Username must not be empty."))
         with self._connect() as conn:
             old_row = conn.execute("SELECT username FROM users WHERE username = ?", (old_user,)).fetchone()
             if not old_row:
-                raise ValueError("User nicht gefunden.")
+                raise ValueError(_secure_store_text("user_not_found", "User not found."))
             if old_user == new_user:
                 return
             existing = conn.execute("SELECT username FROM users WHERE username = ?", (new_user,)).fetchone()
             if existing:
-                raise ValueError("Ziel-Username existiert bereits.")
+                raise ValueError(_secure_store_text("target_username_exists", "Target username already exists."))
             conn.execute(
                 "UPDATE users SET username = ?, updated_at = datetime('now') WHERE username = ?",
                 (new_user, old_user),

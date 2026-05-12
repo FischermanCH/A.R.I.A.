@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+
+from aria.core.i18n import I18NStore
 
 
 ConfigOverviewChecksBuilder = Callable[[Request], list[dict[str, str]]]
@@ -21,6 +24,17 @@ SecureStoreGetter = Callable[[dict[str, Any] | None], Any]
 UpdateHelperConfigResolver = Callable[..., Any]
 UpdateHelperStatusFetcher = Callable[..., dict[str, Any]]
 ServiceRestartTrigger = Callable[..., dict[str, Any]]
+_CONFIG_SURFACE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _config_surface_text(language: str, key: str, default: str = "", **values: object) -> str:
+    template = _CONFIG_SURFACE_I18N.t(language, f"config_surface.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -61,9 +75,9 @@ class ConfigSurfaceRouter:
         lang = str(getattr(request.state, "lang", "de") or "de")
         logical_back_url = self.deps.set_logical_back_url(request, fallback=logical_back_fallback)
         if error == "admin_mode_required":
-            error_message = self.deps.msg(lang, "Admin-Modus aktivieren, um diesen Bereich zu sehen.", "Enable admin mode to access this area.")
+            error_message = _config_surface_text(lang, "admin_mode_required", "Enable admin mode to access this area.")
         elif error == "no_admin":
-            error_message = self.deps.msg(lang, "Nur Admins dürfen diesen Bereich öffnen.", "Only admins can open this area.")
+            error_message = _config_surface_text(lang, "no_admin", "Only admins can open this area.")
         else:
             error_message = str(error or "").strip()
         return {
@@ -84,29 +98,29 @@ class ConfigSurfaceRouter:
         lang = str(getattr(request.state, "lang", "de") or "de")
         service_meta = {
             "qdrant": {
-                "title": self.deps.msg(lang, "Qdrant neu starten", "Restart Qdrant"),
-                "desc": self.deps.msg(
+                "title": _config_surface_text(lang, "restart_qdrant_title", "Restart Qdrant"),
+                "desc": _config_surface_text(
                     lang,
-                    "Vector-Store fuer Gedaechtnis und Routing kurz neu starten.",
+                    "restart_qdrant_desc",
                     "Restart the vector store used for memory and routing.",
                 ),
-                "confirm": self.deps.msg(
+                "confirm": _config_surface_text(
                     lang,
-                    "Qdrant jetzt kontrolliert neu starten? Gedaechtnis und Routing koennen dabei kurz nicht verfuegbar sein.",
+                    "restart_qdrant_confirm",
                     "Restart Qdrant now? Memory and routing may be briefly unavailable.",
                 ),
                 "icon": "qdrant",
             },
             "searxng": {
-                "title": self.deps.msg(lang, "SearXNG neu starten", "Restart SearXNG"),
-                "desc": self.deps.msg(
+                "title": _config_surface_text(lang, "restart_searxng_title", "Restart SearXNG"),
+                "desc": _config_surface_text(
                     lang,
-                    "Websuche und Such-API im Stack kontrolliert neu starten.",
+                    "restart_searxng_desc",
                     "Restart the web-search and search-API service in the stack.",
                 ),
-                "confirm": self.deps.msg(
+                "confirm": _config_surface_text(
                     lang,
-                    "SearXNG jetzt kontrolliert neu starten? Websuche und Search-API koennen dabei kurz nicht verfuegbar sein.",
+                    "restart_searxng_confirm",
                     "Restart SearXNG now? Web search and the search API may be briefly unavailable.",
                 ),
                 "icon": "searxng",
@@ -194,7 +208,7 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             logical_back_fallback="/",
             page_return_to="/config",
             config_nav="overview",
-            page_heading=router.deps.msg(lang, "Einstellungen", "Settings"),
+            page_heading=_config_surface_text(lang, "heading_settings", "Settings"),
             show_overview_checks=True,
         )
 
@@ -215,7 +229,7 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             logical_back_fallback="/config",
             page_return_to="/config/intelligence",
             config_nav="intelligence",
-            page_heading=router.deps.msg(lang, "Intelligenz abstimmen", "Tune intelligence"),
+            page_heading=_config_surface_text(lang, "heading_intelligence", "Tune intelligence"),
         )
 
     @app.get("/config/persona", response_class=HTMLResponse)
@@ -235,7 +249,7 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             logical_back_fallback="/config",
             page_return_to="/config/persona",
             config_nav="persona",
-            page_heading=router.deps.msg(lang, "Persönlichkeit & Stil", "Personality & style"),
+            page_heading=_config_surface_text(lang, "heading_persona", "Personality & style"),
         )
 
     @app.get("/config/access", response_class=HTMLResponse)
@@ -255,7 +269,7 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             logical_back_fallback="/config",
             page_return_to="/config/access",
             config_nav="access",
-            page_heading=router.deps.msg(lang, "Zugriff & Sicherheit", "Access & safety"),
+            page_heading=_config_surface_text(lang, "heading_access", "Access & safety"),
         )
 
     @app.get("/config/operations", response_class=HTMLResponse)
@@ -274,7 +288,7 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             logical_back_fallback="/config",
             page_return_to="/config/operations",
             config_nav="operations",
-            page_heading=router.deps.msg(lang, "Betrieb & Transfer", "Operations & transfer"),
+            page_heading=_config_surface_text(lang, "heading_operations", "Operations & transfer"),
         )
         context["operations_service_restart"] = router.build_operations_service_restart_context(request)
         return router.deps.templates.TemplateResponse(
@@ -296,31 +310,33 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
         service_labels = {"qdrant": "Qdrant", "searxng": "SearXNG"}
         label = service_labels.get(target, "")
         if not label:
-            message = router.deps.msg(lang, "Unbekannter Service fuer den Neustart.", "Unknown service restart target.")
+            message = _config_surface_text(lang, "unknown_restart_target", "Unknown service restart target.")
             return RedirectResponse(url=f"/config/operations?error={quote_plus(message)}", status_code=303)
         helper_config = router.deps.resolve_update_helper_config(secure_store=router.deps.get_secure_store(None))
         if not helper_config.enabled:
-            message = router.deps.msg(lang, "Kein GUI-Helper fuer Service-Neustarts aktiv.", "No GUI helper for service restarts is enabled.")
+            message = _config_surface_text(lang, "restart_helper_disabled", "No GUI helper for service restarts is enabled.")
             return RedirectResponse(url=f"/config/operations?error={quote_plus(message)}", status_code=303)
         try:
             result = router.deps.trigger_update_helper_service_restart(helper_config, target)
         except ValueError:
-            message = router.deps.msg(lang, "Unbekannter Service fuer den Neustart.", "Unknown service restart target.")
+            message = _config_surface_text(lang, "unknown_restart_target", "Unknown service restart target.")
             return RedirectResponse(url=f"/config/operations?error={quote_plus(message)}", status_code=303)
         except RuntimeError as exc:
             return RedirectResponse(url=f"/config/operations?error={quote_plus(str(exc))}", status_code=303)
         status = str(result.get("status", "") or "").strip().lower()
         if status != "accepted":
-            message = router.deps.msg(
+            message = _config_surface_text(
                 lang,
-                f"{label}-Neustart konnte nicht angefordert werden.",
-                f"{label} restart could not be requested.",
+                "restart_request_failed",
+                "{label} restart could not be requested.",
+                label=label,
             )
             return RedirectResponse(url=f"/config/operations?error={quote_plus(message)}", status_code=303)
-        info_message = router.deps.msg(
+        info_message = _config_surface_text(
             lang,
-            f"{label}-Neustart angefordert. Der Helper startet den Dienst jetzt kontrolliert neu.",
-            f"{label} restart requested. The helper is restarting the service in the background.",
+            "restart_requested",
+            "{label} restart requested. The helper is restarting the service in the background.",
+            label=label,
         )
         return RedirectResponse(url=f"/config/operations?saved=1&info={quote_plus(info_message)}", status_code=303)
 
@@ -341,5 +357,5 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             logical_back_fallback="/config",
             page_return_to="/config/workbench",
             config_nav="workbench",
-            page_heading=router.deps.msg(lang, "Workbench", "Workbench"),
+            page_heading=_config_surface_text(lang, "heading_workbench", "Workbench"),
         )

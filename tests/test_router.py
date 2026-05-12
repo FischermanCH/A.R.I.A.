@@ -45,22 +45,28 @@ def test_router_forget_intent_is_exclusive() -> None:
     assert decision.intents == ["memory_forget"]
 
 
-def test_router_skill_status_intent() -> None:
+def test_router_delete_on_server_does_not_map_to_memory_forget() -> None:
+    router = KeywordRouter(RoutingConfig())
+    decision = router.classify("Lösche /tmp/test auf dem management server")
+    assert decision.intents == ["chat"]
+
+
+def test_router_recipe_status_intent() -> None:
     router = KeywordRouter(RoutingConfig())
     decision = router.classify("Kannst du deine Skills ueberpruefen und mir sagen was aktiv ist?")
-    assert decision.intents == ["skill_status"]
+    assert decision.intents == ["recipe_status"]
 
 
-def test_router_skill_status_intent_for_user_phrase() -> None:
+def test_router_recipe_status_intent_for_user_phrase() -> None:
     router = KeywordRouter(RoutingConfig())
     decision = router.classify("Was fuer skills hast du aktiv?")
-    assert decision.intents == ["skill_status"]
+    assert decision.intents == ["recipe_status"]
 
 
-def test_router_skill_status_intent_for_current_skills_phrase() -> None:
+def test_router_recipe_status_intent_for_current_recipes_phrase() -> None:
     router = KeywordRouter(RoutingConfig())
     decision = router.classify("Was sind deine aktuellen Skills?")
-    assert decision.intents == ["skill_status"]
+    assert decision.intents == ["recipe_status"]
 
 
 def test_router_cls_stays_chat_intent() -> None:
@@ -85,8 +91,8 @@ def test_router_english_web_search_intent() -> None:
     assert "web_search" in decision.intents
 
 
-def test_router_english_skill_status_intent() -> None:
+def test_router_english_recipe_status_intent() -> None:
     routing = RoutingConfig().for_language("en")
     router = KeywordRouter(routing)
     decision = router.classify("What skills are active right now?")
-    assert decision.intents == ["skill_status"]
+    assert decision.intents == ["recipe_status"]

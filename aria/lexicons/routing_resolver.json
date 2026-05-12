@@ -1,0 +1,53 @@
+{
+  "regex_scores": [
+    {"kind": "ssh", "score": 4, "all": ["\\b(?:wie\\s+lange|seit\\s+wann)\\s+ist\\b.*\\bonline\\b"]},
+    {"kind": "ssh", "score": 4, "all": ["\\bhow\\s+long\\b.*\\b(?:been\\s+online|online)\\b"]},
+    {"kind": "ssh", "score": 4, "all": ["\\b(?:server|host|system|node|maschine)\\b", "\\b(?:health|status|zustand|gesund|verfassung)\\b"]},
+    {"kind": "ssh", "score": 4, "all": ["\\bwie\\s+geht\\s+es\\b", "\\b(?:server|host|system|node|maschine)\\b"]},
+    {"kind": "ssh", "score": 4, "all": ["\\bhow\\s+is\\b", "\\b(?:server|host|system|node|machine)\\b"]}
+  ],
+  "word_scores": {
+    "ssh": [
+      {"score": 4, "terms": ["uptime", "runtime", "laufzeit", "betriebszeit", "wie lange läuft", "wie lange laeuft", "seit wann läuft", "seit wann laeuft", "healthcheck", "health check", "system status", "service status", "docker ps", "systemctl", "journalctl", "load average", "cpu", "ram", "memory", "speicher", "last", "reboot", "ping"]},
+      {"score": 3, "terms": ["run", "execute", "shell", "ssh", "command", "befehl", "kommando", "ausführen", "fuehre", "führe"]}
+    ],
+    "sftp": [
+      {"score": 3, "terms": ["file", "datei", "folder", "directory", "verzeichnis", "ordner", "path", "pfad", "download", "upload", "hochladen", "herunterladen"]},
+      {"score": 1, "terms": ["read", "open", "show", "list", "lies", "lese", "öffne", "oeffne", "zeige", "auflisten"]}
+    ],
+    "smb": [
+      {"score": 4, "terms": ["share", "freigabe", "netzlaufwerk", "smb", "nas share", "synology share"]},
+      {"score": 1, "terms": ["datei", "file", "read", "open", "zeige", "lies", "lese"], "requires_existing_score": true}
+    ],
+    "google_calendar": [
+      {"score": 4, "terms": ["calendar", "kalender", "termin", "termine", "appointment", "appointments", "meeting", "meetings", "schedule", "agenda", "event", "events"]},
+      {"score": 2, "terms": ["today", "tomorrow", "heute", "morgen", "next", "naechst", "nächst"]}
+    ],
+    "discord": [
+      {"score": 4, "terms": ["discord", "message", "nachricht", "kanal", "channel", "post", "send", "sende", "schicke"]}
+    ],
+    "rss": [
+      {"score": 4, "terms": ["rss", "feed", "feeds", "news", "nachrichten", "neuigkeiten", "what's new", "was gibt es neues", "was gibt's neues"]}
+    ],
+    "http_api": [
+      {"score": 3, "terms": ["api", "endpoint", "http", "webhook", "request"]}
+    ],
+    "webhook": [
+      {"score": 4, "terms": ["webhook", "hook", "callback", "endpoint", "trigger webhook", "poste an webhook"]}
+    ],
+    "email": [
+      {"score": 4, "terms": ["mail", "email", "smtp", "send mail", "send email", "sende mail", "sende email"]}
+    ],
+    "imap": [
+      {"score": 4, "terms": ["inbox", "mailbox", "postfach", "emails lesen", "email lesen", "mail suchen", "email suchen"]}
+    ],
+    "mqtt": [
+      {"score": 4, "terms": ["mqtt", "topic", "broker", "publish", "event bus", "mqtt publish"]}
+    ]
+  },
+  "score_adjustments": [
+    {"kind": "sftp", "operation": "subtract", "value": 2, "min": 0, "requires_kind_score": "ssh", "terms": ["run", "execute", "ausführen", "fuehre", "führe"]}
+  ],
+  "path_regex": "(?<!\\S)/(?:[\\w.-]+/)*[\\w.-]+",
+  "path_score": {"kind": "sftp", "score": 3}
+}

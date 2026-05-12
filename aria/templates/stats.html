@@ -48,52 +48,70 @@
   {% endif %}
 
   <section class="stats-grid">
-    <article class="stat-card stats-cluster">
+    <article class="stat-card stats-cluster stats-token-card">
       <h2>{{ tr(request, 'stats.tokens_title', 'Tokens') }}</h2>
-      <div class="stats-cluster-grid">
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ stats.request_count }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.requests_days', 'Requests') }} · {{ stats.days }} {{ tr(request, 'stats.days', 'days') }}</div>
-          </div>
+      <div class="stats-token-stack">
+        <div class="stats-token-hero memory-led-panel status-ok">
+          <div class="memory-led-value">{{ model_totals.model_total_tokens }}</div>
+          <div class="memory-led-caption">{{ tr(request, 'stats.model_total_tokens', 'All Model Tokens') }}</div>
         </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ stats.total_tokens }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.total_tokens', 'Total Tokens') }}</div>
+        <dl class="stats-token-list">
+          <div>
+            <dt>{{ tr(request, 'stats.chat_tokens_title', 'Chat Tokens') }}</dt>
+            <dd>{{ model_totals.chat_total_tokens }}</dd>
           </div>
-        </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ stats.avg_tokens_per_request }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.avg_tokens_per_request', 'Avg tokens / request') }}</div>
+          <div>
+            <dt>{{ tr(request, 'stats.embedding_tokens_title', 'Embedding Tokens') }}</dt>
+            <dd>{{ model_totals.embedding_total_tokens }}</dd>
           </div>
-        </div>
+          <div>
+            <dt>{{ tr(request, 'stats.requests_days', 'Requests') }} · {{ stats.days }} {{ tr(request, 'stats.days', 'days') }}</dt>
+            <dd>{{ stats.request_count }}</dd>
+          </div>
+          <div>
+            <dt>{{ tr(request, 'stats.avg_chat_tokens_per_request', 'Avg chat tokens / request') }}</dt>
+            <dd>{{ stats.avg_tokens_per_request }}</dd>
+          </div>
+        </dl>
       </div>
     </article>
 
-    <article class="stat-card stats-cluster">
+    <article class="stat-card stats-cluster stats-cost-card">
       <h2>{{ tr(request, 'stats.costs_title', 'Costs') }}</h2>
-      <div class="stats-cluster-grid">
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">${{ "%.6f"|format(stats.total_cost_usd) }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.total_cost_usd', 'Total USD') }}</div>
-          </div>
+      {% if pricing_meta.has_unpriced_usage %}
+      <div class="stats-price-warning">
+        <div>
+          <strong>{{ tr(request, 'stats.unpriced_usage_title', 'Unbepreiste Modellnutzung') }}</strong>
+          <span>{{ pricing_meta.unpriced_model_tokens }} {{ tr(request, 'stats.unpriced_tokens', 'Unpriced model tokens') }}</span>
         </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">${{ "%.6f"|format(stats.avg_cost_usd_per_request) }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.avg_cost_per_request', 'Avg cost / request (USD)') }}</div>
-          </div>
-        </div>
-        <div class="stats-cluster-item">
-          <div class="memory-led-panel status-ok">
-            <div class="memory-led-value">{{ stats.priced_requests_count }}</div>
-            <div class="memory-led-caption">{{ tr(request, 'stats.priced_requests_tail', 'priced requests') }}</div>
-          </div>
-        </div>
+        <a href="#stats-pricing-details">{{ tr(request, 'stats.pricing_details_link', 'Details') }}</a>
       </div>
+      {% endif %}
+      <dl class="stats-cost-matrix">
+        <div class="memory-led-panel status-ok stats-cost-cell stats-cost-cell-primary">
+          <dt>{{ tr(request, 'stats.estimated_total_cost_usd', 'Estimated USD') }}</dt>
+          <dd>${{ "%.6f"|format(pricing_meta.estimated_total_cost_usd) }}</dd>
+        </div>
+        <div class="memory-led-panel status-ok stats-cost-cell">
+          <dt>{{ tr(request, 'stats.logged_total_cost_usd', 'Logged USD') }}</dt>
+          <dd>${{ "%.6f"|format(stats.total_cost_usd) }}</dd>
+        </div>
+        <div class="memory-led-panel status-ok stats-cost-cell">
+          <dt>{{ tr(request, 'stats.avg_cost_per_request_short', 'Avg / request') }}</dt>
+          <dd>${{ "%.6f"|format(stats.avg_cost_usd_per_request) }}</dd>
+        </div>
+        <div class="memory-led-panel status-ok stats-cost-cell">
+          <dt>{{ tr(request, 'stats.priced_requests_tail', 'priced requests') }}</dt>
+          <dd>{{ stats.priced_requests_count }}</dd>
+        </div>
+      </dl>
+      <p class="stat-sub stats-cost-footnote">
+        {% if pricing_meta.has_estimated_cost_gap %}
+          {{ tr(request, 'stats.estimated_cost_gap_hint_short', 'Estimated includes repriced older token rows.') }}
+        {% else %}
+          {{ tr(request, 'stats.costs_complete_hint', 'Known model prices are included in the current estimate.') }}
+        {% endif %}
+      </p>
     </article>
 
     <article class="stat-card stats-cluster stat-card-memory">
@@ -116,6 +134,136 @@
           {% endif %}
         </div>
       </div>
+    </article>
+
+    <article class="stat-card stats-cluster stats-diagnostic-card">
+      <div class="stats-health-head">
+        <div>
+          <h2>{{ tr(request, 'stats.gateway_title', 'Model Gateway Audit') }}</h2>
+          <p class="stat-sub">{{ tr(request, 'stats.gateway_hint', 'Prueft, ob Chat-LLM und Embeddings ueber die zentrale Runtime mit UsageMeter laufen.') }}</p>
+        </div>
+        <span class="health-meter status-{{ model_gateway.status }}">
+          <span class="health-lamp status-{{ model_gateway.status }}"></span>
+          <span>
+            {% if model_gateway.status == 'ok' %}
+              {{ tr(request, 'stats.health_ok', 'OK') }}
+            {% elif model_gateway.status == 'warn' %}
+              {{ tr(request, 'stats.health_warn', 'Warn') }}
+            {% else %}
+              {{ tr(request, 'stats.health_error', 'Error') }}
+            {% endif %}
+          </span>
+        </span>
+      </div>
+      <div class="stats-cluster-grid">
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ model_gateway.chat_model }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.gateway_chat_model', 'Chat model') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-ok">
+            <div class="memory-led-value">{{ model_gateway.embedding_model }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.gateway_embedding_model', 'Embedding model') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-{{ 'ok' if model_gateway.usage_meter_shared else 'error' }}">
+            <div class="memory-led-value">{{ tr(request, 'stats.gateway_shared_yes', 'shared') if model_gateway.usage_meter_shared else tr(request, 'stats.gateway_shared_no', 'split') }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.gateway_usage_meter', 'UsageMeter') }}</div>
+          </div>
+        </div>
+      </div>
+      {% if model_gateway.has_unpriced_usage %}
+      <div class="alert note">
+        <strong>{{ tr(request, 'stats.unpriced_usage_title', 'Unpriced model usage') }}:</strong>
+        {{ model_gateway.unpriced_model_tokens }} {{ tr(request, 'stats.unpriced_tokens', 'Unpriced model tokens') }}
+      </div>
+      {% endif %}
+      <ul class="stats-list">
+        {% for row in model_gateway.rows %}
+        <li>
+          <span>
+            <span class="health-lamp status-{{ row.status }}"></span>
+            {{ tr(request, row.label_key, row.fallback) }}
+          </span>
+          <strong>{{ row.detail }}</strong>
+        </li>
+        {% endfor %}
+      </ul>
+    </article>
+
+    <article class="stat-card stats-cluster stats-diagnostic-card" id="recipe-experience-memory">
+      <div class="stats-health-head">
+        <div>
+          <h2>{{ tr(request, 'stats.recipe_experience_title', 'Recipe Experience Memory') }}</h2>
+          <p class="stat-sub">{{ tr(request, 'stats.recipe_experience_hint', 'Semantische Qdrant-Erfahrungen aus erfolgreichen Recipe-/Guardrail-Läufen. Wird nur als Planner-Kontext genutzt, nicht als Executor.') }}</p>
+        </div>
+        <span class="health-meter status-{{ recipe_experience_memory.status }}">
+          <span class="health-lamp status-{{ recipe_experience_memory.status }}"></span>
+          <span>
+            {% if recipe_experience_memory.status == 'ok' %}
+              {{ tr(request, 'stats.health_ok', 'OK') }}
+            {% elif recipe_experience_memory.status == 'warn' %}
+              {{ tr(request, 'stats.health_warn', 'Warn') }}
+            {% else %}
+              {{ tr(request, 'stats.health_error', 'Error') }}
+            {% endif %}
+          </span>
+        </span>
+      </div>
+      <div class="stats-cluster-grid">
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-{{ recipe_experience_memory.status }}">
+            <div class="memory-led-value">{{ recipe_experience_memory.point_count }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.recipe_experience_points', 'Experience points') }}</div>
+          </div>
+        </div>
+        <div class="stats-cluster-item">
+          <div class="memory-led-panel status-{{ recipe_experience_memory.status }}">
+            <div class="memory-led-value">{{ recipe_experience_memory.collection_count }}</div>
+            <div class="memory-led-caption">{{ tr(request, 'stats.recipe_experience_collections', 'Collections') }}</div>
+          </div>
+        </div>
+      </div>
+      {% if recipe_experience_memory.error %}
+      <p class="hint-text">{{ recipe_experience_memory.error }}</p>
+      {% elif recipe_experience_memory.recent_rows %}
+      <ul class="stats-list">
+        {% for row in recipe_experience_memory.recent_rows %}
+        <li>
+          <span>{{ row.title }} · {{ row.target }}</span>
+          <strong>{{ row.action }}</strong>
+          {% if request.state.can_access_advanced_config %}
+          <form method="post" action="/stats/recipe-experience/review" class="inline-danger-form">
+            <input type="hidden" name="recipe_id" value="{{ row.recipe_id }}">
+            <input type="hidden" name="title" value="{{ row.title }}">
+            <input type="hidden" name="intent" value="{{ row.intent }}">
+            <input type="hidden" name="connection_kind" value="{{ row.connection_kind }}">
+            <input type="hidden" name="connection_ref" value="{{ row.connection_ref }}">
+            <input type="hidden" name="capability" value="{{ row.capability }}">
+            <input type="hidden" name="action" value="{{ row.action }}">
+            <input type="hidden" name="summary" value="{{ row.summary }}">
+            <input type="hidden" name="user_message" value="{{ row.user_message }}">
+            <input type="hidden" name="experience_count" value="{{ row.experience_count }}">
+            <input type="hidden" name="origin" value="{{ row.origin }}">
+            <input type="hidden" name="updated_at" value="{{ row.updated_at }}">
+            <button type="submit" class="button-like">{{ tr(request, 'stats.recipe_experience_review_button', 'Review as learned recipe') }}</button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% elif recipe_experience_memory.collections %}
+      <ul class="stats-list">
+        {% for row in recipe_experience_memory.collections %}
+        <li><span>{{ row.name }}</span><strong>{{ row.points }}</strong></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint-text">{{ tr(request, 'stats.recipe_experience_empty', 'Noch keine Experience-Memory-Punkte. Erfolgreiche Läufe füllen diese Schicht automatisch.') }}</p>
+      {% endif %}
     </article>
 
     <details class="stat-card stats-details stats-source-usage-card">
@@ -339,7 +487,7 @@
     <div class="stats-health-head">
       <div>
         <h2>{{ tr(request, 'activities.title', 'Aktivitäten & Runs') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Skill-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
+        <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Rezept-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
       </div>
     </div>
 
@@ -395,7 +543,7 @@
     {% if activities.rows %}
     <div class="stats-activity-list">
       {% for row in activities.rows %}
-      <details class="memory-card activity-card" {% if row.skill_errors %}open{% endif %}>
+      <details class="memory-card activity-card" {% if row.recipe_errors or row.skill_errors %}open{% endif %}>
         <summary class="memory-summary">
           <div class="memory-summary-main">
             <strong class="memory-title">{{ row.title }}</strong>
@@ -417,13 +565,14 @@
             <li><span>{{ tr(request, item.key, item.fallback) }}</span><strong>{{ item.value }}</strong></li>
             {% endfor %}
           </ul>
-          {% if row.skill_errors %}
+          {% set activity_errors = row.recipe_errors or row.skill_errors %}
+          {% if activity_errors %}
           <details class="stats-details activity-errors" open>
             <summary>{{ tr(request, 'activities.error_details', 'Fehlerdetails') }}</summary>
             <div class="stats-details-content">
               <section class="stat-card">
                 <ul class="stats-list">
-                  {% for error in row.skill_errors %}
+                  {% for error in activity_errors %}
                   <li><span>{{ error }}</span></li>
                   {% endfor %}
                 </ul>
@@ -556,7 +705,7 @@
     <div class="stats-details-content">
       <section class="stat-card">
         <h2>{{ tr(request, 'stats.reset_title', 'Statistiken zurücksetzen') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.reset_subtitle', 'Löscht die gespeicherte Token-/Kosten-/Activity-Historie. Memories, Skills und Verbindungen bleiben erhalten.') }}</p>
+        <p class="stat-sub">{{ tr(request, 'stats.reset_subtitle', 'Löscht die gespeicherte Token-/Kosten-/Activity-Historie. Memories, Rezepte und Verbindungen bleiben erhalten.') }}</p>
         <p class="hint-text">{{ tr(request, 'stats.reset_confirm_hint', 'Zur bewussten Bestätigung bitte RESET eingeben.') }}</p>
         <form method="post" action="/stats/reset" class="config-form-grid">
           <label for="stats-reset-confirm">{{ tr(request, 'config_logs.reset_confirm_label', 'Bestätigung') }}</label>

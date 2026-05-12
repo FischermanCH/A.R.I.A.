@@ -1,6 +1,6 @@
 # ARIA on Docker
 
-ARIA is a lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first UI.
+ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first UI.
 
 This Docker page is intentionally simple:
 
@@ -18,16 +18,20 @@ Repository and full documentation:
 
 ## Current alpha highlights
 
-Current public alpha release:
+Current public alpha release on Docker Hub:
 
 - `0.1.0-alpha167`
 
-- `Notes / Notizen` as a real Markdown-first product path with board view, folders, chat/toolbox entry points, and Qdrant-backed semantic recall
-- `Watched Websites / Beobachtete Webseiten` as a new connection type for sources without RSS, including automatic metadata and grouping
-- `Google Calendar` as the first personal end-user integration with guided setup and read-only calendar queries
-- a more unified routing/planner/guardrail path between live chat and the routing workbench
-- calmer domain hubs for `Memories`, `Connections`, and `Skills`, plus broader UI/doc cleanup around the newer product surfaces
-- controlled restart actions for `qdrant` and `searxng` from `/config/operations`
+Next public alpha rollup focus:
+
+- Recipes are now the visible automation model; legacy Skills remain only as compatibility bridges where needed.
+- ARIA now uses an LLM-assisted action flow: enrich context, propose a bounded action draft, then let policy and guardrails decide execution.
+- Connections are more capable: SSH, HTTP API, SFTP/SMB files, Discord/webhook/email/MQTT messaging, RSS, IMAP, Calendar, and watched websites follow a more consistent action model.
+- Multi-target SSH read-only checks can summarize fleet status while keeping all technical details in the execution trace.
+- `/stats` now shows token/cost usage, pricing coverage, Model Gateway Audit, and Recipe Experience Memory more clearly.
+- Pricing uses LiteLLM's public model-pricing JSON as primary source, with cache, fallback, and manual override support.
+- Managed updates are safer: normal `aria-stack.sh update` refreshes/recreates only `aria`; Qdrant, SearXNG, Valkey, and volumes stay untouched.
+- LLM Prompt Debug gives admins a redacted view into prompts, responses, model, operation, duration, and token usage.
 
 ## What you need
 
@@ -103,9 +107,11 @@ cd /opt/aria/aria
 Managed update rules:
 
 - normal image refresh:
-  - `./aria-stack.sh update`
+  - `./aria-stack.sh update` recreates only the `aria` service
 - stack layout change, for example a new sidecar service:
   - `aria-setup upgrade --install-dir /opt/aria/aria`
+- deliberate full-stack recovery:
+  - `./aria-stack.sh repair` or `./aria-stack.sh update-all` only when release notes say so
 - admin-triggered browser update:
   - `/updates`
 
@@ -306,6 +312,16 @@ Important:
 - use the documented host-side `docker compose` commands for manual installs; the browser `/updates` button and chat-driven update flow are part of the managed install path
 - if a managed install ever reports a mount mismatch after an update, `./aria-stack.sh repair` is the supported recovery path
 
+For multi-stack hosts or older installs pinned to a fixed image tag, the host helper can inspect and update exactly one Compose project:
+
+```bash
+docker/aria-host-update.sh detect
+docker/aria-host-update.sh update --project <name> --dry-run
+docker/aria-host-update.sh update --project <name> --target-image fischermanch/aria:<version>
+```
+
+The helper recreates only the `aria` service and preflights the intended host port before recreate. If another process already owns that port, it aborts safely before touching the running stack.
+
 ## Backup and recovery
 
 ARIA includes a browser-based configuration backup under:
@@ -318,7 +334,7 @@ That backup contains:
 - connection profiles and routing metadata
 - secure-store secrets and user accounts
 - prompt files
-- custom skill manifests
+- custom recipe manifests
 - error interpreter rules
 
 It does not contain:
@@ -353,7 +369,7 @@ For new public installs, prefer `aria-setup` unless you explicitly want to manag
 </p>
 
 <p>
-  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png" alt="ARIA skills overview" width="220"></a>
+  <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/04-aria-skills.png" alt="ARIA recipes overview" width="220"></a>
   <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/05-aria-stats.png" alt="ARIA statistics page" width="220"></a>
   <a href="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png"><img src="https://raw.githubusercontent.com/FischermanCH/A.R.I.A./main/docs/assets/screenshots/06-aria-settings-workbench.png" alt="ARIA workbench settings" width="220"></a>
 </p>

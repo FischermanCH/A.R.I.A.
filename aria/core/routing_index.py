@@ -11,7 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from aria.core.connection_catalog import connection_kind_label, normalize_connection_kind
+from aria.core.connection_catalog import connection_kind_label, connection_routing_spec, normalize_connection_kind
 from aria.core.connection_semantic_resolver import build_connection_aliases
 
 
@@ -22,6 +22,7 @@ DEFAULT_CONNECTION_ROUTING_KINDS: tuple[str, ...] = (
     "smb",
     "google_calendar",
     "rss",
+    "website",
     "discord",
     "http_api",
     "webhook",
@@ -40,108 +41,6 @@ _SECRET_FIELD_NAMES = {
     "token",
     "webhook_url",
 }
-
-_CONNECTION_ACTIONS: dict[str, tuple[str, ...]] = {
-    "ssh": (
-        "run command",
-        "execute shell command",
-        "server status",
-        "health check",
-        "uptime",
-        "logs",
-        "linux host",
-        "befehl ausfuehren",
-        "server pruefen",
-    ),
-    "sftp": (
-        "read file",
-        "list directory",
-        "write file",
-        "remote files",
-        "datei lesen",
-        "dateien anzeigen",
-        "server dateien",
-    ),
-    "rss": (
-        "read feed",
-        "latest news",
-        "headlines",
-        "feed lesen",
-        "neueste meldungen",
-        "nachrichten",
-    ),
-    "google_calendar": (
-        "read calendar",
-        "today agenda",
-        "tomorrow agenda",
-        "next appointment",
-        "kalender lesen",
-        "heutige termine",
-        "naechster termin",
-    ),
-    "discord": (
-        "send message",
-        "notify",
-        "alert channel",
-        "discord nachricht",
-        "alarmieren",
-        "meldung senden",
-    ),
-    "webhook": (
-        "send webhook",
-        "post webhook",
-        "callback",
-        "event hook",
-        "webhook senden",
-        "webhook triggern",
-    ),
-    "email": (
-        "send email",
-        "send mail",
-        "alert mail",
-        "mail senden",
-        "email senden",
-        "benachrichtigung per mail",
-    ),
-    "imap": (
-        "read mailbox",
-        "search mailbox",
-        "inbox lesen",
-        "emails lesen",
-        "mailbox durchsuchen",
-        "postfach durchsuchen",
-    ),
-    "mqtt": (
-        "publish topic",
-        "mqtt publish",
-        "event bus",
-        "topic senden",
-        "mqtt nachricht",
-        "broker event",
-    ),
-    "http_api": (
-        "call api",
-        "http request",
-        "health endpoint",
-        "api status",
-        "api aufrufen",
-        "endpoint pruefen",
-    ),
-}
-
-_LANGUAGE_HINTS: dict[str, tuple[str, ...]] = {
-    "ssh": ("run", "execute", "status", "uptime", "health", "fuehre", "starte", "pruefe", "status"),
-    "sftp": ("read", "list", "file", "directory", "lies", "zeige", "datei", "ordner"),
-    "rss": ("news", "latest", "feed", "headlines", "neu", "meldungen", "nachrichten"),
-    "google_calendar": ("calendar", "kalender", "termine", "meeting", "appointment", "today", "tomorrow", "heute", "morgen"),
-    "discord": ("send", "notify", "alert", "sende", "schicke", "melde", "alarmiere"),
-    "webhook": ("webhook", "hook", "callback", "endpoint", "send", "poste", "sende"),
-    "email": ("email", "mail", "smtp", "send", "sende", "schicke"),
-    "imap": ("imap", "mailbox", "postfach", "inbox", "lesen", "suche"),
-    "mqtt": ("mqtt", "broker", "topic", "publish", "sende", "schicke"),
-    "http_api": ("api", "call", "endpoint", "health", "rufe", "hole", "status"),
-}
-
 
 def _normalize_ws(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
@@ -354,8 +253,9 @@ def build_connection_routing_documents(
             tags = _dedupe(_read_list(row, "tags"))
             title = _read_text(row, "title")
             description = _read_text(row, "description")
-            supported_actions = list(_CONNECTION_ACTIONS.get(kind, ()))
-            language_hints = list(_LANGUAGE_HINTS.get(kind, ()))
+            routing_spec = connection_routing_spec(kind)
+            supported_actions = list(routing_spec.supported_actions)
+            language_hints = list(routing_spec.language_hints)
             target_hints = _connection_target_hints(kind, row)
             source_payload = {
                 "kind": kind,

@@ -166,11 +166,11 @@ from aria.core.rss_opml import build_opml_document, parse_opml_feeds
     LanguageRowsGetter,
     LanguageResolver,
     CacheClearer,
-    CustomSkillManifestLoader,
-    CustomSkillFileResolver,
-    CustomSkillSaver,
+    StoredRecipeManifestLoader,
+    StoredRecipeFileResolver,
+    StoredRecipeSaver,
     TriggerIndexBuilder,
-    SkillRoutingInfoFormatter,
+    RecipeRoutingInfoFormatter,
     KeywordSuggester,
 ) = (
     Callable[[], Any],
@@ -311,11 +311,11 @@ class ConfigRouteDeps:
     available_languages: LanguageRowsGetter
     resolve_lang: LanguageResolver
     clear_i18n_cache: CacheClearer
-    load_custom_skill_manifests: CustomSkillManifestLoader
-    custom_skill_file: CustomSkillFileResolver
-    save_custom_skill_manifest: CustomSkillSaver
+    load_stored_recipe_manifests: StoredRecipeManifestLoader
+    stored_recipe_file: StoredRecipeFileResolver
+    save_stored_recipe_manifest: StoredRecipeSaver
     refresh_skill_trigger_index: TriggerIndexBuilder
-    format_skill_routing_info: SkillRoutingInfoFormatter
+    format_recipe_routing_info: RecipeRoutingInfoFormatter
     suggest_skill_keywords_with_llm: KeywordSuggester
 
 def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
@@ -362,11 +362,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
     _get_secure_store = deps.get_secure_store
     _lang_flag = deps.lang_flag
     _lang_label = deps.lang_label
-    _load_custom_skill_manifests = deps.load_custom_skill_manifests
-    _custom_skill_file = deps.custom_skill_file
-    _save_custom_skill_manifest = deps.save_custom_skill_manifest
+    _load_stored_recipe_manifests = deps.load_stored_recipe_manifests
+    _stored_recipe_file = deps.stored_recipe_file
+    _save_stored_recipe_manifest = deps.save_stored_recipe_manifest
     _refresh_skill_trigger_index = deps.refresh_skill_trigger_index
-    _format_skill_routing_info = deps.format_skill_routing_info
+    _format_recipe_routing_info = deps.format_recipe_routing_info
     _suggest_skill_keywords_with_llm = deps.suggest_skill_keywords_with_llm
 
     _connection_admin_helpers = ConnectionAdminHelpers(
@@ -643,11 +643,11 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             reload_runtime=_reload_runtime,
             parse_lines=_parse_lines,
             set_logical_back_url=lambda request: _set_logical_back_url(request, fallback="/config/workbench"),
-            load_custom_skill_manifests=_load_custom_skill_manifests,
-            custom_skill_file=_custom_skill_file,
-            save_custom_skill_manifest=_save_custom_skill_manifest,
+            load_stored_recipe_manifests=_load_stored_recipe_manifests,
+            stored_recipe_file=_stored_recipe_file,
+            save_stored_recipe_manifest=_save_stored_recipe_manifest,
             refresh_skill_trigger_index=_refresh_skill_trigger_index,
-            format_skill_routing_info=_format_skill_routing_info,
+            format_recipe_routing_info=_format_recipe_routing_info,
             suggest_skill_keywords_with_llm=_suggest_skill_keywords_with_llm,
             build_connection_routing_index_status=build_connection_routing_index_status,
             test_connection_routing_query=test_connection_routing_query,
@@ -744,6 +744,7 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             build_connection_summary_cards=_build_connection_summary_cards,
             build_connection_status_block=_build_connection_status_block,
             build_schema_form_fields=_build_schema_form_fields,
+            build_schema_toggle_sections=_build_schema_toggle_sections,
             build_guardrail_ref_options=_build_guardrail_ref_options,
             attach_connection_edit_urls=_attach_connection_edit_urls,
             build_connection_status_rows=build_connection_status_rows,
@@ -849,6 +850,8 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
         ConnectionMutationHandlerDeps(
             base_dir=BASE_DIR,
             msg=_msg,
+            get_settings=lambda: settings,
+            get_secure_store=_get_secure_store,
             read_raw_config=_read_raw_config,
             write_raw_config=_write_raw_config,
             reload_runtime=_reload_runtime,
@@ -907,6 +910,8 @@ def register_config_routes(app: FastAPI, deps: ConfigRouteDeps) -> None:
             imap_save=_connection_mutation_handlers.imap_save,
             http_api_save=_connection_mutation_handlers.http_api_save,
             google_calendar_save=_connection_mutation_handlers.google_calendar_save,
+            google_calendar_oauth_start=_connection_mutation_handlers.google_calendar_oauth_start,
+            google_calendar_oauth_callback=_connection_mutation_handlers.google_calendar_oauth_callback,
             searxng_save=_connection_mutation_handlers.searxng_save,
             rss_save=_connection_mutation_handlers.rss_save,
             website_save=_connection_mutation_handlers.website_save,

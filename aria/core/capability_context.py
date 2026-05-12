@@ -40,6 +40,7 @@ class CapabilityContextStore:
         connection_kind: str,
         connection_ref: str,
         path: str = "",
+        content: str = "",
     ) -> None:
         payload = self._load_payload()
         payload[self._safe_user_id(user_id)] = {
@@ -47,6 +48,7 @@ class CapabilityContextStore:
             "connection_kind": str(connection_kind or "").strip(),
             "connection_ref": str(connection_ref or "").strip(),
             "path": str(path or "").strip(),
+            "content": str(content or "").strip(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_payload(payload)

@@ -5,8 +5,21 @@ from pathlib import Path
 import re
 from typing import Any
 
+from aria.core.i18n import I18NStore
 from aria.core.notes_index import NoteSearchHit, NotesIndex
 from aria.core.notes_store import NotesStore
+
+_NOTES_CONTEXT_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _notes_context_text(language: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _NOTES_CONTEXT_I18N.t(language or "de", f"notes_context.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -76,7 +89,11 @@ def lexical_note_hits(base_dir: Path, username: str, query: str, *, limit: int =
 
 async def search_note_hits(*, base_dir: Path, username: str, settings: Any, query: str, limit: int = 8) -> list[NotesContextHit]:
     if notes_index_enabled(settings):
-        notes_index = NotesIndex(settings.memory, settings.embeddings)
+        notes_index = NotesIndex(
+            settings.memory,
+            settings.embeddings,
+            usage_meter=getattr(settings, "_aria_usage_meter", None),
+        )
         try:
             rows = await notes_index.search_notes(user_id=username, query=query, limit=limit)
             if rows:
@@ -89,11 +106,10 @@ async def search_note_hits(*, base_dir: Path, username: str, settings: Any, quer
 
 
 def note_context_detail_lines(hits: list[NotesContextHit], *, language: str | None = None) -> list[str]:
-    english = str(language or "").strip().lower().startswith("en")
-    prefix = "Note context" if english else "Notiz-Kontext"
+    prefix = _notes_context_text(language, "detail_prefix", "Note context")
     rows: list[str] = []
     for hit in hits:
-        folder = hit.folder or ("Inbox" if not english else "Inbox")
+        folder = hit.folder or _notes_context_text(language, "inbox", "Inbox")
         rows.append(f"{prefix}: {hit.title} · {folder}")
     return rows
 
@@ -101,11 +117,10 @@ def note_context_detail_lines(hits: list[NotesContextHit], *, language: str | No
 def note_context_block(hits: list[NotesContextHit], *, language: str | None = None) -> str:
     if not hits:
         return ""
-    english = str(language or "").strip().lower().startswith("en")
-    heading = "Notes context for the search:" if english else "Notiz-Kontext für die Suche:"
+    heading = _notes_context_text(language, "search_heading", "Notes context for the search:")
     rows = [heading]
     for hit in hits:
-        folder = hit.folder or "Inbox"
+        folder = hit.folder or _notes_context_text(language, "inbox", "Inbox")
         snippet = str(hit.snippet or "").strip()
         line = f"- {hit.title} ({folder})"
         if snippet:

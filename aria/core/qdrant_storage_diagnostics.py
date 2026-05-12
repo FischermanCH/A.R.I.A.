@@ -68,6 +68,26 @@ def list_local_qdrant_collection_names(storage_path: Path | None) -> list[str]:
     return sorted(set(names))
 
 
+def qdrant_storage_has_local_data(storage_path: Path | None) -> bool:
+    if storage_path is None:
+        return False
+    try:
+        if not storage_path.exists() or not storage_path.is_dir():
+            return False
+        for child in storage_path.iterdir():
+            try:
+                if child.is_file():
+                    return True
+                if child.is_dir():
+                    next(child.iterdir())
+                    return True
+            except (OSError, StopIteration):
+                continue
+        return False
+    except OSError:
+        return False
+
+
 def build_qdrant_storage_warning(
     *,
     storage_path: Path | None,
@@ -77,6 +97,18 @@ def build_qdrant_storage_warning(
     local_names = sorted({str(name or "").strip() for name in local_collection_names if str(name or "").strip()})
     api_names = sorted({str(name or "").strip() for name in api_collection_names if str(name or "").strip()})
     if not local_names:
+        if qdrant_storage_has_local_data(storage_path):
+            return {
+                "key": "storage_layout_unreadable",
+                "message": (
+                    "Local Qdrant storage is present, but ARIA could not find readable collection directories. "
+                    "This can happen after a storage mount, permission, or Qdrant upgrade/layout problem."
+                ),
+                "storage_path": str(storage_path) if storage_path else "",
+                "local_collection_count": 0,
+                "api_collection_count": len(api_names),
+                "missing_from_api": [],
+            }
         return {}
 
     missing_from_api = [name for name in local_names if name not in api_names]

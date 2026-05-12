@@ -1,6 +1,6 @@
-# Skills
+# Rezepte
 
-ARIA Skills sind JSON-Manifeste mit strukturierten Steps.
+ARIA-Rezepte sind kuratierte JSON-Manifeste mit strukturierten Steps, Routing-Metadaten und guardrail-bewusster Ausfuehrung. Legacy-Skill-Manifeste bleiben fuer Kompatibilitaet lesbar, aber Produktbegriffe und neue Beispiele sind recipe-first.
 
 Aktuelle Capability-Familien umfassen:
 
@@ -18,9 +18,10 @@ Aktuelle Capability-Familien umfassen:
 Nuetzliche Referenzen:
 
 - [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
-- [`samples/skills/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/skills)
+- [`samples/recipes/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/recipes)
+- [`samples/skills/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/skills) fuer Legacy-/Backcompat-Beispiele
 
-Gerade fuer Release-Tests sind Sample-Skills hilfreich, weil sie wiederholbare Workflows liefern.
+Gerade fuer Release-Tests sind Sample-Rezepte hilfreich, weil sie wiederholbare Workflows liefern.
 
 Aktuelle Sample-Richtungen:
 

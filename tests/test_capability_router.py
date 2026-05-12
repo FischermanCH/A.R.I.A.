@@ -182,6 +182,43 @@ def test_capability_router_detects_short_news_phrase_with_typo_as_rss_request() 
     assert draft.explicit_connection_ref == ""
 
 
+def test_capability_router_does_not_treat_generic_rss_alias_as_explicit_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "rss news tech was gibt es neues",
+        available_connection_refs_by_kind={"rss": ["heise-online-news", "aktuelle-news-von-techstage"]},
+        available_connection_aliases_by_kind={
+            "rss": {
+                "heise-online-news": ["tech news", "news tech"],
+                "aktuelle-news-von-techstage": ["tech news", "news tech"],
+            }
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "feed_read"
+    assert draft.connection_kind == "rss"
+    assert draft.explicit_connection_ref == ""
+
+
+def test_capability_router_does_not_create_generic_rss_requested_ref_from_topic_words() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "rss news tech was gibt es neues",
+        available_connection_refs_by_kind={"rss": ["heise-online-news", "aktuelle-news-von-techstage"]},
+        available_connection_aliases_by_kind={
+            "rss": {
+                "heise-online-news": ["tech news", "news tech"],
+                "aktuelle-news-von-techstage": ["tech news", "news tech"],
+            }
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "feed_read"
+    assert draft.connection_kind == "rss"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == ""
+
+
 def test_capability_router_does_not_steal_explicit_internet_search_as_feed_read() -> None:
     router = CapabilityRouter()
     draft = router.classify(
@@ -189,6 +226,74 @@ def test_capability_router_does_not_steal_explicit_internet_search_as_feed_read(
         available_connection_refs_by_kind={"rss": ["heise-news"]},
     )
     assert draft is None
+
+
+def test_capability_router_detects_watched_website_read() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "öffne die quelle aria docs",
+        available_connection_refs_by_kind={"website": ["aria-docs"]},
+        available_connection_aliases_by_kind={"website": {"aria-docs": ["aria docs", "docs", "dokumentation"]}},
+    )
+    assert draft is not None
+    assert draft.capability == "website_read"
+    assert draft.connection_kind == "website"
+
+
+def test_capability_router_keeps_unknown_watched_website_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "öffne die beobachtete webseite aria docs",
+        available_connection_refs_by_kind={"website": ["security-blog"]},
+    )
+    assert draft is not None
+    assert draft.capability == "website_read"
+    assert draft.connection_kind == "website"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "aria docs"
+
+
+def test_capability_router_detects_watched_website_list_with_group() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "liste webseiten in dokumentation",
+        available_connection_refs_by_kind={"website": ["aria-docs", "aria-guides"]},
+    )
+    assert draft is not None
+    assert draft.capability == "website_list"
+    assert draft.connection_kind == "website"
+    assert draft.content == "dokumentation"
+
+
+def test_capability_router_detects_show_observed_websites_as_website_list() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "zeige beobachtete webseiten",
+        available_connection_refs_by_kind={"website": ["aria-docs", "aria-guides"]},
+    )
+    assert draft is not None
+    assert draft.capability == "website_list"
+    assert draft.connection_kind == "website"
+
+
+def test_capability_router_keeps_rss_security_query_out_of_website_alias_match() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "gib mir aktuelle security news aus rss",
+        available_connection_refs_by_kind={
+            "rss": ["security-feed"],
+            "website": ["security-blog"],
+        },
+        available_connection_aliases_by_kind={
+            "website": {
+                "security-blog": ["security"],
+            }
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "feed_read"
+    assert draft.connection_kind == "rss"
+    assert draft.explicit_connection_ref == ""
 
 
 def test_capability_router_detects_webhook_send() -> None:
@@ -214,6 +319,20 @@ def test_capability_router_detects_webhook_send_via_explicit_ref_name() -> None:
     assert draft.capability == "webhook_send"
     assert draft.connection_kind == "webhook"
     assert draft.explicit_connection_ref == "n8n-test-webhook"
+    assert draft.content == "ARIA was here"
+
+
+def test_capability_router_keeps_unknown_multiword_webhook_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        'Schicke per Webhook an incident alerts webhook "ARIA was here"',
+        available_connection_refs_by_kind={"webhook": ["n8n-test-webhook"]},
+    )
+    assert draft is not None
+    assert draft.capability == "webhook_send"
+    assert draft.connection_kind == "webhook"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "incident alerts webhook"
     assert draft.content == "ARIA was here"
 
 
@@ -243,6 +362,34 @@ def test_capability_router_detects_http_api_request() -> None:
     assert draft.path == "/health"
 
 
+def test_capability_router_keeps_api_request_out_of_sftp_fallback() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "prüfe den status der inventory api",
+        available_connection_refs_by_kind={
+            "http_api": ["inventory-api"],
+            "sftp": ["rasp-homebridge"],
+        },
+    )
+    assert draft is not None
+    assert draft.capability == "api_request"
+    assert draft.connection_kind == "http_api"
+
+
+def test_capability_router_keeps_unknown_multiword_http_api_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Rufe die inventory service api /health auf",
+        available_connection_refs_by_kind={"http_api": ["status-api"]},
+    )
+    assert draft is not None
+    assert draft.capability == "api_request"
+    assert draft.connection_kind == "http_api"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "inventory service api"
+    assert draft.path == "/health"
+
+
 def test_capability_router_detects_calendar_read_for_google_calendar_profiles() -> None:
     router = CapabilityRouter()
 
@@ -256,6 +403,21 @@ def test_capability_router_detects_calendar_read_for_google_calendar_profiles() 
     assert draft.connection_kind == "google_calendar"
     assert draft.explicit_connection_ref == ""
     assert draft.path == "tomorrow"
+
+
+def test_capability_router_extracts_calendar_search_without_quotes() -> None:
+    router = CapabilityRouter()
+
+    draft = router.classify(
+        "Zeig mir nächste Woche Termine mit Zahnarzt",
+        available_connection_refs_by_kind={"google_calendar": ["primary-calendar"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "calendar_read"
+    assert draft.connection_kind == "google_calendar"
+    assert draft.path == "next_week"
+    assert draft.content == "Zahnarzt"
 
 
 def test_capability_router_leaves_calendar_read_requests_without_google_calendar_profiles_unclaimed() -> None:
@@ -337,6 +499,32 @@ def test_capability_router_detects_imap_read() -> None:
     assert draft.capability == "mail_read"
     assert draft.connection_kind == "imap"
     assert draft.explicit_connection_ref == "ops-inbox"
+
+
+def test_capability_router_detects_imap_read_without_configured_mailbox() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Was liegt im Postfach ops-inbox",
+        available_connection_refs_by_kind={"ssh": ["server-1"]},
+    )
+    assert draft is not None
+    assert draft.capability == "mail_read"
+    assert draft.connection_kind == "imap"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "ops-inbox"
+
+
+def test_capability_router_keeps_unknown_multiword_imap_target_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "Zeige mir die neuesten Mails im ops alerts postfach",
+        available_connection_refs_by_kind={"imap": ["ops-inbox"]},
+    )
+    assert draft is not None
+    assert draft.capability == "mail_read"
+    assert draft.connection_kind == "imap"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "ops alerts postfach"
 
 
 def test_capability_router_detects_mqtt_publish_via_title_alias_without_mqtt_keyword() -> None:
@@ -441,7 +629,7 @@ def test_capability_router_detects_natural_ssh_uptime_request_via_alias() -> Non
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == "pihole1"
-    assert draft.content == "uptime"
+    assert draft.content == ""
 
 
 def test_capability_router_detects_how_long_server_runs_phrase_via_alias() -> None:
@@ -459,7 +647,7 @@ def test_capability_router_detects_how_long_server_runs_phrase_via_alias() -> No
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == "pihole1"
-    assert draft.content == "uptime"
+    assert draft.content == ""
 
 
 def test_capability_router_detects_how_long_server_is_online_phrase_via_alias() -> None:
@@ -477,7 +665,7 @@ def test_capability_router_detects_how_long_server_is_online_phrase_via_alias() 
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == "pihole1"
-    assert draft.content == "uptime"
+    assert draft.content == ""
 
 
 def test_capability_router_detects_natural_ssh_uptime_request_without_target_for_qdrant() -> None:
@@ -490,7 +678,106 @@ def test_capability_router_detects_natural_ssh_uptime_request_without_target_for
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == ""
-    assert draft.content == "uptime"
+    assert draft.content == ""
+
+
+def test_capability_router_detects_status_phrase_for_backup_server() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "prüfe den status vom backup server",
+        available_connection_refs_by_kind={"ssh": ["ubnsrv-netalert", "ubnsrv-mgmt-master"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "backup server"
+    assert draft.content == ""
+
+
+def test_capability_router_detects_how_is_monitoring_server_phrase() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "wie geht es dem monitoring server",
+        available_connection_refs_by_kind={"ssh": ["ubnsrv-netalert", "ubnsrv-mgmt-master"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "monitoring server"
+    assert draft.content == ""
+
+
+def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_backup_server() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "prüfe den status vom backup server",
+        available_connection_refs_by_kind={
+            "ssh": ["ubnsrv-mgmt-master", "ubnsrv-backup"],
+        },
+        available_connection_aliases_by_kind={
+            "ssh": {
+                "ubnsrv-mgmt-master": ["server", "management server"],
+                "ubnsrv-backup": ["backup host"],
+            }
+        },
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "backup server"
+    assert draft.content == ""
+
+
+def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_monitoring_server() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "wie geht es dem monitoring server",
+        available_connection_refs_by_kind={
+            "ssh": ["ubnsrv-mgmt-master", "ubnsrv-netalert"],
+        },
+        available_connection_aliases_by_kind={
+            "ssh": {
+                "ubnsrv-mgmt-master": ["server", "management server"],
+                "ubnsrv-netalert": ["monitoring host"],
+            }
+        },
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "monitoring server"
+    assert draft.content == ""
+
+
+def test_capability_router_keeps_matching_explicit_ssh_alias_for_management_server() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "check health auf management server",
+        available_connection_refs_by_kind={
+            "ssh": ["ubnsrv-mgmt-master", "ubnsrv-backup"],
+        },
+        available_connection_aliases_by_kind={
+            "ssh": {
+                "ubnsrv-mgmt-master": ["server", "management server"],
+                "ubnsrv-backup": ["backup server", "backup host"],
+            }
+        },
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "ubnsrv-mgmt-master"
+    assert draft.requested_connection_ref == ""
+    assert draft.content == ""
 
 
 def test_capability_router_normalizes_natural_disk_check_to_df_h() -> None:
@@ -505,7 +792,21 @@ def test_capability_router_normalizes_natural_disk_check_to_df_h() -> None:
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == "pihole1"
-    assert draft.content == "df -h"
+    assert draft.content == ""
+
+
+def test_capability_router_does_not_keep_article_fragment_as_requested_ref() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht",
+        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+    )
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.requested_connection_ref == ""
+    assert draft.content == ""
 
 
 def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
@@ -520,7 +821,7 @@ def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == "pihole1"
-    assert draft.content == "df -h"
+    assert draft.content == ""
 
 
 def test_capability_router_detects_english_file_read_phrase() -> None:

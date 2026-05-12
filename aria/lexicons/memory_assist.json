@@ -1,0 +1,40 @@
+{
+  "plural_target_patterns": [
+    "\\b(?:meine|meinen|alle|sämtliche|saemtliche|mehrere)\\s+(?:linux\\s+)?(?:server|servern|hosts|systeme)\\b",
+    "\\b(?:my|all|multiple)\\s+(?:linux\\s+)?(?:servers|hosts|systems)\\b"
+  ],
+  "plural_target_terms": [
+    "meine server",
+    "meinen servern",
+    "alle server",
+    "sämtliche server",
+    "saemtliche server",
+    "mehrere server",
+    "meine hosts",
+    "alle hosts",
+    "my servers",
+    "all servers",
+    "multiple servers",
+    "my hosts",
+    "all hosts"
+  ],
+  "plural_target_terms_ssh": [
+    "meine server",
+    "meinen servern",
+    "meine linux server",
+    "alle server",
+    "alle linux server",
+    "sämtliche server",
+    "saemtliche server",
+    "mehrere server",
+    "meine hosts",
+    "alle hosts",
+    "my servers",
+    "my linux servers",
+    "all servers",
+    "all linux servers",
+    "multiple servers",
+    "my hosts",
+    "all hosts"
+  ]
+}

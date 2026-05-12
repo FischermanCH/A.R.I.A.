@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from aria.core.skill_runtime import CustomSkillRuntime
+from aria.core.recipe_runtime import RecipeRuntime
 
 
-def _runtime(*, sftp: object | None = None, smb: object | None = None, guardrails: dict[str, object] | None = None) -> CustomSkillRuntime:
+def _runtime(*, sftp: object | None = None, smb: object | None = None, guardrails: dict[str, object] | None = None) -> RecipeRuntime:
     settings = SimpleNamespace(
         connections=SimpleNamespace(
             sftp={"ops-sftp": sftp} if sftp is not None else {},
@@ -13,7 +13,7 @@ def _runtime(*, sftp: object | None = None, smb: object | None = None, guardrail
         ),
         security=SimpleNamespace(guardrails=guardrails or {}),
     )
-    return CustomSkillRuntime(
+    return RecipeRuntime(
         settings=settings,
         llm_client=None,
         memory_skill_getter=lambda: None,

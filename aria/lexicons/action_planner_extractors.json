@@ -1,0 +1,15 @@
+{
+  "known_remote_paths": {
+    "hosts datei": "/etc/hosts",
+    "hosts file": "/etc/hosts",
+    "authorized_keys": "~/.ssh/authorized_keys",
+    "fstab": "/etc/fstab",
+    "crontab": "/etc/crontab",
+    "docker compose": "docker-compose.yml",
+    "compose file": "docker-compose.yml",
+    "compose-datei": "docker-compose.yml",
+    "config.yaml": "config.yaml"
+  },
+  "known_commands": ["uptime", "df -h", "systemctl status", "systemctl is-active", "journalctl -xe", "free -h", "uname -a", "ls", "pwd"],
+  "command_pattern": "(?:run|execute|fuehre aus|führe aus|befehl)\\s+([a-z0-9_./:-]+(?:\\s+[a-z0-9_./:=~-]+){0,4})"
+}

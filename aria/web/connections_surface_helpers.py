@@ -8,6 +8,8 @@ from urllib.parse import quote_plus
 
 from fastapi import Request
 
+from aria.core.i18n import I18NStore
+
 SettingsGetter = Callable[[], Any]
 UsernameResolver = Callable[[Request], str]
 LogicalBackSetter = Callable[..., str]
@@ -20,6 +22,17 @@ SampleConnectionRowsBuilder = Callable[[], list[dict[str, Any]]]
 SettingsConnectionStatusRowsBuilder = Callable[..., list[dict[str, Any]]]
 ConnectionMenuRowsBuilder = Callable[[], list[dict[str, Any]]]
 SearxngProbe = Callable[..., dict[str, Any]]
+_CONNECTIONS_SURFACE_HELPERS_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _connections_text(lang: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _CONNECTIONS_SURFACE_HELPERS_I18N.t(lang or "de", f"connections_surface_helpers.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -44,7 +57,6 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
     _get_settings = deps.get_settings
     _get_username_from_request = deps.get_username_from_request
     _set_logical_back_url = deps.set_logical_back_url
-    _msg = deps.msg
     _format_config_info_message = deps.format_config_info_message
     _attach_mixed_connection_edit_urls = deps.attach_mixed_connection_edit_urls
     _connections_surface_path = deps.connections_surface_path
@@ -71,9 +83,9 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         _set_logical_back_url(request, fallback=logical_back_fallback)
         error_message = ""
         if error == "admin_mode_required":
-            error_message = "Admin-Modus aktivieren, um diesen Bereich zu sehen." if lang.startswith("de") else "Enable admin mode to access this area."
+            error_message = _connections_text(lang, "admin_mode_required", "Enable admin mode to access this area.")
         elif error == "no_admin":
-            error_message = "Nur Admins dürfen diesen Bereich öffnen." if lang.startswith("de") else "Only admins can open this area."
+            error_message = _connections_text(lang, "no_admin", "Only admins can open this area.")
 
         connection_rows = connection_menu_rows()
         searxng_stack = probe_searxng_stack_service(lang=lang)
@@ -89,16 +101,16 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
             )
             row["disabled"] = not bool(searxng_stack.get("available")) and not bool(searxng_profiles)
             row["warning_badge"] = (
-                _msg(lang, "Stack fehlt", "Stack missing")
+                _connections_text(lang, "stack_missing", "Stack missing")
                 if row["disabled"]
-                else (_msg(lang, "Prüfen", "Check") if row["availability_status"] == "warn" else "")
+                else (_connections_text(lang, "check", "Check") if row["availability_status"] == "warn" else "")
             )
 
         sample_rows = _build_sample_connection_rows()
         connection_status_rows = _attach_mixed_connection_edit_urls(
             build_settings_connection_status_rows(
                 settings,
-                page_probe=True,
+                page_probe=connections_nav in {"overview", "status"},
                 cached_only_threshold=4,
                 base_dir=BASE_DIR,
                 lang=lang,
@@ -111,38 +123,30 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         overview_checks = [
             {
                 "status": "ok" if connection_status_rows else "warn",
-                "title": _msg(lang, "Live-Status", "Live status"),
+                "title": _connections_text(lang, "live_status", "Live status"),
                 "summary": str(len(connection_status_rows)),
-                "meta": _msg(
-                    lang,
-                    f"{ok_status_count} Verbindungen aktuell ok",
-                    f"{ok_status_count} connections currently ok",
-                ),
+                "meta": _connections_text(lang, "connections_currently_ok", "{count} connections currently ok", count=ok_status_count),
                 "href": "/connections/status",
             },
             {
                 "status": "ok" if configured_count else "warn",
-                "title": _msg(lang, "Verbindungstypen", "Connection types"),
+                "title": _connections_text(lang, "connection_types", "Connection types"),
                 "summary": str(configured_count),
-                "meta": _msg(
-                    lang,
-                    f"von {len(connection_rows)} Typen direkt verfuegbar",
-                    f"{configured_count} of {len(connection_rows)} types ready",
-                ),
+                "meta": _connections_text(lang, "connection_types_ready", "{configured_count} of {total_count} types ready", configured_count=configured_count, total_count=len(connection_rows)),
                 "href": "/connections/types",
             },
             {
                 "status": "ok" if sample_rows else "warn",
-                "title": _msg(lang, "Samples", "Samples"),
+                "title": _connections_text(lang, "samples", "Samples"),
                 "summary": str(len(sample_rows)),
-                "meta": _msg(lang, "importierbare Vorlagen", "importable samples"),
+                "meta": _connections_text(lang, "importable_samples", "importable samples"),
                 "href": "/connections/templates",
             },
             {
                 "status": "warn" if warning_count else "ok",
                 "title": "SearXNG",
-                "summary": _msg(lang, "Erreichbar", "Reachable") if searxng_stack.get("available") else _msg(lang, "Pruefen", "Check"),
-                "meta": str(searxng_stack.get("message", "")).strip() or _msg(lang, "Stackdienst fuer Suche bereit", "Search stack is ready"),
+                "summary": _connections_text(lang, "reachable", "Reachable") if searxng_stack.get("available") else _connections_text(lang, "check", "Check"),
+                "meta": str(searxng_stack.get("message", "")).strip() or _connections_text(lang, "search_stack_ready", "Search stack is ready"),
                 "href": (
                     f"/config/connections/searxng?return_to={quote_plus(_connections_surface_path(page_return_to, fallback='/connections'))}"
                     if request.state.can_access_advanced_config
@@ -153,42 +157,22 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         next_steps = [
             {
                 "icon": "plus",
-                "title": _msg(
-                    lang,
-                    "Erste Verbindung anlegen" if configured_profile_count <= 0 else "Weitere Verbindung anlegen",
-                    "Create first connection" if configured_profile_count <= 0 else "Add connection",
-                ),
-                "desc": _msg(
-                    lang,
-                    "Starte mit SSH, SFTP, Discord oder RSS auf den jeweiligen Typseiten, statt direkt in Rohkonfigurationen zu fallen.",
-                    "Start with SSH, SFTP, Discord, or RSS from the type pages instead of dropping straight into raw configuration.",
-                ),
+                "title": _connections_text(lang, "create_first_connection" if configured_profile_count <= 0 else "add_connection", "Create first connection" if configured_profile_count <= 0 else "Add connection"),
+                "desc": _connections_text(lang, "create_connection_desc", "Start with SSH, SFTP, Discord, or RSS from the type pages instead of dropping straight into raw configuration."),
                 "href": "/connections/types",
                 "badge": f"{configured_count}/{len(connection_rows)}",
             },
             {
                 "icon": "stats",
-                "title": _msg(
-                    lang,
-                    "Live-Status pruefen" if configured_profile_count > 0 else "Status danach pruefen",
-                    "Review live status" if configured_profile_count > 0 else "Check status afterwards",
-                ),
-                "desc": _msg(
-                    lang,
-                    "Hier siehst du direkt, welche bereits konfigurierten Verbindungen gesund, fraglich oder offline sind.",
-                    "This shows which configured connections are currently healthy, uncertain, or offline.",
-                ),
+                "title": _connections_text(lang, "review_live_status" if configured_profile_count > 0 else "check_status_afterwards", "Review live status" if configured_profile_count > 0 else "Check status afterwards"),
+                "desc": _connections_text(lang, "live_status_desc", "This shows which configured connections are currently healthy, uncertain, or offline."),
                 "href": "/connections/status",
                 "badge": str(configured_profile_count),
             },
             {
                 "icon": "upload",
-                "title": _msg(lang, "Vorlage importieren", "Import template"),
-                "desc": _msg(
-                    lang,
-                    "Sample-Profile geben dir einen schnellen Startpunkt, wenn du nicht jede Verbindung von null aufsetzen willst.",
-                    "Sample profiles give you a fast starting point when you do not want to build every connection from scratch.",
-                ),
+                "title": _connections_text(lang, "import_template", "Import template"),
+                "desc": _connections_text(lang, "import_template_desc", "Sample profiles give you a fast starting point when you do not want to build every connection from scratch."),
                 "href": "/connections/templates",
                 "badge": str(len(sample_rows)),
             },

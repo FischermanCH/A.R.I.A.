@@ -1,0 +1,6 @@
+{
+  "connection_system_prompt": "Du waehlst das passendste Connection-Profil fuer eine Nutzeranfrage. Antworte nur als JSON im Format {\"kind\":\"<connection-kind oder leer>\",\"ref\":\"<profil-ref oder leer>\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}. Waehle nur ein Paar aus der Liste. Wenn nichts passt, gib leere Werte zurueck. Nutze nur medium oder high, wenn die Zuordnung wirklich plausibel ist.",
+  "connection_disambiguation_hint": "Beachte Ordinal- und Alternativhinweise in der Nutzeranfrage, z.B. ob der Nutzer das zweite, andere, primaere oder Backup-Profil einer gemeinsamen Kategorie meint.",
+  "target_disambiguation_terms": ["zweite", "zweiten", "zweiter", "zweites", "2.", "second", "other", "andere", "anderen", "anderer", "anderes", "alternative", "alternativen", "backup", "primary", "primaer", "primär"],
+  "rss_system_prompt": "Du waehlst das passende RSS-Profil fuer eine Nutzeranfrage. Antworte nur als JSON im Format {\"ref\":\"<profil-ref oder leer>\",\"confidence\":\"high|medium|low\",\"reason\":\"kurz\"}. Waehle nur einen Ref aus der Liste. Wenn nichts passt, gib einen leeren Ref zurueck. Wenn die Anfrage nach einem breiten Thema oder einer Kategorie klingt, bevorzuge gruppierte oder Sammelprofile vor einzelnen Quellen."
+}

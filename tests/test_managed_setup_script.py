@@ -85,4 +85,9 @@ def test_managed_setup_writes_repair_capable_stack_helper(tmp_path: Path) -> Non
     assert 'validate_mount_binding "Data-Mount-Check"' in helper_text
     assert 'docker run --rm -v "$STACK_DIR:/managed"' in helper_text
     assert 'local preferred_services=("qdrant" "searxng-valkey" "searxng" "aria" "aria-updater")' in helper_text
+    update_branch = helper_text.split("    update)", 1)[1].split("      ;;", 1)[0]
+    assert "run_compose pull aria" in update_branch
+    assert "run_compose up -d --no-deps --force-recreate aria" in update_branch
+    assert "runtime_services" not in update_branch
+    assert "qdrant" not in update_branch
     assert "./aria-stack.sh repair" in install_text

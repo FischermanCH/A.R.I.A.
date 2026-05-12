@@ -22,7 +22,7 @@
           <li>{{ tr(request, 'config.backup_contains_connections', 'connection profiles and routing metadata from config.yaml') }}</li>
           <li>{{ tr(request, 'config.backup_contains_secrets', 'secure-store secrets and user accounts') }}</li>
           <li>{{ tr(request, 'config.backup_contains_connection_secrets', 'connection passwords, tokens, and webhook URLs that live in the secure store') }}</li>
-          <li>{{ tr(request, 'config.backup_contains_skills', 'custom skills and prompt markdown files') }}</li>
+          <li>{{ tr(request, 'config.backup_contains_skills', 'stored recipes and prompt markdown files') }}</li>
           <li>{{ tr(request, 'config.backup_contains_support', 'error interpreter rules') }}</li>
         </ul>
       </article>
@@ -59,7 +59,7 @@
             <strong>{{ backup_summary.user_count }}</strong>
           </div>
           <div class="stat-card">
-            <span class="stat-label">{{ tr(request, 'config.backup_summary_skills', 'Custom skills') }}</span>
+            <span class="stat-label">{{ tr(request, 'config.backup_summary_skills', 'Stored recipes') }}</span>
             <strong>{{ backup_summary.custom_skill_count }}</strong>
           </div>
           <div class="stat-card">
@@ -96,7 +96,7 @@
         </div>
         <p>{{ tr(request, 'config.backup_import_desc', 'Restore a previously exported backup file. ARIA will try to roll back to the previous state if the import fails.') }}</p>
         <div class="alert warn">
-          {{ tr(request, 'config.backup_import_warn', 'Import replaces the active configuration snapshot, secure-store entries, and custom skill manifests with the contents of the backup file.') }}
+          {{ tr(request, 'config.backup_import_warn', 'Import replaces the active configuration snapshot, secure-store entries, and stored recipe manifests with the contents of the backup file.') }}
         </div>
         <form method="post" action="/config/backup/import" enctype="multipart/form-data">
           <input type="hidden" name="return_to" value="{{ return_to or '' }}">

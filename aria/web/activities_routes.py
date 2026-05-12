@@ -17,7 +17,9 @@ PipelineGetter = Callable[[], Pipeline]
 
 def _normalize_activity_kind(value: str) -> str:
     active_kind = str(value or 'all').strip().lower()
-    if active_kind not in {'all', 'skill', 'memory', 'system'}:
+    if active_kind == 'skill':
+        return 'recipe'
+    if active_kind not in {'all', 'recipe', 'memory', 'system'}:
         return 'all'
     return active_kind
 

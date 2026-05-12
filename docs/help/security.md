@@ -69,7 +69,7 @@ Für einen sauberen Public-Repo-/Container-Workflow bleiben folgende Dateien lok
 - `config/secrets.env`
 - `data/auth/`
 - `data/logs/`
-- `data/skills/`
+- `data/recipes/`
 
 Im Repo bleiben nur Beispiel-/Vorlage-Dateien:
 

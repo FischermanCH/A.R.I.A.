@@ -1,4 +1,10 @@
+import json
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import pytest
+
+import aria.web.config_routes as config_routes
 from aria.web.config_routes import (
     EMBEDDING_SWITCH_CONFIRM_PHRASE,
     _embedding_fingerprint_for_values,
@@ -50,18 +56,24 @@ def _write_profile_yaml(path: Path, data: dict) -> None:
         yaml.safe_dump(data, handle, sort_keys=False, allow_unicode=True)
 
 
-class _NoopStore:
-    def get_secret(self, _key: str, default: str = "") -> str:
-        return default
+class _MemoryStore:
+    def __init__(self) -> None:
+        self._values: dict[str, str] = {}
 
-    def set_secret(self, _key: str, _value: str) -> None:
-        return None
+    def get_secret(self, key: str, default: str = "") -> str:
+        return self._values.get(key, default)
 
-    def delete_secret(self, _key: str) -> None:
-        return None
+    def set_secret(self, key: str, value: str) -> None:
+        self._values[key] = value
 
-    def rename_secret(self, _src: str, _dst: str) -> None:
-        return None
+    def delete_secret(self, key: str) -> None:
+        self._values.pop(key, None)
+
+    def rename_secret(self, src: str, dst: str) -> None:
+        if src == dst or src not in self._values:
+            return None
+        self._values[dst] = self._values[src]
+        self.delete_secret(src)
 
     def list_users(self) -> list[dict[str, object]]:
         return []
@@ -120,6 +132,7 @@ def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en') -> TestClient
 
     settings = Settings.model_validate(raw)
     pipeline = SimpleNamespace(usage_meter=None, memory_skill=None)
+    secure_store = _MemoryStore()
 
     async def _keyword_stub(*_args, **_kwargs) -> list[str]:
         return []
@@ -235,17 +248,17 @@ def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en') -> TestClient
         get_profiles=_get_profiles,
         get_active_profile_name=_get_active_profile_name,
         set_active_profile=_set_active_profile,
-        get_secure_store=lambda _raw=None: _NoopStore(),
+        get_secure_store=lambda _raw=None: secure_store,
         lang_flag=lambda code: code,
         lang_label=lambda code: code.upper(),
         available_languages=lambda: ['en', 'de'],
         resolve_lang=lambda code, default_lang='de': code or default_lang,
         clear_i18n_cache=lambda: None,
-        load_custom_skill_manifests=lambda: ([], []),
-        custom_skill_file=lambda skill_id: (tmp_path / 'data' / 'skills' / f'{skill_id}.json').resolve(),
-        save_custom_skill_manifest=lambda manifest: manifest,
+        load_stored_recipe_manifests=lambda: ([], []),
+        stored_recipe_file=lambda skill_id: (tmp_path / 'data' / 'skills' / f'{skill_id}.json').resolve(),
+        save_stored_recipe_manifest=lambda manifest: manifest,
         refresh_skill_trigger_index=lambda: {},
-        format_skill_routing_info=lambda ref, kind: f'{ref}:{kind}',
+        format_recipe_routing_info=lambda ref, kind: f'{ref}:{kind}',
         suggest_skill_keywords_with_llm=_keyword_stub,
     )
     register_config_routes(app, deps)
@@ -391,14 +404,14 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
                 "used": True,
                 "status": "ok",
                 "visual_status": "ok",
-                "message": "LLM action planner selected template/ssh_health_check.",
+                "message": "LLM action planner selected template/ssh_run_command.",
                 "target_context": "ssh/pihole1",
                 "target_reason": "pi-hole",
                 "decision": {
                     "found": True,
                     "candidate_kind": "template",
                     "candidate_kind_label": "Template",
-                    "candidate_id": "ssh_health_check",
+                    "candidate_id": "ssh_run_command",
                     "title": "SSH Health Check",
                     "intent": "health_check",
                     "intent_label": "Health check",
@@ -427,7 +440,7 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
                     {
                         "candidate_kind": "template",
                         "candidate_kind_label": "Template",
-                        "candidate_id": "ssh_health_check",
+                        "candidate_id": "ssh_run_command",
                         "title": "SSH Health Check",
                         "intent": "health_check",
                         "intent_label": "Health check",
@@ -519,11 +532,11 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
     response = client.get('/config/workbench/routing?routing_query=pruef+mal+den+pi-hole')
 
     assert response.status_code == 200
-    assert 'Action / Skill' in response.text
+    assert 'Action / Recipe' in response.text
     assert 'ssh/pihole1' in response.text
     assert 'pi-hole' in response.text
     assert 'SSH Health Check' in response.text
-    assert 'ssh_health_check' in response.text
+    assert 'ssh_run_command' in response.text
     assert 'SSH command' in response.text
     assert 'Template: Health check via SSH command on ssh/pihole1' in response.text
     assert 'Template: Run command via SSH command' in response.text
@@ -769,7 +782,7 @@ def test_routing_qdrant_save_persists_live_settings(tmp_path: Path) -> None:
 
     assert response.status_code == 303
     assert '/config/routing?' in response.headers['location']
-    assert 'info=Live-Qdrant-Routing+gespeichert' in response.headers['location']
+    assert 'info=Live+Qdrant+routing+saved' in response.headers['location']
     raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
     assert raw["routing"]["qdrant_connection_routing_enabled"] is True
     assert raw["routing"]["qdrant_score_threshold"] == 0.45
@@ -1079,7 +1092,97 @@ def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: 
     assert 'data-connection-meta-endpoint="/config/connections/ssh/suggest-metadata"' in response.text
     assert 'data-connection-meta-source-fields="service_url"' in response.text
     assert 'name="create_matching_sftp"' in response.text
-    assert 'connection-create-link is-active' in nav_response.text
+    assert 'id="create-new"' in nav_response.text
+    assert 'connection-mode-create" hidden' not in nav_response.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "selected_query", "profiles", "visible_refs"),
+    [
+        (
+            "ssh",
+            "ref=srv-1",
+            {
+                f"srv-{idx}": {
+                    "host": f"10.0.0.{idx}",
+                    "user": "aria",
+                    "port": 22,
+                    "timeout_seconds": 20,
+                    "key_path": f"data/ssh_keys/srv_{idx}_ed25519",
+                }
+                for idx in range(1, 7)
+            },
+            ("srv-1", "srv-6"),
+        ),
+        (
+            "sftp",
+            "sftp_ref=files-1",
+            {
+                f"files-{idx}": {
+                    "host": f"10.0.1.{idx}",
+                    "user": "aria",
+                    "port": 22,
+                    "timeout_seconds": 20,
+                    "root_path": "/",
+                    "key_path": f"data/ssh_keys/files_{idx}_ed25519",
+                }
+                for idx in range(1, 7)
+            },
+            ("files-1", "files-6"),
+        ),
+        (
+            "smb",
+            "smb_ref=share-1",
+            {
+                f"share-{idx}": {
+                    "host": f"nas-{idx}.example.local",
+                    "share": "documents",
+                    "user": "aria",
+                    "port": 445,
+                    "timeout_seconds": 10,
+                    "root_path": "/",
+                }
+                for idx in range(1, 7)
+            },
+            ("share-1", "share-6"),
+        ),
+    ],
+)
+def test_connection_page_renders_existing_profiles_directly(
+    tmp_path: Path,
+    kind: str,
+    selected_query: str,
+    profiles: dict[str, dict[str, object]],
+    visible_refs: tuple[str, str],
+) -> None:
+    client = _build_profile_config_app(tmp_path)
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    raw.setdefault('connections', {})
+    raw['connections'][kind] = profiles
+    _write_profile_yaml(tmp_path / 'config' / 'config.yaml', raw)
+
+    response = client.get(f'/config/connections/{kind}?{selected_query}&return_to=%2Fconfig')
+
+    assert response.status_code == 200
+    assert 'connection-status-grid' in response.text
+    assert 'connection-status-collapsed' not in response.text
+    assert 'connection-status-summary' not in response.text
+    assert visible_refs[0] in response.text
+    assert visible_refs[1] in response.text
+
+
+def test_connection_page_without_profiles_opens_create_mode_from_type_link(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/connections/discord?return_to=/connections/types')
+
+    assert response.status_code == 200
+    assert 'id="create-new"' in response.text
+    assert 'connection-mode-create" hidden' not in response.text
+    assert 'id="discord_new_connection_ref"' in response.text
+    assert 'name="connection_ref"' in response.text
+    assert 'id="discord_new_webhook_url"' in response.text
+    assert 'name="webhook_url"' in response.text
 
 
 def test_sftp_page_exposes_service_url_helper(tmp_path: Path) -> None:
@@ -1449,7 +1552,15 @@ def test_connections_overview_page_is_available_as_top_level_hub(tmp_path: Path)
     assert 'href="/config/connections/searxng?return_to=%2Fconnections"' in response.text
 
 
-def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Path) -> None:
+def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Path, monkeypatch) -> None:
+    page_probe_flags: list[bool] = []
+    original_status_rows = config_routes.build_settings_connection_status_rows
+
+    def tracked_status_rows(*args, **kwargs):
+        page_probe_flags.append(bool(kwargs.get("page_probe")))
+        return original_status_rows(*args, **kwargs)
+
+    monkeypatch.setattr(config_routes, "build_settings_connection_status_rows", tracked_status_rows)
     client = _build_profile_config_app(tmp_path)
 
     status_response = client.get('/connections/status')
@@ -1468,6 +1579,7 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
     templates_response = client.get('/connections/templates')
     assert templates_response.status_code == 200
     assert 'name="return_to" value="/connections/templates"' in templates_response.text
+    assert page_probe_flags == [True, False, False]
 
 
 def test_settings_page_groups_system_areas_without_connections_block(tmp_path: Path) -> None:
@@ -1573,12 +1685,178 @@ def test_google_calendar_connection_page_renders(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Google Calendar" in response.text
     assert "/config/connections/google-calendar/save" in response.text
-    assert "OAuth Playground" in response.text
-    assert "https://developers.google.com/oauthplayground/" in response.text
+    assert "/config/connections/google-calendar/oauth/start" in response.text
+    assert "Mit Google verbinden" in response.text
+    assert "/config/connections/google-calendar/oauth/callback" in response.text
+    assert 'name="refresh_token"' not in response.text
+    assert 'name="oauth_client_file"' in response.text
+    assert "OAuth-Client-JSON" in response.text or "OAuth Client JSON" in response.text
     assert "https://console.cloud.google.com/auth/clients" in response.text
-    assert "https://www.googleapis.com/auth/calendar.readonly" in response.text
+    assert "Der manuelle Refresh-Token-Weg ist entfernt" in response.text
+    assert "Google-Projekt einmal vorbereiten" in response.text
+    assert "In ARIA verbinden" in response.text
+    assert "Reconnect-Tipp" in response.text or "Reconnect tip" in response.text
     assert "Recommended flow" not in response.text
     assert "Empfohlener Ablauf" not in response.text
+    assert "OAuth-Branding einrichten" not in response.text
+    assert "Dich selbst als Testnutzer eintragen" not in response.text
+
+
+def test_google_calendar_oauth_start_redirects_to_google_and_persists_profile(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        "/config/connections/google-calendar/oauth/start",
+        data={
+            "connection_ref": "primary-calendar",
+            "connection_title": "Mein Kalender",
+            "calendar_id": "primary",
+            "client_id": "123.apps.googleusercontent.com",
+            "client_secret": "top-secret",
+            "timeout_seconds": "10",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    parsed = urlparse(location)
+    assert parsed.netloc == "accounts.google.com"
+    assert parsed.path.endswith("/o/oauth2/v2/auth")
+    params = parse_qs(parsed.query)
+    assert params["client_id"] == ["123.apps.googleusercontent.com"]
+    assert params["response_type"] == ["code"]
+    assert params["access_type"] == ["offline"]
+    assert params["prompt"] == ["consent"]
+    assert params["scope"] == ["https://www.googleapis.com/auth/calendar.readonly"]
+    assert params["redirect_uri"] == ["http://testserver/config/connections/google-calendar/oauth/callback"]
+    assert params["state"][0]
+
+    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
+    row = raw["connections"]["google_calendar"]["primary-calendar"]
+    assert row["client_id"] == "123.apps.googleusercontent.com"
+    assert row["calendar_id"] == "primary"
+
+
+def test_google_calendar_oauth_start_can_read_client_credentials_from_uploaded_json(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        "/config/connections/google-calendar/oauth/start",
+        data={
+            "connection_ref": "primary-calendar",
+            "connection_title": "Mein Kalender",
+            "calendar_id": "primary",
+            "timeout_seconds": "10",
+        },
+        files={
+            "oauth_client_file": (
+                "google-client.json",
+                json.dumps(
+                    {
+                        "web": {
+                            "client_id": "json-client.apps.googleusercontent.com",
+                            "client_secret": "json-top-secret",
+                        }
+                    }
+                ).encode("utf-8"),
+                "application/json",
+            )
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    params = parse_qs(urlparse(response.headers["location"]).query)
+    assert params["client_id"] == ["json-client.apps.googleusercontent.com"]
+
+    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
+    row = raw["connections"]["google_calendar"]["primary-calendar"]
+    assert row["client_id"] == "json-client.apps.googleusercontent.com"
+
+
+def test_google_calendar_oauth_callback_stores_refresh_token_and_redirects_success(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        config_routes_mod,
+        "build_connection_status_row",
+        lambda *args, **kwargs: {"status": "ok", "message": "Google Calendar ok"},
+    )
+    client = _build_profile_config_app(tmp_path)
+
+    start = client.post(
+        "/config/connections/google-calendar/oauth/start",
+        data={
+            "connection_ref": "primary-calendar",
+            "connection_title": "Mein Kalender",
+            "calendar_id": "primary",
+            "client_id": "123.apps.googleusercontent.com",
+            "client_secret": "top-secret",
+            "timeout_seconds": "10",
+        },
+        follow_redirects=False,
+    )
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({"access_token": "ya29.access", "refresh_token": "refresh-123"}).encode("utf-8")
+
+    monkeypatch.setattr(
+        "aria.web.connection_mutation_handlers.urlopen",
+        lambda request, timeout=10: _FakeResponse(),  # noqa: ARG005
+    )
+
+    response = client.get(
+        f"/config/connections/google-calendar/oauth/callback?state={state}&code=test-code",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "google_calendar_test_status=ok" in response.headers["location"]
+    assert "google_calendar_ref=primary-calendar" in response.headers["location"]
+
+
+def test_google_calendar_oauth_start_uses_original_ref_when_connection_ref_missing(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    client.post(
+        "/config/connections/google-calendar/save",
+        data={
+            "connection_ref": "primary-calendar",
+            "connection_title": "Mein Kalender",
+            "calendar_id": "primary",
+            "client_id": "123.apps.googleusercontent.com",
+            "client_secret": "top-secret",
+            "refresh_token": "refresh-123",
+            "timeout_seconds": "10",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.post(
+        "/config/connections/google-calendar/oauth/start",
+        data={
+            "original_ref": "primary-calendar",
+            "connection_title": "Mein Kalender",
+            "calendar_id": "primary",
+            "client_id": "123.apps.googleusercontent.com",
+            "client_secret": "top-secret",
+            "timeout_seconds": "10",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "accounts.google.com" in response.headers["location"]
 
 
 def test_searxng_connection_page_prefills_local_stack_defaults(tmp_path: Path) -> None:

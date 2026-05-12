@@ -122,7 +122,7 @@ Für Public GitHub Releases sollte daraus je Release eine kompakte Release Note 
   - Login
   - `/health`
   - `Statistiken`
-  - Skill Import
+  - Recipe Import
   - eine SSH- oder RSS-Connection
 
 ### 3. Docker Image bauen
@@ -139,7 +139,7 @@ Für Public GitHub Releases sollte daraus je Release eine kompakte Release Note 
   - Config
   - Secrets
   - Connections
-  - Skills
+  - Recipes
   - Memories
   - Logs/Stats
 
@@ -171,7 +171,7 @@ Für saubere spätere Release Notes reicht ein leichtgewichtiges Schema:
 
 Beispiele:
 - `feat(rss): add OPML import/export`
-- `fix(skills): prevent generic discord capability from bypassing custom skill`
+- `fix(recipes): prevent generic discord capability from bypassing custom recipe`
 - `ui(stats): replace OK labels with status lamps`
 - `docs(release): add public release architecture summary`
 

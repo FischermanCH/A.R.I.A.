@@ -18,7 +18,7 @@
   {% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
   {% set nav_memories_active = current_path.startswith('/memories') %}
   {% set nav_notes_active = current_path.startswith('/notes') %}
-  {% set nav_skills_active = current_path.startswith('/skills') %}
+  {% set nav_recipes_active = current_path.startswith('/recipes') %}
   {% set nav_connections_active = current_path == '/connections' or current_path.startswith('/config/connections') %}
   {% set nav_stats_active = current_path.startswith('/stats') or current_path.startswith('/activities') %}
   {% set nav_updates_active = current_path.startswith('/updates') %}
@@ -70,7 +70,7 @@
             <div class="user-menu-section-label">{{ tr(request, 'base.nav_sections', 'Bereiche') }}</div>
             <a href="/memories" class="user-menu-link user-menu-link-icon{% if nav_memories_active %} is-active{% endif %}">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
             <a href="/notes" class="user-menu-link user-menu-link-icon{% if nav_notes_active %} is-active{% endif %}">{{ icon('notes') }}<span>{{ tr(request, 'base.nav_notes', 'Notizen') }}</span></a>
-            <a href="/skills" class="user-menu-link user-menu-link-icon{% if nav_skills_active %} is-active{% endif %}">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Skills') }}</span></a>
+            <a href="/recipes" class="user-menu-link user-menu-link-icon{% if nav_recipes_active %} is-active{% endif %}">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Rezepte') }}</span></a>
             <a href="/connections" class="user-menu-link user-menu-link-icon{% if nav_connections_active %} is-active{% endif %}">{{ icon('connections') }}<span>{{ tr(request, 'base.nav_connections', 'Connections') }}</span></a>
             <a href="/config" class="user-menu-link user-menu-link-icon{% if nav_config_active %} is-active{% endif %}">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Settings') }}</span></a>
             {% if update_status and update_status.update_available %}

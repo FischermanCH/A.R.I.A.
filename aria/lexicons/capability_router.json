@@ -1,0 +1,53 @@
+{
+  "requested_connection_articles": "(?:dem|den|der|des|die|das|the|my|mein(?:em|en|er|e)?|meine(?:m|n|r)?)?",
+  "requested_connection_required_articles": "(?:dem|den|der|des|die|das|the|my|mein(?:em|en|er|e)?|meine(?:m|n|r)?)",
+  "website_collection_terms": ["webseiten", "websites", "quellen", "sources", "links"],
+  "calendar": {
+    "reject_terms": ["event bus", "mqtt", "topic"],
+    "direct_terms": ["kalender", "calendar"],
+    "event_terms": ["termin", "termine", "meeting", "appointment"],
+    "date_markers": ["heute", "morgen", "naechst", "nächst", "today", "tomorrow", "next week", "next "],
+    "range_terms": {
+      "day_after_tomorrow": ["übermorgen", "uebermorgen", "day after tomorrow"],
+      "tomorrow": ["morgen", "tomorrow"],
+      "today": ["heute", "today"],
+      "this_week": ["diese woche", "this week"],
+      "next_week": ["nächste woche", "naechste woche", "next week"],
+      "next": ["nächster termin", "naechster termin", "next appointment", "next meeting", "naechstes meeting", "nächstes meeting"],
+      "upcoming": ["was steht an", "what's on", "whats on"]
+    },
+    "search_patterns": [
+      "^\\s*(?:und\\s+)?(?:nur|mit|ohne)\\s+(.+)$",
+      "\\b(?:suche|finde|filtere|show|zeige)\\b.+?\\b(?:nach|für|fuer|mit)\\b\\s+(.+)$",
+      "\\b(?:termine|events|meetings?|appointments?)\\b\\s+(?:für|fuer|mit|zu)\\b\\s+(.+)$"
+    ],
+    "search_cleanup_pattern": "\\b(?:heute|morgen|übermorgen|uebermorgen|diese woche|nächste woche|naechste woche|today|tomorrow|this week|next week)\\b.*$"
+  },
+  "website": {
+    "target_patterns": [
+      "^(?:oeffne|öffne|open|zeige|zeig|show|lies|lese|read)\\s+(?:die|den|das|the)?\\s*(?:beobachtete\\s+)?(?:webseite|website|quelle|source)\\s+(.+)$",
+      "^(?:beobachtete\\s+)?(?:webseite|website|quelle|source)\\s+(.+)$"
+    ]
+  },
+  "content_patterns": [
+    "\\b(?:mit\\s+(?:dem\\s+)?inhalt|inhalt|content)\\b\\s+['\"](.+?)['\"]\\s*$",
+    "\\b(?:mit\\s+(?:dem\\s+)?inhalt|inhalt|content)\\b\\s+(.+)$",
+    "\\b(?:schreib|write)\\b.+?\\b(?:datei|file)\\b.+?:\\s*(.+)$"
+  ],
+  "mail_search_patterns": [
+    "\\b(?:suche|finde|durchsuche|search)\\b.+?\\bnach\\b\\s+(.+)$",
+    "\\b(?:suche|finde|durchsuche|search)\\b\\s+(.+)$"
+  ],
+  "clean_ssh_command_prefix": "^(?:den\\s+|the\\s+)?(?:command|befehl)\\s+",
+  "ssh_action_pattern": "(?:run|execute|exec|start|starte|führe|fuehre)",
+  "ssh_command_prefix_pattern": "(?:(?:den|the)\\s+)?(?:command|befehl)?",
+  "ssh_target_patterns": [
+    "^\\s*{action}\\s+{command_prefix}\\s*(?P<cmd>.+?)\\s+(?:on|auf|via|bei|von)\\s+(?:ssh\\s+)?{target}\\s*(?:aus)?\\s*[.!?]?\\s*$",
+    "^\\s*(?:ssh\\s+)?{target}\\s+{action}\\s+{command_prefix}\\s*(?P<cmd>.+?)\\s*[.!?]?\\s*$"
+  ],
+  "ssh_without_ref_patterns": [
+    "^\\s*{action}\\s+{command_prefix}\\s*(?P<cmd>[A-Za-z0-9_./-]+(?:\\s+[A-Za-z0-9_./=-]+)*)\\s+(?:on|auf|bei|via|gegen)\\s+[A-Za-z0-9_.-]+(?:\\s+[A-Za-z0-9_.-]+)*\\s*[.!?]?\\s*$",
+    "^\\s*{action}\\s+{command_prefix}\\s*(?P<cmd>.+?)\\s+(?:via|per|über|ueber)\\s+ssh\\s*[.!?]?\\s*$",
+    "^\\s*ssh\\s+{action}\\s+{command_prefix}\\s*(?P<cmd>.+?)\\s*[.!?]?\\s*$"
+  ]
+}

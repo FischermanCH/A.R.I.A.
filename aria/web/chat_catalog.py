@@ -12,6 +12,7 @@ from aria.core.connection_catalog import connection_kind_label
 from aria.core.connection_catalog import connection_toolbox_keywords
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.i18n import I18NStore
+from aria.web.recipe_ui_contract import recipe_toolbox_keywords
 
 _I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
@@ -33,41 +34,17 @@ def _chat_connection_example_ref(kind: str, connection_catalog: dict[str, list[s
     return connection_example_ref(kind, connection_catalog)
 
 
-def _chat_connection_create_insert(kind: str, ref: str) -> str:
-    return connection_insert_template(kind, "create", ref)
+def _chat_connection_create_insert(lang: str, kind: str, ref: str) -> str:
+    return connection_insert_template(kind, "create", ref, language=lang)
 
 
-def _chat_connection_update_insert(kind: str, ref: str) -> str:
-    return connection_insert_template(kind, "update", ref)
+def _chat_connection_update_insert(lang: str, kind: str, ref: str) -> str:
+    return connection_insert_template(kind, "update", ref, language=lang)
 
 
 def _localize_connection_insert(lang: str, text: str) -> str:
-    if str(lang or "").strip().lower() == "de":
-        return text
-    localized = str(text or "")
-    replacements = (
-        ("erstelle ", "create "),
-        ("aktualisiere ", "update "),
-        ("ändere ", "update "),
-        ("aendere ", "update "),
-        ("lösche ", "delete "),
-        ("loesche ", "delete "),
-        (" titel ", " title "),
-        (" pfad ", " path "),
-        (" passwort ", " password "),
-        (" schluesselpfad ", " key "),
-        (" keypfad ", " key "),
-        (" beschreibung ", " description "),
-        (" aliase ", " aliases "),
-        (" sprache ", " language "),
-        (" zeitraum ", " time_range "),
-        (" jugendschutz ", " safe_search "),
-        (" kategorien ", " categories "),
-        (" suchmaschinen ", " engines "),
-    )
-    for source, target in replacements:
-        localized = localized.replace(source, target)
-    return localized
+    del lang
+    return str(text or "")
 
 
 def _connection_toolbox_keywords(kind: str, refs: list[str]) -> list[str]:
@@ -145,8 +122,8 @@ def _build_admin_chat_command_entries(lang: str, connection_catalog: dict[str, l
                 "group": "admin",
                 "kind": kind,
                 "icon": _chat_connection_kind_icon(kind),
-                "label": f"{_toolbox_label(lang, 'tool_create_connection', 'Verbindung erstellen')} · {label_kind}",
-                "insert": _localize_connection_insert(lang, _chat_connection_create_insert(kind, example_ref)),
+                "label": f"{_toolbox_label(lang, 'tool_create_connection', 'Create connection')} · {label_kind}",
+                "insert": _localize_connection_insert(lang, _chat_connection_create_insert(lang, kind, example_ref)),
                 "hint": _toolbox_label(
                     lang,
                     "tool_create_connection_hint",
@@ -165,8 +142,8 @@ def _build_admin_chat_command_entries(lang: str, connection_catalog: dict[str, l
                 "group": "admin",
                 "kind": kind,
                 "icon": _chat_connection_kind_icon(kind),
-                "label": f"{_toolbox_label(lang, 'tool_update_connection', 'Verbindung aktualisieren')} · {label_kind}",
-                "insert": _localize_connection_insert(lang, _chat_connection_update_insert(kind, example_ref)),
+                "label": f"{_toolbox_label(lang, 'tool_update_connection', 'Update connection')} · {label_kind}",
+                "insert": _localize_connection_insert(lang, _chat_connection_update_insert(lang, kind, example_ref)),
                 "hint": _toolbox_label(
                     lang,
                     "tool_update_connection_hint",
@@ -192,12 +169,12 @@ def _build_admin_chat_command_entries(lang: str, connection_catalog: dict[str, l
             "group": "admin",
             "icon": _chat_connection_kind_icon(delete_kind),
             "kind": delete_kind,
-            "label": f"{_toolbox_label(lang, 'tool_delete_connection', 'Verbindung löschen')} · {_chat_connection_kind_label(delete_kind)}",
-            "insert": _localize_connection_insert(lang, f"lösche {delete_kind} {delete_ref} "),
+            "label": f"{_toolbox_label(lang, 'tool_delete_connection', 'Delete connection')} · {_chat_connection_kind_label(delete_kind)}",
+            "insert": _toolbox_insert(lang, "tool_delete_connection_insert", "delete {kind} {ref} ").format(kind=delete_kind, ref=delete_ref),
             "hint": _toolbox_label(
                 lang,
                 "tool_delete_connection_hint",
-                "Löscht ein Connection-Profil mit Confirm-Step.",
+                "Deletes a connection profile with a confirmation step.",
             ),
             "keywords": _connection_toolbox_keywords(delete_kind, [delete_ref]),
         }
@@ -210,50 +187,98 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
         {
             "group": "commands",
             "icon": "📝",
-            "label": _toolbox_label(lang, "tool_notes_open", "Notizen öffnen"),
-            "insert": _toolbox_insert(lang, "tool_notes_open_insert", "öffne notizen"),
-            "hint": _toolbox_label(lang, "tool_notes_open_hint", "Öffnet die Notizenverwaltung direkt über den Chat."),
+            "label": _toolbox_label(lang, "tool_notes_open", "Open notes"),
+            "insert": _toolbox_insert(lang, "tool_notes_open_insert", "open notes"),
+            "hint": _toolbox_label(lang, "tool_notes_open_hint", "Opens notes management directly from chat."),
             "keywords": ["notizen", "notes", "markdown", "wissen", "memo"],
         },
         {
             "group": "commands",
             "icon": "🗒️",
-            "label": _toolbox_label(lang, "tool_notes_create", "Notiz anlegen"),
+            "label": _toolbox_label(lang, "tool_notes_create", "Create note"),
             "insert": _toolbox_insert(lang, "tool_notes_create_insert", "erstelle notiz "),
-            "hint": _toolbox_label(lang, "tool_notes_create_hint", "Lege schnell eine Notiz im Format Titel: Inhalt an."),
+            "hint": _toolbox_label(lang, "tool_notes_create_hint", "Quickly create a note in the format Title: Content."),
             "keywords": ["notiz", "note", "merken", "memo", "markdown"],
         },
         {
             "group": "commands",
             "icon": "✍️",
-            "label": _toolbox_label(lang, "tool_notes_capture", "Freie Notiz festhalten"),
+            "label": _toolbox_label(lang, "tool_notes_capture", "Capture free note"),
             "insert": _toolbox_insert(lang, "tool_notes_capture_insert", "halte fest "),
-            "hint": _toolbox_label(lang, "tool_notes_capture_hint", "Speichert eine freie Notiz und ergänzt Titel, Ordner und Tags automatisch."),
+            "hint": _toolbox_label(lang, "tool_notes_capture_hint", "Stores a free-form note and automatically adds title, folder, and tags."),
             "keywords": ["notiz", "note", "festhalten", "capture", "merken", "quick note"],
         },
         {
             "group": "commands",
             "icon": "🔗",
-            "label": _toolbox_label(lang, "tool_notes_from_url", "Webquelle als Notiz"),
+            "label": _toolbox_label(lang, "tool_notes_from_url", "Web source as note"),
             "insert": _toolbox_insert(lang, "tool_notes_from_url_insert", "speichere webseite https:// als notiz"),
-            "hint": _toolbox_label(lang, "tool_notes_from_url_hint", "Zieht Titel und Kurztext aus einer URL und legt daraus eine Notiz an."),
+            "hint": _toolbox_label(lang, "tool_notes_from_url_hint", "Extracts title and summary from a URL and creates a note from it."),
             "keywords": ["url", "link", "webseite", "website", "quelle", "source", "notiz"],
         },
         {
             "group": "commands",
             "icon": "🔎",
-            "label": _toolbox_label(lang, "tool_notes_search", "Notizen durchsuchen"),
+            "label": _toolbox_label(lang, "tool_notes_search", "Search notes"),
             "insert": _toolbox_insert(lang, "tool_notes_search_insert", "suche in notizen nach "),
-            "hint": _toolbox_label(lang, "tool_notes_search_hint", "Durchsucht deine Notizen semantisch oder lexikalisch."),
+            "hint": _toolbox_label(lang, "tool_notes_search_hint", "Searches your notes semantically or lexically."),
             "keywords": ["notizen", "notes", "suche", "search", "wissen"],
         },
         {
             "group": "commands",
+            "icon": "🗂️",
+            "label": _toolbox_label(lang, "tool_notes_folders", "Show note folders"),
+            "insert": _toolbox_insert(lang, "tool_notes_folders_insert", "zeige ordner in notizen"),
+            "hint": _toolbox_label(lang, "tool_notes_folders_hint", "Lists existing note folders directly in chat."),
+            "keywords": ["notizen", "notes", "ordner", "folder", "struktur"],
+        },
+        {
+            "group": "commands",
+            "icon": "📂",
+            "label": _toolbox_label(lang, "tool_notes_in_folder", "Notes in folder"),
+            "insert": _toolbox_insert(lang, "tool_notes_in_folder_insert", "zeige notizen in "),
+            "hint": _toolbox_label(lang, "tool_notes_in_folder_hint", "Lists notes from a specific folder."),
+            "keywords": ["notizen", "notes", "ordner", "folder", "liste"],
+        },
+        {
+            "group": "commands",
             "icon": "🌐",
-            "label": _toolbox_label(lang, "tool_web_search_with_notes", "Websuche mit Notizen"),
+            "label": _toolbox_label(lang, "tool_web_search_with_notes", "Web search with notes"),
             "insert": _toolbox_insert(lang, "tool_web_search_with_notes_insert", "suche im internet nach  mit meinen notizen"),
-            "hint": _toolbox_label(lang, "tool_web_search_with_notes_hint", "Kombiniert Websuche mit passendem Notiz-Kontext."),
+            "hint": _toolbox_label(lang, "tool_web_search_with_notes_hint", "Combines web search with matching note context."),
             "keywords": ["web", "internet", "notizen", "notes", "recherche", "search"],
+        },
+        {
+            "group": "commands",
+            "icon": "🔗",
+            "label": _toolbox_label(lang, "tool_websites_open", "Open watched websites"),
+            "insert": _toolbox_insert(lang, "tool_websites_open_insert", "open watched websites"),
+            "hint": _toolbox_label(lang, "tool_websites_open_hint", "Opens the watched websites directly from chat."),
+            "keywords": ["webseite", "website", "beobachten", "quellen", "links"],
+        },
+        {
+            "group": "commands",
+            "icon": "📋",
+            "label": _toolbox_label(lang, "tool_websites_list", "Beobachtete Webseiten zeigen"),
+            "insert": _toolbox_insert(lang, "tool_websites_list_insert", "zeige beobachtete webseiten"),
+            "hint": _toolbox_label(lang, "tool_websites_list_hint", "Listet die aktuell gespeicherten Webseiten im Chat."),
+            "keywords": ["webseite", "website", "beobachten", "liste", "quellen"],
+        },
+        {
+            "group": "commands",
+            "icon": "✏️",
+            "label": _toolbox_label(lang, "tool_websites_edit", "Beobachtete Webseite bearbeiten"),
+            "insert": _toolbox_insert(lang, "tool_websites_edit_insert", "edit watched website "),
+            "hint": _toolbox_label(lang, "tool_websites_edit_hint", "Updates title, group, or URL of a watched website through the confirmation flow."),
+            "keywords": ["webseite", "website", "bearbeiten", "update", "gruppe", "titel"],
+        },
+        {
+            "group": "commands",
+            "icon": "➕",
+            "label": _toolbox_label(lang, "tool_websites_watch", "Webseite beobachten"),
+            "insert": _toolbox_insert(lang, "tool_websites_watch_insert", "beobachte https://"),
+            "hint": _toolbox_label(lang, "tool_websites_watch_hint", "Legt eine beobachtete Webseite per Chat an und nutzt den bestehenden Confirm-Step."),
+            "keywords": ["webseite", "website", "beobachten", "hinzufuegen", "url", "link"],
         },
         {
             "group": "commands",
@@ -266,18 +291,18 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
         {
             "group": "commands",
             "icon": "📊",
-            "label": _toolbox_label(lang, "tool_open_stats", "Stats öffnen"),
+            "label": _toolbox_label(lang, "tool_open_stats", "Open stats"),
             "insert": _toolbox_insert(lang, "tool_open_stats_insert", "zeige stats"),
-            "hint": _toolbox_label(lang, "tool_open_stats_hint", "Zeigt Statistik- und Statusseiten direkt über den Chat an."),
+            "hint": _toolbox_label(lang, "tool_open_stats_hint", "Shows statistics and status pages directly from chat."),
             "keywords": ["stats", "statistik", "statistiken", "status", "metrics"],
         },
         {
             "group": "commands",
             "icon": "🧾",
-            "label": _toolbox_label(lang, "tool_open_activities", "Aktivitäten öffnen"),
-            "insert": _toolbox_insert(lang, "tool_open_activities_insert", "zeige aktivitäten"),
-            "hint": _toolbox_label(lang, "tool_open_activities_hint", "Öffnet Aktivitäten & Runs direkt aus dem Chat."),
-            "keywords": ["aktivitäten", "aktivitaeten", "activities", "runs", "logs"],
+            "label": _toolbox_label(lang, "tool_open_activities", "Open activities"),
+            "insert": _toolbox_insert(lang, "tool_open_activities_insert", "show activities"),
+            "hint": _toolbox_label(lang, "tool_open_activities_hint", "Opens Activities & Runs directly from chat."),
+            "keywords": ["aktivitaeten", "activities", "runs", "logs"],
         },
     ]
     admin_entries: list[dict[str, Any]] = [
@@ -286,13 +311,13 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
             "icon": "🚀",
             "label": _toolbox_label(lang, "tool_update_run", "Kontrolliertes Update starten"),
             "insert": _toolbox_insert(lang, "tool_update_run_insert", "starte update"),
-            "hint": _toolbox_label(lang, "tool_update_run_hint", "Startet den konfigurierten Update-Pfad mit Bestätigungscode."),
+            "hint": _toolbox_label(lang, "tool_update_run_hint", "Starts the configured update path with a confirmation code."),
             "keywords": ["update", "upgrade", "release", "deploy", "helper"],
         },
         {
             "group": "admin",
             "icon": "🩺",
-            "label": _toolbox_label(lang, "tool_update_status", "Update-Status prüfen"),
+            "label": _toolbox_label(lang, "tool_update_status", "Check update status"),
             "insert": _toolbox_insert(lang, "tool_update_status_insert", "zeige update status"),
             "hint": _toolbox_label(lang, "tool_update_status_hint", "Fragt den GUI-Update-Helper direkt aus dem Chat ab."),
             "keywords": ["update", "status", "helper", "deploy"],
@@ -306,7 +331,7 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
                     "icon": "📦",
                     "label": _toolbox_label(lang, "tool_backup_export", "Config-Backup exportieren"),
                     "insert": _toolbox_insert(lang, "tool_backup_export_insert", "exportiere config backup"),
-                    "hint": _toolbox_label(lang, "tool_backup_export_hint", "Erstellt einen Download-Link für das aktuelle Konfigurations-Backup."),
+                    "hint": _toolbox_label(lang, "tool_backup_export_hint", "Creates a download link for the current configuration backup."),
                     "keywords": ["backup", "export", "config", "konfig", "restore"],
                 },
                 {
@@ -314,7 +339,7 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
                     "icon": "♻️",
                     "label": _toolbox_label(lang, "tool_backup_import", "Config-Backup importieren"),
                     "insert": _toolbox_insert(lang, "tool_backup_import_insert", "importiere config backup"),
-                    "hint": _toolbox_label(lang, "tool_backup_import_hint", "Öffnet den Restore-Weg für ein vorhandenes Config-Backup."),
+                    "hint": _toolbox_label(lang, "tool_backup_import_hint", "Opens the restore path for an existing configuration backup."),
                     "keywords": ["backup", "import", "restore", "config", "konfig"],
                 },
             ]
@@ -329,8 +354,8 @@ def build_chat_command_catalog(
     advanced_mode: bool,
     recall_templates: list[str],
     store_templates: list[str],
-    skill_trigger_hints: list[str],
-    skill_toolbox_rows: list[dict[str, Any]] | None = None,
+    recipe_trigger_hints: list[str],
+    recipe_toolbox_rows: list[dict[str, Any]] | None = None,
     connection_catalog: dict[str, list[str]] | None = None,
     recent_messages: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]:
@@ -341,16 +366,16 @@ def build_chat_command_catalog(
             "icon": "⌨",
             "label": "/cls",
             "insert": "/cls",
-            "hint": _toolbox_label(lang, "slash_cls_hint", "Lokalen Chatverlauf löschen"),
-            "keywords": ["clear", "cls", "chat löschen", "verlauf löschen", "chat reset"],
+            "hint": _toolbox_label(lang, "slash_cls_hint", "Delete local chat history"),
+            "keywords": ["clear", "cls", "chat loeschen", "verlauf loeschen", "chat reset"],
         },
         {
             "group": "commands",
             "icon": "⌨",
             "label": "/clear",
             "insert": "/clear",
-            "hint": _toolbox_label(lang, "slash_cls_hint", "Lokalen Chatverlauf löschen"),
-            "keywords": ["clear", "cls", "chat löschen", "verlauf löschen", "chat reset"],
+            "hint": _toolbox_label(lang, "slash_cls_hint", "Delete local chat history"),
+            "keywords": ["clear", "cls", "chat loeschen", "verlauf loeschen", "chat reset"],
         },
         *system_entries,
     ]
@@ -360,7 +385,7 @@ def build_chat_command_catalog(
         value = str(item or "").strip()
         if not value:
             continue
-        display_insert = _toolbox_insert(lang, "tool_memory_read_insert", "was weißt du über ")
+        display_insert = _toolbox_insert(lang, "tool_memory_read_insert", "what do you know about ")
         if display_insert in seen_read_inserts:
             continue
         seen_read_inserts.add(display_insert)
@@ -393,8 +418,8 @@ def build_chat_command_catalog(
                 "keywords": [value, display_insert.strip(), "merken", "speichern", "memory", "wissen"],
             }
         )
-    if skill_toolbox_rows:
-        for row in skill_toolbox_rows[:40]:
+    if recipe_toolbox_rows:
+        for row in recipe_toolbox_rows[:40]:
             insert_text = str(row.get("insert", "") or "").strip()
             label = str(row.get("label", "") or "").strip()
             hint = str(row.get("hint", "") or "").strip()
@@ -402,38 +427,44 @@ def build_chat_command_catalog(
             if not insert_text:
                 insert_text = label or hint
             if not label:
-                label = insert_text or _toolbox_label(lang, "slash_skill_cmd", "/skill")
+                label = insert_text or _toolbox_label(lang, "slash_skill_cmd", "/recipe")
             if not hint:
                 hint = insert_text or label
             if not insert_text:
                 continue
             entries.append(
                 {
-                    "group": "skills",
+                    "group": "recipes",
                     "icon": "🧩",
                     "label": label,
-                    "badge": _toolbox_label(lang, "slash_skill_cmd", "/skill"),
+                    "badge": _toolbox_label(lang, "slash_skill_cmd", "/recipe"),
                     "insert": insert_text if insert_text.endswith(" ") else insert_text + " ",
                     "hint": hint,
-                    "keywords": list(
-                        dict.fromkeys(keywords + [label.lower(), hint.lower(), insert_text.lower(), "skill", "automation", "aktion"])
+                    "keywords": recipe_toolbox_keywords(
+                        *keywords,
+                        label.lower(),
+                        hint.lower(),
+                        insert_text.lower(),
+                        "skill",
+                        "recipe",
+                        "playbook",
                     ),
                 }
             )
     else:
-        for value in skill_trigger_hints[:40]:
+        for value in recipe_trigger_hints[:40]:
             hint = str(value or "").strip()
             if not hint:
                 continue
             entries.append(
                 {
-                    "group": "skills",
+                    "group": "recipes",
                     "icon": "🧩",
                     "label": hint,
-                    "badge": _toolbox_label(lang, "slash_skill_cmd", "/skill"),
+                    "badge": _toolbox_label(lang, "slash_skill_cmd", "/recipe"),
                     "insert": hint if hint.endswith(" ") else hint + " ",
-                    "hint": _toolbox_label(lang, "slash_skill_cmd", "/skill"),
-                    "keywords": [hint, "skill", "automation", "aktion"],
+                    "hint": _toolbox_label(lang, "slash_skill_cmd", "/recipe"),
+                    "keywords": recipe_toolbox_keywords(hint, "skill", "recipe", "playbook"),
                 }
             )
 
@@ -446,7 +477,7 @@ def build_chat_command_catalog(
         "commands": _toolbox_label(lang, "slash_commands", "Commands"),
         "read": _toolbox_label(lang, "slash_read", "Memory lesen"),
         "store": _toolbox_label(lang, "slash_store", "Memory speichern"),
-        "skills": _toolbox_label(lang, "slash_skills", "Skills"),
+        "recipes": _toolbox_label(lang, "slash_skills", "Recipes"),
         "admin": _toolbox_label(lang, "slash_admin", "Admin"),
     }
     group_icons = {
@@ -454,7 +485,7 @@ def build_chat_command_catalog(
         "commands": "⌨",
         "read": "📖",
         "store": "💾",
-        "skills": "🧩",
+        "recipes": "🧩",
         "admin": "🛠",
     }
 
@@ -462,7 +493,7 @@ def build_chat_command_catalog(
     for row in entries:
         grouped.setdefault(str(row.get("group", "commands")), []).append(row)
 
-    order = ["commands", "read", "store", "skills", "admin"]
+    order = ["commands", "read", "store", "recipes", "admin"]
     toolbox_groups: list[dict[str, Any]] = []
     suggested_group = _build_suggested_toolbox_group(lang, entries, recent_messages)
     if suggested_group:
@@ -472,7 +503,7 @@ def build_chat_command_catalog(
         rows = grouped.get(group_key, [])
         if not rows:
             continue
-        limit = 6 if group_key in {"skills", "read", "store"} else 12
+        limit = 6 if group_key in {"recipes", "read", "store"} else 12
         toolbox_groups.append(
             {
                 "key": group_key,

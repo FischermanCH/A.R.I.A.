@@ -7,6 +7,13 @@ import shlex
 from typing import Any, Callable
 
 from aria.core.guardrails import evaluate_guardrail, resolve_guardrail_profile
+from aria.core.recipe_runtime_contract import DIRECT_SSH_RECIPE_ID
+from aria.core.recipe_runtime_contract import RECIPE_SSH_NONZERO_EXIT_ERROR
+from aria.core.recipe_runtime_contract import build_recipe_runtime_skill_name
+from aria.core.recipe_runtime_contract import recipe_ssh_error
+from aria.core.ssh_guardrail_commands import combined_ssh_allow_commands
+from aria.core.ssh_guardrail_commands import ssh_guardrail_allow_terms
+from aria.core.ssh_policy import command_matches_allow_commands, validate_ssh_readonly_policy
 from aria.skills.base import SkillResult
 
 
@@ -82,17 +89,17 @@ class SSHRuntime:
     ) -> SkillResult:
         if not connection_ref:
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error="custom_skill_ssh_missing_connection_ref",
+                error=recipe_ssh_error("missing_connection_ref"),
             )
         if not command_template:
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error="custom_skill_ssh_missing_command",
+                error=recipe_ssh_error("missing_command"),
             )
 
         connection = self.settings.connections.ssh.get(connection_ref)
@@ -104,42 +111,59 @@ class SSHRuntime:
                     break
         if not connection:
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error=f"custom_skill_ssh_connection_not_found:{connection_ref}",
+                error=recipe_ssh_error("connection_not_found", connection_ref),
             )
 
         host = str(connection.host or "").strip()
         user = str(connection.user or "").strip()
         if not host or not user:
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error="custom_skill_ssh_invalid_connection",
+                error=recipe_ssh_error("invalid_connection"),
             )
 
         query = self.normalize_spaces(message)
         command = self._render_command_template(command_template, query)
         if not command:
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error="custom_skill_ssh_empty_command",
+                error=recipe_ssh_error("empty_command"),
             )
         lowered = self.normalize_spaces(command).lower()
-        allow_list = [str(item).strip().lower() for item in connection.allow_commands if str(item).strip()]
-        if allow_list and not any(token in lowered for token in allow_list):
-            return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
-                content="",
-                success=False,
-                error="custom_skill_ssh_not_allowed",
-            )
         guardrail_ref = str(getattr(connection, "guardrail_ref", "") or "").strip()
         guardrail_profile = resolve_guardrail_profile(self.settings, guardrail_ref)
+        allow_list = [str(item).strip().lower() for item in connection.allow_commands if str(item).strip()]
+        guardrail_allow_list = [item.lower() for item in ssh_guardrail_allow_terms(guardrail_profile)]
+        effective_allow_list = combined_ssh_allow_commands(allow_list, guardrail_allow_list)
+        if skill_id == DIRECT_SSH_RECIPE_ID:
+            policy = validate_ssh_readonly_policy(command, allow_commands=effective_allow_list)
+            if policy.action != "allow":
+                if policy.reason == "ssh_command_not_in_allow_list":
+                    error = recipe_ssh_error("not_allowed")
+                elif policy.action == "ask_user":
+                    error = recipe_ssh_error("policy_confirmation_required", policy.reason)
+                else:
+                    error = recipe_ssh_error("policy_blocked", policy.reason)
+                return SkillResult(
+                    skill_name=build_recipe_runtime_skill_name(skill_id),
+                    content="",
+                    success=False,
+                    error=error,
+                )
+        elif allow_list and not command_matches_allow_commands(command, allow_list):
+            return SkillResult(
+                skill_name=build_recipe_runtime_skill_name(skill_id),
+                content="",
+                success=False,
+                error=recipe_ssh_error("not_allowed"),
+            )
         guardrail_decision = evaluate_guardrail(
             profile_ref=guardrail_ref,
             profile=guardrail_profile,
@@ -148,31 +172,31 @@ class SSHRuntime:
         )
         if not guardrail_decision.allowed and guardrail_decision.reason == "guardrail_denied":
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error=f"custom_skill_ssh_guardrail_denied:{guardrail_ref or 'default'}",
+                error=recipe_ssh_error("guardrail_denied", guardrail_ref or "default"),
             )
         if not guardrail_decision.allowed and guardrail_decision.reason == "guardrail_not_allowed":
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error=f"custom_skill_ssh_guardrail_not_allowed:{guardrail_ref or 'default'}",
+                error=recipe_ssh_error("guardrail_not_allowed", guardrail_ref or "default"),
             )
         if not guardrail_decision.allowed and guardrail_decision.reason.startswith("guardrail_kind_mismatch"):
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error=f"custom_skill_ssh_guardrail_kind_mismatch:{guardrail_ref or 'default'}",
+                error=recipe_ssh_error("guardrail_kind_mismatch", guardrail_ref or "default"),
             )
         if any(char in command for char in ("`", "\n", "\r")):
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error="custom_skill_ssh_command_rejected",
+                error=recipe_ssh_error("command_rejected"),
             )
 
         target = f"{user}@{host}"
@@ -211,17 +235,17 @@ class SSHRuntime:
                 with contextlib.suppress(Exception):
                     proc.kill()
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error="custom_skill_ssh_timeout",
+                error=recipe_ssh_error("timeout"),
             )
         except Exception as exc:
             return SkillResult(
-                skill_name=f"custom_skill_{skill_id}",
+                skill_name=build_recipe_runtime_skill_name(skill_id),
                 content="",
                 success=False,
-                error=f"custom_skill_ssh_exec_error:{exc}",
+                error=recipe_ssh_error("exec_error", str(exc)),
             )
 
         exit_code = int(proc.returncode or 0)
@@ -231,7 +255,7 @@ class SSHRuntime:
         display_stderr = self._filter_stderr_for_display(stderr)
         warning_hints = self._extract_warning_hints(stdout, stderr)
         lines = [
-            f"[Custom Skill SSH] {skill_name}",
+            f"[Stored Recipe SSH] {skill_name}",
             f"Connection: {connection_ref} ({target})",
             f"Exit Code: {exit_code}",
             f"Dauer: {duration_seconds:.1f}s",
@@ -240,7 +264,7 @@ class SSHRuntime:
         if exit_code != 0:
             interpretation = self.error_interpreter.interpret(
                 language=language,
-                error_code="custom_skill_ssh_nonzero_exit",
+                error_code=RECIPE_SSH_NONZERO_EXIT_ERROR,
                 stdout=stdout,
                 stderr=stderr,
                 exit_code=exit_code,
@@ -255,19 +279,22 @@ class SSHRuntime:
             lines.append("STDERR:\n" + display_stderr)
         held_packages = self.extract_held_packages(stdout + "\n" + stderr)
         return SkillResult(
-            skill_name=f"custom_skill_{skill_id}",
+            skill_name=build_recipe_runtime_skill_name(skill_id),
             content="\n".join(lines),
             success=exit_code == 0,
-            error="" if exit_code == 0 else "custom_skill_ssh_nonzero_exit",
+            error="" if exit_code == 0 else RECIPE_SSH_NONZERO_EXIT_ERROR,
             metadata={
                 "custom_skill_id": skill_id,
                 "custom_skill_name": skill_name,
                 "custom_execution": "ssh_command",
                 "custom_connection_ref": connection_ref,
                 "custom_connection_target": target,
+                "custom_command": command,
                 "custom_exit_code": exit_code,
                 "custom_duration_seconds": duration_seconds,
                 "custom_timeout_seconds": configured_timeout,
+                "custom_stdout": stdout,
+                "custom_stderr": stderr,
                 "custom_held_packages": held_packages,
                 "custom_warning_hints": warning_hints,
                 "error_interpretation": (

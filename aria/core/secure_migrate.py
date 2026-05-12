@@ -8,12 +8,25 @@ from typing import Any
 import yaml
 
 from aria.core.config import ensure_secret_value
+from aria.core.i18n import I18NStore
 from aria.core.secure_store import (
     SecureConfigStore,
     SecureStoreConfig,
     decode_master_key,
     generate_master_key_b64,
 )
+
+_SECURE_MIGRATE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _secure_migrate_text(key: str, default: str = "", **values: object) -> str:
+    template = _SECURE_MIGRATE_I18N.t("de", f"secure_migrate.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 SECRET_KEYS = (
@@ -26,10 +39,10 @@ SECRET_KEYS = (
 
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
-        raise FileNotFoundError(f"Config fehlt: {path}")
+        raise FileNotFoundError(_secure_migrate_text("config_missing", "Config missing: {path}", path=path))
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict):
-        raise ValueError("config.yaml muss ein Mapping sein.")
+        raise ValueError(_secure_migrate_text("config_not_mapping", "config.yaml must be a mapping."))
     return data
 
 
@@ -118,13 +131,19 @@ def migrate(config_path: Path, strip: bool = True) -> dict[str, int]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Migriert Secret-Konfig in verschlüsselte SQLite.")
+    parser = argparse.ArgumentParser(
+        description=_secure_migrate_text("parser_description", "Migrates secret config into encrypted SQLite.")
+    )
     parser.add_argument("--config", default="config/config.yaml")
-    parser.add_argument("--no-strip", action="store_true", help="Secrets nicht aus config.yaml entfernen")
+    parser.add_argument(
+        "--no-strip",
+        action="store_true",
+        help=_secure_migrate_text("no_strip_help", "Do not remove secrets from config.yaml"),
+    )
     args = parser.parse_args()
 
     stats = migrate(Path(args.config), strip=not args.no_strip)
-    print(f"Secure migration abgeschlossen. Eintraege: {stats['migrated']}")
+    print(_secure_migrate_text("completed", "Secure migration completed. Entries: {count}", count=stats["migrated"]))
     return 0
 
 

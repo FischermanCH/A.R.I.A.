@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="skills-layout skills-clean-layout skills-overview-layout">
+  {% include "_recipes_nav.html" %}
+  {% include "_recipes_page_header.html" %}
+
+  <section class="floating-card skills-overview-links">
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/recipes/start">
+        <span class="submenu-icon-wrap">{{ icon('plus', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'recipes.start_title', 'Rezept starten') }}</span><span class="submenu-desc">{{ tr(request, 'recipes.start_page_card_desc', 'Wizard und JSON-Import an einem Startpunkt, ohne die eigentlichen Rezeptlisten zu überladen.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/recipes/mine">
+        <span class="submenu-icon-wrap">{{ icon('skills', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'recipes.my_recipes_title', 'Meine Rezepte') }}</span><span class="submenu-desc">{{ tr(request, 'recipes.mine_page_card_desc', 'Nur deine eigenen Rezepte, getrennt von Core und Vorlagen.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/recipes/learned">
+        <span class="submenu-icon-wrap">{{ icon('stats', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'learned_recipes.title', 'Gelernte Rezepte') }}</span><span class="submenu-desc">{{ tr(request, 'learned_recipes.page_card_desc', 'Erfolgreiche Muster mit Erfahrung, Review-Status und späterer Promotion an einem Ort.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/recipes/system">
+        <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'recipes.system_title', 'Core / System') }}</span><span class="submenu-desc">{{ tr(request, 'recipes.system_page_card_desc', 'Die eingebauten Grundfähigkeiten von ARIA gebündelt an einem eigenen Ort.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/recipes/templates">
+        <span class="submenu-icon-wrap">{{ icon('upload', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'recipes.templates_title', 'Vorlagen / Playbooks') }}</span><span class="submenu-desc">{{ tr(request, 'recipes.templates_page_card_desc', 'Mitgelieferte Sample-Rezepte als getrennte Vorlagen-Bibliothek.') }}</span></span>
+      </a>
+    </div>
+  </section>
+</main>
+{% endblock %}

@@ -7,7 +7,10 @@ import pytest
 
 from aria.core.config import EmbeddingsConfig, LLMConfig
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.embedding_client import EmbeddingClientError
 from aria.core.llm_client import LLMClient, LLMClientError
+import aria.core.llm_client as llm_client_mod
+import aria.core.embedding_client as embedding_client_mod
 
 
 def _client() -> LLMClient:
@@ -40,7 +43,7 @@ def test_llm_client_returns_non_empty_content(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr("aria.core.llm_client.acompletion", _fake_completion)
+    monkeypatch.setattr("aria.core.llm_client._acompletion", _fake_completion)
 
     response = asyncio.run(_client().chat([{"role": "user", "content": "Hallo"}]))
 
@@ -68,7 +71,7 @@ def test_llm_client_raises_on_empty_content(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr("aria.core.llm_client.acompletion", _fake_completion)
+    monkeypatch.setattr("aria.core.llm_client._acompletion", _fake_completion)
 
     with pytest.raises(LLMClientError, match="ohne Textinhalt"):
         asyncio.run(_client().chat([{"role": "user", "content": "Hallo"}]))
@@ -85,9 +88,19 @@ def test_llm_client_raises_without_choices(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr("aria.core.llm_client.acompletion", _fake_completion)
+    monkeypatch.setattr("aria.core.llm_client._acompletion", _fake_completion)
 
     with pytest.raises(LLMClientError, match="ohne Textinhalt"):
+        asyncio.run(_client().chat([{"role": "user", "content": "Hallo"}]))
+
+
+def test_llm_client_import_is_not_hard_bound_to_litellm(monkeypatch):
+    def _missing_litellm(_name: str):
+        raise ModuleNotFoundError("No module named 'litellm'")
+
+    monkeypatch.setattr(llm_client_mod, "import_module", _missing_litellm)
+
+    with pytest.raises(LLMClientError, match="LiteLLM ist nicht installiert"):
         asyncio.run(_client().chat([{"role": "user", "content": "Hallo"}]))
 
 
@@ -96,3 +109,14 @@ def test_embedding_client_fingerprint_ignores_api_base_trailing_slash() -> None:
     right = EmbeddingClient(EmbeddingsConfig(model="text-embedding-3-small", api_base="https://api.example.com/v1/"))
 
     assert left.fingerprint() == right.fingerprint()
+
+
+def test_embedding_client_import_is_not_hard_bound_to_litellm(monkeypatch):
+    def _missing_litellm(_name: str):
+        raise ModuleNotFoundError("No module named 'litellm'")
+
+    monkeypatch.setattr(embedding_client_mod, "import_module", _missing_litellm)
+    client = EmbeddingClient(EmbeddingsConfig(model="text-embedding-3-small", api_key="test"))
+
+    with pytest.raises(EmbeddingClientError, match="LiteLLM is not installed"):
+        asyncio.run(client.embed(["Hallo"]))

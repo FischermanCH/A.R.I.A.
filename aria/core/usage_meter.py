@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from aria.core.config import Settings
-from aria.core.pricing_catalog import resolve_litellm_pricing_entry
+from aria.core.pricing_catalog import resolve_pricing_entry
 from aria.core.token_tracker import TokenTracker
 
 
@@ -93,18 +93,21 @@ class UsageMeter:
         ) / 1_000_000
 
     def _resolve_pricing_entry(self, entries: dict[str, Any], model_name: str) -> Any | None:
-        clean = str(model_name or "").strip()
-        if not clean:
-            return None
-        if clean in entries:
-            return entries[clean]
-        return resolve_litellm_pricing_entry(clean)
+        return resolve_pricing_entry(
+            entries,
+            model_name,
+            model_aliases=getattr(self.settings.pricing, "model_aliases", {}),
+        )
 
     def current_scope(self) -> UsageScope | None:
         return self._scope_var.get()
 
     @contextmanager
     def scope(self, *, request_id: str, user_id: str, source: str, router_level: int) -> Any:
+        existing = self.current_scope()
+        if existing is not None:
+            yield existing
+            return
         scope = UsageScope(
             request_id=str(request_id or "").strip() or str(uuid4()),
             user_id=str(user_id or "").strip() or "web",

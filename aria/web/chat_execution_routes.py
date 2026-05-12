@@ -68,11 +68,16 @@ class ChatExecutionRouteDeps:
     routed_action_pending_cookie: str
     connection_pending_max_age_seconds: int
     forget_signing_secret: str
+    pending_signing_secret: str
 
 
 def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -> None:
     @app.post("/chat", response_class=HTMLResponse)
-    async def chat(request: Request, message: str = Form(...)) -> HTMLResponse:
+    async def chat(
+        request: Request,
+        message: str = Form(...),
+        routed_action_pending: str = Form(""),
+    ) -> HTMLResponse:
         settings = deps.get_settings()
         secure_cookie = deps.cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         clean_message = message.strip()
@@ -107,7 +112,8 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             sanitize_username=deps.sanitize_username,
             sanitize_connection_name=deps.sanitize_connection_name,
             sanitize_role=deps.sanitize_role,
-            signing_secret=deps.forget_signing_secret,
+            forget_signing_secret=deps.forget_signing_secret,
+            pending_signing_secret=deps.pending_signing_secret,
             connection_pending_max_age_seconds=deps.connection_pending_max_age_seconds,
             forget_pending_cookie=deps.forget_pending_cookie,
             safe_fix_pending_cookie=deps.safe_fix_pending_cookie,
@@ -116,6 +122,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             connection_update_pending_cookie=deps.connection_update_pending_cookie,
             update_pending_cookie=deps.update_pending_cookie,
             routed_action_pending_cookie=deps.routed_action_pending_cookie,
+            routed_action_pending_override=routed_action_pending,
         )
 
         response_state = await execute_chat_flow(
@@ -142,6 +149,8 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 "badge_cost_usd": response_state.cost_usd,
                 "badge_duration": response_state.duration_s,
                 "badge_details": response_state.badge_details,
+                "routed_action_confirm_command": response_state.routed_action_confirm_command,
+                "routed_action_confirm_payload": response_state.routed_action_confirm_payload,
             },
         )
         if username and response_state.assistant_text:

@@ -11,6 +11,9 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aria.core.stored_recipe_manifest_view import stored_recipe_candidate_metadata
+from aria.web.config_routing_i18n import config_routing_lang, config_routing_text
+
 
 SettingsGetter = Callable[[], Any]
 PipelineGetter = Callable[[], Any]
@@ -25,11 +28,11 @@ RawConfigReader = Callable[[], dict[str, Any]]
 RawConfigWriter = Callable[[dict[str, Any]], None]
 RuntimeReloader = Callable[[], None]
 LinesParser = Callable[[str], list[str]]
-CustomSkillManifestLoader = Callable[[], tuple[list[dict[str, Any]], list[str]]]
-CustomSkillFileResolver = Callable[[str], Path]
-CustomSkillSaver = Callable[[dict[str, Any]], dict[str, Any]]
+StoredRecipeManifestLoader = Callable[[], tuple[list[dict[str, Any]], list[str]]]
+StoredRecipeFileResolver = Callable[[str], Path]
+StoredRecipeSaver = Callable[[dict[str, Any]], dict[str, Any]]
 TriggerIndexBuilder = Callable[[], dict[str, Any]]
-SkillRoutingInfoFormatter = Callable[[str, str], str]
+RecipeRoutingInfoFormatter = Callable[[str, str], str]
 KeywordSuggester = Callable[..., Awaitable[list[str]]]
 RoutingIndexStatusBuilder = Callable[[Any], Awaitable[dict[str, Any]]]
 RoutingIndexTester = Callable[..., Awaitable[dict[str, Any]]]
@@ -52,11 +55,11 @@ class ConfigRoutingRouteDeps:
     write_raw_config: RawConfigWriter
     reload_runtime: RuntimeReloader
     parse_lines: LinesParser
-    load_custom_skill_manifests: CustomSkillManifestLoader
-    custom_skill_file: CustomSkillFileResolver
-    save_custom_skill_manifest: CustomSkillSaver
+    load_stored_recipe_manifests: StoredRecipeManifestLoader
+    stored_recipe_file: StoredRecipeFileResolver
+    save_stored_recipe_manifest: StoredRecipeSaver
     refresh_skill_trigger_index: TriggerIndexBuilder
-    format_skill_routing_info: SkillRoutingInfoFormatter
+    format_recipe_routing_info: RecipeRoutingInfoFormatter
     suggest_skill_keywords_with_llm: KeywordSuggester
     build_connection_routing_index_status: RoutingIndexStatusBuilder
     test_connection_routing_query: RoutingIndexTester
@@ -64,6 +67,7 @@ class ConfigRoutingRouteDeps:
 
 
 def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -> None:
+    # Transitional route: the legacy skill-routing URL still serves recipe routing.
     @app.get("/config/routing", response_class=HTMLResponse)
     async def config_routing_page(
         request: Request,
@@ -85,7 +89,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
                 target_url += "&routing_llm_qdrant_only=1"
             return deps.redirect_with_return_to(target_url, request, fallback="/config")
         settings = deps.get_settings()
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = config_routing_lang(request)
         return_to = deps.set_logical_back_url(request, fallback="/config/workbench")
         supported_languages = list(getattr(request.state, "supported_languages", []) or [])
         selected_scope = str(scope or "default").strip().lower() or "default"
@@ -109,7 +113,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
             logical_back_fallback="/config/workbench",
             page_return_to="/config/workbench",
             config_nav="workbench",
-            page_heading=deps.msg(lang, "Routing & Memory Rules", "Routing & memory rules"),
+            page_heading=config_routing_text(lang, "heading_rules", "Routing & memory rules"),
         )
         context.update(
             {
@@ -137,7 +141,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
     ) -> HTMLResponse:
         settings = deps.get_settings()
         pipeline = deps.get_pipeline()
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = config_routing_lang(request)
         return_to = deps.set_logical_back_url(request, fallback="/config/workbench")
         supported_languages = list(getattr(request.state, "supported_languages", []) or [])
         selected_scope = str(scope or "default").strip().lower() or "default"
@@ -162,7 +166,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
             logical_back_fallback="/config/workbench",
             page_return_to="/config/workbench",
             config_nav="workbench",
-            page_heading=deps.msg(lang, "Routing Workbench", "Routing workbench"),
+            page_heading=config_routing_text(lang, "heading_workbench", "Routing workbench"),
         )
         context.update(
             {
@@ -251,6 +255,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
         return_to: str = Form(""),
     ) -> RedirectResponse:
         auth = deps.get_auth_session_from_request(request) or {}
+        lang = config_routing_lang(request)
         selected_scope = str(scope or "default").strip().lower() or "default"
         if deps.sanitize_role(auth.get("role")) != "admin":
             return deps.redirect_with_return_to(
@@ -262,10 +267,10 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
         try:
             threshold = float(str(qdrant_score_threshold or "0.72").strip().replace(",", "."))
             if threshold < 0.0 or threshold > 1.0:
-                raise ValueError("Threshold muss zwischen 0.00 und 1.00 liegen.")
+                raise ValueError(config_routing_text(lang, "threshold_range", "Threshold must be between 0.00 and 1.00."))
             candidate_limit = int(str(qdrant_candidate_limit or "5").strip())
             if candidate_limit < 1 or candidate_limit > 20:
-                raise ValueError("Limit muss zwischen 1 und 20 liegen.")
+                raise ValueError(config_routing_text(lang, "limit_range", "Limit must be between 1 and 20."))
 
             raw = deps.read_raw_config()
             raw.setdefault("routing", {})
@@ -279,7 +284,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
             deps.write_raw_config(raw)
             deps.reload_runtime()
             return deps.redirect_with_return_to(
-                f"/config/routing?scope={quote_plus(selected_scope)}&info={quote_plus('Live-Qdrant-Routing gespeichert.')}",
+                f"/config/routing?scope={quote_plus(selected_scope)}&info={quote_plus(config_routing_text(lang, 'qdrant_saved', 'Live Qdrant routing saved.'))}",
                 request,
                 fallback="/config",
                 return_to=return_to,
@@ -303,6 +308,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
         memory_recall_cleanup_keywords: str = Form(""),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        lang = config_routing_lang(request)
         try:
             store_keywords = deps.parse_lines(memory_store_keywords)
             recall_keywords = deps.parse_lines(memory_recall_keywords)
@@ -310,21 +316,21 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
             store_prefixes = deps.parse_lines(memory_store_prefixes)
             recall_cleanup = deps.parse_lines(memory_recall_cleanup_keywords)
             if not store_keywords:
-                raise ValueError("memory_store_keywords darf nicht leer sein.")
+                raise ValueError(config_routing_text(lang, "memory_store_keywords_required", "memory_store_keywords must not be empty."))
             if not recall_keywords:
-                raise ValueError("memory_recall_keywords darf nicht leer sein.")
+                raise ValueError(config_routing_text(lang, "memory_recall_keywords_required", "memory_recall_keywords must not be empty."))
             if not forget_keywords:
-                raise ValueError("memory_forget_keywords darf nicht leer sein.")
+                raise ValueError(config_routing_text(lang, "memory_forget_keywords_required", "memory_forget_keywords must not be empty."))
             if not store_prefixes:
-                raise ValueError("memory_store_prefixes darf nicht leer sein.")
+                raise ValueError(config_routing_text(lang, "memory_store_prefixes_required", "memory_store_prefixes must not be empty."))
             if not recall_cleanup:
-                raise ValueError("memory_recall_cleanup_keywords darf nicht leer sein.")
+                raise ValueError(config_routing_text(lang, "memory_recall_cleanup_keywords_required", "memory_recall_cleanup_keywords must not be empty."))
 
             supported_languages = list(getattr(request.state, "supported_languages", []) or [])
             selected_scope = str(scope or "default").strip().lower() or "default"
             valid_scopes = {"default", *supported_languages}
             if selected_scope not in valid_scopes:
-                raise ValueError("Ungültiger Routing-Scope.")
+                raise ValueError(config_routing_text(lang, "invalid_routing_scope", "Invalid routing scope."))
 
             raw = deps.read_raw_config()
             raw.setdefault("routing", {})
@@ -375,9 +381,9 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
     ) -> HTMLResponse:
         auth = deps.get_auth_session_from_request(request) or {}
         if deps.sanitize_role(auth.get("role")) != "admin":
-            return RedirectResponse(url="/skills?error=no_admin", status_code=303)
-        lang = str(getattr(request.state, "lang", "de") or "de")
-        manifests, load_errors = deps.load_custom_skill_manifests()
+            return RedirectResponse(url="/recipes?error=no_admin", status_code=303)
+        lang = config_routing_lang(request)
+        manifests, load_errors = deps.load_stored_recipe_manifests()
         index = deps.refresh_skill_trigger_index()
         rows: list[dict[str, Any]] = []
         for row in manifests:
@@ -387,14 +393,15 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
                     "id": skill_id,
                     "name": str(row.get("name", skill_id)).strip() or skill_id,
                     "router_keywords_text": ", ".join(row.get("router_keywords", [])) if isinstance(row.get("router_keywords", []), list) else "",
-                    "json_path": str(deps.custom_skill_file(skill_id).relative_to(Path.cwd() / "fischerman" / "ARIA")) if False else "",
+                    "json_path": str(deps.stored_recipe_file(skill_id).relative_to(Path.cwd() / "fischerman" / "ARIA")) if False else "",
+                    **stored_recipe_candidate_metadata(row),
                 }
             )
         # Use the configured file resolver against the actual repo base kept in the path object.
         for row in rows:
             skill_id = str(row.get("id", "")).strip()
             if skill_id:
-                row["json_path"] = str(deps.custom_skill_file(skill_id))
+                row["json_path"] = str(deps.stored_recipe_file(skill_id))
         context = deps.build_config_page_context(
             request,
             saved=saved,
@@ -402,11 +409,11 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
             logical_back_fallback="/config/workbench",
             page_return_to="/config/workbench",
             config_nav="workbench",
-            page_heading=deps.msg(lang, "Skill Routing", "Skill routing"),
+            page_heading=config_routing_text(lang, "heading_recipe_routing", "Recipe routing"),
         )
         context.update(
             {
-                "info_message": deps.format_skill_routing_info(lang, info),
+                "info_message": deps.format_recipe_routing_info(lang, info),
                 "rows": rows,
                 "index": index,
                 "load_errors": load_errors,
@@ -422,20 +429,21 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
         return_to: str = Form(""),
     ) -> RedirectResponse:
         auth = deps.get_auth_session_from_request(request) or {}
+        lang = config_routing_lang(request)
         if deps.sanitize_role(auth.get("role")) != "admin":
-            return RedirectResponse(url="/skills?error=no_admin", status_code=303)
+            return RedirectResponse(url="/recipes?error=no_admin", status_code=303)
         try:
             clean_id = deps.sanitize_skill_id(skill_id)
             if not clean_id:
-                raise ValueError("Ungültige Skill-ID.")
-            target = deps.custom_skill_file(clean_id)
+                raise ValueError(config_routing_text(lang, "invalid_recipe_id", "Invalid recipe ID."))
+            target = deps.stored_recipe_file(clean_id)
             if not target.exists():
-                raise ValueError("Skill-Datei nicht gefunden.")
+                raise ValueError(config_routing_text(lang, "recipe_file_missing", "Recipe file not found."))
             raw = json.loads(target.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
-                raise ValueError("Skill-Datei ist kein JSON-Objekt.")
+                raise ValueError(config_routing_text(lang, "recipe_file_not_object", "Recipe file is not a JSON object."))
             raw["router_keywords"] = [item.strip() for item in str(router_keywords).split(",") if item.strip()]
-            clean = deps.save_custom_skill_manifest(raw)
+            clean = deps.save_stored_recipe_manifest(raw)
             return deps.redirect_with_return_to(
                 f"/config/skill-routing?saved=1&info={quote_plus(clean.get('id', clean_id))}",
                 request,
@@ -457,24 +465,24 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
         return_to: str = Form(""),
     ) -> RedirectResponse:
         auth = deps.get_auth_session_from_request(request) or {}
+        lang = config_routing_lang(request)
         if deps.sanitize_role(auth.get("role")) != "admin":
-            return RedirectResponse(url="/skills?error=no_admin", status_code=303)
+            return RedirectResponse(url="/recipes?error=no_admin", status_code=303)
         try:
             clean_id = deps.sanitize_skill_id(skill_id)
             if not clean_id:
-                raise ValueError("Ungültige Skill-ID.")
-            target = deps.custom_skill_file(clean_id)
+                raise ValueError(config_routing_text(lang, "invalid_recipe_id", "Invalid recipe ID."))
+            target = deps.stored_recipe_file(clean_id)
             if not target.exists():
-                raise ValueError("Skill-Datei nicht gefunden.")
+                raise ValueError(config_routing_text(lang, "recipe_file_missing", "Recipe file not found."))
             raw = json.loads(target.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
-                raise ValueError("Skill-Datei ist kein JSON-Objekt.")
-            lang = str(getattr(request.state, "lang", "de") or "de")
+                raise ValueError(config_routing_text(lang, "recipe_file_not_object", "Recipe file is not a JSON object."))
             keywords = await deps.suggest_skill_keywords_with_llm(raw, language=lang)
             if not keywords:
-                raise ValueError("Keine Trigger-Keywords erzeugt.")
+                raise ValueError(config_routing_text(lang, "no_trigger_keywords", "No trigger keywords generated."))
             raw["router_keywords"] = keywords
-            deps.save_custom_skill_manifest(raw)
+            deps.save_stored_recipe_manifest(raw)
             return deps.redirect_with_return_to(
                 f"/config/skill-routing?saved=1&info={quote_plus(f'suggest:{clean_id}:{len(keywords)}')}",
                 request,
@@ -493,10 +501,10 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
     async def config_skill_routing_suggest_all(request: Request, return_to: str = Form("")) -> RedirectResponse:
         auth = deps.get_auth_session_from_request(request) or {}
         if deps.sanitize_role(auth.get("role")) != "admin":
-            return RedirectResponse(url="/skills?error=no_admin", status_code=303)
+            return RedirectResponse(url="/recipes?error=no_admin", status_code=303)
         try:
-            manifests, _ = deps.load_custom_skill_manifests()
-            lang = str(getattr(request.state, "lang", "de") or "de")
+            manifests, _ = deps.load_stored_recipe_manifests()
+            lang = config_routing_lang(request)
             updated = 0
             total_keywords = 0
             for manifest in manifests:
@@ -507,7 +515,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
                 if not keywords:
                     continue
                 manifest["router_keywords"] = keywords
-                deps.save_custom_skill_manifest(manifest)
+                deps.save_stored_recipe_manifest(manifest)
                 updated += 1
                 total_keywords += len(keywords)
             return deps.redirect_with_return_to(
@@ -528,7 +536,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
     async def config_skill_routing_rebuild(request: Request, return_to: str = Form("")) -> RedirectResponse:
         auth = deps.get_auth_session_from_request(request) or {}
         if deps.sanitize_role(auth.get("role")) != "admin":
-            return RedirectResponse(url="/skills?error=no_admin", status_code=303)
+            return RedirectResponse(url="/recipes?error=no_admin", status_code=303)
         try:
             deps.refresh_skill_trigger_index()
             return deps.redirect_with_return_to(

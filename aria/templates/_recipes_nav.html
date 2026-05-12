@@ -1,0 +1,27 @@
+{% from "_icons.html" import icon %}
+<nav class="memory-subnav" aria-label="{{ tr(request, 'recipes.nav_label', 'Rezepte Navigation') }}">
+  <a class="memory-subnav-item{% if recipes_nav == 'overview' %} active{% endif %}" href="/recipes">
+    {{ icon('skills', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'recipes.title', 'Rezepte') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if recipes_nav == 'start' %} active{% endif %}" href="/recipes/start">
+    {{ icon('plus', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'recipes.start_title', 'Rezept starten') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if recipes_nav == 'mine' %} active{% endif %}" href="/recipes/mine">
+    {{ icon('skills', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'recipes.my_recipes_title', 'Meine Rezepte') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if recipes_nav == 'learned' %} active{% endif %}" href="/recipes/learned">
+    {{ icon('stats', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'learned_recipes.title', 'Gelernte Rezepte') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if recipes_nav == 'system' %} active{% endif %}" href="/recipes/system">
+    {{ icon('settings', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'recipes.system_title', 'Core / System') }}</span>
+  </a>
+  <a class="memory-subnav-item{% if recipes_nav == 'templates' %} active{% endif %}" href="/recipes/templates">
+    {{ icon('upload', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</span>
+  </a>
+</nav>

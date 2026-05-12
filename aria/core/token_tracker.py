@@ -5,6 +5,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from aria.core.recipe_runtime_contract import RECIPE_STATUS_INTENT
+from aria.core.recipe_runtime_contract import is_recipe_intent
+from aria.core.recipe_runtime_contract import is_recipe_status_intent
+from aria.core.recipe_runtime_contract import recipe_id_from_intent
+
 
 class TokenTracker:
     def __init__(self, log_file: str, enabled: bool = True):
@@ -45,13 +50,20 @@ class TokenTracker:
             "days": days,
             "request_count": 0,
             "total_tokens": 0,
+            "chat_total_tokens": 0,
+            "embedding_total_tokens": 0,
+            "extraction_total_tokens": 0,
+            "model_total_tokens": 0,
             "avg_tokens_per_request": 0,
             "requests_by_intent": {},
             "requests_by_router_level": {},
             "requests_by_source": {},
             "model_tokens_by_source": {},
             "chat_tokens_by_model": {},
+            "chat_prompt_tokens_by_model": {},
+            "chat_completion_tokens_by_model": {},
             "embedding_tokens_by_model": {},
+            "embedding_prompt_tokens_by_model": {},
             "total_cost_usd": 0.0,
             "avg_cost_usd_per_request": 0.0,
             "priced_requests_count": 0,
@@ -79,10 +91,10 @@ class TokenTracker:
 
     @staticmethod
     def _build_activity_row(item: dict, activity: dict) -> dict:
-        skill_errors = item.get("skill_errors", [])
-        if not isinstance(skill_errors, list):
-            skill_errors = []
-        clean_errors = [str(err).strip() for err in skill_errors if str(err).strip()]
+        recipe_errors = item.get("recipe_errors", item.get("skill_errors", []))
+        if not isinstance(recipe_errors, list):
+            recipe_errors = []
+        clean_errors = [str(err).strip() for err in recipe_errors if str(err).strip()]
         total_tokens = int(item.get("total_tokens", 0) or 0)
         total_cost_usd = float(item.get("total_cost_usd", 0.0) or 0.0)
         chat_model = str(item.get("chat_model", "")).strip()
@@ -102,6 +114,7 @@ class TokenTracker:
             "show_cost": total_cost_usd > 0.0,
             "show_model": bool(chat_model) and total_tokens > 0,
             "show_source": bool(source),
+            "recipe_errors": clean_errors,
             "skill_errors": clean_errors,
             "success": len(clean_errors) == 0,
         }
@@ -122,6 +135,7 @@ class TokenTracker:
         duration_ms: int,
         source: str,
         skill_errors: list[str] | None = None,
+        recipe_errors: list[str] | None = None,
         extraction_model: str = "",
         extraction_usage: dict[str, int] | None = None,
     ) -> None:
@@ -150,7 +164,8 @@ class TokenTracker:
             "chat_cost_usd": chat_cost_usd,
             "embedding_cost_usd": embedding_cost_usd,
             "total_cost_usd": total_cost_usd,
-            "skill_errors": skill_errors or [],
+            "recipe_errors": recipe_errors if recipe_errors is not None else (skill_errors or []),
+            "skill_errors": skill_errors if skill_errors is not None else (recipe_errors or []),
             "extraction_model": extraction_model,
             "extraction_prompt_tokens": int((extraction_usage or {}).get("prompt_tokens", 0) or 0),
             "extraction_completion_tokens": int((extraction_usage or {}).get("completion_tokens", 0) or 0),
@@ -171,12 +186,18 @@ class TokenTracker:
         cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
         request_count = 0
         total_tokens = 0
+        chat_total_tokens = 0
+        embedding_total_tokens = 0
+        extraction_total_tokens = 0
         requests_by_intent: dict[str, int] = {}
         requests_by_router_level: dict[str, int] = {}
         requests_by_source: dict[str, int] = {}
         model_tokens_by_source: dict[str, int] = {}
         chat_tokens_by_model: dict[str, int] = {}
+        chat_prompt_tokens_by_model: dict[str, int] = {}
+        chat_completion_tokens_by_model: dict[str, int] = {}
         embedding_tokens_by_model: dict[str, int] = {}
+        embedding_prompt_tokens_by_model: dict[str, int] = {}
         total_cost_usd = 0.0
         priced_requests_count = 0
         chat_cost_usd_by_model: dict[str, float] = {}
@@ -189,7 +210,16 @@ class TokenTracker:
                 continue
 
             request_count += 1
-            total_tokens += int(item.get("total_tokens", 0) or 0)
+            chat_tokens = int(item.get("total_tokens", 0) or 0)
+            chat_prompt_tokens = int(item.get("prompt_tokens", 0) or 0)
+            chat_completion_tokens = int(item.get("completion_tokens", 0) or 0)
+            embedding_tokens = int(item.get("embedding_total_tokens", 0) or 0)
+            embedding_prompt_tokens = int(item.get("embedding_prompt_tokens", 0) or embedding_tokens or 0)
+            extraction_tokens = int(item.get("extraction_total_tokens", 0) or 0)
+            total_tokens += chat_tokens
+            chat_total_tokens += chat_tokens
+            embedding_total_tokens += embedding_tokens
+            extraction_total_tokens += extraction_tokens
 
             level = str(item.get("router_level", "unknown"))
             requests_by_router_level[level] = requests_by_router_level.get(level, 0) + 1
@@ -204,9 +234,14 @@ class TokenTracker:
                     requests_by_intent[key] = requests_by_intent.get(key, 0) + 1
 
             chat_model = str(item.get("chat_model", "")).strip()
-            chat_tokens = int(item.get("total_tokens", 0) or 0)
             if chat_model or chat_tokens:
                 chat_tokens_by_model[chat_model] = chat_tokens_by_model.get(chat_model, 0) + chat_tokens
+                chat_prompt_tokens_by_model[chat_model] = (
+                    chat_prompt_tokens_by_model.get(chat_model, 0) + chat_prompt_tokens
+                )
+                chat_completion_tokens_by_model[chat_model] = (
+                    chat_completion_tokens_by_model.get(chat_model, 0) + chat_completion_tokens
+                )
             chat_cost_raw = item.get("chat_cost_usd")
             if chat_model and isinstance(chat_cost_raw, (int, float)):
                 chat_cost_usd_by_model[chat_model] = (
@@ -214,10 +249,12 @@ class TokenTracker:
                 )
 
             embedding_model = str(item.get("embedding_model", "")).strip()
-            embedding_tokens = int(item.get("embedding_total_tokens", 0) or 0)
             if embedding_model or embedding_tokens:
                 embedding_tokens_by_model[embedding_model] = (
                     embedding_tokens_by_model.get(embedding_model, 0) + embedding_tokens
+                )
+                embedding_prompt_tokens_by_model[embedding_model] = (
+                    embedding_prompt_tokens_by_model.get(embedding_model, 0) + embedding_prompt_tokens
                 )
             embedding_cost_raw = item.get("embedding_cost_usd")
             if embedding_model and isinstance(embedding_cost_raw, (int, float)):
@@ -225,7 +262,6 @@ class TokenTracker:
                     embedding_cost_usd_by_model.get(embedding_model, 0.0) + float(embedding_cost_raw)
                 )
 
-            extraction_tokens = int(item.get("extraction_total_tokens", 0) or 0)
             model_tokens_by_source[source_key] = (
                 model_tokens_by_source.get(source_key, 0) + chat_tokens + embedding_tokens + extraction_tokens
             )
@@ -244,13 +280,20 @@ class TokenTracker:
             "days": days,
             "request_count": request_count,
             "total_tokens": total_tokens,
+            "chat_total_tokens": chat_total_tokens,
+            "embedding_total_tokens": embedding_total_tokens,
+            "extraction_total_tokens": extraction_total_tokens,
+            "model_total_tokens": chat_total_tokens + embedding_total_tokens + extraction_total_tokens,
             "avg_tokens_per_request": avg_tokens,
             "requests_by_intent": requests_by_intent,
             "requests_by_router_level": requests_by_router_level,
             "requests_by_source": requests_by_source,
             "model_tokens_by_source": model_tokens_by_source,
             "chat_tokens_by_model": chat_tokens_by_model,
+            "chat_prompt_tokens_by_model": chat_prompt_tokens_by_model,
+            "chat_completion_tokens_by_model": chat_completion_tokens_by_model,
             "embedding_tokens_by_model": embedding_tokens_by_model,
+            "embedding_prompt_tokens_by_model": embedding_prompt_tokens_by_model,
             "total_cost_usd": total_cost_usd,
             "avg_cost_usd_per_request": avg_cost,
             "priced_requests_count": priced_requests_count,
@@ -363,17 +406,17 @@ class TokenTracker:
         if not clean_intents:
             return None
 
-        custom_skill_intents = [intent for intent in clean_intents if intent.startswith("custom_skill:")]
-        if custom_skill_intents:
-            skill_id = custom_skill_intents[0].split(":", 1)[1].strip()
+        recipe_intents = [intent for intent in clean_intents if is_recipe_intent(intent)]
+        if recipe_intents:
+            skill_id = recipe_id_from_intent(recipe_intents[0])
             return {
-                "kind": "skill",
-                "title": skill_id.replace("-", " ").strip().title() or "Custom Skill",
-                "intent": custom_skill_intents[0],
+                "kind": "recipe",
+                "title": skill_id.replace("-", " ").strip().title() or "Stored Recipe",
+                "intent": recipe_intents[0],
             }
 
-        if "skill_status" in clean_intents:
-            return {"kind": "system", "title": "Skill Status", "intent": "skill_status"}
+        if any(is_recipe_status_intent(intent) for intent in clean_intents):
+            return {"kind": "system", "title": "Recipe Status", "intent": RECIPE_STATUS_INTENT}
         capability_intents = [intent for intent in clean_intents if intent.startswith("capability:")]
         if capability_intents:
             capability_name = capability_intents[0].split(":", 1)[1].strip()
@@ -406,7 +449,9 @@ class TokenTracker:
             return {"rows": [], "summary": self._empty_activity_summary()}
 
         active_kind = str(kind or "all").strip().lower()
-        if active_kind not in {"all", "skill", "memory", "system"}:
+        if active_kind == "skill":
+            active_kind = "recipe"
+        if active_kind not in {"all", "recipe", "memory", "system"}:
             active_kind = "all"
         active_status = str(status or "all").strip().lower()
         if active_status not in {"all", "ok", "error"}:

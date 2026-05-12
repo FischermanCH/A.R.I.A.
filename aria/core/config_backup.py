@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from aria.core.custom_skills import _sanitize_skill_id, _validate_custom_skill_manifest
+from aria.core.stored_recipes import sanitize_recipe_id, validate_stored_recipe_manifest
 from aria.core.release_meta import read_release_meta
 
 BACKUP_SCHEMA_VERSION = "aria-config-backup-v1"
@@ -44,10 +44,25 @@ def _iter_prompt_files(base_dir: Path) -> list[Path]:
     return [path for path in sorted(prompts_root.rglob("*.md")) if path.is_file()]
 
 
-def _iter_custom_skill_files(base_dir: Path) -> list[Path]:
-    skills_root = (base_dir / "data" / "skills").resolve()
-    skills_root.mkdir(parents=True, exist_ok=True)
-    return [path for path in sorted(skills_root.glob("*.json")) if path.is_file() and not path.name.startswith("_")]
+def _iter_stored_recipe_files(base_dir: Path) -> list[Path]:
+    recipes_root = (base_dir / "data" / "recipes").resolve()
+    legacy_skills_root = (base_dir / "data" / "skills").resolve()
+    recipes_root.mkdir(parents=True, exist_ok=True)
+    rows: list[Path] = []
+    seen_names: set[str] = set()
+    for root in (recipes_root, legacy_skills_root):
+        if root == recipes_root:
+            paths = sorted(root.glob("*.json"))
+        elif root.exists():
+            paths = sorted(root.glob("*.json"))
+        else:
+            paths = []
+        for path in paths:
+            if not path.is_file() or path.name.startswith("_") or path.name in seen_names:
+                continue
+            seen_names.add(path.name)
+            rows.append(path)
+    return rows
 
 
 def _read_text_files(base_dir: Path, paths: list[Path]) -> dict[str, str]:
@@ -60,9 +75,9 @@ def _read_text_files(base_dir: Path, paths: list[Path]) -> dict[str, str]:
     return rows
 
 
-def _read_custom_skill_manifests(base_dir: Path) -> list[dict[str, Any]]:
+def _read_stored_recipe_manifests(base_dir: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for path in _iter_custom_skill_files(base_dir):
+    for path in _iter_stored_recipe_files(base_dir):
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -124,7 +139,8 @@ def build_config_backup_payload(
         "aria": read_release_meta(base_dir),
         "config": copy.deepcopy(raw_config),
         "secure_store": _read_secure_store_snapshot(secure_store),
-        "custom_skills": _read_custom_skill_manifests(base_dir),
+        "stored_recipes": _read_stored_recipe_manifests(base_dir),
+        "custom_skills": _read_stored_recipe_manifests(base_dir),
         "prompt_files": _read_text_files(base_dir, _iter_prompt_files(base_dir)),
         "support_files": support_files,
         "notes": {
@@ -132,7 +148,7 @@ def build_config_backup_payload(
                 "config.yaml",
                 "secure store secrets",
                 "user accounts",
-                "custom skill manifests",
+                "stored recipe manifests",
                 "prompt markdown files",
                 "error interpreter file",
             ],
@@ -154,11 +170,12 @@ def summarize_config_backup_payload(payload: dict[str, Any]) -> dict[str, int]:
     users = secure_store.get("users", [])
     prompt_files = payload.get("prompt_files", {})
     support_files = payload.get("support_files", {})
-    custom_skills = payload.get("custom_skills", [])
+    stored_recipes = payload.get("stored_recipes", payload.get("custom_skills", []))
     return {
         "secret_count": len(secrets) if isinstance(secrets, dict) else 0,
         "user_count": len(users) if isinstance(users, list) else 0,
-        "custom_skill_count": len(custom_skills) if isinstance(custom_skills, list) else 0,
+        "stored_recipe_count": len(stored_recipes) if isinstance(stored_recipes, list) else 0,
+        "custom_skill_count": len(stored_recipes) if isinstance(stored_recipes, list) else 0,
         "prompt_file_count": len(prompt_files) if isinstance(prompt_files, dict) else 0,
         "support_file_count": len(support_files) if isinstance(support_files, dict) else 0,
     }
@@ -181,7 +198,7 @@ def parse_config_backup_payload(data: bytes | str) -> dict[str, Any]:
     _validate_secure_store_payload(payload.get("secure_store", {}))
     _validate_text_file_map(payload.get("prompt_files", {}), required_prefix="prompts/", required_suffix=".md")
     _validate_support_files(payload.get("support_files", {}))
-    _validate_custom_skill_payload(payload.get("custom_skills", []))
+    _validate_stored_recipe_payload(payload.get("stored_recipes", payload.get("custom_skills", [])))
     return payload
 
 
@@ -238,16 +255,16 @@ def _validate_support_files(raw: Any) -> None:
             raise ValueError(f"Support file content must be text: {path}")
 
 
-def _validate_custom_skill_payload(raw: Any) -> list[dict[str, Any]]:
+def _validate_stored_recipe_payload(raw: Any) -> list[dict[str, Any]]:
     if raw is None or raw == "":
         return []
     if not isinstance(raw, list):
-        raise ValueError("Backup custom_skills must be a list.")
+        raise ValueError("Backup stored_recipes must be a list.")
     clean_rows: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, dict):
-            raise ValueError("Every custom skill backup entry must be an object.")
-        clean_rows.append(_validate_custom_skill_manifest(item))
+            raise ValueError("Every stored recipe backup entry must be an object.")
+        clean_rows.append(validate_stored_recipe_manifest(item))
     return clean_rows
 
 
@@ -321,21 +338,23 @@ def restore_config_backup_payload(
     secure_store = get_secure_store(raw_config)
     _sync_secure_store(secure_store, clean_payload)
 
-    skills_root = (base_dir / "data" / "skills").resolve()
-    skills_root.mkdir(parents=True, exist_ok=True)
-    existing_skill_files = _iter_custom_skill_files(base_dir)
+    recipes_root = (base_dir / "data" / "recipes").resolve()
+    recipes_root.mkdir(parents=True, exist_ok=True)
+    existing_skill_files = _iter_stored_recipe_files(base_dir)
     for path in existing_skill_files:
         try:
             path.unlink()
         except OSError:
             continue
 
-    validated_manifests = _validate_custom_skill_payload(clean_payload.get("custom_skills", []))
+    validated_manifests = _validate_stored_recipe_payload(
+        clean_payload.get("stored_recipes", clean_payload.get("custom_skills", []))
+    )
     for manifest in validated_manifests:
-        skill_id = _sanitize_skill_id(manifest.get("id"))
+        skill_id = sanitize_recipe_id(manifest.get("id"))
         if not skill_id:
-            raise ValueError("Backup contains a custom skill without a valid id.")
-        target = skills_root / f"{skill_id}.json"
+            raise ValueError("Backup contains a stored recipe without a valid id.")
+        target = recipes_root / f"{skill_id}.json"
         target.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     prompt_files = clean_payload.get("prompt_files", {})

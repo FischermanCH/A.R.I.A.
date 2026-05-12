@@ -1,8 +1,8 @@
-# Skills
+# Recipes
 
-ARIA skills are JSON manifests with structured steps.
+ARIA recipes are curated JSON manifests with structured steps, routing metadata, and guardrail-aware execution paths. Legacy skill manifests are still readable for compatibility, but the product language and new examples are recipe-first.
 
-Current capabilities include:
+Current capability families include:
 
 - SSH
 - SFTP
@@ -18,9 +18,10 @@ Current capabilities include:
 Useful references:
 
 - [`docs/product/feature-list.md`](https://github.com/FischermanCH/A.R.I.A./blob/main/docs/product/feature-list.md)
-- [`samples/skills/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/skills)
+- [`samples/recipes/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/recipes)
+- [`samples/skills/`](https://github.com/FischermanCH/A.R.I.A./tree/main/samples/skills) for legacy/backcompat samples
 
-For release testing, sample skills are especially useful because they provide repeatable workflows.
+For release testing, sample recipes are especially useful because they provide repeatable workflows.
 
 Current sample directions include:
 

@@ -84,7 +84,7 @@
 
     <section class="config-card" style="margin-top: 1rem;">
       <h3>{{ tr(request, 'config_logs.factory_reset_title', 'Factory Reset') }}</h3>
-      <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes user data, memories, connections, guardrails, custom skills, chat history, SSH keys, and local runtime caches. Runtime secrets and prompts remain intact.') }}</p>
+      <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes user data, memories, connections, guardrails, stored recipes, chat history, SSH keys, and local runtime caches. Runtime secrets and prompts remain intact.') }}</p>
       <p class="hint-text">{{ tr(request, 'config_logs.factory_reset_confirm_hint', 'Type FACTORY RESET to wipe this ARIA instance deliberately.') }}</p>
       <form method="post" action="/config/logs/factory-reset" class="config-form-grid">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">

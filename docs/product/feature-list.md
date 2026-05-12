@@ -13,7 +13,7 @@ Zweck:
 - modularer Zugriff auf echte Systeme über konfigurierte Connections
 - Memory mit Qdrant
 - eigenständige Notizen als Markdown-first Arbeitsbereich mit Qdrant-Index
-- Custom Skills als importierbare JSON-Manifeste
+- Rezepte als importierbare JSON-Manifeste
 - Admin-Modus für Systemkonfiguration, User-Modus als reduzierte Arbeitsansicht
 - Statistiken/Health/Token-/Kostenübersicht direkt im UI
 
@@ -22,7 +22,7 @@ Zweck:
 - Chat-UI unter `/`
 - serverseitiges Rendering mit FastAPI + Jinja2
 - Message-Details pro Antwort:
-  - Intent / Skill / Capability
+  - Intent / Rezept / Capability
   - Token-Anzahl
   - Kosten in USD, sofern Modell-Pricing bekannt ist
   - Laufzeit
@@ -45,7 +45,7 @@ Zweck:
   - Discord/Webhook senden
   - HTTP API Requests
   - Mail / MQTT
-- Custom-Skill-Routing hat Vorrang vor generischem Capability-Fallback, wenn ein klar passender Skill existiert
+- Rezept-Routing hat Vorrang vor generischem Capability-Fallback, wenn ein klar passendes Rezept existiert
 - Connection-Auflösung nutzt Ref, Titel, Kurzbeschreibung, Aliase und Tags
 
 ## Memory
@@ -100,17 +100,17 @@ Zweck:
 - semantische Suche über Qdrant mit lokalem Dateifallback
 - passende Notes können Websuche und Research als Zusatzkontext anreichern
 
-## Custom Skills
+## Rezepte
 
-- Custom Skills als JSON-Manifeste unter `data/skills`
-- Skill Wizard im Browser:
-  - Skill erstellen/bearbeiten
+- Gespeicherte Rezepte als JSON-Manifeste unter `data/recipes`
+- Rezept-Wizard im Browser:
+  - Rezept erstellen/bearbeiten
   - Steps hinzufügen
   - Steps duplizieren
   - Steps verschieben
-  - Skill aktivieren/deaktivieren
-  - Skill löschen
-- Skill Import/Export
+  - Rezept aktivieren/deaktivieren
+  - Rezept löschen
+- Rezept Import/Export
 - unterstützte Step-Typen u. a.:
   - `ssh_run`
   - `sftp_read`
@@ -126,7 +126,7 @@ Zweck:
   - `smtp_send`
   - `llm_transform`
   - `chat_send`
-- Sample-Skills für SSH/SFTP/SMB/Discord/RSS liegen unter `samples/skills`
+- Sample-Rezepte für SSH/SFTP/SMB/Discord/RSS liegen unter `samples/recipes`
   - darunter jetzt auch kompakte Vorlagen für RSS-Headlines im Chat, SSH-Disk-Usage und SFTP-Config-Preview
 
 ## Connections
@@ -164,15 +164,15 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - SSH-Profilverwaltung mit Host/User/Port/Auth/Timeout
 - SSH-Key-Erzeugung im Container über `ssh-keygen`
 - SFTP kann SSH-Daten aus bestehenden SSH-Profilen übernehmen
-- SFTP Remote-Lesen/Schreiben über Skills/Capabilities
+- SFTP Remote-Lesen/Schreiben über Rezepte/Capabilities
 - SMB Share-Zugriff über konfigurierte SMB-Profile
 - verständlichere Fehlermeldungen bei fehlender SSH-Keygen-Runtime oder Connection-Problemen
 
 ## Discord / Webhook / API
 
 - Discord Webhook-Verbindungen
-- Testposts und Skill-Ziel-Freigabe konfigurierbar
-- Discord Skill-Error-Alerts mit gekürzten/sanitized Fehlerdetails
+- Testposts und Rezept-Ziel-Freigabe konfigurierbar
+- Discord Rezept-Error-Alerts mit gekürzten/sanitized Fehlerdetails
 - HTTP-API- und Webhook-Connections mit eigenen Profilen
 - `ARIA_PUBLIC_URL` / `aria.public_url` für externe Links in Messages statt Docker-Bridge-IP
 
@@ -206,7 +206,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 
 - eigener Connection-Typ fuer `read-only` Kalenderzugriff
 - Secure Store fuer `client_secret` und `refresh_token`
-- gefuehrter Setup-Flow mit Google Cloud / OAuth Playground Links direkt in der Config-Seite
+- gefuehrter Setup-Flow mit Google Cloud plus direktem `Mit Google verbinden`-Login aus der Config-Seite
 - erster persoenlicher Produktpfad fuer natuerliche Kalenderfragen:
   - `was steht heute an?`
   - `was habe ich morgen im kalender?`
@@ -257,8 +257,8 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Live-Status aller konfigurierten Verbindungen
 - Aktivitäten & Runs direkt in `Statistiken`
 - manuelles Pricing-Refresh für:
-  - OpenAI / Anthropic via LiteLLM-Preisliste
-  - OpenRouter via OpenRouter Models API
+  - LiteLLM-GitHub-Preisliste als primaere Quelle
+  - lokale 7-Tage-Cache-Kopie mit Fallback bei GitHub-Ausfall
 
 ## UI / Personalization
 
@@ -302,7 +302,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 ## Aktuelle ALPHA-Grenzen
 
 - ARIA ist aktuell primär ein **Personal Single-User System**
-- noch kein vollständiges Multi-User-/RBAC-Modell für geteilte Skills/Connections/Memories
+- noch kein vollständiges Multi-User-/RBAC-Modell für geteilte Rezepte/Connections/Memories
 - kein offener Public-Internet-Betrieb empfohlen
 - Capability-Ergebnisse laufen bewusst nicht pauschal durch denselben Auto-Memory-Pfad wie normale Chat-/LLM-Antworten
 - einige größere Integrationen sind bewusst noch Backlog, nicht aktueller Release-Scope

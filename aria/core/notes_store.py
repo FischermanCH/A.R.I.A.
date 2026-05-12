@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,8 +11,27 @@ import re
 
 import yaml
 
+from aria.core.i18n import I18NStore
+
 
 _FRONTMATTER_BOUNDARY = "---"
+_NOTES_STORE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+_NOTES_STORE_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "notes_store.json"
+try:
+    _NOTES_STORE_LEXICON = json.loads(_NOTES_STORE_LEXICON_PATH.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    _NOTES_STORE_LEXICON = {}
+_TAG_DISALLOWED_RE = re.compile(str(_NOTES_STORE_LEXICON.get("tag_disallowed_pattern") or r"[^0-9a-zA-Z _./+-]"))
+
+
+def _notes_store_text(key: str, default: str = "", **values: Any) -> str:
+    template = _NOTES_STORE_I18N.t("de", f"notes_store.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -67,7 +87,7 @@ class NotesStore:
     def _normalize_title(value: str) -> str:
         title = re.sub(r"\s+", " ", str(value or "").strip())
         if not title:
-            raise NotesStoreError("Bitte einen Notiz-Titel eingeben.")
+            raise NotesStoreError(_notes_store_text("title_required", "Please enter a note title."))
         return title[:140].strip()
 
     @staticmethod
@@ -76,7 +96,7 @@ class NotesStore:
         body = body.replace("\ufeff", "")
         body = re.sub(r"\n{3,}", "\n\n", body).strip()
         if not body:
-            raise NotesStoreError("Bitte einen Notiz-Inhalt eingeben.")
+            raise NotesStoreError(_notes_store_text("body_required", "Please enter note content."))
         return body
 
     @staticmethod
@@ -104,7 +124,7 @@ class NotesStore:
         seen: set[str] = set()
         for item in raw_items:
             clean = re.sub(r"\s+", " ", str(item or "").strip().lower()).strip(" -")
-            clean = re.sub(r"[^0-9a-zA-ZäöüÄÖÜß _./+-]", "", clean)
+            clean = _TAG_DISALLOWED_RE.sub("", clean)
             clean = clean[:24].strip()
             if len(clean) < 2 or clean in seen:
                 continue
@@ -204,6 +224,16 @@ class NotesStore:
             folders.add(note.folder)
         return sorted(item for item in folders if item != "")
 
+    def resolve_folder_name(self, user_id: str, folder: str | None) -> str:
+        clean_folder = self._normalize_folder(folder)
+        if not clean_folder:
+            return ""
+        requested = clean_folder.lower()
+        for existing in self.list_folders(user_id):
+            if str(existing or "").strip().lower() == requested:
+                return str(existing or "").strip()
+        return clean_folder
+
     def get_note(self, user_id: str, note_id: str) -> NoteRecord | None:
         clean_id = str(note_id or "").strip()
         if not clean_id:
@@ -216,10 +246,52 @@ class NotesStore:
     def create_folder(self, user_id: str, folder: str) -> str:
         clean_folder = self._normalize_folder(folder)
         if not clean_folder:
-            raise NotesStoreError("Bitte einen Ordnernamen eingeben.")
+            raise NotesStoreError(_notes_store_text("folder_name_required", "Please enter a folder name."))
         target = self._user_root(user_id) / Path(clean_folder)
         target.mkdir(parents=True, exist_ok=True)
         return clean_folder
+
+    def rename_folder(self, user_id: str, *, folder: str, new_folder: str) -> str:
+        source_folder = self._normalize_folder(folder)
+        target_folder = self._normalize_folder(new_folder)
+        if not source_folder:
+            raise NotesStoreError(_notes_store_text("existing_folder_required", "Please choose an existing folder."))
+        if not target_folder:
+            raise NotesStoreError(_notes_store_text("new_folder_name_required", "Please enter a new folder name."))
+        if source_folder == target_folder:
+            raise NotesStoreError(_notes_store_text("different_folder_name_required", "Please choose a different folder name."))
+        if target_folder.startswith(f"{source_folder}/"):
+            raise NotesStoreError(
+                _notes_store_text("target_folder_inside_source", "The target folder must not be inside the current folder.")
+            )
+        user_root = self._user_root(user_id)
+        source_path = user_root / Path(source_folder)
+        target_path = user_root / Path(target_folder)
+        if not source_path.exists() or not source_path.is_dir():
+            raise NotesStoreError(_notes_store_text("folder_not_found", "The folder was not found."))
+        if target_path.exists():
+            raise NotesStoreError(_notes_store_text("target_folder_exists", "The target folder already exists."))
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            source_path.rename(target_path)
+        except OSError as exc:
+            raise NotesStoreError(_notes_store_text("folder_rename_failed", "The folder could not be renamed.")) from exc
+        for note_path in sorted(target_path.rglob("*.md")):
+            note = self._load_note_from_path(user_id, note_path)
+            if note is None:
+                continue
+            relative_folder = self._relative_folder_from_path(user_root, note_path)
+            metadata = {
+                "note_id": note.note_id,
+                "title": note.title,
+                "folder": relative_folder,
+                "created_at": note.created_at,
+                "updated_at": note.updated_at,
+                "tags": note.tags,
+            }
+            note_path.write_text(self._build_markdown(metadata, note.body), encoding="utf-8")
+        self._prune_empty_directories(source_path.parent, stop_at=user_root)
+        return target_folder
 
     def _target_path(self, user_id: str, folder: str, title: str, *, current_path: Path | None = None) -> Path:
         user_root = self._user_root(user_id)
@@ -274,24 +346,24 @@ class NotesStore:
             self._prune_empty_directories(existing.path.parent, stop_at=self._user_root(user_id))
         note = self._load_note_from_path(user_id, target_path)
         if note is None:
-            raise NotesStoreError("Die Notiz konnte nicht gespeichert werden.")
+            raise NotesStoreError(_notes_store_text("note_save_failed", "The note could not be saved."))
         return note
 
     def delete_note(self, user_id: str, note_id: str) -> NoteRecord:
         note = self.get_note(user_id, note_id)
         if note is None:
-            raise NotesStoreError("Die Notiz wurde nicht gefunden.")
+            raise NotesStoreError(_notes_store_text("note_not_found", "The note was not found."))
         try:
             note.path.unlink()
         except OSError as exc:
-            raise NotesStoreError("Die Notiz konnte nicht gelöscht werden.") from exc
+            raise NotesStoreError(_notes_store_text("note_delete_failed", "The note could not be deleted.")) from exc
         self._prune_empty_directories(note.path.parent, stop_at=self._user_root(user_id))
         return note
 
     def export_path(self, user_id: str, note_id: str) -> Path:
         note = self.get_note(user_id, note_id)
         if note is None:
-            raise NotesStoreError("Die Notiz wurde nicht gefunden.")
+            raise NotesStoreError(_notes_store_text("note_not_found", "The note was not found."))
         return note.path
 
     @staticmethod

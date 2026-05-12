@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from contextlib import asynccontextmanager, suppress
 from functools import partial
 from pathlib import Path
@@ -40,7 +41,7 @@ from aria.web.chat_catalog import build_chat_command_catalog
 from aria.web.cookie_helpers import CookieHelper
 from aria.web.config_routes import ConfigRouteDeps, register_config_routes
 from aria.web.main_ui_helpers import (
-    build_client_skill_progress_hints as _build_client_skill_progress_hints,
+    build_client_recipe_progress_hints as _build_client_recipe_progress_hints,
     current_memory_day as _current_memory_day,
     daily_time_from_cron as _daily_time_from_cron,
     daily_time_to_cron as _daily_time_to_cron,
@@ -60,7 +61,8 @@ from aria.web.main_ui_helpers import (
 )
 from aria.web.memories_routes import register_memories_routes
 from aria.web.notes_routes import NotesRouteDeps, register_notes_routes
-from aria.web.skills_routes import register_skills_routes
+from aria.web.recipes_routes import register_recipe_routes
+from aria.web.stats_routes import _refresh_pricing_snapshot
 from aria.web.stats_routes import register_stats_routes
 from aria.core.access import (
     can_access_advanced_config,
@@ -92,17 +94,14 @@ from aria.core.config_backup import build_config_backup_payload
 from aria.core.config_backup import summarize_config_backup_payload
 from aria.core.notes_index import NotesIndex
 from aria.core.notes_store import NotesStore
-from aria.core.custom_skills import (
-    SKILL_TRIGGER_INDEX_FILE,
-    _collect_skill_categories,
-    _custom_skill_file,
-    _load_custom_skill_manifests,
-    _normalize_skill_schedule_manifest,
-    _normalize_skill_steps_manifest,
-    _refresh_skill_trigger_index,
-    _sanitize_skill_id,
-    _save_custom_skill_manifest,
-    _validate_custom_skill_manifest,
+from aria.core.recipe_manifests import (
+    RECIPE_TRIGGER_INDEX_FILE as SKILL_TRIGGER_INDEX_FILE,
+    _load_stored_recipe_manifests,
+    _recipe_manifest_file,
+    _refresh_recipe_trigger_index,
+    _sanitize_recipe_id,
+    _save_stored_recipe_manifest,
+    _validate_stored_recipe_manifest,
 )
 from aria.core.discord_alerts import runtime_host_line, send_discord_alerts
 from aria.core.i18n import I18NStore
@@ -224,13 +223,13 @@ FILE_EDITOR_CATALOG: tuple[dict[str, str], ...] = (
         "mode": "edit",
     },
     {
-        "path": "prompts/skills/memory.md",
+        "path": "prompts/recipes/memory.md",
         "label": "Memory Prompt",
         "group": "prompts",
         "mode": "edit",
     },
     {
-        "path": "prompts/skills/memory_compress.md",
+        "path": "prompts/recipes/memory_compress.md",
         "label": "Memory Compress Prompt",
         "group": "prompts",
         "mode": "edit",
@@ -258,10 +257,10 @@ PRODUCT_DOC_CATALOG: tuple[dict[str, Any], ...] = (
     {
         "id": "overview",
         "label_i18n": "product_info.doc_overview",
-        "label_default": "Produktüberblick",
+        "label_default": "Product overview",
         "path": "docs/product/overview.md",
         "summary_i18n": "product_info.doc_overview_summary",
-        "summary_default": "Was ARIA ist, für wen ARIA gedacht ist und wo die aktuelle ALPHA-Grenze liegt.",
+        "summary_default": "What ARIA is, who it is for, and where the current ALPHA boundary is.",
         "icon": "product",
         "assets": (),
     },
@@ -271,23 +270,23 @@ PRODUCT_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Feature-Liste",
         "path": "docs/product/feature-list.md",
         "summary_i18n": "product_info.doc_feature_list_summary",
-        "summary_default": "Technischer Feature-Snapshot für Chat, Memory, Skills, Connections, UI und Deployment.",
+        "summary_default": "Technical feature snapshot for chat, memory, recipes, connections, UI, and deployment.",
         "icon": "skills",
         "assets": (),
     },
     {
         "id": "architecture",
         "label_i18n": "product_info.doc_architecture",
-        "label_default": "Architektur",
+        "label_default": "Architecture",
         "path": "docs/product/architecture-summary.md",
         "summary_i18n": "product_info.doc_architecture_summary",
-        "summary_default": "Schichtenmodell, Routing, Custom Skills, Persistenz, Security und Update-Strategie.",
+        "summary_default": "Layer model, routing, recipes, persistence, security, and update strategy.",
         "icon": "routing",
         "assets": (
             {
                 "src": "/product-info/assets/aria_schichten_architektur.svg",
                 "caption_i18n": "product_info.diagram_layers",
-                "caption_default": "Schichtenarchitektur",
+                "caption_default": "Layer architecture",
             },
             {
                 "src": "/product-info/assets/aria_intelligentes_routing.svg",
@@ -297,7 +296,7 @@ PRODUCT_DOC_CATALOG: tuple[dict[str, Any], ...] = (
             {
                 "src": "/product-info/assets/aria_modularitaet_persistenz.svg",
                 "caption_i18n": "product_info.diagram_persistence",
-                "caption_default": "Modularität und Persistenz",
+                "caption_default": "Modularity and persistence",
             },
         ),
     },
@@ -310,7 +309,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Wiki Home",
         "path": "docs/wiki/Home.md",
         "summary_i18n": "help.doc_home_summary",
-        "summary_default": "Startpunkt fuer Orientierung, Doku-Pfade und empfohlene erste Schritte.",
+        "summary_default": "Starting point for orientation, documentation paths, and recommended first steps.",
         "icon": "help",
         "group": "wiki",
     },
@@ -320,7 +319,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Quick Start",
         "path": "docs/wiki/Quick-Start.md",
         "summary_i18n": "help.doc_quick_start_summary",
-        "summary_default": "Schneller Weg von Docker oder Portainer bis zur ersten nutzbaren ARIA-Instanz.",
+        "summary_default": "Fast path from Docker or Portainer to the first usable ARIA instance.",
         "icon": "updates",
         "group": "wiki",
     },
@@ -330,7 +329,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Memory",
         "path": "docs/wiki/Memory.md",
         "summary_i18n": "help.doc_memory_summary",
-        "summary_default": "Memory, RAG-Dokumente, Memory Map und Recall-Verhalten kompakt erklaert.",
+        "summary_default": "Memory, RAG documents, Memory Map, and recall behavior explained compactly.",
         "icon": "memories",
         "group": "wiki",
     },
@@ -340,7 +339,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Skills",
         "path": "docs/wiki/Skills.md",
         "summary_i18n": "help.doc_skills_summary",
-        "summary_default": "Wie Skills aufgebaut sind, wie Trigger funktionieren und wie ARIA sie ausfuehrt.",
+        "summary_default": "How recipes are structured, how triggers work, and how ARIA executes them.",
         "icon": "skills",
         "group": "wiki",
     },
@@ -350,7 +349,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Connections",
         "path": "docs/wiki/Connections.md",
         "summary_i18n": "help.doc_connections_summary",
-        "summary_default": "Uebersicht ueber Connection-Typen, Konfiguration und Routing-Nutzen.",
+        "summary_default": "Overview of connection types, configuration, and routing value.",
         "icon": "settings",
         "group": "wiki",
     },
@@ -360,7 +359,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Releases & Upgrades",
         "path": "docs/wiki/Releases-and-Upgrades.md",
         "summary_i18n": "help.doc_releases_summary",
-        "summary_default": "Wie Releases, lokale TAR-Updates und Upgrade-Flows zusammenhaengen.",
+        "summary_default": "How releases, local TAR updates, and upgrade flows fit together.",
         "icon": "updates",
         "group": "wiki",
     },
@@ -370,7 +369,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Pricing",
         "path": "docs/help/pricing.md",
         "summary_i18n": "help.doc_pricing_summary",
-        "summary_default": "Wie ARIA Preise fuer LLM- und Embedding-Modelle aufloest und Kosten berechnet.",
+        "summary_default": "How ARIA resolves prices for LLM and embedding models and calculates costs.",
         "icon": "stats",
         "group": "reference",
     },
@@ -380,7 +379,7 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "label_default": "Qdrant",
         "path": "docs/help/qdrant.md",
         "summary_i18n": "help.doc_qdrant_summary",
-        "summary_default": "Wofuer ARIA Qdrant nutzt, was dort gespeichert wird und worauf man im Betrieb achten sollte.",
+        "summary_default": "What ARIA uses Qdrant for, what gets stored there, and what matters in day-to-day operation.",
         "icon": "memories",
         "group": "reference",
     },
@@ -415,7 +414,7 @@ HELP_DOC_GROUPS: tuple[dict[str, str], ...] = (
     {
         "id": "reference",
         "label_i18n": "help.group_reference",
-        "label_default": "Technische Referenz",
+        "label_default": "Technical reference",
     },
 )
 PRODUCT_INFO_ASSET_MAP = {
@@ -425,8 +424,9 @@ PRODUCT_INFO_ASSET_MAP = {
 }
 CONFIG_PATH = BASE_DIR / "config" / "config.yaml"
 ERROR_INTERPRETER_PATH = BASE_DIR / "config" / "error_interpreter.yaml"
-FORGET_SIGNING_SECRET = ""
-AUTH_SIGNING_SECRET = ""
+FORGET_SIGNING_SECRET = secrets.token_hex(32)
+AUTH_SIGNING_SECRET = secrets.token_hex(32)
+PENDING_ACTION_SIGNING_SECRET = secrets.token_hex(32)
 DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS = 60 * 60 * 12
 AUTH_SESSION_MAX_AGE_SECONDS = DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS
 CONNECTION_PENDING_MAX_AGE_SECONDS = 60 * 10
@@ -434,9 +434,6 @@ LOGGER = logging.getLogger(__name__)
 I18N = I18NStore(BASE_DIR / "aria" / "i18n")
 CUSTOM_SKILL_DESC_I18N_FALLBACKS: dict[str, dict[str, str]] = {
     "Fuehrt apt Update/Upgrade auf zwei konfigurierten Servern aus und fasst das Ergebnis zusammen.": {
-        "en": "Runs apt update/upgrade on two configured servers and summarizes the result.",
-    },
-    "Führt apt Update/Upgrade auf zwei konfigurierten Servern aus und fasst das Ergebnis zusammen.": {
         "en": "Runs apt update/upgrade on two configured servers and summarizes the result.",
     },
 }
@@ -522,7 +519,7 @@ EMBEDDING_PROVIDER_PRESETS: dict[str, dict[str, str]] = {
 }
 
 def _build_app() -> FastAPI:
-    global AUTH_SIGNING_SECRET, FORGET_SIGNING_SECRET
+    global AUTH_SIGNING_SECRET, FORGET_SIGNING_SECRET, PENDING_ACTION_SIGNING_SECRET
     initial_settings: Settings = load_settings(CONFIG_PATH)
     global AUTH_SESSION_MAX_AGE_SECONDS
     AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
@@ -531,6 +528,7 @@ def _build_app() -> FastAPI:
     get_or_create_runtime_secret("ARIA_MASTER_KEY", CONFIG_PATH)
     AUTH_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_AUTH_SIGNING_SECRET", CONFIG_PATH)
     FORGET_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_FORGET_SIGNING_SECRET", CONFIG_PATH)
+    PENDING_ACTION_SIGNING_SECRET = get_or_create_runtime_secret("ARIA_PENDING_ACTION_SIGNING_SECRET", CONFIG_PATH)
     capability_context_store = CapabilityContextStore(CAPABILITY_CONTEXT_PATH)
     runtime_manager_instance = runtime_manager.RuntimeManager(
         base_dir=BASE_DIR,
@@ -560,19 +558,21 @@ def _build_app() -> FastAPI:
             )
         except Exception as exc:
             LOGGER.exception("Runtime reload failed")
-            raise ValueError(f"Runtime-Neuladen fehlgeschlagen: {exc}") from exc
+            lang = str(getattr(runtime_manager_instance.get_settings().ui, "language", "en") or "en")
+            template = I18N.t(lang, "app.runtime_reload_failed", "Runtime reload failed: {error}")
+            raise ValueError(template.format(error=exc)) from exc
 
     _main_request_helpers = build_main_request_helpers(
         MainRequestHelperDeps(
             translate=lambda lang, key, default: I18N.t(lang, key, default),
-            custom_skill_desc_i18n_fallbacks=CUSTOM_SKILL_DESC_I18N_FALLBACKS,
+            stored_recipe_desc_i18n_fallbacks=CUSTOM_SKILL_DESC_I18N_FALLBACKS,
             get_auth_session_from_request=lambda request: _get_auth_session_from_request(request),
             request_cookie_value=lambda request, base_name: _request_cookie_value(request, base_name),
             username_cookie=USERNAME_COOKIE,
         )
     )
-    _format_skill_routing_info = _main_request_helpers.format_skill_routing_info
-    _localize_custom_skill_description = _main_request_helpers.localize_custom_skill_description
+    _format_recipe_routing_info = _main_request_helpers.format_recipe_routing_info
+    _localize_stored_recipe_description = _main_request_helpers.localize_stored_recipe_description
     _sanitize_username = _main_request_helpers.sanitize_username
     _get_username_from_request = _main_request_helpers.get_username_from_request
     _sanitize_role = _main_request_helpers.sanitize_role
@@ -636,8 +636,8 @@ def _build_app() -> FastAPI:
     )
     globals().update(
         {
-            "_format_skill_routing_info": _format_skill_routing_info,
-            "_localize_custom_skill_description": _localize_custom_skill_description,
+            "_format_recipe_routing_info": _format_recipe_routing_info,
+            "_localize_stored_recipe_description": _localize_stored_recipe_description,
             "_sanitize_username": _sanitize_username,
             "_get_username_from_request": _get_username_from_request,
             "_sanitize_role": _sanitize_role,
@@ -710,6 +710,20 @@ def _build_app() -> FastAPI:
         nonlocal startup_maintenance_task
         async def _run_startup_maintenance() -> None:
             try:
+                pricing_snapshot = await _refresh_pricing_snapshot(
+                    settings,
+                    BASE_DIR,
+                    force_litellm_refresh=False,
+                )
+                pricing_cache = dict(pricing_snapshot.get("litellm_cache", {}) or {})
+                LOGGER.info(
+                    "Pricing cache status source=%s refreshed=%s used_cache=%s cache=%s errors=%s",
+                    pricing_snapshot.get("default_source_name", ""),
+                    pricing_cache.get("refreshed", False),
+                    pricing_cache.get("used_cache", False),
+                    pricing_cache.get("cache_file", ""),
+                    " | ".join(str(error) for error in pricing_snapshot.get("errors", []) or []),
+                )
                 startup_diagnostics = await _get_runtime_preflight_data(force_refresh=True)
                 diag_lines = [
                     f"{row.get('id')}: {row.get('status')} - {row.get('summary')}"
@@ -723,6 +737,7 @@ def _build_app() -> FastAPI:
                 routing_refresh = await ensure_connection_routing_index_ready(
                     settings,
                     embedding_client=pipeline.embedding_client,
+                    usage_meter=usage_meter,
                     wait=True,
                 )
                 routing_status = dict(routing_refresh.get("status", {}) or {})
@@ -778,11 +793,19 @@ def _build_app() -> FastAPI:
                     send_discord_alerts,
                     settings,
                     category="system_events",
-                    title=f"{_agent_name_value()} gestartet",
+                    title=I18N.t(
+                        str(getattr(settings.ui, "language", "en") or "en"),
+                        "app.startup_alert_title",
+                        "{agent_name} started",
+                    ).format(agent_name=_agent_name_value()),
                     lines=[
                         runtime_host_line(settings),
                         f"Version: {_read_release_meta(BASE_DIR).get('label', 'unknown')}",
-                        f"Memory-Operationen beim Start: {memory_ops}",
+                        I18N.t(
+                            str(getattr(settings.ui, "language", "en") or "en"),
+                            "app.startup_alert_memory_operations",
+                            "Startup memory operations: {count}",
+                        ).format(count=memory_ops),
                         f"LLM: {settings.llm.model}",
                         f"Embeddings: {settings.embeddings.model}",
                         f"Memory: {settings.memory.backend}",
@@ -926,10 +949,10 @@ def _build_app() -> FastAPI:
             is_auto_memory_enabled=_is_auto_memory_enabled,
             get_effective_memory_collection=_get_effective_memory_collection,
             session_memory_collection_for_user=_session_memory_collection_for_user,
-            load_custom_skill_manifests=_load_custom_skill_manifests,
-            localize_custom_skill_description=_localize_custom_skill_description,
+            load_stored_recipe_manifests=_load_stored_recipe_manifests,
+            localize_stored_recipe_description=_localize_stored_recipe_description,
             sanitize_role=_sanitize_role,
-            build_client_skill_progress_hints=_build_client_skill_progress_hints,
+            build_client_recipe_progress_hints=_build_client_recipe_progress_hints,
             get_connection_catalog=lambda: {
                 kind: sorted(list(getattr(settings.connections, kind, {}).keys()))
                 for kind in CONNECTION_ADMIN_SPECS.keys()
@@ -1005,7 +1028,7 @@ def _build_app() -> FastAPI:
         get_username_from_request=_get_username_from_request,
     )
 
-    register_skills_routes(
+    register_recipe_routes(
         app,
         templates=TEMPLATES,
         get_settings=_get_runtime_settings,
@@ -1016,8 +1039,8 @@ def _build_app() -> FastAPI:
         write_raw_config=_write_raw_config,
         reload_runtime=_reload_runtime,
         translate=lambda lang, key, default: I18N.t(lang, key, default),
-        localize_custom_skill_description=_localize_custom_skill_description,
-        format_skill_routing_info=_format_skill_routing_info,
+        localize_stored_recipe_description=_localize_stored_recipe_description,
+        format_recipe_routing_info=_format_recipe_routing_info,
         suggest_skill_keywords_with_llm=_suggest_skill_keywords_with_llm,
         daily_time_to_cron=_daily_time_to_cron,
         daily_time_from_cron=_daily_time_from_cron,
@@ -1055,7 +1078,11 @@ def _build_app() -> FastAPI:
             get_settings=_get_runtime_settings,
             get_username_from_request=_get_username_from_request,
             build_notes_store=lambda root_dir: NotesStore(root_dir),
-            build_notes_index=lambda runtime_settings: NotesIndex(runtime_settings.memory, runtime_settings.embeddings),
+            build_notes_index=lambda runtime_settings: NotesIndex(
+                runtime_settings.memory,
+                runtime_settings.embeddings,
+                usage_meter=getattr(runtime_settings, "_aria_usage_meter", None),
+            ),
         ),
     )
 
@@ -1079,7 +1106,7 @@ def _build_app() -> FastAPI:
             sanitize_role=_sanitize_role,
             sanitize_username=_sanitize_username,
             sanitize_connection_name=_sanitize_connection_name,
-            sanitize_skill_id=_sanitize_skill_id,
+            sanitize_skill_id=_sanitize_recipe_id,
             sanitize_profile_name=_sanitize_profile_name,
             default_memory_collection_for_user=_default_memory_collection_for_user,
             encode_auth_session=_encode_auth_session,
@@ -1107,11 +1134,11 @@ def _build_app() -> FastAPI:
             available_languages=I18N.available_languages,
             resolve_lang=lambda code, default_lang: I18N.resolve_lang(code, default_lang=default_lang),
             clear_i18n_cache=I18N.clear_cache,
-            load_custom_skill_manifests=_load_custom_skill_manifests,
-            custom_skill_file=_custom_skill_file,
-            save_custom_skill_manifest=_save_custom_skill_manifest,
-            refresh_skill_trigger_index=_refresh_skill_trigger_index,
-            format_skill_routing_info=_format_skill_routing_info,
+            load_stored_recipe_manifests=_load_stored_recipe_manifests,
+            stored_recipe_file=_recipe_manifest_file,
+            save_stored_recipe_manifest=_save_stored_recipe_manifest,
+            refresh_skill_trigger_index=_refresh_recipe_trigger_index,
+            format_recipe_routing_info=_format_recipe_routing_info,
             suggest_skill_keywords_with_llm=_suggest_skill_keywords_with_llm,
         ),
     )
@@ -1142,7 +1169,8 @@ def _build_app() -> FastAPI:
                 intent_badge=_intent_badge,
                 friendly_error_text=_friendly_error_text,
                 alert_sender=lambda *args, **kwargs: send_discord_alerts(*args, **kwargs),
-                signing_secret=FORGET_SIGNING_SECRET,
+                pending_signing_secret=PENDING_ACTION_SIGNING_SECRET,
+                forget_signing_secret=FORGET_SIGNING_SECRET,
                 sanitize_username=_sanitize_username,
                 sanitize_connection_name=_sanitize_connection_name,
                 sanitize_collection_name=_sanitize_collection_name,
@@ -1174,6 +1202,7 @@ def _build_app() -> FastAPI:
             routed_action_pending_cookie=ROUTED_ACTION_PENDING_COOKIE,
             connection_pending_max_age_seconds=CONNECTION_PENDING_MAX_AGE_SECONDS,
             forget_signing_secret=FORGET_SIGNING_SECRET,
+            pending_signing_secret=PENDING_ACTION_SIGNING_SECRET,
         ),
     )
 
@@ -1186,7 +1215,7 @@ def _build_app() -> FastAPI:
         LOGGER.exception("Unhandled request error on %s", request.url.path, exc_info=exc)
         return _exception_response(
             request,
-            detail="Unerwarteter Fehler. Bitte erneut versuchen oder Logs prüfen.",
+            detail=_tr(request, "app.unexpected_error", "Unexpected error. Please try again or check the logs."),
             status_code=500,
         )
 

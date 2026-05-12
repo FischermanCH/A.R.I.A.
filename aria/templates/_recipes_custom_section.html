@@ -1,0 +1,90 @@
+{% from "_icons.html" import icon %}
+<!--
+  UI-Migrationshinweis:
+  Diese Uebersicht zeigt heute gespeicherte Rezepte. Mittelfristig soll hier sichtbarer werden,
+  welche Eintraege gespeicherte Rezepte, Playbooks oder gelernte Vorschlaege sind.
+-->
+<section class="floating-card skills-section" id="skills-custom">
+  <h3>{{ tr(request, 'recipes.my_recipes_title', 'Meine Rezepte') }}</h3>
+  <p class="hint-text">{{ tr(request, 'recipes.my_recipes_desc', 'Hier findest du deine eigenen gespeicherten Rezepte. Vorlagen und Systemfunktionen liegen getrennt darunter.') }}</p>
+  <div class="config-group-grid">
+    {% for row in custom_rows %}
+    <article class="config-group-card skill-card">
+      <div class="skill-card-head">
+        <h3>{{ row.title }}</h3>
+        <span class="skill-state {% if row.enabled %}is-on{% else %}is-off{% endif %}">
+          {% if row.enabled %}{{ tr(request, 'recipes.state_on', 'aktiv') }}{% else %}{{ tr(request, 'recipes.state_off', 'aus') }}{% endif %}
+        </span>
+      </div>
+      <p>{{ row.desc }}</p>
+      <p class="hint-text">{{ tr(request, 'recipes.category', 'Kategorie') }}: {{ row.category }}{% if row.prompt_file %} · {{ tr(request, 'recipes.prompt', 'Prompt') }}: {{ row.prompt_file }}{% endif %}</p>
+      <input type="hidden" name="custom_toggle_ids" value="{{ row.key }}">
+      <label class="inline-check">
+        <input
+          type="checkbox"
+          name="custom_enabled__{{ row.key }}"
+          value="1"
+          {% if row.enabled %}checked{% endif %}
+          {% if request.state.auth_role != "admin" %}disabled{% endif %}
+        >
+        {{ row.title }} {{ tr(request, 'recipes.enable', 'aktivieren') }}
+      </label>
+      <details class="skill-details">
+        <summary>{{ tr(request, 'recipes.details', 'Details') }}</summary>
+        <div class="skill-details-content">
+          {% if row.router_keywords %}
+          <p class="hint-text">{{ tr(request, 'recipes.trigger', 'Trigger') }}: {{ row.router_keywords|join(", ") }}</p>
+          {% endif %}
+          {% if row.connections %}
+          <p class="hint-text">{{ tr(request, 'recipes.connections', 'Connections') }}: {{ row.connections|join(", ") }}</p>
+          {% endif %}
+          {% if row.steps %}
+          <p class="hint-text">{{ tr(request, 'recipes.steps', 'Steps') }}: {{ row.steps|length }}</p>
+          {% for step in row.steps %}
+          <p class="hint-text">- {{ step.id }} · {{ step.type }}{% if step.name %} · {{ step.name }}{% endif %}</p>
+          {% endfor %}
+          {% endif %}
+          {% if row.schedule and row.schedule.enabled %}
+          <p class="hint-text">{{ tr(request, 'recipes.schedule', 'Zeitplan') }}: {{ row.schedule_time_24h or 'custom' }} {{ tr(request, 'recipes.clock', 'Uhr') }} ({{ row.schedule.timezone }}){% if row.schedule.run_on_startup %} · + {{ tr(request, 'recipes.start', 'Start') }}{% endif %}</p>
+          {% endif %}
+          {% if not recipes_readonly %}
+          <div class="inline-actions">
+            <a
+              class="button-like ui-icon-only"
+              href="/recipes/wizard?skill_id={{ row.key }}&return_to={{ page_return_to | urlencode }}"
+              title="{{ tr(request, 'recipes.edit', 'Bearbeiten') }}"
+              aria-label="{{ tr(request, 'recipes.edit', 'Bearbeiten') }}"
+            >
+              {{ icon('edit', 'ui-action-icon') }}
+              <span class="sr-only">{{ tr(request, 'recipes.edit', 'Bearbeiten') }}</span>
+            </a>
+            <button
+              type="submit"
+              class="danger-btn ui-icon-only"
+              formaction="/recipes/delete"
+              formmethod="post"
+              name="skill_id"
+              value="{{ row.key }}"
+              title="{{ tr(request, 'recipes.delete', 'Löschen') }}"
+              aria-label="{{ tr(request, 'recipes.delete', 'Löschen') }}"
+              onclick="return confirm('{{ tr(request, 'recipes.delete_confirm', 'Rezept wirklich löschen?') }}');"
+            >
+              {{ icon('trash', 'ui-action-icon') }}
+              <span class="sr-only">{{ tr(request, 'recipes.delete', 'Löschen') }}</span>
+            </button>
+          </div>
+          {% endif %}
+          {% if row.hint %}
+          <small class="hint-text">{{ row.hint }}</small>
+          {% endif %}
+        </div>
+      </details>
+    </article>
+    {% else %}
+    <article class="config-group-card skill-card is-future">
+      <h3>{{ tr(request, 'recipes.none_title', 'Noch keine gespeicherten Rezepte') }}</h3>
+      <p>{{ tr(request, 'recipes.none_text', 'Erstelle das erste Rezept über den Wizard oder importiere ein JSON-Manifest.') }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>

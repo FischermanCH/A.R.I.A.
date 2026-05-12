@@ -44,7 +44,7 @@ memory:
   qdrant_api_key: ""
   collection: "aria_memory"
   top_k: 3
-  compression_summary_prompt: "prompts/skills/memory_compress.md"
+  compression_summary_prompt: "prompts/recipes/memory_compress.md"
   collections:
     facts:
       prefix: "aria_facts"
@@ -124,7 +124,7 @@ routing:
 
 prompts:
   persona: "prompts/persona.md"
-  skills_dir: "prompts/skills/"
+  skills_dir: "prompts/recipes/"
 
 channels:
   api:
@@ -155,8 +155,14 @@ pricing:
   enabled: true
   currency: "USD"
   last_updated: "2026-03-17"
-  default_source_name: "Provider Pricing"
-  default_source_url: ""
+  default_source_name: "LiteLLM GitHub pricing JSON"
+  default_source_url: "https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
+  source: "litellm_github"
+  litellm_cache_file: "data/pricing/litellm_model_prices.json"
+  refresh_interval_days: 7
+  model_aliases:
+    embed-small: "openai/text-embedding-3-small"
+    openai/embed-small: "openai/text-embedding-3-small"
   chat_models: {}
   embedding_models: {}
 

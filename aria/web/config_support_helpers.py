@@ -8,6 +8,7 @@ from typing import Any
 import yaml
 
 from aria.core.guardrails import guardrail_kind_label, guardrail_kind_options, normalize_guardrail_kind
+from aria.core.i18n import I18NStore
 
 RawConfigReader = Callable[[], dict[str, Any]]
 RawConfigWriter = Callable[[dict[str, Any]], None]
@@ -19,6 +20,17 @@ ReferenceSanitizer = Callable[[str | None], str]
 SshKeysDirImpl = Callable[[Path], Path]
 EnsureSshKeypairImpl = Callable[[Path, str, bool], Path]
 PerformSshKeyExchangeImpl = Callable[..., tuple[str, Path]]
+_CONFIG_SUPPORT_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _config_support_text(key: str, default: str = "", **values: object) -> str:
+    template = _CONFIG_SUPPORT_I18N.t("de", f"config_support_helpers.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -154,7 +166,7 @@ def build_config_support_helpers(deps: ConfigSupportHelperDeps) -> ConfigSupport
             _reload_runtime()
             return True, ""
         except (OSError, ValueError) as exc:
-            return True, f"Datei gespeichert, aber Runtime-Neuladen fehlgeschlagen: {exc}"
+            return True, _config_support_text("runtime_reload_failed_after_save", "File saved, but runtime reload failed: {error}", error=exc)
 
     def perform_ssh_key_exchange(
         *,

@@ -5,17 +5,27 @@ import json
 from pathlib import Path
 
 from aria.core.config import load_settings
+from aria.core.i18n import I18NStore
+from aria.core.usage_meter import UsageMeter
 from aria.skills.memory import MemorySkill
+
+_MAINTENANCE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _maintenance_terms(key: str, fallback: tuple[str, ...]) -> list[str]:
+    terms: list[str] = []
+    for lang in ("de", "en"):
+        raw = _MAINTENANCE_I18N.t(lang, f"maintenance.{key}", "")
+        terms.extend(term.strip().lower() for term in raw.split(",") if term.strip())
+    return list(dict.fromkeys(terms)) or list(fallback)
 
 
 def _load_operational_trigger_phrases(project_root: Path) -> list[str]:
-    skills_dir = project_root / "data" / "skills"
-    rows: list[str] = [
-        "welche skills sind aktiv",
-        "was für skills hast du aktiv",
-        "was für skills hast du aktiv",
-        "what skills are active",
-    ]
+    skills_dir = project_root / "data" / "recipes"
+    rows: list[str] = _maintenance_terms(
+        "operational_trigger_phrases",
+        ("what recipes are active", "which recipes are active"),
+    )
     if not skills_dir.exists():
         return rows
     for path in sorted(skills_dir.glob("*.json")):
@@ -54,7 +64,8 @@ async def run_memory_maintenance(config_path: str | Path = "config/config.yaml")
     if not settings.memory.enabled or settings.memory.backend.lower() != "qdrant":
         return stats
 
-    skill = MemorySkill(memory=settings.memory, embeddings=settings.embeddings)
+    usage_meter = UsageMeter(settings)
+    skill = MemorySkill(memory=settings.memory, embeddings=settings.embeddings, usage_meter=usage_meter)
     session_cfg = settings.memory.collections.sessions
     compress_after_days = int(getattr(session_cfg, "compress_after_days", 7) or 7)
     monthly_after_days = int(getattr(session_cfg, "monthly_after_days", 30) or 30)

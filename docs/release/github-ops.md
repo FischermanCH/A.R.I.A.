@@ -29,7 +29,7 @@ Recommended labels:
 - `release`
 - `ui`
 - `memory`
-- `skills`
+- `recipes`
 - `connections`
 - `rss`
 - `security`

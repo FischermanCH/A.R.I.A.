@@ -1,12 +1,32 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from aria.core.i18n import I18NStore
 from aria.skills.base import SkillResult
 
 
 SSHExecutor = Callable[..., Awaitable[SkillResult]]
+_SAFE_FIX_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _safe_fix_text(language: str, key: str, default: str = "", **values: object) -> str:
+    template = _SAFE_FIX_I18N.t(language, f"safe_fix.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
+
+def _held_package_markers() -> tuple[str, ...]:
+    return (
+        "kept back",
+        _safe_fix_text("de", "held_back_marker", "held back"),
+    )
 
 
 def extract_held_packages(text: str) -> list[str]:
@@ -19,7 +39,7 @@ def extract_held_packages(text: str) -> list[str]:
     collecting = False
     for line in rows:
         low = line.lower()
-        if "kept back" in low or "zurückgehalten" in low or "zurückgehalten" in low:
+        if any(marker and marker in low for marker in _held_package_markers()):
             collecting = True
             after_colon = line.split(":", 1)[1] if ":" in line else ""
             candidates = re.findall(r"[a-z0-9][a-z0-9+_.-]*", after_colon.lower())
@@ -63,10 +83,12 @@ def extract_held_packages(text: str) -> list[str]:
 def format_held_packages_summary(
     held_by_connection: dict[str, list[str]],
     connection_targets: dict[str, str],
+    *,
+    language: str = "de",
 ) -> str:
     if not held_by_connection:
         return ""
-    lines = ["Hinweis: Zurückgehaltene Pakete erkannt:"]
+    lines = [_safe_fix_text(language, "held_packages_notice", "Notice: held packages detected:")]
     merged: list[str] = []
     seen: set[str] = set()
     for conn_ref in sorted(held_by_connection.keys()):
@@ -82,7 +104,7 @@ def format_held_packages_summary(
                 merged.append(pkg)
     if merged:
         lines.append("")
-        lines.append("Safe-Fix (manuell bestätigen):")
+        lines.append(_safe_fix_text(language, "manual_confirm_header", "Safe-Fix (manual confirmation required):"))
         lines.append("sudo apt install --only-upgrade " + " ".join(merged))
     return "\n".join(lines)
 
@@ -120,11 +142,11 @@ class SafeFixExecutor:
         if not isinstance(plan, list) or not plan:
             return SkillResult(
                 skill_name="safe_fix",
-                content="Kein gültiger Safe-Fix Plan vorhanden.",
+                content=_safe_fix_text(language, "empty_plan", "No valid Safe-Fix plan is available."),
                 success=False,
                 error="safe_fix_empty_plan",
             )
-        rows: list[str] = ["Safe-Fix ausgefuehrt:"]
+        rows: list[str] = [_safe_fix_text(language, "executed_header", "Safe-Fix executed:")]
         all_ok = True
         for idx, item in enumerate(plan, start=1):
             if not isinstance(item, dict):
@@ -154,7 +176,8 @@ class SafeFixExecutor:
                 rows.append(f"{idx}. {conn_ref}: OK ({', '.join(clean_packages)})")
             else:
                 all_ok = False
-                rows.append(f"{idx}. {conn_ref}: FEHLER ({ssh_result.error or 'unknown'})")
+                error_label = _safe_fix_text(language, "error_label", "ERROR")
+                rows.append(f"{idx}. {conn_ref}: {error_label} ({ssh_result.error or 'unknown'})")
                 interpretation = (ssh_result.metadata or {}).get("error_interpretation")
                 if isinstance(interpretation, dict):
                     title = str(interpretation.get("title", "")).strip()
@@ -163,13 +186,13 @@ class SafeFixExecutor:
                     if title:
                         rows.append(f"   {title}")
                     if cause:
-                        rows.append(f"   Ursache: {cause}")
+                        rows.append(f"   {_safe_fix_text(language, 'cause_label', 'Cause:')} {cause}")
                     if next_step:
-                        rows.append(f"   Nächster Schritt: {next_step}")
+                        rows.append(f"   {_safe_fix_text(language, 'next_step_label', 'Next step:')} {next_step}")
         if len(rows) == 1:
             return SkillResult(
                 skill_name="safe_fix",
-                content="Safe-Fix konnte nicht ausgefuehrt werden (kein ausführbarer Plan).",
+                content=_safe_fix_text(language, "no_valid_items", "Safe-Fix could not run because the plan has no executable items."),
                 success=False,
                 error="safe_fix_no_valid_items",
             )

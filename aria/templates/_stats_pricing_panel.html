@@ -8,6 +8,10 @@
           {{ tr(request, 'stats.price_list', 'Price list') }}: {{ pricing_meta.last_updated }}
           · {{ tr(request, 'stats.currency', 'Currency') }}: {{ pricing_meta.currency }}
           · {{ pricing_meta.default_source_name }}
+          {% if pricing_meta.litellm_cache_file %}
+          · {{ tr(request, 'stats.pricing_cache', 'Cache') }}: {{ pricing_meta.litellm_cache_file }}
+          · {{ tr(request, 'stats.pricing_refresh_interval', 'Refresh') }}: {{ pricing_meta.refresh_interval_days }} {{ tr(request, 'stats.days', 'days') }}
+          {% endif %}
         </p>
       </div>
       {% if request.state.can_access_advanced_config %}
@@ -18,27 +22,118 @@
         hx-post="/stats/pricing/refresh"
         hx-target="#stats-pricing-panel"
         hx-swap="outerHTML"
+        hx-indicator="#stats-pricing-refresh-indicator"
       >
         <button type="submit" class="nav-link ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request, 'stats.refresh_pricing', 'Preise aktualisieren') }}</button>
+        <span id="stats-pricing-refresh-indicator" class="stats-refresh-indicator htmx-indicator">
+          {{ tr(request, 'stats.pricing_refresh_running', 'Refreshing prices...') }}
+        </span>
       </form>
       {% endif %}
     </div>
     <p class="stat-sub">
-      Coverage: Chat {{ pricing_meta.chat_seen_count }}/{{ pricing_meta.priced_chat_count }}
-      · Embedding {{ pricing_meta.embedding_seen_count }}/{{ pricing_meta.priced_embedding_count }}
+      Coverage:
+      Chat {{ pricing_meta.priced_seen_chat_count }}/{{ pricing_meta.chat_seen_count }}
+      · Embedding {{ pricing_meta.priced_seen_embedding_count }}/{{ pricing_meta.embedding_seen_count }}
     </p>
+    {% if pricing_refresh %}
+    <div class="stats-pricing-refresh status-{{ 'warn' if pricing_refresh.errors else 'ok' }}">
+      <strong>{{ tr(request, 'stats.pricing_refresh_done', 'Pricing refresh completed') }}</strong>
+      <span>
+        {{ pricing_refresh.chat_model_count }} {{ tr(request, 'stats.chat_models_label', 'chat models') }}
+        · {{ pricing_refresh.embedding_model_count }} {{ tr(request, 'stats.embedding_models_label', 'embedding models') }}
+        {% if pricing_refresh.last_updated %} · {{ pricing_refresh.last_updated }}{% endif %}
+        {% if pricing_refresh.cache_refreshed %}
+        · {{ tr(request, 'stats.pricing_cache_refreshed', 'LiteLLM cache refreshed') }}
+        {% elif pricing_refresh.cache_used %}
+        · {{ tr(request, 'stats.pricing_cache_used', 'LiteLLM cache reused') }}
+        {% endif %}
+      </span>
+      {% if pricing_refresh.errors %}
+      <small>{{ pricing_refresh.errors|join(" · ") }}</small>
+      {% endif %}
+    </div>
+    {% endif %}
   </section>
+
+  {% if pricing_admin %}
+  <section class="stat-card">
+    <div class="stats-pricing-refresh status-{{ pricing_admin.status }}">
+      <strong>{{ pricing_admin.message }}</strong>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.pricing_admin_title', 'Pricing admin overrides') }}</h2>
+    <p class="stat-sub">{{ tr(request, 'stats.pricing_admin_hint', 'Local manual aliases and prices stay in config and survive LiteLLM price refreshes.') }}</p>
+    <form
+      method="post"
+      action="/stats/pricing/alias"
+      class="editor-form compact-form"
+      hx-post="/stats/pricing/alias"
+      hx-target="#stats-pricing-panel"
+      hx-swap="outerHTML"
+    >
+      <label>{{ tr(request, 'stats.pricing_alias_label', 'Model alias') }}</label>
+      <input name="alias" type="text" placeholder="openai/embed-small" required>
+      <label>{{ tr(request, 'stats.pricing_alias_target_label', 'Canonical priced model') }}</label>
+      <input name="target" type="text" placeholder="openai/text-embedding-3-small" required>
+      <button type="submit" class="nav-link ui-action-button">{{ tr(request, 'stats.pricing_save_alias', 'Save alias') }}</button>
+    </form>
+    <form
+      method="post"
+      action="/stats/pricing/manual"
+      class="editor-form compact-form"
+      hx-post="/stats/pricing/manual"
+      hx-target="#stats-pricing-panel"
+      hx-swap="outerHTML"
+    >
+      <label>{{ tr(request, 'stats.pricing_model_kind', 'Model kind') }}</label>
+      <select name="kind">
+        <option value="chat">Chat</option>
+        <option value="embedding">Embedding</option>
+      </select>
+      <label>{{ tr(request, 'stats.pricing_model_name', 'Model name') }}</label>
+      <input name="model" type="text" placeholder="provider/model-name" required>
+      <label>{{ tr(request, 'stats.pricing_input_rate', 'Input USD / 1M tokens') }}</label>
+      <input name="input_per_million" type="number" min="0" step="0.000001" value="0" required>
+      <label>{{ tr(request, 'stats.pricing_output_rate', 'Output USD / 1M tokens (chat only)') }}</label>
+      <input name="output_per_million" type="number" min="0" step="0.000001" value="0">
+      <label>{{ tr(request, 'stats.pricing_source_name', 'Source name') }}</label>
+      <input name="source_name" type="text" value="Manual">
+      <label>{{ tr(request, 'stats.pricing_source_url', 'Source URL') }}</label>
+      <input name="source_url" type="url" placeholder="https://...">
+      <label>{{ tr(request, 'stats.pricing_notes', 'Notes') }}</label>
+      <input name="notes" type="text" placeholder="contract, region, provider account">
+      <button type="submit" class="nav-link ui-action-button">{{ tr(request, 'stats.pricing_save_manual', 'Save manual price') }}</button>
+    </form>
+  </section>
+  {% endif %}
 
   <section class="stat-card">
     <h2>Pricing Coverage</h2>
     <ul class="stats-list">
       <li>
         <span>{{ tr(request, 'stats.chat_seen_priced', 'Chat models seen / priced') }}</span>
-        <strong>{{ pricing_meta.chat_seen_count }} / {{ pricing_meta.priced_chat_count }}</strong>
+        <strong>{{ pricing_meta.priced_seen_chat_count }} / {{ pricing_meta.chat_seen_count }}</strong>
       </li>
       <li>
         <span>{{ tr(request, 'stats.embed_seen_priced', 'Embedding models seen / priced') }}</span>
-        <strong>{{ pricing_meta.embedding_seen_count }} / {{ pricing_meta.priced_embedding_count }}</strong>
+        <strong>{{ pricing_meta.priced_seen_embedding_count }} / {{ pricing_meta.embedding_seen_count }}</strong>
+      </li>
+      <li>
+        <span>{{ tr(request, 'stats.unpriced_tokens', 'Unpriced model tokens') }}</span>
+        <strong>{{ pricing_meta.unpriced_model_tokens }}</strong>
+      </li>
+      <li>
+        <span>{{ tr(request, 'stats.estimated_total_cost_usd', 'Estimated USD') }}</span>
+        <strong>${{ "%.6f"|format(pricing_meta.estimated_total_cost_usd) }}</strong>
+      </li>
+      <li>
+        <span>{{ tr(request, 'stats.logged_total_cost_usd', 'Logged USD') }}</span>
+        <strong>${{ "%.6f"|format(pricing_meta.logged_total_cost_usd) }}</strong>
       </li>
       <li>
         <span>{{ tr(request, 'stats.chat_unpriced', 'Unpriced chat models') }}</span>
@@ -63,11 +158,62 @@
     </ul>
   </section>
 
+  {% if pricing_meta.alias_rows %}
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.pricing_aliases_title', 'Model aliases') }}</h2>
+    <ul class="stats-list stats-model-list">
+      {% for row in pricing_meta.alias_rows %}
+        <li>
+          <span>{{ row.alias }} → {{ row.target }}</span>
+          {% if request.state.can_access_advanced_config %}
+          <form method="post" action="/stats/pricing/alias/delete" class="inline-form" hx-post="/stats/pricing/alias/delete" hx-target="#stats-pricing-panel" hx-swap="outerHTML">
+            <input type="hidden" name="alias" value="{{ row.alias }}">
+            <button type="submit" class="link-button">{{ tr(request, 'stats.delete', 'Delete') }}</button>
+          </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if pricing_meta.source_rows %}
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.pricing_sources_title', 'Configured model prices') }}</h2>
+    <ul class="stats-list stats-model-list">
+      {% for row in pricing_meta.source_rows %}
+        <li>
+          <span>{{ row.kind }} · {{ row.model }} · {{ row.rate }} · {{ row.source_name }}</span>
+          {% if request.state.can_access_advanced_config and row.is_manual %}
+          <form method="post" action="/stats/pricing/manual/delete" class="inline-form" hx-post="/stats/pricing/manual/delete" hx-target="#stats-pricing-panel" hx-swap="outerHTML">
+            <input type="hidden" name="kind" value="{{ row.kind|lower }}">
+            <input type="hidden" name="model" value="{{ row.model }}">
+            <button type="submit" class="link-button">{{ tr(request, 'stats.delete', 'Delete') }}</button>
+          </form>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if pricing_meta.unpriced_model_rows %}
+  <section class="stat-card">
+    <h2>{{ tr(request, 'stats.unpriced_models_title', 'Unpriced models') }}</h2>
+    <p class="stat-sub">{{ tr(request, 'stats.unpriced_models_hint', 'These exact logged model names could not be mapped to a USD price yet.') }}</p>
+    <ul class="stats-list stats-model-list">
+      {% for row in pricing_meta.unpriced_model_rows %}
+        <li><span>{{ row.kind }} · {{ row.model }}</span><strong>{{ row.tokens }}</strong></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   <section class="stat-card">
     <h2>{{ tr(request, 'stats.chat_cost_by_model', 'ChatLLM cost by model (USD)') }}</h2>
-    {% if stats.chat_cost_usd_by_model %}
+    {% if pricing_meta.estimated_chat_cost_usd_by_model %}
       <ul class="stats-list">
-        {% for model, cost in stats.chat_cost_usd_by_model.items() %}
+        {% for model, cost in pricing_meta.estimated_chat_cost_usd_by_model.items() %}
           <li><span>{{ model }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
         {% endfor %}
       </ul>
@@ -78,9 +224,9 @@
 
   <section class="stat-card">
     <h2>{{ tr(request, 'stats.embed_cost_by_model', 'Embedding cost by model (USD)') }}</h2>
-    {% if stats.embedding_cost_usd_by_model %}
+    {% if pricing_meta.estimated_embedding_cost_usd_by_model %}
       <ul class="stats-list">
-        {% for model, cost in stats.embedding_cost_usd_by_model.items() %}
+        {% for model, cost in pricing_meta.estimated_embedding_cost_usd_by_model.items() %}
           <li><span>{{ model }}</span><strong>${{ "%.6f"|format(cost) }}</strong></li>
         {% endfor %}
       </ul>

@@ -19,6 +19,7 @@ from aria.core.config_backup import (
     restore_config_backup_payload,
     summarize_config_backup_payload,
 )
+from aria.core.i18n import I18NStore
 
 
 SettingsGetter = Callable[[], Any]
@@ -37,6 +38,17 @@ FactoryResetCleaner = Callable[[dict[str, Any]], dict[str, Any]]
 DirectoryWiper = Callable[[Path], int]
 QdrantFactoryClearer = Callable[[Any], Awaitable[int]]
 CookieNameResolver = Callable[[Request, str, str], str]
+_CONFIG_OPS_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _ops_text(language: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _CONFIG_OPS_I18N.t(language or "de", f"config_operations_detail_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -84,11 +96,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
         backup_summary = summarize_config_backup_payload(backup_payload)
         info_message = ""
         if info == "backup_imported":
-            info_message = (
-                "Konfigurations-Backup erfolgreich wiederhergestellt."
-                if lang.startswith("de")
-                else "Configuration backup restored successfully."
-            )
+            info_message = _ops_text(lang, "backup_imported", "Configuration backup restored successfully.")
         context = deps.build_config_page_context(
             request,
             saved=saved,
@@ -147,7 +155,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
         try:
             data = await backup_file.read()
             if not data:
-                raise ValueError("Backup-Datei ist leer.")
+                raise ValueError(_ops_text(str(getattr(request.state, "lang", "de") or "de"), "backup_file_empty", "Backup file is empty."))
             payload = parse_config_backup_payload(data)
             restore_config_backup_payload(
                 base_dir=deps.base_dir,
@@ -171,13 +179,10 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
                 deps.refresh_skill_trigger_index()
                 deps.reload_runtime()
                 rollback_restored = True
-            message = str(exc).strip() or "Backup-Import fehlgeschlagen."
+            lang = str(getattr(request.state, "lang", "de") or "de")
+            message = str(exc).strip() or _ops_text(lang, "backup_import_failed", "Backup import failed.")
             if rollback_restored:
-                message = (
-                    f"{message} Vorheriger Stand wurde wiederhergestellt."
-                    if str(getattr(request.state, "lang", "de") or "de").startswith("de")
-                    else f"{message} Previous configuration was restored."
-                )
+                message = _ops_text(lang, "backup_rollback_restored", "{message} Previous configuration was restored.", message=message)
             return deps.redirect_with_return_to(
                 f"/config/backup?error={quote_plus(message)}",
                 request,
@@ -237,7 +242,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
     ) -> RedirectResponse:
         try:
             if retention_days < 0:
-                raise ValueError("retention_days muss >= 0 sein.")
+                raise ValueError(_ops_text(str(getattr(request.state, "lang", "de") or "de"), "retention_days_min", "retention_days must be >= 0."))
             active = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
             raw = deps.read_raw_config()
             raw.setdefault("token_tracking", {})
@@ -288,11 +293,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             lang = str(getattr(request.state, "lang", "de") or "de")
             expected = "RESET"
             if str(confirm_text or "").strip().upper() != expected:
-                raise ValueError(
-                    'Bitte zur Bestätigung genau "RESET" eingeben.'
-                    if lang.startswith("de")
-                    else 'Please type "RESET" exactly to confirm.'
-                )
+                raise ValueError(_ops_text(lang, "reset_confirm_exact", 'Please type "RESET" exactly to confirm.'))
             pipeline = deps.get_pipeline()
             removed = await pipeline.token_tracker.clear_log()
             runtime_dir = (deps.base_dir / "data" / "runtime").resolve()
@@ -312,7 +313,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             error = deps.friendly_route_error(
                 lang,
                 exc,
-                "Statistikdaten konnten nicht zurückgesetzt werden.",
+                _ops_text(lang, "stats_reset_failed", "Could not reset stats data."),
                 "Could not reset stats data.",
             )
             return deps.redirect_with_return_to(
@@ -328,11 +329,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             lang = str(getattr(request.state, "lang", "de") or "de")
             expected = "FACTORY RESET"
             if str(confirm_text or "").strip().upper() != expected:
-                raise ValueError(
-                    'Bitte zur Bestätigung genau "FACTORY RESET" eingeben.'
-                    if lang.startswith("de")
-                    else 'Please type "FACTORY RESET" exactly to confirm.'
-                )
+                raise ValueError(_ops_text(lang, "factory_reset_confirm_exact", 'Please type "FACTORY RESET" exactly to confirm.'))
 
             settings = deps.get_settings()
             pipeline = deps.get_pipeline()
@@ -344,7 +341,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             removed_qdrant = await deps.clear_qdrant_factory_data(settings.memory)
 
             removed_files = 0
-            for rel_dir in ("data/auth", "data/chat_history", "data/runtime", "data/skills", "data/ssh_keys"):
+            for rel_dir in ("data/auth", "data/chat_history", "data/runtime", "data/recipes", "data/ssh_keys"):
                 removed_files += deps.wipe_directory_contents((deps.base_dir / rel_dir).resolve())
 
             logs_dir = (deps.base_dir / "data" / "logs").resolve()
@@ -354,11 +351,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
 
             deps.reload_runtime()
 
-            info = (
-                "Factory Reset abgeschlossen. ARIA ist jetzt wieder im Erststart-Zustand."
-                if lang.startswith("de")
-                else "Factory reset completed. ARIA is back in first-start state."
-            )
+            info = _ops_text(lang, "factory_reset_done", "Factory reset completed. ARIA is back in first-start state.")
             response = RedirectResponse(
                 url=(
                     f"/login?info={quote_plus(info)}"
@@ -377,7 +370,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             error = deps.friendly_route_error(
                 lang,
                 exc,
-                "Factory Reset konnte nicht ausgeführt werden.",
+                _ops_text(lang, "factory_reset_failed", "Could not run factory reset."),
                 "Could not run factory reset.",
             )
             return RedirectResponse(url=f"/config/logs?error={quote_plus(error)}", status_code=303)

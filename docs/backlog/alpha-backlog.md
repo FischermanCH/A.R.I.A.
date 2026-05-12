@@ -1,6 +1,6 @@
 # ARIA - Alpha Backlog
 
-Stand: 2026-04-22
+Stand: 2026-05-12
 
 Zweck:
 - schlanker Arbeits-Backlog fuer die laufende Alpha-Linie
@@ -10,97 +10,184 @@ Zweck:
 
 Aktueller Release-Stand:
 - eine sichtbare Release-Kennung pro Code-Linie
-- aktuell: `0.1.0-alpha167`
+- aktuell gebaut: `0.1.0-alpha251`
+- aktuell in Arbeit: Public-Release-Closure / Public-Push-Vorbereitung
+- public zuletzt veroeffentlicht: `0.1.0-alpha167`
+
+## Offen auf einen Blick
+
+Nach `alpha247` ausgewertet:
+- Multi-Target SSH ist live gruen: `check mal ob meine server noch genug festplatten platz haben` prueft 13 SSH-Ziele ohne Rueckfrage
+- Restart-Safety ist live gruen: `starte meinen dns server neu` erzeugt einen mutierenden Draft und wird blockiert
+- Live-Sequenz ist gruen: Management-HD, DNS-Health, API-Reachability, Discord-One-Click-Confirm, SMB-Root-Listing
+- keinen weiteren Build starten, bis der Build explizit angefordert wird
+
+Nach `alpha248` ausgewertet:
+- Multi-Target SSH mit Operator-Wording ist live gruen: `check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht`
+- all-ok Antwort bleibt kurz: `Gesamt: 13/13 SSH-Ziele unauffaellig. Kein Handlungsbedarf.`
+- Detailspur enthaelt weiterhin alle ausgefuehrten SSH-Ziele
+- RSS-Security-News brauchen nutzbaren Haupttext statt Ein-Zeilen-Digest; Fix vorbereitet: Links, Quelle, Zeit und Kurztext bleiben im Chat sichtbar
+- kleine Nachzuege: `requested_ref=n server` sauberer extrahieren; Guardrail-ID-Tippfehler `ssh-healtcheck` bereinigen
+
+`alpha249` gebaut:
+- enthaelt RSS-Digest-Verbesserung mit Links/Quelle/Zeit/Kurztext
+- enthaelt Public-Update-Safety-Nachzug im internen Build-Image
+- Artefakt: `/mnt/NAS/aria-images/aria-alpha249-local.tar`
+- Image: `fischermanch/aria:0.1.0-alpha.249` / `aria:alpha-local`
+- Image-ID: `sha256:7c9a875daba4991020b09961641ddeb11b8d553ec3f20be0719073bf5cc19173`
+- Verifikation: RSS-/Pipeline-/Release-Hygiene `203 passed`; Update-Helper-/Host-Update-/Managed-Setup-/Update-UI-/Release-Hygiene `36 passed`; Compile/Syntax/Diff/Container-Smoke gruen
+
+Nach `alpha249`-Live-Test vorbereitet, noch nicht gebaut:
+- RSS-Digests geben URLs jetzt explizit als `Link:`-Zeile aus, damit Copy/Paste die Links nicht verliert
+- `requested_ref=n server` Parser-Artefakt entfernt; generische Plural-SSH-Prompts bleiben ohne falschen Zielnamen
+- Verifikation: gezielte RSS/Router-Tests `72 passed`; Pipeline/Release-Hygiene `184 passed`; Compile und `git diff --check` gruen
+
+`alpha250` gebaut:
+- enthaelt die Nachzuege aus dem `alpha249`-Live-Test
+- Artefakt: `/mnt/NAS/aria-images/aria-alpha250-local.tar`
+- Image: `fischermanch/aria:0.1.0-alpha.250` / `aria:alpha-local`
+- Image-ID: `sha256:6169fdcfff5a2d0f39de4d073c7455a34db77b87ea654cf7116553974792a6ad`
+- Verifikation: RSS-/Router-/Pipeline-/Release-Hygiene `256 passed`; Compile/Diff/Container-Smoke gruen
+
+`alpha251` gebaut:
+- enthaelt Host-Update-Port-Preflight fuer Public-Release-Safety
+- Artefakt: `/mnt/NAS/aria-images/aria-alpha251-local.tar`
+- Image: `fischermanch/aria:0.1.0-alpha.251` / `aria:alpha-local`
+- Image-ID: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
+- Verifikation: kompletter Testlauf `1023 passed`; i18n strict, Compile, Diff, Container-Smoke gruen
+- Update-Pfad-Test: isolierter Managed-Stack auf Port `18831`, nur `aria` recreated, Qdrant/SearXNG/Valkey stabil
+
+Naechste Produkt-/Cleanup-Bloecke:
+- Public-Release-Closure `alpha251`: finaler Build erst nach gruenem Testlauf und sauberem Update-Pfad
+- Public Push/Tag erst nach letzter Freigabe, weil `alpha251` noch den Host-Update-Port-Preflight nachzieht
+- Nach Public: Agentic Intelligence nach Live-Testdaten weiter vereinheitlichen, nicht auf Verdacht neue Spezialfaelle bauen
+- Nach Public: Legacy-/Recipe-Cleanup weiterfuehren, aber Safety- und Backcompat-Bruecken bewusst erhalten
+
+Pre-Public-Cleanup:
+- Git-Hygiene: Arbeitsbaum ist gross und muss vor Public Release in reviewbare Bloecke/Commits zerlegt werden
+- Docker-Hygiene: viele alte Alpha-Images und Build-Cache sind lokal vorhanden; Cleanup erst nach Update-Pfad-Freigabe und ohne laufenden Stack zu gefaehrden
+- Update-Safety: generierter Managed-Stack-Helper wurde so geaendert, dass `update` nur `aria` pullt/recreatet; Verifikation: Update-/UI-/Release-Hygiene-Tests `34 passed` vor Host-Helper-Nachzug, danach Host-Update-/Update-UI-/Release-Hygiene-Tests `36 passed`; Docker-/Update-Skript-Syntax gruen
+- Update-Safety-Nachzug: Host-Update-Helper kann per `--target-image` alte Fixed-Tag-Installs sicher auf ein neues Image heben, refreshed Managed-Stack-Dateien aus dem Ziel-Image und recreatet weiter nur `aria`
+- Echte Alt-zu-Neu-Probe mit temporaerem `alpha167`-Managed-Stack: Host-Helper recreated nur `aria`; Qdrant/SearXNG/Valkey-Container blieben stabil. Finaler Helper-Refresh-Test braucht den naechsten Build, weil `aria:alpha-local` aktuell noch `alpha248` ohne diesen Host-Helper-Nachzug enthaelt
+- Verifikation nach Host-Update-Nachzug: Host-Update-/Update-UI-/Release-Hygiene-Tests `36 passed`; Docker-/Update-Skript-Syntax gruen
+- Docker-Cleanup erledigt: lokale alte ARIA-Testtags `alpha167` und `alpha239`-`alpha245` entfernt; Build-Cache bewusst fuer den naechsten Build behalten
+- Public-Release-Kommunikation nachgezogen: kuratierter GitHub/Docker-Hub Rollup-Text seit `alpha167` liegt in `docs/release/public-alpha-rollup-alpha167-to-next.md`; README und Docker-Hub-Overview beschreiben jetzt Recipes, LLM-assisted Action Planning und sichere Update-Pfade statt Skills-first Architektur
+- Update-Pfad-Blocker gefunden und behoben: Host-Update-Helper prueft jetzt Compose-Host-Ports vor `up --force-recreate` und bricht sauber ab, wenn z.B. ein Host-Uvicorn bereits `8800` belegt
+- Isolierter Managed-Stack-Test auf Port `18831`: Host-Helper hat nur `aria` recreated; Qdrant/SearXNG/Valkey-Container-IDs blieben stabil; `/health` danach gruen
+- Lokale Besonderheit: der interne `aria` Docker-Container ist nach dem absichtlich provozierten Port-Konflikt `Created`; die laufende Host-Uvicorn-Instanz auf Port `8800` ist gesund. Vor einem echten lokalen Docker-Switch muss der Host-Port bewusst freigemacht werden.
 
 ## Jetzt
 
-### Release- und Runtime-Hardening
-- Managed-GUI-Update Ende-zu-Ende weiter absichern
-  - `P0`: Mount-/Config-/Prompt-/Data-Konsistenz nie wieder verlieren
-  - `P2`: `aria-setup` frisch gegen Host mit bestehender ARIA gegenpruefen
-- groesste Monolithen mit dem hoechsten Hebel zuerst schneiden
-  - verbleibende Rest-Helfer und letzte gemischte Web-Logik weiter aus `aria/web/config_routes.py` ziehen
-  - verbleibende Rest-Helfer und letzte gemischte Web-Logik weiter aus `aria/main.py` ziehen
+### `alpha247` gebaut und live validiert
+- Live-Test-Befund:
+  - `check mal ob meine server noch genug festplatten platz haben` bleibt in `alpha246` weiterhin in der SSH-Profil-Rueckfrage haengen
+  - Debug zeigt: pluraler SSH-Scope wird erkannt, aber nach Planner/Template-Normalisierung bleibt wieder ein stale `connection_ref`-Missing-Input uebrig
+- Fix vorbereitet:
+  - plurale SSH-Multi-Target-Actions werden jetzt nach Bounded Planner und Template-Normalisierung nochmals finalisiert
+  - wenn der Command-Draft dann noch leer ist, wird der Agentic SSH Resolver spaet erneut gefragt
+  - das Ergebnis wird danach als Multi-Target-Payload mit `connection_refs` und ready Action-Decision gesetzt
+- Verifikation:
+  - gezielte Mehrzahl-/Live-Sequenz-Regressions: `7 passed`
+  - breiter Pipeline/Planner/Dry-Run/Agentic/i18n-Core-Block: `267 passed`
+  - `python -m compileall aria`: gruen
+- Build-Nachzug:
+  - Release-Label fuer `alpha247` gebaut
+  - LiteLLM ist keine harte ARIA-Basisdependency mehr: das Python-Paket definiert ein optionales `model-gateway`-Extra, Docker installiert dieses Extra explizit, und LLM/Embedding-Clients laden LiteLLM erst beim konkreten Gateway-Call
+  - Pricing bleibt damit von einem installierten LiteLLM-Python-Paket entkoppelt; LiteLLM GitHub Pricing JSON bleibt nur die Preislistenquelle
+  - Gateway-/Kosten-/Stats-Regressionen: `46 passed`
+  - finaler Vor-Build-Regressionsblock: `313 passed`
+  - i18n-Code-Literal-Audit strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha247`
+  - Artefakt: `/mnt/NAS/aria-images/aria-alpha247-local.tar`
+  - Image: `fischermanch/aria:0.1.0-alpha.247` / `aria:alpha-local`
+  - Image-ID: `sha256:78108f7d9c48f70e28ea929de3b2708b99319e03a6687d326fa24bb842c0f741`
+- Live-Test nach Deployment:
+  - Multi-Target SSH: `13/13` Ziele unauffaellig, kein RSS/Recipe-Drift, keine Ziel-Rueckfrage
+  - Restart-Safety: mutierender `sudo systemctl restart pihole-FTL`-Draft wird blockiert, keine Healthcheck-Ersatz-Ausfuehrung
+  - Management-HD: `ssh/ubnsrv-mgmt-master`, `df -h`, Tokens/Kosten sichtbar
+  - DNS-Health: `ssh/pihole1`, Guardrail-Healthcheck-Bundle, fachliche Health-Zusammenfassung
+  - API-Reachability: `http_api/n8n-test-http-api`, Pfad `/`, Read-only allow
+  - Discord-One-Click-Confirm: Pending-Button und Versand via `discord/fischerman-aria-messages`
+  - SMB-Root-Listing: `smb/fischer_ronny`, Pfad `.`
 
-### Routing / Planner / Live-Chat
-- Routing-Produktpfad weiter entschlacken und vereinheitlichen
-  - verbleibende Direkt-/Sonderpfade in Chat/Admin auf denselben Resolver ziehen
-  - Prompt-/Follow-up-Robustheit fuer echte Alltagsfaelle weiter haerten
-- bounded LLM-Routing als naechsten sauberen Ausbau vorbereiten
-  - deterministische Treffer + Qdrant-Kandidaten bleiben die Vorstufe
-  - kleine Router-LLM entscheidet anschliessend nur innerhalb des erlaubten Kandidatenraums
-  - Ziel: weniger Keyword-Pflege, bessere Mixed-Language-Abdeckung, keine freie Tool-Wahl ohne Guardrails
-- Pending-/Admin-Sonderpfade sprach- und resolverseitig weiter mit dem Produktpfad angleichen
+### `alpha248` gebaut und live validiert
+- Nachzug:
+  - Multi-Target-SSH-Flottenchecks geben bei komplett unauffaelligen Ergebnissen nur noch ein kompaktes Operator-Fazit mit `Kein Handlungsbedarf` aus
+  - gemischte Multi-Target-Ergebnisse zeigen im Chat nur noch Auffaelligkeiten, blockierte Ziele und Fehler; OK-Hostdetails bleiben in der technischen Detailspur
+  - Regression nutzt das Live-Wording: `check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht`
+- Verifikation:
+  - finaler Vor-Build-Regressionsblock: `317 passed`
+  - `python -m compileall aria`: gruen
+  - i18n-Code-Literal-Audit strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha248`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha248-local.tar`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.248`
+  - `aria:alpha-local`
+  - `sha256:5c8643293a062dbbb009fa4a293df689ca9c9a6688504d94e1825fe33142f9a3`
+- Live-Test nach Deployment:
+  - Multi-Target SSH mit Operator-Wording: `13/13` Ziele unauffaellig, kompakte Antwort mit `Kein Handlungsbedarf`
+  - Details enthalten weiterhin alle 13 `agentic_runtime` SSH-Ausfuehrungen
+  - Plural-Scope gewinnt korrekt gegen einen einzelnen semantischen LLM-Zielvorschlag
+  - aufgefallen, aber nicht blockierend: `requested_ref=n server` und Guardrail-ID `ssh-healtcheck`
 
-### Produktfluss nach dem UI-Rework
-- Onboarding / Empty States weiter verankern
-  - Hub-Seiten fuer `Gedaechtnis`, `Faehigkeiten` und `Verbindungen` gezielter mit naechsten Schritten versehen
-  - bestehende Datenlage bewusst nutzen, damit Einsteiger und Rueckkehrer nicht dieselben Hinweise sehen
-- Live-Ausfuehrung / Confirm-UX weiter schaerfen
-  - `allow`, `ask_user`, `block` noch menschlicher und eindeutiger zeigen
-  - Rueckfragen, bestaetigungspflichtige Aktionen und sichere Standardfaelle konsistenter formulieren
-- Mobile-/Tablet-Pass als eigener Politur-Block
-  - Hub-Navigation, Formulare, Submenus und dichte Listen fuer kleinere Breiten gezielt nachziehen
+### Agentic Intelligence: aktueller Stand
+- Zielbild bleibt: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus
+- Status: SSH, HTTP API, File, Messaging und Read laufen ueber denselben Agentic-Action-Vertrag
+- deterministische Logik bleibt erlaubt fuer Routing-Hints, Normalisierung, Policy, Runtime, Summary und Compatibility, aber nicht als neue Produktlogik-Hardcodes
+- Naechster sinnvoller Ausbau nach dem `alpha247`-Live-Test: weitere echte User-Ausreisser sammeln und nur daraus neue Dossier-/Policy-/Resolver-Luecken ableiten
 
-### Persoenliche Enduser-Funktionen vorbereiten
-- erster persoenlicher Produktpfad: Google Calendar read-only
-  - naechster Fokus: sprachliche Robustheit und Follow-ups im Live-Betrieb
-  - Auth-/Reconnect-/Fehlerpfad fuer echte Nutzerfaelle weiter glätten
-  - Kalender-Schreibpfad bewusst spaeter
-  - Ziel: echter Enduser-Nutzen ohne sofortiges Aenderungsrisiko
-- Notizen als Markdown-first Produktpfad starten
-  - Quelle bleibt eine echte `.md`-Datei pro Notiz statt nur Qdrant-Payload
-  - Qdrant dient als abgeleiteter Such-/Kontextindex, nicht als Source of Truth
-  - bei Aenderungen an bestehenden Notizen wird die betroffene Notiz komplett neu gechunked und neu indiziert
-  - gelieferter MVP:
-    - Notiz anlegen
-    - loeschen
-    - Ordner anlegen
-    - verschieben ueber Ordnerfeld
-    - Markdown exportieren
-    - Chat-/Toolbox-Einstieg
-    - semantische bzw. lexikale Suche
-    - explizite Web-Recherche mit Notes-Kontext
-    - normaler Web-Search-Pfad bekommt passende Notes jetzt ebenfalls als Zusatzkontext
-    - natuerliche Chat-Phrasen wie `halte fest ...` koennen Notes direkt anlegen
-    - Web-URLs koennen direkt aus dem Chat als Notiz uebernommen werden
-    - leichte Tag-Vorschlaege werden jetzt ebenfalls mitgespeichert
-  - naechster Ausbau:
-    - ruhigere, noch smartere Chat-Magie fuer Ordner-/Titel-/Tag-Vorschlaege
-    - Notes als wiederverwendbarer Zusatzkontext fuer weitere Routing-/Research-Flows jenseits der Websuche
+### Naechste echte Backlog-Punkte
+1. Kleine Live-Nachzuege aus `alpha248`
+  - `requested_ref=n server` Parser-Artefakt bereinigen
+  - Guardrail-ID-Tippfehler `ssh-healtcheck` bereinigen oder als Legacy-Alias sauber behandeln
+2. Agentic Intelligence nach Live-Testdaten weiter vereinheitlichen
+  - keine neuen Spezialfaelle auf Verdacht bauen
+  - neue echte Ausreisser direkt als Dossier-/Policy-/Resolver-Luecke klassifizieren
+  - Debug- und Cost-Signale weiter nutzen, um LLM-Drafts von deterministischen Normalisierungen sauber zu unterscheiden
+3. Legacy-/Recipe-Cleanup weiterfuehren
+  - Compatibility-Bruecken behalten, solange sie fuer alte Configs/Imports gebraucht werden
+  - sichtbare UI-/Doku-Begriffe weiter recipe-first halten
+  - alte `skill_*` Namen nur dort dulden, wo sie Browser-/Config-/Import-Backcompat sind
+4. Backlog kurz halten
+  - erledigte Build-Historie konsequent nur in `project.docu/alpha-build-log.md` und `CHANGELOG.md` pflegen
+  - dieser Arbeitsbacklog bleibt nur fuer offene Entscheidungen, Live-Test-Fokus und naechste Schritte
 
-### Learning Loop / Selbstlernender Produktpfad
-- kontrollierten ARIA-Learning-Loop als Kernfunktion vorbereiten
-  - Ziel: aus echter Nutzung sollen Fakten, Routing-Aliase und wiederverwendbare Prozeduren entstehen
-  - ARIA lernt transparent und kontrolliert, nicht als heimlicher Auto-Mutator
-- MVP-Phase 1: Learning Candidates sammeln
-  - erfolgreiche komplexe Tasks, Routing-Klaerungen und wiederholte Korrekturen als `learning candidate` markieren
-  - noch keine automatische Skill-Erstellung, nur strukturierte Beobachtung
-- MVP-Phase 2: Reflection + Classification
-  - Candidate in `fact`, `alias`, `procedure` oder `skill_draft` einordnen
-  - nur niedrig-riskante Fakten/Aliase duerfen spaeter automatisch vorgeschlagen werden
-- MVP-Phase 3: sichtbare Lernvorschlaege im Produkt
-  - nach erfolgreicher Aufgabe optional anbieten:
-    - `Als Gedächtnis merken`
-    - `Als Routing-Alias merken`
-    - `Skill-Entwurf daraus erstellen`
-    - `Ignorieren`
-- MVP-Phase 4: Skill-Draft-Bruecke
-  - akzeptierte `procedure`-/`skill_draft`-Vorschlaege direkt in einen editierbaren Skill-Entwurf ueberfuehren
-  - bestehende Guardrails, Confirm-Logik und Routing-Metadaten mitnutzen
-- zusaetzlicher Web-/Research-Pfad: Internet -> Memory
-  - Web-/Suchergebnisse sollen gezielt ins Memory uebernommen werden koennen
-  - nicht alles automatisch speichern; User waehlt Treffer oder Ausschnitte bewusst aus
-  - Quelle, URL, Zeitstempel und Provenienz muessen beim Speichern erhalten bleiben
-  - Ziel: ARIA-Wissen gezielt aus aktueller Web-Recherche erweitern, ohne unkontrolliertes Memory-Rauschen
+### Dauer-Guardrails
+- Packaging-/Release-Hygiene aktiv halten
+  - kein generiertes `*.egg-info/`, `build/`, `dist/` oder `*.whl` im Workspace oder Commit
+  - neue Runtime-Assets muessen von `tests/test_package_data_contract.py` oder `tests/test_release_hygiene.py` abgedeckt bleiben
+  - `CHANGELOG.md` fuer alle sichtbaren Produkt-/Architektur-Aenderungen fortschreiben
+- Pricing-/Kosten-Admin aktiv halten
+  - LiteLLM-GitHub-Preise bleiben Source of Truth fuer Providerpreise
+  - lokale Alias-/Manual-Overrides duerfen Refreshes ueberleben, muessen aber sichtbar auditierbar bleiben
+- I18N-Code-Literal-Guardrail aktiv halten
+  - Audit-Script: `scripts/audit_i18n_code_literals.py --strict`
+  - Regression: `tests/test_i18n_code_literal_audit.py`
+  - Detailreport: `docs/backlog/i18n-code-literal-audit.md`
+  - aktueller Audit-Stand: 0 Treffer
+  - deutsche UI-/Runtime-Texte gehoeren in `aria/i18n/*.json`
+  - deutsche Eingabe-/Routing-Lexika gehoeren in `aria/lexicons/*.json`
 
-### Sicherheit / Betrieb
-- restliche P0-/P1-Hardening-Punkte abschliessen
-  - Login-Rate-Limit
-  - getrennte Pending-Action-Secrets
-  - Signing-Secrets nicht mehr leer initialisieren
-  - Cookie-Review sauber abschliessen
-  - Qdrant-Migrations-/Upgrade-Validierung weiter haerten
+### Bewusste Legacy-Bruecken fuer Alpha
+- `skills:` bleibt vorerst lesender/kompatibler Config-Root fuer alte Installationen
+- `/skills*` bleibt nur Redirect-/Backcompat-Pfad auf `/recipes*`
+- `skills.*` i18n-Keys duerfen technisch noch existieren, sichtbare Texte muessen aber `Rezepte` sagen
+- `aria/skills/memory.py` bleibt als Built-in-Modul bewusst unangetastet
+- `skill-card` / `skills-*` CSS-Klassen duerfen als Style-Altlast bleiben, solange sie nicht als Produktbegriff sichtbar sind
+
+### Recipe-First Zielbild Kurzfassung
+- `Recipe Memory`: was ARIA aus Nutzung gelernt hat
+- `Recipe Candidate`: was fuer eine Anfrage relevant sein koennte
+- `Executable Plan`: was jetzt konkret ausgefuehrt wird
+- `Policy / Guardrails`: was erlaubt, bestaetigungspflichtig oder blockiert ist
+- `Runtime Adapter`: wie technisch ausgefuehrt wird
+- neue Intelligenz entsteht bevorzugt aus Dossier + Planner + Policy + Summary + Learning, nicht aus starren Skills
 
 ## Danach
 
@@ -116,158 +203,25 @@ Aktueller Release-Stand:
   - Refresh-Token-Handling und per-User-Token-Zuordnung
   - zuerst Google (`Calendar`, `Tasks`, spaeter `Drive`, `Sheets`)
   - Apple bewusst spaeter und selektiv (`Calendar` zuerst)
-  - Calendar-Architektur providerfaehig schneiden
-    - kanonische Faehigkeiten zuerst als `calendar_read`, spaeter `calendar_create` / `calendar_update`
-    - Google ist der erste Traeger, nicht das langfristige API-Modell
-    - spaeter Apple Calendar auf denselben Produktpfad setzen statt zweite Sonderwelt bauen
 
 ### Core-Architektur
-- `skill_runtime.py` nach Executor-Domaenen schneiden
+- `recipe_runtime.py` nach Executor-Domaenen schneiden
 - `pipeline.py` als Orchestrator weiter verschlanken
 - gemeinsame Helper statt Copy-Paste schrittweise konsolidieren
 
-### Skill-Automation
-- Skills als kontrollierte Ausfuehrungsschicht unter natuerlicher Sprache weiter staerken
+### Recipe-Automation
+- Recipes als kontrollierte Arbeitsmuster unter natuerlicher Sprache weiter staerken
   - Connections = wohin
   - Routing = welches Ziel und wofuer
-  - Skills / Templates = wie sicher ausgefuehrt wird
+  - Recipes / Guardrails / Runtime-Adapter = wie sicher ausgefuehrt wird
   - Scheduler / Cron = wann es automatisch laeuft
-- strukturierte Skill-Outputs weiter ausbauen
-- Skill-Fehler-/Skip-Zustaende im UI und in Activities sauberer machen
-- Chat-zu-Skill-Draft-Flow vorbereiten
+- strukturierte Recipe-Outputs weiter ausbauen
+- Recipe-Fehler-/Skip-Zustaende im UI und in Activities sauberer machen
+- Chat-zu-Recipe-Candidate-Flow weiter vorbereiten
 
 ## Erledigt in der laufenden Alpha-Linie
 
 Hinweis:
-- die Details stehen im `CHANGELOG.md`
-- hier nur noch die groben gelieferten Bloecke zur Orientierung
-
-### UI / IA / Domain-Struktur
-- Hauptnavigation und Bereichsseiten wurden konsequent auf die Produkt-Domaenen ausgerichtet
-  - `Gedaechtnis`
-  - `Faehigkeiten`
-  - `Verbindungen`
-  - `Einstellungen`
-  - `Statistiken`
-  - `Hilfe`
-- Hauptbereiche wurden als ruhigere Hub-/Unterseiten-Struktur aufgebaut
-- gemeinsamer Clean-Look mit konsistenter Domain-Shell ueber die Hauptbereiche gezogen
-- Doku-/Info-Bereich (`Hilfe`, `Produkt-Info`, `Updates`, `Lizenz`) konsistent neu aufgebaut
-- `Benutzer` lebt jetzt logisch unter `Einstellungen` statt als eigener Hauptmenuepunkt
-- die Hubs fuer `Gedaechtnis`, `Verbindungen` und `Faehigkeiten` zeigen keine redundanten `Naechste Schritte`-Duplikate mehr direkt vor der eigentlichen Hub-Navigation
-
-### Public-Readiness / Sicherheit / Produktfluss
-- `Google Calendar`-Setup fuehrt jetzt direkt ueber die benoetigten Google-Links und die sinnvolle Schrittfolge, statt nur einen knappen Empfehlungsblock zu zeigen
-- Service-Neustarts fuer `Qdrant` und `SearXNG` fragen vor dem Absenden jetzt explizit nach, damit Admin-Aktionen im UI weniger leicht versehentlich ausgeloest werden
-
-### Skills / Connections / Memory UX
-- `Gedaechtnis` wurde als echter Bereich mit `Uebersicht`, `Explorer`, `Map`, `Setup` beruhigt
-- `Faehigkeiten` wurden in Hub + Unterseiten geschnitten (`start`, `mine`, `system`, `templates`)
-- `Verbindungen` wurden als Hub + Unterseiten (`status`, `types`, `templates`) aufgebaut
-- Skill-Wizard wurde deutlich vereinfacht
-  - `Simple` vs. `Advanced`
-  - starke Skill-Typ-Defaults
-  - gefuehrtere Connection-Auswahl
-- viele alte doppelte Menues, internen Erklaerbaeren und UI-Wiederholungen wurden entfernt
-
-### Routing / Planner / Live-Chat
-- Routing-Workbench und Live-Chat teilen sich jetzt denselben Routing-/Planner-/Payload-/Guardrail-Pfad fuer die unterstuetzten Connection-Kinds
-- alte Chat-Sonderpfade fuer direkte Capability-Ausfuehrung wurden aus dem Hauptfluss herausgezogen
-- bestaetigungspflichtige Outbound-Aktionen laufen konsistenter ueber `ask_user`
-- Routing-Index verhaelt sich jetzt fuer User selbstheilender
-  - Rebuild beim Start
-  - Rebuild nach Connection-Aenderungen
-  - Rebuild bei Bedarf im Live-Chat
-- Routed-Actions mit noch fehlender Pflichtangabe behalten jetzt ebenfalls einen echten Pending-Zustand
-  - kurze Folgeantworten wie eine nackte Discord-Nachricht koennen den offenen Plan direkt fortsetzen
-  - der Chat kippt in diesen Faellen nicht mehr in generische Antworten zurueck
-- Capability-Namen und Capability-/Connection-Kind-Kompatibilitaet wurden zentralisiert
-- `CapabilityRouter` wurde bereits deutlich entschlackt und staerker an den gemeinsamen Resolver angebunden
-- `requested_connection_ref`-Marker und Ignore-Terme kommen jetzt ebenfalls aus dem gemeinsamen Routing-Lexikon statt aus einer weiteren harten Mini-Regelwelt im Router
-- weitere Router-Heuristiken wurden ebenfalls ins gemeinsame Lexikon gezogen
-  - MQTT-Topic-Marker
-  - natuerliche SSH-Uptime-/Online-Phrasen
-  - Mail-Such-Folgebegriffe
-  - bevorzugte Connection-Kind-Fallback-Reihenfolge
-- Discord-/Alert-/Log-Aliase wurden fuer natuerliche Zielanfragen verbessert
-- Routing-Testbench zeigt den kompletten Dry-run-Pfad bis zur finalen Would-run-Entscheidung
-- bestaetigte Routed-Actions bleiben in ihren Detailzeilen naeher am eigentlichen Produktpfad
-- Workbench-/Confirm-UI trennt lesbare Produkttexte jetzt klarer von internen Codes
-
-### Produktfluss / Confirm / Mobile
-- erste Onboarding-/Next-Step-Bloecke auf den Hub-Seiten sind drin
-- Confirm-/Guardrail-Sprache wurde lesbarer und menschlicher gemacht
-- Chat-Arbeitsflaeche reagiert auf Mobile dynamischer auf kurze vs. lange Chats
-
-### Themes / Appearance / Hintergrundbilder
-- Backgrounds laufen jetzt konsequent dateibasiert ueber `background-*` in `aria/static/`
-- Theme und Background lassen sich sauber kombinieren
-- Label fuer neue Background-Dateien werden automatisch aus dem Dateinamen abgeleitet
-- Theme-/Background-Logik wurde gegen doppelte Eintraege bereinigt
-
-### Doku / Release / Backoffice
-- `/updates` ist konsistent in `Einstellungen > Betrieb & Transfer` eingeordnet
-- `/config/operations` bietet jetzt einen kontrollierten Neustart-Einstieg fuer `qdrant` und `searxng`, damit gekoppelte Systemdienste auch ohne direkten Docker-Zugriff wieder anwerfbar bleiben
-- der normale `Gedaechtnis`-Setup-Pfad kann das Memory-Backend nicht mehr versehentlich stilllegen; das fruehere `Memory backend enabled`-Toggle wurde aus der UI entfernt und das Qdrant-Setup bleibt beim Speichern aktiv
-- der kleine Robustheits-Gate fuer spaetere persoenliche Integrationen ist gestartet
-  - Secret-/Login-basierte Connection-Karten zeigen klarer `verbunden`, `Anmeldung fehlt` oder `optional`
-  - Webhook-, HTTP-API-, SMTP- und IMAP-Tests erklaeren Auth-, TLS-/SSL-, Timeout- und Reachability-Fehler produktfaehiger
-  - Kalender-/Termin-Prompts bleiben im Capability-Router vorerst bewusst frei fuer den spaeteren `calendar_*`-Pfad
-- die erste Google-Calendar-Connection-Foundation ist vorhanden
-  - eigener Connection-Typ inklusive UI, Secure-Store-Secrets, Statuskarten und Live-Test
-  - bewusst read-only geschnitten, damit ARIA den ersten persoenlichen Produktpfad ohne sofortigen Schreibzugriff vorbereiten kann
-- der erste echte persoenliche `calendar_read`-Pfad ist jetzt vorhanden
-  - natuerliche Kalenderprompts fuer `heute`, `morgen` und `naechster Termin` laufen in denselben Routing-/Planner-/Payload-/Guardrail-Pfad wie die anderen Connection-Typen
-  - Google Calendar wird read-only ueber die neue Connection ausgefuehrt statt als Sonderwelt ausserhalb des Produktpfads
-- Routing geht robuster mit natuerlichen Ziel- und Folgephrasen um
-  - beschreibende Discord-Ziele wie `ops alerts channel` wirken jetzt als weiche Hinweise statt gute Treffer wieder zu blockieren
-  - Follow-up-Nachrichten wie `schreib einfach TESTNACHRICHT` fuellen fehlende Inhalte sauberer in den offenen Routed-Action-Plan ein
-- `Lizenz` als eigener sichtbarer Bereich inklusive Drittanbieterbezug ist vorhanden
-- Hilfetexte und Mikrocopy wurden auf den Hauptseiten deutlich reduziert und enttechnisiert
-- Build-/NAS-/Release-Metadaten wurden ueber die Alpha-Linie laufend nachgezogen
-- Chat-Admin-/Pending-Flows fuer Connection create/update/delete, kontrollierte Updates sowie Backup-/Info-Aktionen wurden aus `aria/main.py` in `aria/web/chat_admin_flows.py` gezogen
-- Routed-Action-/Safe-Fix-/Memory-Forget-Pending-Flows sowie die Chat-Follow-ups fuer neue Pending-Aktionen wurden aus `aria/main.py` in `aria/web/chat_pending_flows.py` gezogen
-- Cookie-Scoping, Cookie-Naming, Request-/Response-Cookie-Helfer und Auth-Cookie-Clearing wurden aus `aria/main.py` in `aria/web/cookie_helpers.py` gezogen
-- Auth-Session-Encoding/-Decoding, scoped Auth-Cookie-Reads, Session-Max-Age-Sanitizing und CSRF-Token-Erzeugung wurden aus `aria/main.py` in `aria/web/auth_session_helpers.py` gezogen
-- Runtime-Bundle-Bau, Runtime-Reload-Swap und Startup-Diagnostics-State wurden aus `aria/main.py` in `aria/web/runtime_manager.py` gezogen
-- Runtime-Stabilitaet wurde als eigener Alpha-Block abgeschlossen
-  - Runtime-Reload baut neue Bundles ausserhalb des Locks und fuehrt Diagnostics zentral ueber den Runtime-Manager
-  - Runtime-Preflight/Health/Updates folgen jetzt einem gemeinsamen Laufzeitpfad statt verteilten Schattenzustaenden
-  - die verbleibende `/chat`-Ausfuehrungsorchestrierung lebt jetzt in `aria/web/chat_execution_flow.py` statt weiter halb in `main.py`
-- der Monolith-Abbau hat die beiden groessten Web-Dateien deutlich gedrueckt
-  - `aria/main.py` liegt jetzt unter `1200` Zeilen
-  - `aria/web/config_routes.py` liegt jetzt unter `1000` Zeilen
-- der verbleibende innere Profil-/Embedding-/Sample-Helper-Block aus `aria/web/config_routes.py` lebt jetzt in `aria/web/config_profile_helpers.py`, waehrend die alte Moduloberflaeche fuer Tests und Monkeypatches stabil blieb
-- der `/connections`-Hub (`overview`, `status`, `types`, `templates`) sowie der Sample-Import wurden aus `aria/web/config_routes.py` in `aria/web/connections_surface_routes.py` gezogen
-- die per-Typ-GET-Seiten fuer `ssh`, `sftp`, `smb`, `discord`, `webhook`, `smtp`, `imap`, `http-api`, `searxng`, `rss` und `mqtt` wurden aus `aria/web/config_routes.py` in `aria/web/connection_detail_routes.py` gezogen
-- die Connection-Mutationsrouten fuer Save/Test/Delete, SSH-Key-Setup sowie RSS-Import/-Export wurden aus `aria/web/config_routes.py` in `aria/web/connection_mutation_routes.py` gezogen
-- die verbleibenden Connection-Metadata-Suggest-Routen sowie der Save/Delete-Helper-Lifecycle wurden aus `aria/web/config_routes.py` in `aria/web/connection_metadata_routes.py` und `aria/web/connection_admin_helpers.py` gezogen
-- die verbleibenden Connection-Reader sowie die per-Typ-Connection-Context-Builder wurden aus `aria/web/config_routes.py` in `aria/web/connection_reader_helpers.py` und `aria/web/connection_context_helpers.py` gezogen
-- die Config-Hub-/Operations-Oberflaechen inklusive gemeinsamem Seitenkontext und kontrolliertem Service-Neustart wurden aus `aria/web/config_routes.py` in `aria/web/config_surface_routes.py` gezogen
-- die Persona-Oberflaechen fuer `Appearance`, `Language` und `Prompt Studio` wurden aus `aria/web/config_routes.py` in `aria/web/config_persona_routes.py` gezogen
-- die Operations-Detailrouten fuer `Backup` und `Logs` wurden aus `aria/web/config_routes.py` in `aria/web/config_operations_detail_routes.py` gezogen
-- die Access-Detailrouten fuer `Debug`, `Users` und `Security Guardrails` wurden aus `aria/web/config_routes.py` in `aria/web/config_access_detail_routes.py` gezogen
-- die Routing- und Skill-Routing-Detailrouten (`/config/routing`, Workbench, Index-Status/Test/Rebuild sowie `/config/skill-routing*`) wurden aus `aria/web/config_routes.py` in `aria/web/config_routing_detail_routes.py` gezogen
-- die Intelligence-/Workbench-Detailrouten fuer `LLM`, `Embeddings`, `Datei-Editor` und `Error Interpreter` wurden aus `aria/web/config_routes.py` in `aria/web/config_intelligence_workbench_routes.py` gezogen
-- die verbleibenden Connection-Save/Test/Delete-Handler sowie SSH-/RSS-Mutationslogik wurden aus `aria/web/config_routes.py` in `aria/web/connection_mutation_handlers.py` gezogen; die FastAPI-Mutationsoberflaeche in `aria/web/connection_mutation_routes.py` verdrahtet jetzt nur noch in diese Handler
-- die verbleibenden Connection-Page-Helper fuer Generic-Statuskontext, Mode-Umschaltung und Seiten-Rendering wurden aus `aria/web/config_routes.py` in `aria/web/connection_page_helpers.py` gezogen; doppelte SSH-Key-/Exchange-Implementierungen im Restfile wurden dabei entfernt
-- der Connections-Hub-/Surface-Kontext fuer `/connections`, `status`, `types` und `templates` wurde aus `aria/web/config_routes.py` in `aria/web/connections_surface_helpers.py` gezogen
-- die Config-Surface-Helfer fuer Return-to-/Surface-Pfade, formatierte Info-Meldungen und die Overview-Checks wurden aus `aria/web/config_routes.py` in `aria/web/config_surface_helpers.py` gezogen
-- die Config-Navigation-Helfer fuer Cookie-Namen/-Scope, Return-to-Aufloesung, Redirects und logische Rueckwege wurden aus `aria/web/config_routes.py` in `aria/web/config_navigation_helpers.py` gezogen
-- die verbleibenden Config-Support-Helfer fuer Guardrail-Samples, Guardrail-Optionen, SSH-Key-/Exchange-Helfer und prompt-/skill-bezogene Datei-Reload-Logik wurden aus `aria/web/config_routes.py` in `aria/web/config_support_helpers.py` gezogen
-- der Update-/System-Status-Block (`/health`, Preflight, Auto-Memory-Status, `/updates*`) wurde aus `aria/main.py` in `aria/web/system_update_routes.py` gezogen
-- der Doku-/Info-Block (`/help`, `/product-info`, `/licenses`, Produkt-Info-Assets) wurde aus `aria/main.py` in `aria/web/docs_surface_routes.py` gezogen
-- der Auth-/Session-/Preference-Block (`/login`, `/logout`, `/session-expired`, `/set-username`, `/set-auto-memory`) wurde aus `aria/main.py` in `aria/web/auth_surface_routes.py` gezogen
-- die Chat-Startseite (`/`) mit Toolbox-/Hint-/Session-Oberflaeche wurde aus `aria/main.py` in `aria/web/chat_surface_routes.py` gezogen
-- die Vorbereitungs-/Cookie-Schicht der `/chat`-Route wurde in `aria/web/chat_route_helpers.py` ausgelagert, damit der eigentliche Chat-Handler weniger Pending-/Admin-/Cookie-Verkabelung traegt
-- Runtime-Reload baut neue Bundles jetzt ausserhalb des Locks und fuehrt Startup-Diagnostics zentral ueber `aria/web/runtime_manager.py`, damit Reloads weniger blockieren und weniger Schattenzustand halten
-- die Memory-/Qdrant-Runtime-Helfer fuer Session-Collection, Auto-Memory-Status, Qdrant-Basis-URL/Dashboard und Qdrant-Overview wurden aus `aria/main.py` in `aria/web/memory_runtime_helpers.py` gezogen
-- die eigentlichen FastAPI-Chat-Endpoints fuer `/chat` und `/chat/history/clear` wurden aus `aria/main.py` in `aria/web/chat_execution_routes.py` gezogen, damit `main.py` fast nur noch App-Bootstrapping und Route-Registrierung traegt
-- die Auth-/Session-Middleware fuer Request-State, Login-Gating, CSRF-Pruefung sowie Security-/Cookie-Header wurde aus `aria/main.py` in `aria/web/auth_middleware.py` gezogen
-- die verbleibenden UI-/Dokument-Helfer fuer Agent-Name-Ersetzung, Chat-Badges/Fehlertexte, Markdown-/Doku-Rendering, Sprach-Labels sowie Skill-/Kalender-Helfer wurden aus `aria/main.py` in `aria/web/main_ui_helpers.py` gezogen; `main.py` behaelt dafuer Import-Aliase und bleibt als Oberflaeche stabil
-- der verbleibende Config-/Datei-/Update-Helferblock fuer Raw-Config-Cache, Datei-/Prompt-Aufloesung, Bootstrap-Admin-Write, Release-/Update-Metadaten, Pricing-Lookup und Model-Loading wurde aus `aria/main.py` in `aria/web/main_config_helpers.py` gezogen; `main.py` behaelt die alten Namen bewusst als Alias-Oberflaeche
-- der verbleibende Request-/Sanitizer-Helferblock fuer Skill-Routing-Infotexte, lokalisierte Custom-Skill-Beschreibungen, Username-/Role-/Session-/CSRF-Sanitizing und Username-Aufloesung wurde aus `aria/main.py` in `aria/web/main_request_helpers.py` gezogen; `main.py` behaelt auch hier die alten Namen als Alias-Oberflaeche
-- der verbleibende Runtime-/Profile-/Support-Helferblock fuer Prompt-Dateiliste, Profilzustand, Secure-Store-Zugriff, Auth-Manager, aktive Admin-Zaehler, Runtime-Preflight und Update-Finished-Checks wurde aus `aria/main.py` in `aria/web/main_runtime_support_helpers.py` gezogen
-- kleinere Config-Utility-Helfer fuer CSRF-/Ref-Sanitizing, Embedding-Fingerprint-/Modell-Labels, Session-Timeout-Labels, Memory-Point-Totals und Datei-Editor-Zeilen wurden aus `aria/web/config_routes.py` in `aria/web/config_misc_helpers.py` gezogen; das Restfile behaelt dabei bewusst Alias-Namen fuer die bisherigen Test-/Import-Kanten
-- die groesseren Connection-UI-/Schema-Helfer fuer Form-Felder, Toggle-Bloecke, Intro-/Statuskarten und Edit-URL-Aufbereitung wurden aus `aria/web/config_routes.py` in `aria/web/connection_ui_helpers.py` gezogen; `aria/web/config_routes.py` behaelt wieder Alias-Namen fuer die bestehenden Aufrufer
-- die verbleibenden Connection-/Factory-/SSH-Support-Helfer fuer Factory-Reset, Qdrant-Wipe, SSH-Key-Management, Connection-Metadaten, RSS-Dedupe, Sample-Zeilen und SSH-Key-Exchange wurden aus `aria/web/config_routes.py` in `aria/web/connection_support_helpers.py` gezogen; auch hier behaelt `aria/web/config_routes.py` die alten Namen als Kompatibilitaets-Aliase
+- Details stehen im `CHANGELOG.md`
+- Build-Historie steht in `project.docu/alpha-build-log.md`
+- hier bleiben nur noch die offenen naechsten Schnitte sichtbar

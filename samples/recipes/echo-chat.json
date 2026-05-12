@@ -1,0 +1,35 @@
+{
+  "id": "echo-chat",
+  "name": "Echo Chat",
+  "version": "0.1.0",
+  "description": "Demo-Rezept ohne externe Verbindung. Antwortet direkt im Chat.",
+  "category": "utility",
+  "router_keywords": [
+    "echo chat",
+    "demo antwort",
+    "test recipe"
+  ],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Direkte Chat-Antwort",
+      "type": "chat_send",
+      "params": {
+        "chat_message": "Echo-Chat Demo aktiv. Dieses Rezept funktioniert ohne externe Verbindung."
+      },
+      "on_error": "stop"
+    }
+  ],
+  "schedule": {
+    "enabled": false,
+    "cron": "",
+    "timezone": "Europe/Zurich",
+    "run_on_startup": false
+  },
+  "ui": {
+    "config_path": "/recipes",
+    "hint": "Sicheres Beispielrezept ohne Connections."
+  },
+  "schema_version": "1.1"
+}

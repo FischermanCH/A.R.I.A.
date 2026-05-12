@@ -1,0 +1,44 @@
+{
+  "open_folder_verbs": ["oeffne", "öffne"],
+  "patterns": {
+    "open_notes": [
+      "^(?:zeige|oeffne|öffne)\\s+(?:meine\\s+)?notizen\\s*$",
+      "^(?:show|open)\\s+(?:my\\s+)?notes\\s*$"
+    ],
+    "search_notes": [
+      "^(?:suche|finde)\\s+(?:in\\s+(?:meinen\\s+)?)?notizen(?:\\s+nach|\\s+zu)?\\s+(?P<query>.+)$",
+      "^(?:search|find)\\s+(?:my\\s+)?notes(?:\\s+for|\\s+about)?\\s+(?P<query>.+)$"
+    ],
+    "list_note_folders": [
+      "^(?:zeige|liste|list)\\s+(?:mir\\s+)?(?:die\\s+)?(?:notiz|notes)[-_ ]?ordner\\s*$",
+      "^(?:zeige|liste|list)\\s+(?:mir\\s+)?ordner\\s+in\\s+(?:meinen\\s+)?notizen\\s*$"
+    ],
+    "list_notes_in_folder": [
+      "^(?P<verb>zeige|liste|list|oeffne|öffne)\\s+(?:mir\\s+)?notizen\\s+(?:im|in(?:\\s+ordner)?)\\s+(?P<folder>.+)$",
+      "^(?:show|list)\\s+(?:my\\s+)?notes\\s+in\\s+(?P<folder>.+)$"
+    ],
+    "open_note": [
+      "^(?:oeffne|öffne|zeige)\\s+(?:die\\s+)?notiz\\s+(?P<query>.+)$",
+      "^(?:open|show)\\s+(?:the\\s+)?note\\s+(?P<query>.+)$"
+    ],
+    "create_note": [
+      "^(?:erstelle|create|add|neue?)\\s+notiz\\s+(?P<title>[^:\\n]{2,140})\\s*:\\s*(?P<body>.+)$",
+      "^(?:notiere|note)\\s+(?P<title>[^:\\n]{2,140})\\s*:\\s*(?P<body>.+)$"
+    ],
+    "quick_note": [
+      "^(?:notiere|merk\\s+als\\s+notiz|save\\s+note)\\s+(?P<body>.+)$"
+    ],
+    "natural_note": [
+      "^(?:halte\\s+fest|halt\\s+fest|schreib\\s+(?:mir\\s+)?eine?\\s+notiz(?:\\s+dazu|\\s+darueber|\\s+darüber)?|create\\s+a\\s+note(?:\\s+about)?)\\s+(?P<body>.+)$"
+    ],
+    "web_search_with_notes": [
+      "^(?:suche im internet nach|recherchiere(?:\\s+im internet)?\\s+nach)\\s+(?P<query>.+?)\\s+mit\\s+(?:meinen\\s+)?notizen(?:\\s+zu\\s+(?P<topic>.+))?$",
+      "^(?:search the web for|search the internet for|research)\\s+(?P<query>.+?)\\s+with\\s+(?:my\\s+)?notes(?:\\s+about\\s+(?P<topic>.+))?$"
+    ],
+    "save_web_source": [
+      "^(?:speichere|notiere|uebernimm|übernimm)\\s+(?:diese\\s+)?(?:webseite|quelle|url|link)\\s+(?P<url>https?://\\S+)(?:\\s+als\\s+notiz)?\\s*$",
+      "^(?:mach|erstelle)\\s+(?:aus\\s+)?(?P<url>https?://\\S+)\\s+(?:eine\\s+)?notiz\\s*$",
+      "^(?:save|capture)\\s+(?:this\\s+)?(?:website|source|url|link)(?:\\s+as\\s+note)?\\s+(?P<url>https?://\\S+)\\s*$"
+    ]
+  }
+}

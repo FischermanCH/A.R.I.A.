@@ -4,13 +4,34 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from litellm import aembedding
-
 from aria.core.config import EmbeddingsConfig
 from aria.core.usage_meter import UsageMeter
+
+
+class EmbeddingClientError(RuntimeError):
+    """Raised when the embedding gateway is unavailable or fails."""
+
+
+def _load_litellm_aembedding() -> Any:
+    try:
+        return getattr(import_module("litellm"), "aembedding")
+    except ModuleNotFoundError as exc:
+        raise EmbeddingClientError(
+            "LiteLLM is not installed. Install ARIA with the model gateway extra: "
+            "pip install 'aria-agent[model-gateway]'."
+        ) from exc
+    except AttributeError as exc:
+        raise EmbeddingClientError(
+            "LiteLLM is installed but does not expose aembedding(). Please update the litellm package."
+        ) from exc
+
+
+async def _aembedding(**kwargs: Any) -> Any:
+    return await _load_litellm_aembedding()(**kwargs)
 
 
 @dataclass
@@ -81,7 +102,7 @@ class EmbeddingClient:
     ) -> EmbeddingResponse:
         model_name = self._resolve_model()
         start = time.perf_counter()
-        response = await aembedding(
+        response = await _aembedding(
             model=model_name,
             input=inputs,
             api_base=self.api_base,

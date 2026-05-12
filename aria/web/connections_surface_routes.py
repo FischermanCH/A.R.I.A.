@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -10,11 +11,24 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aria.core.i18n import I18NStore
+
 
 ConnectionsPageContextBuilder = Callable[..., dict[str, Any]]
 ConnectionsSurfacePathResolver = Callable[..., str]
 SampleConnectionImporter = Callable[[str], tuple[str, int, int]]
 LocalizedMessage = Callable[[str, str, str], str]
+_CONNECTIONS_SURFACE_ROUTES_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _connections_route_text(lang: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _CONNECTIONS_SURFACE_ROUTES_I18N.t(lang or "de", f"connections_surface_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -66,7 +80,7 @@ def register_connections_surface_routes(app: FastAPI, deps: ConnectionsSurfaceRo
             logical_back_fallback="/config",
             page_return_to="/connections",
             connections_nav="overview",
-            page_heading=deps.msg(lang, "Verbindungen", "Connections"),
+            page_heading=_connections_route_text(lang, "heading_connections", "Connections"),
             show_overview_checks=True,
         )
 
@@ -85,7 +99,7 @@ def register_connections_surface_routes(app: FastAPI, deps: ConnectionsSurfaceRo
             logical_back_fallback="/connections",
             page_return_to="/connections/status",
             connections_nav="status",
-            page_heading=deps.msg(lang, "Live-Status", "Live status"),
+            page_heading=_connections_route_text(lang, "heading_live_status", "Live status"),
         )
 
     @app.get("/connections/types", response_class=HTMLResponse)
@@ -103,7 +117,7 @@ def register_connections_surface_routes(app: FastAPI, deps: ConnectionsSurfaceRo
             logical_back_fallback="/connections",
             page_return_to="/connections/types",
             connections_nav="types",
-            page_heading=deps.msg(lang, "Verbindungstypen", "Connection types"),
+            page_heading=_connections_route_text(lang, "heading_connection_types", "Connection types"),
         )
 
     @app.get("/connections/templates", response_class=HTMLResponse)
@@ -121,7 +135,7 @@ def register_connections_surface_routes(app: FastAPI, deps: ConnectionsSurfaceRo
             logical_back_fallback="/connections",
             page_return_to="/connections/templates",
             connections_nav="templates",
-            page_heading=deps.msg(lang, "Vorlagen", "Templates"),
+            page_heading=_connections_route_text(lang, "heading_templates", "Templates"),
         )
 
     @app.post("/config/connections/import-sample")

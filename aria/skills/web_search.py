@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import re
 from typing import Any
 from urllib.parse import urlparse
 
+from aria.core.i18n import I18NStore
 from aria.core.notes_context import NotesContextHit, note_context_block, note_context_detail_lines
 from aria.core.config import resolve_searxng_base_url
 from aria.core.searxng_client import SearXNGClient, SearXNGClientError
 from aria.skills.base import BaseSkill, SkillResult
+
+_WEB_SEARCH_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
 
 class WebSearchSkill(BaseSkill):
@@ -25,60 +29,42 @@ class WebSearchSkill(BaseSkill):
         return str(language or "").strip().lower().startswith("en")
 
     @classmethod
-    def _msg(cls, language: str | None, de: str, en: str) -> str:
-        return en if cls._is_english(language) else de
+    def _text(cls, language: str | None, key: str, default: str = "", **values: object) -> str:
+        template = _WEB_SEARCH_I18N.t(language or "de", f"web_search.{key}", default or key)
+        if not values:
+            return template
+        try:
+            return template.format(**values)
+        except Exception:
+            return template
 
-    _QUERY_STOPWORDS = {
+    @classmethod
+    def _terms(cls, key: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+        raw = cls._text("de", key, ",".join(fallback))
+        terms = tuple(item.strip().lower() for item in raw.split(",") if item.strip())
+        return terms or fallback
+
+    _QUERY_STOPWORDS = frozenset({
         "a",
         "an",
         "and",
-        "auf",
         "bot",
-        "das",
-        "den",
-        "der",
-        "die",
-        "ein",
-        "eine",
-        "einen",
-        "einer",
-        "es",
         "for",
-        "gibt",
-        "gibts",
-        "im",
         "in",
         "internet",
-        "ist",
         "last",
         "latest",
-        "letzten",
-        "letzter",
-        "letztes",
-        "mit",
-        "nach",
-        "neu",
-        "neueste",
-        "neuesten",
-        "neuigkeiten",
         "news",
         "online",
         "release",
         "releases",
         "search",
-        "suche",
         "the",
-        "ueber",
         "update",
         "updates",
-        "vom",
-        "von",
-        "was",
         "web",
-        "wie",
         "what",
-        "zu",
-    }
+    })
 
     @staticmethod
     def _profile_rows(settings: Any) -> dict[str, Any]:
@@ -132,7 +118,7 @@ class WebSearchSkill(BaseSkill):
 
     @classmethod
     def _detail_line(cls, language: str | None, title: str, url: str, engine: str, published_label: str = "") -> str:
-        parts = [f"{cls._msg(language, 'Quelle', 'Source')}: {title}"]
+        parts = [f"{cls._text(language, 'source_label', 'Source')}: {title}"]
         if url:
             parts.append(url)
         if engine:
@@ -149,23 +135,13 @@ class WebSearchSkill(BaseSkill):
         return any(
             token in text
             for token in (
-                "letzter",
-                "letzte",
-                "letztes",
-                "neuester",
-                "neuste",
-                "neuest",
-                "aktuellster",
                 "latest",
                 "newest",
                 "most recent",
                 "recent",
                 "release",
                 "update",
-                "erschein",
-                "veröffentlicht",
-                "veroeffentlicht",
-            )
+            ) + WebSearchSkill._terms("recency_terms", ())
         )
 
     @staticmethod
@@ -184,7 +160,7 @@ class WebSearchSkill(BaseSkill):
         kept: list[str] = []
         seen: set[str] = set()
         for token in tokens:
-            if token in cls._QUERY_STOPWORDS:
+            if token in cls._QUERY_STOPWORDS or token in cls._terms("query_stopwords", ()):
                 continue
             if len(token) < 3 and not any(char.isdigit() for char in token):
                 continue
@@ -304,7 +280,7 @@ class WebSearchSkill(BaseSkill):
                 skill_name=self.name,
                 content="",
                 success=False,
-                error=self._msg(language, "Keine SearXNG-Verbindung konfiguriert.", "No SearXNG connection configured."),
+                error=self._text(language, "no_searxng_connection", "No SearXNG connection configured."),
             )
         ref, profile = selected
         display_name = str(self._profile_value(profile, "title", "")).strip() or ref
@@ -325,7 +301,7 @@ class WebSearchSkill(BaseSkill):
                 skill_name=self.name,
                 content="",
                 success=False,
-                error=self._msg(language, f"Websuche fehlgeschlagen: {exc}", f"Web search failed: {exc}"),
+                error=self._text(language, "search_failed", "Web search failed: {error}", error=exc),
             )
 
         ordered_results = self._prepare_results(query, response.results)
@@ -333,14 +309,15 @@ class WebSearchSkill(BaseSkill):
         if not ordered_results:
             return SkillResult(
                 skill_name=self.name,
-                content=self._msg(language, "[Web Search]\nKeine Web-Treffer gefunden.", "[Web Search]\nNo web results found."),
+                content=self._text(language, "no_results", "[Web Search]\nNo web results found."),
                 success=True,
                 metadata={
                     "detail_lines": [
-                        self._msg(
+                        self._text(
                             language,
-                            f"Websuche via {display_name} · 0 Treffer",
-                            f"Web search via {display_name} · 0 results",
+                            "zero_results_detail",
+                            "Web search via {display_name} · 0 results",
+                            display_name=display_name,
                         )
                     ]
                 },
@@ -354,12 +331,12 @@ class WebSearchSkill(BaseSkill):
                 lines.extend(context_block.splitlines())
                 lines.append("")
             detail_lines.extend(note_context_detail_lines(note_hits, language=language))
-        lines.extend([f"[Web Search via {display_name}]", f"{self._msg(language, 'Suche', 'Search')}: {response.query}"])
+        lines.extend([f"[Web Search via {display_name}]", f"{self._text(language, 'search_label', 'Search')}: {response.query}"])
         if self._is_recency_query(query):
             lines.append(
-                self._msg(
+                self._text(
                     language,
-                    "Hinweis: Treffer mit erkannten Datumsangaben werden zuerst gezeigt.",
+                    "recency_note",
                     "Note: results with recognized publication dates are shown first.",
                 )
             )
@@ -371,7 +348,7 @@ class WebSearchSkill(BaseSkill):
             if result.engine:
                 entry += f"\n  Engine: {result.engine}"
             if result.published_label:
-                entry += f"\n  {self._msg(language, 'Datum', 'Date')}: {result.published_label}"
+                entry += f"\n  {self._text(language, 'date_label', 'Date')}: {result.published_label}"
             if result.snippet:
                 entry += f"\n  Snippet: {result.snippet}"
             lines.append(entry)

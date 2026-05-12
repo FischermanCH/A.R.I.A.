@@ -1,0 +1,17 @@
+{% from "_icons.html" import icon %}
+{% if not recipes_readonly %}
+<section class="floating-card skills-actions skills-actions-start" id="skills-start">
+  <h3>{{ tr(request, 'recipes.start_title', 'Rezept starten') }}</h3>
+  <p class="hint-text">{{ tr(request, 'recipes.start_subtitle', 'Erstelle ein neues Rezept über den Wizard oder importiere ein vorhandenes JSON-Manifest.') }}</p>
+  <div class="inline-actions">
+    <a class="nav-link skill-action-link ui-action-link" href="/recipes/wizard?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.create_wizard', 'Neues Rezept erstellen (Wizard)') }}</a>
+  </div>
+  <form class="editor-form skill-import-form" method="post" action="/recipes/import" enctype="multipart/form-data">
+    <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">
+    <div class="inline-actions">
+      <input type="file" name="skill_file" accept="application/json,.json" required>
+      <button type="submit" class="skill-action-button ui-action-button">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.import_btn', 'Rezept importieren') }}</button>
+    </div>
+  </form>
+</section>
+{% endif %}

@@ -8,6 +8,20 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from aria.core.i18n import I18NStore
+
+_RSS_GROUPING_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _rss_grouping_text(key: str, default: str = "", **values: object) -> str:
+    template = _RSS_GROUPING_I18N.t("de", f"rss_grouping.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
 
 def _extract_json_object(raw: str) -> dict[str, Any] | None:
     text = str(raw or "").strip()
@@ -30,10 +44,10 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
 def _normalize_group_name(name: str) -> str:
     clean = re.sub(r"\s+", " ", str(name or "").strip())
     if not clean:
-        return "Weitere Feeds"
+        return _rss_grouping_text("fallback_group_name", "More feeds")
     clean = clean[:32].strip(" -_:,")
     if not clean:
-        return "Weitere Feeds"
+        return _rss_grouping_text("fallback_group_name", "More feeds")
     return clean
 
 
@@ -131,15 +145,14 @@ async def build_rss_status_groups(status_rows: list[dict[str, Any]], llm_client:
         prompt_lines.append(f"- ref: {ref} | url: {feed_url}")
 
     system_prompt = (
-        "Du gruppierst RSS-Feed-Profile thematisch fuer eine UI. "
-        "Antworte nur als JSON-Objekt im Format "
-        '{"groups": [{"name": "Security", "refs": ["feed-a", "feed-b"]}]}. '
-        "Nutze kurze, klare Kategorienamen auf Deutsch. "
-        "Jeder Ref muss genau einmal vorkommen. Keine Erklaerungen."
+        _rss_grouping_text("system_prompt_prefix", "Group RSS feed profiles thematically for a UI. ")
+        + _rss_grouping_text("system_prompt_json_only", "Answer only as a JSON object in the format ")
+        + '{"groups": [{"name": "Security", "refs": ["feed-a", "feed-b"]}]}. '
+        + _rss_grouping_text("system_prompt_rules", "Use short category names. Every ref must appear exactly once. No explanations.")
     )
     user_prompt = "\n".join(
         [
-            "Gruppiere diese RSS-Feeds thematisch fuer eine kompakte UI:",
+            _rss_grouping_text("user_prompt_header", "Group these RSS feeds thematically for a compact UI:"),
             *prompt_lines,
         ]
     )

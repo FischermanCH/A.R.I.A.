@@ -28,8 +28,8 @@ def test_send_discord_alerts_respects_category_flags() -> None:
     with patch("aria.core.discord_alerts._post_webhook_message") as send_mock:
         sent = send_discord_alerts(
             settings,
-            category="skill_errors",
-            title="Skill-Fehler erkannt",
+            category="recipe_errors",
+            title="Rezept-Fehler erkannt",
             lines=["User: demo"],
             level="warn",
         )

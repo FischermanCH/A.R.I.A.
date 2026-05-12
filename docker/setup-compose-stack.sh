@@ -792,7 +792,7 @@ main() {
       validate_runtime
       ;;
     pull)
-      run_compose pull "${runtime_services[@]}"
+      run_compose pull aria
       ;;
     pull-all)
       run_compose pull
@@ -803,8 +803,9 @@ main() {
     update)
       pull_aria_image
       refresh_stack_files_from_image
-      run_compose pull "${runtime_services[@]}"
-      run_compose up -d --no-deps --force-recreate "${runtime_services[@]}"
+      # Normal updates must not recreate stateful sidecars. Use update-all/repair for full-stack work.
+      run_compose pull aria
+      run_compose up -d --no-deps --force-recreate aria
       validate_runtime
       ;;
     update-all)

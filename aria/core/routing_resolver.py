@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Protocol
 
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.connection_semantic_resolver import build_connection_aliases, connection_label_match_score
+
+_ROUTING_RESOLVER_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "routing_resolver.json"
+
+
+def _load_routing_resolver_lexicon() -> dict[str, Any]:
+    try:
+        raw = json.loads(_ROUTING_RESOLVER_LEXICON_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not load routing resolver lexicon: {_ROUTING_RESOLVER_LEXICON_PATH}") from exc
+    return raw if isinstance(raw, dict) else {}
+
+
+_ROUTING_RESOLVER_LEXICON = _load_routing_resolver_lexicon()
 
 
 class RoutingCandidateProvider(Protocol):
@@ -91,155 +106,57 @@ def infer_preferred_connection_kind(
         "mqtt": 0,
     }
 
-    if re.search(r"\b(?:wie\s+lange|seit\s+wann)\s+ist\b.*\bonline\b", lower, re.IGNORECASE):
-        scores["ssh"] += 4
-    if re.search(r"\bhow\s+long\b.*\b(?:been\s+online|online)\b", lower, re.IGNORECASE):
-        scores["ssh"] += 4
+    for row in _ROUTING_RESOLVER_LEXICON.get("regex_scores", []):
+        if not isinstance(row, dict):
+            continue
+        kind = normalize_connection_kind(str(row.get("kind") or ""))
+        patterns = row.get("all", [])
+        if not kind or kind not in scores or not isinstance(patterns, list):
+            continue
+        if all(re.search(str(pattern), lower, re.IGNORECASE) for pattern in patterns if str(pattern).strip()):
+            scores[kind] += int(row.get("score") or 0)
 
-    if _has_any_word(
-        lower,
-        (
-            "uptime",
-            "runtime",
-            "laufzeit",
-            "betriebszeit",
-            "wie lange läuft",
-            "wie lange laeuft",
-            "seit wann läuft",
-            "seit wann laeuft",
-            "healthcheck",
-            "health check",
-            "system status",
-            "service status",
-            "docker ps",
-            "systemctl",
-            "journalctl",
-            "load average",
-            "cpu",
-            "ram",
-            "memory",
-            "speicher",
-            "last",
-            "reboot",
-            "ping",
-        ),
-    ):
-        scores["ssh"] += 4
-    if _has_any_word(lower, ("run", "execute", "shell", "ssh", "command", "befehl", "kommando", "ausführen", "fuehre", "führe")):
-        scores["ssh"] += 3
+    word_scores = _ROUTING_RESOLVER_LEXICON.get("word_scores", {})
+    if isinstance(word_scores, dict):
+        for kind, rows in word_scores.items():
+            clean_kind = normalize_connection_kind(str(kind))
+            if clean_kind not in scores or not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("requires_existing_score") and not scores[clean_kind]:
+                    continue
+                terms = row.get("terms", [])
+                if isinstance(terms, list) and _has_any_word(lower, tuple(str(term) for term in terms)):
+                    scores[clean_kind] += int(row.get("score") or 0)
 
-    if _has_any_word(
-        lower,
-        (
-            "file",
-            "datei",
-            "folder",
-            "directory",
-            "verzeichnis",
-            "ordner",
-            "path",
-            "pfad",
-            "download",
-            "upload",
-            "hochladen",
-            "herunterladen",
-        ),
-    ):
-        scores["sftp"] += 3
-    if _has_any_word(
-        lower,
-        (
-            "share",
-            "freigabe",
-            "netzlaufwerk",
-            "smb",
-            "nas share",
-            "synology share",
-        ),
-    ):
-        scores["smb"] += 4
-    if re.search(r"(?<!\S)/(?:[\w.-]+/)*[\w.-]+", lower):
-        scores["sftp"] += 3
-    if _has_any_word(lower, ("read", "open", "show", "list", "lies", "lese", "öffne", "oeffne", "zeige", "auflisten")):
-        scores["sftp"] += 1
-    if _has_any_word(lower, ("run", "execute", "ausführen", "fuehre", "führe")) and scores["ssh"]:
-        scores["sftp"] = max(0, scores["sftp"] - 2)
-    if _has_any_word(lower, ("datei", "file", "read", "open", "zeige", "lies", "lese")) and scores["smb"]:
-        scores["smb"] += 1
+    path_regex = str(_ROUTING_RESOLVER_LEXICON.get("path_regex") or "")
+    path_score = _ROUTING_RESOLVER_LEXICON.get("path_score", {})
+    if path_regex and isinstance(path_score, dict) and re.search(path_regex, lower):
+        kind = normalize_connection_kind(str(path_score.get("kind") or ""))
+        if kind in scores:
+            scores[kind] += int(path_score.get("score") or 0)
 
-    if _has_any_word(
-        lower,
-        (
-            "calendar",
-            "kalender",
-            "termin",
-            "termine",
-            "appointment",
-            "appointments",
-            "meeting",
-            "meetings",
-            "schedule",
-            "agenda",
-            "event",
-            "events",
-        ),
-    ):
-        scores["google_calendar"] += 4
-    if _has_any_word(lower, ("today", "tomorrow", "heute", "morgen", "next", "naechst", "nächst")):
-        scores["google_calendar"] += 2
-
-    if _has_any_word(
-        lower,
-        (
-            "discord",
-            "message",
-            "nachricht",
-            "kanal",
-            "channel",
-            "post",
-            "send",
-            "sende",
-            "schicke",
-        ),
-    ):
-        scores["discord"] += 4
-
-    if _has_any_word(
-        lower,
-        (
-            "rss",
-            "feed",
-            "feeds",
-            "news",
-            "nachrichten",
-            "neuigkeiten",
-            "what's new",
-            "was gibt es neues",
-            "was gibt's neues",
-        ),
-    ):
-        scores["rss"] += 4
-
-    if _has_any_word(lower, ("api", "endpoint", "http", "webhook", "request")):
-        scores["http_api"] += 3
-    if _has_any_word(
-        lower,
-        (
-            "webhook",
-            "hook",
-            "callback",
-            "endpoint",
-            "trigger webhook",
-            "poste an webhook",
-        ),
-    ):
-        scores["webhook"] += 4
-    if _has_any_word(lower, ("mail", "email", "smtp", "send mail", "send email", "sende mail", "sende email")):
-        scores["email"] += 4
-    if _has_any_word(lower, ("inbox", "mailbox", "postfach", "emails lesen", "email lesen", "mail suchen", "email suchen")):
-        scores["imap"] += 4
-    if _has_any_word(lower, ("mqtt", "topic", "broker", "publish", "event bus", "mqtt publish")):
-        scores["mqtt"] += 4
+    adjustments = _ROUTING_RESOLVER_LEXICON.get("score_adjustments", [])
+    if isinstance(adjustments, list):
+        for row in adjustments:
+            if not isinstance(row, dict):
+                continue
+            kind = normalize_connection_kind(str(row.get("kind") or ""))
+            required_kind = normalize_connection_kind(str(row.get("requires_kind_score") or ""))
+            terms = row.get("terms", [])
+            if kind not in scores or (required_kind and not scores.get(required_kind, 0)) or not isinstance(terms, list):
+                continue
+            if not _has_any_word(lower, tuple(str(term) for term in terms)):
+                continue
+            value = int(row.get("value") or 0)
+            if row.get("operation") == "subtract":
+                scores[kind] -= value
+                if "min" in row:
+                    scores[kind] = max(int(row.get("min") or 0), scores[kind])
+            else:
+                scores[kind] += value
 
     if available:
         scores = {kind: score for kind, score in scores.items() if kind in available}
@@ -294,7 +211,8 @@ class RoutingResolver:
         if not lower:
             return RoutingDecision()
 
-        best: tuple[float, str, str, str, str] | None = None
+        exact_best: tuple[float, str, str, str, str] | None = None
+        alias_candidates: list[tuple[float, str, str, str, str]] = []
         for kind, pool in cls._iter_pools(available_connection_pools, preferred_kind=preferred_kind):
             for ref, row in pool.items():
                 clean_ref = str(ref).strip()
@@ -304,13 +222,13 @@ class RoutingResolver:
                 ref_spaced = ref_lower.replace("-", " ").replace("_", " ")
                 if _contains_label(lower, ref_lower):
                     candidate = (10000.0 + len(clean_ref), kind, clean_ref, "exact_ref", clean_ref)
-                    if best is None or candidate > best:
-                        best = candidate
+                    if exact_best is None or candidate > exact_best:
+                        exact_best = candidate
                     continue
                 if ref_spaced != ref_lower and _contains_label(lower, ref_spaced):
                     candidate = (9500.0 + len(clean_ref), kind, clean_ref, "exact_ref_spaced", ref_spaced)
-                    if best is None or candidate > best:
-                        best = candidate
+                    if exact_best is None or candidate > exact_best:
+                        exact_best = candidate
                     continue
 
                 best_alias = ""
@@ -323,13 +241,33 @@ class RoutingResolver:
                         best_alias_score = score
                         best_alias = alias
                 if best_alias_score > 0:
-                    candidate = (float(best_alias_score), kind, clean_ref, "alias", best_alias)
-                    if best is None or candidate > best:
-                        best = candidate
+                    alias_candidates.append((float(best_alias_score), kind, clean_ref, "alias", best_alias))
 
-        if best is None:
+        if exact_best is not None:
+            score, kind, ref, source, reason = exact_best
+            return RoutingDecision(kind=kind, ref=ref, source=source, score=score, reason=reason)
+
+        if not alias_candidates:
             return RoutingDecision()
-        score, kind, ref, source, reason = best
+
+        alias_candidates.sort(reverse=True)
+        top_score = float(alias_candidates[0][0] or 0.0)
+        top_aliases = [candidate for candidate in alias_candidates if float(candidate[0] or 0.0) == top_score]
+        if len(top_aliases) > 1:
+            return RoutingDecision(
+                candidates=[
+                    {
+                        "kind": kind,
+                        "ref": ref,
+                        "source": source,
+                        "score": score,
+                        "reason": reason,
+                    }
+                    for score, kind, ref, source, reason in top_aliases
+                ]
+            )
+
+        score, kind, ref, source, reason = alias_candidates[0]
         return RoutingDecision(kind=kind, ref=ref, source=source, score=score, reason=reason)
 
     @staticmethod
@@ -380,7 +318,7 @@ class RoutingResolver:
             return deterministic
 
         if self.candidate_provider is None:
-            return RoutingDecision()
+            return deterministic if deterministic.candidates else RoutingDecision()
 
         query_limit = max(1, int(qdrant_limit))
         if effective_preferred_kind:

@@ -21,12 +21,12 @@ Zweck:
 - IMAP
 - MQTT
 
-### Custom Skills
-- JSON-basierte Skill-Manifeste
+### Rezepte
+- JSON-basierte Rezept-Manifeste
 - Browser-Wizard zum Erstellen/Bearbeiten
 - Steps duplizieren und sortieren
 - Import/Export
-- Sample-Skills unter `samples/skills/`
+- Sample-Rezepte unter `samples/recipes/`
 
 ### Memory
 - Qdrant als semantischer Memory-Store
@@ -73,7 +73,7 @@ Zweck:
 ### Channels / Realtime
 - Discord als echter Channel, nicht nur Webhook-Ziel
 - Streaming/SSE für Live-Antworten
-- bessere Progress-/Event-Flows für lange Skill-Runs
+- bessere Progress-/Event-Flows für lange Rezept-Runs
 
 ### Routing 2.0
 - Embedding-/Similarity-Routing
@@ -82,7 +82,7 @@ Zweck:
 - Alias-/Beschreibung-/Tag-Qualität noch stärker ausnutzen
 
 ### Security / Sharing
-- echtes Ownership-/Sharing-Modell für Skills, Connections und Memories
+- echtes Ownership-/Sharing-Modell für Rezepte, Connections und Memories
 - RBAC-Ausbau über den aktuellen Admin/User-Schalter hinaus
 
 ## Nicht-Ziel des aktuellen Alpha

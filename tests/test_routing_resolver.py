@@ -63,6 +63,36 @@ def test_routing_resolver_alias_wins_before_qdrant() -> None:
     assert provider.calls == []
 
 
+def test_routing_resolver_alias_tie_abstains_instead_of_picking_lexicographically() -> None:
+    resolver = RoutingResolver(candidate_provider=None)
+
+    decision = asyncio.run(
+        resolver.resolve_connection(
+            "rss tech news was gibt es neues",
+            {
+                "rss": {
+                    "heise-online-news": {
+                        "title": "heise online News",
+                        "tags": ["tech"],
+                        "aliases": ["tech news"],
+                    },
+                    "area41-feed": {
+                        "title": "AREA41 Feed",
+                        "group_name": "Tech News",
+                    },
+                }
+            },
+            preferred_kind="rss",
+        )
+    )
+
+    assert decision.found is False
+    assert {(item["kind"], item["ref"]) for item in decision.candidates} == {
+        ("rss", "heise-online-news"),
+        ("rss", "area41-feed"),
+    }
+
+
 def test_routing_resolver_uses_qdrant_candidate_after_deterministic_miss() -> None:
     provider = FakeCandidateProvider(
         [

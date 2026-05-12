@@ -20,13 +20,35 @@ from qdrant_client.models import (
 from aria.core.config import EmbeddingsConfig, MemoryConfig
 from aria.core.document_ingest import PreparedDocument
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.i18n import I18NStore
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.usage_meter import UsageMeter
 from aria.skills.base import BaseSkill, SkillResult
+
+_MEMORY_SKILL_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _memory_skill_text(key: str, default: str = "", **values: object) -> str:
+    template = _MEMORY_SKILL_I18N.t("de", f"memory_skill.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
+
+def _memory_skill_terms(key: str, fallback: tuple[str, ...]) -> set[str]:
+    terms: list[str] = []
+    for lang in ("de", "en"):
+        raw = _MEMORY_SKILL_I18N.t(lang, f"memory_skill.{key}", "")
+        terms.extend(term.strip().lower() for term in raw.split(",") if term.strip())
+    return set(terms) or set(fallback)
 
 
 class MemorySkill(BaseSkill):
     name = "memory"
-    description = "Speichert und erinnert nutzerspezifische Fakten."
+    description = "Stores and recalls user-specific facts."
     max_context_chars = 1500
     CONTEXT_MEM_PREFIX = "aria_context-mem"
     DOCUMENT_GUIDE_PREFIX = "aria_doc_guides"
@@ -38,11 +60,12 @@ class MemorySkill(BaseSkill):
         memory: MemoryConfig,
         embeddings: EmbeddingsConfig,
         embedding_client: EmbeddingClient | None = None,
+        usage_meter: UsageMeter | None = None,
     ):
         self.memory = memory
         self.embeddings = embeddings
         self.timeout_seconds = embeddings.timeout_seconds
-        self.embedding_client = embedding_client or EmbeddingClient(embeddings)
+        self.embedding_client = embedding_client or EmbeddingClient(embeddings, usage_meter=usage_meter)
         self.qdrant = create_async_qdrant_client(
             url=memory.qdrant_url,
             api_key=(memory.qdrant_api_key or None),
@@ -113,8 +136,9 @@ class MemorySkill(BaseSkill):
         stop = {
             "und", "oder", "der", "die", "das", "ein", "eine", "mein", "meine",
             "dein", "deine", "du", "dich", "an", "von", "mit", "ist", "sind",
-            "was", "weisst", "weisst", "noch", "erinnerst", "über",
+            "was", "weisst", "weisst", "noch", "erinnerst",
         }
+        stop.update(_memory_skill_terms("match_stopwords", ("about",)))
         return [t for t in tokens if len(t) >= 3 and t not in stop]
 
     @staticmethod
@@ -1466,14 +1490,14 @@ class MemorySkill(BaseSkill):
         if deleted <= 0:
             return SkillResult(
                 skill_name=self.name,
-                content="Nichts gelöscht. Bitte Vorschau erneut starten.",
+                content=_memory_skill_text("delete_preview_expired", "Nothing deleted. Please start the preview again."),
                 success=True,
             )
         if str(user_id or "").strip():
             await self.cleanup_empty_collections_for_user(user_id)
         return SkillResult(
             skill_name=self.name,
-            content=f"Löschen bestätigt. {deleted} Eintraege entfernt.",
+            content=_memory_skill_text("delete_confirmed", "Delete confirmed. {deleted} entries removed.", deleted=deleted),
             success=True,
         )
 
@@ -2375,14 +2399,24 @@ class MemorySkill(BaseSkill):
                 return SkillResult(
                     skill_name=self.name,
                     content=(
-                        f"Komprimierung beendet: Woche={stats['compressed_week']}, "
-                        f"Monat={stats['compressed_month']}, gelöschte Collections={stats['collections_removed']}"
+                        _memory_skill_text(
+                            "compression_completed",
+                            "Compression completed: week={week}, month={month}, removed collections={collections}",
+                            week=stats["compressed_week"],
+                            month=stats["compressed_month"],
+                            collections=stats["collections_removed"],
+                        )
                     ),
                     success=True,
                     metadata={"compression_stats": stats},
                 )
 
-            return SkillResult(skill_name=self.name, content="", success=False, error="Unbekannte Aktion")
+            return SkillResult(
+                skill_name=self.name,
+                content="",
+                success=False,
+                error=_memory_skill_text("unknown_action", "Unknown action"),
+            )
         except Exception as exc:  # noqa: BLE001
             category = self._friendly_memory_error(exc)
             return SkillResult(

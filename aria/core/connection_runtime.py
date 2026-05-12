@@ -30,6 +30,8 @@ from aria.core.connection_catalog import (
     ordered_connection_kinds,
 )
 from aria.core.config import resolve_searxng_base_url
+from aria.core.google_calendar_support import friendly_google_calendar_error_message
+from aria.core.i18n import I18NStore
 
 
 CONNECTION_KIND_LABELS: dict[str, str] = connection_kind_labels()
@@ -48,17 +50,22 @@ _WEB_METADATA_HEADERS = {
 _RSS_TEST_READ_BYTES = 256 * 1024
 _RSS_ROOT_HINTS = ("<rss", "<feed", "<rdf:rdf")
 
+_CONNECTION_RUNTIME_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
-def _msg(lang: str, de: str, en: str) -> str:
-    return de if str(lang or "de").strip().lower().startswith("de") else en
+
+def _runtime_text(lang: str, key: str, default: str = "", **values: object) -> str:
+    template = _CONNECTION_RUNTIME_I18N.t(lang or "de", f"connection_runtime.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
 
 
 def _searxng_rate_limit_hint(lang: str) -> str:
-    return _msg(
-        lang,
-        "SearXNG-Test fehlgeschlagen: HTTP 429 Too Many Requests. Wahrscheinlich ist der SearXNG-Limiter aktiv. Fuer den internen ARIA-Stack `SEARXNG_LIMITER=false` setzen und den Stack neu deployen.",
-        "SearXNG test failed: HTTP 429 Too Many Requests. The SearXNG limiter is likely still active. Set `SEARXNG_LIMITER=false` for the internal ARIA stack and redeploy the stack.",
-    )
+    return _runtime_text(lang, "message_58", 'SearXNG test failed: HTTP 429 Too Many Requests. The SearXNG limiter is likely still active. Set `SEARXNG_LIMITER=false` for the internal ARIA stack and redeploy the stack.')
 
 
 def _searxng_request_headers(base_url: str, *, user_agent: str = "ARIA/1.0") -> dict[str, str]:
@@ -164,47 +171,23 @@ def _resolve_local_runtime_path(base_dir: Path | None, value: str) -> Path:
 
 
 def friendly_discord_test_error_message(exc: Exception, *, lang: str = "de") -> str:
-    raw = str(exc).strip() or _msg(lang, "Unbekannter Discord-Fehler.", "Unknown Discord error.")
+    raw = str(exc).strip() or _runtime_text(lang, "message_168", 'Unknown Discord error.')
     if isinstance(exc, HTTPError):
         code = int(getattr(exc, "code", 0) or 0)
         if code == 403:
-            return _msg(
-                lang,
-                "Discord-Test fehlgeschlagen: Discord hat den Webhook mit 403 (Forbidden) abgelehnt. Bitte auf Discord prüfen, ob der Webhook noch existiert, zur richtigen Server-/Channel-Integration gehört und die URL exakt vollständig eingefügt wurde. In Discord: Servereinstellungen > Integrationen > Webhooks.",
-                "Discord test failed: Discord rejected the webhook with 403 (Forbidden). Please verify in Discord that the webhook still exists, belongs to the correct server/channel integration, and that the URL was pasted completely. In Discord: Server Settings > Integrations > Webhooks.",
-            )
+            return _runtime_text(lang, "message_172", 'Discord test failed: Discord rejected the webhook with 403 (Forbidden). Please verify in Discord that the webhook still exists, belongs to the correct server/channel integration, and that the URL was pasted completely. In Discord: Server Settings > Integrations > Webhooks.')
         if code == 404:
-            return _msg(
-                lang,
-                "Discord-Test fehlgeschlagen: Discord meldet 404 (Not Found). Der Webhook wurde auf Discord wahrscheinlich gelöscht oder die URL ist nicht korrekt.",
-                "Discord test failed: Discord returned 404 (Not Found). The webhook was probably deleted in Discord or the URL is incorrect.",
-            )
+            return _runtime_text(lang, "message_178", 'Discord test failed: Discord returned 404 (Not Found). The webhook was probably deleted in Discord or the URL is incorrect.')
         if code == 401:
-            return _msg(
-                lang,
-                "Discord-Test fehlgeschlagen: Discord meldet 401 (Unauthorized). Die Webhook-URL oder der Token-Teil scheint nicht mehr gültig zu sein.",
-                "Discord test failed: Discord returned 401 (Unauthorized). The webhook URL or token part no longer seems to be valid.",
-            )
-        return _msg(lang, f"Discord-Test fehlgeschlagen: Discord meldet HTTP {code}.", f"Discord test failed: Discord returned HTTP {code}.")
+            return _runtime_text(lang, "message_184", 'Discord test failed: Discord returned 401 (Unauthorized). The webhook URL or token part no longer seems to be valid.')
+        return _runtime_text(lang, "message_189", 'Discord test failed: Discord returned HTTP {code}.', code=code)
     if "HTTP Error 403" in raw or ("403" in raw and "Forbidden" in raw):
-        return _msg(
-            lang,
-            "Discord-Test fehlgeschlagen: Discord hat den Webhook mit 403 (Forbidden) abgelehnt. Bitte auf Discord prüfen, ob der Webhook noch existiert, zur richtigen Server-/Channel-Integration gehört und die URL exakt vollständig eingefügt wurde. In Discord: Servereinstellungen > Integrationen > Webhooks.",
-            "Discord test failed: Discord rejected the webhook with 403 (Forbidden). Please verify in Discord that the webhook still exists, belongs to the correct server/channel integration, and that the URL was pasted completely. In Discord: Server Settings > Integrations > Webhooks.",
-        )
+        return _runtime_text(lang, "message_191", 'Discord test failed: Discord rejected the webhook with 403 (Forbidden). Please verify in Discord that the webhook still exists, belongs to the correct server/channel integration, and that the URL was pasted completely. In Discord: Server Settings > Integrations > Webhooks.')
     if "HTTP Error 404" in raw or ("404" in raw and "Not Found" in raw):
-        return _msg(
-            lang,
-            "Discord-Test fehlgeschlagen: Discord meldet 404 (Not Found). Der Webhook wurde auf Discord wahrscheinlich gelöscht oder die URL ist nicht korrekt.",
-            "Discord test failed: Discord returned 404 (Not Found). The webhook was probably deleted in Discord or the URL is incorrect.",
-        )
+        return _runtime_text(lang, "message_197", 'Discord test failed: Discord returned 404 (Not Found). The webhook was probably deleted in Discord or the URL is incorrect.')
     if "HTTP Error 401" in raw or ("401" in raw and "Unauthorized" in raw):
-        return _msg(
-            lang,
-            "Discord-Test fehlgeschlagen: Discord meldet 401 (Unauthorized). Die Webhook-URL oder der Token-Teil scheint nicht mehr gültig zu sein.",
-            "Discord test failed: Discord returned 401 (Unauthorized). The webhook URL or token part no longer seems to be valid.",
-        )
-    return _msg(lang, f"Discord-Test fehlgeschlagen: {raw}", f"Discord test failed: {raw}")
+        return _runtime_text(lang, "message_203", 'Discord test failed: Discord returned 401 (Unauthorized). The webhook URL or token part no longer seems to be valid.')
+    return _runtime_text(lang, "message_208", 'Discord test failed: {raw}', raw=raw)
 
 
 def _looks_like_timeout_error(exc: Exception) -> bool:
@@ -241,191 +224,71 @@ def _looks_like_login_error(exc: Exception) -> bool:
 
 
 def friendly_webhook_test_error_message(exc: Exception, *, lang: str = "de") -> str:
-    raw = str(exc).strip() or _msg(lang, "Unbekannter Webhook-Fehler.", "Unknown webhook error.")
+    raw = str(exc).strip() or _runtime_text(lang, "message_245", 'Unknown webhook error.')
     if isinstance(exc, HTTPError):
         code = int(getattr(exc, "code", 0) or 0)
         if code == 401:
-            return _msg(
-                lang,
-                "Webhook-Test fehlgeschlagen: Das Ziel lehnt die Anmeldung ab. URL oder Token scheinen nicht mehr gültig zu sein.",
-                "Webhook test failed: The target rejected the sign-in. The URL or token no longer seems to be valid.",
-            )
+            return _runtime_text(lang, "message_249", 'Webhook test failed: The target rejected the sign-in. The URL or token no longer seems to be valid.')
         if code == 403:
-            return _msg(
-                lang,
-                "Webhook-Test fehlgeschlagen: Das Ziel ist erreichbar, verweigert den Zugriff aber. Bitte Token, Berechtigungen oder Allowlist prüfen.",
-                "Webhook test failed: The target is reachable, but refuses access. Please check the token, permissions, or allowlist.",
-            )
+            return _runtime_text(lang, "message_255", 'Webhook test failed: The target is reachable, but refuses access. Please check the token, permissions, or allowlist.')
         if code == 404:
-            return _msg(
-                lang,
-                "Webhook-Test fehlgeschlagen: Das Ziel meldet 404. Die URL wurde wahrscheinlich geändert oder gelöscht.",
-                "Webhook test failed: The target returned 404. The URL was probably changed or deleted.",
-            )
-        return _msg(lang, f"Webhook-Test fehlgeschlagen: HTTP {code}.", f"Webhook test failed: HTTP {code}.")
+            return _runtime_text(lang, "message_261", 'Webhook test failed: The target returned 404. The URL was probably changed or deleted.')
+        return _runtime_text(lang, "message_266", 'Webhook test failed: HTTP {code}.', code=code)
     if _looks_like_timeout_error(exc):
-        return _msg(
-            lang,
-            "Webhook-Test fehlgeschlagen: Das Ziel antwortet nicht rechtzeitig. Bitte Erreichbarkeit oder Timeout prüfen.",
-            "Webhook test failed: The target did not respond in time. Please check reachability or the timeout.",
-        )
+        return _runtime_text(lang, "message_268", 'Webhook test failed: The target did not respond in time. Please check reachability or the timeout.')
     if _looks_like_ssl_error(exc):
-        return _msg(
-            lang,
-            "Webhook-Test fehlgeschlagen: Der TLS/SSL-Aufbau ist fehlgeschlagen. Zertifikat oder HTTPS-Setup prüfen.",
-            "Webhook test failed: TLS/SSL setup failed. Please check the certificate or HTTPS setup.",
-        )
+        return _runtime_text(lang, "message_274", 'Webhook test failed: TLS/SSL setup failed. Please check the certificate or HTTPS setup.')
     if _looks_like_login_error(exc):
-        return _msg(
-            lang,
-            "Webhook-Test fehlgeschlagen: Die Anmeldung wurde abgelehnt. Bitte URL, Token oder Berechtigungen prüfen.",
-            "Webhook test failed: The sign-in was rejected. Please check the URL, token, or permissions.",
-        )
+        return _runtime_text(lang, "message_280", 'Webhook test failed: The sign-in was rejected. Please check the URL, token, or permissions.')
     if isinstance(exc, URLError):
-        return _msg(
-            lang,
-            "Webhook-Test fehlgeschlagen: Das Ziel ist aktuell nicht erreichbar. Bitte Host, DNS oder Netzwerk prüfen.",
-            "Webhook test failed: The target is currently unreachable. Please check the host, DNS, or network.",
-        )
-    return _msg(lang, f"Webhook-Test fehlgeschlagen: {raw}", f"Webhook test failed: {raw}")
+        return _runtime_text(lang, "message_286", 'Webhook test failed: The target is currently unreachable. Please check the host, DNS, or network.')
+    return _runtime_text(lang, "message_291", 'Webhook test failed: {raw}', raw=raw)
 
 
 def friendly_http_api_test_error_message(exc: Exception, *, lang: str = "de") -> str:
-    raw = str(exc).strip() or _msg(lang, "Unbekannter HTTP-API-Fehler.", "Unknown HTTP API error.")
+    raw = str(exc).strip() or _runtime_text(lang, "message_295", 'Unknown HTTP API error.')
     if isinstance(exc, HTTPError):
         code = int(getattr(exc, "code", 0) or 0)
         if code == 401:
-            return _msg(
-                lang,
-                "HTTP-API-Test fehlgeschlagen: Die API lehnt die Anmeldung ab. Bitte Token prüfen oder die Verbindung erneut bestaetigen.",
-                "HTTP API test failed: The API rejected the sign-in. Please check the token or reconnect the integration.",
-            )
+            return _runtime_text(lang, "message_299", 'HTTP API test failed: The API rejected the sign-in. Please check the token or reconnect the integration.')
         if code == 403:
-            return _msg(
-                lang,
-                "HTTP-API-Test fehlgeschlagen: Die API ist erreichbar, verweigert aber den Zugriff. Bitte Token-Scope oder Berechtigungen prüfen.",
-                "HTTP API test failed: The API is reachable, but refuses access. Please check the token scope or permissions.",
-            )
+            return _runtime_text(lang, "message_305", 'HTTP API test failed: The API is reachable, but refuses access. Please check the token scope or permissions.')
         if code == 404:
-            return _msg(
-                lang,
-                "HTTP-API-Test fehlgeschlagen: Der Health-Pfad wurde nicht gefunden. Bitte Base-URL und Health-Pfad prüfen.",
-                "HTTP API test failed: The health path was not found. Please check the base URL and health path.",
-            )
-        return _msg(lang, f"HTTP-API-Test fehlgeschlagen: HTTP {code}.", f"HTTP API test failed: HTTP {code}.")
+            return _runtime_text(lang, "message_311", 'HTTP API test failed: The health path was not found. Please check the base URL and health path.')
+        return _runtime_text(lang, "message_316", 'HTTP API test failed: HTTP {code}.', code=code)
     if _looks_like_timeout_error(exc):
-        return _msg(
-            lang,
-            "HTTP-API-Test fehlgeschlagen: Die API antwortet nicht rechtzeitig. Bitte Erreichbarkeit oder Timeout prüfen.",
-            "HTTP API test failed: The API did not respond in time. Please check reachability or the timeout.",
-        )
+        return _runtime_text(lang, "message_318", 'HTTP API test failed: The API did not respond in time. Please check reachability or the timeout.')
     if _looks_like_ssl_error(exc):
-        return _msg(
-            lang,
-            "HTTP-API-Test fehlgeschlagen: Der TLS/SSL-Aufbau ist fehlgeschlagen. Zertifikat oder HTTPS-Setup prüfen.",
-            "HTTP API test failed: TLS/SSL setup failed. Please check the certificate or HTTPS setup.",
-        )
+        return _runtime_text(lang, "message_324", 'HTTP API test failed: TLS/SSL setup failed. Please check the certificate or HTTPS setup.')
     if isinstance(exc, URLError):
-        return _msg(
-            lang,
-            "HTTP-API-Test fehlgeschlagen: Die API ist aktuell nicht erreichbar. Bitte Host, DNS oder Netzwerk prüfen.",
-            "HTTP API test failed: The API is currently unreachable. Please check the host, DNS, or network.",
-        )
-    return _msg(lang, f"HTTP-API-Test fehlgeschlagen: {raw}", f"HTTP API test failed: {raw}")
+        return _runtime_text(lang, "message_330", 'HTTP API test failed: The API is currently unreachable. Please check the host, DNS, or network.')
+    return _runtime_text(lang, "message_335", 'HTTP API test failed: {raw}', raw=raw)
 
 
 def friendly_smtp_test_error_message(exc: Exception, *, lang: str = "de") -> str:
-    raw = str(exc).strip() or _msg(lang, "Unbekannter SMTP-Fehler.", "Unknown SMTP error.")
+    raw = str(exc).strip() or _runtime_text(lang, "message_339", 'Unknown SMTP error.')
     if _looks_like_login_error(exc):
-        return _msg(
-            lang,
-            "SMTP-Test fehlgeschlagen: Die Anmeldung wurde abgelehnt. Bitte Passwort, App-Passwort oder Konto prüfen.",
-            "SMTP test failed: The sign-in was rejected. Please check the password, app password, or account.",
-        )
+        return _runtime_text(lang, "message_341", 'SMTP test failed: The sign-in was rejected. Please check the password, app password, or account.')
     if _looks_like_timeout_error(exc):
-        return _msg(
-            lang,
-            "SMTP-Test fehlgeschlagen: Der Mailserver antwortet nicht rechtzeitig. Bitte Host, Port oder Timeout prüfen.",
-            "SMTP test failed: The mail server did not respond in time. Please check the host, port, or timeout.",
-        )
+        return _runtime_text(lang, "message_347", 'SMTP test failed: The mail server did not respond in time. Please check the host, port, or timeout.')
     if _looks_like_ssl_error(exc):
-        return _msg(
-            lang,
-            "SMTP-Test fehlgeschlagen: TLS/SSL konnte nicht aufgebaut werden. Bitte SSL-/STARTTLS-Setup prüfen.",
-            "SMTP test failed: TLS/SSL could not be established. Please check the SSL/STARTTLS setup.",
-        )
-    return _msg(lang, f"SMTP-Test fehlgeschlagen: {raw}", f"SMTP test failed: {raw}")
+        return _runtime_text(lang, "message_353", 'SMTP test failed: TLS/SSL could not be established. Please check the SSL/STARTTLS setup.')
+    return _runtime_text(lang, "message_358", 'SMTP test failed: {raw}', raw=raw)
 
 
 def friendly_imap_test_error_message(exc: Exception, *, lang: str = "de") -> str:
-    raw = str(exc).strip() or _msg(lang, "Unbekannter IMAP-Fehler.", "Unknown IMAP error.")
+    raw = str(exc).strip() or _runtime_text(lang, "message_362", 'Unknown IMAP error.')
     if _looks_like_login_error(exc):
-        return _msg(
-            lang,
-            "IMAP-Test fehlgeschlagen: Die Anmeldung wurde abgelehnt. Bitte Passwort, App-Passwort oder Konto prüfen.",
-            "IMAP test failed: The sign-in was rejected. Please check the password, app password, or account.",
-        )
+        return _runtime_text(lang, "message_364", 'IMAP test failed: The sign-in was rejected. Please check the password, app password, or account.')
     if _looks_like_timeout_error(exc):
-        return _msg(
-            lang,
-            "IMAP-Test fehlgeschlagen: Der Mailserver antwortet nicht rechtzeitig. Bitte Host, Port oder Timeout prüfen.",
-            "IMAP test failed: The mail server did not respond in time. Please check the host, port, or timeout.",
-        )
+        return _runtime_text(lang, "message_370", 'IMAP test failed: The mail server did not respond in time. Please check the host, port, or timeout.')
     if _looks_like_ssl_error(exc):
-        return _msg(
-            lang,
-            "IMAP-Test fehlgeschlagen: TLS/SSL konnte nicht aufgebaut werden. Bitte SSL-Setup prüfen.",
-            "IMAP test failed: TLS/SSL could not be established. Please check the SSL setup.",
-        )
-    return _msg(lang, f"IMAP-Test fehlgeschlagen: {raw}", f"IMAP test failed: {raw}")
+        return _runtime_text(lang, "message_376", 'IMAP test failed: TLS/SSL could not be established. Please check the SSL setup.')
+    return _runtime_text(lang, "message_381", 'IMAP test failed: {raw}', raw=raw)
 
 
 def friendly_google_calendar_test_error_message(exc: Exception, *, lang: str = "de") -> str:
-    raw = str(exc).strip() or _msg(lang, "Unbekannter Google-Calendar-Fehler.", "Unknown Google Calendar error.")
-    if isinstance(exc, HTTPError):
-        code = int(getattr(exc, "code", 0) or 0)
-        if code in {400, 401}:
-            return _msg(
-                lang,
-                "Google-Calendar-Test fehlgeschlagen: Die Anmeldung ist abgelaufen oder unvollständig. Bitte Client-ID, Client-Secret und Refresh-Token prüfen oder die Verbindung neu anmelden.",
-                "Google Calendar test failed: The sign-in is expired or incomplete. Please check the client ID, client secret, and refresh token or reconnect the integration.",
-            )
-        if code == 403:
-            return _msg(
-                lang,
-                "Google-Calendar-Test fehlgeschlagen: Google verweigert den Zugriff. Bitte OAuth-Scopes, API-Freigabe und Kalenderberechtigungen prüfen.",
-                "Google Calendar test failed: Google refused access. Please check the OAuth scopes, API enablement, and calendar permissions.",
-            )
-        if code == 404:
-            return _msg(
-                lang,
-                "Google-Calendar-Test fehlgeschlagen: Der angegebene Kalender wurde nicht gefunden. Bitte Calendar-ID prüfen.",
-                "Google Calendar test failed: The selected calendar could not be found. Please check the calendar ID.",
-            )
-        return _msg(
-            lang,
-            f"Google-Calendar-Test fehlgeschlagen: HTTP {code}.",
-            f"Google Calendar test failed: HTTP {code}.",
-        )
-    if _looks_like_timeout_error(exc):
-        return _msg(
-            lang,
-            "Google-Calendar-Test fehlgeschlagen: Google antwortet nicht rechtzeitig. Bitte Timeout oder Verbindung prüfen.",
-            "Google Calendar test failed: Google did not respond in time. Please check the timeout or connectivity.",
-        )
-    if _looks_like_ssl_error(exc):
-        return _msg(
-            lang,
-            "Google-Calendar-Test fehlgeschlagen: TLS/SSL konnte nicht sauber aufgebaut werden.",
-            "Google Calendar test failed: TLS/SSL could not be established cleanly.",
-        )
-    if _looks_like_login_error(exc):
-        return _msg(
-            lang,
-            "Google-Calendar-Test fehlgeschlagen: Die Anmeldung wurde abgelehnt. Bitte Refresh-Token oder OAuth-Client prüfen.",
-            "Google Calendar test failed: The sign-in was rejected. Please check the refresh token or OAuth client.",
-        )
-    return _msg(lang, f"Google-Calendar-Test fehlgeschlagen: {raw}", f"Google Calendar test failed: {raw}")
+    return friendly_google_calendar_error_message(exc, lang=lang, operation="test")
 
 
 def _page_probe_timeout(row: Any, default_timeout: int) -> int:
@@ -514,14 +377,16 @@ def _test_ssh_connection(ref: str, row: Any, *, timeout_override: int | None = N
     strict_mode = str(_value(row, "strict_host_key_checking", "accept-new")).strip() or "accept-new"
     key_path_raw = str(_value(row, "key_path", "")).strip()
     if not host:
-        raise ValueError(_msg(lang, "Host/IP fehlt im Profil.", "Host/IP is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_474", 'Host/IP is missing in the profile.'))
     if not user:
-        raise ValueError(_msg(lang, "User fehlt im Profil.", "User is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_476", 'User is missing in the profile.'))
     if not key_path_raw:
-        raise ValueError(_msg(lang, "Kein Key-Pfad im Profil. Erst Key-Exchange oder Key-Generierung durchführen.", "No key path configured in the profile. Run key exchange or key generation first."))
+        raise ValueError(
+            _runtime_text(lang, "message_478", "No key path configured in the profile. Run key exchange or key generation first.")
+        )
     key_path = Path(key_path_raw).expanduser()
     if not key_path.exists():
-        raise ValueError(_msg(lang, f"Key-Datei nicht gefunden: {key_path}", f"Key file not found: {key_path}"))
+        raise ValueError(_runtime_text(lang, "message_481", 'Key file not found: {key_path}', key_path=key_path))
     target = f"{user}@{host}"
     proc = subprocess.run(
         [
@@ -548,12 +413,11 @@ def _test_ssh_connection(ref: str, row: Any, *, timeout_override: int | None = N
     err = (proc.stderr or "").strip()
     if proc.returncode != 0:
         detail = err or out or f"Exit Code {proc.returncode}"
-        raise ValueError(_msg(lang, f"SSH-Test fehlgeschlagen: {detail}", f"SSH test failed: {detail}"))
+        raise ValueError(_runtime_text(lang, "message_508", 'SSH test failed: {detail}', detail=detail))
     if "ARIA_SSH_OK" not in out:
-        unclear = out or _msg(lang, "keine erwartete Antwort", "no expected response")
-        raise ValueError(_msg(lang, f"SSH-Test unklar: {unclear}", f"SSH test inconclusive: {unclear}"))
-    return _msg(lang, f"SSH-Test erfolgreich für {target} (Ref: {ref})", f"SSH test successful for {target} (Ref: {ref})")
-
+        unclear = out or _runtime_text(lang, "message_510", 'no expected response')
+        raise ValueError(_runtime_text(lang, "message_511", 'SSH test inconclusive: {unclear}', unclear=unclear))
+    return _runtime_text(lang, "message_512", 'SSH test successful for {target} (Ref: {ref})', target=target, ref=ref)
 
 def _test_discord_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir
@@ -561,7 +425,7 @@ def _test_discord_connection(ref: str, row: Any, *, timeout_override: int | None
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     send_test_messages = bool(_value(row, "send_test_messages", True)) and not page_probe
     if not webhook:
-        raise ValueError(_msg(lang, "Keine Discord-Webhook-URL hinterlegt.", "No Discord webhook URL configured."))
+        raise ValueError(_runtime_text(lang, "message_521", 'No Discord webhook URL configured.'))
     try:
         if send_test_messages:
             from datetime import datetime
@@ -598,8 +462,8 @@ def _test_discord_connection(ref: str, row: Any, *, timeout_override: int | None
     if status_code >= 400:
         raise ValueError(friendly_discord_test_error_message(HTTPError(webhook, status_code, "", hdrs=None, fp=None), lang=lang))
     if send_test_messages:
-        return _msg(lang, f"Discord-Test erfolgreich für {ref}", f"Discord test successful for {ref}")
-    return _msg(lang, f"Discord-Test erfolgreich für {ref} (stille Prüfung ohne Testnachricht)", f"Discord test successful for {ref} (silent check without test message)")
+        return _runtime_text(lang, "message_558", "Discord test successful for {ref}", ref=ref)
+    return _runtime_text(lang, "message_559", "Discord test successful for {ref} (silent check without test message)", ref=ref)
 
 
 def _test_sftp_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
@@ -612,15 +476,15 @@ def _test_sftp_connection(ref: str, row: Any, *, timeout_override: int | None = 
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     root_path = str(_value(row, "root_path", "")).strip() or "."
     if not host:
-        raise ValueError(_msg(lang, "Host/IP fehlt im Profil.", "Host/IP is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_572", 'Host/IP is missing in the profile.'))
     if not user:
-        raise ValueError(_msg(lang, "User fehlt im Profil.", "User is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_574", 'User is missing in the profile.'))
     if not password and not key_path:
-        raise ValueError(_msg(lang, "Keine SFTP-Authentisierung im Profil. Bitte Passwort oder Key-Pfad setzen.", "No SFTP authentication configured in the profile. Please set a password or key path."))
+        raise ValueError(_runtime_text(lang, "message_576", 'No SFTP authentication configured in the profile. Please set a password or key path.'))
     try:
         import paramiko  # type: ignore[import-not-found]
     except Exception as exc:
-        raise ValueError(_msg(lang, "Python-Modul 'paramiko' fehlt. Bitte installieren und ARIA neu starten.", "Python module 'paramiko' is missing. Please install it and restart ARIA.")) from exc
+        raise ValueError(_runtime_text(lang, "message_580", "Python module 'paramiko' is missing. Please install it and restart ARIA.")) from exc
     connect_kwargs: dict[str, Any] = {
         "hostname": host,
         "port": max(1, port),
@@ -632,7 +496,7 @@ def _test_sftp_connection(ref: str, row: Any, *, timeout_override: int | None = 
     if key_path:
         key_file = _resolve_local_runtime_path(base_dir, key_path)
         if not key_file.exists():
-            raise ValueError(_msg(lang, f"SFTP-Key nicht gefunden: {key_path}", f"SFTP key not found: {key_path}"))
+            raise ValueError(_runtime_text(lang, "message_592", 'SFTP key not found: {key_path}', key_path=key_path))
         connect_kwargs["key_filename"] = str(key_file)
     else:
         connect_kwargs["password"] = password
@@ -649,14 +513,13 @@ def _test_sftp_connection(ref: str, row: Any, *, timeout_override: int | None = 
             except Exception:
                 pass
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"SFTP-Test fehlgeschlagen: {exc}", f"SFTP test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_609", 'SFTP test failed: {exc}', exc=exc)) from exc
     finally:
         try:
             client.close()
         except Exception:
             pass
-    return _msg(lang, f"SFTP-Test erfolgreich für {user}@{host}:{port} (Ref: {ref})", f"SFTP test successful for {user}@{host}:{port} (Ref: {ref})")
-
+    return _runtime_text(lang, "message_615", 'SFTP test successful for {user}@{host}:{port} (Ref: {ref})', user=user, host=host, port=port, ref=ref)
 
 def _test_smb_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -668,32 +531,31 @@ def _test_smb_connection(ref: str, row: Any, *, timeout_override: int | None = N
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     root_path = str(_value(row, "root_path", "")).strip() or "/"
     if not host:
-        raise ValueError(_msg(lang, "Host/IP fehlt im Profil.", "Host/IP is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_628", 'Host/IP is missing in the profile.'))
     if not share:
-        raise ValueError(_msg(lang, "Share fehlt im Profil.", "Share is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_630", 'Share is missing in the profile.'))
     if not user:
-        raise ValueError(_msg(lang, "User fehlt im Profil.", "User is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_632", 'User is missing in the profile.'))
     if not password:
-        raise ValueError(_msg(lang, "Kein Passwort im Profil.", "No password configured in the profile."))
+        raise ValueError(_runtime_text(lang, "message_634", 'No password configured in the profile.'))
     try:
         from smb.SMBConnection import SMBConnection  # type: ignore[import-not-found]
     except Exception as exc:
-        raise ValueError(_msg(lang, "Python-Modul 'pysmb' fehlt. Bitte installieren und ARIA neu starten.", "Python module 'pysmb' is missing. Please install it and restart ARIA.")) from exc
+        raise ValueError(_runtime_text(lang, "message_638", "Python module 'pysmb' is missing. Please install it and restart ARIA.")) from exc
     conn = SMBConnection(user, password, "aria", host, use_ntlm_v2=True, is_direct_tcp=True)
     try:
         ok = conn.connect(host, max(1, port), timeout=max(5, timeout_seconds))
         if not ok:
-            raise ValueError(_msg(lang, "SMB-Verbindung konnte nicht aufgebaut werden.", "SMB connection could not be established."))
+            raise ValueError(_runtime_text(lang, "message_643", 'SMB connection could not be established.'))
         conn.listPath(share, root_path)
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"SMB-Test fehlgeschlagen: {exc}", f"SMB test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_646", 'SMB test failed: {exc}', exc=exc)) from exc
     finally:
         try:
             conn.close()
         except Exception:
             pass
-    return _msg(lang, f"SMB-Test erfolgreich für {user}@{host}/{share} (Ref: {ref})", f"SMB test successful for {user}@{host}/{share} (Ref: {ref})")
-
+    return _runtime_text(lang, "message_652", 'SMB test successful for {user}@{host}/{share} (Ref: {ref})', user=user, host=host, share=share, ref=ref)
 
 def _test_webhook_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -702,7 +564,7 @@ def _test_webhook_connection(ref: str, row: Any, *, timeout_override: int | None
     method = str(_value(row, "method", "POST")).strip().upper() or "POST"
     content_type = str(_value(row, "content_type", "application/json")).strip() or "application/json"
     if not url:
-        raise ValueError(_msg(lang, "Webhook-URL fehlt.", "Webhook URL is missing."))
+        raise ValueError(_runtime_text(lang, "message_662", 'Webhook URL is missing.'))
     payload = json.dumps({"content": f"ARIA Webhook-Test ({ref})"}).encode("utf-8")
     req = URLRequest(url, data=payload if method != "GET" else None, headers={"Content-Type": content_type}, method=method)
     try:
@@ -717,8 +579,7 @@ def _test_webhook_connection(ref: str, row: Any, *, timeout_override: int | None
         raise ValueError(friendly_webhook_test_error_message(exc, lang=lang)) from exc
     if status_code >= 400:
         raise ValueError(friendly_webhook_test_error_message(HTTPError(url, status_code, "", hdrs=None, fp=None), lang=lang))
-    return _msg(lang, f"Webhook-Test erfolgreich für {ref}", f"Webhook test successful for {ref}")
-
+    return _runtime_text(lang, "message_677", 'Webhook test successful for {ref}', ref=ref)
 
 def _test_email_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -730,11 +591,11 @@ def _test_email_connection(ref: str, row: Any, *, timeout_override: int | None =
     use_ssl = bool(_value(row, "use_ssl", False))
     starttls = bool(_value(row, "starttls", True))
     if not host:
-        raise ValueError(_msg(lang, "SMTP-Host fehlt.", "SMTP host is missing."))
+        raise ValueError(_runtime_text(lang, "message_690", 'SMTP host is missing.'))
     if not user:
-        raise ValueError(_msg(lang, "SMTP-User fehlt.", "SMTP user is missing."))
+        raise ValueError(_runtime_text(lang, "message_692", 'SMTP user is missing.'))
     if not password:
-        raise ValueError(_msg(lang, "SMTP-Passwort fehlt.", "SMTP password is missing."))
+        raise ValueError(_runtime_text(lang, "message_694", 'SMTP password is missing.'))
     try:
         if use_ssl:
             server = smtplib.SMTP_SSL(host, max(1, port), timeout=max(5, timeout_seconds), context=ssl.create_default_context())
@@ -749,8 +610,7 @@ def _test_email_connection(ref: str, row: Any, *, timeout_override: int | None =
             server.noop()
     except Exception as exc:  # noqa: BLE001
         raise ValueError(friendly_smtp_test_error_message(exc, lang=lang)) from exc
-    return _msg(lang, f"SMTP-Test erfolgreich für {user}@{host}:{port} (Ref: {ref})", f"SMTP test successful for {user}@{host}:{port} (Ref: {ref})")
-
+    return _runtime_text(lang, "message_709", 'SMTP test successful for {user}@{host}:{port} (Ref: {ref})', user=user, host=host, port=port, ref=ref)
 
 def _test_imap_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -762,11 +622,11 @@ def _test_imap_connection(ref: str, row: Any, *, timeout_override: int | None = 
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     use_ssl = bool(_value(row, "use_ssl", True))
     if not host:
-        raise ValueError(_msg(lang, "IMAP-Host fehlt.", "IMAP host is missing."))
+        raise ValueError(_runtime_text(lang, "message_722", 'IMAP host is missing.'))
     if not user:
-        raise ValueError(_msg(lang, "IMAP-User fehlt.", "IMAP user is missing."))
+        raise ValueError(_runtime_text(lang, "message_724", 'IMAP user is missing.'))
     if not password:
-        raise ValueError(_msg(lang, "IMAP-Passwort fehlt.", "IMAP password is missing."))
+        raise ValueError(_runtime_text(lang, "message_726", 'IMAP password is missing.'))
 
     previous_timeout = socket.getdefaulttimeout()
     socket.setdefaulttimeout(max(5, timeout_seconds))
@@ -778,10 +638,10 @@ def _test_imap_connection(ref: str, row: Any, *, timeout_override: int | None = 
         try:
             status, _ = client.login(user, password)
             if status != "OK":
-                raise ValueError(_msg(lang, "IMAP-Login fehlgeschlagen.", "IMAP login failed."))
+                raise ValueError(_runtime_text(lang, "message_738", 'IMAP login failed.'))
             status, _ = client.select(mailbox, readonly=True)
             if status != "OK":
-                raise ValueError(_msg(lang, f"IMAP-Mailbox nicht erreichbar: {mailbox}", f"IMAP mailbox not reachable: {mailbox}"))
+                raise ValueError(_runtime_text(lang, "message_741", 'IMAP mailbox not reachable: {mailbox}', mailbox=mailbox))
         finally:
             with contextlib.suppress(Exception):
                 client.logout()
@@ -789,8 +649,7 @@ def _test_imap_connection(ref: str, row: Any, *, timeout_override: int | None = 
         raise ValueError(friendly_imap_test_error_message(exc, lang=lang)) from exc
     finally:
         socket.setdefaulttimeout(previous_timeout)
-    return _msg(lang, f"IMAP-Test erfolgreich für {user}@{host}:{port}/{mailbox} (Ref: {ref})", f"IMAP test successful for {user}@{host}:{port}/{mailbox} (Ref: {ref})")
-
+    return _runtime_text(lang, "message_749", 'IMAP test successful for {user}@{host}:{port}/{mailbox} (Ref: {ref})', user=user, host=host, port=port, mailbox=mailbox, ref=ref)
 
 def _test_http_api_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -800,7 +659,7 @@ def _test_http_api_connection(ref: str, row: Any, *, timeout_override: int | Non
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     method = str(_value(row, "method", "GET")).strip().upper() or "GET"
     if not base_url:
-        raise ValueError(_msg(lang, "Base URL fehlt.", "Base URL is missing."))
+        raise ValueError(_runtime_text(lang, "message_760", 'Base URL is missing.'))
     target_url = urljoin(base_url.rstrip("/") + "/", health_path.lstrip("/"))
     headers: dict[str, str] = {}
     if auth_token:
@@ -818,8 +677,7 @@ def _test_http_api_connection(ref: str, row: Any, *, timeout_override: int | Non
         raise ValueError(friendly_http_api_test_error_message(exc, lang=lang)) from exc
     if status_code >= 400:
         raise ValueError(friendly_http_api_test_error_message(HTTPError(target_url, status_code, "", hdrs=None, fp=None), lang=lang))
-    return _msg(lang, f"HTTP-API-Test erfolgreich für {ref}", f"HTTP API test successful for {ref}")
-
+    return _runtime_text(lang, "message_778", 'HTTP API test successful for {ref}', ref=ref)
 
 def _test_google_calendar_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -829,11 +687,11 @@ def _test_google_calendar_connection(ref: str, row: Any, *, timeout_override: in
     refresh_token = str(_value(row, "refresh_token", "")).strip()
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     if not client_id:
-        raise ValueError(_msg(lang, "OAuth Client-ID fehlt.", "OAuth client ID is missing."))
+        raise ValueError(_runtime_text(lang, "message_789", 'OAuth client ID is missing.'))
     if not client_secret:
-        raise ValueError(_msg(lang, "OAuth Client Secret fehlt.", "OAuth client secret is missing."))
+        raise ValueError(_runtime_text(lang, "message_791", 'OAuth client secret is missing.'))
     if not refresh_token:
-        raise ValueError(_msg(lang, "Refresh-Token fehlt.", "Refresh token is missing."))
+        raise ValueError(_runtime_text(lang, "message_793", 'Refresh token is missing.'))
 
     token_payload = urlencode(
         {
@@ -869,11 +727,7 @@ def _test_google_calendar_connection(ref: str, row: Any, *, timeout_override: in
     access_token = str((token_data or {}).get("access_token", "")).strip()
     if not access_token:
         raise ValueError(
-            _msg(
-                lang,
-                "Google-Calendar-Test fehlgeschlagen: Google hat kein Access-Token zurückgegeben.",
-                "Google Calendar test failed: Google did not return an access token.",
-            )
+            _runtime_text(lang, "message_829", 'Google Calendar test failed: Google did not return an access token.')
         )
 
     calendar_url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}"
@@ -906,16 +760,8 @@ def _test_google_calendar_connection(ref: str, row: Any, *, timeout_override: in
     summary = str((calendar_data or {}).get("summary", "")).strip() or calendar_id
     timezone_name = str((calendar_data or {}).get("timeZone", "")).strip()
     if timezone_name:
-        return _msg(
-            lang,
-            f"Google-Calendar-Test erfolgreich für {summary} · Zeitzone: {timezone_name} (Ref: {ref})",
-            f"Google Calendar test successful for {summary} · Time zone: {timezone_name} (Ref: {ref})",
-        )
-    return _msg(
-        lang,
-        f"Google-Calendar-Test erfolgreich für {summary} (Ref: {ref})",
-        f"Google Calendar test successful for {summary} (Ref: {ref})",
-    )
+        return _runtime_text(lang, "message_866", 'Google Calendar test successful for {summary} · Time zone: {timezone_name} (Ref: {ref})', summary=summary, timezone_name=timezone_name, ref=ref)
+    return _runtime_text(lang, "message_871", 'Google Calendar test successful for {summary} (Ref: {ref})', summary=summary, ref=ref)
 
 
 def _test_rss_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
@@ -923,33 +769,29 @@ def _test_rss_connection(ref: str, row: Any, *, timeout_override: int | None = N
     feed_url = str(_value(row, "feed_url", "")).strip()
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     if not feed_url:
-        raise ValueError(_msg(lang, "Feed-URL fehlt.", "Feed URL is missing."))
+        raise ValueError(_runtime_text(lang, "message_883", 'Feed URL is missing.'))
     req = URLRequest(feed_url, headers=_RSS_HTTP_HEADERS, method="GET")
     try:
         with urlopen(req, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
             payload = resp.read(_RSS_TEST_READ_BYTES)
             status_code = int(getattr(resp, "status", 200) or 200)
     except URLError as exc:
-        raise ValueError(_msg(lang, f"RSS-Test fehlgeschlagen: {exc}", f"RSS test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_890", 'RSS test failed: {exc}', exc=exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"RSS-Test fehlgeschlagen: {exc}", f"RSS test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_892", 'RSS test failed: {exc}', exc=exc)) from exc
     if status_code >= 400:
-        raise ValueError(_msg(lang, f"RSS-Test fehlgeschlagen: HTTP {status_code}", f"RSS test failed: HTTP {status_code}"))
+        raise ValueError(_runtime_text(lang, "message_894", 'RSS test failed: HTTP {status_code}', status_code=status_code))
     text = payload.decode("utf-8", errors="replace").strip()
     lower_text = text.lower()
     if text.startswith("{") or text.startswith("["):
         raise ValueError(
-            _msg(
-                lang,
-                "RSS-Test fehlgeschlagen: Diese URL liefert JSON statt RSS/Atom-XML. Bitte als HTTP-API-Connection anlegen.",
-                "RSS test failed: This URL returns JSON instead of RSS/Atom XML. Please create it as an HTTP API connection.",
-            )
+            _runtime_text(lang, "message_899", 'RSS test failed: This URL returns JSON instead of RSS/Atom XML. Please create it as an HTTP API connection.')
         )
     if not any(marker in lower_text for marker in _RSS_ROOT_HINTS):
         try:
             ET.fromstring(text)
         except Exception as exc:  # noqa: BLE001
-            raise ValueError(_msg(lang, f"RSS-Test fehlgeschlagen: ungültiges XML ({exc})", f"RSS test failed: invalid XML ({exc})")) from exc
+            raise ValueError(_runtime_text(lang, "message_909", "RSS test failed: invalid XML ({exc})", exc=exc)) from exc
     try:
         feed_title, preview_titles = _extract_rss_preview_titles(text, max_items=3)
     except Exception:
@@ -957,47 +799,37 @@ def _test_rss_connection(ref: str, row: Any, *, timeout_override: int | None = N
     if preview_titles:
         joined_titles = " | ".join(preview_titles)
         if feed_title:
-            return _msg(
-                lang,
-                f"Feed geladen: {feed_title} · Neueste Artikel: {joined_titles}",
-                f"Feed loaded: {feed_title} · Latest articles: {joined_titles}",
-            )
-        return _msg(
-            lang,
-            f"Neueste Artikel: {joined_titles}",
-            f"Latest articles: {joined_titles}",
-        )
-    return _msg(lang, f"RSS-Test erfolgreich für {ref}", f"RSS test successful for {ref}")
-
+            return _runtime_text(lang, "message_917", 'Feed loaded: {feed_title} · Latest articles: {joined_titles}', feed_title=feed_title, joined_titles=joined_titles)
+        return _runtime_text(lang, "message_922", 'Latest articles: {joined_titles}', joined_titles=joined_titles)
+    return _runtime_text(lang, "message_927", 'RSS test successful for {ref}', ref=ref)
 
 def _test_website_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
     target_url = str(_value(row, "url", "")).strip()
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     if not target_url:
-        raise ValueError(_msg(lang, "URL fehlt.", "URL is missing."))
+        raise ValueError(_runtime_text(lang, "message_935", 'URL is missing.'))
     req = URLRequest(target_url, headers=_WEB_METADATA_HEADERS, method="GET")
     try:
         with urlopen(req, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
             payload = resp.read(256 * 1024)
             status_code = int(getattr(resp, "status", 200) or 200)
     except HTTPError as exc:
-        raise ValueError(_msg(lang, f"Website-Test fehlgeschlagen: {exc}", f"Website test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_942", 'Website test failed: {exc}', exc=exc)) from exc
     except URLError as exc:
-        raise ValueError(_msg(lang, f"Website-Test fehlgeschlagen: {exc}", f"Website test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_944", 'Website test failed: {exc}', exc=exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"Website-Test fehlgeschlagen: {exc}", f"Website test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_946", 'Website test failed: {exc}', exc=exc)) from exc
     if status_code >= 400:
-        raise ValueError(_msg(lang, f"Website-Test fehlgeschlagen: HTTP {status_code}", f"Website test failed: HTTP {status_code}"))
+        raise ValueError(_runtime_text(lang, "message_948", 'Website test failed: HTTP {status_code}', status_code=status_code))
     text = payload.decode("utf-8", errors="replace").strip()
     title_match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.IGNORECASE | re.DOTALL)
     title = ""
     if title_match:
         title = re.sub(r"\s+", " ", html.unescape(str(title_match.group(1) or ""))).strip()[:120]
     if title:
-        return _msg(lang, f"Webseite geladen: {title}", f"Website loaded: {title}")
-    return _msg(lang, f"Website-Test erfolgreich für {ref}", f"Website test successful for {ref}")
-
+        return _runtime_text(lang, "message_955", 'Website loaded: {title}', title=title)
+    return _runtime_text(lang, "message_956", 'Website test successful for {ref}', ref=ref)
 
 def _test_searxng_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
@@ -1026,21 +858,20 @@ def _test_searxng_connection(ref: str, row: Any, *, timeout_override: int | None
     except HTTPError as exc:
         if int(getattr(exc, "code", 0) or 0) == 429:
             raise ValueError(_searxng_rate_limit_hint(lang)) from exc
-        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: {exc}", f"SearXNG test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_986", 'SearXNG test failed: {exc}', exc=exc)) from exc
     except URLError as exc:
-        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: {exc}", f"SearXNG test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_988", 'SearXNG test failed: {exc}', exc=exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: {exc}", f"SearXNG test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_990", 'SearXNG test failed: {exc}', exc=exc)) from exc
     if status_code >= 400:
-        raise ValueError(_msg(lang, f"SearXNG-Test fehlgeschlagen: HTTP {status_code}", f"SearXNG test failed: HTTP {status_code}"))
+        raise ValueError(_runtime_text(lang, "message_992", 'SearXNG test failed: HTTP {status_code}', status_code=status_code))
     try:
         data = json.loads(payload.decode("utf-8", errors="replace"))
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"SearXNG-Test lieferte kein JSON: {exc}", f"SearXNG test did not return JSON: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_996", 'SearXNG test did not return JSON: {exc}', exc=exc)) from exc
     if not isinstance(data, dict) or "results" not in data:
-        raise ValueError(_msg(lang, "SearXNG-Test lieferte kein erwartetes Search-JSON.", "SearXNG test did not return the expected search JSON."))
-    return _msg(lang, f"SearXNG-Test erfolgreich für {ref}", f"SearXNG test successful for {ref}")
-
+        raise ValueError(_runtime_text(lang, "message_998", 'SearXNG test did not return the expected search JSON.'))
+    return _runtime_text(lang, "message_999", 'SearXNG test successful for {ref}', ref=ref)
 
 def probe_searxng_stack_service(*, lang: str = "de", timeout_seconds: int = 4) -> dict[str, Any]:
     base_url = resolve_searxng_base_url("")
@@ -1074,38 +905,34 @@ def probe_searxng_stack_service(*, lang: str = "de", timeout_seconds: int = 4) -
                 "available": True,
                 "status": "warn",
                 "target": base_url,
-                "message": _msg(
-                    lang,
-                    "SearXNG-Stackdienst antwortet, lehnt die JSON-Probe aber mit HTTP 403 ab. Das bedeutet meist: `format=json` ist im SearXNG-Setup nicht freigeschaltet oder eine Access-/Limiter-Regel blockiert die Anfrage. Bitte `search.formats` inkl. `json` und die Limiter-/Zugriffsregeln pruefen.",
-                    "SearXNG stack service responds, but rejects the JSON probe with HTTP 403. This usually means `format=json` is not enabled in the SearXNG setup or an access/limiter rule blocks the request. Please check `search.formats` includes `json` and review limiter/access rules.",
-                ),
+                "message": _runtime_text(lang, "message_1034", 'SearXNG stack service responds, but rejects the JSON probe with HTTP 403. This usually means `format=json` is not enabled in the SearXNG setup or an access/limiter rule blocks the request. Please check `search.formats` includes `json` and review limiter/access rules.'),
             }
         return {
             "available": False,
             "status": "error",
             "target": base_url,
-            "message": _msg(lang, f"SearXNG-Stackdienst nicht erreichbar: {exc}", f"SearXNG stack service is not reachable: {exc}"),
+            "message": _runtime_text(lang, "message_1044", 'SearXNG stack service is not reachable: {exc}', exc=exc),
         }
     except URLError as exc:
         return {
             "available": False,
             "status": "error",
             "target": base_url,
-            "message": _msg(lang, f"SearXNG-Stackdienst nicht erreichbar: {exc}", f"SearXNG stack service is not reachable: {exc}"),
+            "message": _runtime_text(lang, "message_1051", 'SearXNG stack service is not reachable: {exc}', exc=exc),
         }
     except Exception as exc:  # noqa: BLE001
         return {
             "available": False,
             "status": "error",
             "target": base_url,
-            "message": _msg(lang, f"SearXNG-Stackdienst nicht erreichbar: {exc}", f"SearXNG stack service is not reachable: {exc}"),
+            "message": _runtime_text(lang, "message_1058", 'SearXNG stack service is not reachable: {exc}', exc=exc),
         }
     if status_code >= 400:
         return {
             "available": False,
             "status": "error",
             "target": base_url,
-            "message": _msg(lang, f"SearXNG-Stackdienst antwortete mit HTTP {status_code}.", f"SearXNG stack service returned HTTP {status_code}."),
+            "message": _runtime_text(lang, "message_1065", 'SearXNG stack service returned HTTP {status_code}.', status_code=status_code),
         }
     try:
         data = json.loads(payload.decode("utf-8", errors="replace"))
@@ -1114,20 +941,20 @@ def probe_searxng_stack_service(*, lang: str = "de", timeout_seconds: int = 4) -
             "available": False,
             "status": "error",
             "target": base_url,
-            "message": _msg(lang, f"SearXNG-Stackdienst liefert kein JSON: {exc}", f"SearXNG stack service did not return JSON: {exc}"),
+            "message": _runtime_text(lang, "message_1074", 'SearXNG stack service did not return JSON: {exc}', exc=exc),
         }
     if not isinstance(data, dict) or "results" not in data:
         return {
             "available": False,
             "status": "error",
             "target": base_url,
-            "message": _msg(lang, "SearXNG-Stackdienst liefert noch keine erwartete JSON-Suche.", "SearXNG stack service does not return the expected JSON search yet."),
+            "message": _runtime_text(lang, "message_1081", 'SearXNG stack service does not return the expected JSON search yet.'),
         }
     return {
         "available": True,
         "status": "ok",
         "target": base_url,
-        "message": _msg(lang, "SearXNG-Stackdienst ist erreichbar.", "SearXNG stack service is reachable."),
+        "message": _runtime_text(lang, "message_1087", 'SearXNG stack service is reachable.'),
     }
 
 
@@ -1165,7 +992,7 @@ def _cached_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> di
         "target": _rss_target(row),
         "status": status,
         "message": str(cached.get("last_message", "")).strip()
-        or _msg(lang, "RSS-Status aus Cache.", "RSS status from cache."),
+        or _runtime_text(lang, "message_1125", 'RSS status from cache.'),
         "last_success_at": str(cached.get("last_success_at", "")).strip(),
     }
 
@@ -1199,11 +1026,7 @@ def _last_rss_connection_status(ref: str, row: Any, *, lang: str = "de") -> dict
         "target": _rss_target(row),
         "status": status,
         "message": str(cached.get("last_message", "")).strip()
-        or _msg(
-            lang,
-            "Noch kein RSS-Status im Cache. Nutze 'Jetzt pingen' für eine Live-Prüfung.",
-            "No RSS status cached yet. Use 'Ping now' for a live check.",
-        ),
+        or _runtime_text(lang, "message_1159", "No RSS status cached yet. Use 'Ping now' for a live check."),
         "last_success_at": str(cached.get("last_success_at", "")).strip(),
     }
 
@@ -1223,11 +1046,7 @@ def _cached_connection_status_row(kind: str, ref: str, row: Any, *, lang: str = 
         status = "warn"
     message = str(cached.get("last_message", "")).strip()
     if not message:
-        message = _msg(
-            lang,
-            "Noch kein Status im Cache. Nutze den Test-Button fuer eine Live-Pruefung.",
-            "No cached status yet. Use the test button for a live check.",
-        )
+        message = _runtime_text(lang, "message_1183", 'No cached status yet. Use the test button for a live check.')
     return {
         "kind_key": normalized_kind,
         "kind": connection_kind_label(normalized_kind),
@@ -1253,15 +1072,15 @@ def _test_mqtt_connection(ref: str, row: Any, *, timeout_override: int | None = 
     port = int(_value(row, "port", 1883) or 1883)
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
     if not host:
-        raise ValueError(_msg(lang, "Host/IP fehlt im Profil.", "Host/IP is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_1213", 'Host/IP is missing in the profile.'))
     if not user:
-        raise ValueError(_msg(lang, "MQTT-User fehlt im Profil.", "MQTT user is missing in the profile."))
+        raise ValueError(_runtime_text(lang, "message_1215", 'MQTT user is missing in the profile.'))
     if not password:
-        raise ValueError(_msg(lang, "MQTT-Passwort fehlt.", "MQTT password is missing."))
+        raise ValueError(_runtime_text(lang, "message_1217", 'MQTT password is missing.'))
     try:
         import paho.mqtt.client as mqtt  # type: ignore[import-not-found]
     except Exception as exc:
-        raise ValueError(_msg(lang, "Python-Modul 'paho-mqtt' fehlt. Bitte installieren und ARIA neu starten.", "Python module 'paho-mqtt' is missing. Please install it and restart ARIA.")) from exc
+        raise ValueError(_runtime_text(lang, "message_1221", "Python module 'paho-mqtt' is missing. Please install it and restart ARIA.")) from exc
     result: dict[str, Any] = {"rc": None}
     client = mqtt.Client()
     client.username_pw_set(user, password)
@@ -1284,18 +1103,17 @@ def _test_mqtt_connection(ref: str, row: Any, *, timeout_override: int | None = 
             time.sleep(0.1)
         client.loop_stop()
         if result["rc"] is None:
-            raise ValueError(_msg(lang, "MQTT-Timeout beim Verbindungsaufbau.", "MQTT timeout during connection setup."))
+            raise ValueError(_runtime_text(lang, "message_1244", 'MQTT timeout during connection setup.'))
         if int(result["rc"]) != 0:
-            raise ValueError(_msg(lang, f"MQTT-Connect fehlgeschlagen (rc={result['rc']}).", f"MQTT connect failed (rc={result['rc']})."))
+            raise ValueError(_runtime_text(lang, "message_1246", 'MQTT connect failed (rc={result_rc}).', result_rc=result['rc']))
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(_msg(lang, f"MQTT-Test fehlgeschlagen: {exc}", f"MQTT test failed: {exc}")) from exc
+        raise ValueError(_runtime_text(lang, "message_1248", 'MQTT test failed: {exc}', exc=exc)) from exc
     finally:
         try:
             client.disconnect()
         except Exception:
             pass
-    return _msg(lang, f"MQTT-Test erfolgreich für {user}@{host}:{port} (Ref: {ref})", f"MQTT test successful for {user}@{host}:{port} (Ref: {ref})")
-
+    return _runtime_text(lang, "message_1254", 'MQTT test successful for {user}@{host}:{port} (Ref: {ref})', user=user, host=host, port=port, ref=ref)
 
 _CONNECTION_TESTERS = {
     "ssh": _test_ssh_connection,
@@ -1334,7 +1152,7 @@ def test_connection(kind: str, ref: str, row: Any, *, page_probe: bool = False, 
     normalized_kind = str(kind or "").strip().lower().replace("-", "_")
     tester = _CONNECTION_TESTERS.get(normalized_kind)
     if tester is None:
-        raise ValueError(_msg(lang, f"Unbekannter Connection-Typ: {kind}", f"Unknown connection type: {kind}"))
+        raise ValueError(_runtime_text(lang, "message_1294", 'Unknown connection type: {kind}', kind=kind))
     timeout_override = None
     if page_probe:
         default_timeout = 20 if normalized_kind == "ssh" else 10
@@ -1354,7 +1172,7 @@ def build_connection_status_row(
 ) -> dict[str, str]:
     normalized_kind = normalize_connection_kind(kind)
     if normalized_kind not in _CONNECTION_TESTERS:
-        raise ValueError(_msg(lang, f"Unbekannter Connection-Typ: {kind}", f"Unknown connection type: {kind}"))
+        raise ValueError(_runtime_text(lang, "message_1314", 'Unknown connection type: {kind}', kind=kind))
     if cached_only:
         return _cached_connection_status_row(normalized_kind, ref, row, lang=lang)
     if normalized_kind == "rss" and page_probe:

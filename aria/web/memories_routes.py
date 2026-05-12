@@ -14,9 +14,13 @@ from fastapi.templating import Jinja2Templates
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from aria.core.document_ingest import DocumentIngestError, prepare_uploaded_document, supported_upload_suffixes
+from aria.core.i18n import I18NStore
 from aria.core.pipeline import Pipeline
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+_MEMORIES_ROUTES_I18N = I18NStore(BASE_DIR / "aria" / "i18n")
 
 UsernameResolver = Callable[[Request], str]
 AuthSessionResolver = Callable[[Request], dict[str, Any] | None]
@@ -48,6 +52,16 @@ def _is_admin_request(
 
 def _msg(lang: str, de: str, en: str) -> str:
     return de if str(lang or "de").strip().lower().startswith("de") else en
+
+
+def _memory_routes_text(lang: str | None, key: str, default: str = "", **values: Any) -> str:
+    template = _MEMORIES_ROUTES_I18N.t(lang or "de", f"memories_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def _friendly_memory_error(lang: str, exc: Exception, de_default: str, en_default: str) -> str:
@@ -538,12 +552,12 @@ def _graph_kind_order(kind: str) -> int:
 def _graph_kind_label(kind: str) -> str:
     normalized = str(kind or "").strip().lower()
     labels = {
-        "fact": "Fakten",
-        "preference": "Präferenzen",
-        "session": "Tages-Kontext",
-        "document": "Dokumente",
-        "knowledge": "Wissen",
-        "notes": "Notizen",
+        "fact": _memory_routes_text("de", "graph.fact", "Facts"),
+        "preference": _memory_routes_text("de", "graph.preference", "Preferences"),
+        "session": _memory_routes_text("de", "graph.session", "Daily context"),
+        "document": _memory_routes_text("de", "graph.document", "Documents"),
+        "knowledge": _memory_routes_text("de", "graph.knowledge", "Knowledge"),
+        "notes": _memory_routes_text("de", "graph.notes", "Notes"),
         "routing": "Routing",
     }
     return labels.get(normalized, normalized.upper() or "Memory")
@@ -746,11 +760,11 @@ def _build_memory_graph(
                 "kind": kind,
                 "label": _graph_kind_label(kind),
                 "meta": (
-                    f"{routing_total_points} Punkte · System"
+                    _memory_routes_text("de", "graph.routing_points", "{points} points · System", points=routing_total_points)
                     if kind == "routing"
-                    else f"{notes_total_points} Punkte · Notizen"
+                    else _memory_routes_text("de", "graph.notes_points", "{points} points · Notes", points=notes_total_points)
                     if kind == "notes"
-                    else f"{int(kind_totals.get(kind, 0) or 0)} Punkte"
+                    else _memory_routes_text("de", "graph.points", "{points} points", points=int(kind_totals.get(kind, 0) or 0))
                 ),
                 "left": round(x_center - type_width / 2, 2),
                 "top": round(type_y - 38, 2),
@@ -1018,6 +1032,7 @@ def _resolve_document_target_collection(
     sanitize_collection_name: CollectionNameSanitizer,
     get_effective_memory_collection: EffectiveCollectionResolver,
 ) -> str:
+    lang = str(getattr(getattr(request, "state", object()), "lang", "de") or "de")
     existing_document_collections = set(_document_collection_names(existing_collections))
 
     normalized_new = _normalize_document_collection_name(new_collection_name, sanitize_collection_name)
@@ -1027,9 +1042,9 @@ def _resolve_document_target_collection(
     clean_selected = sanitize_collection_name(selected_collection)
     if clean_selected:
         if not _is_document_collection_name(clean_selected):
-            raise ValueError("Bitte nur Dokument-Collections verwenden.")
+            raise ValueError(_memory_routes_text(lang, "error.document_collections_only", "Please use document collections only."))
         if clean_selected not in existing_document_collections:
-            raise ValueError("Die gewählte Dokument-Collection existiert nicht mehr.")
+            raise ValueError(_memory_routes_text(lang, "error.document_collection_missing", "The selected document collection no longer exists."))
         return clean_selected
 
     active_collection = sanitize_collection_name(get_effective_memory_collection(request, username))
@@ -1039,7 +1054,7 @@ def _resolve_document_target_collection(
     return _default_document_collection_for_user(username)
 
 
-def _build_compression_result_message(stats: dict[str, Any], compress_after_days: int) -> str:
+def _build_compression_result_message(stats: dict[str, Any], compress_after_days: int, *, lang: str = "de") -> str:
     moved = list(stats.get("compressed_collections", []) or [])
     removed = list(stats.get("removed_collections", []) or [])
     skipped_recent = list(stats.get("skipped_recent", []) or [])
@@ -1049,26 +1064,52 @@ def _build_compression_result_message(stats: dict[str, Any], compress_after_days
     if moved_total <= 0:
         if skipped_recent:
             preview = ", ".join(skipped_recent[:3])
-            return (
-                f"Rollup beendet: nichts verschoben. "
-                f"{len(skipped_recent)} Tages-Collections sind noch juenger als {compress_after_days} Tage "
-                f"oder noch aktiver Tages-Kontext. Beispiele: {preview}"
+            return _memory_routes_text(
+                lang,
+                "compression.no_move_recent",
+                (
+                    "Rollup finished: nothing moved. {count} daily collections are younger than "
+                    "{days} days or still active daily context. Examples: {preview}"
+                ),
+                count=len(skipped_recent),
+                days=compress_after_days,
+                preview=preview,
             )
-        return "Rollup beendet: nichts zu verschieben."
+        return _memory_routes_text(lang, "compression.no_move", "Rollup finished: nothing to move.")
 
     parts = [
-        f"Rollup beendet: verschoben={moved_total}, entfernt={int(stats.get('collections_removed', 0) or 0)}",
+        _memory_routes_text(
+            lang,
+            "compression.summary",
+            "Rollup finished: moved={moved}, removed={removed}",
+            moved=moved_total,
+            removed=int(stats.get("collections_removed", 0) or 0),
+        ),
     ]
     if moved:
-        parts.append(f"Verschoben: {', '.join(moved[:3])}")
+        parts.append(_memory_routes_text(lang, "compression.moved", "Moved: {items}", items=", ".join(moved[:3])))
     if skipped_recent:
         parts.append(
-            f"Unverändert geblieben ({len(skipped_recent)}): juenger als {compress_after_days} Tage oder aktueller Tages-Kontext"
+            _memory_routes_text(
+                lang,
+                "compression.skipped_recent",
+                "Unchanged ({count}): younger than {days} days or current daily context",
+                count=len(skipped_recent),
+                days=compress_after_days,
+            )
         )
     if failed_delete:
-        parts.append(f"Nicht gelöscht ({len(failed_delete)}): {', '.join(failed_delete[:3])}")
+        parts.append(
+            _memory_routes_text(
+                lang,
+                "compression.failed_delete",
+                "Not deleted ({count}): {items}",
+                count=len(failed_delete),
+                items=", ".join(failed_delete[:3]),
+            )
+        )
     if removed and len(removed) != len(moved):
-        parts.append(f"Entfernt: {', '.join(removed[:3])}")
+        parts.append(_memory_routes_text(lang, "compression.removed", "Removed: {items}", items=", ".join(removed[:3])))
     return " | ".join(parts)
 
 
@@ -1196,35 +1237,31 @@ def register_memories_routes(
         next_steps = [
             {
                 "icon": "plus",
-                "title": _msg(
+                "title": _memory_routes_text(
                     lang,
-                    "Erste Memory anlegen" if user_memory_points <= 0 else "Neue Memory erfassen",
+                    "next_step_memory_title_empty" if user_memory_points <= 0 else "next_step_memory_title_more",
                     "Create first memory" if user_memory_points <= 0 else "Add memory",
                 ),
-                "desc": _msg(
+                "desc": _memory_routes_text(
                     lang,
-                    "Starte mit einer kleinen festen Information oder Präferenz, damit ARIA etwas Greifbares im Gedächtnis hat."
-                    if user_memory_points <= 0
-                    else "Lege bewusst einen weiteren Fakt oder eine Präferenz an, ohne erst in den Explorer wechseln zu müssen.",
+                    "next_step_memory_desc_empty" if user_memory_points <= 0 else "next_step_memory_desc_more",
                     "Start with one small fact or preference so ARIA has something concrete in memory."
                     if user_memory_points <= 0
                     else "Add another fact or preference directly from the hub without jumping into the explorer first.",
                 ),
                 "href": "/memories#memories-actions",
-                "badge": _msg(lang, "Direkt hier", "Right here"),
+                "badge": _memory_routes_text(lang, "next_step_memory_badge", "Right here"),
             },
             {
                 "icon": "upload",
-                "title": _msg(
+                "title": _memory_routes_text(
                     lang,
-                    "Erstes Dokument importieren" if not document_collections else "Weiteres Dokument importieren",
+                    "next_step_document_title_empty" if not document_collections else "next_step_document_title_more",
                     "Import first document" if not document_collections else "Import another document",
                 ),
-                "desc": _msg(
+                "desc": _memory_routes_text(
                     lang,
-                    "PDFs, Markdown und Textdateien landen in einer Dokument-Collection und werden danach im Explorer und in der Map sichtbar."
-                    if not document_collections
-                    else "Nutze den Hub weiter als Eingang für neue PDFs oder Textdateien, ohne das Setup zu öffnen.",
+                    "next_step_document_desc_empty" if not document_collections else "next_step_document_desc_more",
                     "PDFs, Markdown, and text files land in a document collection and then show up in the explorer and the map."
                     if not document_collections
                     else "Keep using the hub as the intake point for new PDFs or text files without opening setup.",
@@ -1234,14 +1271,14 @@ def register_memories_routes(
             },
             {
                 "icon": "memories",
-                "title": _msg(lang, "Im Explorer prüfen", "Open explorer"),
-                "desc": _msg(
+                "title": _memory_routes_text(lang, "next_step_explorer_title", "Open explorer"),
+                "desc": _memory_routes_text(
                     lang,
-                    "Filtere Fakten, Dokumente, Rollups und Tages-Kontext, damit Einträge später nicht durcheinanderlaufen.",
+                    "next_step_explorer_desc",
                     "Filter facts, documents, rollups, and day context so entries do not blur together later.",
                 ),
                 "href": "/memories/explorer",
-                "badge": _msg(lang, "Suche & Filter", "Search & filters"),
+                "badge": _memory_routes_text(lang, "next_step_explorer_badge", "Search & filters"),
             },
         ]
         return templates.TemplateResponse(
@@ -1294,6 +1331,7 @@ def register_memories_routes(
         settings = get_settings()
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
         overview = await qdrant_overview(request)
         sort_key = _normalize_memory_sort(sort)
         page_size = _coerce_page_size(limit)
@@ -1431,9 +1469,9 @@ def register_memories_routes(
                 "error_message": error,
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "manual_memory_types": [
-                    {"value": "fact", "label": "Fakt"},
-                    {"value": "preference", "label": "Präferenz"},
-                    {"value": "knowledge", "label": "Wissen"},
+                    {"value": "fact", "label": _memory_routes_text(lang, "manual_type.fact", "Fact")},
+                    {"value": "preference", "label": _memory_routes_text(lang, "manual_type.preference", "Preference")},
+                    {"value": "knowledge", "label": _memory_routes_text(lang, "manual_type.knowledge", "Knowledge")},
                 ],
                 "collections": all_collection_names,
                 "document_collections": document_collections,
@@ -1563,7 +1601,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
         ok = await pipeline.memory_skill.delete_memory_point(
             user_id=username,
             collection=sanitize_collection_name(collection),
@@ -1579,7 +1617,7 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                info="Eintrag gelöscht",
+                info=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "info.entry_deleted", "Entry deleted"),
             )
         return _memories_redirect(
             filter_type=type,
@@ -1590,7 +1628,7 @@ def register_memories_routes(
             page=page,
             limit=limit,
             sort=sort,
-            error="Eintrag konnte nicht gelöscht werden",
+            error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.entry_delete_failed", "Entry could not be deleted"),
         )
 
     @app.post("/memories/delete-document")
@@ -1612,7 +1650,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
         removed = await pipeline.memory_skill.delete_document(
             user_id=username,
             collection=sanitize_collection_name(collection),
@@ -1622,7 +1660,7 @@ def register_memories_routes(
         target_view = str(view or "").strip().lower()
         if removed > 0:
             if target_view == "map":
-                return _memories_map_redirect(info=f"Dokument entfernt · {removed} Chunks geloescht")
+                return _memories_map_redirect(info=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "info.document_removed", "Document removed · {count} chunks deleted", count=removed))
             return _memories_redirect(
                 filter_type="document" if str(type).strip().lower() in {"all", "document"} else type,
                 query=q,
@@ -1632,10 +1670,10 @@ def register_memories_routes(
                 page=1,
                 limit=limit,
                 sort=sort,
-                info=f"Dokument entfernt · {removed} Chunks geloescht",
+                info=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "info.document_removed", "Document removed · {count} chunks deleted", count=removed),
             )
         if target_view == "map":
-            return _memories_map_redirect(error="Dokument konnte nicht entfernt werden")
+            return _memories_map_redirect(error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.document_remove_failed", "Document could not be removed"))
         return _memories_redirect(
             filter_type=type,
             query=q,
@@ -1645,7 +1683,7 @@ def register_memories_routes(
             page=page,
             limit=limit,
             sort=sort,
-            error="Dokument konnte nicht entfernt werden",
+            error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.document_remove_failed", "Document could not be removed"),
         )
 
     @app.post("/memories/edit")
@@ -1666,7 +1704,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
         clean_text = str(text).strip()
         if not clean_text:
             return _memories_redirect(
@@ -1678,7 +1716,7 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error="Memory-Text darf nicht leer sein",
+                error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.memory_text_empty", "Memory text must not be empty"),
             )
         ok = await pipeline.memory_skill.update_memory_point(
             user_id=username,
@@ -1730,8 +1768,8 @@ def register_memories_routes(
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
             if str(source_view or "").strip().lower() == "overview":
-                return _memories_overview_redirect(error="Memory+Skill+nicht+aktiv")
-            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
+                return _memories_overview_redirect(error="Memory+nicht+aktiv")
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
 
         clean_type = str(memory_type or "fact").strip().lower()
         if clean_type not in {"fact", "preference", "knowledge"}:
@@ -1739,7 +1777,7 @@ def register_memories_routes(
         clean_text = str(text or "").strip()
         if not clean_text:
             if str(source_view or "").strip().lower() == "overview":
-                return _memories_overview_redirect(error="Memory-Text darf nicht leer sein")
+                return _memories_overview_redirect(error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.memory_text_empty", "Memory text must not be empty"))
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1749,7 +1787,7 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error="Memory-Text darf nicht leer sein",
+                error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.memory_text_empty", "Memory text must not be empty"),
             )
         if len(clean_text) > 4000:
             clean_text = clean_text[:4000]
@@ -1858,7 +1896,7 @@ def register_memories_routes(
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
             if source_view == "overview":
                 return _memories_overview_redirect(
-                    error=_msg(lang, "Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden.", "Security check failed. Please reload the page.")
+                    error=_memory_routes_text(lang, "error.csrf_failed", "Security check failed. Please reload the page.")
                 )
             return _memories_redirect(
                 filter_type=type,
@@ -1869,12 +1907,12 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error=_msg(lang, "Sicherheitsprüfung fehlgeschlagen. Bitte Seite neu laden.", "Security check failed. Please reload the page."),
+                error=_memory_routes_text(lang, "error.csrf_failed", "Security check failed. Please reload the page."),
             )
         if not pipeline.memory_skill:
             if source_view == "overview":
                 return _memories_overview_redirect(
-                    error=_msg(lang, "Memory-Backend ist aktuell nicht verfügbar.", "Memory backend is currently unavailable.")
+                    error=_memory_routes_text(lang, "error.memory_backend_unavailable", "Memory backend is currently unavailable.")
                 )
             return _memories_redirect(
                 filter_type=type,
@@ -1885,11 +1923,11 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error=_msg(lang, "Memory-Backend ist aktuell nicht verfügbar.", "Memory backend is currently unavailable."),
+                error=_memory_routes_text(lang, "error.memory_backend_unavailable", "Memory backend is currently unavailable."),
             )
         if not _is_uploaded_file(document_file):
             if source_view == "overview":
-                return _memories_overview_redirect(error=_msg(lang, "Bitte eine Datei auswählen.", "Please choose a file."))
+                return _memories_overview_redirect(error=_memory_routes_text(lang, "error.choose_file", "Please choose a file."))
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -1899,7 +1937,7 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error=_msg(lang, "Bitte eine Datei auswählen.", "Please choose a file."),
+                error=_memory_routes_text(lang, "error.choose_file", "Please choose a file."),
             )
 
         try:
@@ -1958,7 +1996,7 @@ def register_memories_routes(
         except (DocumentIngestError, ValueError) as exc:
             if source_view == "overview":
                 return _memories_overview_redirect(
-                    error=str(exc).strip() or _msg(lang, "Dokument konnte nicht importiert werden.", "Could not import document.")
+                    error=str(exc).strip() or _memory_routes_text(lang, "error.document_import_failed", "Could not import document.")
                 )
             return _memories_redirect(
                 filter_type=type,
@@ -1969,12 +2007,12 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error=str(exc).strip() or _msg(lang, "Dokument konnte nicht importiert werden.", "Could not import document."),
+                error=str(exc).strip() or _memory_routes_text(lang, "error.document_import_failed", "Could not import document."),
             )
         except Exception as exc:  # noqa: BLE001
             if source_view == "overview":
                 return _memories_overview_redirect(
-                    error=_friendly_memory_error(lang, exc, "Dokument-Import fehlgeschlagen.", "Document import failed.")
+                    error=_friendly_memory_error(lang, exc, _memory_routes_text(lang, "error.document_import_failed_short", "Document import failed."), "Document import failed.")
                 )
             return _memories_redirect(
                 filter_type=type,
@@ -1985,7 +2023,7 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                error=_friendly_memory_error(lang, exc, "Dokument-Import fehlgeschlagen.", "Document import failed."),
+                error=_friendly_memory_error(lang, exc, _memory_routes_text(lang, "error.document_import_failed_short", "Document import failed."), "Document import failed."),
             )
 
     @app.post("/memories/maintenance")
@@ -2003,7 +2041,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+Skill+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
         try:
             session_cfg = settings.memory.collections.sessions
             result = await pipeline.memory_skill.execute(
@@ -2027,7 +2065,7 @@ def register_memories_routes(
                     sort=sort,
                     info=result.content,
                 )
-            message = result.error or "Komprimierung fehlgeschlagen"
+            message = result.error or _memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.compression_failed", "Compression failed")
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -2103,7 +2141,7 @@ def register_memories_routes(
         try:
             clean_backend = str(backend or "").strip().lower() or "qdrant"
             if clean_backend != "qdrant":
-                raise ValueError("Aktuell wird nur Qdrant als Memory-Backend unterstützt.")
+                raise ValueError(_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.only_qdrant_supported", "Only Qdrant is currently supported as memory backend."))
             clean_url = str(qdrant_url or "").strip().rstrip("/")
             if not clean_url:
                 raise ValueError("Qdrant URL darf nicht leer sein.")
@@ -2166,7 +2204,7 @@ def register_memories_routes(
             return RedirectResponse(url="/memories?error=no_admin", status_code=303)
         clean = sanitize_collection_name(collection_name)
         if not clean:
-            return RedirectResponse(url="/memories/config?error=Ungültiger+Collection-Name", status_code=303)
+            return RedirectResponse(url=f"/memories/config?error={quote_plus(_memory_routes_text(str(getattr(request.state, 'lang', 'de') or 'de'), 'error.invalid_collection_name', 'Invalid collection name'))}", status_code=303)
         secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
         response.set_cookie(
@@ -2236,7 +2274,7 @@ def register_memories_routes(
         if not username:
             return RedirectResponse(url="/memories/config?error=Bitte+zuerst+Benutzernamen+setzen#rollup", status_code=303)
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/config?error=Memory+Skill+nicht+aktiv#rollup", status_code=303)
+            return RedirectResponse(url="/memories/config?error=Memory+nicht+aktiv#rollup", status_code=303)
         try:
             session_cfg = settings.memory.collections.sessions
             compress_after_days = int(session_cfg.compress_after_days or 7)
@@ -2269,11 +2307,11 @@ def register_memories_routes(
                     "calls": int(stats.get("compressed_week", 0)) + int(stats.get("compressed_month", 0)),
                 },
             )
-            message = _build_compression_result_message(stats, compress_after_days)
+            message = _build_compression_result_message(stats, compress_after_days, lang=str(getattr(request.state, "lang", "de") or "de"))
             return RedirectResponse(url=f"/memories/config?compress_result={quote_plus(message)}#rollup", status_code=303)
         except Exception as exc:  # noqa: BLE001
             lang = str(getattr(request.state, "lang", "de") or "de")
-            error = _friendly_memory_error(lang, exc, "Memory-Komprimierung ist fehlgeschlagen.", "Memory compression failed.")
+            error = _friendly_memory_error(lang, exc, _memory_routes_text(lang, "error.memory_compression_failed", "Memory compression failed."), "Memory compression failed.")
             return RedirectResponse(url=f"/memories/config?error={quote_plus(error)}#rollup", status_code=303)
 
     @app.post("/memories/config/compression-save")

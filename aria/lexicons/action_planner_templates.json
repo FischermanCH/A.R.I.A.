@@ -1,0 +1,11 @@
+{
+  "ssh_run_command": {
+    "router_keywords_extra": ["führe aus"]
+  },
+  "website_read": {
+    "base_preview_de": "Beobachtete Webseite öffnen"
+  },
+  "email_send_message": {
+    "base_preview_de": "E-Mail ueber SMTP senden"
+  }
+}

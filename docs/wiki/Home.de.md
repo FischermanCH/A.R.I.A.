@@ -6,7 +6,7 @@ Dieses Wiki soll praktisch bleiben:
 
 - was ARIA ist
 - wie man ARIA schnell bereitstellt
-- wie Memory, Notizen, Skills und Connections funktionieren
+- wie Memory, Notizen, Rezepte und Connections funktionieren
 - wie Releases und Upgrades gehandhabt werden
 
 Dieselben Kerninhalte sollen auch lokal unter `/help` erscheinen, damit ARIA und GitHub inhaltlich zusammenbleiben.
@@ -21,7 +21,7 @@ Empfohlene erste Schritte:
 1. `Quick Start`
 2. `Memory`
 3. `Connections`
-4. `Skills`
+4. `Recipes`
 5. `Releases and Upgrades`
 
 Aktuelle Produktschwerpunkte in der ALPHA-Linie:

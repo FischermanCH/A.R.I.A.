@@ -68,6 +68,14 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
         base = f"{request.url.path}?{query}" if query else str(request.url.path)
         return f"{base}{_connection_mode_anchor(mode)}"
 
+    def _has_any_connection_refs(context: dict[str, Any]) -> bool:
+        for key, value in context.items():
+            if not str(key).endswith("_refs"):
+                continue
+            if isinstance(value, list) and value:
+                return True
+        return False
+
     def build_generic_connections_context(
         kind: str,
         rows: dict[str, dict[str, Any]],
@@ -143,6 +151,8 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
         context = base_connections_page_context(request, saved, info, error, mode=mode)
         builder_kwargs.setdefault("lang", str(getattr(request.state, "lang", "de") or "de"))
         context.update(context_builder(**builder_kwargs))
+        if context.get("connection_mode") == "edit" and not _has_any_connection_refs(context):
+            context["connection_mode"] = "create"
         if isinstance(context.get("connection_intro"), dict):
             context["connection_intro"] = dict(context["connection_intro"])
             context["connection_intro"]["back_url"] = context.get("return_to") or "/config"

@@ -1,0 +1,3 @@
+{
+  "failure_detail_pattern": "(error|failed|traceback|exception|denied|not found|fehlgeschlagen)"
+}

@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
-from aria.core.custom_skills import _validate_custom_skill_manifest
+from aria.core.i18n import I18NStore
+from aria.core.stored_recipes import validate_stored_recipe_manifest
+
+_ROUTING_HINTS_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _routing_hints_text(key: str, default: str = "", **values: object) -> str:
+    template = _ROUTING_HINTS_I18N.t("de", f"routing_hints.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def extract_json_object(raw: str) -> dict[str, Any] | None:
@@ -123,7 +137,7 @@ async def suggest_skill_keywords_with_llm(
     language: str = "de",
     max_keywords: int = 12,
 ) -> list[str]:
-    clean = _validate_custom_skill_manifest(manifest)
+    clean = validate_stored_recipe_manifest(manifest)
     lang = str(language or "de").strip().lower()
     lang_name = "German" if lang.startswith("de") else "English"
     steps = clean.get("steps", [])
@@ -200,7 +214,7 @@ async def suggest_skill_keywords_with_llm(
         skill_name = str(clean.get("name", "")).strip().lower()
         if skill_name:
             fallback.append(skill_name)
-            fallback.append(f"{skill_name} ausführen")
+            fallback.append(_routing_hints_text("execute_keyword", "{skill_name} execute", skill_name=skill_name))
         clean_id = str(clean.get("id", "")).strip().lower()
         if clean_id:
             fallback.append(clean_id.replace("-", " "))

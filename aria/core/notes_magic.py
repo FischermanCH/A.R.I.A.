@@ -3,8 +3,32 @@ from __future__ import annotations
 from dataclasses import dataclass
 import html
 import re
+from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import Request as URLRequest, urlopen
+
+from aria.core.i18n import I18NStore
+
+_NOTES_MAGIC_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _notes_magic_text(key: str, default: str = "", **values: object) -> str:
+    template = _NOTES_MAGIC_I18N.t("de", f"notes_magic.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
+
+def _localized_terms(key: str) -> set[str]:
+    return {item.strip().lower() for item in _notes_magic_text(key, "").split(",") if item.strip()}
+
+
+def _localized_term_tuple(key: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    values = tuple(item.strip().lower() for item in _notes_magic_text(key, ",".join(fallback)).split(",") if item.strip())
+    return values or fallback
 
 
 _WEB_HEADERS = {
@@ -16,11 +40,9 @@ _WEB_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 _TAG_STOPWORDS = {
-    "aber", "about", "auch", "calendar", "dass", "dein", "deine", "deiner", "deinen", "dem", "den", "der", "des",
-    "die", "eine", "einer", "einen", "einem", "eines", "etwas", "fuer", "google", "have", "hier", "html", "https", "http",
-    "ich", "ist", "mit", "nach", "nicht", "note", "notiz", "oder", "page", "save", "schreib", "seite", "soll", "source",
-    "that", "this", "und", "unter", "von", "vom", "web", "website", "wie", "wir", "you", "zum", "zur",
-}
+    "about", "calendar", "google", "have", "html", "https", "http", "note", "page", "save", "source",
+    "that", "this", "web", "website", "you",
+} | _localized_terms("tag_stopwords")
 
 
 @dataclass(frozen=True)
@@ -35,20 +57,20 @@ class WebNoteSource:
 def infer_note_title(body: str) -> str:
     text = re.sub(r"\s+", " ", str(body or "")).strip()
     if not text:
-        return "Neue Notiz"
+        return _notes_magic_text("new_note", "New note")
     first = re.split(r"(?<=[.!?])\s+|\n+", text, maxsplit=1)[0].strip(" -:;,.")
-    return (first[:80] or "Neue Notiz").strip()
+    return (first[:80] or _notes_magic_text("new_note", "New note")).strip()
 
 
 def infer_note_folder(title: str, body: str, *, tags: list[str] | None = None, source_url: str = "") -> str:
     haystack = " ".join([str(title or ""), str(body or ""), str(source_url or ""), " ".join(tags or [])]).lower()
     mapping = (
-        (("projekt", "project", "roadmap", "release"), "Projekte"),
-        (("idee", "idea", "brainstorm"), "Ideen"),
-        (("todo", "task", "aufgabe", "checkliste"), "Aufgaben"),
-        (("meeting", "call", "besprechung"), "Meetings"),
-        (("research", "recherche", "quelle", "source", "docs", "documentation", "guide", "oauth"), "Recherche"),
-        (("server", "infra", "ssh", "docker", "qdrant", "searxng"), "Betrieb"),
+        (_localized_term_tuple("folder_projects_terms", ("project", "roadmap", "release")), _notes_magic_text("folder_projects", "Projects")),
+        (_localized_term_tuple("folder_ideas_terms", ("idea", "brainstorm")), _notes_magic_text("folder_ideas", "Ideas")),
+        (_localized_term_tuple("folder_tasks_terms", ("todo", "task", "checklist")), _notes_magic_text("folder_tasks", "Tasks")),
+        (_localized_term_tuple("folder_meetings_terms", ("meeting", "call")), _notes_magic_text("folder_meetings", "Meetings")),
+        (_localized_term_tuple("folder_research_terms", ("research", "source", "docs", "documentation", "guide", "oauth")), _notes_magic_text("folder_research", "Research")),
+        (_localized_term_tuple("folder_operations_terms", ("server", "infra", "ssh", "docker", "qdrant", "searxng")), _notes_magic_text("folder_operations", "Operations")),
     )
     for terms, folder in mapping:
         if any(term in haystack for term in terms):
@@ -77,7 +99,7 @@ def infer_note_tags(*parts: str, limit: int = 8) -> list[str]:
 def fetch_web_note_source(url: str) -> WebNoteSource:
     clean_url = str(url or "").strip()
     if not clean_url:
-        raise ValueError("URL fehlt.")
+        raise ValueError(_notes_magic_text("url_missing", "URL is missing."))
     req = URLRequest(clean_url, headers=_WEB_HEADERS, method="GET")
     with urlopen(req, timeout=12) as resp:  # noqa: S310
         payload = resp.read(256 * 1024)

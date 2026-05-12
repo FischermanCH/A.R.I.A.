@@ -8,49 +8,83 @@ import yaml
 from aria.core.config import get_master_key
 from aria.core.connection_catalog import connection_field_labels, connection_kind_label, sanitize_connection_payload
 from aria.core.connection_health import delete_connection_health
+from aria.core.i18n import I18NStore
 from aria.core.secure_store import SecureConfigStore, SecureStoreConfig, decode_master_key
+
+
+_CONNECTION_ADMIN_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+class ConnectionAdminError(ValueError):
+    def __init__(self, code: str, **params: Any) -> None:
+        self.code = str(code or "unknown").strip() or "unknown"
+        self.params = dict(params)
+        super().__init__(self.code)
+
+
+def _admin_text(language: str | None, key: str, **values: Any) -> str:
+    template = _CONNECTION_ADMIN_I18N.t(str(language or "de"), key, key)
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
+def _success_message(spec: dict[str, Any], *, language: str | None = None) -> str:
+    key = str(spec.get("success_message_key", "") or "").strip()
+    if not key:
+        return ""
+    return _admin_text(language, key)
+
+
+def connection_admin_success_message(spec: dict[str, Any], *, language: str | None = None) -> str:
+    return _success_message(spec, language=language)
+
+
+def _admin_error(code: str, **params: Any) -> ConnectionAdminError:
+    return ConnectionAdminError(code, **params)
 
 
 CONNECTION_ADMIN_SPECS: dict[str, dict[str, Any]] = {
     "ssh": {
         "health_prefix": "ssh",
         "secret_keys": [],
-        "success_message": "SSH-Profil gelöscht · lokale SSH-Keys bleiben erhalten",
+        "success_message_key": "connection_admin.success.ssh_deleted",
     },
     "discord": {
         "health_prefix": "discord",
         "secret_keys": ["connections.discord.{ref}.webhook_url"],
-        "success_message": "Discord-Profil gelöscht",
+        "success_message_key": "connection_admin.success.discord_deleted",
     },
     "sftp": {
         "health_prefix": "sftp",
         "secret_keys": ["connections.sftp.{ref}.password"],
-        "success_message": "SFTP-Profil gelöscht",
+        "success_message_key": "connection_admin.success.sftp_deleted",
     },
     "smb": {
         "health_prefix": "smb",
         "secret_keys": ["connections.smb.{ref}.password"],
-        "success_message": "SMB-Profil gelöscht",
+        "success_message_key": "connection_admin.success.smb_deleted",
     },
     "webhook": {
         "health_prefix": "webhook",
         "secret_keys": ["connections.webhook.{ref}.url"],
-        "success_message": "Webhook-Profil gelöscht",
+        "success_message_key": "connection_admin.success.webhook_deleted",
     },
     "email": {
         "health_prefix": "email",
         "secret_keys": ["connections.email.{ref}.password"],
-        "success_message": "SMTP-Profil gelöscht",
+        "success_message_key": "connection_admin.success.email_deleted",
     },
     "imap": {
         "health_prefix": "imap",
         "secret_keys": ["connections.imap.{ref}.password"],
-        "success_message": "IMAP-Profil gelöscht",
+        "success_message_key": "connection_admin.success.imap_deleted",
     },
     "http_api": {
         "health_prefix": "http_api",
         "secret_keys": ["connections.http_api.{ref}.auth_token"],
-        "success_message": "HTTP-API-Profil gelöscht",
+        "success_message_key": "connection_admin.success.http_api_deleted",
     },
     "google_calendar": {
         "health_prefix": "google_calendar",
@@ -58,27 +92,27 @@ CONNECTION_ADMIN_SPECS: dict[str, dict[str, Any]] = {
             "connections.google_calendar.{ref}.client_secret",
             "connections.google_calendar.{ref}.refresh_token",
         ],
-        "success_message": "Google-Calendar-Profil gelöscht",
+        "success_message_key": "connection_admin.success.google_calendar_deleted",
     },
     "rss": {
         "health_prefix": "rss",
         "secret_keys": [],
-        "success_message": "RSS-Profil gelöscht",
+        "success_message_key": "connection_admin.success.rss_deleted",
     },
     "website": {
         "health_prefix": "website",
         "secret_keys": [],
-        "success_message": "Webseiten-Profil gelöscht",
+        "success_message_key": "connection_admin.success.website_deleted",
     },
     "searxng": {
         "health_prefix": "searxng",
         "secret_keys": [],
-        "success_message": "SearXNG-Profil gelöscht",
+        "success_message_key": "connection_admin.success.searxng_deleted",
     },
     "mqtt": {
         "health_prefix": "mqtt",
         "secret_keys": ["connections.mqtt.{ref}.password"],
-        "success_message": "MQTT-Profil gelöscht",
+        "success_message_key": "connection_admin.success.mqtt_deleted",
     },
 }
 
@@ -86,161 +120,146 @@ CONNECTION_CREATE_SPECS: dict[str, dict[str, Any]] = {
     "ssh": {
         "section": "ssh",
         "required": ["host", "user"],
-        "success_message": "SSH-Profil erstellt",
+        "success_message_key": "connection_admin.success.ssh_created",
     },
     "sftp": {
         "section": "sftp",
         "required": ["host", "user"],
-        "success_message": "SFTP-Profil erstellt",
+        "success_message_key": "connection_admin.success.sftp_created",
     },
     "smb": {
         "section": "smb",
         "required": ["host", "share"],
-        "success_message": "SMB-Profil erstellt",
+        "success_message_key": "connection_admin.success.smb_created",
     },
     "discord": {
         "section": "discord",
         "required": ["webhook_url"],
-        "success_message": "Discord-Profil erstellt",
+        "success_message_key": "connection_admin.success.discord_created",
     },
     "rss": {
         "section": "rss",
         "required": ["feed_url"],
-        "success_message": "RSS-Profil erstellt",
+        "success_message_key": "connection_admin.success.rss_created",
     },
     "website": {
         "section": "website",
         "required": ["url"],
-        "success_message": "Webseiten-Profil erstellt",
+        "success_message_key": "connection_admin.success.website_created",
     },
     "webhook": {
         "section": "webhook",
         "required": ["url"],
-        "success_message": "Webhook-Profil erstellt",
+        "success_message_key": "connection_admin.success.webhook_created",
     },
     "http_api": {
         "section": "http_api",
         "required": ["base_url"],
-        "success_message": "HTTP-API-Profil erstellt",
+        "success_message_key": "connection_admin.success.http_api_created",
     },
     "google_calendar": {
         "section": "google_calendar",
         "required": ["calendar_id", "client_id", "client_secret", "refresh_token"],
-        "success_message": "Google-Calendar-Profil erstellt",
+        "success_message_key": "connection_admin.success.google_calendar_created",
     },
     "searxng": {
         "section": "searxng",
         "required": ["base_url"],
-        "success_message": "SearXNG-Profil erstellt",
+        "success_message_key": "connection_admin.success.searxng_created",
     },
     "mqtt": {
         "section": "mqtt",
         "required": ["host"],
-        "success_message": "MQTT-Profil erstellt",
+        "success_message_key": "connection_admin.success.mqtt_created",
     },
     "email": {
         "section": "email",
         "required": ["smtp_host"],
-        "success_message": "SMTP-Profil erstellt",
+        "success_message_key": "connection_admin.success.email_created",
     },
     "imap": {
         "section": "imap",
         "required": ["host"],
-        "success_message": "IMAP-Profil erstellt",
+        "success_message_key": "connection_admin.success.imap_created",
     },
 }
 
 CONNECTION_UPDATE_SPECS: dict[str, dict[str, Any]] = {
     "ssh": {
         "section": "ssh",
-        "success_message": "SSH-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.ssh_updated",
     },
     "sftp": {
         "section": "sftp",
-        "success_message": "SFTP-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.sftp_updated",
     },
     "smb": {
         "section": "smb",
-        "success_message": "SMB-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.smb_updated",
     },
     "discord": {
         "section": "discord",
-        "success_message": "Discord-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.discord_updated",
     },
     "rss": {
         "section": "rss",
-        "success_message": "RSS-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.rss_updated",
     },
     "website": {
         "section": "website",
-        "success_message": "Webseiten-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.website_updated",
     },
     "webhook": {
         "section": "webhook",
-        "success_message": "Webhook-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.webhook_updated",
     },
     "http_api": {
         "section": "http_api",
-        "success_message": "HTTP-API-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.http_api_updated",
     },
     "google_calendar": {
         "section": "google_calendar",
-        "success_message": "Google-Calendar-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.google_calendar_updated",
     },
     "searxng": {
         "section": "searxng",
-        "success_message": "SearXNG-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.searxng_updated",
     },
     "mqtt": {
         "section": "mqtt",
-        "success_message": "MQTT-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.mqtt_updated",
     },
     "email": {
         "section": "email",
-        "success_message": "SMTP-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.email_updated",
     },
     "imap": {
         "section": "imap",
-        "success_message": "IMAP-Profil aktualisiert",
+        "success_message_key": "connection_admin.success.imap_updated",
     },
 }
 
 
-def friendly_connection_admin_error_text(exc: Exception, *, kind: str = "", action: str = "") -> str:
-    raw = str(exc).strip() or "Unbekannter Fehler."
+def friendly_connection_admin_error_text(
+    exc: Exception,
+    *,
+    kind: str = "",
+    action: str = "",
+    language: str | None = None,
+) -> str:
+    raw = str(exc).strip() or "unknown"
     clean_kind = str(kind or "").strip().lower().replace("-", "_")
     kind_label = connection_kind_label(clean_kind) if clean_kind else "Connection"
     field_labels = connection_field_labels(clean_kind)
 
-    if raw.startswith("Pflichtfeld fehlt:"):
-        field = raw.split(":", 1)[1].strip()
-        return f"Pflichtfeld fehlt: {field_labels.get(field, field)}."
-    if "Security Store ist für" in raw and "erforderlich" in raw:
-        return f"{kind_label}-Profil kann nur gespeichert werden, wenn der Security Store aktiv ist."
-    if raw == "Connection-Typ wird im Chat noch nicht für Create unterstützt.":
-        return f"{kind_label}-Profile können aktuell noch nicht per Chat erstellt werden."
-    if raw == "Connection-Typ wird im Chat noch nicht für Update unterstützt.":
-        return f"{kind_label}-Profile können aktuell noch nicht per Chat aktualisiert werden."
-    if raw == "Unbekannter Connection-Typ.":
-        return "Unbekannter Connection-Typ."
-    if raw == "Ungültige Connection-Konfiguration.":
-        return "Die Connection-Konfiguration in `config.yaml` ist ungültig."
-    if raw == "Ungültige Connection-Sektion.":
-        return f"Die {kind_label}-Sektion in `config.yaml` ist ungültig."
-    if raw == "Ungültige bestehende Connection-Daten.":
-        return f"Die gespeicherten Daten des Profils sind für {kind_label} ungültig."
-    if raw.startswith("Connection-Ref fehlt"):
-        return "Connection-Ref fehlt oder ist ungültig."
-    if raw.startswith("Connection-Profil '") and raw.endswith("' existiert bereits."):
-        return raw
-    if raw.startswith("Connection-Profil '") and raw.endswith("' nicht gefunden."):
-        return raw
-    if raw.startswith("Profil nicht gefunden."):
-        return "Connection-Profil nicht gefunden."
-    if raw.startswith("Konfigurationsdatei fehlt:"):
-        return "config.yaml fehlt."
-    if action == "delete" and "nicht eindeutig" in raw:
-        return raw
+    if isinstance(exc, ConnectionAdminError):
+        params = dict(exc.params)
+        field = str(params.get("field", "") or "").strip()
+        if field:
+            params["field_label"] = field_labels.get(field, field)
+        params.setdefault("kind_label", kind_label)
+        return _admin_text(language, f"connection_admin.error.{exc.code}", **params)
+
     return raw
 
 
@@ -254,7 +273,7 @@ def sanitize_connection_ref(value: str | None) -> str:
 
 def read_raw_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
-        raise FileNotFoundError(f"Konfigurationsdatei fehlt: {config_path}")
+        raise _admin_error("config_missing", config_path=str(config_path))
     with config_path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     return data if isinstance(data, dict) else {}
@@ -305,7 +324,7 @@ def resolve_connection_target(
     clean_ref = sanitize_connection_ref(ref_hint)
     clean_kind = str(kind_hint or "").strip().lower().replace("-", "_")
     if not clean_ref:
-        raise ValueError("Connection-Ref fehlt.")
+        raise _admin_error("invalid_ref")
 
     if clean_kind in {"smtp"}:
         clean_kind = "email"
@@ -315,7 +334,7 @@ def resolve_connection_target(
     if clean_kind:
         refs = catalog.get(clean_kind, [])
         if clean_ref not in refs:
-            raise ValueError(f"{clean_kind.upper()}-Profil '{clean_ref}' nicht gefunden.")
+            raise _admin_error("typed_profile_not_found", kind=clean_kind.upper(), ref=clean_ref)
         return clean_kind, clean_ref
 
     matches: list[tuple[str, str]] = []
@@ -323,10 +342,10 @@ def resolve_connection_target(
         if clean_ref in refs:
             matches.append((kind, clean_ref))
     if not matches:
-        raise ValueError(f"Connection-Profil '{clean_ref}' nicht gefunden.")
+        raise _admin_error("profile_ref_not_found", ref=clean_ref)
     if len(matches) > 1:
         kinds = ", ".join(kind for kind, _ in matches)
-        raise ValueError(f"Profil '{clean_ref}' ist nicht eindeutig. Bitte Typ angeben: {kinds}.")
+        raise _admin_error("ambiguous_ref", ref=clean_ref, kinds=kinds)
     return matches[0]
 
 
@@ -334,20 +353,20 @@ def delete_connection_profile(base_dir: Path, kind: str, ref_raw: str) -> dict[s
     clean_kind = str(kind or "").strip().lower()
     spec = CONNECTION_ADMIN_SPECS.get(clean_kind)
     if not spec:
-        raise ValueError("Unbekannter Connection-Typ.")
+        raise _admin_error("unknown_type")
 
     ref = sanitize_connection_ref(ref_raw)
     if not ref:
-        raise ValueError("Profil-Ref fehlt.")
+        raise _admin_error("invalid_ref")
 
     config_path = base_dir / "config" / "config.yaml"
     raw = read_raw_config(config_path)
     connections = raw.setdefault("connections", {})
     if not isinstance(connections, dict):
-        raise ValueError("Ungültige Connection-Konfiguration.")
+        raise _admin_error("invalid_config")
     rows = connections.setdefault(clean_kind, {})
     if not isinstance(rows, dict) or ref not in rows:
-        raise ValueError("Profil nicht gefunden.")
+        raise _admin_error("profile_not_found")
 
     rows.pop(ref, None)
     write_raw_config(config_path, raw)
@@ -361,7 +380,8 @@ def delete_connection_profile(base_dir: Path, kind: str, ref_raw: str) -> dict[s
     return {
         "kind": clean_kind,
         "ref": ref,
-        "success_message": spec["success_message"],
+        "success_message": _success_message(spec),
+        "success_message_key": str(spec.get("success_message_key", "") or ""),
     }
 
 
@@ -369,28 +389,28 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
     clean_kind = str(kind or "").strip().lower().replace("-", "_")
     spec = CONNECTION_CREATE_SPECS.get(clean_kind)
     if not spec:
-        raise ValueError("Connection-Typ wird im Chat noch nicht für Create unterstützt.")
+        raise _admin_error("create_not_supported")
 
     ref = sanitize_connection_ref(ref_raw)
     if not ref:
-        raise ValueError("Connection-Ref fehlt oder ist ungültig.")
+        raise _admin_error("invalid_ref")
 
     config_path = base_dir / "config" / "config.yaml"
     raw = read_raw_config(config_path)
     connections = raw.setdefault("connections", {})
     if not isinstance(connections, dict):
-        raise ValueError("Ungültige Connection-Konfiguration.")
+        raise _admin_error("invalid_config")
     section = str(spec["section"])
     rows = connections.setdefault(section, {})
     if not isinstance(rows, dict):
-        raise ValueError("Ungültige Connection-Sektion.")
+        raise _admin_error("invalid_section")
     if ref in rows:
-        raise ValueError(f"Connection-Profil '{ref}' existiert bereits.")
+        raise _admin_error("profile_exists", ref=ref)
 
     row_value = sanitize_connection_payload(clean_kind, payload)
     for field in spec.get("required", []):
         if not str(row_value.get(field, "")).strip():
-            raise ValueError(f"Pflichtfeld fehlt: {field}")
+            raise _admin_error("required_field", field=field)
 
     store = get_secure_store_for_config(base_dir, raw)
     if clean_kind == "ssh":
@@ -425,7 +445,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(row_value.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für SFTP-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.sftp.{ref}.password", password)
     elif clean_kind == "smb":
         rows[ref] = {
@@ -443,16 +463,24 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(row_value.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für SMB-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.smb.{ref}.password", password)
     elif clean_kind == "discord":
         if not store:
-            raise ValueError("Security Store ist für Discord-Webhooks erforderlich.")
+            raise _admin_error("security_store_required")
+        allow_recipe_messages = bool(
+            row_value.get("allow_recipe_messages", row_value.get("allow_skill_messages", True))
+        )
+        alert_recipe_errors = bool(
+            row_value.get("alert_recipe_errors", row_value.get("alert_skill_errors", False))
+        )
         rows[ref] = {
             "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
             "send_test_messages": bool(row_value.get("send_test_messages", True)),
-            "allow_skill_messages": bool(row_value.get("allow_skill_messages", True)),
-            "alert_skill_errors": bool(row_value.get("alert_skill_errors", False)),
+            "allow_skill_messages": allow_recipe_messages,
+            "allow_recipe_messages": allow_recipe_messages,
+            "alert_skill_errors": alert_recipe_errors,
+            "alert_recipe_errors": alert_recipe_errors,
             "alert_safe_fix": bool(row_value.get("alert_safe_fix", False)),
             "alert_connection_changes": bool(row_value.get("alert_connection_changes", False)),
             "alert_system_events": bool(row_value.get("alert_system_events", False)),
@@ -484,7 +512,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         }
     elif clean_kind == "webhook":
         if not store:
-            raise ValueError("Security Store ist für Webhook-URLs erforderlich.")
+            raise _admin_error("security_store_required")
         rows[ref] = {
             "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
             "method": str(row_value.get("method", "POST")).strip().upper() or "POST",
@@ -509,7 +537,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         auth_token = str(row_value.get("auth_token", "")).strip()
         if auth_token:
             if not store:
-                raise ValueError("Security Store ist für HTTP-API-Tokens erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
     elif clean_kind == "google_calendar":
         rows[ref] = {
@@ -522,7 +550,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
             "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
         }
         if not store:
-            raise ValueError("Security Store ist für Google-Calendar-Secrets erforderlich.")
+            raise _admin_error("security_store_required")
         store.set_secret(f"connections.google_calendar.{ref}.client_secret", str(row_value.get("client_secret", "")).strip())
         store.set_secret(f"connections.google_calendar.{ref}.refresh_token", str(row_value.get("refresh_token", "")).strip())
     elif clean_kind == "mqtt":
@@ -541,7 +569,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(row_value.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für MQTT-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.mqtt.{ref}.password", password)
     elif clean_kind == "email":
         rows[ref] = {
@@ -561,7 +589,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(row_value.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für SMTP-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.email.{ref}.password", password)
     elif clean_kind == "imap":
         rows[ref] = {
@@ -579,38 +607,43 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(row_value.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für IMAP-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.imap.{ref}.password", password)
     else:
-        raise ValueError("Connection-Typ wird im Chat noch nicht unterstützt.")
+        raise _admin_error("unsupported_type")
 
     write_raw_config(config_path, raw)
-    return {"kind": clean_kind, "ref": ref, "success_message": spec["success_message"]}
+    return {
+        "kind": clean_kind,
+        "ref": ref,
+        "success_message": _success_message(spec),
+        "success_message_key": str(spec.get("success_message_key", "") or ""),
+    }
 
 
 def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: dict[str, Any]) -> dict[str, Any]:
     clean_kind = str(kind or "").strip().lower().replace("-", "_")
     spec = CONNECTION_UPDATE_SPECS.get(clean_kind)
     if not spec:
-        raise ValueError("Connection-Typ wird im Chat noch nicht für Update unterstützt.")
+        raise _admin_error("update_not_supported")
 
     ref = sanitize_connection_ref(ref_raw)
     if not ref:
-        raise ValueError("Connection-Ref fehlt oder ist ungültig.")
+        raise _admin_error("invalid_ref")
 
     config_path = base_dir / "config" / "config.yaml"
     raw = read_raw_config(config_path)
     connections = raw.setdefault("connections", {})
     if not isinstance(connections, dict):
-        raise ValueError("Ungültige Connection-Konfiguration.")
+        raise _admin_error("invalid_config")
     section = str(spec["section"])
     rows = connections.setdefault(section, {})
     if not isinstance(rows, dict) or ref not in rows:
-        raise ValueError(f"Connection-Profil '{ref}' nicht gefunden.")
+        raise _admin_error("profile_ref_not_found", ref=ref)
 
     current = rows.get(ref, {})
     if not isinstance(current, dict):
-        raise ValueError("Ungültige bestehende Connection-Daten.")
+        raise _admin_error("invalid_existing_data")
     row_value = dict(current)
     update_payload = sanitize_connection_payload(clean_kind, payload)
     store = get_secure_store_for_config(base_dir, raw)
@@ -644,7 +677,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(update_payload.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für SFTP-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.sftp.{ref}.password", password)
     elif clean_kind == "smb":
         for field in ("host", "share", "user", "root_path"):
@@ -658,13 +691,13 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(update_payload.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für SMB-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.smb.{ref}.password", password)
     elif clean_kind == "discord":
         webhook_url = str(update_payload.get("webhook_url", "")).strip()
         if webhook_url:
             if not store:
-                raise ValueError("Security Store ist für Discord-Webhooks erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.discord.{ref}.webhook_url", webhook_url)
         for field, default in (
             ("timeout_seconds", 10),
@@ -700,7 +733,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         url = str(update_payload.get("url", "")).strip()
         if url:
             if not store:
-                raise ValueError("Security Store ist für Webhook-URLs erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.webhook.{ref}.url", url)
         for field, default in (("timeout_seconds", 10), ("method", "POST"), ("content_type", "application/json")):
             if field in update_payload:
@@ -717,7 +750,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         auth_token = str(update_payload.get("auth_token", "")).strip()
         if auth_token:
             if not store:
-                raise ValueError("Security Store ist für HTTP-API-Tokens erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
     elif clean_kind == "google_calendar":
         for field in ("calendar_id", "client_id"):
@@ -730,7 +763,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         refresh_token = str(update_payload.get("refresh_token", "")).strip()
         if client_secret or refresh_token:
             if not store:
-                raise ValueError("Security Store ist für Google-Calendar-Secrets erforderlich.")
+                raise _admin_error("security_store_required")
             if client_secret:
                 store.set_secret(f"connections.google_calendar.{ref}.client_secret", client_secret)
             if refresh_token:
@@ -749,7 +782,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(update_payload.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für MQTT-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.mqtt.{ref}.password", password)
     elif clean_kind == "email":
         for field in ("smtp_host", "user", "from_email", "to_email"):
@@ -767,7 +800,7 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(update_payload.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für SMTP-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.email.{ref}.password", password)
     elif clean_kind == "imap":
         for field in ("host", "user", "mailbox"):
@@ -783,10 +816,10 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         password = str(update_payload.get("password", "")).strip()
         if password:
             if not store:
-                raise ValueError("Security Store ist für IMAP-Passwörter erforderlich.")
+                raise _admin_error("security_store_required")
             store.set_secret(f"connections.imap.{ref}.password", password)
     else:
-        raise ValueError("Connection-Typ wird im Chat noch nicht unterstützt.")
+        raise _admin_error("unsupported_type")
 
     for field in ("title", "description"):
         if field in update_payload:
@@ -797,4 +830,9 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
 
     rows[ref] = row_value
     write_raw_config(config_path, raw)
-    return {"kind": clean_kind, "ref": ref, "success_message": spec["success_message"]}
+    return {
+        "kind": clean_kind,
+        "ref": ref,
+        "success_message": _success_message(spec),
+        "success_message_key": str(spec.get("success_message_key", "") or ""),
+    }

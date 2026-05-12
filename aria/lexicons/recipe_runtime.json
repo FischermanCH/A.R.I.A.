@@ -1,0 +1,5 @@
+{
+  "skill_match_stopwords": ["auf", "aus", "bei", "bitte", "das", "dem", "den", "der", "die", "du", "ein", "eine", "einen", "einer", "einem", "er", "es", "fuer", "für", "im", "in", "ist", "mach", "machst", "mir", "mit", "nach", "noch", "oder", "per", "the", "und", "uns", "via", "vom", "von", "was", "wie"],
+  "skill_action_hints": ["aktualisiere", "analyse", "analysiere", "build", "check", "deploy", "diagnose", "execute", "fix", "mach", "machst", "patch", "patchen", "prüf", "pruef", "report", "run", "send", "starte", "start", "teste", "trigger", "update", "upgrade"],
+  "skill_execution_phrases": ["kannst du", "machst du", "fuehr", "führ", "bitte "]
+}

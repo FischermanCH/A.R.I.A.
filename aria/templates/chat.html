@@ -100,7 +100,10 @@
             {% endfor %}
           </div>
         </div>
-        <button id="send-btn" type="submit">{{ tr(request, 'chat.send', 'Senden') }}</button>
+        <div class="composer-actions">
+          <button id="send-btn" type="submit">{{ tr(request, 'chat.send', 'Senden') }}</button>
+          <button id="cancel-btn" type="button" class="secondary-btn" data-allow-when-busy="true" hidden>{{ tr(request, 'chat.cancel', 'Abbrechen') }}</button>
+        </div>
       </div>
     </div>
   </form>
@@ -112,10 +115,13 @@
       thinking: {{ tr(request, 'chat.thinking', 'ARIA denkt nach...')|tojson }},
       send: {{ tr(request, 'chat.send', 'Senden')|tojson }},
       sending: {{ tr(request, 'chat.sending', 'Wird gesendet...')|tojson }},
-      runningSkill: {{ tr(request, 'chat.running_skill', 'Skill wird ausgeführt...')|tojson }},
+      cancel: {{ tr(request, 'chat.cancel', 'Abbrechen')|tojson }},
+      cancelling: {{ tr(request, 'chat.cancelling', 'Wird abgebrochen...')|tojson }},
+      cancelled: {{ tr(request, 'chat.cancelled', 'Anfrage im Browser abgebrochen.')|tojson }},
+      runningSkill: {{ tr(request, 'chat.running_skill', 'Rezept wird ausgeführt...')|tojson }},
       processingMessage: {{ tr(request, 'chat.processing_message', 'Nachricht wird verarbeitet...')|tojson }},
       stillWorking: {{ tr(request, 'chat.still_working', 'ARIA arbeitet noch...')|tojson }},
-      longRunningSkill: {{ tr(request, 'chat.long_running_skill', 'Längerer Skill läuft noch. Das kann 30-60 Sekunden dauern...')|tojson }},
+      longRunningSkill: {{ tr(request, 'chat.long_running_skill', 'Längeres Rezept läuft noch. Das kann 30-60 Sekunden dauern...')|tojson }},
       skillPhase: {{ tr(request, 'chat.skill_phase', 'Aktueller Schritt')|tojson }},
       parseError: {{ tr(request, 'chat.response_parse_error', 'Antwort konnte nicht verarbeitet werden.')|tojson }},
       unknownError: {{ tr(request, 'chat.unknown_error', 'Unbekannter Fehler.')|tojson }},
@@ -123,16 +129,19 @@
       slashClsHint: {{ tr(request, 'chat.slash_cls_hint', 'Lokalen Chatverlauf löschen')|tojson }},
       slashReadCmd: {{ tr(request, 'chat.slash_read_cmd', '/lesen')|tojson }},
       slashStoreCmd: {{ tr(request, 'chat.slash_store_cmd', '/merken')|tojson }},
-      slashSkillCmd: {{ tr(request, 'chat.slash_skill_cmd', '/skill')|tojson }}
+      slashRecipeCmd: {{ tr(request, 'chat.slash_skill_cmd', '/recipe')|tojson }}
     };
-    const skillTriggerHints = {{ (skill_trigger_hints or [])|tojson }};
-    const skillProgressHints = {{ (skill_progress_hints or [])|tojson }};
+    const recipeTriggerHints = {{ (recipe_trigger_hints or skill_trigger_hints or [])|tojson }};
+    const recipeProgressHints = {{ (recipe_progress_hints or skill_progress_hints or [])|tojson }};
+    const skillTriggerHints = recipeTriggerHints;
+    const skillProgressHints = recipeProgressHints;
     const chatCommandEntries = {{ (chat_command_entries or [])|tojson }};
     const chatCommandGroupTitles = {{ (chat_command_group_titles or {})|tojson }};
 
     const form = document.getElementById("chat-form");
     const textarea = document.getElementById("message");
     const sendBtn = document.getElementById("send-btn");
+    const cancelBtn = document.getElementById("cancel-btn");
     const messages = document.getElementById("messages");
     const chatLayout = document.querySelector(".chat-layout");
     const indicator = document.getElementById("typing-indicator");
@@ -144,6 +153,7 @@
     const csrfMeta = document.querySelector("meta[name='csrf-token']");
     let pendingStatusTimer = null;
     let pendingStatusInterval = null;
+    let currentRequestController = null;
 
     const draftStorageKey = "aria_chat_draft_v1";
 
@@ -173,6 +183,11 @@
     function setBusy(isBusy, busyText) {
       textarea.disabled = isBusy;
       sendBtn.disabled = isBusy;
+      if (cancelBtn) {
+        cancelBtn.hidden = !isBusy;
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = uiText.cancel;
+      }
       form.classList.toggle("is-busy", isBusy);
       indicator.classList.toggle("htmx-request", isBusy);
       indicator.hidden = !isBusy;
@@ -201,13 +216,13 @@
       }
     }
 
-    function resolveLikelySkillInfo(message) {
+    function resolveLikelyRecipeInfo(message) {
       const text = String(message || "").trim().toLowerCase();
       if (!text) return null;
       let best = null;
       let bestScore = 0;
-      for (const skill of skillProgressHints) {
-        const triggers = Array.isArray(skill && skill.triggers) ? skill.triggers : [];
+      for (const recipe of recipeProgressHints) {
+        const triggers = Array.isArray(recipe && recipe.triggers)  ? recipe.triggers : [];
         let score = 0;
         for (const hint of triggers) {
           const item = String(hint || "").trim().toLowerCase();
@@ -216,13 +231,13 @@
         }
         if (score > bestScore) {
           bestScore = score;
-          best = skill;
+          best = recipe;
         }
       }
       return bestScore > 0 ? best : null;
     }
 
-    function buildPendingSkillText(baseText, skillInfo, elapsedSeconds) {
+    function buildPendingRecipeText(baseText, skillInfo, elapsedSeconds) {
       if (!skillInfo) return baseText + " (" + elapsedSeconds + "s)";
       const steps = Array.isArray(skillInfo.steps) ? skillInfo.steps : [];
       if (!steps.length) return baseText + " (" + elapsedSeconds + "s)";
@@ -232,7 +247,7 @@
       return baseText + " " + uiText.skillPhase + ": " + phaseLabel + " (" + elapsedSeconds + "s)";
     }
 
-    function startPendingStatusTimers(pendingAssistantNode, likelySkill) {
+    function startPendingStatusTimers(pendingAssistantNode, likelyRecipe) {
       clearPendingStatusTimers();
       if (!pendingAssistantNode) return;
       const textNode = pendingAssistantNode.querySelector("p");
@@ -241,8 +256,8 @@
 
       pendingStatusTimer = window.setTimeout(function () {
         const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-        if (likelySkill) {
-          textNode.textContent = buildPendingSkillText(uiText.longRunningSkill, likelySkill, elapsed);
+        if (likelyRecipe) {
+          textNode.textContent = buildPendingRecipeText(uiText.longRunningSkill, likelyRecipe, elapsed);
           if (thinkingText) thinkingText.textContent = uiText.longRunningSkill;
         } else {
           textNode.textContent = uiText.stillWorking + " (" + elapsed + "s)";
@@ -252,9 +267,9 @@
 
       pendingStatusInterval = window.setInterval(function () {
         const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-        if (likelySkill && elapsed >= 8) {
-          textNode.textContent = buildPendingSkillText(uiText.longRunningSkill, likelySkill, elapsed);
-        } else if (!likelySkill && elapsed >= 8) {
+        if (likelyRecipe && elapsed >= 8) {
+          textNode.textContent = buildPendingRecipeText(uiText.longRunningSkill, likelyRecipe, elapsed);
+        } else if (!likelyRecipe && elapsed >= 8) {
           textNode.textContent = uiText.stillWorking + " (" + elapsed + "s)";
         }
       }, 1000);
@@ -324,13 +339,13 @@
         return;
       }
       const query = text.slice(1).toLowerCase();
-      const skillMode = query.startsWith("skill");
+      const recipeMode = query.startsWith("recipe") || query.startsWith("rezept") || query.startsWith("skill");
       let entries = slashCatalog().filter((row) => {
         const search = (row.label + " " + row.hint + " " + row.insert).toLowerCase();
-        if (skillMode && row.group !== "skills") return false;
+        if (recipeMode && row.group !== "skills") return false;
         return !query || search.includes(query);
       });
-      if (skillMode) {
+      if (recipeMode) {
         entries = entries.slice(0, 20);
       } else {
         entries = entries.slice(0, 8);
@@ -444,7 +459,16 @@
       return article;
     }
 
-    function looksLikeSkillExecution(message) {
+    function cancelCurrentChatRequest() {
+      if (!currentRequestController) return;
+      if (cancelBtn) {
+        cancelBtn.textContent = uiText.cancelling;
+        cancelBtn.disabled = true;
+      }
+      currentRequestController.abort();
+    }
+
+    function looksLikeRecipeExecution(message) {
       const text = String(message || "").trim().toLowerCase();
       if (!text) return false;
       for (const hint of skillTriggerHints) {
@@ -518,9 +542,10 @@
     document.addEventListener("click", handleOutsideInteractions);
     document.addEventListener("pointerdown", handleOutsideInteractions, { passive: true });
 
-    form.addEventListener("submit", async function (event) {
-      event.preventDefault();
-      const message = textarea.value.trim();
+    async function submitChatMessage(rawMessage, options) {
+      const clearComposer = !options || options.clearComposer !== false;
+      const message = String(rawMessage || "").trim();
+      const displayMessage = options && options.displayMessage ? String(options.displayMessage).trim() : message;
       if (!message || textarea.disabled) {
         return;
       }
@@ -532,13 +557,16 @@
         return;
       }
 
-      const pendingUserNode = appendUserMessage(message);
-      textarea.value = "";
-      localStorage.removeItem(draftStorageKey);
-      const likelySkill = resolveLikelySkillInfo(message) || (looksLikeSkillExecution(message) ? { id: "skill", name: "skill", steps: [] } : null);
-      const pendingAssistantNode = appendPendingAssistant(likelySkill ? uiText.runningSkill : uiText.processingMessage);
-      setBusy(true, likelySkill ? uiText.runningSkill : uiText.processingMessage);
-      startPendingStatusTimers(pendingAssistantNode, likelySkill);
+      const pendingUserNode = appendUserMessage(displayMessage || message);
+      if (clearComposer) {
+        textarea.value = "";
+        localStorage.removeItem(draftStorageKey);
+      }
+      const likelyRecipe = resolveLikelyRecipeInfo(message) || (looksLikeRecipeExecution(message) ? { id: "recipe", name: "recipe", steps: [] } : null);
+      const pendingAssistantNode = appendPendingAssistant(likelyRecipe ? uiText.runningSkill : uiText.processingMessage);
+      setBusy(true, likelyRecipe ? uiText.runningSkill : uiText.processingMessage);
+      startPendingStatusTimers(pendingAssistantNode, likelyRecipe);
+      currentRequestController = new AbortController();
 
       try {
         const formData = new URLSearchParams();
@@ -546,6 +574,10 @@
         const token = csrfToken();
         if (token) {
           formData.set("csrf_token", token);
+        }
+        const routedActionPending = options && options.routedActionPending ? String(options.routedActionPending).trim() : "";
+        if (routedActionPending) {
+          formData.set("routed_action_pending", routedActionPending);
         }
 
         const response = await fetch("/chat", {
@@ -555,6 +587,8 @@
             "X-CSRF-Token": token || "",
           },
           body: formData.toString(),
+          signal: currentRequestController.signal,
+          credentials: "same-origin",
         });
 
         if (!response.ok) {
@@ -591,8 +625,13 @@
       } catch (err) {
         pendingAssistantNode.remove();
         pendingUserNode.classList.remove("pending-user");
-        appendErrorMessage(err.message || uiText.unknownError);
+        if (err && err.name === "AbortError") {
+          appendErrorMessage(uiText.cancelled);
+        } else {
+          appendErrorMessage(err.message || uiText.unknownError);
+        }
       } finally {
+        currentRequestController = null;
         clearPendingStatusTimers();
         updateChatState();
         setBusy(false);
@@ -600,7 +639,37 @@
         textarea.focus();
         hideSlashMenu();
       }
+    }
+
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      await submitChatMessage(textarea.value, { clearComposer: true });
     });
+
+    document.addEventListener("click", async function (event) {
+      const button = event.target && event.target.closest ? event.target.closest(".js-chat-send-message") : null;
+      if (!button) {
+        return;
+      }
+      event.preventDefault();
+      const message = String(button.getAttribute("data-message") || "").trim();
+      if (!message || textarea.disabled) {
+        return;
+      }
+      const routedActionPending = String(button.getAttribute("data-routed-action-pending") || "").trim();
+      button.disabled = true;
+      await submitChatMessage(message, {
+        clearComposer: false,
+        routedActionPending,
+        displayMessage: String(button.textContent || "").trim() || message,
+      });
+    });
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", function () {
+        cancelCurrentChatRequest();
+      });
+    }
   })();
 </script>
 {% endblock %}

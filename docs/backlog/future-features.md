@@ -31,7 +31,7 @@ Zweck:
 - ARIA soll aus echter Nutzung lernen auf drei Ebenen:
   - Facts
   - Routing-/Alias-Wissen
-  - Procedures / Skill-Drafts
+  - Procedures / Recipe Candidates
 - Lernschritte bewusst trennen:
   - Observation
   - Reflection
@@ -42,8 +42,8 @@ Zweck:
   - kontrollierte Annahme durch den User
   - automatische Persistenz nur fuer niedrig-riskante Fakten/Aliase
 - spaeterer Ausbau:
-  - Skill-Draft aus erfolgreichen Workflows
-  - vorsichtige Verbesserung bestehender Skills ueber Nutzungshistorie
+  - Recipe-Candidate aus erfolgreichen Workflows
+  - vorsichtige Verbesserung bestehender Recipes ueber Nutzungshistorie
   - keine stillen Core-Code-Mutationen
 
 ### Web / Search -> Memory
@@ -109,6 +109,61 @@ Zweck:
 - Lizenz festlegen
 - Docker-Image-Tags und Release-Notes stabilisieren
 
+### AI Swarm / Spezialisierte Edge-Knoten unter ARIA
+
+- ARIA bleibt die zentrale Instanz fuer:
+  - globales Wissen
+  - Orchestrierung
+  - Memory
+  - Querverbindungen
+  - Guardrails / Policy
+- kleine guenstige Hardware-Knoten sollen spaeter als spezialisierte Teilagenten oder Bodies andocken koennen
+  - z. B. ESP32-/M5Stack-/ESP-Claw-Knoten
+  - Idee: viele enge Spezialisten statt ein einziger allmaechtiger Feldagent
+- Zielbild:
+  - `ARIA = Brain / Orchestrator`
+  - `Edge Node = lokaler Spezialist`
+- moegliche Fachknoten:
+  - `iot-node`
+  - `rss-node`
+  - `vision-node`
+  - `display-node`
+  - `mail-preprocessor`
+- Produktidee:
+  - Teilautonomie am Rand
+  - globale Koordination und Wissensfusion in ARIA
+  - Ergebnisse / Status / Health / Anomalien gehen an ARIA zurueck
+  - ARIA kann interaktiv abfragen, aendern, freigeben oder eskalieren
+- gewuenschte Vorteile:
+  - Last und Polling an spezialisierte Knoten auslagern
+  - Bereichslogik enger kontrollieren
+  - Hardware-nahe Reaktionen lokal halten
+  - groessere Sicherheit durch kleinere Rechte pro Spezialknoten
+- wichtiges Architekturprinzip:
+  - der Spezialknoten soll nie das globale Systemwissen ersetzen
+  - `der, der alles kann und alles kennt, bleibt ARIA`
+- erste moegliche Rollentrennung:
+  - `lokal erlaubt`
+  - `nur nach ARIA-Freigabe`
+  - `verboten`
+- moegliche Transporte fuer einen MVP:
+  - MQTT fuer Status, Events und Kommandos
+  - HTTP API fuer gezielte Aufrufe
+  - MCP spaeter optional, aber nicht als erster Pflichtlayer
+- offene Produkt-/Architekturfragen:
+  - wie stark lokale Teilautonomie sein darf
+  - welche Daten lokal bleiben vs. an ARIA gespiegelt werden
+  - wie Device-Identitaeten, Rollen und Berechtigungen geschnitten werden
+  - ob ESP-Claw als vollwertiger Edge-Agent oder eher duennere ESP-Worker der bessere erste Pfad sind
+- zu ESP-Claw konkret:
+  - spannend als spaeterer Edge-Spezialist mit lokaler Intelligenz, Apps, Behaviors, Events und Hardwarefaehigkeiten
+  - bewusst nicht als einfacher `OpenAI-Chatclient` einordnen
+  - Gefahr und Chance zugleich: ESP-Claw bringt selbst schon viel Agent-Runtime mit
+  - deshalb spaeter bewusst pruefen:
+    - `ESP-Claw als teilautonomer Fachknoten`
+    - versus
+    - `duenner ESP-Worker unter zentraler ARIA-Steuerung`
+
 ## Smart Home / Home Assistant
 
 ### Home Assistant Integration
@@ -148,7 +203,7 @@ Zweck:
 
 - späteres echtes Multi-User-/Sharing-Modell
 - Ownership für:
-  - Skills
+  - Recipes
   - Connections
   - Memories
   - Ressourcen
@@ -159,7 +214,7 @@ Zweck:
 
 - Capability- und Connection-Architektur weiter modularisieren
 - Plugin-/Extension-Modell für neue Connection-Typen und Capability-Familien
-- strukturierte Skill-/Tool-Definitionen mit stärkerem Manifest-Konzept
+- strukturierte Recipe-/Tool-Definitionen mit staerkerem Manifest-Konzept
 - Ziel: neue Integrationen ohne Monolith-Wachstum
 
 ## Ingest / Knowledge
@@ -190,7 +245,7 @@ Zweck:
 - Help-Texte zentral pflegen statt hart in Templates verteilen
 - Texte sollen später leicht austauschbar und übersetzbar sein
 - erster ALPHA-Schritt:
-  - statische Kurztexte für Setup, Connections, RSS, Skills, Memory und Statistiken
+  - statische Kurztexte für Setup, Connections, RSS, Recipes, Memory und Statistiken
   - mitgeliefertes Hilfe-Dokument als Textquelle
 - später:
   - Help-Popover oder Help-Drawer

@@ -51,6 +51,14 @@
       </nav>
 
       <div class="notes-sidebar-foot">
+        {% if selected_folder not in ['__all__', '__root__'] %}
+        <form method="post" action="/notes/folders/rename" class="notes-folder-create-form">
+          <label for="rename_folder_name">{{ tr(request, 'notes.folder_rename_title', 'Aktiven Ordner umbenennen') }}</label>
+          <input type="hidden" name="folder" value="{{ selected_folder }}">
+          <input id="rename_folder_name" name="new_folder" type="text" value="{{ selected_folder }}" placeholder="{{ tr(request, 'notes.folder_rename_placeholder', 'z. B. Projekte/AREA41') }}" required>
+          <button type="submit">{{ tr(request, 'notes.folder_rename_button', 'Ordner umbenennen') }}</button>
+        </form>
+        {% endif %}
         <form method="post" action="/notes/folders/create" class="notes-folder-create-form">
           <label for="new_folder_name">{{ tr(request, 'notes.folder_create_title', 'Ordner anlegen') }}</label>
           <input id="new_folder_name" name="folder" type="text" placeholder="{{ tr(request, 'notes.folder_placeholder', 'z. B. Projekte/ARIA') }}" required>
@@ -102,6 +110,7 @@
             <div>
               <label for="note_title">{{ tr(request, 'notes.form_title', 'Titel') }}</label>
               <input id="note_title" name="title" type="text" maxlength="140" value="{{ selected_note.title if selected_note else '' }}" placeholder="{{ tr(request, 'notes.form_title_placeholder', 'z. B. Projektideen für ARIA') }}" required>
+              <p class="notes-field-hint">{{ tr(request, 'notes.form_title_hint', 'Wenn du den Titel änderst, wird die Notiz damit umbenannt.') }}</p>
             </div>
             <div>
               <label for="note_folder">{{ tr(request, 'notes.form_folder', 'Ordner') }}</label>

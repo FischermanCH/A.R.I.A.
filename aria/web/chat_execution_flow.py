@@ -9,14 +9,28 @@ from typing import Any
 import aria.web.chat_admin_flows as chat_admin_flows
 import aria.web.chat_notes_flows as chat_notes_flows
 import aria.web.chat_pending_flows as chat_pending_flows
+import aria.web.chat_websites_flows as chat_websites_flows
+from aria.core.i18n import I18NStore
 from aria.core.llm_client import LLMClientError
 from aria.core.prompt_loader import PromptLoadError
 from aria.web.chat_route_helpers import ChatPreparedState, ChatResponseState
+from aria.web.main_ui_helpers import discord_alert_error_lines
 
 
 IntentBadge = Callable[[list[str], list[str] | None], tuple[str, str]]
 FriendlyErrorText = Callable[[list[str] | None], str]
 AlertSender = Callable[..., Any]
+_CHAT_EXECUTION_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _chat_execution_text(lang: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _CHAT_EXECUTION_I18N.t(lang or "de", f"chat_execution_flow.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -27,7 +41,8 @@ class ChatExecutionDeps:
     intent_badge: IntentBadge
     friendly_error_text: FriendlyErrorText
     alert_sender: AlertSender
-    signing_secret: str
+    pending_signing_secret: str
+    forget_signing_secret: str
     sanitize_username: Callable[[str | None], str]
     sanitize_connection_name: Callable[[str | None], str]
     sanitize_collection_name: Callable[[str | None], str]
@@ -62,9 +77,13 @@ def _apply_pending_outcome(state: ChatResponseState, outcome: chat_pending_flows
     state.set_safe_fix_cookie = outcome.set_cookies.get(chat_pending_flows.COOKIE_SAFE_FIX)
     state.set_routed_action_cookie = outcome.set_cookies.get(chat_pending_flows.COOKIE_ROUTED_ACTION)
     state.set_forget_cookie = outcome.set_cookies.get(chat_pending_flows.COOKIE_FORGET)
+    state.set_connection_update_cookie = outcome.set_cookies.get(chat_admin_flows.COOKIE_CONNECTION_UPDATE)
     state.clear_safe_fix_cookie = chat_pending_flows.COOKIE_SAFE_FIX in outcome.clear_cookies
     state.clear_routed_action_cookie = chat_pending_flows.COOKIE_ROUTED_ACTION in outcome.clear_cookies
     state.clear_forget_cookie = chat_pending_flows.COOKIE_FORGET in outcome.clear_cookies
+    state.clear_connection_update_cookie = chat_admin_flows.COOKIE_CONNECTION_UPDATE in outcome.clear_cookies
+    state.routed_action_confirm_command = outcome.routed_action_confirm_command
+    state.routed_action_confirm_payload = outcome.routed_action_confirm_payload
 
 
 def _apply_admin_outcome(state: ChatResponseState, outcome: chat_admin_flows.ChatAdminOutcome) -> None:
@@ -123,9 +142,10 @@ async def execute_chat_flow(
         is_english=is_english,
         intent_badge=deps.intent_badge,
         friendly_error_text=deps.friendly_error_text,
-        signing_secret=deps.signing_secret,
+        signing_secret=deps.pending_signing_secret,
         sanitize_username=deps.sanitize_username,
         sanitize_connection_name=deps.sanitize_connection_name,
+        auth_role=route_state.auth_role,
         alert_sender=deps.alert_sender,
     )
     if pending_input_outcome and pending_input_outcome.handled:
@@ -139,7 +159,7 @@ async def execute_chat_flow(
         auth_role=route_state.auth_role,
         advanced_mode=route_state.advanced_mode,
         base_dir=deps.base_dir,
-        signing_secret=deps.signing_secret,
+        signing_secret=deps.pending_signing_secret,
         sanitize_username=deps.sanitize_username,
         sanitize_connection_name=deps.sanitize_connection_name,
         list_connection_refs=deps.list_connection_refs,
@@ -156,6 +176,7 @@ async def execute_chat_flow(
         build_config_backup_payload=deps.build_config_backup_payload,
         summarize_config_backup_payload=deps.summarize_config_backup_payload,
         read_raw_config=deps.read_raw_config,
+        language=lang,
     )
     if admin_outcome and admin_outcome.handled:
         _apply_admin_outcome(response_state, admin_outcome)
@@ -168,7 +189,8 @@ async def execute_chat_flow(
             username=username,
             pipeline=deps.pipeline,
             memory_forget_requested=True,
-            signing_secret=deps.signing_secret,
+            language=lang,
+            signing_secret=deps.forget_signing_secret,
             sanitize_username=deps.sanitize_username,
             sanitize_collection_name=deps.sanitize_collection_name,
             friendly_error_text=deps.friendly_error_text,
@@ -189,6 +211,16 @@ async def execute_chat_flow(
         response_state.intent_label = notes_outcome.intent_label
         return response_state
 
+    websites_outcome = await chat_websites_flows.handle_chat_websites_flow(
+        clean_message=clean_message,
+        base_dir=deps.base_dir,
+    )
+    if websites_outcome and websites_outcome.handled:
+        response_state.assistant_text = websites_outcome.assistant_text
+        response_state.icon = websites_outcome.icon
+        response_state.intent_label = websites_outcome.intent_label
+        return response_state
+
     response_state.badge_details = []
     try:
         result = await deps.pipeline.process(
@@ -200,7 +232,7 @@ async def execute_chat_flow(
             session_collection=session_collection,
             auto_memory_enabled=auto_memory_enabled,
         )
-        response_state.assistant_text = result.text or "Ich habe gerade keine Antwort erzeugt."
+        response_state.assistant_text = result.text or _chat_execution_text(lang, "empty_answer", "I did not produce an answer right now.")
         response_state.icon, response_state.intent_label = deps.intent_badge(result.intents, result.skill_errors)
         response_state.total_tokens = int(result.usage.get("total_tokens", 0) or 0)
         if result.total_cost_usd is not None:
@@ -209,18 +241,18 @@ async def execute_chat_flow(
         response_state.badge_details = list(result.detail_lines)
         warning = deps.friendly_error_text(result.skill_errors)
         if warning:
-            response_state.assistant_text = f"{response_state.assistant_text}\n\nHinweis: {warning}"
+            response_state.assistant_text = f"{response_state.assistant_text}\n\n{_chat_execution_text(lang, 'warning_prefix', 'Note')}: {warning}"
         if result.skill_errors:
-            discord_error_text = chat_pending_flows._discord_alert_error_lines(result.skill_errors)
+            discord_error_text = discord_alert_error_lines(result.skill_errors)
             await asyncio.to_thread(
                 deps.alert_sender,
                 deps.settings,
-                category="skill_errors",
-                title="Skill-Fehler erkannt",
+                category="recipe_errors",
+                title=_chat_execution_text(lang, "recipe_error_title", "Recipe error detected"),
                 lines=[
                     f"User: {username}",
                     f"Intents: {', '.join(result.intents) or '-'}",
-                    f"Fehler: {discord_error_text or '-'}",
+                    f"{_chat_execution_text(lang, 'error_prefix', 'Error')}: {discord_error_text or '-'}",
                 ],
                 level="warn",
             )
@@ -232,7 +264,8 @@ async def execute_chat_flow(
             username=username,
             settings=deps.settings,
             is_english=is_english,
-            signing_secret=deps.signing_secret,
+            language=lang,
+            signing_secret=deps.pending_signing_secret,
             sanitize_username=deps.sanitize_username,
             sanitize_connection_name=deps.sanitize_connection_name,
             alert_sender=deps.alert_sender,
@@ -243,8 +276,10 @@ async def execute_chat_flow(
         response_state.set_safe_fix_cookie = followup.set_cookies.get(chat_pending_flows.COOKIE_SAFE_FIX)
         response_state.set_routed_action_cookie = followup.set_cookies.get(chat_pending_flows.COOKIE_ROUTED_ACTION)
         response_state.clear_routed_action_cookie = chat_pending_flows.COOKIE_ROUTED_ACTION in followup.clear_cookies
+        response_state.routed_action_confirm_command = followup.routed_action_confirm_command
+        response_state.routed_action_confirm_payload = followup.routed_action_confirm_payload
         return response_state
     except (PromptLoadError, LLMClientError, ValueError) as exc:
-        response_state.assistant_text = f"Fehler: {exc}"
+        response_state.assistant_text = f"{_chat_execution_text(lang, 'error_prefix', 'Error')}: {exc}"
         response_state.badge_details = []
         return response_state

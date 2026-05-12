@@ -109,7 +109,7 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
                 "source": "LICENSE",
                 "url": "",
                 "icon": "product",
-                "summary": deps.translate(request, "licenses.aria_summary", "Die lokale Projektlizenz fuer ARIA selbst."),
+                "summary": deps.translate(request, "licenses.aria_summary", "The local project license for ARIA itself."),
             },
             {
                 "name": "Qdrant",
@@ -117,7 +117,7 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
                 "source": "github.com/qdrant/qdrant",
                 "url": "https://github.com/qdrant/qdrant",
                 "icon": "memories",
-                "summary": deps.translate(request, "licenses.qdrant_summary", "Vector- und Retrieval-Store fuer Memory, Dokumente und Routing-Indexe."),
+                "summary": deps.translate(request, "licenses.qdrant_summary", "Vector and retrieval store for memory, documents, and routing indexes."),
             },
             {
                 "name": "SearXNG",
@@ -125,7 +125,7 @@ def register_docs_surface_routes(app: FastAPI, deps: DocsSurfaceRouteDeps) -> No
                 "source": "github.com/searxng/searxng",
                 "url": "https://github.com/searxng/searxng",
                 "icon": "searxng",
-                "summary": deps.translate(request, "licenses.searxng_summary", "Separater Suchdienst fuer Web-Recherche ueber die JSON-API."),
+                "summary": deps.translate(request, "licenses.searxng_summary", "Separate search service for web research through the JSON API."),
             },
         ]
         return deps.templates.TemplateResponse(

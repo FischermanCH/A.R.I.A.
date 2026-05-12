@@ -1,0 +1,8 @@
+{
+  "patterns": {
+    "open_websites": [
+      "^(?:oeffne|öffne)\\s+(?:meine\\s+)?(?:beobachteten?\\s+)?webseiten\\s*$",
+      "^(?:open)\\s+(?:my\\s+)?(?:watched\\s+)?websites\\s*$"
+    ]
+  }
+}

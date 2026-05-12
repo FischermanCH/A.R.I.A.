@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
+<!--
+  UI-Migrationshinweis:
+  Diese Seite ist recipe-first. Die Route heisst intern noch skill-routing,
+  damit bestehende Links stabil bleiben.
+-->
 <main class="config-layout config-domain-layout config-domain-surface-layout config-skill-routing-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
@@ -9,7 +14,7 @@
     <div class="alert ok">{{ tr(request, 'config_skill_routing.info', 'Info') }}: {{ info_message }}</div>
     {% endif %}
     {% if load_errors %}
-    <div class="alert err">{{ tr(request, 'config_skill_routing.load_errors', 'Some skill manifests could not be loaded:') }}</div>
+    <div class="alert err">{{ tr(request, 'config_skill_routing.load_errors', 'Some stored recipe manifests could not be loaded:') }}</div>
     <ul class="hint-text">
       {% for err in load_errors %}
       <li>{{ err }}</li>
@@ -18,7 +23,7 @@
     {% endif %}
 
     <div class="meta-row">
-      <span class="meta-badge">{{ tr(request, 'config_skill_routing.skills', 'Skills') }}: {{ index.skills_count }}</span>
+      <span class="meta-badge">{{ tr(request, 'config_skill_routing.skills', 'Rezepte') }}: {{ index.skills_count }}</span>
       <span class="meta-badge">{{ tr(request, 'config_skill_routing.triggers', 'Triggers') }}: {{ index.triggers_count }}</span>
       <span class="meta-badge">{{ tr(request, 'config_skill_routing.collisions', 'Collisions') }}: {{ index.collisions_count }}</span>
     </div>
@@ -29,12 +34,12 @@
     </form>
     <form method="post" action="/config/skill-routing/suggest-all" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-      <button type="submit">{{ tr(request, 'config_skill_routing.suggest_all', 'Suggest keywords for all skills (LLM)') }}</button>
+      <button type="submit">{{ tr(request, 'config_skill_routing.suggest_all', 'Suggest keywords for all stored recipes (LLM)') }}</button>
     </form>
   </section>
 
   <section class="floating-card config-domain-section">
-    <h3>{{ tr(request, 'config_skill_routing.per_skill', 'Per skill') }}</h3>
+    <h3>{{ tr(request, 'config_skill_routing.per_skill', 'Per recipe') }}</h3>
     {% if rows %}
       {% for row in rows %}
       <article class="config-group-card">
@@ -55,7 +60,7 @@
       </article>
       {% endfor %}
     {% else %}
-      <p>{{ tr(request, 'config_skill_routing.empty', 'No custom skills found.') }}</p>
+      <p>{{ tr(request, 'config_skill_routing.empty', 'No stored recipes found.') }}</p>
     {% endif %}
   </section>
 
@@ -66,7 +71,7 @@
         <thead>
           <tr>
             <th>{{ tr(request, 'config_skill_routing.col_trigger', 'Trigger') }}</th>
-            <th>{{ tr(request, 'config_skill_routing.col_skills', 'Skills') }}</th>
+            <th>{{ tr(request, 'config_skill_routing.col_skills', 'Rezepte') }}</th>
           </tr>
         </thead>
         <tbody>

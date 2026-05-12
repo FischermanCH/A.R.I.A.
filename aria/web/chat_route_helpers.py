@@ -56,6 +56,8 @@ class ChatResponseState:
     clear_update_cookie: bool = False
     set_routed_action_cookie: str | None = None
     clear_routed_action_cookie: bool = False
+    routed_action_confirm_command: str | None = None
+    routed_action_confirm_payload: str | None = None
 
 
 def prepare_chat_route_state(
@@ -69,7 +71,8 @@ def prepare_chat_route_state(
     sanitize_username: SanitizeUsername,
     sanitize_connection_name: SanitizeConnectionName,
     sanitize_role: SanitizeRole,
-    signing_secret: str,
+    forget_signing_secret: str,
+    pending_signing_secret: str,
     connection_pending_max_age_seconds: int,
     forget_pending_cookie: str,
     safe_fix_pending_cookie: str,
@@ -78,45 +81,50 @@ def prepare_chat_route_state(
     connection_update_pending_cookie: str,
     update_pending_cookie: str,
     routed_action_pending_cookie: str,
+    routed_action_pending_override: str | None = None,
 ) -> ChatPreparedState:
     forget_pending = chat_admin_actions._decode_forget_pending(
         request_cookie_value(request, forget_pending_cookie),
-        signing_secret=signing_secret,
+        signing_secret=forget_signing_secret,
         sanitize_username=sanitize_username,
     )
     safe_fix_pending = chat_admin_actions._decode_safe_fix_pending(
         request_cookie_value(request, safe_fix_pending_cookie),
-        signing_secret=signing_secret,
+        signing_secret=pending_signing_secret,
         sanitize_username=sanitize_username,
     )
     connection_delete_pending = chat_admin_actions._decode_connection_delete_pending(
         request_cookie_value(request, connection_delete_pending_cookie),
-        signing_secret=signing_secret,
+        signing_secret=pending_signing_secret,
         sanitize_username=sanitize_username,
         sanitize_connection_name=sanitize_connection_name,
         max_age_seconds=connection_pending_max_age_seconds,
     )
     connection_create_pending = chat_admin_actions._decode_connection_create_pending(
         request_cookie_value(request, connection_create_pending_cookie),
-        signing_secret=signing_secret,
+        signing_secret=pending_signing_secret,
         sanitize_username=sanitize_username,
         max_age_seconds=connection_pending_max_age_seconds,
     )
     connection_update_pending = chat_admin_actions._decode_connection_update_pending(
         request_cookie_value(request, connection_update_pending_cookie),
-        signing_secret=signing_secret,
+        signing_secret=pending_signing_secret,
         sanitize_username=sanitize_username,
         max_age_seconds=connection_pending_max_age_seconds,
     )
     update_pending = chat_admin_actions._decode_update_pending(
         request_cookie_value(request, update_pending_cookie),
-        signing_secret=signing_secret,
+        signing_secret=pending_signing_secret,
         sanitize_username=sanitize_username,
         max_age_seconds=connection_pending_max_age_seconds,
     )
+    routed_action_pending_raw = str(routed_action_pending_override or "").strip() or request_cookie_value(
+        request,
+        routed_action_pending_cookie,
+    )
     routed_action_pending = chat_admin_actions._decode_routed_action_pending(
-        request_cookie_value(request, routed_action_pending_cookie),
-        signing_secret=signing_secret,
+        routed_action_pending_raw,
+        signing_secret=pending_signing_secret,
         sanitize_username=sanitize_username,
         max_age_seconds=connection_pending_max_age_seconds,
     )

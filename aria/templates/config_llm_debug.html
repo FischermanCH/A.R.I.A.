@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-surface-layout">
+  {% include "_config_nav.html" %}
+  {% include "_config_page_header.html" %}
+
+  <section class="config-card floating-card config-domain-section">
+    <div class="inline-actions routing-index-actions">
+      <a class="button-like" href="/config/workbench?return_to={{ return_to|urlencode if return_to else '%2Fconfig' }}">{{ tr(request, 'config.workbench_back_to_settings', 'Back to Workbench') }}</a>
+      <form method="post" action="/config/llm/debug/clear" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request and request.state else '' }}">
+        <button type="submit" class="button-like danger-button">{{ tr(request, 'llm_debug.clear', 'Clear debug log') }}</button>
+      </form>
+    </div>
+    <p>{{ tr(request, 'llm_debug.intro', 'Shows the latest redacted LLM gateway calls across workers. Secrets are masked; the local debug file lives under data/runtime and can be cleared here.') }}</p>
+    <small class="stats-health-detail">
+      {{ tr(request, 'llm_debug.scope', 'Scope') }}:
+      <code>{{ tr(request, 'llm_debug.scope_value', 'central LLMClient gateway, redacted across workers') }}</code>
+      ·
+      {{ tr(request, 'llm_debug.count', 'Entries') }}:
+      <strong>{{ entries|length }}</strong>
+    </small>
+  </section>
+
+  {% if not entries %}
+  <section class="config-card floating-card config-domain-section">
+    <p>{{ tr(request, 'llm_debug.empty', 'No LLM calls have been captured yet. Run a chat or workbench request and reload this page.') }}</p>
+  </section>
+  {% endif %}
+
+  {% for entry in entries %}
+  <section class="config-card floating-card config-domain-section llm-debug-entry">
+    <div class="stats-health-card-head">
+      <div class="stats-health-title">
+        <span class="health-lamp status-{{ 'error' if entry.error else 'ok' }}"></span>
+        <div>
+          <strong>{{ entry.operation or '-' }}</strong>
+          <small class="stats-health-state">{{ entry.source or '-' }} · {{ entry.model or '-' }} · {{ entry.created_at }}</small>
+        </div>
+      </div>
+    </div>
+    <small class="stats-health-detail">
+      {{ tr(request, 'llm_debug.duration', 'Duration') }}: <code>{{ entry.duration_ms }}ms</code>
+      ·
+      {{ tr(request, 'llm_debug.tokens', 'Tokens') }}:
+      <code>{{ entry.usage.total_tokens or 0 }}</code>
+      ·
+      {{ tr(request, 'llm_debug.prompt_tokens', 'Prompt') }}:
+      <code>{{ entry.usage.prompt_tokens or 0 }}</code>
+      ·
+      {{ tr(request, 'llm_debug.completion_tokens', 'Completion') }}:
+      <code>{{ entry.usage.completion_tokens or 0 }}</code>
+    </small>
+    {% if entry.error %}
+    <div class="alert err">{{ entry.error }}</div>
+    {% endif %}
+
+    <details class="llm-debug-details" open>
+      <summary>{{ tr(request, 'llm_debug.messages', 'Messages sent to LLM') }}</summary>
+      {% for message in entry.messages %}
+      <div class="llm-debug-message">
+        <small class="stats-health-detail"><strong>{{ message.role or '-' }}</strong></small>
+        <pre class="llm-debug-pre">{{ message.content }}</pre>
+      </div>
+      {% endfor %}
+    </details>
+
+    <details class="llm-debug-details" {% if entry.response %}open{% endif %}>
+      <summary>{{ tr(request, 'llm_debug.response', 'LLM response') }}</summary>
+      <pre class="llm-debug-pre">{{ entry.response or '-' }}</pre>
+    </details>
+  </section>
+  {% endfor %}
+</main>
+{% endblock %}
+

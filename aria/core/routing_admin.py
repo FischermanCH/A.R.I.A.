@@ -24,6 +24,7 @@ from aria.core.routing_index import (
     routing_documents_fingerprint,
 )
 from aria.core.routing_resolver import RoutingDecision, RoutingResolver, infer_preferred_connection_kind
+from aria.core.usage_meter import UsageMeter
 
 
 _ROUTING_REFRESH_TASKS: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -517,6 +518,7 @@ async def rebuild_connection_routing_index(
     *,
     qdrant_client: Any | None = None,
     embedding_client: Any | None = None,
+    usage_meter: UsageMeter | None = None,
 ) -> dict[str, Any]:
     documents = build_connection_routing_documents(settings)
     collection_name = routing_connections_collection_name(settings)
@@ -551,7 +553,7 @@ async def rebuild_connection_routing_index(
             api_key=getattr(memory, "qdrant_api_key", "") or None,
             timeout=10,
         )
-    embedder = embedding_client or EmbeddingClient(settings.embeddings)
+    embedder = embedding_client or EmbeddingClient(settings.embeddings, usage_meter=usage_meter)
 
     try:
         store = RoutingIndexStore(
@@ -649,6 +651,7 @@ async def ensure_connection_routing_index_ready(
     *,
     qdrant_client: Any | None = None,
     embedding_client: Any | None = None,
+    usage_meter: UsageMeter | None = None,
     wait: bool = True,
 ) -> dict[str, Any]:
     status = await build_connection_routing_index_status(settings, qdrant_client=qdrant_client)
@@ -668,6 +671,7 @@ async def ensure_connection_routing_index_ready(
             settings,
             qdrant_client=qdrant_client,
             embedding_client=embedding_client,
+            usage_meter=usage_meter,
         )
         payload["refresh_attempted"] = True
         payload["refresh_started"] = True
@@ -679,6 +683,7 @@ async def ensure_connection_routing_index_ready(
         return await rebuild_connection_routing_index(
             settings,
             embedding_client=embedding_client,
+            usage_meter=usage_meter,
         )
 
     task = _active_refresh_task(collection_name)
@@ -708,6 +713,7 @@ async def resolve_connection_routing_chain(
     llm_ignore_deterministic: bool = False,
     qdrant_client: Any | None = None,
     embedding_client: Any | None = None,
+    usage_meter: UsageMeter | None = None,
     llm_client: Any | None = None,
     language: str = "",
     limit: int = 5,
@@ -754,7 +760,7 @@ async def resolve_connection_routing_chain(
                     api_key=getattr(memory, "qdrant_api_key", "") or None,
                     timeout=8,
                 )
-            embedder = embedding_client or EmbeddingClient(settings.embeddings)
+            embedder = embedding_client or EmbeddingClient(settings.embeddings, usage_meter=usage_meter)
             store = RoutingIndexStore(
                 qdrant=qdrant,
                 embedding_client=embedder,
@@ -896,6 +902,7 @@ async def test_connection_routing_query(
     llm_ignore_deterministic: bool = False,
     qdrant_client: Any | None = None,
     embedding_client: Any | None = None,
+    usage_meter: UsageMeter | None = None,
     llm_client: Any | None = None,
     language: str = "",
     limit: int = 5,
@@ -908,6 +915,7 @@ async def test_connection_routing_query(
         llm_ignore_deterministic=llm_ignore_deterministic,
         qdrant_client=qdrant_client,
         embedding_client=embedding_client,
+        usage_meter=usage_meter,
         llm_client=llm_client,
         language=language,
         limit=limit,

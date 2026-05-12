@@ -20,6 +20,7 @@ from aria.core.guardrails import (
     guardrail_kind_options,
     normalize_guardrail_kind,
 )
+from aria.core.i18n import I18NStore
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.web.config_misc_helpers import sanitize_reference_name_local
 
@@ -38,6 +39,17 @@ _RSS_DEDUPE_IGNORED_QUERY_KEYS = {
 }
 SAMPLE_CONNECTIONS_DIR = Path(__file__).resolve().parents[2] / "samples" / "connections"
 SAMPLE_GUARDRAILS_DIR = Path(__file__).resolve().parents[2] / "samples" / "security"
+_CONNECTION_SUPPORT_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _connection_support_text(key: str, default: str = "", **values: object) -> str:
+    template = _CONNECTION_SUPPORT_I18N.t("de", f"connection_support_helpers.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def wipe_directory_contents(path: Path) -> int:
@@ -457,7 +469,7 @@ def perform_ssh_key_exchange_impl(
         exit_code = stdout.channel.recv_exit_status()
         err = (stderr.read() or b"").decode("utf-8", errors="replace").strip()
         if exit_code != 0:
-            raise ValueError(err or "Remote-Fehler beim Schreiben von authorized_keys.")
+            raise ValueError(err or _connection_support_text("authorized_keys_write_failed", "Remote error while writing authorized_keys."))
     finally:
         with suppress(Exception):
             client.close()

@@ -7,6 +7,8 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+from aria.core.i18n import I18NStore
+
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 DEFAULT_CHUNK_SIZE = 1200
@@ -21,6 +23,24 @@ SUPPORTED_TEXT_SUFFIXES = {
 
 class DocumentIngestError(ValueError):
     """Raised when an uploaded document cannot be prepared for ingest."""
+
+
+_DOCUMENT_INGEST_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _document_ingest_text(key: str, default: str = "", **values: object) -> str:
+    template = _DOCUMENT_INGEST_I18N.t("de", f"document_ingest.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
+
+def _document_stopwords() -> set[str]:
+    localized = _document_ingest_text("guide_stopwords", "")
+    return {word.strip().lower() for word in localized.split(",") if word.strip()}
 
 
 @dataclass(frozen=True)
@@ -43,65 +63,24 @@ class PreparedDocument:
 
 
 DOCUMENT_GUIDE_STOPWORDS = {
-    "aber",
     "about",
-    "alle",
     "also",
     "and",
     "are",
-    "aus",
-    "bei",
-    "ber",
-    "bitte",
     "can",
-    "das",
-    "dass",
-    "dem",
-    "den",
-    "der",
-    "des",
-    "die",
-    "dies",
-    "dieser",
     "document",
-    "dokument",
-    "eine",
-    "einem",
-    "einer",
-    "eines",
-    "euch",
-    "fuer",
-    "für",
-    "handbuch",
+    "for",
     "have",
-    "ich",
-    "ihr",
-    "ihre",
     "into",
-    "ist",
-    "kann",
-    "können",
     "manual",
-    "mit",
-    "nach",
-    "oder",
     "pdf",
-    "sich",
-    "sie",
-    "sind",
     "that",
     "the",
     "this",
-    "und",
     "use",
     "user",
-    "vom",
-    "von",
-    "was",
-    "werden",
-    "wie",
     "with",
-}
+} | _document_stopwords()
 
 
 def sanitize_uploaded_filename(filename: str | None) -> str:
@@ -205,12 +184,12 @@ def _extract_pdf_text(payload: bytes) -> str:
     try:
         from pypdf import PdfReader
     except ImportError as exc:  # pragma: no cover - dependency should exist in runtime/builds
-        raise DocumentIngestError("PDF-Import ist aktuell nicht verfügbar.") from exc
+        raise DocumentIngestError(_document_ingest_text("pdf_import_unavailable", "PDF import is currently unavailable.")) from exc
 
     try:
         reader = PdfReader(BytesIO(payload))
     except Exception as exc:  # noqa: BLE001
-        raise DocumentIngestError("PDF konnte nicht gelesen werden.") from exc
+        raise DocumentIngestError(_document_ingest_text("pdf_read_failed", "The PDF could not be read.")) from exc
 
     page_texts: list[str] = []
     for page in getattr(reader, "pages", []) or []:
@@ -225,7 +204,10 @@ def _extract_pdf_text(payload: bytes) -> str:
     if text:
         return text
     raise DocumentIngestError(
-        "PDF enthält keinen eingebetteten Text. Scan-/Bild-PDFs werden in RAG v1 noch nicht unterstützt."
+        _document_ingest_text(
+            "pdf_no_embedded_text",
+            "The PDF contains no embedded text. Scan/image PDFs are not supported in RAG v1 yet.",
+        )
     )
 
 
@@ -242,24 +224,26 @@ def prepare_uploaded_document(
     suffix = Path(clean_name).suffix.lower()
     if suffix not in SUPPORTED_TEXT_SUFFIXES:
         supported = ", ".join(supported_upload_suffixes())
-        raise DocumentIngestError(f"Nur {supported} werden in RAG v1 unterstützt.")
+        raise DocumentIngestError(
+            _document_ingest_text("unsupported_suffix", "Only {supported} are supported in RAG v1.", supported=supported)
+        )
 
     payload = bytes(data or b"")
     if not payload:
-        raise DocumentIngestError("Die hochgeladene Datei ist leer.")
+        raise DocumentIngestError(_document_ingest_text("uploaded_file_empty", "The uploaded file is empty."))
     if len(payload) > int(max_bytes):
-        raise DocumentIngestError("Die Datei ist für RAG v1 zu groß.")
+        raise DocumentIngestError(_document_ingest_text("file_too_large", "The file is too large for RAG v1."))
 
     if suffix == ".pdf":
         text = _extract_pdf_text(payload)
     else:
         text = _normalize_document_text(payload.decode("utf-8", errors="replace"))
     if not text:
-        raise DocumentIngestError("Aus der Datei konnte kein Text gelesen werden.")
+        raise DocumentIngestError(_document_ingest_text("no_text_read", "No text could be read from the file."))
 
     raw_chunks = _chunk_text(text, chunk_size=chunk_size, overlap=chunk_overlap)
     if not raw_chunks:
-        raise DocumentIngestError("Die Datei enthält keinen importierbaren Text.")
+        raise DocumentIngestError(_document_ingest_text("no_importable_text", "The file contains no importable text."))
 
     total = len(raw_chunks)
     document_id = hashlib.sha256((clean_name + "\n").encode("utf-8") + payload).hexdigest()[:24]

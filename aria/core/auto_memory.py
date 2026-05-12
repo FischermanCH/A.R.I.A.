@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import re
 from dataclasses import dataclass
 
@@ -15,88 +17,37 @@ class AutoMemoryDecision:
 class AutoMemoryExtractor:
     """Rule-based fact extraction to keep auto-memory deterministic and cheap."""
 
+    _lexicon_path = Path(__file__).resolve().parents[1] / "lexicons" / "auto_memory.json"
+    try:
+        _lexicon_raw = json.loads(_lexicon_path.read_text(encoding="utf-8"))
+        _lexicon = _lexicon_raw if isinstance(_lexicon_raw, dict) else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Could not load auto-memory lexicon: {_lexicon_path}") from exc
+
     _ip_re = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
     _cidr_re = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}\b")
     _host_re = re.compile(r"\b[a-zA-Z0-9][a-zA-Z0-9-]{1,62}[a-zA-Z0-9]\b")
     _kv_re = re.compile(r"([a-zA-Z0-9_.-]{2,64})\s*[:=]\s*([^,;|\n]{2,160})")
 
     _stop_keys = {
-        "ich",
-        "du",
-        "mein",
-        "meine",
-        "dein",
-        "deine",
-        "und",
-        "oder",
-        "ist",
-        "sind",
-        "das",
-        "dass",
+        str(value).strip().lower()
+        for value in _lexicon.get("stop_keys", [])
+        if str(value).strip()
     }
 
-    _preference_patterns = (
-        r"\bich bevorzuge\b",
-        r"\bich mag\b",
-        r"\bich möchte\b",
-        r"\bbitte antworte\b",
-        r"\bantworte bitte\b",
-        r"\bohne floskeln\b",
-        r"\bdirekt\b",
+    _preference_patterns = tuple(str(value) for value in _lexicon.get("preference_patterns", []) if str(value).strip())
+    _transient_prefix_patterns = tuple(
+        str(value) for value in _lexicon.get("transient_prefix_patterns", []) if str(value).strip()
     )
-
-    _transient_prefix_patterns = (
-        r"^\s*was\b",
-        r"^\s*wie\b",
-        r"^\s*wo\b",
-        r"^\s*wann\b",
-        r"^\s*warum\b",
-        r"^\s*wieso\b",
-        r"^\s*welche?\b",
-        r"^\s*gibt es\b",
-        r"^\s*brauchen\b",
-        r"^\s*erklär[e]?\b",
-        r"^\s*erkläre\b",
-        r"^\s*vergleiche\b",
-        r"^\s*zeige?\b",
-        r"^\s*list[e]?\b",
-        r"^\s*schick[e]?\b",
-        r"^\s*sende\b",
-        r"^\s*prüf[e]?\b",
-        r"^\s*check[e]?\b",
-        r"^\s*ping\b",
-        r"^\s*please\b",
-        r"^\s*can you\b",
-        r"^\s*could you\b",
-        r"^\s*show me\b",
-        r"^\s*explain\b",
-        r"^\s*compare\b",
-        r"^\s*send\b",
-        r"^\s*check\b",
-        r"^\s*ping\b",
+    _declarative_session_patterns = tuple(
+        str(value) for value in _lexicon.get("declarative_session_patterns", []) if str(value).strip()
     )
-
-    _declarative_session_patterns = (
-        r"\bmein(?:e[nmr])?\b",
-        r"\bich nutze\b",
-        r"\bich verwende\b",
-        r"\bich arbeite\b",
-        r"\bich betreibe\b",
-        r"\bich habe\b",
-        r"\bheisst\b",
-        r"\bheißt\b",
-        r"\bläuft auf\b",
-        r"\bist\b",
-        r"\bsind\b",
-        r"\bhas\b",
-        r"\bruns on\b",
-        r"\bis\b",
-        r"\bare\b",
-        r"\bmy\b",
-        r"\bi use\b",
-        r"\bi run\b",
-        r"\bi have\b",
+    _sentence_signal_terms = tuple(
+        str(value).strip().lower() for value in _lexicon.get("sentence_signal_terms", []) if str(value).strip()
     )
+    _network_fact_labels = _lexicon.get("network_fact_labels", {})
+    _cidr_label = str(_network_fact_labels.get("cidr", "network")) if isinstance(_network_fact_labels, dict) else "network"
+    _ip_label = str(_network_fact_labels.get("ip", "ip")) if isinstance(_network_fact_labels, dict) else "ip"
 
     @staticmethod
     def _clean_spaces(text: str) -> str:
@@ -119,9 +70,9 @@ class AutoMemoryExtractor:
     def _extract_network_facts(cls, text: str) -> list[str]:
         facts: list[str] = []
         for cidr in cls._cidr_re.findall(text):
-            facts.append(f"netz: {cidr}")
+            facts.append(f"{cls._cidr_label}: {cidr}")
         for ip in cls._ip_re.findall(text):
-            facts.append(f"ip: {ip}")
+            facts.append(f"{cls._ip_label}: {ip}")
         return facts
 
     @classmethod
@@ -131,19 +82,7 @@ class AutoMemoryExtractor:
         if cls._looks_like_transient_prompt(text):
             return None
         lowered = text.lower()
-        signal_terms = (
-            "ip",
-            "hostname",
-            "dns",
-            "gateway",
-            "firewall",
-            "nas",
-            "proxmox",
-            "server",
-            "vlan",
-            "netz",
-        )
-        if any(t in lowered for t in signal_terms):
+        if any(term in lowered for term in cls._sentence_signal_terms):
             return cls._clean_spaces(text).strip(" .")
         return None
 

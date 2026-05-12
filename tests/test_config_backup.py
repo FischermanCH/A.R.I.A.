@@ -40,11 +40,11 @@ def _seed_source_tree(base_dir: Path) -> tuple[dict, SecureConfigStore]:
         "security": {"enabled": True, "db_path": "data/auth/aria_secure.sqlite"},
     }
     _write_yaml(base_dir / "config" / "config.yaml", raw)
-    (base_dir / "prompts" / "skills").mkdir(parents=True, exist_ok=True)
+    (base_dir / "prompts" / "recipes").mkdir(parents=True, exist_ok=True)
     (base_dir / "prompts" / "persona.md").write_text("Source persona\n", encoding="utf-8")
-    (base_dir / "prompts" / "skills" / "deploy.md").write_text("Deploy prompt\n", encoding="utf-8")
+    (base_dir / "prompts" / "recipes" / "deploy.md").write_text("Deploy prompt\n", encoding="utf-8")
     (base_dir / "config" / "error_interpreter.yaml").write_text("rules: source\n", encoding="utf-8")
-    skill_dir = base_dir / "data" / "skills"
+    skill_dir = base_dir / "data" / "recipes"
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "deploy.json").write_text(
         json.dumps(
@@ -52,7 +52,7 @@ def _seed_source_tree(base_dir: Path) -> tuple[dict, SecureConfigStore]:
                 "id": "deploy",
                 "name": "Deploy",
                 "description": "Deployment helper",
-                "prompt_file": "prompts/skills/deploy.md",
+                "prompt_file": "prompts/recipes/deploy.md",
                 "router_keywords": ["deploy"],
                 "steps": [
                     {
@@ -93,7 +93,7 @@ def test_build_config_backup_payload_collects_expected_sections(tmp_path: Path) 
     assert payload["secure_store"]["users"][0]["username"] == "neo"
     assert payload["prompt_files"]["prompts/persona.md"] == "Source persona\n"
     assert payload["support_files"]["config/error_interpreter.yaml"] == "rules: source\n"
-    assert payload["custom_skills"][0]["id"] == "deploy"
+    assert payload["stored_recipes"][0]["id"] == "deploy"
 
 
 def test_restore_config_backup_payload_replaces_existing_config_snapshot(tmp_path: Path) -> None:
@@ -113,10 +113,10 @@ def test_restore_config_backup_payload_replaces_existing_config_snapshot(tmp_pat
         "security": {"enabled": True, "db_path": "data/auth/aria_secure.sqlite"},
     }
     _write_yaml(target_dir / "config" / "config.yaml", old_raw)
-    (target_dir / "prompts" / "skills").mkdir(parents=True, exist_ok=True)
+    (target_dir / "prompts" / "recipes").mkdir(parents=True, exist_ok=True)
     (target_dir / "prompts" / "persona.md").write_text("Old persona\n", encoding="utf-8")
     (target_dir / "config" / "error_interpreter.yaml").write_text("rules: old\n", encoding="utf-8")
-    target_skill_dir = target_dir / "data" / "skills"
+    target_skill_dir = target_dir / "data" / "recipes"
     target_skill_dir.mkdir(parents=True, exist_ok=True)
     (target_skill_dir / "old.json").write_text('{"id":"old","name":"Old"}\n', encoding="utf-8")
     target_store = _make_store(target_dir / "data" / "auth" / "aria_secure.sqlite")
@@ -143,11 +143,11 @@ def test_restore_config_backup_payload_replaces_existing_config_snapshot(tmp_pat
     assert target_store.get_secret("channels.api.auth_token") == "source-api-token"
     assert target_store.get_user("neo") is not None
     assert target_store.get_user("legacy") is None
-    assert (target_dir / "data" / "skills" / "deploy.json").exists()
-    assert not (target_dir / "data" / "skills" / "old.json").exists()
+    assert (target_dir / "data" / "recipes" / "deploy.json").exists()
+    assert not (target_dir / "data" / "recipes" / "old.json").exists()
     assert (target_dir / "prompts" / "persona.md").read_text(encoding="utf-8") == "Source persona\n"
     assert (target_dir / "config" / "error_interpreter.yaml").read_text(encoding="utf-8") == "rules: source\n"
-    assert summary["custom_skill_count"] == 1
+    assert summary["stored_recipe_count"] == 1
 
 
 def test_parse_config_backup_payload_rejects_invalid_prompt_paths() -> None:
@@ -155,7 +155,7 @@ def test_parse_config_backup_payload_rejects_invalid_prompt_paths() -> None:
         "schema_version": BACKUP_SCHEMA_VERSION,
         "config": {"ui": {"title": "Broken"}},
         "secure_store": {"secrets": {}, "users": []},
-        "custom_skills": [],
+        "stored_recipes": [],
         "prompt_files": {"../escape.md": "nope"},
         "support_files": {},
     }
@@ -247,11 +247,11 @@ def _build_test_config_app(base_dir: Path) -> FastAPI:
         available_languages=lambda: ["en", "de"],
         resolve_lang=lambda code, default_lang="de": code or default_lang,
         clear_i18n_cache=lambda: None,
-        load_custom_skill_manifests=lambda: ([], []),
-        custom_skill_file=lambda skill_id: (base_dir / "data" / "skills" / f"{skill_id}.json").resolve(),
-        save_custom_skill_manifest=lambda raw: raw,
+        load_stored_recipe_manifests=lambda: ([], []),
+        stored_recipe_file=lambda skill_id: (base_dir / "data" / "skills" / f"{skill_id}.json").resolve(),
+        save_stored_recipe_manifest=lambda raw: raw,
         refresh_skill_trigger_index=lambda: {},
-        format_skill_routing_info=lambda ref, kind: f"{ref}:{kind}",
+        format_recipe_routing_info=lambda ref, kind: f"{ref}:{kind}",
         suggest_skill_keywords_with_llm=_keyword_stub,
     )
     register_config_routes(app, deps)
@@ -300,7 +300,7 @@ def test_config_backup_import_route_restores_backup_and_redirects(tmp_path: Path
             "secrets": {"llm.api_key": "imported-key"},
             "users": [{"username": "imported-admin", "password_hash": "hash", "role": "admin", "active": True}],
         },
-        "custom_skills": [],
+        "stored_recipes": [],
         "prompt_files": {"prompts/persona.md": "Imported persona\n"},
         "support_files": {"config/error_interpreter.yaml": "rules: imported\n"},
     }

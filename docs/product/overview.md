@@ -8,7 +8,7 @@ It runs locally, keeps its architecture understandable, and combines:
 
 - a browser-first chat interface
 - structured memory with Qdrant
-- configurable skills and automations
+- recipe-driven automation
 - modular connections to external systems
 - explicit security and role boundaries
 
@@ -113,13 +113,13 @@ It is designed for people who want:
 - pre-alpha web search via self-hosted `SearXNG`
 - watched websites as a lighter source type for pages without RSS feeds
 
-### Skills and automation
+### Recipes and automation
 
-- custom skill manifests as JSON
-- step-based skill pipeline
-- skill wizard in the UI
-- import/export for custom skills
-- runtime execution for structured skill steps
+- stored recipe manifests as JSON
+- step-based recipe pipeline
+- recipe wizard in the UI
+- import/export for custom recipes
+- runtime execution for structured recipe steps
 
 ### Connections
 
@@ -173,7 +173,7 @@ Current ALPHA boundary:
 - ARIA is not yet a full multi-user system
 - the current user mode is a reduced working view
 - it is meant to separate everyday use from system configuration complexity
-- later ownership, sharing, and RBAC for skills and resources are planned as a dedicated architecture block
+- later ownership, sharing, and RBAC for recipes and resources are planned as a dedicated architecture block
 
 ---
 
@@ -250,4 +250,4 @@ In short:
 
 ## One-line summary
 
-**ARIA is a lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first interface built for real control instead of platform bloat.**
+**ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, and a browser-first interface built for real control instead of platform bloat.**

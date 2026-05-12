@@ -8,12 +8,12 @@ This document explains how ARIA stores knowledge, which Qdrant collections are u
 
 ## What deliberately does not go into semantic memory
 
-Not every chat message is knowledge. Operational skill triggers are therefore not stored as day-context by default.
+Not every chat message is knowledge. Operational recipe triggers are therefore not stored as day-context by default.
 
 Examples:
 
 - `systemupdate mgmt-master`
-- raw skill or tool triggers
+- raw recipe or tool triggers
 - technical control commands
 - execution prompts without lasting knowledge
 

@@ -59,7 +59,7 @@ def test_execute_custom_ssh_command_blocks_on_guardrail_deny_phrase() -> None:
     )
 
     assert result.success is False
-    assert result.error == "custom_skill_ssh_guardrail_denied:readonly-linux"
+    assert result.error == "recipe_ssh_guardrail_denied:readonly-linux"
 
 
 def test_execute_custom_ssh_command_blocks_when_guardrail_allowlist_does_not_match() -> None:
@@ -95,7 +95,7 @@ def test_execute_custom_ssh_command_blocks_when_guardrail_allowlist_does_not_mat
     )
 
     assert result.success is False
-    assert result.error == "custom_skill_ssh_guardrail_not_allowed:readonly-linux"
+    assert result.error == "recipe_ssh_guardrail_not_allowed:readonly-linux"
 
 
 def test_render_command_template_quotes_query_by_default() -> None:
@@ -139,7 +139,143 @@ def test_execute_custom_ssh_command_rejects_backtick_query() -> None:
     )
 
     assert result.success is False
-    assert result.error == "custom_skill_ssh_command_rejected"
+    assert result.error == "recipe_ssh_command_rejected"
+
+
+def test_execute_custom_ssh_command_blocks_direct_mutating_command_via_policy() -> None:
+    connection = SimpleNamespace(
+        host="127.0.0.1",
+        user="aria",
+        port=22,
+        timeout_seconds=10,
+        strict_host_key_checking="accept-new",
+        key_path="",
+        allow_commands=[],
+        guardrail_ref="",
+    )
+    runtime = _runtime(connection=connection)
+
+    result = asyncio.run(
+        runtime.execute_custom_ssh_command(
+            skill_id="direct-ssh-command",
+            skill_name="SSH Command",
+            connection_ref="test-ssh",
+            command_template="systemctl restart nginx",
+            message="restart nginx",
+        )
+    )
+
+    assert result.success is False
+    assert result.error == "recipe_ssh_policy_blocked:ssh_command_mutating_operation"
+
+
+def test_execute_custom_ssh_command_requires_confirmation_for_direct_ssh_ask_user_policy() -> None:
+    connection = SimpleNamespace(
+        host="127.0.0.1",
+        user="aria",
+        port=22,
+        timeout_seconds=10,
+        strict_host_key_checking="accept-new",
+        key_path="",
+        allow_commands=[],
+        guardrail_ref="",
+    )
+    runtime = _runtime(connection=connection)
+
+    result = asyncio.run(
+        runtime.execute_custom_ssh_command(
+            skill_id="direct-ssh-command",
+            skill_name="SSH Command",
+            connection_ref="test-ssh",
+            command_template="ps aux | grep nginx | grep -v grep",
+            message="check nginx",
+        )
+    )
+
+    assert result.success is False
+    assert result.error == "recipe_ssh_policy_confirmation_required:ssh_command_needs_confirmation"
+
+
+def test_execute_custom_ssh_command_uses_structured_allowlist_matching_for_custom_skills() -> None:
+    connection = SimpleNamespace(
+        host="127.0.0.1",
+        user="aria",
+        port=22,
+        timeout_seconds=10,
+        strict_host_key_checking="accept-new",
+        key_path="",
+        allow_commands=["df -h"],
+        guardrail_ref="",
+    )
+    runtime = _runtime(connection=connection)
+
+    result = asyncio.run(
+        runtime.execute_custom_ssh_command(
+            skill_id="test",
+            skill_name="SSH Command",
+            connection_ref="test-ssh",
+            command_template="echo df -h /",
+            message="show disk",
+        )
+    )
+
+    assert result.success is False
+    assert result.error == "recipe_ssh_not_allowed"
+
+
+def test_execute_custom_ssh_command_allows_direct_guardrail_health_bundle(monkeypatch) -> None:
+    allow_commands = [
+        "uptime -p",
+        "df -h",
+        "free -h",
+        "systemctl --failed --no-pager",
+        "journalctl -p 3 -xb --no-pager -n 40",
+    ]
+    connection = SimpleNamespace(
+        host="172.31.10.10",
+        user="aria",
+        port=22,
+        timeout_seconds=10,
+        strict_host_key_checking="accept-new",
+        key_path="",
+        allow_commands=[],
+        guardrail_ref="readonly-linux",
+    )
+    runtime = _runtime(
+        connection=connection,
+        guardrails={
+            "readonly-linux": {
+                "kind": "ssh_command",
+                "allow_terms": allow_commands,
+                "deny_terms": ["rm -rf", "shutdown"],
+            }
+        },
+    )
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (b"up 2 days\n", b"")
+
+    async def fake_create_subprocess_exec(*_args: object, **_kwargs: object) -> _Proc:
+        return _Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    command = " && ".join(allow_commands)
+    result = asyncio.run(
+        runtime.execute_custom_ssh_command(
+            skill_id="direct-ssh-command",
+            skill_name="SSH Command",
+            connection_ref="test-ssh",
+            command_template=command,
+            message="server healthcheck",
+        )
+    )
+
+    assert result.success is True
+    assert result.metadata["custom_command"] == command
 
 
 def test_extract_warning_hints_detects_common_update_warnings() -> None:
@@ -192,6 +328,8 @@ def test_execute_custom_ssh_command_hides_known_hosts_notice_from_display(monkey
     assert "STDOUT:\n08:11:09 up 43 days" in result.content
     assert "Permanently added" not in result.content
     assert "STDERR:" not in result.content
+    assert result.metadata["custom_command"] == "uptime"
+    assert "43 days" in result.metadata["custom_stdout"]
 
 
 def test_execute_custom_ssh_command_keeps_real_stderr_after_known_hosts_filter(monkeypatch) -> None:
@@ -235,6 +373,8 @@ def test_execute_custom_ssh_command_keeps_real_stderr_after_known_hosts_filter(m
     )
 
     assert result.success is False
-    assert result.error == "custom_skill_ssh_nonzero_exit"
+    assert result.error == "recipe_ssh_nonzero_exit"
     assert "Permanently added" not in result.content
     assert "STDERR:\nbash: foo: command not found" in result.content
+    assert result.metadata["custom_command"] == "foo"
+    assert "bash: foo: command not found" in result.metadata["custom_stderr"]

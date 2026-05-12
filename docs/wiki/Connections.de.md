@@ -50,7 +50,7 @@ Neuere persoenliche / wissensnahe Verbindungstypen:
   - Titel, Kurzbeschreibung, Tags und Gruppe koennen automatisch vorgeschlagen werden
 - `Google Calendar`
   - read-only ausgelegt
-  - eigener gefuehrter Setup-Flow ueber Google Cloud + OAuth Playground
+  - eigener gefuehrter Setup-Flow ueber Google Cloud + Google-Login direkt in ARIA
   - gedacht fuer Fragen wie `was steht heute an?`
 
 Nuetzliche Referenzen:

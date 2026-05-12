@@ -11,6 +11,27 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aria.core.i18n import I18NStore
+from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG
+
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+_CONFIG_WORKBENCH_I18N = I18NStore(BASE_DIR / "aria" / "i18n")
+
+
+def _request_lang(request: Request) -> str:
+    return str(getattr(request.state, "lang", "de") or "de")
+
+
+def _workbench_text(lang: str | None, key: str, default: str = "", **values: Any) -> str:
+    template = _CONFIG_WORKBENCH_I18N.t(lang or "de", f"config_workbench.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
 
 SettingsGetter = Callable[[], Any]
 PipelineGetter = Callable[[], Any]
@@ -88,6 +109,35 @@ class ConfigIntelligenceWorkbenchRouteDeps:
 
 
 def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigIntelligenceWorkbenchRouteDeps) -> None:
+    @app.get("/config/llm/debug", response_class=HTMLResponse)
+    async def config_llm_debug_page(request: Request, limit: int = 30) -> HTMLResponse:
+        settings = deps.get_settings()
+        deps.set_logical_back_url(request)
+        username = deps.get_username_from_request(request)
+        lang = _request_lang(request)
+        return deps.templates.TemplateResponse(
+            request=request,
+            name="config_llm_debug.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "config_nav": "workbench",
+                "config_page_heading": deps.msg(lang, "LLM Prompt Debug", "LLM Prompt Debug"),
+                "page_return_to": deps.config_surface_path(
+                    deps.set_logical_back_url(request),
+                    fallback="/config/workbench",
+                ),
+                "show_overview_checks": False,
+                "entries": GLOBAL_LLM_AUDIT_LOG.entries(limit=limit),
+                "limit": max(1, int(limit or 30)),
+            },
+        )
+
+    @app.post("/config/llm/debug/clear")
+    async def config_llm_debug_clear(request: Request) -> RedirectResponse:
+        GLOBAL_LLM_AUDIT_LOG.clear()
+        return deps.redirect_with_return_to("/config/llm/debug", request, fallback="/config/workbench")
+
     @app.get("/config/llm", response_class=HTMLResponse)
     async def config_llm_page(
         request: Request,
@@ -123,7 +173,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
             }
             for key, data in deps.llm_provider_presets.items()
         ]
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = _request_lang(request)
         return deps.templates.TemplateResponse(
             request=request,
             name="config_llm.html",
@@ -151,15 +201,16 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
 
     @app.post("/config/llm/profile/load")
     async def config_llm_profile_load(request: Request, profile_name: str = Form(...)) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             raw = deps.read_raw_config()
             name = deps.sanitize_profile_name(profile_name)
             if not name:
-                raise ValueError("Ungültiger Profilname.")
+                raise ValueError(_workbench_text(lang, "invalid_profile_name", "Invalid profile name."))
             llm_profiles = deps.get_profiles(raw, "llm")
             profile = llm_profiles.get(name)
             if not profile:
-                raise ValueError("LLM-Profil nicht gefunden.")
+                raise ValueError(_workbench_text(lang, "llm_profile_not_found", "LLM profile not found."))
 
             raw.setdefault("llm", {})
             raw["llm"]["model"] = str(profile.get("model", "")).strip()
@@ -193,25 +244,26 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         max_tokens: int = Form(...),
         timeout_seconds: int = Form(...),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             name = deps.sanitize_profile_name(profile_name)
             if not name:
-                raise ValueError("Ungültiger Profilname.")
+                raise ValueError(_workbench_text(lang, "invalid_profile_name", "Invalid profile name."))
 
             cleaned_model = model.strip()
             cleaned_api_key = api_key.strip()
             if not cleaned_model:
-                raise ValueError("Modell darf nicht leer sein.")
+                raise ValueError(_workbench_text(lang, "llm_model_required", "Model must not be empty."))
             if "<modellname>" in cleaned_model.lower():
-                raise ValueError("Bitte ein konkretes Modell statt Placeholder eingeben.")
+                raise ValueError(_workbench_text(lang, "llm_model_placeholder", "Please enter a concrete model instead of the placeholder."))
             if not deps.is_ollama_model(cleaned_model) and not cleaned_api_key:
-                raise ValueError("API Key ist für Nicht-Ollama-Modelle erforderlich.")
+                raise ValueError(_workbench_text(lang, "llm_api_key_required", "API key is required for non-Ollama models."))
             if temperature < 0 or temperature > 2:
-                raise ValueError("temperature muss zwischen 0 und 2 liegen.")
+                raise ValueError(_workbench_text(lang, "temperature_range", "temperature must be between 0 and 2."))
             if max_tokens <= 0:
-                raise ValueError("max_tokens muss > 0 sein.")
+                raise ValueError(_workbench_text(lang, "max_tokens_positive", "max_tokens must be greater than 0."))
             if timeout_seconds <= 0:
-                raise ValueError("timeout_seconds muss > 0 sein.")
+                raise ValueError(_workbench_text(lang, "timeout_seconds_positive", "timeout_seconds must be greater than 0."))
 
             raw = deps.read_raw_config()
             raw.setdefault("profiles", {})
@@ -255,17 +307,18 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
 
     @app.post("/config/llm/profile/delete")
     async def config_llm_profile_delete(request: Request, profile_name: str = Form(...)) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             raw = deps.read_raw_config()
             name = deps.sanitize_profile_name(profile_name)
             if not name:
-                raise ValueError("Ungültiger Profilname.")
+                raise ValueError(_workbench_text(lang, "invalid_profile_name", "Invalid profile name."))
             active = deps.get_active_profile_name(raw, "llm")
             if name == active:
-                raise ValueError("Aktives LLM-Profil kann nicht gelöscht werden.")
+                raise ValueError(_workbench_text(lang, "active_llm_profile_delete_blocked", "The active LLM profile cannot be deleted."))
             llm_profiles = deps.get_profiles(raw, "llm")
             if name not in llm_profiles:
-                raise ValueError("LLM-Profil nicht gefunden.")
+                raise ValueError(_workbench_text(lang, "llm_profile_not_found", "LLM profile not found."))
 
             del raw["profiles"]["llm"][name]
             deps.write_raw_config(raw)
@@ -275,22 +328,24 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
             return deps.redirect_with_return_to(f"/config/llm?error={quote_plus(str(exc))}", request, fallback="/config")
 
     @app.post("/config/llm/models")
-    async def config_llm_models(api_base: str = Form(...), api_key: str = Form("")) -> JSONResponse:
+    async def config_llm_models(request: Request, api_base: str = Form(...), api_key: str = Form("")) -> JSONResponse:
+        lang = _request_lang(request)
         try:
             parsed = urlparse(api_base.strip())
             if parsed.scheme not in {"http", "https"}:
-                raise ValueError("API Base muss mit http:// oder https:// beginnen.")
+                raise ValueError(_workbench_text(lang, "api_base_scheme_required", "API base must start with http:// or https://."))
             models = deps.load_models_from_api_base(api_base=api_base, api_key=api_key)
             return JSONResponse(content={"models": models})
         except ValueError as exc:
             return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.post("/config/embeddings/models")
-    async def config_embeddings_models(api_base: str = Form(...), api_key: str = Form("")) -> JSONResponse:
+    async def config_embeddings_models(request: Request, api_base: str = Form(...), api_key: str = Form("")) -> JSONResponse:
+        lang = _request_lang(request)
         try:
             parsed = urlparse(api_base.strip())
             if parsed.scheme not in {"http", "https"}:
-                raise ValueError("API Base muss mit http:// oder https:// beginnen.")
+                raise ValueError(_workbench_text(lang, "api_base_scheme_required", "API base must start with http:// or https://."))
             models = deps.load_models_from_api_base(api_base=api_base, api_key=api_key)
             return JSONResponse(content={"models": models})
         except ValueError as exc:
@@ -307,21 +362,22 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         timeout_seconds: int = Form(...),
         profile_name: str = Form(""),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             cleaned_model = model.strip()
             cleaned_api_key = api_key.strip()
             if not cleaned_model:
-                raise ValueError("Modell darf nicht leer sein.")
+                raise ValueError(_workbench_text(lang, "llm_model_required", "Model must not be empty."))
             if "<modellname>" in cleaned_model.lower():
-                raise ValueError("Bitte ein konkretes Modell statt Placeholder eingeben.")
+                raise ValueError(_workbench_text(lang, "llm_model_placeholder", "Please enter a concrete model instead of the placeholder."))
             if not deps.is_ollama_model(cleaned_model) and not cleaned_api_key:
-                raise ValueError("API Key ist für Nicht-Ollama-Modelle erforderlich.")
+                raise ValueError(_workbench_text(lang, "llm_api_key_required", "API key is required for non-Ollama models."))
             if temperature < 0 or temperature > 2:
-                raise ValueError("temperature muss zwischen 0 und 2 liegen.")
+                raise ValueError(_workbench_text(lang, "temperature_range", "temperature must be between 0 and 2."))
             if max_tokens <= 0:
-                raise ValueError("max_tokens muss > 0 sein.")
+                raise ValueError(_workbench_text(lang, "max_tokens_positive", "max_tokens must be greater than 0."))
             if timeout_seconds <= 0:
-                raise ValueError("timeout_seconds muss > 0 sein.")
+                raise ValueError(_workbench_text(lang, "timeout_seconds_positive", "timeout_seconds must be greater than 0."))
 
             raw = deps.read_raw_config()
             raw.setdefault("llm", {})
@@ -366,7 +422,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
     async def config_llm_test(request: Request) -> RedirectResponse:
         settings = deps.get_settings()
         pipeline = deps.get_pipeline()
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = _request_lang(request)
         raw = deps.read_raw_config()
         active_name = deps.get_active_profile_name(raw, "llm") or "default"
         result = await deps.probe_llm(settings.llm, usage_meter=getattr(pipeline, "usage_meter", None))
@@ -414,7 +470,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
             }
             for key, data in deps.embedding_provider_presets.items()
         ]
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = _request_lang(request)
         guard_context = await deps.embedding_memory_guard_context(username)
         return deps.templates.TemplateResponse(
             request=request,
@@ -449,15 +505,16 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         confirm_embedding_switch: str = Form(""),
         confirm_embedding_phrase: str = Form(""),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             raw = deps.read_raw_config()
             name = deps.sanitize_profile_name(profile_name)
             if not name:
-                raise ValueError("Ungültiger Profilname.")
+                raise ValueError(_workbench_text(lang, "invalid_profile_name", "Invalid profile name."))
             profiles = deps.get_profiles(raw, "embeddings")
             profile = profiles.get(name)
             if not profile:
-                raise ValueError("Embedding-Profil nicht gefunden.")
+                raise ValueError(_workbench_text(lang, "embedding_profile_not_found", "Embedding profile not found."))
             username = deps.get_username_from_request(request) or "web"
             fingerprint, resolved_model = await deps.guard_embedding_switch(
                 username=username,
@@ -500,20 +557,21 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         confirm_embedding_switch: str = Form(""),
         confirm_embedding_phrase: str = Form(""),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             name = deps.sanitize_profile_name(profile_name)
             if not name:
-                raise ValueError("Ungültiger Profilname.")
+                raise ValueError(_workbench_text(lang, "invalid_profile_name", "Invalid profile name."))
             cleaned_model = model.strip()
             cleaned_api_key = api_key.strip()
             if not cleaned_model:
-                raise ValueError("Embedding-Modell darf nicht leer sein.")
+                raise ValueError(_workbench_text(lang, "embedding_model_required", "Embedding model must not be empty."))
             if "<modellname>" in cleaned_model.lower():
-                raise ValueError("Bitte ein konkretes Embedding-Modell statt Placeholder eingeben.")
+                raise ValueError(_workbench_text(lang, "embedding_model_placeholder", "Please enter a concrete embedding model instead of the placeholder."))
             if not deps.is_ollama_model(cleaned_model) and not cleaned_api_key:
-                raise ValueError("API Key ist für Nicht-Ollama-Embedding-Modelle erforderlich.")
+                raise ValueError(_workbench_text(lang, "embedding_api_key_required", "API key is required for non-Ollama embedding models."))
             if timeout_seconds <= 0:
-                raise ValueError("timeout_seconds muss > 0 sein.")
+                raise ValueError(_workbench_text(lang, "timeout_seconds_positive", "timeout_seconds must be greater than 0."))
             username = deps.get_username_from_request(request) or "web"
             fingerprint, resolved_model = await deps.guard_embedding_switch(
                 username=username,
@@ -564,17 +622,18 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
 
     @app.post("/config/embeddings/profile/delete")
     async def config_embeddings_profile_delete(request: Request, profile_name: str = Form(...)) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             raw = deps.read_raw_config()
             name = deps.sanitize_profile_name(profile_name)
             if not name:
-                raise ValueError("Ungültiger Profilname.")
+                raise ValueError(_workbench_text(lang, "invalid_profile_name", "Invalid profile name."))
             active = deps.get_active_profile_name(raw, "embeddings")
             if name == active:
-                raise ValueError("Aktives Embedding-Profil kann nicht gelöscht werden.")
+                raise ValueError(_workbench_text(lang, "active_embedding_profile_delete_blocked", "The active embedding profile cannot be deleted."))
             profiles = deps.get_profiles(raw, "embeddings")
             if name not in profiles:
-                raise ValueError("Embedding-Profil nicht gefunden.")
+                raise ValueError(_workbench_text(lang, "embedding_profile_not_found", "Embedding profile not found."))
 
             del raw["profiles"]["embeddings"][name]
             deps.write_raw_config(raw)
@@ -594,17 +653,18 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         confirm_embedding_switch: str = Form(""),
         confirm_embedding_phrase: str = Form(""),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             cleaned_model = model.strip()
             cleaned_api_key = api_key.strip()
             if not cleaned_model:
-                raise ValueError("Embedding-Modell darf nicht leer sein.")
+                raise ValueError(_workbench_text(lang, "embedding_model_required", "Embedding model must not be empty."))
             if "<modellname>" in cleaned_model.lower():
-                raise ValueError("Bitte ein konkretes Embedding-Modell statt Placeholder eingeben.")
+                raise ValueError(_workbench_text(lang, "embedding_model_placeholder", "Please enter a concrete embedding model instead of the placeholder."))
             if not deps.is_ollama_model(cleaned_model) and not cleaned_api_key:
-                raise ValueError("API Key ist für Nicht-Ollama-Embedding-Modelle erforderlich.")
+                raise ValueError(_workbench_text(lang, "embedding_api_key_required", "API key is required for non-Ollama embedding models."))
             if timeout_seconds <= 0:
-                raise ValueError("timeout_seconds muss > 0 sein.")
+                raise ValueError(_workbench_text(lang, "timeout_seconds_positive", "timeout_seconds must be greater than 0."))
             username = deps.get_username_from_request(request) or "web"
             fingerprint, resolved_model = await deps.guard_embedding_switch(
                 username=username,
@@ -656,7 +716,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
     async def config_embeddings_test(request: Request) -> RedirectResponse:
         settings = deps.get_settings()
         pipeline = deps.get_pipeline()
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = _request_lang(request)
         raw = deps.read_raw_config()
         active_name = deps.get_active_profile_name(raw, "embeddings") or "default"
         result = await deps.probe_embeddings(settings.embeddings, usage_meter=getattr(pipeline, "usage_meter", None))
@@ -673,7 +733,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
 
     @app.get("/config/files", response_class=HTMLResponse)
     async def config_files_page(request: Request, file: str | None = None, saved: int = 0, error: str = "") -> HTMLResponse:
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = _request_lang(request)
         entries = deps.list_file_editor_entries()
         rows = deps.build_editor_entries_from_paths(deps.base_dir, [row["path"] for row in entries], deps.resolve_file_editor_file)
         entry_map = {row["path"]: row for row in entries}
@@ -689,7 +749,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
             try:
                 selected_path = deps.resolve_file_editor_file(selected)
                 if not selected_path.exists():
-                    raise ValueError("Datei existiert nicht.")
+                    raise ValueError(_workbench_text(lang, "file_not_found", "File does not exist."))
                 content = selected_path.read_text(encoding="utf-8")
             except (OSError, ValueError) as exc:
                 error = str(exc)
@@ -702,7 +762,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
             logical_back_fallback="/config/workbench",
             page_return_to="/config/workbench",
             config_nav="workbench",
-            page_heading=deps.msg(lang, "Datei-Editor", "File editor"),
+            page_heading=_workbench_text(lang, "file_editor_heading", "File editor"),
         )
         context.update(
             {
@@ -721,7 +781,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
 
     @app.get("/config/error-interpreter", response_class=HTMLResponse)
     async def config_error_interpreter_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
-        lang = str(getattr(request.state, "lang", "de") or "de")
+        lang = _request_lang(request)
         content = ""
         category_count = 0
         try:
@@ -739,7 +799,7 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
             logical_back_fallback="/config/workbench",
             page_return_to="/config/workbench",
             config_nav="workbench",
-            page_heading=deps.msg(lang, "Error Interpreter", "Error interpreter"),
+            page_heading=_workbench_text(lang, "error_interpreter_heading", "Error interpreter"),
         )
         context.update(
             {
@@ -760,24 +820,25 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         content: str = Form(...),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             parsed = yaml.safe_load(content) or {}
             if not isinstance(parsed, dict):
-                raise ValueError("Die Regeldatei muss ein YAML-Objekt enthalten.")
+                raise ValueError(_workbench_text(lang, "rules_yaml_object_required", "The rules file must contain a YAML object."))
             rules = parsed.get("rules", [])
             if not isinstance(rules, list):
-                raise ValueError("`rules` muss eine Liste sein.")
+                raise ValueError(_workbench_text(lang, "rules_list_required", "`rules` must be a list."))
             for idx, row in enumerate(rules, start=1):
                 if not isinstance(row, dict):
-                    raise ValueError(f"Regel {idx} ist kein Objekt.")
+                    raise ValueError(_workbench_text(lang, "rule_not_object", "Rule {idx} is not an object.", idx=idx))
                 if not str(row.get("id", "")).strip():
-                    raise ValueError(f"Regel {idx} hat keine ID.")
+                    raise ValueError(_workbench_text(lang, "rule_missing_id", "Rule {idx} has no ID.", idx=idx))
                 patterns = row.get("patterns", [])
                 messages = row.get("messages", {})
                 if not isinstance(patterns, list):
-                    raise ValueError(f"Regel {idx}: `patterns` muss eine Liste sein.")
+                    raise ValueError(_workbench_text(lang, "rule_patterns_list_required", "Rule {idx}: `patterns` must be a list.", idx=idx))
                 if not isinstance(messages, dict):
-                    raise ValueError(f"Regel {idx}: `messages` muss ein Objekt sein.")
+                    raise ValueError(_workbench_text(lang, "rule_messages_object_required", "Rule {idx}: `messages` must be an object.", idx=idx))
             deps.error_interpreter_path.write_text(content, encoding="utf-8")
             deps.reload_runtime()
             return deps.redirect_with_return_to(
@@ -801,18 +862,20 @@ def register_config_intelligence_workbench_routes(app: FastAPI, deps: ConfigInte
         content: str = Form(...),
         return_to: str = Form(""),
     ) -> RedirectResponse:
+        lang = _request_lang(request)
         try:
             target = deps.resolve_edit_file(file)
             if not target.exists():
-                raise ValueError("Datei existiert nicht.")
+                raise ValueError(_workbench_text(lang, "file_not_found", "File does not exist."))
             _saved, reload_message = deps.save_text_file_and_maybe_reload(target, content)
             target_url = f"/config/files?file={quote_plus(file)}&saved=1"
             if reload_message:
                 target_url += f"&error={quote_plus(reload_message)}"
             return deps.redirect_with_return_to(target_url, request, fallback="/config", return_to=return_to)
         except (OSError, ValueError) as exc:
-            lang = str(getattr(request.state, "lang", "de") or "de")
-            error = deps.friendly_route_error(lang, exc, "Datei konnte nicht gespeichert werden.", "Could not save file.")
+            lang = _request_lang(request)
+            fallback = _workbench_text(lang, "file_save_failed", "Could not save file.")
+            error = deps.friendly_route_error(lang, exc, fallback, fallback)
             return deps.redirect_with_return_to(
                 f"/config/files?file={quote_plus(file)}&error={quote_plus(error)}",
                 request,

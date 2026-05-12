@@ -91,7 +91,7 @@ Zielbild:
   - Discord als eigener Channel, nicht nur Webhook-Ziel
   - später weitere Chat-/Messaging-Kanäle
 - Streaming/SSE für Live-Antworten im Web-UI und API prüfen
-- sauberer Event-/Status-Flow für längere Skill-Runs
+- sauberer Event-/Status-Flow für laengere Recipe-Runs
 
 ## Routing 2.0
 
@@ -99,13 +99,13 @@ Zielbild:
   - Embedding-/Similarity-Routing
   - optional LLM-Klassifikation als Fallback
 - Overmatching bei generischen Prompts weiter reduzieren
-- Skill-/Connection-Routing transparenter erklärbar machen
+- Recipe-/Connection-Routing transparenter erklärbar machen
 - Alias-/Beschreibung-/Tag-Qualität stärker nutzbar machen
 
 ## Security / Sharing / Multi-User
 
 - echtes Ownership-/Sharing-Modell für:
-  - Skills
+  - Recipes
   - Connections
   - Memories
 - Rollen-/RBAC-Ausbau über den aktuellen Admin/User-Modus hinaus
@@ -124,8 +124,8 @@ Zielbild:
 
 - Help-System schrittweise zu kontextsensitiver Inline-Hilfe ausbauen
 - mögliche UI-Update-Aktion später host-/containerbewusst ergänzen, nicht als blinden In-App-Updater
-- mehr Guided-Onboarding für First Run und Skill-Bau
-- Memory- und Skill-UX weiter vereinfachen
+- mehr Guided-Onboarding für First Run und Recipe-Aufbau
+- Memory- und Recipe-UX weiter vereinfachen
 - zusätzliche Themes nur dort ergänzen, wo sie wirklich Qualität bringen
 - Accessibility und Mobile/Safari weiter glätten
 - GitHub Wiki und Docker-Hub-Landingpages später noch kompakter und schöner kuratieren

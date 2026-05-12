@@ -26,7 +26,7 @@ async def _fake_embedding(self, inputs, **kwargs):
 
 
 async def _build_ok_result(tmp_path: Path, monkeypatch) -> dict[str, object]:
-    prompts_dir = tmp_path / "prompts" / "skills"
+    prompts_dir = tmp_path / "prompts" / "recipes"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     (tmp_path / "prompts" / "persona.md").write_text("Name: NOVA\n", encoding="utf-8")
     (prompts_dir / "memory.md").write_text("# prompt\n", encoding="utf-8")
@@ -44,7 +44,7 @@ async def _build_ok_result(tmp_path: Path, monkeypatch) -> dict[str, object]:
         {
             "llm": {"model": "fake-chat"},
             "embeddings": {"model": "fake-embed"},
-            "prompts": {"persona": "prompts/persona.md", "skills_dir": "prompts/skills"},
+            "prompts": {"persona": "prompts/persona.md", "skills_dir": "prompts/recipes"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
         }
     )
@@ -63,12 +63,12 @@ def test_build_runtime_diagnostics_returns_ok_when_all_checks_pass(tmp_path, mon
 
 
 def test_probe_prompt_files_reports_missing_persona(tmp_path) -> None:
-    prompts_dir = tmp_path / "prompts" / "skills"
+    prompts_dir = tmp_path / "prompts" / "recipes"
     prompts_dir.mkdir(parents=True, exist_ok=True)
 
     result = runtime_diagnostics.probe_prompt_files(
         tmp_path,
-        SimpleNamespace(persona="prompts/persona.md", skills_dir="prompts/skills"),
+        SimpleNamespace(persona="prompts/persona.md", skills_dir="prompts/recipes"),
     )
 
     assert result["status"] == "error"

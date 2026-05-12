@@ -8,10 +8,22 @@ from typing import Any, Callable
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
+from aria.core.i18n import I18NStore
 from aria.core.routing_lexicon import get_default_routing_languages
 from aria.core.routing_lexicon import get_default_routing_profile
 
 DEFAULT_SEARXNG_BASE_URL = "http://searxng:8080"
+_CONFIG_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _config_text(key: str, default: str = "", **values: object) -> str:
+    template = _CONFIG_I18N.t("de", f"config.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def resolve_searxng_base_url(value: str | None = None) -> str:
@@ -56,7 +68,7 @@ class MemoryConfig(BaseModel):
     embedding_fingerprint: str = ""
     embedding_model: str = ""
     top_k: int = 3
-    compression_summary_prompt: str = "prompts/skills/memory_compress.md"
+    compression_summary_prompt: str = "prompts/recipes/memory_compress.md"
     collections: "MemoryCollectionsConfig" = Field(default_factory=lambda: MemoryCollectionsConfig())
 
 
@@ -194,7 +206,7 @@ class RoutingConfig(BaseModel):
 
 class PromptConfig(BaseModel):
     persona: str = "prompts/persona.md"
-    skills_dir: str = "prompts/skills/"
+    skills_dir: str = "prompts/recipes/"
 
 
 UI_THEME_OPTIONS = (
@@ -383,6 +395,10 @@ class PricingConfig(BaseModel):
     last_updated: str = ""
     default_source_name: str = ""
     default_source_url: str = ""
+    source: str = "litellm_github"
+    litellm_cache_file: str = "data/pricing/litellm_model_prices.json"
+    refresh_interval_days: int = 7
+    model_aliases: dict[str, str] = Field(default_factory=dict)
     chat_models: dict[str, ChatPricingModelConfig] = Field(default_factory=dict)
     embedding_models: dict[str, EmbeddingPricingModelConfig] = Field(default_factory=dict)
 
@@ -514,6 +530,12 @@ class SearXNGConnectionConfig(ConnectionMetaConfig):
     max_results: int = 5
 
 
+class WebsiteConnectionConfig(ConnectionMetaConfig):
+    url: str = ""
+    group_name: str = ""
+    timeout_seconds: int = 10
+
+
 class RSSRuntimeConfig(BaseModel):
     poll_interval_minutes: int = 60
 
@@ -540,6 +562,7 @@ class ConnectionsConfig(BaseModel):
     google_calendar: dict[str, GoogleCalendarConnectionConfig] = Field(default_factory=dict)
     rss: dict[str, RSSConnectionConfig] = Field(default_factory=dict)
     searxng: dict[str, SearXNGConnectionConfig] = Field(default_factory=dict)
+    website: dict[str, WebsiteConnectionConfig] = Field(default_factory=dict)
     mqtt: dict[str, MQTTConnectionConfig] = Field(default_factory=dict)
 
 
@@ -993,6 +1016,8 @@ def load_settings(config_path: str | Path = "config/config.yaml") -> Settings:
             raw["auto_memory"] = nested_auto_memory
     pricing_section = raw.get("pricing")
     if isinstance(pricing_section, dict):
+        if pricing_section.get("model_aliases") is None:
+            pricing_section["model_aliases"] = {}
         if pricing_section.get("chat_models") is None:
             pricing_section["chat_models"] = {}
         if pricing_section.get("embedding_models") is None:
@@ -1007,4 +1032,4 @@ def load_settings(config_path: str | Path = "config/config.yaml") -> Settings:
     try:
         return Settings.model_validate(merged)
     except ValidationError as exc:
-        raise ValueError(f"Ungültige Konfiguration in {path}: {exc}") from exc
+        raise ValueError(_config_text("invalid_configuration", "Invalid configuration in {path}: {error}", path=path, error=exc)) from exc

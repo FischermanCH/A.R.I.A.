@@ -10,6 +10,7 @@ import yaml
 
 from aria.core.connection_admin import CONNECTION_ADMIN_SPECS
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.i18n import I18NStore
 from aria.web.config_misc_helpers import (
     embedding_fingerprint_for_values,
     embedding_switch_requires_confirmation,
@@ -23,6 +24,17 @@ from aria.web.connection_support_helpers import (
 )
 
 EMBEDDING_SWITCH_CONFIRM_PHRASE = "EMBEDDINGS WECHSELN"
+_CONFIG_PROFILE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _profile_text(language: str | None, key: str, default: str = "", **values: Any) -> str:
+    template = _CONFIG_PROFILE_I18N.t(language or "de", f"config_profile_helpers.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(slots=True)
@@ -105,23 +117,29 @@ class ConfigProfileHelpers:
             typed_phrase = str(confirm_phrase or "").strip().upper()
             if not confirmed or typed_phrase != EMBEDDING_SWITCH_CONFIRM_PHRASE:
                 raise ValueError(
-                    "Embedding-Wechsel blockiert: Vorhandenes Memory/RAG wurde mit einem anderen Embedding-Fingerprint erstellt. "
-                    f"Bitte zuerst exportieren ({guard['export_url']}) und den Wechsel bewusst bestaetigen "
-                    f"({EMBEDDING_SWITCH_CONFIRM_PHRASE})."
+                    _profile_text(
+                        "de",
+                        "embedding_switch_blocked",
+                        "Embedding switch blocked: existing memory/RAG was created with a different embedding fingerprint. Export first ({export_url}) and explicitly confirm the switch ({confirm_phrase}).",
+                        export_url=guard["export_url"],
+                        confirm_phrase=EMBEDDING_SWITCH_CONFIRM_PHRASE,
+                    )
                 )
         return new_fingerprint, resolved_model
 
     def connection_saved_test_info(self, kind_label: str, lang: str, *, success: bool) -> str:
         if success:
-            return self.msg(
+            return _profile_text(
                 lang,
-                f"{kind_label}-Profil gespeichert · Verbindung erfolgreich getestet",
-                f"{kind_label} profile saved · connection test succeeded",
+                "connection_saved_test_ok",
+                "{kind_label} profile saved · connection test succeeded",
+                kind_label=kind_label,
             )
-        return self.msg(
+        return _profile_text(
             lang,
-            f"{kind_label}-Profil gespeichert · Verbindungstest fehlgeschlagen",
-            f"{kind_label} profile saved · connection test failed",
+            "connection_saved_test_failed",
+            "{kind_label} profile saved · connection test failed",
+            kind_label=kind_label,
         )
 
     def active_profile_runtime_meta(self, raw: dict[str, Any], kind: str) -> dict[str, str]:
@@ -143,31 +161,36 @@ class ConfigProfileHelpers:
         active = str(active_name or "default").strip() or "default"
         detail = str(result.get("detail", "") or "").strip()
         if str(result.get("status", "")).strip().lower() == "ok":
-            return self.msg(
+            return _profile_text(
                 lang,
-                f"{label} „{active}“ erfolgreich getestet.",
-                f"{label} '{active}' tested successfully.",
+                "profile_test_ok",
+                "{label} '{active}' tested successfully.",
+                label=label,
+                active=active,
             )
-        return self.msg(
+        return _profile_text(
             lang,
-            f"{label} „{active}“ Test fehlgeschlagen: {detail or '-'}",
-            f"{label} '{active}' test failed: {detail or '-'}",
+            "profile_test_failed",
+            "{label} '{active}' test failed: {detail}",
+            label=label,
+            active=active,
+            detail=detail or "-",
         )
 
     def import_sample_connection_manifest(self, sample_file: str) -> tuple[str, int, int]:
         clean_name = Path(str(sample_file or "").strip()).name
         if not clean_name or not clean_name.endswith(".sample.yaml"):
-            raise ValueError("Unbekanntes Sample-Connection-Profil.")
+            raise ValueError(_profile_text("de", "sample_unknown", "Unknown sample connection profile."))
         sample_path = SAMPLE_CONNECTIONS_DIR / clean_name
         if not sample_path.exists() or not sample_path.is_file():
-            raise ValueError("Sample-Connection nicht gefunden.")
+            raise ValueError(_profile_text("de", "sample_missing", "Sample connection not found."))
         payload = yaml.safe_load(sample_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            raise ValueError("Sample-Import erwartet ein YAML-Objekt.")
+            raise ValueError(_profile_text("de", "sample_not_object", "Sample import expects a YAML object."))
 
         sample_connections = payload.get("connections")
         if not isinstance(sample_connections, dict) or not sample_connections:
-            raise ValueError("Sample-Connection enthält keine Connections.")
+            raise ValueError(_profile_text("de", "sample_no_connections", "Sample connection contains no connections."))
 
         raw = self._deps.read_raw_config()
         raw.setdefault("connections", {})
@@ -197,9 +220,9 @@ class ConfigProfileHelpers:
                 imported_count += 1
 
         if not primary_kind:
-            raise ValueError("Sample-Connection-Typ ist nicht unterstützt.")
+            raise ValueError(_profile_text("de", "sample_kind_unsupported", "Sample connection type is not supported."))
         if imported_count <= 0 and skipped_count <= 0:
-            raise ValueError("Sample-Connection enthält keine importierbaren Profile.")
+            raise ValueError(_profile_text("de", "sample_no_importable_profiles", "Sample connection contains no importable profiles."))
         self._deps.write_raw_config(raw)
         self._deps.reload_runtime()
         return primary_kind, imported_count, skipped_count

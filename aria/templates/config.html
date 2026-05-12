@@ -87,7 +87,7 @@
     <div class="config-submenu">
       <a class="config-submenu-item" href="/config/prompts?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.prompt_title', 'Prompt Studio') }}</span><span class="submenu-desc">{{ tr(request, 'config.prompt_desc', 'Edit persona and skill prompts directly in the browser.') }}</span></span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.prompt_title', 'Prompt Studio') }}</span><span class="submenu-desc">{{ tr(request, 'config.prompt_desc', 'Edit persona and recipe prompts directly in the browser.') }}</span></span>
       </a>
       <a class="config-submenu-item" href="/config/appearance?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('appearance', 'submenu-icon') }}</span>
@@ -179,7 +179,7 @@
   {% call config_section(
     tr(request, 'config.workbench_title', 'Workbench (Advanced)'),
     tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.'),
-    3,
+    4,
     False,
     'config-workbench'
   ) %}
@@ -195,6 +195,10 @@
       <a class="config-submenu-item" href="/config/error-interpreter?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/config/llm/debug?return_to=%2Fconfig">
+        <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'llm_debug.title', 'LLM Prompt Debug') }}</span><span class="submenu-desc">{{ tr(request, 'llm_debug.menu_desc', 'Inspect recent prompts, responses, source, operation, and token usage from the central LLM gateway.') }}</span></span>
       </a>
     </div>
   {% endcall %}

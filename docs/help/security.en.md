@@ -66,7 +66,7 @@ For a clean public-repo and container workflow, these stay local:
 - `config/secrets.env`
 - `data/auth/`
 - `data/logs/`
-- `data/skills/`
+- `data/recipes/`
 
 The repo should only contain examples such as:
 

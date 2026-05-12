@@ -10,6 +10,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from aria.core.i18n import I18NStore
 from aria.core.notes_context import search_note_hits
 from aria.core.notes_index import NotesIndex
 from aria.core.notes_store import NoteRecord, NotesStore, NotesStoreError
@@ -33,6 +34,17 @@ class NotesRouteDeps:
 
 _ALL_FOLDER_TOKEN = "__all__"
 _ROOT_FOLDER_TOKEN = "__root__"
+_NOTES_ROUTES_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _notes_route_text(language: str, key: str, default: str = "", **values: object) -> str:
+    template = _NOTES_ROUTES_I18N.t(language, f"notes_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def _folder_token(folder: str) -> str:
@@ -49,7 +61,7 @@ def _folder_matches(note: NoteRecord, selected_folder: str) -> bool:
     return clean_folder == selected_folder or clean_folder.startswith(f"{selected_folder}/")
 
 
-def _folder_rows(notes: list[NoteRecord], folders: list[str]) -> list[dict[str, Any]]:
+def _folder_rows(notes: list[NoteRecord], folders: list[str], *, language: str = "de") -> list[dict[str, Any]]:
     exact_counts: dict[str, int] = {}
     branch_counts: dict[str, int] = {_ALL_FOLDER_TOKEN: len(notes), _ROOT_FOLDER_TOKEN: 0}
     for note in notes:
@@ -67,7 +79,7 @@ def _folder_rows(notes: list[NoteRecord], folders: list[str]) -> list[dict[str, 
         {
             "token": _ALL_FOLDER_TOKEN,
             "folder": "",
-            "label": "Alle Notizen",
+            "label": _notes_route_text(language, "all_notes", "All notes"),
             "depth": 0,
             "count": branch_counts.get(_ALL_FOLDER_TOKEN, 0),
             "is_special": True,
@@ -140,6 +152,7 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
     ) -> HTMLResponse:
         settings = deps.get_settings()
         username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
         store = _store()
         notes = store.list_notes(username)
         folders = store.list_folders(username)
@@ -160,7 +173,7 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
                 "username": username,
                 "notes_nav": "notes",
                 "notes": notes,
-                "note_folder_rows": _folder_rows(notes, folders),
+                "note_folder_rows": _folder_rows(notes, folders, language=lang),
                 "board_notes": board_notes,
                 "note_folders": folders,
                 "selected_note": selected_note,
@@ -191,6 +204,8 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
         username = deps.get_username_from_request(request) or "web"
         selected = str(note or "").strip()
         selected_folder = str(folder or _ALL_FOLDER_TOKEN).strip() or _ALL_FOLDER_TOKEN
+        if selected_folder not in {_ALL_FOLDER_TOKEN, _ROOT_FOLDER_TOKEN}:
+            selected_folder = _store().resolve_folder_name(username, selected_folder)
         search_query = str(q or "").strip()
         info_message = str(info or "").strip()
         error_message = str(error or "").strip()
@@ -277,19 +292,30 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
         body: str = Form(""),
     ) -> RedirectResponse:
         username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
         store = _store()
         try:
             note = store.save_note(username, note_id=note_id, title=title, folder=folder, tags=tags, body=body)
         except NotesStoreError as exc:
             return RedirectResponse(url=f"/notes?error={quote_plus(str(exc))}", status_code=303)
-        info_message = "Notiz gespeichert."
+        info_message = _notes_route_text(lang, "note_saved", "Note saved.")
         notes_index = _index()
         try:
             result = await notes_index.reindex_note(note)
             if result.get("indexed"):
-                info_message = f"Notiz gespeichert. Qdrant-Index aktualisiert ({int(result.get('chunk_count', 0) or 0)} Chunks)."
+                info_message = _notes_route_text(
+                    lang,
+                    "note_saved_indexed",
+                    "Note saved. Qdrant index updated ({chunk_count} chunks).",
+                    chunk_count=int(result.get("chunk_count", 0) or 0),
+                )
         except Exception as exc:
-            info_message = f"Notiz gespeichert. Qdrant-Index konnte nicht aktualisiert werden: {exc}"
+            info_message = _notes_route_text(
+                lang,
+                "note_saved_index_failed",
+                "Note saved. Qdrant index could not be updated: {error}",
+                error=exc,
+            )
         finally:
             close = getattr(notes_index, "aclose", None)
             if callable(close):
@@ -303,18 +329,24 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
     @app.post("/notes/delete")
     async def notes_delete(request: Request, note_id: str = Form("")) -> RedirectResponse:
         username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
         store = _store()
         try:
             note = store.delete_note(username, note_id)
         except NotesStoreError as exc:
             return RedirectResponse(url=f"/notes?error={quote_plus(str(exc))}", status_code=303)
-        info_message = "Notiz gelöscht."
+        info_message = _notes_route_text(lang, "note_deleted", "Note deleted.")
         notes_index = _index()
         try:
             await notes_index.delete_note(user_id=username, note_id=note.note_id)
-            info_message = "Notiz gelöscht. Qdrant-Index bereinigt."
+            info_message = _notes_route_text(lang, "note_deleted_index_cleaned", "Note deleted. Qdrant index cleaned.")
         except Exception as exc:
-            info_message = f"Notiz gelöscht. Qdrant-Index konnte nicht bereinigt werden: {exc}"
+            info_message = _notes_route_text(
+                lang,
+                "note_deleted_index_failed",
+                "Note deleted. Qdrant index could not be cleaned: {error}",
+                error=exc,
+            )
         finally:
             close = getattr(notes_index, "aclose", None)
             if callable(close):
@@ -324,13 +356,38 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
     @app.post("/notes/folders/create")
     async def notes_create_folder(request: Request, folder: str = Form("")) -> RedirectResponse:
         username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
         store = _store()
         try:
             created = store.create_folder(username, folder)
         except NotesStoreError as exc:
             return RedirectResponse(url=f"/notes?error={quote_plus(str(exc))}", status_code=303)
+        info_message = _notes_route_text(lang, "folder_created", "Folder {folder} created.", folder=created)
         return RedirectResponse(
-            url=f"/notes?folder={quote_plus(created)}&new=1&info={quote_plus(f'Ordner {created} angelegt.')}",
+            url=f"/notes?folder={quote_plus(created)}&new=1&info={quote_plus(info_message)}",
+            status_code=303,
+        )
+
+    @app.post("/notes/folders/rename")
+    async def notes_rename_folder(
+        request: Request,
+        folder: str = Form(""),
+        new_folder: str = Form(""),
+    ) -> RedirectResponse:
+        username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        store = _store()
+        try:
+            renamed = store.rename_folder(username, folder=folder, new_folder=new_folder)
+        except NotesStoreError as exc:
+            fallback_folder = str(folder or _ALL_FOLDER_TOKEN).strip() or _ALL_FOLDER_TOKEN
+            return RedirectResponse(
+                url=f"/notes?folder={quote_plus(fallback_folder)}&error={quote_plus(str(exc))}",
+                status_code=303,
+            )
+        info_message = _notes_route_text(lang, "folder_renamed", "Folder renamed: {folder}", folder=renamed)
+        return RedirectResponse(
+            url=f"/notes?folder={quote_plus(renamed)}&info={quote_plus(info_message)}",
             status_code=303,
         )
 

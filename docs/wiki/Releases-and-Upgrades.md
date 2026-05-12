@@ -24,11 +24,15 @@ cd /opt/aria/aria
 ./aria-stack.sh logs
 ```
 
+Normal `aria-stack.sh update` refreshes/recreates only the `aria` service. It deliberately leaves stateful sidecars such as Qdrant, SearXNG, Valkey, and existing volumes alone.
+
 If a release changes the stack layout itself, for example by adding a new sidecar service, use:
 
 ```bash
 aria-setup upgrade --install-dir /opt/aria/aria
 ```
+
+Use `./aria-stack.sh update-all` or `./aria-stack.sh repair` only when release notes or recovery instructions explicitly call for full-stack work.
 
 Managed installs can also expose a controlled browser update on:
 
@@ -49,8 +53,8 @@ This path uses:
 Normal update:
 
 ```bash
-docker compose -f docker-compose.public.yml pull
-docker compose -f docker-compose.public.yml up -d
+docker compose -f docker-compose.public.yml pull aria
+docker compose -f docker-compose.public.yml up -d --no-deps --force-recreate aria
 ```
 
 Rules:
@@ -104,12 +108,15 @@ Main commands:
 - `docker/aria-host-update.sh detect`
 - `docker/aria-host-update.sh update --project <name> --dry-run`
 - `docker/aria-host-update.sh update --project <name>`
+- `docker/aria-host-update.sh update --project <name> --target-image fischermanch/aria:<version>`
 
 What it does:
 
 - detects Compose-based ARIA stacks on the host
 - updates only the `aria` service of the selected project
 - intentionally leaves `qdrant`, `searxng`, `valkey`, and volumes alone
+- refreshes managed stack helper files from the target image before recreating `aria`, so old managed installs get the safer current `aria-stack.sh`
+- preflights the intended published host port before recreating `aria`, so a port conflict aborts safely before the running service is touched
 
 For internal local stacks it loads the newest internal TAR.
 
@@ -117,6 +124,8 @@ For registry-based Compose stacks it uses:
 
 - `docker compose pull aria`
 - then a targeted ARIA service recreate
+
+For older public installs pinned to a fixed image tag, use `--target-image` once to move the stack to the new release tag without running the old in-stack update helper.
 
 Template:
 

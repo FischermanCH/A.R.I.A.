@@ -20,6 +20,8 @@ class ConnectionMutationRouteDeps:
     imap_save: Any
     http_api_save: Any
     google_calendar_save: Any
+    google_calendar_oauth_start: Any
+    google_calendar_oauth_callback: Any
     searxng_save: Any
     rss_save: Any
     website_save: Any
@@ -341,7 +343,7 @@ def register_connection_mutation_routes(app: FastAPI, deps: ConnectionMutationRo
     @app.post("/config/connections/google-calendar/save")
     async def config_google_calendar_connections_save(
         request: Request,
-        connection_ref: str = Form(...),
+        connection_ref: str = Form(""),
         original_ref: str = Form(""),
         connection_title: str = Form(""),
         connection_description: str = Form(""),
@@ -352,6 +354,7 @@ def register_connection_mutation_routes(app: FastAPI, deps: ConnectionMutationRo
         client_secret: str = Form(""),
         refresh_token: str = Form(""),
         timeout_seconds: int = Form(10),
+        oauth_client_file: UploadFile | None = File(None),
     ) -> RedirectResponse:
         return await deps.google_calendar_save(
             request,
@@ -366,6 +369,51 @@ def register_connection_mutation_routes(app: FastAPI, deps: ConnectionMutationRo
             client_secret,
             refresh_token,
             timeout_seconds,
+            oauth_client_file,
+        )
+
+    @app.post("/config/connections/google-calendar/oauth/start")
+    async def config_google_calendar_oauth_start(
+        request: Request,
+        connection_ref: str = Form(""),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        calendar_id: str = Form("primary"),
+        client_id: str = Form(""),
+        client_secret: str = Form(""),
+        timeout_seconds: int = Form(10),
+        oauth_client_file: UploadFile | None = File(None),
+    ) -> RedirectResponse:
+        return await deps.google_calendar_oauth_start(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            calendar_id,
+            client_id,
+            client_secret,
+            timeout_seconds,
+            oauth_client_file,
+        )
+
+    @app.get("/config/connections/google-calendar/oauth/callback")
+    async def config_google_calendar_oauth_callback(
+        request: Request,
+        state: str = "",
+        code: str = "",
+        error: str = "",
+    ) -> RedirectResponse:
+        return await deps.google_calendar_oauth_callback(
+            request,
+            state,
+            code,
+            error,
         )
 
     @app.post("/config/connections/searxng/save")

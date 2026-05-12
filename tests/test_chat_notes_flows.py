@@ -98,6 +98,111 @@ def test_chat_notes_flow_can_search_notes(tmp_path: Path):
     assert "/notes?note=" in outcome.assistant_text
 
 
+def test_chat_notes_flow_can_list_note_folders(tmp_path: Path):
+    import asyncio
+
+    store = chat_notes_flows._store(tmp_path)
+    store.save_note("neo", title="Qdrant Plan", folder="Projekte/ARIA", body="Reindex")
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="zeige ordner in notizen",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert "Projekte/ARIA" in outcome.assistant_text
+
+
+def test_chat_notes_flow_can_list_notes_in_folder(tmp_path: Path):
+    import asyncio
+
+    store = chat_notes_flows._store(tmp_path)
+    store.save_note("neo", title="Qdrant Plan", folder="Projekte/ARIA", body="Reindex")
+    store.save_note("neo", title="Other", folder="Inbox", body="Else")
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="zeige notizen in Projekte/ARIA",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert "Qdrant Plan" in outcome.assistant_text
+    assert "Other" not in outcome.assistant_text
+
+
+def test_chat_notes_flow_can_open_notes_folder_without_falling_through(tmp_path: Path):
+    import asyncio
+
+    store = chat_notes_flows._store(tmp_path)
+    store.save_note("neo", title="Area41 Status", folder="area41", body="Nur Notes, kein SFTP.")
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="öffne notizen in ordner area41",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert "/notes?folder=area41" in outcome.assistant_text
+    assert "Area41 Status" in outcome.assistant_text
+
+
+def test_chat_notes_flow_resolves_folder_case_insensitively(tmp_path: Path):
+    import asyncio
+
+    store = chat_notes_flows._store(tmp_path)
+    store.save_note("neo", title="Area41 Status", folder="Area41", body="Nur Notes, kein SFTP.")
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="öffne notizen in ordner area41",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert "/notes?folder=Area41" in outcome.assistant_text
+    assert "Area41 Status" in outcome.assistant_text
+
+
+def test_chat_notes_flow_can_open_note_by_query(tmp_path: Path):
+    import asyncio
+
+    store = chat_notes_flows._store(tmp_path)
+    store.save_note("neo", title="Qdrant Plan", folder="Projekte/ARIA", body="Reindex und Chunking fuer Notes")
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="öffne notiz qdrant",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert "Qdrant Plan" in outcome.assistant_text
+    assert "/notes?note=" in outcome.assistant_text
+
+
 def test_chat_notes_flow_can_use_notes_as_web_context(tmp_path: Path, monkeypatch):
     import asyncio
 

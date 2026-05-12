@@ -4,7 +4,7 @@
 
 # ARIA
 
-Lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first UI.
+Lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first UI.
 
 **GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
@@ -38,11 +38,11 @@ Lean, modular, self-hosted AI assistant with memory, skills, secure connections,
 </details>
 
 <details>
-  <summary><strong>Skills and automations</strong></summary>
+  <summary><strong>Recipes and automations</strong></summary>
   <p>
-    <a href="docs/assets/screenshots/04-aria-skills.png"><img src="docs/assets/screenshots/04-aria-skills.png" alt="ARIA skills overview" width="260"></a>
-    <a href="docs/assets/screenshots/04-aria-skills-discord.png"><img src="docs/assets/screenshots/04-aria-skills-discord.png" alt="ARIA Discord skill sample" width="260"></a>
-    <a href="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png"><img src="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png" alt="ARIA Linux fleet healthcheck skill" width="260"></a>
+    <a href="docs/assets/screenshots/04-aria-skills.png"><img src="docs/assets/screenshots/04-aria-skills.png" alt="ARIA recipes overview" width="260"></a>
+    <a href="docs/assets/screenshots/04-aria-skills-discord.png"><img src="docs/assets/screenshots/04-aria-skills-discord.png" alt="ARIA Discord recipe sample" width="260"></a>
+    <a href="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png"><img src="docs/assets/screenshots/04-aria-skills-linux-fleet-hc.png" alt="ARIA Linux fleet healthcheck recipe" width="260"></a>
   </p>
 </details>
 
@@ -84,7 +84,8 @@ It combines:
 
 - a browser-first chat UI
 - structured memory with Qdrant
-- configurable skills and automations
+- recipe-driven automation
+- LLM-assisted action planning
 - modular connections to real systems
 - explicit security and role boundaries
 
@@ -108,7 +109,7 @@ human direction, AI acceleration, shared iteration, and a lot of stubborn refine
 - ARIA ALPHA is currently **primarily a personal single-user system**
 - User mode is a reduced everyday working view
 - Advanced configuration stays behind Admin mode
-- Full ownership / sharing / RBAC for skills, connections, and memories is planned as a later architecture step
+- Full ownership / sharing / RBAC for recipes, connections, and memories is planned as a later architecture step
 - ARIA ALPHA is intended for **LAN / VPN / homelab**, not direct public internet exposure
 
 ## Who this ALPHA is for
@@ -130,7 +131,7 @@ Not the current target:
 ## Current implementation snapshot
 
 - Chat UI at `/`
-- Deterministic routing plus custom-skill and capability execution
+- Recipe-first routing plus LLM-assisted bounded capability execution
 - Qdrant-backed memory with typed collections, weighted recall, and JSON export
 - RAG v1 in `Memory` with document upload for `txt`, `md`, and `pdf` with embedded text
 - Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
@@ -140,7 +141,7 @@ Not the current target:
 - Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
 - `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
 - Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, SearXNG, Webhook, SMTP, IMAP, and MQTT
-- Custom Skills as JSON manifests with a browser wizard, import/export, and bundled sample skills
+- Recipes as JSON manifests with a browser wizard, import/export, learned recipe review, and bundled sample recipes
 - `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset
 - Read-only `/help` and `/product-info`
 - OpenAI-compatible endpoint `POST /v1/chat/completions`
@@ -149,12 +150,12 @@ Not the current target:
 
 ## Recent alpha highlights
 
-- safer managed updates with host-vs-container validation for `config`, `prompts`, and `data`, plus a documented `./aria-stack.sh repair` recovery path
-- Qdrant-backed routing index admin/debug tooling under `/config/routing`, including rebuild, testbench output, and live-routing controls
-- `Memory Map` now shows routing collections as a separate system branch instead of hiding them outside the main graph
-- SSH and SFTP connections now support a `Service URL`, metadata drafting via LLM, and stronger language-aware routing hints
-- natural uptime / health questions such as `How long has my DNS server been online?` can route directly to SSH `uptime`
-- runtime reloads now swap their live bundle atomically, which makes config-save and profile-change flows more predictable
+- Recipes are now the visible automation model; legacy Skills remain only as compatibility bridges where needed
+- agentic action flow: ARIA enriches context, lets an LLM propose bounded action drafts, then lets policy/guardrails decide execution
+- multi-target SSH read-only checks can summarize fleet health without forcing one stale target
+- `/stats` now shows token/cost coverage, pricing source status, Model Gateway Audit, and Recipe Experience Memory
+- managed public updates are safer: normal update recreates only `aria`, while Qdrant/SearXNG/Valkey stay untouched
+- LLM Prompt Debug helps admins inspect redacted prompts, responses, model, operation, duration, and token usage
 
 ## Architecture at a glance
 
@@ -259,9 +260,11 @@ cd /opt/aria/aria
 Managed update rules:
 
 - normal image update:
-  - `./aria-stack.sh update`
+  - `./aria-stack.sh update` refreshes/recreates only the `aria` service and leaves Qdrant/SearXNG data services running
 - stack layout change, for example a new sidecar service:
   - `aria-setup upgrade --install-dir /opt/aria/aria`
+- deliberate full-stack refresh:
+  - `./aria-stack.sh update-all` or `./aria-stack.sh repair`
 - admin-triggered browser update:
   - `/updates`
 
@@ -342,9 +345,15 @@ Important:
 ### Which update path should you use?
 
 - managed install from `aria-setup`:
-  - `./aria-stack.sh update`
+  - `./aria-stack.sh update` refreshes/recreates only the `aria` service
   - or `/updates` in the UI
   - or a controlled update directly from chat for admin users
+  - use `./aria-stack.sh update-all` or `./aria-stack.sh repair` only when a release note or recovery step explicitly calls for full-stack work
+- host-side helper for multi-stack or fixed-tag installs:
+  - `docker/aria-host-update.sh detect`
+  - `docker/aria-host-update.sh update --project <name> --dry-run`
+  - `docker/aria-host-update.sh update --project <name> --target-image fischermanch/aria:<version>`
+  - the helper recreates only `aria` and aborts before recreate if the target host port is already occupied by something else
 - manual `docker-compose.public.yml`:
   - `docker compose pull aria`
   - `docker compose up -d --no-deps aria`
@@ -426,7 +435,8 @@ Ignored runtime files/directories include:
 - `config/secrets.env`
 - `data/auth/`
 - `data/logs/`
-- `data/skills/`
+- `data/recipes/`
+- `data/skills/` (legacy compatibility data)
 - `data/chat_history/`
 - `data/qdrant/`
 - `data/runtime/`
@@ -520,7 +530,7 @@ First start flow:
 1. create the first user
 2. that first user becomes Admin automatically
 3. Admin mode is active
-4. configure LLMs, embeddings, connections, and skills
+4. configure LLMs, embeddings, connections, and recipes
 
 Update:
 
@@ -592,7 +602,7 @@ Never commit real secrets into code or YAML.
 
 - Qdrant must be reachable if `memory.enabled: true`
 - if Memory fails, chat should still continue and message details show `memory_error`
-- context rollup uses `memory.compression_summary_prompt` (default: `prompts/skills/memory_compress.md`)
+- context rollup uses `memory.compression_summary_prompt` (default currently remains `prompts/skills/memory_compress.md` for compatibility)
 - for ALPHA testing, prefer a separate host/container, LAN/VPN access, and avoid mixing highly sensitive real user data into throwaway test instances
 
 ## Tests
@@ -603,12 +613,12 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha167`
-- `alpha167` is the shared public/internal code line: it keeps the repaired managed updater path, only surfaces `Updates` in the main menu when a newer release really exists, and restores one visible product version line instead of separate public-vs-internal numbering.
+- Current public alpha release candidate: `0.1.0-alpha251`
+- `alpha251` is the first public rollup after `alpha167`: recipe-first automation, LLM-assisted action planning, token/cost visibility, one-click confirmations, multi-target SSH read-only checks, RSS link summaries, and hardened managed update paths.
 
 ## One-line summary
 
-**ARIA is a lean, modular, self-hosted AI assistant with memory, skills, secure connections, and a browser-first interface built for real control instead of platform bloat.**
+**ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first interface built for real control instead of platform bloat.**
 
 ---
 
@@ -622,7 +632,7 @@ ARIA verbindet:
 
 - eine browser-first Chat-UI
 - strukturiertes Memory mit Qdrant
-- konfigurierbare Skills und Automationen
+- rezeptbasierte Automationen
 - modulare Connections zu echten Systemen
 - klare Security- und Rollen-Grenzen
 
@@ -646,7 +656,7 @@ menschliche Richtung, KI als Beschleuniger, gemeinsame Iteration und sehr viel h
 - ARIA ALPHA ist aktuell **primär ein persönliches Single-User-System**
 - der User-Modus ist eine reduzierte Arbeitsansicht für den Alltag
 - erweiterte Konfiguration bleibt hinter dem Admin-Modus
-- Ownership / Sharing / RBAC für Skills, Connections und Memories ist als späterer Architektur-Schritt geplant
+- Ownership / Sharing / RBAC für Rezepte, Connections und Memories ist als späterer Architektur-Schritt geplant
 - ARIA ALPHA ist für **LAN / VPN / Homelab** gedacht, nicht für direkte offene Internet-Exponierung
 
 ## Für wen diese ALPHA gedacht ist
@@ -668,10 +678,10 @@ Aktuell **nicht** gedacht für:
 ## Aktueller Implementierungsstand
 
 - Chat-UI unter `/`
-- deterministisches Routing plus Custom-Skill- und Capability-Ausführung
+- Recipe-first Routing plus LLM-gestützte, begrenzte Capability-Ausführung
 - Qdrant-Memory mit typisierten Collections, gewichtetem Recall und JSON-Export
 - Connection-Seiten für SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP und MQTT
-- Custom Skills als JSON-Manifeste mit Wizard, Import/Export und mitgelieferten Sample-Skills
+- Rezepte als JSON-Manifeste mit Wizard, Import/Export, Learned-Recipe-Review und mitgelieferten Sample-Rezepten
 - `Statistiken` unter `/stats` mit Health, Token-/Kosten-Stats, Connection-Status, Aktivitäten und Reset
 - Read-only `/help` und `/product-info`
 - CLI-Schnellcheck via `aria --version` und `aria version-check`
@@ -681,10 +691,11 @@ Aktuell **nicht** gedacht für:
 
 ## Neu in der aktuellen Alpha-Linie
 
-- sicherere Managed-Updates mit Host-vs-Container-Pruefung fuer `config`, `prompts` und `data` sowie dokumentiertem Recovery-Pfad ueber `./aria-stack.sh repair`
-- Qdrant-gestuetzter Routing-Index mit Admin-/Debug-Seite unter `/config/routing`, inklusive Rebuild, Testbench und Live-Routing-Schaltern
-- die `Memory Map` zeigt Routing-Collections jetzt als eigenen System-Zweig statt sie nur abseits der Hauptgrafik zu verstecken
-- SSH- und SFTP-Connections unterstuetzen jetzt `Service URL`, LLM-gestuetzte Metadatenhilfe und staerkere sprachbewusste Routing-Hinweise
+- Rezepte sind jetzt das sichtbare Automationsmodell; Legacy-Skills bleiben nur als Kompatibilitaetsbruecken erhalten
+- Agentic Action Flow: ARIA reichert Kontext an, laesst ein LLM begrenzte Action-Drafts vorschlagen und laesst Policy/Guardrails ueber Ausfuehrung entscheiden
+- Multi-Target-SSH kann sichere read-only Checks ueber mehrere Server zusammenfassen
+- `/stats` zeigt Token/Kosten, Pricing-Quellen, Model Gateway Audit und Recipe Experience Memory deutlich sichtbarer
+- Managed Public Updates sind sicherer: normales Update recreatet nur `aria`, Qdrant/SearXNG/Valkey bleiben unangetastet
 - natuerliche Laufzeit-/Online-Fragen wie `Wie lange ist mein DNS Server schon online?` koennen direkt auf SSH `uptime` geroutet werden
 - Runtime-Reloads tauschen ihren Live-Bundle jetzt atomar aus, was Config-Saves und Profilwechsel robuster macht
 
@@ -760,7 +771,8 @@ Ignorierte Runtime-Dateien/-Ordner:
 - `config/secrets.env`
 - `data/auth/`
 - `data/logs/`
-- `data/skills/`
+- `data/recipes/`
+- `data/skills/` (legacy compatibility data)
 - `data/chat_history/`
 - `data/qdrant/`
 - `data/runtime/`
@@ -854,7 +866,7 @@ First-Run-Flow:
 1. ersten Benutzer anlegen
 2. dieser erste Benutzer wird automatisch Admin
 3. Admin-Modus ist aktiv
-4. danach LLMs, Embeddings, Connections und Skills konfigurieren
+4. danach LLMs, Embeddings, Connections und Rezepte konfigurieren
 
 Update:
 
@@ -924,7 +936,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 - Qdrant muss erreichbar sein, wenn `memory.enabled: true`
 - bei Memory-Fehlern läuft der Chat weiter, Message-Details zeigen dann `memory_error`
-- Kontext-Rollup nutzt `memory.compression_summary_prompt` (Default: `prompts/skills/memory_compress.md`)
+- Kontext-Rollup nutzt `memory.compression_summary_prompt` (Default bleibt aktuell aus Kompatibilitaetsgruenden `prompts/skills/memory_compress.md`)
 - für ALPHA-Tests besser separater Host/Container, LAN/VPN-Zugriff und keine hochsensiblen Echtdaten in Wegwerf-Testinstanzen
 
 ## Tests
@@ -939,4 +951,4 @@ ARIA ist nah an einem ersten Public-ALPHA-Release. Der Rest ist vor allem Releas
 
 ## Ein-Satz-Zusammenfassung
 
-**ARIA ist ein schlanker, modularer, selbst gehosteter AI-Assistent mit Memory, Skills, sicheren Connections und browser-first UI für echte Kontrolle statt Plattform-Bloat.**
+**ARIA ist ein schlanker, modularer, selbst gehosteter AI-Assistent mit Memory, Rezepten, sicheren Connections, LLM-gestützter Action-Planung und browser-first UI für echte Kontrolle statt Plattform-Bloat.**

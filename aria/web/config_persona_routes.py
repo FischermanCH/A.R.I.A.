@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from aria.core.config import UI_THEME_OPTIONS, discover_ui_background_files, normalize_ui_background, normalize_ui_theme
+from aria.core.i18n import I18NStore
 from aria.core.runtime_endpoint import cookie_should_be_secure
 
 
@@ -33,6 +34,17 @@ LanguageFlag = Callable[[str], str]
 LanguageLabel = Callable[[str], str]
 LanguageResolver = Callable[[str, str], str]
 CacheClearer = Callable[[], None]
+_CONFIG_PERSONA_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _config_persona_text(lang: str | None, key: str, default: str = "", **values: object) -> str:
+    template = _CONFIG_PERSONA_I18N.t(lang or "de", f"config_persona_routes.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 @dataclass(frozen=True)
@@ -215,7 +227,8 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
         try:
             clean = str(file_name).strip().lower()
             if not re.fullmatch(r"[a-z0-9_-]+\.json", clean):
-                raise ValueError("Ungültiger Dateiname.")
+                lang = str(getattr(request.state, "lang", "de") or "de")
+                raise ValueError(_config_persona_text(lang, "invalid_file_name", "Invalid file name."))
             target = deps.base_dir / "aria" / "i18n" / clean
             payload = json.loads(content)
             if not isinstance(payload, dict):

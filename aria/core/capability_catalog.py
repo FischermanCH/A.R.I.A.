@@ -1,29 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Callable
 
 from aria.core.action_plan import ActionPlan
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.i18n import I18NStore
 
 
 CapabilityLabelResolver = Callable[[str], str]
-
-_CAPABILITY_DETAIL_I18N: dict[str, dict[str, str]] = {
-    "de": {
-        "executed_via": "Ausgeführt via {kind}-Profil `{ref}`",
-        "detail_path": "Pfad",
-        "detail_search": "Suche",
-        "detail_command": "Befehl",
-        "detail_range": "Zeitraum",
-    },
-    "en": {
-        "executed_via": "Executed via {kind} profile `{ref}`",
-        "detail_path": "Path",
-        "detail_search": "Search",
-        "detail_command": "Command",
-        "detail_range": "Range",
-    },
-}
+_CAPABILITY_CATALOG_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
 
 CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
@@ -31,29 +17,31 @@ CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
         "icon": "📄",
         "badge": "file_read",
         "detail_attr": "path",
-        "detail_label": "Pfad",
+        "detail_label_key": "detail_path",
         "executors": ["sftp", "smb"],
     },
     "file_write": {
         "icon": "📝",
         "badge": "file_write",
         "detail_attr": "path",
-        "detail_label": "Pfad",
+        "detail_label_key": "detail_path",
         "executors": ["sftp", "smb"],
     },
     "file_list": {
         "icon": "🗂",
         "badge": "file_list",
         "detail_attr": "path",
-        "detail_label": "Pfad",
+        "detail_label_key": "detail_path",
         "executors": ["sftp", "smb"],
     },
+    "website_read": {"icon": "🔗", "badge": "website_read", "executors": ["website"]},
+    "website_list": {"icon": "🗃", "badge": "website_list", "executors": ["website"]},
     "feed_read": {"icon": "📰", "badge": "feed_read", "executors": ["rss"]},
     "calendar_read": {
         "icon": "📅",
         "badge": "calendar_read",
         "detail_attr": "path",
-        "detail_label": "Zeitraum",
+        "detail_label_key": "detail_range",
         "executors": ["google_calendar"],
     },
     "webhook_send": {"icon": "📡", "badge": "webhook_send", "executors": ["webhook"]},
@@ -62,7 +50,7 @@ CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
         "icon": "🌐",
         "badge": "api_request",
         "detail_attr": "path",
-        "detail_label": "Pfad",
+        "detail_label_key": "detail_path",
         "executors": ["http_api"],
     },
     "email_send": {"icon": "✉️", "badge": "email_send", "executors": ["email"]},
@@ -71,21 +59,21 @@ CAPABILITY_CATALOG: dict[str, dict[str, Any]] = {
         "icon": "🔎",
         "badge": "mail_search",
         "detail_attr": "content",
-        "detail_label": "Suche",
+        "detail_label_key": "detail_search",
         "executors": ["imap"],
     },
     "mqtt_publish": {
         "icon": "📟",
         "badge": "mqtt_publish",
         "detail_attr": "path",
-        "detail_label": "Topic",
+        "detail_label_key": "detail_topic",
         "executors": ["mqtt"],
     },
     "ssh_command": {
         "icon": "💻",
         "badge": "ssh_command",
         "detail_attr": "content",
-        "detail_label": "Befehl",
+        "detail_label_key": "detail_command",
         "executors": ["ssh"],
     },
 }
@@ -134,13 +122,14 @@ def capability_matches_connection_kind(capability: str, connection_kind: str) ->
     return clean_kind in set(allowed_kinds)
 
 
-def _capability_detail_text(language: str | None, key: str, fallback: str) -> str:
-    lang_key = str(language or "").strip().lower()
-    if lang_key:
-        value = _CAPABILITY_DETAIL_I18N.get(lang_key, {}).get(key)
-        if value:
-            return value
-    return _CAPABILITY_DETAIL_I18N["de"].get(key, fallback)
+def _capability_detail_text(language: str | None, key: str, fallback: str, **values: object) -> str:
+    template = _CAPABILITY_CATALOG_I18N.t(language or "de", f"capability_catalog.{key}", fallback or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
 
 
 def build_capability_detail_lines(
@@ -150,24 +139,19 @@ def build_capability_detail_lines(
     language: str | None = None,
 ) -> list[str]:
     capability = normalize_capability(plan.capability)
-    executed_via_template = _capability_detail_text(language, "executed_via", "Ausgeführt via {kind}-Profil `{ref}`")
     details = [
-        executed_via_template.format(
+        _capability_detail_text(
+            language,
+            "executed_via",
+            "Executed via {kind} profile `{ref}`",
             kind=connection_kind_label(plan.connection_kind),
             ref=plan.connection_ref,
         )
     ]
     spec = CAPABILITY_CATALOG.get(capability, {})
     detail_attr = str(spec.get("detail_attr") or "").strip()
-    detail_label = str(spec.get("detail_label") or "").strip()
-    if detail_label == "Pfad":
-        detail_label = _capability_detail_text(language, "detail_path", detail_label)
-    elif detail_label == "Suche":
-        detail_label = _capability_detail_text(language, "detail_search", detail_label)
-    elif detail_label == "Befehl":
-        detail_label = _capability_detail_text(language, "detail_command", detail_label)
-    elif detail_label == "Zeitraum":
-        detail_label = _capability_detail_text(language, "detail_range", detail_label)
+    detail_label_key = str(spec.get("detail_label_key") or "").strip()
+    detail_label = _capability_detail_text(language, detail_label_key, detail_label_key) if detail_label_key else ""
     if detail_attr and detail_label:
         value = str(getattr(plan, detail_attr, "") or "").strip()
         if value:

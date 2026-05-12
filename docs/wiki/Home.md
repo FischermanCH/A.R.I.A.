@@ -6,7 +6,7 @@ This wiki is meant to stay practical:
 
 - what ARIA is
 - how to deploy it quickly
-- how memory, notes, skills, and connections work
+- how memory, notes, recipes, and connections work
 - how releases and upgrades are handled
 
 The same core docs are also intended to appear locally under `/help`, so ARIA and GitHub stay aligned.
@@ -21,7 +21,7 @@ Recommended first steps:
 1. `Quick Start`
 2. `Memory`
 3. `Connections`
-4. `Skills`
+4. `Recipes`
 5. `Releases and Upgrades`
 
 Current product focus in the ALPHA line:

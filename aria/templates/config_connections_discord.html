@@ -9,8 +9,8 @@
 
     {% if selected_discord_ref %}
     {% set discord_send_test_messages_enabled = selected_discord.send_test_messages or selected_discord.send_test_messages is not defined %}
-    {% set discord_allow_skill_messages_enabled = selected_discord.allow_skill_messages or selected_discord.allow_skill_messages is not defined %}
-    {% set discord_alert_skill_errors_enabled = selected_discord.alert_skill_errors %}
+    {% set discord_allow_recipe_messages_enabled = selected_discord.allow_recipe_messages or selected_discord.allow_skill_messages or selected_discord.allow_skill_messages is not defined %}
+    {% set discord_alert_recipe_errors_enabled = selected_discord.alert_recipe_errors or selected_discord.alert_skill_errors %}
     {% set discord_alert_safe_fix_enabled = selected_discord.alert_safe_fix %}
     {% set discord_alert_connection_changes_enabled = selected_discord.alert_connection_changes %}
     {% set discord_alert_system_events_enabled = selected_discord.alert_system_events %}
@@ -20,12 +20,12 @@
     </div>
     <div class="status-badge-row">
       {% if discord_send_test_messages_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_send_test_messages_toggle', 'Testposts aktivieren') }}</span>{% endif %}
-      {% if discord_allow_skill_messages_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_allow_skill_messages_toggle', 'Skill-Ziel erlauben') }}</span>{% endif %}
-      {% if discord_alert_skill_errors_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_skill_errors_toggle', 'Skill-Fehler an Discord senden') }}</span>{% endif %}
+      {% if discord_allow_recipe_messages_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_allow_skill_messages_toggle', 'Rezept-Ziel erlauben') }}</span>{% endif %}
+      {% if discord_alert_recipe_errors_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_skill_errors_toggle', 'Rezept-Fehler an Discord senden') }}</span>{% endif %}
       {% if discord_alert_safe_fix_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_safe_fix_toggle', 'Safe-Fix Events senden') }}</span>{% endif %}
       {% if discord_alert_connection_changes_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_connection_changes_toggle', 'Statuswechsel senden') }}</span>{% endif %}
       {% if discord_alert_system_events_enabled %}<span class="status-badge status-badge-readonly">Aktiv · {{ tr(request, 'config_conn.discord_alert_system_events_toggle', 'System-Events senden') }}</span>{% endif %}
-      {% if not discord_send_test_messages_enabled and not discord_allow_skill_messages_enabled and not discord_alert_skill_errors_enabled and not discord_alert_safe_fix_enabled and not discord_alert_connection_changes_enabled and not discord_alert_system_events_enabled %}
+      {% if not discord_send_test_messages_enabled and not discord_allow_recipe_messages_enabled and not discord_alert_recipe_errors_enabled and not discord_alert_safe_fix_enabled and not discord_alert_connection_changes_enabled and not discord_alert_system_events_enabled %}
       <span class="status-badge status-badge-muted">{{ tr(request, 'config_conn.discord_active_routes_empty', 'Zurzeit sind keine Discord-Routen aktiv.') }}</span>
       {% endif %}
     </div>

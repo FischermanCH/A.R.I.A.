@@ -54,6 +54,10 @@ class RuntimeManager:
     def _build_runtime_bundle(self, runtime_settings: Settings) -> RuntimeBundle:
         runtime_prompt_loader = PromptLoader(self._base_dir / runtime_settings.prompts.persona)
         runtime_usage_meter = UsageMeter(runtime_settings)
+        try:
+            setattr(runtime_settings, "_aria_usage_meter", runtime_usage_meter)
+        except Exception:
+            pass
         runtime_llm_client = LLMClient(runtime_settings.llm, usage_meter=runtime_usage_meter)
         runtime_pipeline = Pipeline(
             settings=runtime_settings,
