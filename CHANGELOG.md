@@ -16,6 +16,8 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added explicit release metadata validation to the `/stats` Operator Guardrail, so missing or inconsistent release labels/versions are surfaced before a public build or update test is trusted.
 - Added `docs/release/internal-build-smoke-test.md` as the repeatable internal build/update smoke checklist for `/stats`, Agentic routing, SSH guardrails, Discord confirmation, SMB, RSS, RAG, and managed update-path checks.
 - Learned Recipe review cards now expose the underlying Connection Action Contract boundary (`family`, `policy`, `runtime`, side-effect state), making promoted/context-only candidates easier to audit before adoption.
+- Learned Recipe review cards now show a localized review-maturity hint, separating strong promotion evidence from candidates that still need a target, action, or more successful runs.
+- Bundled recipe template cards now show step count, connection families, trigger count, schedule/manual state, step types, and whether a template has side effects that require confirmation/policy review.
 
 ### Changed
 - `agentic_runtime` debug lines now include `boundary=runtime_execution`, making runtime execution visually separate from context enrichment, LLM drafts, and policy decisions.
@@ -33,6 +35,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Executor registration and capability routing now derive valid `(connection_kind, capability)` bindings from the Connection Action Contract; unsupported runtime bindings fail fast instead of quietly creating a side path outside the modular connection contract.
 - Bundled sample-manifest regression coverage is now recipe-first: `samples/recipes/` is pinned as the public import surface, `/recipes` links are required there, and `samples/skills/` is verified only as a parity fallback for old installs.
 - Stored recipe step output now keeps its legacy marker for compatibility but also renders a clearer recipe run status, readable per-step states, skipped steps, technical run details, and result text.
+- Recipe Result View summaries now include executed/skipped step counts ahead of the detailed step list, making multi-step recipe output easier to scan.
 
 ### Fixed
 - Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.

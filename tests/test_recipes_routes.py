@@ -122,6 +122,12 @@ def test_recipes_subpages_render_with_page_specific_actions() -> None:
     assert 'name="return_to" value="/recipes/templates"' in templates_response.text
     assert 'class="config-group-card skill-card sample-skill-card"' in templates_response.text
     assert 'sample-skill-card" data-sample-skill open' not in templates_response.text
+    assert "Schritte:" in templates_response.text
+    assert "Connections:" in templates_response.text
+    assert "Trigger:" in templates_response.text
+    assert "Step-Typen:" in templates_response.text
+    assert "Read-only / Chat" in templates_response.text
+    assert "Side-Effect / Bestaetigung" in templates_response.text
     assert "Beispielskill" not in templates_response.text
     assert "Demo-Skill" not in templates_response.text
 
@@ -168,6 +174,8 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Reviewen und promoten, wenn weiterhin korrekt" in response.text
     assert "Action Contract" in response.text
     assert "Contract: command · Policy ssh_readonly · Runtime run_command · read-only/bounded" in response.text
+    assert "Review-Reife" in response.text
+    assert "Starke Evidenz: 5 Runs, Ziel und Aktion sind bekannt." in response.text
 
 
 def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:
@@ -196,6 +204,8 @@ def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:
     assert "Promotion due" in response.text
     assert "Review and promote if still correct" in response.text
     assert "Context only: not directly executable" in response.text
+    assert "Review-Reife" in response.text
+    assert "Strong evidence: 5 runs, target and action are known." in response.text
 
 
 def test_recipes_learned_page_links_to_promoted_stored_recipe(monkeypatch) -> None:

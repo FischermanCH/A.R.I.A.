@@ -5784,6 +5784,12 @@ section.docs-clean-layout {
   color: var(--muted);
 }
 
+.status-badge-side-effect {
+  border-color: rgba(255, 184, 77, 0.45);
+  background: rgba(78, 48, 8, 0.48);
+  color: #ffd99a;
+}
+
 .connection-quick-links {
   display: grid;
   gap: 0.35rem;

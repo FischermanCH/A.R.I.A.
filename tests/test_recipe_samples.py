@@ -82,3 +82,21 @@ def test_sample_recipe_dir_prefers_recipe_samples_and_keeps_legacy_fallback(monk
 
     recipe_dir.mkdir(parents=True)
     assert template_import.sample_recipe_dir() == recipe_dir
+
+
+def test_sample_recipe_rows_expose_review_metadata() -> None:
+    rows = template_import.build_sample_recipe_rows()
+
+    disk = next(row for row in rows if row["id"] == "ssh-disk-usage-template")
+    assert disk["step_count"] == 3
+    assert disk["step_types"] == ["ssh_run", "llm_transform", "chat_send"]
+    assert disk["connections_label"] == "ssh"
+    assert disk["trigger_count"] == 4
+    assert disk["schedule_enabled"] is False
+    assert disk["has_side_effect"] is False
+
+    briefing = next(row for row in rows if row["id"] == "rss-morning-briefing-to-discord-template")
+    assert briefing["schedule_enabled"] is True
+    assert briefing["schedule_cron"] == "0 7 * * *"
+    assert briefing["connections"] == ["rss", "discord"]
+    assert briefing["has_side_effect"] is True

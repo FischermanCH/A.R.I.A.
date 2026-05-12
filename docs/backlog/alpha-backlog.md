@@ -23,31 +23,25 @@ Aktueller Release-Stand:
 - Kosten-/Token-Guardrail nachgezogen: `/stats` markiert deaktiviertes Token-Tracking/UsageMeter-Bypasses als Release-Fehler und Kostenluecken als Warnung
 - Pricing-Overrides nachgezogen: LiteLLM-Refresh synchronisiert manuelle Aliase/Preise wieder sichtbar in den laufenden Settings-State
 - Interner Build-Smoke-Test liegt in `docs/release/internal-build-smoke-test.md`
-- Recipes-UX nachgezogen: Learned-Recipe-Review zeigt jetzt Contract/Policy/Runtime-Boundary und Recipe Result View formatiert uebersprungene Schritte lesbar
+- Recipes-UX nachgezogen: Sample-Vorlagen zeigen Schritt-/Connection-/Trigger-/Schedule-/Side-Effect-Metadaten, Learned-Recipe-Review zeigt Contract/Policy/Runtime-Boundary plus Review-Reife, und Recipe Result View formatiert Schritte mit ausgefuehrt/uebersprungen-Zaehlern
 - Operator Guardrail nachgezogen: Recipe Experience Memory wird auf `/stats` als Reachability-/Learning-Memory-Signal sichtbar
 - Agentic-Boundaries nachgezogen: Debug-Boundaries sind zentral definiert und `agentic_runtime` markiert Runtime-Ausfuehrung explizit
 
 ## Offen Auf Einen Blick
 
-1. Recipes UX weiter ausbauen
-- Review-/Promote-Flows fuer Learned Recipes weiter anhand echter Nutzung schaerfen; Contract/Policy/Runtime-Boundary ist sichtbar, weitere Arbeit nur anhand neuer Live-Ausreisser
-- Templates besser kuratieren
-- Recipe Result View weiter anhand echter Recipe-Ausgaben schaerfen; Step-Marker fuer ausgefuehrte und uebersprungene Schritte sind jetzt lesbar normalisiert
-- strukturierte Recipe-Outputs weiter verbessern, sobald mehr reale Multi-Step-Rezepte vorliegen
-
-2. Connection-Modularisierung vorbereiten
+1. Connection-Modularisierung vorbereiten
 - gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen; Registry/Pool-Bindings sind jetzt contract-backed
 - Side-Effect-Boundary fuer write/send/publish Capabilities ist per Contract-Test abgesichert
 - Provider-spezifische Logik hinter kleinen Adaptern halten
 - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
 
-3. Admin/Observability abrunden
+2. Admin/Observability abrunden
 - Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten, Kosten-Tracking und Recipe Experience Memory sind jetzt eigene Guardrail-Signale
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten; Tracking-Ausfaelle und Kostenluecken werden jetzt explizit bewertet
 - Pricing-Alias-/Manual-Overrides auditierbar halten; Refresh-/Settings-Sync ist jetzt abgesichert
 
-4. Legacy-/Recipe-Cleanup fortsetzen
+3. Legacy-/Recipe-Cleanup fortsetzen
 - dokumentierter Ist-Zustand liegt in `docs/product/legacy-recipe-compatibility-audit.md`
 - `samples/recipes/` ist die oeffentliche Sample-Oberflaeche; `samples/skills/` bleibt nur Backcompat-Fallback
 - Compatibility-Bruecken behalten, solange alte Configs/Imports sie brauchen
@@ -63,6 +57,7 @@ Aktueller Release-Stand:
 - `CHANGELOG.md` fuer alle sichtbaren Produkt-/Architektur-Aenderungen fortschreiben
 - Agentic Live-Ausreisser zuerst in `docs/product/agentic-live-regression-dossier.md` als Kontext-, Resolver-, Policy-/Guardrail-, Runtime-/Summary- oder Observability-/Kostenluecke klassifizieren
 - keine neuen Agentic-Spezialfaelle auf Verdacht bauen; Zielbild bleibt Kontext anreichern, LLM bounded Action-Draft, Policy/Guardrail entscheidet, Runtime fuehrt aus
+- Recipes UX nur anhand echter neuer Recipe-Ausgaben/Live-Ausreisser weiter schaerfen; Templates, Review-/Promote-Flows und strukturierte Outputs nicht auf Verdacht aufblasen
 - i18n strict vor groesseren Releases laufen lassen: `scripts/audit_i18n_code_literals.py --strict`
 - deutsche UI-/Runtime-Texte gehoeren in `aria/i18n/*.json`
 - deutsche Eingabe-/Routing-Lexika gehoeren in `aria/lexicons/*.json`

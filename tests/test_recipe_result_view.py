@@ -22,6 +22,7 @@ def test_build_recipe_execution_summary_keeps_legacy_marker_but_adds_readable_re
     assert "[Stored Recipe Steps] Linux Health" in text
     assert "Recipe-Lauf: Linux Health" in text
     assert "Status: abgeschlossen" in text
+    assert "2 ausgefuehrt · 1 uebersprungen" in text
     assert "1. ssh_run: ok" in text
     assert "2. discord_send: uebersprungen" in text
     assert "Uebersprungene Schritte: notify" in text
@@ -37,6 +38,7 @@ def test_build_recipe_execution_summary_formats_skipped_step_markers() -> None:
         language="de",
     )
 
+    assert "1 ausgefuehrt · 1 uebersprungen" in text
     assert "Uebersprungene Schritte: 2. discord_send: uebersprungen" in text
 
 

@@ -174,6 +174,23 @@ def _review_contract_label(entry: dict[str, Any], *, language: str | None = None
     )
 
 
+def _review_maturity_label(entry: dict[str, Any], *, language: str | None = None) -> str:
+    experience_count = int(entry.get("experience_count", 0) or 0)
+    has_target = bool(_target_label(entry))
+    has_action = bool(_audit_action_label(entry))
+    if experience_count >= 5 and has_target and has_action:
+        return _learned_recipe_ui_text(language, "maturity_strong", "Strong evidence: {runs} runs, target and action are known.", runs=experience_count)
+    if experience_count >= 2 and has_target and has_action:
+        return _learned_recipe_ui_text(language, "maturity_review", "Reviewable: {runs} runs with known target and action.", runs=experience_count)
+    missing: list[str] = []
+    if not has_target:
+        missing.append(_learned_recipe_ui_text(language, "maturity_missing_target", "target"))
+    if not has_action:
+        missing.append(_learned_recipe_ui_text(language, "maturity_missing_action", "action"))
+    missing_text = ", ".join(missing) if missing else _learned_recipe_ui_text(language, "maturity_missing_runs", "more successful runs")
+    return _learned_recipe_ui_text(language, "maturity_observe", "Keep observing: needs {missing}.", missing=missing_text)
+
+
 def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | None = None) -> dict[str, Any]:
     entry = normalize_learned_recipe_store_entry(source)
     promotion_state = str(entry.get("promotion_state", "") or "").strip().lower()
@@ -195,6 +212,7 @@ def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | N
         "review_safety_class": _review_safety_class(promotion_state),
         "review_next_action_label": _review_next_action_label(entry, promotion_state, language=language),
         "review_contract_label": _review_contract_label(entry, language=language),
+        "review_maturity_label": _review_maturity_label(entry, language=language),
         "can_promote_to_stored_recipe": is_stored_recipe_promotable_capability(entry.get("capability", "")) and promotion_state != PROMOTION_STATE_PROMOTED,
     }
 

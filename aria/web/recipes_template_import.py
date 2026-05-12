@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus
 
 from aria.core.recipe_manifests import _sanitize_recipe_id, _save_stored_recipe_manifest
@@ -16,8 +17,39 @@ def sample_recipe_dir() -> Path:
     return SAMPLE_RECIPES_DIR if SAMPLE_RECIPES_DIR.exists() else LEGACY_SAMPLE_RECIPES_DIR
 
 
-def build_sample_recipe_rows() -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+_SIDE_EFFECT_STEP_TYPES = {"discord_send", "webhook_send", "email_send", "mqtt_publish", "sftp_write", "smb_write"}
+
+
+def _clean_string_list(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    rows: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        clean = str(value or "").strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        rows.append(clean)
+    return rows
+
+
+def _sample_step_types(raw: dict[str, Any]) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for step in list(raw.get("steps", []) or []):
+        if not isinstance(step, dict):
+            continue
+        step_type = str(step.get("type", "") or "").strip()
+        if not step_type or step_type in seen:
+            continue
+        seen.add(step_type)
+        rows.append(step_type)
+    return rows
+
+
+def build_sample_recipe_rows() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     sample_dir = sample_recipe_dir()
     if not sample_dir.exists():
         return rows
@@ -31,6 +63,13 @@ def build_sample_recipe_rows() -> list[dict[str, str]]:
         recipe_id = _sanitize_recipe_id(str(raw.get("id", "")).strip())
         if not recipe_id:
             continue
+        steps = list(raw.get("steps", []) or [])
+        step_types = _sample_step_types(raw)
+        connections = _clean_string_list(raw.get("connections", []))
+        router_keywords = _clean_string_list(raw.get("router_keywords", []))
+        schedule = raw.get("schedule", {})
+        schedule_enabled = bool(isinstance(schedule, dict) and schedule.get("enabled"))
+        schedule_cron = str(schedule.get("cron", "") or "").strip() if isinstance(schedule, dict) else ""
         rows.append(
             {
                 "file_name": path.name,
@@ -38,9 +77,18 @@ def build_sample_recipe_rows() -> list[dict[str, str]]:
                 "name": str(raw.get("name", "")).strip() or recipe_id,
                 "description": str(raw.get("description", "")).strip(),
                 "category": str(raw.get("category", "custom")).strip() or "custom",
+                "step_count": len([step for step in steps if isinstance(step, dict)]),
+                "step_types": step_types,
+                "step_types_label": ", ".join(step_types),
+                "connections": connections,
+                "connections_label": ", ".join(connections),
+                "trigger_count": len(router_keywords),
+                "schedule_enabled": schedule_enabled,
+                "schedule_cron": schedule_cron,
+                "has_side_effect": any(step_type in _SIDE_EFFECT_STEP_TYPES for step_type in step_types),
             }
         )
-    return rows
+    return sorted(rows, key=lambda row: (str(row.get("category", "")).lower(), str(row.get("name", "")).lower()))
 
 
 def import_sample_recipe_success_url(*, sample_file: str, surface_path: str, lang: str) -> str:

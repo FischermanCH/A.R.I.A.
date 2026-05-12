@@ -58,6 +58,13 @@ def build_recipe_execution_summary(
         f"[Stored Recipe Steps] {clean_name}",
         _text(language, "execution_summary_title", "Recipe run: {recipe_name}", recipe_name=clean_name),
         _text(language, "execution_summary_status_success", "Status: completed"),
+        _text(
+            language,
+            "execution_summary_counts",
+            "{executed} executed · {skipped} skipped",
+            executed=len([item for item in executed if str(item or "").strip()]),
+            skipped=len([item for item in skipped if str(item or "").strip()]),
+        ),
     ]
     readable_steps = [format_recipe_step_marker(marker, language=language) for marker in executed]
     readable_steps = [row for row in readable_steps if row]

@@ -13,6 +13,26 @@
         <p class="hint-text sample-skill-file">{{ sample.file_name }}</p>
       </summary>
       <div class="skill-details-content sample-skill-content">
+      <div class="status-badge-row compact">
+        <span class="status-badge">{{ tr(request, 'recipes.sample_steps', 'Schritte') }}: {{ sample.step_count }}</span>
+        {% if sample.connections_label %}
+        <span class="status-badge">{{ tr(request, 'recipes.sample_connections', 'Connections') }}: {{ sample.connections_label }}</span>
+        {% endif %}
+        <span class="status-badge">{{ tr(request, 'recipes.sample_triggers', 'Trigger') }}: {{ sample.trigger_count }}</span>
+        {% if sample.schedule_enabled %}
+        <span class="status-badge status-badge-muted">{{ tr(request, 'recipes.sample_schedule', 'Schedule') }}: {{ sample.schedule_cron or 'on' }}</span>
+        {% else %}
+        <span class="status-badge status-badge-muted">{{ tr(request, 'recipes.sample_manual', 'Manuell') }}</span>
+        {% endif %}
+        {% if sample.has_side_effect %}
+        <span class="status-badge status-badge-side-effect">{{ tr(request, 'recipes.sample_side_effect', 'Side-Effect / Bestaetigung') }}</span>
+        {% else %}
+        <span class="status-badge status-badge-readonly">{{ tr(request, 'recipes.sample_readonly', 'Read-only / Chat') }}</span>
+        {% endif %}
+      </div>
+      {% if sample.step_types_label %}
+      <p class="hint-text">{{ tr(request, 'recipes.sample_step_types', 'Step-Typen') }}: {{ sample.step_types_label }}</p>
+      {% endif %}
       {% if sample.description %}
       <p>{{ sample.description }}</p>
       {% endif %}
