@@ -7,13 +7,38 @@ Zweck:
 - festhalten, **was auf `dev` schon vorbereitet ist**
 - Build-Versionen und inhaltliche Aenderungen zusammen sichtbar machen
 
-## Vorbereitet fuer naechsten Schritt
+## Vorbereitet fuer naechsten Build
 
-- `alpha252` ist gebaut und der interne Live-Smoke-Test ist gruen.
+- `alpha253` ist gebaut und fuer den internen Smoke-Test bereit.
 - Naechster bewusst zu pruefender Punkt:
+  - interner Update-Button auf ARIA testen
+  - Smoke-Test: freie Multi-SSH-Summary muss LLM-Tokens zeigen und flexible Schwellen wie `zehn Gigabyte Reserve` verstehen
   - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren
 
 ## Bereits gebaut
+
+### alpha253
+
+- enthaelt den LLM-backed Multi-SSH-Operator-Summary-Nachzug:
+  - Multi-Target-SSH fuehrt weiter nur erlaubte Read-only-Kommandos aus
+  - danach fasst ein bounded LLM-Schritt die echten Runtime-Resultate gegen die Userfrage zusammen
+  - deterministische freie-Festplatten-Schwellen bleiben nur als Fallback/Guardrail erhalten
+  - Architektur-Leitplanke dokumentiert: Flexibilitaet ist LLM-first; deterministisch bleibt fuer Sicherheit, Normalisierung, Preflight, Policy/Guardrail und Fallbacks
+- Verifikation:
+  - Vorbuild-Regressionsblock: `11 passed`
+  - i18n-Code-Literal-Audit strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha253`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha253-local.tar`
+  - TAR-SHA256: `1104500a59c900f1ab8a75cd6a5d7a2d12709fa880e22cf11ec8c18de7181251`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.253`
+  - `aria:alpha-local`
+  - `sha256:024838b1e509eb3e4286d0c8d9898805b7b9b0210fbb627a9c86cf334c9f5c96`
+- Release-Label:
+  - `0.1.0-alpha253`
 
 ### alpha252
 

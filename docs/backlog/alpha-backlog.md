@@ -10,13 +10,13 @@ Zweck:
 - groessere Zukunftsthemen stehen in `docs/backlog/future-features.md`
 
 Aktueller Release-Stand:
-- aktuell gebaut: `0.1.0-alpha252`
+- aktuell gebaut: `0.1.0-alpha253`
 - public veroeffentlicht: `0.1.0-alpha251`
 - Public Docker Tags: `fischermanch/aria:0.1.0-alpha.251` und `fischermanch/aria:alpha`
 - Public Docker Digest: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
-- interner Docker Build: `fischermanch/aria:0.1.0-alpha.252` / `aria:alpha-local`
-- internes TAR: `/mnt/NAS/aria-images/aria-alpha252-local.tar`
-- interner Image-Digest: `sha256:266fe7c0d712af0ae74f5b57b77fc9acc8088288235213f1cbe2bd49a7388b83`
+- interner Docker Build: `fischermanch/aria:0.1.0-alpha.253` / `aria:alpha-local`
+- internes TAR: `/mnt/NAS/aria-images/aria-alpha253-local.tar`
+- interner Image-Digest: `sha256:024838b1e509eb3e4286d0c8d9898805b7b9b0210fbb627a9c86cf334c9f5c96`
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
@@ -33,7 +33,7 @@ Aktueller Release-Stand:
 - Connection-Modularisierung abgeschlossen fuer diese Alpha-Runde: Connection Action Contracts exportieren Manifest-Zeilen und `docs/product/connection-provider-manifest-checklist.md` beschreibt die deklarative Provider-Bruecke
 - Admin/Observability abgeschlossen fuer diese Alpha-Runde: `/stats` Operator Guardrail hat stabile Row-Keys und `docs/product/operator-observability-guardrails.md` dokumentiert Release-/Kosten-/Update-Semantik
 - Legacy-/Recipe-Cleanup abgeschlossen fuer diese Alpha-Runde: `docs/product/legacy-recipe-compatibility-audit.md` enthaelt jetzt ein explizites Migration-Gate fuer alte Skill-Bruecken
-- interner Build erstellt und live geprueft: `0.1.0-alpha252` enthaelt den Backlog-Abschluss nach `alpha251`; Smoke-Test mit Multi-SSH, RSS, SSH-Guardrail, HTTP-API und Discord-One-Click ist gruen
+- interner Build erstellt: `0.1.0-alpha253` enthaelt den LLM-backed Multi-SSH-Operator-Summary-Nachzug und ist fuer Smoke-Test vorgesehen
 
 ## Offen Auf Einen Blick
 
@@ -50,6 +50,7 @@ Naechster sinnvoller Schritt:
 - `CHANGELOG.md` fuer alle sichtbaren Produkt-/Architektur-Aenderungen fortschreiben
 - Agentic Live-Ausreisser zuerst in `docs/product/agentic-live-regression-dossier.md` als Kontext-, Resolver-, Policy-/Guardrail-, Runtime-/Summary- oder Observability-/Kostenluecke klassifizieren
 - keine neuen Agentic-Spezialfaelle auf Verdacht bauen; Zielbild bleibt Kontext anreichern, LLM bounded Action-Draft, Policy/Guardrail entscheidet, Runtime fuehrt aus
+- Flexibilitaet ist LLM-first: Sobald User-Semantik, Bewertung, Zusammenfassung oder freie Formulierungen flexibel verstanden werden muessen, soll ein bounded LLM-Schritt genutzt werden; deterministische Logik bleibt fuer Sicherheit, Normalisierung, Preflight, Policy/Guardrail und Fallbacks reserviert
 - Recipes UX nur anhand echter neuer Recipe-Ausgaben/Live-Ausreisser weiter schaerfen; Templates, Review-/Promote-Flows und strukturierte Outputs nicht auf Verdacht aufblasen
 - Connection-Modularisierung ueber `docs/product/connection-action-contract.md` und `docs/product/connection-provider-manifest-checklist.md` contract-backed halten; neue Provider duerfen keine Pipeline-Sidepaths bauen
 - Operator Guardrail nach `docs/product/operator-observability-guardrails.md` pflegen; Kosten-/Token-Tracking-Ausfaelle bleiben Release-Fehler

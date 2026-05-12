@@ -1,6 +1,6 @@
 # Agentic Live Regression Dossier
 
-Stand: 2026-05-12
+Stand: 2026-05-13
 
 Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen behandelt werden. Ziel ist nicht, fuer jede Formulierung einen neuen Spezialfall zu bauen, sondern den gemeinsamen Agentic Action Flow zu schuetzen:
 
@@ -43,6 +43,19 @@ Die Agentic-Boundaries sind maschinenlesbar und muessen zum Prompt-Flow passen:
 - `boundary=runtime_execution`: Runtime fuehrt eine bereits erlaubte oder bestaetigte Aktion aus.
 
 Das trennt Kontext, LLM-Vorschlag, Guardrail und Runtime im Debug. Diese Trennung ist absichtlich: Kontext und LLM koennen helfen, aber nur Policy/Guardrails entscheiden ueber Ausfuehrung.
+
+## Architektur-Leitplanke: LLM First Bei Flexibilitaet
+
+Wenn ARIA freie User-Semantik verstehen, Resultate bewerten, Operator-Summaries formulieren oder flexible Formulierungen wie `zehn Gigabyte Reserve` interpretieren muss, ist der bevorzugte Weg ein bounded LLM-Schritt.
+
+Deterministische Logik bleibt wichtig, aber mit enger Rolle:
+
+- sichere Kontextanreicherung und Kandidatenlisten
+- Normalisierung von Runtime-Payloads
+- Preflight und Policy-/Guardrail-Entscheidungen
+- robuste Fallbacks, falls das LLM nicht antwortet oder niedrige Confidence liefert
+
+Nicht gewollt sind neue statische Frage-Spezialfaelle, die eine einzelne Formulierung reparieren und bei der naechsten Formulierung wieder brechen.
 
 ## Testanker
 
