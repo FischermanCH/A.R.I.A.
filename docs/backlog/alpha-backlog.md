@@ -14,38 +14,37 @@ Aktueller Release-Stand:
 - public veroeffentlicht: `0.1.0-alpha251`
 - Docker Tags: `fischermanch/aria:0.1.0-alpha.251` und `fischermanch/aria:alpha`
 - Docker Digest: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
+- GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
+- GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
+- nach `0.1.0-alpha251` auf `main` nachgezogen: durable Favicon-Assets, Speicherplatz-Routing, cached `/connections/types`
 
 ## Offen Auf Einen Blick
 
-1. GitHub Release-Objekt nachziehen
-- Textbasis: `docs/release/github-release-v0.1.0-alpha.251.md`
-- Automatisierung braucht lokal `gh` oder `GITHUB_TOKEN`
-
-2. Agentic Intelligence weiter vereinheitlichen
+1. Agentic Intelligence weiter vereinheitlichen
 - echte Live-Ausreisser sammeln und als Dossier-/Policy-/Resolver-Luecke klassifizieren
 - keine neuen Spezialfaelle auf Verdacht bauen
 - LLM-Drafts, deterministische Normalisierung, Guardrails und Runtime in Debug/Kosten weiter klar trennen
 - Zielbild: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus
 
-3. Recipes UX weiter ausbauen
+2. Recipes UX weiter ausbauen
 - Review-/Promote-Flows fuer Learned Recipes schaerfen
 - Templates besser kuratieren
 - Rezept-Ausfuehrungen fuer User lesbarer zusammenfassen
 - strukturierte Recipe-Outputs und Recipe-Fehler-/Skip-Zustaende weiter verbessern
 
-4. Connection-Modularisierung vorbereiten
+3. Connection-Modularisierung vorbereiten
 - gemeinsame Action-Draft-/Policy-/Runtime-Vertraege weiter vereinheitlichen
 - Provider-spezifische Logik hinter kleinen Adaptern halten
 - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
 
-5. Admin/Observability abrunden
+4. Admin/Observability abrunden
 - LLM Prompt Debug, Model Gateway Audit, Pricing Coverage und Update-Status als Operator-Werkzeuge weiter zusammenziehen
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten
 - Pricing-Alias-/Manual-Overrides auditierbar halten
 
-6. Legacy-/Recipe-Cleanup fortsetzen
+5. Legacy-/Recipe-Cleanup fortsetzen
 - Compatibility-Bruecken behalten, solange alte Configs/Imports sie brauchen
 - sichtbare UI-/Doku-Begriffe recipe-first halten
 - alte `skill_*` Namen nur fuer Backcompat dulden
