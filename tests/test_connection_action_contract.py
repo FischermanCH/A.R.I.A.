@@ -53,6 +53,23 @@ def test_connection_action_contracts_keep_policy_and_runtime_boundaries_explicit
     assert contracts["feed_read"].policy_family == "read_only"
 
 
+def test_connection_action_contracts_make_side_effect_boundaries_auditable() -> None:
+    side_effect_contracts = [row for row in connection_action_contracts() if row.side_effect]
+
+    assert {row.capability for row in side_effect_contracts} == {
+        "discord_send",
+        "email_send",
+        "file_write",
+        "mqtt_publish",
+        "webhook_send",
+    }
+    for contract in side_effect_contracts:
+        assert contract.policy_family
+        assert contract.policy_family != "read_only"
+        assert "connection_ref" in contract.required_fields
+        assert contract.payload_fields
+
+
 def test_runtime_operation_and_payload_are_contract_backed() -> None:
     ssh = ActionPlan(
         capability="ssh_command",

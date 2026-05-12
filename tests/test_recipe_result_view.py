@@ -28,6 +28,18 @@ def test_build_recipe_execution_summary_keeps_legacy_marker_but_adds_readable_re
     assert "Ergebnis:\nuptime ok" in text
 
 
+def test_build_recipe_execution_summary_formats_skipped_step_markers() -> None:
+    text = build_recipe_execution_summary(
+        recipe_name="Notify",
+        executed=["1.ssh_run"],
+        skipped=["2.discord_send(skipped)"],
+        result="ok",
+        language="de",
+    )
+
+    assert "Uebersprungene Schritte: 2. discord_send: uebersprungen" in text
+
+
 def test_friendly_recipe_error_text_maps_runtime_codes_to_operator_text() -> None:
     assert friendly_recipe_error_text("recipe_manifest_missing", language="de") == "Das Rezept-Manifest fehlt oder ist nicht mehr verfuegbar."
     assert friendly_recipe_error_text("recipe_unknown_step_type:docker_run", language="de") == "Das Rezept enthaelt einen nicht unterstuetzten Schritt-Typ: docker_run."

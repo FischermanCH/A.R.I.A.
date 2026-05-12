@@ -642,18 +642,21 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
         preflight_meta={"overall_status": "ok", "ok_count": 4, "warn_count": 0, "error_count": 0, "checked_at": "2026-05-12T10:00:00Z"},
         health_meta={"overall_status": "warn", "ok_count": 6, "warn_count": 1, "error_count": 0},
         update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha252", "update_available": True},
+        recipe_experience_memory={"enabled": True, "status": "ok", "collection_count": 1, "point_count": 4},
         language="en",
     )
 
     assert meta["overall_status"] == "warn"
-    assert meta["ok_count"] == 4
+    assert meta["ok_count"] == 5
     assert meta["warn_count"] == 3
     assert meta["error_count"] == 0
-    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "warn", "warn"]
+    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "ok", "warn", "warn"]
     assert meta["rows"][0]["fallback"] == "Release metadata"
     assert meta["rows"][2]["summary"] == "42 model tokens are still unpriced."
     assert meta["rows"][3]["fallback"] == "Cost tracking"
-    assert meta["rows"][6]["url"] == "/updates"
+    assert meta["rows"][4]["fallback"] == "Recipe Experience Memory"
+    assert meta["rows"][4]["detail"] == "1 collections · 4 points"
+    assert meta["rows"][7]["url"] == "/updates"
 
 
 def test_build_operator_guardrail_meta_escalates_errors() -> None:
@@ -746,6 +749,26 @@ def test_build_operator_guardrail_meta_treats_missing_release_metadata_as_error(
     assert meta["overall_status"] == "error"
     assert meta["rows"][0]["status"] == "error"
     assert meta["rows"][0]["summary"] == "Release metadata is incomplete."
+
+
+def test_build_operator_guardrail_meta_warns_on_recipe_memory_errors() -> None:
+    meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
+        pricing_meta={"has_unpriced_usage": False, "unpriced_model_tokens": 0},
+        model_gateway={"status": "ok", "chat_model": "x", "embedding_model": "y"},
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha251", "update_available": False},
+        recipe_experience_memory={"enabled": True, "status": "error", "collection_count": 0, "point_count": 0, "error": "qdrant timeout"},
+        language="de",
+    )
+
+    memory_row = meta["rows"][4]
+    assert meta["overall_status"] == "warn"
+    assert memory_row["fallback"] == "Recipe Experience Memory"
+    assert memory_row["status"] == "warn"
+    assert memory_row["summary"] == "Recipe Experience Memory ist aktiviert, aber aktuell nicht erreichbar."
+    assert "qdrant timeout" in memory_row["detail"]
 
 
 def test_build_recipe_experience_memory_meta_counts_qdrant_collections(monkeypatch) -> None:

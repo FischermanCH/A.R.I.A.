@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from aria.core.connection_action_contract import connection_action_contract
 from aria.core.i18n import I18NStore
 from aria.core.learned_recipe_store_contract import normalize_learned_recipe_store_entry
 from aria.core.recipe_experience_promotion import is_stored_recipe_promotable_capability
@@ -152,6 +153,27 @@ def _review_next_action_label(
     return _learned_recipe_ui_text(language, "next_action_context_only", "Keep as planner context")
 
 
+def _review_contract_label(entry: dict[str, Any], *, language: str | None = None) -> str:
+    capability = str(entry.get("capability", "") or "").strip()
+    contract = connection_action_contract(capability)
+    if contract is None:
+        return _learned_recipe_ui_text(language, "contract_missing", "No connection action contract found")
+    side_effect = (
+        _learned_recipe_ui_text(language, "contract_side_effect_confirm", "side effect: confirmation/policy required")
+        if contract.side_effect
+        else _learned_recipe_ui_text(language, "contract_side_effect_readonly", "read-only/bounded")
+    )
+    return _learned_recipe_ui_text(
+        language,
+        "contract_summary",
+        "Contract: {family} · policy {policy} · runtime {operation} · {side_effect}",
+        family=contract.family or "-",
+        policy=contract.policy_family or "-",
+        operation=contract.operation or "-",
+        side_effect=side_effect,
+    )
+
+
 def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | None = None) -> dict[str, Any]:
     entry = normalize_learned_recipe_store_entry(source)
     promotion_state = str(entry.get("promotion_state", "") or "").strip().lower()
@@ -172,6 +194,7 @@ def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | N
         "review_safety_label": _review_safety_label(entry, promotion_state, language=language),
         "review_safety_class": _review_safety_class(promotion_state),
         "review_next_action_label": _review_next_action_label(entry, promotion_state, language=language),
+        "review_contract_label": _review_contract_label(entry, language=language),
         "can_promote_to_stored_recipe": is_stored_recipe_promotable_capability(entry.get("capability", "")) and promotion_state != PROMOTION_STATE_PROMOTED,
     }
 

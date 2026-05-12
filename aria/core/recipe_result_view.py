@@ -65,7 +65,16 @@ def build_recipe_execution_summary(
         lines.append(_text(language, "execution_summary_steps_title", "Steps:"))
         lines.extend(f"- {row}" for row in readable_steps)
     if skipped:
-        lines.append(_text(language, "execution_skipped_steps", "Skipped steps: {steps}", steps=", ".join(skipped)))
+        readable_skipped = [format_recipe_step_marker(marker, language=language) for marker in skipped]
+        readable_skipped = [row for row in readable_skipped if row]
+        lines.append(
+            _text(
+                language,
+                "execution_skipped_steps",
+                "Skipped steps: {steps}",
+                steps=", ".join(readable_skipped or skipped),
+            )
+        )
     if ssh_summary:
         lines.append(str(ssh_summary).strip())
     if held_summary:

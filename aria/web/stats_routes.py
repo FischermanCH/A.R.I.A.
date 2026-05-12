@@ -820,6 +820,7 @@ def _build_operator_guardrail_meta(
     preflight_meta: dict[str, Any],
     health_meta: dict[str, Any],
     update_status: dict[str, Any],
+    recipe_experience_memory: dict[str, Any] | None = None,
     language: str = "de",
 ) -> dict[str, Any]:
     pricing_status = "warn" if bool(pricing_meta.get("has_unpriced_usage")) else "ok"
@@ -873,6 +874,34 @@ def _build_operator_guardrail_meta(
     if update_current_label and update_current_label != release_label:
         release_detail = f"{release_detail} · update: {update_current_label}"
 
+    memory_row: dict[str, str] | None = None
+    if recipe_experience_memory is not None:
+        memory_enabled = bool(recipe_experience_memory.get("enabled"))
+        memory_status_raw = str(recipe_experience_memory.get("status", "ok") or "ok").strip().lower()
+        memory_collection_count = int(recipe_experience_memory.get("collection_count", 0) or 0)
+        memory_point_count = int(recipe_experience_memory.get("point_count", 0) or 0)
+        memory_error = str(recipe_experience_memory.get("error", "") or "").strip()
+        if memory_enabled and memory_status_raw == "error":
+            memory_status = "warn"
+            memory_summary = _stats_route_text(language, "operator_guardrail_recipe_memory_warn", "Recipe Experience Memory is enabled but currently not reachable.")
+        elif memory_enabled:
+            memory_status = "ok"
+            memory_summary = _stats_route_text(language, "operator_guardrail_recipe_memory_ok", "Recipe Experience Memory is available.")
+        else:
+            memory_status = "ok"
+            memory_summary = _stats_route_text(language, "operator_guardrail_recipe_memory_disabled", "Recipe Experience Memory is optional and currently disabled.")
+        memory_detail = f"{memory_collection_count} collections · {memory_point_count} points"
+        if memory_error:
+            memory_detail = f"{memory_detail} · {memory_error}"
+        memory_row = _guardrail_row(
+            key="recipe_memory",
+            fallback="Recipe Experience Memory",
+            status=memory_status,
+            summary=memory_summary,
+            detail=memory_detail,
+            url="/stats#recipe-experience-memory",
+        )
+
     rows = [
         _guardrail_row(
             key="release",
@@ -909,6 +938,7 @@ def _build_operator_guardrail_meta(
             detail=cost_tracking_detail,
             url="/stats#model-gateway-audit",
         ),
+        *([memory_row] if memory_row is not None else []),
         _guardrail_row(
             key="preflight",
             fallback="Startup preflight",
@@ -1950,6 +1980,7 @@ def register_stats_routes(
             preflight_meta=preflight_meta,
             health_meta=health_meta,
             update_status=update_status,
+            recipe_experience_memory=recipe_experience_memory,
             language=language,
         )
         source_usage_rows = _build_source_usage_rows(stats)

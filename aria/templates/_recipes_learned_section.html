@@ -104,6 +104,9 @@
         {% if row.capability %}<span class="status-badge">{{ row.capability }}</span>{% endif %}
         <span class="status-badge">{{ tr(request, 'learned_recipes.runs', 'Runs') }}: {{ row.experience_count }}</span>
       </div>
+      {% if row.review_contract_label %}
+      <p class="hint-text">{{ tr(request, 'learned_recipes.action_contract', 'Action Contract') }}: {{ row.review_contract_label }}</p>
+      {% endif %}
       {% if row.scope_label %}
       <p class="hint-text">{{ tr(request, 'learned_recipes.scope', 'Scope') }}: {{ row.scope_label }}</p>
       {% endif %}

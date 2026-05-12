@@ -166,6 +166,8 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "uptime &amp;&amp; df -h /" in response.text
     assert "Nur Kontext: nicht direkt ausführbar" in response.text
     assert "Reviewen und promoten, wenn weiterhin korrekt" in response.text
+    assert "Action Contract" in response.text
+    assert "Contract: command · Policy ssh_readonly · Runtime run_command · read-only/bounded" in response.text
 
 
 def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:

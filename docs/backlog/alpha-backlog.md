@@ -23,6 +23,8 @@ Aktueller Release-Stand:
 - Kosten-/Token-Guardrail nachgezogen: `/stats` markiert deaktiviertes Token-Tracking/UsageMeter-Bypasses als Release-Fehler und Kostenluecken als Warnung
 - Pricing-Overrides nachgezogen: LiteLLM-Refresh synchronisiert manuelle Aliase/Preise wieder sichtbar in den laufenden Settings-State
 - Interner Build-Smoke-Test liegt in `docs/release/internal-build-smoke-test.md`
+- Recipes-UX nachgezogen: Learned-Recipe-Review zeigt jetzt Contract/Policy/Runtime-Boundary und Recipe Result View formatiert uebersprungene Schritte lesbar
+- Operator Guardrail nachgezogen: Recipe Experience Memory wird auf `/stats` als Reachability-/Learning-Memory-Signal sichtbar
 
 ## Offen Auf Einen Blick
 
@@ -33,19 +35,20 @@ Aktueller Release-Stand:
 - Zielbild: Kontext anreichern, LLM bounded Action-Draft bauen lassen, Policy/Guardrail entscheidet, Runtime fuehrt aus
 
 2. Recipes UX weiter ausbauen
-- Review-/Promote-Flows fuer Learned Recipes weiter anhand echter Nutzung schaerfen
+- Review-/Promote-Flows fuer Learned Recipes weiter anhand echter Nutzung schaerfen; Contract/Policy/Runtime-Boundary ist sichtbar, weitere Arbeit nur anhand neuer Live-Ausreisser
 - Templates besser kuratieren
-- Recipe Result View weiter anhand echter Recipe-Ausgaben schaerfen
+- Recipe Result View weiter anhand echter Recipe-Ausgaben schaerfen; Step-Marker fuer ausgefuehrte und uebersprungene Schritte sind jetzt lesbar normalisiert
 - strukturierte Recipe-Outputs weiter verbessern, sobald mehr reale Multi-Step-Rezepte vorliegen
 
 3. Connection-Modularisierung vorbereiten
 - gemeinsame Action-Draft-/Policy-/Runtime-Vertraege auf Basis von `docs/product/connection-action-contract.md` weiter vereinheitlichen; Registry/Pool-Bindings sind jetzt contract-backed
+- Side-Effect-Boundary fuer write/send/publish Capabilities ist per Contract-Test abgesichert
 - Provider-spezifische Logik hinter kleinen Adaptern halten
 - neue Connection-Typen nicht mehr hart in den Pipeline-Kern ziehen
 - langfristig deklarative Connection-Manifeste mit getrennter Secret-Zuordnung vorbereiten
 
 4. Admin/Observability abrunden
-- Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten sind jetzt eigener Guardrail-Check
+- Operator Guardrail auf `/stats` anhand echter Release-/Update-Erfahrungen weiter schaerfen; Release-Metadaten, Kosten-Tracking und Recipe Experience Memory sind jetzt eigene Guardrail-Signale
 - Kosten-/Token-Tracking als Release-Guardrail aktiv halten; Tracking-Ausfaelle und Kostenluecken werden jetzt explizit bewertet
 - Pricing-Alias-/Manual-Overrides auditierbar halten; Refresh-/Settings-Sync ist jetzt abgesichert
 
