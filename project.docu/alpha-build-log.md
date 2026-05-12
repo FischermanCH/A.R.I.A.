@@ -7,12 +7,10 @@ Zweck:
 - festhalten, **was auf `dev` schon vorbereitet ist**
 - Build-Versionen und inhaltliche Aenderungen zusammen sichtbar machen
 
-## Vorbereitet fuer naechsten Build
+## Vorbereitet fuer naechsten Schritt
 
-- `alpha252` ist gebaut und fuer den internen Smoke-Test bereit.
+- `alpha252` ist gebaut und der interne Live-Smoke-Test ist gruen.
 - Naechster bewusst zu pruefender Punkt:
-  - interner Update-Button auf ARIA testen
-  - danach Smoke-Test nach `docs/release/internal-build-smoke-test.md`
   - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren
 
 ## Bereits gebaut
@@ -31,6 +29,12 @@ Zweck:
   - `git diff --check`: gruen
   - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
   - CLI-Version im Container: `0.1.0-alpha252`
+  - Live-Smoke-Test nach internem Update: gruen
+    - Multi-Target SSH-Festplattencheck: `13/13` unauffaellig, kompakte Operator-Zusammenfassung
+    - RSS-Security-News: Eintraege mit Link, Quelle, Zeit und Kurztext sichtbar
+    - SSH-Guardrail: DNS-Restart korrekt blockiert
+    - HTTP-API-Check: `n8n-test-http-api` ok
+    - Discord-One-Click: Bestaetigung per Button sendet erfolgreich
 - Artefakt:
   - `/mnt/NAS/aria-images/aria-alpha252-local.tar`
   - TAR-SHA256: `a87cd56401dc8d7dc670de4e64c25e484bce7563577628cdc2effede2555c6e7`

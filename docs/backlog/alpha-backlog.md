@@ -32,14 +32,14 @@ Aktueller Release-Stand:
 - Connection-Modularisierung abgeschlossen fuer diese Alpha-Runde: Connection Action Contracts exportieren Manifest-Zeilen und `docs/product/connection-provider-manifest-checklist.md` beschreibt die deklarative Provider-Bruecke
 - Admin/Observability abgeschlossen fuer diese Alpha-Runde: `/stats` Operator Guardrail hat stabile Row-Keys und `docs/product/operator-observability-guardrails.md` dokumentiert Release-/Kosten-/Update-Semantik
 - Legacy-/Recipe-Cleanup abgeschlossen fuer diese Alpha-Runde: `docs/product/legacy-recipe-compatibility-audit.md` enthaelt jetzt ein explizites Migration-Gate fuer alte Skill-Bruecken
-- interner Build erstellt: `0.1.0-alpha252` enthaelt den Backlog-Abschluss nach `alpha251` und ist fuer Smoke-Test vorgesehen
+- interner Build erstellt und live geprueft: `0.1.0-alpha252` enthaelt den Backlog-Abschluss nach `alpha251`; Smoke-Test mit Multi-SSH, RSS, SSH-Guardrail, HTTP-API und Discord-One-Click ist gruen
 
 ## Offen Auf Einen Blick
 
 Keine unmittelbaren Produkt-/Cleanup-Blocker fuer diese Alpha-Runde.
 
 Naechster sinnvoller Schritt:
-- interner Build, Smoke-Test nach `docs/release/internal-build-smoke-test.md`, danach nur bei gruenem Update-Pfad neuer Public-Push
+- Public-Push fuer `alpha252` nur nach bewusster Freigabe; vorher keine weiteren Produkt-/Cleanup-Blocker offen
 
 ## Dauer-Guardrails
 
