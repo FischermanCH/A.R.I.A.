@@ -63,3 +63,30 @@ def test_licenses_page_renders_core_entries() -> None:
     assert "github.com/qdrant/qdrant" in response.text
     assert "github.com/searxng/searxng" in response.text
     assert "fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/" in response.text
+
+def test_base_template_declares_durable_favicon_assets() -> None:
+    template = Path("aria/templates/base.html").read_text(encoding="utf-8")
+
+    assert 'href="/favicon.ico' in template
+    assert 'sizes="32x32" href="/static/favicon-32x32.png' in template
+    assert 'sizes="16x16" href="/static/favicon-16x16.png' in template
+    assert 'rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png' in template
+
+
+def test_favicon_route_serves_real_icon_file() -> None:
+    client = TestClient(main_mod.app)
+
+    response = client.get("/favicon.ico")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/x-icon")
+    assert response.content.startswith(b"\x00\x00\x01\x00")
+
+
+def test_favicon_static_png_variants_exist() -> None:
+    static_dir = Path("aria/static")
+
+    for name in ("favicon-16x16.png", "favicon-32x32.png", "favicon-48x48.png", "apple-touch-icon.png"):
+        payload = (static_dir / name).read_bytes()
+        assert payload.startswith(b"\x89PNG\r\n\x1a\n")
+        assert len(payload) > 100

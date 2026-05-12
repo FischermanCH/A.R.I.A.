@@ -4,6 +4,11 @@ All notable changes to ARIA should be documented in this file.
 
 Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgrade Notes`
 
+## [Unreleased]
+
+### Fixed
+- Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.
+
 ## [0.1.0-alpha251] - 2026-05-12
 
 ### Fixed

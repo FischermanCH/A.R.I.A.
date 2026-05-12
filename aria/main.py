@@ -831,8 +831,8 @@ def _build_app() -> FastAPI:
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> FileResponse:
         return FileResponse(
-            BASE_DIR / "aria" / "static" / "logo-aria-v01.png",
-            media_type="image/png",
+            BASE_DIR / "aria" / "static" / "favicon.ico",
+            media_type="image/x-icon",
         )
     if settings.channels.api.enabled:
         register_api_routes(app, pipeline=pipeline, auth_token=settings.channels.api.auth_token)
