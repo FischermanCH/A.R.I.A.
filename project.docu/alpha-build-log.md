@@ -1,6 +1,6 @@
 # ARIA — Alpha Build Log
 
-Stand: 2026-05-12
+Stand: 2026-05-13
 
 Zweck:
 - nachvollziehen, **was bereits in Alpha-Builds gelandet ist**
@@ -9,12 +9,37 @@ Zweck:
 
 ## Vorbereitet fuer naechsten Build
 
-- `alpha251` ist gebaut und fuer den finalen Public-Release-Check bereit.
+- `alpha252` ist gebaut und fuer den internen Smoke-Test bereit.
 - Naechster bewusst zu pruefender Punkt:
-  - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren.
-  - Danach GitHub-/Docker-Hub-Release-Text aus `docs/release/public-alpha-rollup-alpha167-to-next.md` verwenden.
+  - interner Update-Button auf ARIA testen
+  - danach Smoke-Test nach `docs/release/internal-build-smoke-test.md`
+  - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren
 
 ## Bereits gebaut
+
+### alpha252
+
+- enthaelt den Backlog-Abschluss nach `alpha251`:
+  - Agentic-/Recipe-/Connection-/Observability-Guardrails sind im Backlog nur noch als Dauerleitplanken gefuehrt
+  - Recipe-UX-Metadaten, Review-Reife und Recipe-Result-Zaehler sind enthalten
+  - Connection Action Contracts exportieren Manifest-Zeilen fuer spaetere deklarative Provider-Manifeste
+  - `/stats` Operator Guardrail hat stabile Row-Keys
+  - Legacy-/Recipe-Kompatibilitaet hat ein explizites Migration-Gate
+- Verifikation:
+  - Vorbuild-Regressionen: `81 passed`
+  - i18n-Code-Literal-Audit strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `200 {"status":"ok"}`
+  - CLI-Version im Container: `0.1.0-alpha252`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha252-local.tar`
+  - TAR-SHA256: `a87cd56401dc8d7dc670de4e64c25e484bce7563577628cdc2effede2555c6e7`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.252`
+  - `aria:alpha-local`
+  - `sha256:266fe7c0d712af0ae74f5b57b77fc9acc8088288235213f1cbe2bd49a7388b83`
+- Release-Label:
+  - `0.1.0-alpha252`
 
 ### alpha251
 
