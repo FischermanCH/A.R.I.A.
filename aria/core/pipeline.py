@@ -121,6 +121,7 @@ from aria.core.recipe_runtime_contract import build_recipe_intent
 from aria.core.recipe_runtime_contract import build_recipe_runtime_skill_name
 from aria.core.recipe_runtime_contract import is_recipe_intent
 from aria.core.recipe_runtime_contract import is_recipe_status_intent
+from aria.core.recipe_result_view import friendly_recipe_error_text
 from aria.core.router import KeywordRouter
 from aria.core.routing_admin import ensure_connection_routing_index_ready
 from aria.core.routing_admin import resolve_connection_routing_chain
@@ -4049,7 +4050,8 @@ class Pipeline:
             )
             intents = [build_recipe_intent(recipe_id)] if recipe_id else ["chat"]
             if not skill_result.success:
-                return intents, skill_result.error or "recipe_execution_failed", [], [skill_result.error or "recipe_execution_failed"]
+                raw_error = skill_result.error or "recipe_execution_failed"
+                return intents, friendly_recipe_error_text(raw_error, language=language), [], [raw_error]
             detail_lines = self._collect_skill_detail_lines([skill_result])
             meta = skill_result.metadata or {}
             if bool(meta.get("direct_chat_response")):

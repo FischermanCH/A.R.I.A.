@@ -7,6 +7,7 @@ from typing import Any
 from aria.core.i18n import I18NStore
 from pathlib import Path
 from aria.core.recipe_runtime_contract import build_recipe_runtime_skill_name
+from aria.core.recipe_result_view import build_recipe_execution_summary
 from aria.core.safe_fix import format_held_packages_summary
 from aria.skills.base import SkillResult
 
@@ -441,15 +442,18 @@ class RecipeStepExecutor:
                 continue
             return failure
 
-        lines = [f"[Stored Recipe Steps] {skill_name}", _recipe_text(language, "steps_executed", "Executed: {steps}", steps=", ".join(executed))]
         ssh_summary = _format_ssh_step_run_summary(ssh_run_summaries)
-        if ssh_summary:
-            lines.append(ssh_summary)
         held_summary = format_held_packages_summary(held_by_connection, connection_targets)
-        if held_summary:
-            lines.append(held_summary)
-        if last_output:
-            lines.append(_recipe_text(language, "steps_result", "Result:\n{result}", result=runtime.truncate_text(last_output, 1400)))
+        content = build_recipe_execution_summary(
+            recipe_name=skill_name,
+            executed=executed,
+            skipped=skipped,
+            result=last_output,
+            ssh_summary=ssh_summary,
+            held_summary=held_summary,
+            language=language,
+            truncate=runtime.truncate_text,
+        )
         meta: dict[str, Any] = {
             "recipe_id": skill_id,
             "recipe_name": skill_name,
@@ -482,8 +486,7 @@ class RecipeStepExecutor:
             }
         return SkillResult(
             skill_name=build_recipe_runtime_skill_name(skill_id),
-            content="\n".join(lines),
+            content=content,
             success=True,
             metadata=meta,
         )
-
