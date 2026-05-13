@@ -69,6 +69,7 @@ from aria.core.executor_registry import ExecutorRegistry
 from aria.core.agentic_runtime_debug import runtime_debug_line_for_plan
 from aria.core.learned_recipe_integration import record_routed_action_success
 from aria.core.learned_recipe_integration import record_routed_stored_recipe_success
+from aria.core.learned_recipe_curator import curate_learned_recipe_entry
 from aria.core.learned_recipe_store_updates import record_successful_learned_recipe_execution
 from aria.core.pipeline_recipe_experience import format_recipe_experience_context
 from aria.core.pipeline_recipe_experience import recipe_experience_context
@@ -4493,6 +4494,15 @@ class Pipeline:
                         skill_result=skill_result,
                         recorder=record_successful_learned_recipe_execution,
                     )
+                    if learned_entry:
+                        learned_entry, curation_debug = await curate_learned_recipe_entry(
+                            llm_client=self.llm_client,
+                            entry=learned_entry,
+                            language=language,
+                            user_id=user_id,
+                        )
+                        if curation_debug and self._routing_debug_enabled():
+                            detail_lines.append(curation_debug)
                     if learned_entry and self.memory_skill is not None:
                         await store_recipe_experience_memory(
                             self.memory_skill,
@@ -4565,6 +4575,15 @@ class Pipeline:
                 recorder=record_successful_learned_recipe_execution,
                 user_message=str(resolved.get("query", "") or ""),
             )
+            if learned_entry:
+                learned_entry, curation_debug = await curate_learned_recipe_entry(
+                    llm_client=self.llm_client,
+                    entry=learned_entry,
+                    language=language,
+                    user_id=user_id,
+                )
+                if curation_debug and self._routing_debug_enabled():
+                    detail_lines.append(curation_debug)
             if learned_entry and self.memory_skill is not None:
                 await store_recipe_experience_memory(
                     self.memory_skill,

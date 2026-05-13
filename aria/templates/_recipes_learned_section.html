@@ -144,6 +144,16 @@
       {% if row.review_maturity_label %}
       <p class="hint-text">{{ tr(request, 'learned_recipes.review_maturity', 'Review-Reife') }}: {{ row.review_maturity_label }}</p>
       {% endif %}
+      {% if row.curation_source %}
+      <div class="status-badge-row compact">
+        <span class="status-badge">{{ tr(request, 'learned_recipes.curation_badge', 'LLM-kuratiert') }}</span>
+        {% if row.curation_confidence_label %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_confidence', 'Confidence') }}: {{ row.curation_confidence_label }}</span>{% endif %}
+        {% if row.risk_level %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_risk', 'Risiko') }}: {{ row.risk_level }}</span>{% endif %}
+      </div>
+      {% endif %}
+      {% if row.generalization_hint %}
+      <p class="hint-text">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ row.generalization_hint }}</p>
+      {% endif %}
       {% if row.scope_label %}
       <p class="hint-text">{{ tr(request, 'learned_recipes.scope', 'Scope') }}: {{ row.scope_label }}</p>
       {% endif %}
@@ -173,6 +183,15 @@
           {% endif %}
           {% if row.promotion_hint %}
           <p class="hint-text">{{ tr(request, 'learned_recipes.promotion_hint', 'Promotion-Hinweis') }}: {{ row.promotion_hint }}</p>
+          {% endif %}
+          {% if row.promotion_reason %}
+          <p class="hint-text">{{ tr(request, 'learned_recipes.promotion_reason', 'Promotion-Begründung') }}: {{ row.promotion_reason }}</p>
+          {% endif %}
+          {% if row.suggested_triggers %}
+          <p class="hint-text">{{ tr(request, 'learned_recipes.suggested_triggers', 'Vorgeschlagene Trigger') }}: {{ row.suggested_triggers|join(", ") }}</p>
+          {% endif %}
+          {% if row.limits %}
+          <p class="hint-text">{{ tr(request, 'learned_recipes.limits', 'Grenzen') }}: {{ row.limits|join("; ") }}</p>
           {% endif %}
           {% if row.stored_recipe_id %}
           <div class="inline-actions">

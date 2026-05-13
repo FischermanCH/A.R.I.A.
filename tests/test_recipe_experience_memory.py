@@ -91,12 +91,21 @@ def test_recipe_experience_memory_text_keeps_context_without_executor_contract()
             "chosen_action": "uptime -p && df -h",
             "inputs": {"learned_from_command": "uptime"},
             "recipe_scope": {"learning_origin": "guardrail_healthcheck_fallback"},
+            "confidence": 0.9,
+            "risk_level": "low",
+            "generalization_hint": "Useful for read-only health checks.",
+            "suggested_triggers": ["dns health"],
+            "promotion_reason": "Repeated safe status checks.",
+            "limits": ["Do not restart services."],
         }
     )
 
     assert "User phrasing: wie geht es meinem dns server" in text
     assert "Final action: uptime -p && df -h" in text
     assert "Learning origin: guardrail_healthcheck_fallback" in text
+    assert "Curated confidence: 0.9" in text
+    assert "Generalization: Useful for read-only health checks." in text
+    assert "Limits: Do not restart services." in text
     assert "Target fingerprint: ssh|pihole1" in text
     assert "Action fingerprint: ssh_command|health_check|uptime-p-df-h" in text
 

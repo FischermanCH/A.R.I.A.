@@ -191,6 +191,13 @@ def _review_maturity_label(entry: dict[str, Any], *, language: str | None = None
     return _learned_recipe_ui_text(language, "maturity_observe", "Keep observing: needs {missing}.", missing=missing_text)
 
 
+def _curation_confidence_label(entry: dict[str, Any]) -> str:
+    confidence = float(entry.get("confidence", 0.0) or 0.0)
+    if confidence <= 0:
+        return ""
+    return f"{confidence:.2f}"
+
+
 def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | None = None) -> dict[str, Any]:
     entry = normalize_learned_recipe_store_entry(source)
     promotion_state = str(entry.get("promotion_state", "") or "").strip().lower()
@@ -213,6 +220,7 @@ def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | N
         "review_next_action_label": _review_next_action_label(entry, promotion_state, language=language),
         "review_contract_label": _review_contract_label(entry, language=language),
         "review_maturity_label": _review_maturity_label(entry, language=language),
+        "curation_confidence_label": _curation_confidence_label(entry),
         "can_promote_to_stored_recipe": is_stored_recipe_promotable_capability(entry.get("capability", "")) and promotion_state != PROMOTION_STATE_PROMOTED,
     }
 

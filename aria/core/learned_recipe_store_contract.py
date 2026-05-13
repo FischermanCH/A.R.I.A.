@@ -34,7 +34,37 @@ LEARNED_RECIPE_STORE_ENTRY_KEYS = (
     "last_success_at",
     "promotion_state",
     "promotion_hint",
+    "curation_source",
+    "curation_policy",
+    "curated_at",
+    "confidence",
+    "risk_level",
+    "generalization_hint",
+    "suggested_triggers",
+    "promotion_reason",
+    "limits",
 )
+
+
+def _safe_confidence(value: Any) -> float:
+    try:
+        confidence = float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, confidence))
+
+
+def _clean_string_list(value: Any) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in list(value or []) if isinstance(value, list) else []:
+        clean = str(item or "").strip()
+        key = clean.lower()
+        if not clean or key in seen:
+            continue
+        seen.add(key)
+        rows.append(clean)
+    return rows
 
 
 def normalize_learned_recipe_store_entry(
@@ -67,6 +97,15 @@ def normalize_learned_recipe_store_entry(
         "user_message": str(record.get("user_message", "") or "").strip(),
         "summary": learned_recipe_candidate_summary(record, language="en", localized_text=lambda _l="", *, de, en: en),
         "experience_summary": experience["summary"],
+        "curation_source": str(record.get("curation_source", "") or "").strip(),
+        "curation_policy": str(record.get("curation_policy", "") or "").strip(),
+        "curated_at": str(record.get("curated_at", "") or "").strip(),
+        "confidence": _safe_confidence(record.get("confidence")),
+        "risk_level": str(record.get("risk_level", "") or "").strip().lower(),
+        "generalization_hint": str(record.get("generalization_hint", "") or "").strip(),
+        "suggested_triggers": _clean_string_list(record.get("suggested_triggers")),
+        "promotion_reason": str(record.get("promotion_reason", "") or "").strip(),
+        "limits": _clean_string_list(record.get("limits")),
     }
     return normalized
 

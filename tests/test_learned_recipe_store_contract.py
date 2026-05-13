@@ -48,6 +48,15 @@ def test_normalize_learned_recipe_store_entry_builds_store_ready_shape() -> None
         "last_success_at": "2026-05-01T10:15:00Z",
         "promotion_state": "eligible",
         "promotion_hint": "Observed repeated successful Linux health checks.",
+        "curation_source": "",
+        "curation_policy": "",
+        "curated_at": "",
+        "confidence": 0.0,
+        "risk_level": "",
+        "generalization_hint": "",
+        "suggested_triggers": [],
+        "promotion_reason": "",
+        "limits": [],
     }
 
 
@@ -68,6 +77,35 @@ def test_build_learned_recipe_store_entry_applies_consistent_defaults() -> None:
     assert entry["experience_count"] == 2
     assert entry["promotion_state"] == "observed"
     assert entry["promotion_hint"] == "Observed successful runs; collect more evidence before review."
+
+
+def test_normalize_learned_recipe_store_entry_preserves_curated_review_metadata() -> None:
+    entry = normalize_learned_recipe_store_entry(
+        {
+            "intent": "health_check",
+            "connection_kind": "ssh",
+            "capability": "ssh_command",
+            "chosen_action": "uptime",
+            "confidence": "1.8",
+            "risk_level": "LOW",
+            "generalization_hint": "Useful for quick host status checks.",
+            "suggested_triggers": ["server status", "", "server status", "dns ok?"],
+            "promotion_reason": "Repeated safe read-only command.",
+            "limits": ["Do not use for service restarts."],
+            "curation_source": "llm_curator",
+            "curation_policy": "context_only_not_executable",
+            "curated_at": "2026-05-13T10:00:00Z",
+        }
+    )
+
+    assert entry["confidence"] == 1.0
+    assert entry["risk_level"] == "low"
+    assert entry["generalization_hint"] == "Useful for quick host status checks."
+    assert entry["suggested_triggers"] == ["server status", "dns ok?"]
+    assert entry["promotion_reason"] == "Repeated safe read-only command."
+    assert entry["limits"] == ["Do not use for service restarts."]
+    assert entry["curation_source"] == "llm_curator"
+    assert entry["curation_policy"] == "context_only_not_executable"
 
 
 def test_learned_recipe_store_list_row_returns_admin_friendly_subset() -> None:

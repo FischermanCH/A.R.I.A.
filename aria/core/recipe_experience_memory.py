@@ -92,6 +92,18 @@ def build_recipe_experience_memory_text(entry: dict[str, Any]) -> str:
         f"Summary: {_clean_text(entry.get('experience_summary'))}"
         if _clean_text(entry.get("experience_summary"))
         else "",
+        f"Curated confidence: {_clean_text(entry.get('confidence'))}" if _clean_text(entry.get("confidence")) else "",
+        f"Curated risk: {_clean_text(entry.get('risk_level'))}" if _clean_text(entry.get("risk_level")) else "",
+        f"Generalization: {_clean_text(entry.get('generalization_hint'))}"
+        if _clean_text(entry.get("generalization_hint"))
+        else "",
+        "Suggested triggers: " + ", ".join(_clean_text(item) for item in list(entry.get("suggested_triggers", []) or []) if _clean_text(item))
+        if list(entry.get("suggested_triggers", []) or [])
+        else "",
+        f"Promotion reason: {_clean_text(entry.get('promotion_reason'))}" if _clean_text(entry.get("promotion_reason")) else "",
+        "Limits: " + "; ".join(_clean_text(item) for item in list(entry.get("limits", []) or []) if _clean_text(item))
+        if list(entry.get("limits", []) or [])
+        else "",
         "Triggers: " + ", ".join(_clean_text(item) for item in list(entry.get("router_keywords", []) or []) if _clean_text(item))
         if list(entry.get("router_keywords", []) or [])
         else "",

@@ -164,6 +164,14 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
                 "promotion_hint": "Repeated successful runs make this learned recipe eligible for promotion.",
                 "router_keywords": ["monitoring server", "health"],
                 "recipe_scope": {"learning_origin": "guardrail_healthcheck_fallback"},
+                "confidence": 0.84,
+                "risk_level": "low",
+                "generalization_hint": "Useful for read-only Linux host health checks.",
+                "suggested_triggers": ["ist mein monitoring server ok"],
+                "promotion_reason": "Repeated successful bounded checks.",
+                "limits": ["Do not use for restarts."],
+                "curation_source": "llm_curator",
+                "curation_policy": "context_only_not_executable",
             }
         ],
     )
@@ -185,6 +193,12 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Reviewen und promoten, wenn weiterhin korrekt" in response.text
     assert "Action Contract" in response.text
     assert "Contract: command · Policy ssh_readonly · Runtime run_command · read-only/bounded" in response.text
+    assert "LLM-kuratiert" in response.text
+    assert "Confidence: 0.84" in response.text
+    assert "Generalisiert als" in response.text
+    assert "Useful for read-only Linux host health checks." in response.text
+    assert "Vorgeschlagene Trigger" in response.text
+    assert "Do not use for restarts." in response.text
     assert "Review-Reife" in response.text
     assert "Starke Evidenz: 5 Runs, Ziel und Aktion sind bekannt." in response.text
 

@@ -39,6 +39,7 @@ Aktueller Release-Stand:
 - Connections-Status optimiert: `/connections/status` rendert standardmaessig aus cached/last-known Health und startet Live-Probes nur noch bewusst via `?refresh=1`
 - Recipes-Overview optimiert: Status-Kacheln verwenden kurze, nicht doppelte Labels und verlinken direkt auf die passenden Rezept-Bereiche
 - Learned-Recipes-Erklaerung nachgezogen: `/recipes/learned` beschreibt Lernquelle, lokalen Store, Recipe Experience Memory, Promote/Dismiss/Delete und Abrufpfad sichtbar in der UI
+- Self-Learning-Curator nachgezogen: erfolgreiche einzelne Agentic-/Recipe-Lernereignisse bekommen LLM-kuratierte Review-Metadaten, bleiben aber context-only und policy-/guardrail-gebunden
 
 ## Offen Auf Einen Blick
 
