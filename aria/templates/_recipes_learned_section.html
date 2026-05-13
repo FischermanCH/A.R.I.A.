@@ -1,6 +1,40 @@
 <section class="floating-card skills-section" id="skills-learned">
   <h3>{{ tr(request, 'learned_recipes.title', 'Gelernte Rezepte') }}</h3>
   <p class="hint-text">{{ tr(request, 'learned_recipes.desc', 'Hier landen erfolgreiche Muster aus klaren, sicheren Läufen. Die Liste hilft beim Review, bevor daraus später bewusst übernommene Rezepte oder Promotion-Kandidaten werden.') }}</p>
+  <div class="memory-health-grid learned-flow-grid">
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-ok"></span>
+        <h3>{{ tr(request, 'learned_recipes.flow_origin_title', 'Woher gelernt?') }}</h3>
+      </div>
+      <p>{{ tr(request, 'learned_recipes.flow_origin_text', 'Aus erfolgreichen, klaren und policy-erlaubten Läufen: Agentic Actions, Guardrail-Healthchecks und bewusst ausgeführte gespeicherte Rezepte.') }}</p>
+      <small>{{ tr(request, 'learned_recipes.flow_origin_meta', 'Blockierte oder fehlgeschlagene Aktionen werden nicht als Erfolg gelernt.') }}</small>
+    </article>
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-ok"></span>
+        <h3>{{ tr(request, 'learned_recipes.flow_store_title', 'Wo gespeichert?') }}</h3>
+      </div>
+      <p>{{ tr(request, 'learned_recipes.flow_store_text', 'Review-Kandidaten liegen lokal in data/runtime/learned_recipes.json; semantischer Nutzungskontext liegt zusätzlich in Recipe Experience Memory.') }}</p>
+      <small>{{ tr(request, 'learned_recipes.flow_store_meta', 'Der lokale Store ist die Admin-Review-Liste; Memory ist nur Kontext.') }}</small>
+    </article>
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-warn"></span>
+        <h3>{{ tr(request, 'learned_recipes.flow_action_title', 'Was tun?') }}</h3>
+      </div>
+      <p>{{ tr(request, 'learned_recipes.flow_action_text', 'Beobachten, filtern und bei starken Kandidaten bewusst promoten. Dismiss hält den Kandidaten als Beobachtung, Delete entfernt ihn.') }}</p>
+      <small>{{ tr(request, 'learned_recipes.flow_action_meta', 'Promotion erzeugt ein normales gespeichertes Rezept mit eigener ID.') }}</small>
+    </article>
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-warn"></span>
+        <h3>{{ tr(request, 'learned_recipes.flow_retrieval_title', 'Wie abgerufen?') }}</h3>
+      </div>
+      <p>{{ tr(request, 'learned_recipes.flow_retrieval_text', 'Vor neuer Planung sucht ARIA ähnliche Erfahrungen als Kontext. Direkt ausführbar werden gelernte Muster erst nach Promotion; Policy und Guardrails bleiben immer davor.') }}</p>
+      <small>{{ tr(request, 'learned_recipes.flow_retrieval_meta', 'LLM-first fuer Bedeutung, deterministisch fuer Sicherheit und Ausführung.') }}</small>
+    </article>
+  </div>
   <div class="memory-health-grid">
     <article class="memory-health-card">
       <div class="memory-health-head">

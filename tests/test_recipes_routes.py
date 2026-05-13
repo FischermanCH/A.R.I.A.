@@ -118,6 +118,10 @@ def test_recipes_subpages_render_with_page_specific_actions() -> None:
     learned_response = client.get("/recipes/learned")
     assert learned_response.status_code == 200
     assert 'id="skills-learned"' in learned_response.text
+    assert "Woher gelernt?" in learned_response.text
+    assert "data/runtime/learned_recipes.json" in learned_response.text
+    assert "Wie abgerufen?" in learned_response.text
+    assert "Policy und Guardrails bleiben immer davor" in learned_response.text
 
     system_response = client.get("/recipes/system")
     assert system_response.status_code == 200

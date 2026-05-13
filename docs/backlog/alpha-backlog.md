@@ -38,6 +38,7 @@ Aktueller Release-Stand:
 - Update-Pfad nachgezogen: erfolgreiche managed/interne Updates bereinigen dangling Docker-Layer und ungenutzte ARIA-Docker-Images, ohne Container, Volumes oder Sidecars zu entfernen
 - Connections-Status optimiert: `/connections/status` rendert standardmaessig aus cached/last-known Health und startet Live-Probes nur noch bewusst via `?refresh=1`
 - Recipes-Overview optimiert: Status-Kacheln verwenden kurze, nicht doppelte Labels und verlinken direkt auf die passenden Rezept-Bereiche
+- Learned-Recipes-Erklaerung nachgezogen: `/recipes/learned` beschreibt Lernquelle, lokalen Store, Recipe Experience Memory, Promote/Dismiss/Delete und Abrufpfad sichtbar in der UI
 
 ## Offen Auf Einen Blick
 
