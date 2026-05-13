@@ -2,7 +2,15 @@
   <div class="connection-status-stack">
     <div class="connection-status-head">
       <h2>{{ tr(request, 'stats.connections_live_title', 'Live-Status aller konfigurierten Verbindungen') }}</h2>
+      {% if connection_status_cached_only is defined and connection_status_cached_only %}
+      <small>{{ tr(request, 'stats.connections_cached_hint', 'ARIA zeigt hier den zuletzt bekannten Status. Nutze „Live neu prüfen“, wenn du jetzt aktive Verbindungstests starten willst.') }}</small>
+      <a class="btn-secondary compact-action" href="/connections/status?refresh=1">{{ tr(request, 'stats.connections_live_refresh', 'Live neu prüfen') }}</a>
+      {% elif connection_status_live_refresh is defined and connection_status_live_refresh %}
       <small>{{ tr(request, 'stats.connections_live_hint', 'ARIA prüft hier alle konfigurierten Verbindungen und aktualisiert den Status beim Öffnen der Seite.') }}</small>
+      <a class="btn-secondary compact-action" href="/connections/status">{{ tr(request, 'stats.connections_cached_view', 'Cached anzeigen') }}</a>
+      {% else %}
+      <small>{{ tr(request, 'stats.connections_live_hint', 'ARIA prüft hier alle konfigurierten Verbindungen und aktualisiert den Status beim Öffnen der Seite.') }}</small>
+      {% endif %}
     </div>
     {% if connection_status_rows %}
     <div class="connection-status-grid">

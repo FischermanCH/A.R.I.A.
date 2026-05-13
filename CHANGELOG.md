@@ -23,6 +23,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added `docs/product/operator-observability-guardrails.md` to document the `/stats` release/operations guardrail rows, status semantics, cost-tracking strictness, and maintenance rules.
 
 ### Changed
+- `/connections/status` now renders from cached/last-known connection health by default and exposes an explicit live-refresh link, so opening the status page no longer waits on slow SSH, RSS, API, SearXNG, or network probes.
 - `agentic_runtime` debug lines now include `boundary=runtime_execution`, making runtime execution visually separate from context enrichment, LLM drafts, and policy decisions.
 - Multi-target SSH checks now run an LLM-backed operator-summary pass over the already executed read-only results, with deterministic summaries kept as fallback only; this lets ARIA answer phrased constraints such as free-space reserves more flexibly without letting the LLM choose or bypass execution policy.
 - The active alpha backlog now removes the completed Agentic Intelligence block from the open work list and keeps only the ongoing live-regression dossier process as a standing guardrail.

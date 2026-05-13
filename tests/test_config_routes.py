@@ -1566,6 +1566,11 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
     status_response = client.get('/connections/status')
     assert status_response.status_code == 200
     assert 'Live status of all configured connections' in status_response.text or 'Live-Status aller konfigurierten Verbindungen' in status_response.text
+    assert 'href="/connections/status?refresh=1"' in status_response.text
+
+    live_status_response = client.get('/connections/status?refresh=1')
+    assert live_status_response.status_code == 200
+    assert 'href="/connections/status"' in live_status_response.text
 
     types_response = client.get('/connections/types')
     assert types_response.status_code == 200
@@ -1579,7 +1584,7 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
     templates_response = client.get('/connections/templates')
     assert templates_response.status_code == 200
     assert 'name="return_to" value="/connections/templates"' in templates_response.text
-    assert page_probe_flags == [True, False, False]
+    assert page_probe_flags == [False, True, False, False]
 
 
 def test_settings_page_groups_system_areas_without_connections_block(tmp_path: Path) -> None:

@@ -87,8 +87,19 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         elif error == "no_admin":
             error_message = _connections_text(lang, "no_admin", "Only admins can open this area.")
 
+        live_status_refresh = str(request.query_params.get("refresh", "") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "live",
+        }
+        status_page_cached_only = connections_nav == "status" and not live_status_refresh
         connection_rows = connection_menu_rows()
-        searxng_stack = probe_searxng_stack_service(lang=lang)
+        searxng_stack = (
+            {"status": "ok", "available": True, "message": ""}
+            if status_page_cached_only
+            else probe_searxng_stack_service(lang=lang)
+        )
         searxng_profiles = _read_searxng_connections()
         for row in connection_rows:
             if row.get("kind") != "searxng":
@@ -110,9 +121,9 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         connection_status_rows = _attach_mixed_connection_edit_urls(
             build_settings_connection_status_rows(
                 settings,
-                page_probe=connections_nav in {"overview", "status"},
-                cached_only=connections_nav not in {"overview", "status"},
-                cached_only_threshold=4,
+                page_probe=live_status_refresh,
+                cached_only=not live_status_refresh,
+                cached_only_threshold=4 if live_status_refresh else None,
                 base_dir=BASE_DIR,
                 lang=lang,
             )
@@ -186,6 +197,8 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
             "connection_menu_rows": connection_rows,
             "sample_connection_rows": sample_rows,
             "connection_status_rows": connection_status_rows,
+            "connection_status_live_refresh": live_status_refresh,
+            "connection_status_cached_only": not live_status_refresh,
             "overview_checks": overview_checks,
             "next_steps": next_steps,
             "configured_profile_count": configured_profile_count,
