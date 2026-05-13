@@ -38,3 +38,16 @@ def test_host_update_preflights_host_ports_before_recreate() -> None:
     assert "Host-Port $desired_port ist bereits belegt" in script
     assert "validate_host_ports_before_recreate \"$project\" \"$stack_file\" \"$env_file\" \"$DEFAULT_SERVICE_NAME\" \"$aria_container\"" in script
     assert script.index("validate_host_ports_before_recreate") < script.index("run_compose_recreate \"$project\"")
+
+
+def test_host_update_prunes_only_unused_aria_images_after_successful_health() -> None:
+    script = HOST_UPDATE_SCRIPT.read_text(encoding="utf-8")
+
+    assert "cleanup_unused_aria_images()" in script
+    assert "ARIA_UPDATE_PRUNE_IMAGES" in script
+    assert "docker image prune -f" in script
+    assert "fischermanch/aria:*|aria:alpha-local|aria:alpha|aria:latest" in script
+    assert "docker image rm \"$ref\"" in script
+    success_pos = script.index("Update erfolgreich. ARIA ist wieder gesund erreichbar.")
+    cleanup_call_pos = script.index("cleanup_unused_aria_images \"$aria_container\"", success_pos)
+    assert success_pos < cleanup_call_pos

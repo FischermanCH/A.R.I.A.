@@ -444,6 +444,50 @@ wait_for_health() {
   die "Healthcheck nicht erfolgreich: $url"
 }
 
+cleanup_unused_aria_images() {
+  local prune_setting="${ARIA_UPDATE_PRUNE_IMAGES:-true}"
+  local current_container=""
+  local current_image_id=""
+  local used_ids
+  local ref
+  local image_id
+
+  case "$prune_setting" in
+    1|true|TRUE|yes|YES|on|ON) ;;
+    *)
+      log "Docker-Image-Cleanup uebersprungen (ARIA_UPDATE_PRUNE_IMAGES=$prune_setting)"
+      return 0
+      ;;
+  esac
+
+  current_container="$(service_container_id aria || true)"
+  if [[ -n "$current_container" ]]; then
+    current_image_id="$(docker inspect "$current_container" --format '{{.Image}}' 2>/dev/null || true)"
+  fi
+
+  log "Bereinige dangling Docker-Layer und ungenutzte ARIA-Docker-Images nach erfolgreichem Healthcheck"
+  docker image prune -f >/dev/null 2>&1 || log "Docker dangling image prune konnte nicht abgeschlossen werden"
+
+  used_ids="$(docker ps -a -q | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u || true)"
+  while read -r ref image_id; do
+    [[ -n "$ref" && -n "$image_id" ]] || continue
+    [[ "$ref" == "<none>:<none>" ]] && continue
+    case "$ref" in
+      fischermanch/aria:*|aria:alpha-local|aria:alpha|aria:latest) ;;
+      *) continue ;;
+    esac
+    [[ -n "$current_image_id" && "$image_id" == "$current_image_id" ]] && continue
+    if [[ -n "$used_ids" ]] && grep -Fxq "$image_id" <<<"$used_ids"; then
+      continue
+    fi
+    if docker image rm "$ref" >/dev/null 2>&1; then
+      log "Altes ungenutztes ARIA-Image entfernt: $ref"
+    else
+      log "Altes ARIA-Image konnte nicht entfernt werden oder wird noch verwendet: $ref"
+    fi
+  done < <(docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}')
+}
+
 service_present() {
   local service="$1"
   run_compose config --services 2>/dev/null | grep -Fxq "$service"
@@ -807,6 +851,7 @@ main() {
       run_compose pull aria
       run_compose up -d --no-deps --force-recreate aria
       validate_runtime
+      cleanup_unused_aria_images
       ;;
     update-all)
       pull_aria_image
@@ -814,6 +859,7 @@ main() {
       run_compose pull
       run_compose up -d
       validate_runtime
+      cleanup_unused_aria_images
       ;;
     -h|--help|help)
       usage

@@ -94,6 +94,49 @@ wait_for_container_health() {
   return 1
 }
 
+cleanup_unused_aria_images() {
+  local current_image_ref="${1:-}"
+  local current_image_id="${2:-}"
+  local prune_setting="${ARIA_UPDATE_PRUNE_IMAGES:-true}"
+  local used_ids
+  local ref
+  local image_id
+
+  case "$prune_setting" in
+    1|true|TRUE|yes|YES|on|ON) ;;
+    *)
+      log "Docker-Image-Cleanup uebersprungen (ARIA_UPDATE_PRUNE_IMAGES=$prune_setting)"
+      return 0
+      ;;
+  esac
+
+  if [[ -z "$current_image_id" && -n "$current_image_ref" ]]; then
+    current_image_id="$(docker image inspect "$current_image_ref" --format '{{.Id}}' 2>/dev/null || true)"
+  fi
+
+  log "Bereinige dangling Docker-Layer und ungenutzte ARIA-Docker-Images nach erfolgreichem Healthcheck"
+  docker image prune -f >/dev/null 2>&1 || log "Docker dangling image prune konnte nicht abgeschlossen werden"
+
+  used_ids="$(docker ps -a -q | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u || true)"
+  while read -r ref image_id; do
+    [[ -n "$ref" && -n "$image_id" ]] || continue
+    [[ "$ref" == "<none>:<none>" ]] && continue
+    case "$ref" in
+      fischermanch/aria:*|aria:alpha-local|aria:alpha|aria:latest) ;;
+      *) continue ;;
+    esac
+    [[ -n "$current_image_id" && "$image_id" == "$current_image_id" ]] && continue
+    if [[ -n "$used_ids" ]] && grep -Fxq "$image_id" <<<"$used_ids"; then
+      continue
+    fi
+    if docker image rm "$ref" >/dev/null 2>&1; then
+      log "Altes ungenutztes ARIA-Image entfernt: $ref"
+    else
+      log "Altes ARIA-Image konnte nicht entfernt werden oder wird noch verwendet: $ref"
+    fi
+  done < <(docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}')
+}
+
 require_cmd docker
 compose_cmd version >/dev/null 2>&1
 
@@ -225,6 +268,7 @@ log "Pruefe Health auf $HEALTH_URL"
 if command -v curl >/dev/null 2>&1; then
   if wait_for_host_health 30 2; then
     log "Healthcheck ok"
+    cleanup_unused_aria_images "$IMAGE_REF" "$NEW_IMAGE_ID"
     exit 0
   fi
   log "Host-Healthcheck ueber curl nicht erfolgreich, pruefe direkt im Container weiter"
@@ -232,6 +276,7 @@ fi
 
 if wait_for_container_health 30 2; then
   log "Container-Healthcheck ok"
+  cleanup_unused_aria_images "$IMAGE_REF" "$NEW_IMAGE_ID"
   exit 0
 fi
 

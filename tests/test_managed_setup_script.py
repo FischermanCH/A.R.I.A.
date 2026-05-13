@@ -88,6 +88,9 @@ def test_managed_setup_writes_repair_capable_stack_helper(tmp_path: Path) -> Non
     update_branch = helper_text.split("    update)", 1)[1].split("      ;;", 1)[0]
     assert "run_compose pull aria" in update_branch
     assert "run_compose up -d --no-deps --force-recreate aria" in update_branch
+    assert "cleanup_unused_aria_images" in update_branch
     assert "runtime_services" not in update_branch
     assert "qdrant" not in update_branch
+    assert "docker image prune -f" in helper_text
+    assert "fischermanch/aria:*|aria:alpha-local|aria:alpha|aria:latest" in helper_text
     assert "./aria-stack.sh repair" in install_text

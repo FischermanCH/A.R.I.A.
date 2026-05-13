@@ -106,6 +106,49 @@ inspect_health() {
   docker inspect "$1" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' 2>/dev/null || true
 }
 
+cleanup_unused_aria_images() {
+  local current_container="${1:-}"
+  local prune_setting="${ARIA_UPDATE_PRUNE_IMAGES:-true}"
+  local current_image_id=""
+  local used_ids
+  local ref
+  local image_id
+
+  case "$prune_setting" in
+    1|true|TRUE|yes|YES|on|ON) ;;
+    *)
+      log "Docker-Image-Cleanup uebersprungen (ARIA_UPDATE_PRUNE_IMAGES=$prune_setting)"
+      return 0
+      ;;
+  esac
+
+  if [[ -n "$current_container" ]]; then
+    current_image_id="$(inspect_runtime_image_id "$current_container")"
+  fi
+
+  log "Bereinige dangling Docker-Layer und ungenutzte ARIA-Docker-Images nach erfolgreichem Healthcheck"
+  docker image prune -f >/dev/null 2>&1 || warn "Docker dangling image prune konnte nicht abgeschlossen werden"
+
+  used_ids="$(docker ps -a -q | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u || true)"
+  while read -r ref image_id; do
+    [[ -n "$ref" && -n "$image_id" ]] || continue
+    [[ "$ref" == "<none>:<none>" ]] && continue
+    case "$ref" in
+      fischermanch/aria:*|aria:alpha-local|aria:alpha|aria:latest) ;;
+      *) continue ;;
+    esac
+    [[ -n "$current_image_id" && "$image_id" == "$current_image_id" ]] && continue
+    if [[ -n "$used_ids" ]] && grep -Fxq "$image_id" <<<"$used_ids"; then
+      continue
+    fi
+    if docker image rm "$ref" >/dev/null 2>&1; then
+      log "Altes ungenutztes ARIA-Image entfernt: $ref"
+    else
+      warn "Altes ARIA-Image konnte nicht entfernt werden oder wird noch verwendet: $ref"
+    fi
+  done < <(docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}')
+}
+
 container_for_service() {
   local project="$1"
   local service="$2"
@@ -950,6 +993,7 @@ update_project() {
     refreshed_aria_container="$(container_for_service "$project" "$DEFAULT_SERVICE_NAME")"
     if wait_for_aria_health "${refreshed_aria_container:-$aria_container}"; then
       log "Portainer-Update erfolgreich. ARIA ist wieder gesund erreichbar."
+      cleanup_unused_aria_images "${refreshed_aria_container:-$aria_container}"
       return 0
     fi
     die "Portainer-Update wurde ausgelöst, aber der ARIA-Healthcheck wurde danach nicht wieder gesund. Bitte Stack/Portainer-Logs pruefen."
@@ -989,6 +1033,7 @@ update_project() {
 
   if wait_for_aria_health "$aria_container"; then
     log "Update erfolgreich. ARIA ist wieder gesund erreichbar."
+    cleanup_unused_aria_images "$aria_container"
     return 0
   fi
 

@@ -35,6 +35,7 @@ Aktueller Release-Stand:
 - Admin/Observability abgeschlossen fuer diese Alpha-Runde: `/stats` Operator Guardrail hat stabile Row-Keys und `docs/product/operator-observability-guardrails.md` dokumentiert Release-/Kosten-/Update-Semantik
 - Legacy-/Recipe-Cleanup abgeschlossen fuer diese Alpha-Runde: `docs/product/legacy-recipe-compatibility-audit.md` enthaelt jetzt ein explizites Migration-Gate fuer alte Skill-Bruecken
 - interner Build erstellt: `0.1.0-alpha254` repariert den LLM-backed Multi-SSH-Operator-Summary-Call aus `alpha253` und ist fuer den internen Live-Test bereit
+- Update-Pfad nachgezogen: erfolgreiche managed/interne Updates bereinigen dangling Docker-Layer und ungenutzte ARIA-Docker-Images, ohne Container, Volumes oder Sidecars zu entfernen
 
 ## Offen Auf Einen Blick
 

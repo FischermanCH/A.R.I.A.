@@ -7,6 +7,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ## [Unreleased]
 
 ### Added
+- Managed and internal update helpers now prune dangling Docker image layers and unused ARIA Docker images after a successful health check, keeping old image layers from filling `/var/lib/docker` while leaving containers, sidecars, volumes and tagged non-ARIA images untouched.
 - Added machine-readable Agentic debug boundary constants that map debug lines back to the canonical context-enrichment, LLM-draft, policy/guardrail, and runtime-execution phases.
 - Added `docs/product/agentic-live-regression-dossier.md` as the active live-test dossier for Agentic Action Flow regressions, linking real prompts to expected routing, policy, runtime, debug, and cost behavior.
 - Added `aria/core/connection_action_contract.py` and `docs/product/connection-action-contract.md` as the shared contract layer for capability operation, executor-kind, policy-family, required-field, side-effect, and runtime-debug metadata.

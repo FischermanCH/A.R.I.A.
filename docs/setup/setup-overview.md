@@ -216,6 +216,7 @@ cd /opt/aria/aria
 ```
 
 This normal path refreshes/recreates only the `aria` service. It deliberately leaves stateful sidecars such as Qdrant and SearXNG alone.
+After ARIA is healthy again, the helper removes dangling Docker image layers and unused old ARIA Docker images so repeated updates do not slowly fill Docker storage. It does not prune containers, volumes or tagged non-ARIA images.
 
 For a future release that changes the stack layout itself, for example a new sidecar service:
 
@@ -276,6 +277,7 @@ That path uses:
 - the local helper-enabled stack files
 
 It also supports the `/updates` button when the local stack includes the `aria-updater` helper sidecar.
+After a successful health check, the local helper removes dangling Docker image layers and unused old ARIA images while keeping Qdrant/SearXNG/Valkey containers and volumes untouched.
 
 ## 8. Useful chat actions
 

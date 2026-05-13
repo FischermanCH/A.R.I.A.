@@ -18,6 +18,7 @@ cd /opt/aria/aria
 ```
 
 Normal `aria-stack.sh update` refreshes/recreates only the `aria` service. It intentionally leaves Qdrant, SearXNG, Valkey, and volumes alone.
+After ARIA is healthy again, managed/internal helpers remove dangling Docker image layers and unused old ARIA Docker images. They do not prune containers, volumes, sidecars, or tagged non-ARIA images.
 
 If a release changes the stack layout itself, use:
 
@@ -71,6 +72,7 @@ Safety behavior:
 - leaves Qdrant, SearXNG, Valkey, and volumes untouched
 - refreshes managed helper files from the target image before recreating ARIA
 - preflights the intended host port before recreating ARIA
+- prunes dangling layers and unused old ARIA images only after a successful health check
 - aborts safely if another process or container owns that port
 
 ## Quick checks
