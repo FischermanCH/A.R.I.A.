@@ -22,6 +22,9 @@ def test_record_successful_learned_recipe_execution_creates_new_store_entry(monk
     assert stored is not None
     assert stored["recipe_id"] == "learned-ssh-health-check"
     assert stored["experience_count"] == 1
+    assert stored["learning_signal"] == "new_pattern"
+    assert stored["learning_weight"] == 1.0
+    assert stored["learning_evidence"] == 1.0
     assert stored["last_success_at"] == "2026-05-03T10:00:00Z"
     assert stored["promotion_state"] == "observed"
 
@@ -47,11 +50,14 @@ def test_record_successful_learned_recipe_execution_increments_existing_entry(mo
 
     assert stored is not None
     assert stored["experience_count"] == 2
+    assert stored["learning_signal"] == "action_variant"
+    assert stored["learning_evidence"] == 1.5
+    assert stored["action_variant_count"] == 1
     assert stored["chosen_action"] == "uptime && df -h / && free -h"
     assert stored["last_success_at"] == "2026-05-03T11:00:00Z"
 
 
-def test_record_successful_learned_recipe_execution_reaches_review_ready_threshold(monkeypatch, tmp_path: Path) -> None:
+def test_record_successful_learned_recipe_execution_weights_repeated_noise(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
     learned_store.invalidate_learned_recipe_store_cache()
 
@@ -66,7 +72,94 @@ def test_record_successful_learned_recipe_execution_reaches_review_ready_thresho
 
     assert stored is not None
     assert stored["experience_count"] == 3
-    assert stored["promotion_state"] == "review_ready"
+    assert stored["learning_signal"] == "repeat"
+    assert stored["learning_evidence"] == 1.5
+    assert stored["promotion_state"] == "observed"
+
+
+def test_record_successful_learned_recipe_execution_weights_wording_variants(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
+    learned_store.invalidate_learned_recipe_store_cache()
+
+    record_successful_learned_recipe_execution(
+        intent="health_check",
+        connection_kind="ssh",
+        capability="ssh_command",
+        chosen_action="uptime",
+        user_message="is my dns server ok",
+        recorded_at="2026-05-03T10:00:00Z",
+    )
+    stored = record_successful_learned_recipe_execution(
+        intent="health_check",
+        connection_kind="ssh",
+        capability="ssh_command",
+        chosen_action="uptime",
+        user_message="please check dns health",
+        recorded_at="2026-05-03T11:00:00Z",
+    )
+
+    assert stored is not None
+    assert stored["learning_signal"] == "wording_variant"
+    assert stored["learning_weight"] == 0.75
+    assert stored["learning_evidence"] == 1.75
+    assert stored["variant_count"] == 1
+
+
+def test_record_successful_learned_recipe_execution_keeps_legacy_evidence_baseline(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
+    learned_store.invalidate_learned_recipe_store_cache()
+
+    learned_store.save_learned_recipe_store_entry(
+        {
+            "recipe_id": "learned-ssh-health-check",
+            "intent": "health_check",
+            "connection_kind": "ssh",
+            "capability": "ssh_command",
+            "chosen_action": "uptime",
+            "experience_count": 5,
+            "promotion_state": "eligible",
+        }
+    )
+    stored = record_successful_learned_recipe_execution(
+        intent="health_check",
+        connection_kind="ssh",
+        capability="ssh_command",
+        chosen_action="uptime",
+        recorded_at="2026-05-03T11:00:00Z",
+    )
+
+    assert stored is not None
+    assert stored["learning_signal"] == "repeat"
+    assert stored["learning_evidence"] == 5.25
+    assert stored["promotion_state"] == "eligible"
+
+
+def test_record_successful_learned_recipe_execution_keeps_risky_deviation_for_review_only(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
+    learned_store.invalidate_learned_recipe_store_cache()
+
+    record_successful_learned_recipe_execution(
+        intent="health_check",
+        connection_kind="ssh",
+        capability="ssh_command",
+        chosen_action="uptime",
+        recorded_at="2026-05-03T10:00:00Z",
+    )
+    stored = record_successful_learned_recipe_execution(
+        intent="health_check",
+        connection_kind="ssh",
+        capability="ssh_command",
+        chosen_action="sudo systemctl restart pihole-FTL",
+        recorded_at="2026-05-03T11:00:00Z",
+    )
+
+    assert stored is not None
+    assert stored["learning_signal"] == "risky_deviation"
+    assert stored["learning_weight"] == 0.0
+    assert stored["learning_evidence"] == 1.0
+    assert stored["chosen_action"] == "uptime"
+    assert stored["last_deviation_action"] == "sudo systemctl restart pihole-FTL"
+    assert stored["last_deviation_at"] == "2026-05-03T11:00:00Z"
 
 
 def test_record_successful_learned_recipe_execution_ignores_non_success_results(monkeypatch, tmp_path: Path) -> None:

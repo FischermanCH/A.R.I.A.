@@ -40,19 +40,16 @@ Aktueller Release-Stand:
 - Recipes-Overview optimiert: Status-Kacheln verwenden kurze, nicht doppelte Labels und verlinken direkt auf die passenden Rezept-Bereiche
 - Learned-Recipes-Erklaerung nachgezogen: `/recipes/learned` beschreibt Lernquelle, lokalen Store, Recipe Experience Memory, Promote/Dismiss/Delete und Abrufpfad sichtbar in der UI
 - Self-Learning-Curator nachgezogen: erfolgreiche einzelne Agentic-/Recipe-Lernereignisse bekommen LLM-kuratierte Review-Metadaten, bleiben aber context-only und policy-/guardrail-gebunden
+- Self-Learning-Debug nachgezogen: `/recipes/learned` zeigt Curator-Quelle, Policy, Status, Zeitpunkt und Skip-/Fehlergrund sichtbar im Review-Kontext
+- Learning-Noise nachgezogen: Learned Recipes unterscheiden neues Muster, Wiederholung, Formulierungsvariante, Scope-Variante, Aktionsvariante und riskante Abweichung; Review-Reife nutzt gewichtete Lern-Evidenz statt nur rohe Run-Anzahl
+- Recipe Experience Memory nachgezogen: Lernsignal und gewichtete Evidenz landen als Planner-Kontext im semantischen Memory, bleiben aber weiterhin context-only
 
 ## Offen Auf Einen Blick
 
-1. Self-Learning Curator Debug sichtbarer machen
-- auf `/recipes/learned` oder in Details zeigen: `curated_at`, `curation_policy`, `curation_source` und ggf. letzter Curator-Skip-/Fehlergrund
-- Ziel: nachvollziehbar machen, wann die LLM-Kuratierung lief und warum ein Kandidat nur context-only bleibt
-
-2. Learning-Noise reduzieren
-- unterscheiden zwischen neuem Muster, Wiederholung, Formulierungsvariante, anderem Scope und riskanter Abweichung
-- Ziel: Experience Counts nicht blind hochzaehlen, sondern Lernevidenz qualitativ gewichten
+Keine offenen Alpha-Blocker im aktuellen Arbeits-Backlog.
 
 Naechster sinnvoller Schritt:
-- Public-Push erst nach gruenem internem Live-Test; Self-Learning-Folgepunkte koennen davor oder danach in kleinen Bloecken nachgezogen werden
+- Interner Build und Live-Test der Self-Learning-/Recipes-UI, danach entscheiden ob `0.1.0-alpha255` intern bleibt oder als naechster Public-Kandidat vorbereitet wird
 
 ## Dauer-Guardrails
 

@@ -172,6 +172,15 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
                 "limits": ["Do not use for restarts."],
                 "curation_source": "llm_curator",
                 "curation_policy": "context_only_not_executable",
+                "curation_status": "ok",
+                "curated_at": "2026-05-03T12:00:00Z",
+                "learning_signal": "wording_variant",
+                "learning_signal_reason": "Same learned pattern matched a different user wording.",
+                "learning_weight": 0.75,
+                "learning_evidence": 5.75,
+                "variant_count": 2,
+                "scope_variant_count": 1,
+                "action_variant_count": 0,
             }
         ],
     )
@@ -197,6 +206,15 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Contract: command · Policy ssh_readonly · Runtime run_command · read-only/bounded" in response.text
     assert "LLM-kuratiert" in response.text
     assert "Confidence: 0.84" in response.text
+    assert "Learning-Signal: Formulierungsvariante" in response.text
+    assert "Lern-Evidenz: Score 5.75" in response.text
+    assert "Formulierungen 2" in response.text
+    assert "Curator-Debug" in response.text
+    assert "Quelle llm_curator" in response.text
+    assert "Policy context_only_not_executable" in response.text
+    assert "kuratiert 2026-05-03 12:00:00 UTC" in response.text
+    assert "Lernsignal-Grund" in response.text
+    assert "Same learned pattern matched a different user wording." in response.text
     assert "Generalisiert als" in response.text
     assert "Useful for read-only Linux host health checks." in response.text
     assert "Vorgeschlagene Trigger" in response.text

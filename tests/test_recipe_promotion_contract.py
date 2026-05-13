@@ -44,6 +44,17 @@ def test_derive_recipe_promotion_marks_eligible_at_threshold() -> None:
     }
 
 
+def test_derive_recipe_promotion_prefers_weighted_learning_evidence() -> None:
+    assert derive_recipe_promotion({"experience_count": 9, "learning_evidence": 1.5}) == {
+        "promotion_state": PROMOTION_STATE_OBSERVED,
+        "promotion_hint": "Observed successful runs; collect more evidence before review.",
+    }
+    assert derive_recipe_promotion({"experience_count": 2, "learning_evidence": DEFAULT_REVIEW_READY_EXPERIENCE_COUNT}) == {
+        "promotion_state": PROMOTION_STATE_REVIEW_READY,
+        "promotion_hint": "Multiple successful runs make this learned recipe ready for review.",
+    }
+
+
 def test_promotion_state_rank_orders_known_states() -> None:
     assert promotion_state_rank(PROMOTION_STATE_OBSERVED) < promotion_state_rank(PROMOTION_STATE_REVIEW_READY)
     assert promotion_state_rank(PROMOTION_STATE_REVIEW_READY) < promotion_state_rank(PROMOTION_STATE_ELIGIBLE)

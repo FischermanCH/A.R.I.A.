@@ -7,6 +7,8 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ## [Unreleased]
 
 ### Added
+- Learned Recipe review cards now show Curator debug metadata (`curation_source`, policy, status, timestamp, and skip/error reason), making it visible when bounded LLM curation ran or why it stayed skipped/context-only.
+- Learned Recipe store entries now record qualitative learning signals (`new_pattern`, repeat, wording/scope/action variants, risky deviations) plus weighted learning evidence, so self-learning can distinguish repeated noise from useful variation.
 - Added a Learned Recipe promotion preview page that shows the planned stored recipe manifest, policy/side-effect boundary, confidence/risk, trigger set, limits, and step parameters before an admin writes the promoted recipe.
 - Added a bounded LLM Learned Recipe Curator that enriches successful single Agentic/Recipe learning events with review-only metadata: confidence, risk level, generalization hint, suggested trigger phrasings, promotion reason, and explicit reuse limits.
 - Managed and internal update helpers now prune dangling Docker image layers and unused ARIA Docker images after a successful health check, keeping old image layers from filling `/var/lib/docker` while leaving containers, sidecars, volumes and tagged non-ARIA images untouched.
@@ -25,6 +27,8 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added `docs/product/operator-observability-guardrails.md` to document the `/stats` release/operations guardrail rows, status semantics, cost-tracking strictness, and maintenance rules.
 
 ### Changed
+- Learned Recipe review maturity now prefers weighted learning evidence over raw run count, reducing overconfidence from repeated identical executions while still keeping raw success count visible for audit.
+- Recipe Experience Memory text now carries the learning signal and weighted evidence as planner context, so future LLM-backed planning can see whether an experience was fresh evidence, wording variation, or repeated noise.
 - Learned Recipe cards now route promotable candidates through the promotion preview instead of writing a stored recipe directly from the list action.
 - Learned Recipe Experience Memory now includes curated confidence/risk/generalization/limits in its semantic text, so future planning can use richer context while runtime execution remains gated by normal bounded planning and guardrails.
 - `/recipes/learned` now explains the full learning lifecycle in the UI: where learned patterns come from, where review candidates and semantic experience memory are stored, what Promote/Dismiss/Delete do, and how learned context is retrieved without bypassing policy or guardrails.

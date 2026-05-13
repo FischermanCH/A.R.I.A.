@@ -50,6 +50,8 @@ def test_normalize_learned_recipe_store_entry_builds_store_ready_shape() -> None
         "promotion_hint": "Observed repeated successful Linux health checks.",
         "curation_source": "",
         "curation_policy": "",
+        "curation_status": "",
+        "curation_last_error": "",
         "curated_at": "",
         "confidence": 0.0,
         "risk_level": "",
@@ -57,6 +59,15 @@ def test_normalize_learned_recipe_store_entry_builds_store_ready_shape() -> None
         "suggested_triggers": [],
         "promotion_reason": "",
         "limits": [],
+        "learning_signal": "",
+        "learning_signal_reason": "",
+        "learning_weight": 0.0,
+        "learning_evidence": 0.0,
+        "variant_count": 0,
+        "scope_variant_count": 0,
+        "action_variant_count": 0,
+        "last_deviation_action": "",
+        "last_deviation_at": "",
     }
 
 
@@ -94,7 +105,14 @@ def test_normalize_learned_recipe_store_entry_preserves_curated_review_metadata(
             "limits": ["Do not use for service restarts."],
             "curation_source": "llm_curator",
             "curation_policy": "context_only_not_executable",
+            "curation_status": "OK",
+            "curation_last_error": " TimeoutError ",
             "curated_at": "2026-05-13T10:00:00Z",
+            "learning_signal": "WORDING_VARIANT",
+            "learning_signal_reason": " Different phrasing. ",
+            "learning_weight": "0.75",
+            "learning_evidence": "2.5",
+            "variant_count": "2",
         }
     )
 
@@ -106,6 +124,13 @@ def test_normalize_learned_recipe_store_entry_preserves_curated_review_metadata(
     assert entry["limits"] == ["Do not use for service restarts."]
     assert entry["curation_source"] == "llm_curator"
     assert entry["curation_policy"] == "context_only_not_executable"
+    assert entry["curation_status"] == "ok"
+    assert entry["curation_last_error"] == "TimeoutError"
+    assert entry["learning_signal"] == "wording_variant"
+    assert entry["learning_signal_reason"] == "Different phrasing."
+    assert entry["learning_weight"] == 0.75
+    assert entry["learning_evidence"] == 2.5
+    assert entry["variant_count"] == 2
 
 
 def test_learned_recipe_store_list_row_returns_admin_friendly_subset() -> None:

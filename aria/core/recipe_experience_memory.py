@@ -68,6 +68,10 @@ def normalize_recipe_experience_memory_entry(entry: dict[str, Any]) -> dict[str,
         "promotion_state": _clean_lower(entry.get("promotion_state")),
         "promotion_hint": _clean_text(entry.get("promotion_hint")),
         "experience_count": int(entry.get("experience_count", 0) or 0),
+        "learning_signal": _clean_text(entry.get("learning_signal")),
+        "learning_signal_reason": _clean_text(entry.get("learning_signal_reason")),
+        "learning_weight": entry.get("learning_weight", 0.0) or 0.0,
+        "learning_evidence": entry.get("learning_evidence", 0.0) or 0.0,
         "last_success_at": _clean_text(entry.get("last_success_at")),
         "learning_origin": learning_origin,
         "target_fingerprint": _fingerprint(connection_kind, connection_ref),
@@ -91,6 +95,11 @@ def build_recipe_experience_memory_text(entry: dict[str, Any]) -> str:
         f"Learned from draft: {_clean_text(entry.get('learned_from_action'))}" if _clean_text(entry.get("learned_from_action")) else "",
         f"Summary: {_clean_text(entry.get('experience_summary'))}"
         if _clean_text(entry.get("experience_summary"))
+        else "",
+        f"Learning signal: {_clean_text(entry.get('learning_signal'))}" if _clean_text(entry.get("learning_signal")) else "",
+        f"Learning evidence: {_clean_text(entry.get('learning_evidence'))}" if _clean_text(entry.get("learning_evidence")) else "",
+        f"Learning reason: {_clean_text(entry.get('learning_signal_reason'))}"
+        if _clean_text(entry.get("learning_signal_reason"))
         else "",
         f"Curated confidence: {_clean_text(entry.get('confidence'))}" if _clean_text(entry.get("confidence")) else "",
         f"Curated risk: {_clean_text(entry.get('risk_level'))}" if _clean_text(entry.get("risk_level")) else "",

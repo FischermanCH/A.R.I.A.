@@ -36,6 +36,8 @@ LEARNED_RECIPE_STORE_ENTRY_KEYS = (
     "promotion_hint",
     "curation_source",
     "curation_policy",
+    "curation_status",
+    "curation_last_error",
     "curated_at",
     "confidence",
     "risk_level",
@@ -43,6 +45,15 @@ LEARNED_RECIPE_STORE_ENTRY_KEYS = (
     "suggested_triggers",
     "promotion_reason",
     "limits",
+    "learning_signal",
+    "learning_signal_reason",
+    "learning_weight",
+    "learning_evidence",
+    "variant_count",
+    "scope_variant_count",
+    "action_variant_count",
+    "last_deviation_action",
+    "last_deviation_at",
 )
 
 
@@ -52,6 +63,22 @@ def _safe_confidence(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, min(1.0, confidence))
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        raw = float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, raw)
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        raw = int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, raw)
 
 
 def _clean_string_list(value: Any) -> list[str]:
@@ -99,6 +126,8 @@ def normalize_learned_recipe_store_entry(
         "experience_summary": experience["summary"],
         "curation_source": str(record.get("curation_source", "") or "").strip(),
         "curation_policy": str(record.get("curation_policy", "") or "").strip(),
+        "curation_status": str(record.get("curation_status", "") or "").strip().lower(),
+        "curation_last_error": str(record.get("curation_last_error", "") or "").strip(),
         "curated_at": str(record.get("curated_at", "") or "").strip(),
         "confidence": _safe_confidence(record.get("confidence")),
         "risk_level": str(record.get("risk_level", "") or "").strip().lower(),
@@ -106,6 +135,15 @@ def normalize_learned_recipe_store_entry(
         "suggested_triggers": _clean_string_list(record.get("suggested_triggers")),
         "promotion_reason": str(record.get("promotion_reason", "") or "").strip(),
         "limits": _clean_string_list(record.get("limits")),
+        "learning_signal": str(record.get("learning_signal", "") or "").strip().lower(),
+        "learning_signal_reason": str(record.get("learning_signal_reason", "") or "").strip(),
+        "learning_weight": _safe_float(record.get("learning_weight")),
+        "learning_evidence": _safe_float(record.get("learning_evidence")),
+        "variant_count": _safe_int(record.get("variant_count")),
+        "scope_variant_count": _safe_int(record.get("scope_variant_count")),
+        "action_variant_count": _safe_int(record.get("action_variant_count")),
+        "last_deviation_action": str(record.get("last_deviation_action", "") or "").strip(),
+        "last_deviation_at": str(record.get("last_deviation_at", "") or "").strip(),
     }
     return normalized
 

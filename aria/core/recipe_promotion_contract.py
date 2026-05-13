@@ -52,12 +52,17 @@ def derive_recipe_promotion(source: Any | None = None) -> dict[str, str]:
         }
 
     experience_count = int(_source_value(source, "experience_count") or 0)
-    if experience_count >= DEFAULT_ELIGIBLE_EXPERIENCE_COUNT:
+    try:
+        evidence = float(_source_value(source, "learning_evidence") or 0.0)
+    except (TypeError, ValueError):
+        evidence = 0.0
+    maturity_score = evidence if evidence > 0 else float(experience_count)
+    if maturity_score >= DEFAULT_ELIGIBLE_EXPERIENCE_COUNT:
         return {
             "promotion_state": PROMOTION_STATE_ELIGIBLE,
             "promotion_hint": "Repeated successful runs make this learned recipe eligible for promotion.",
         }
-    if experience_count >= DEFAULT_REVIEW_READY_EXPERIENCE_COUNT:
+    if maturity_score >= DEFAULT_REVIEW_READY_EXPERIENCE_COUNT:
         return {
             "promotion_state": PROMOTION_STATE_REVIEW_READY,
             "promotion_hint": "Multiple successful runs make this learned recipe ready for review.",

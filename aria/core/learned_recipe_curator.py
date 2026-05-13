@@ -11,6 +11,8 @@ from aria.core.text_utils import extract_json_object
 
 CURATION_POLICY_CONTEXT_ONLY = "context_only_not_executable"
 CURATION_SOURCE_LLM = "llm_curator"
+CURATION_STATUS_OK = "ok"
+CURATION_STATUS_SKIPPED = "skipped"
 CURATION_REFRESH_COUNTS = {1, 3, 5}
 RISK_LEVELS = {"low", "medium", "high", "unknown"}
 
@@ -61,6 +63,8 @@ def validate_learned_recipe_curation_payload(payload: dict[str, Any] | None) -> 
     return {
         "curation_source": CURATION_SOURCE_LLM,
         "curation_policy": CURATION_POLICY_CONTEXT_ONLY,
+        "curation_status": CURATION_STATUS_OK,
+        "curation_last_error": "",
         "curated_at": datetime.now(timezone.utc).isoformat(),
         "confidence": _confidence(data.get("confidence")),
         "risk_level": risk_level,
@@ -134,8 +138,19 @@ async def curate_learned_recipe_entry(
     request_id: str = "",
 ) -> tuple[dict[str, Any], str]:
     normalized = normalize_learned_recipe_store_entry(entry)
-    if llm_client is None or not learned_recipe_needs_llm_curation(normalized):
+    if not learned_recipe_needs_llm_curation(normalized):
         return normalized, ""
+    if llm_client is None:
+        skipped = normalize_learned_recipe_store_entry(
+            {
+                **normalized,
+                "curation_policy": CURATION_POLICY_CONTEXT_ONLY,
+                "curation_status": CURATION_STATUS_SKIPPED,
+                "curation_last_error": "llm_client_unavailable",
+            }
+        )
+        stored = save_learned_recipe_store_entry(skipped, previous_id=str(normalized.get("recipe_id", "") or "").strip())
+        return stored, "Learned Recipe Curator: skipped reason=llm_client_unavailable"
     try:
         response = await llm_client.chat(
             _curator_prompt(normalized, language=language),
@@ -156,4 +171,13 @@ async def curate_learned_recipe_entry(
         )
         return stored, debug
     except Exception as exc:  # noqa: BLE001
-        return normalized, f"Learned Recipe Curator: skipped reason={type(exc).__name__}"
+        skipped = normalize_learned_recipe_store_entry(
+            {
+                **normalized,
+                "curation_policy": CURATION_POLICY_CONTEXT_ONLY,
+                "curation_status": CURATION_STATUS_SKIPPED,
+                "curation_last_error": type(exc).__name__,
+            }
+        )
+        stored = save_learned_recipe_store_entry(skipped, previous_id=str(normalized.get("recipe_id", "") or "").strip())
+        return stored, f"Learned Recipe Curator: skipped reason={type(exc).__name__}"

@@ -33,6 +33,8 @@ def test_validate_learned_recipe_curation_payload_bounds_review_metadata() -> No
     )
 
     assert payload["curation_policy"] == CURATION_POLICY_CONTEXT_ONLY
+    assert payload["curation_status"] == "ok"
+    assert payload["curation_last_error"] == ""
     assert payload["confidence"] == 1.0
     assert payload["risk_level"] == "unknown"
     assert payload["generalization_hint"] == "Useful for safe status checks."
@@ -90,6 +92,36 @@ def test_curate_learned_recipe_entry_uses_llm_and_updates_store(monkeypatch, tmp
     assert stored["suggested_triggers"] == ["ist mein dns server ok", "dns health"]
     assert stored["limits"] == ["Do not use for restarts or writes."]
     assert rows[0]["curation_source"] == "llm_curator"
+    assert rows[0]["curation_status"] == "ok"
+    assert rows[0]["curation_last_error"] == ""
     assert "agentic_source=llm_decision" in debug
     assert llm.calls[0]["source"] == "learned_recipe_curator"
     assert llm.calls[0]["operation"] == "curate_learned_recipe"
+
+
+def test_curate_learned_recipe_entry_persists_skip_reason(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
+    learned_store.invalidate_learned_recipe_store_cache()
+
+    stored, debug = asyncio.run(
+        curate_learned_recipe_entry(
+            llm_client=None,
+            entry={
+                "recipe_id": "learned-ssh-health-check-pihole1",
+                "intent": "health_check",
+                "connection_kind": "ssh",
+                "connection_ref": "pihole1",
+                "capability": "ssh_command",
+                "chosen_action": "uptime -p && df -h",
+                "execution_result": "success",
+                "experience_count": 1,
+            },
+        )
+    )
+
+    rows = learned_store.load_learned_recipe_store_entries()
+    assert stored["curation_status"] == "skipped"
+    assert stored["curation_last_error"] == "llm_client_unavailable"
+    assert rows[0]["curation_policy"] == CURATION_POLICY_CONTEXT_ONLY
+    assert rows[0]["curation_status"] == "skipped"
+    assert "llm_client_unavailable" in debug

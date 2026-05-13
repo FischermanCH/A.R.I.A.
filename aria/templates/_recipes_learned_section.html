@@ -144,12 +144,21 @@
       {% if row.review_maturity_label %}
       <p class="hint-text">{{ tr(request, 'learned_recipes.review_maturity', 'Review-Reife') }}: {{ row.review_maturity_label }}</p>
       {% endif %}
+      {% if row.learning_signal_label %}
+      <div class="status-badge-row compact">
+        <span class="status-badge">{{ tr(request, 'learned_recipes.learning_signal', 'Learning-Signal') }}: {{ row.learning_signal_label }}</span>
+        <span class="status-badge">{{ tr(request, 'learned_recipes.learning_quality', 'Lern-Evidenz') }}: {{ row.learning_quality_label }}</span>
+      </div>
+      {% endif %}
       {% if row.curation_source %}
       <div class="status-badge-row compact">
         <span class="status-badge">{{ tr(request, 'learned_recipes.curation_badge', 'LLM-kuratiert') }}</span>
         {% if row.curation_confidence_label %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_confidence', 'Confidence') }}: {{ row.curation_confidence_label }}</span>{% endif %}
         {% if row.risk_level %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_risk', 'Risiko') }}: {{ row.risk_level }}</span>{% endif %}
       </div>
+      {% endif %}
+      {% if row.curation_debug_label %}
+      <p class="hint-text">{{ tr(request, 'learned_recipes.curation_debug', 'Curator-Debug') }}: {{ row.curation_debug_label }}</p>
       {% endif %}
       {% if row.generalization_hint %}
       <p class="hint-text">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ row.generalization_hint }}</p>
@@ -192,6 +201,12 @@
           {% endif %}
           {% if row.limits %}
           <p class="hint-text">{{ tr(request, 'learned_recipes.limits', 'Grenzen') }}: {{ row.limits|join("; ") }}</p>
+          {% endif %}
+          {% if row.learning_signal_reason %}
+          <p class="hint-text">{{ tr(request, 'learned_recipes.learning_signal_reason', 'Lernsignal-Grund') }}: {{ row.learning_signal_reason }}</p>
+          {% endif %}
+          {% if row.last_deviation_action %}
+          <p class="hint-text">{{ tr(request, 'learned_recipes.last_deviation_action', 'Letzte Abweichung') }}: {{ row.last_deviation_action }}</p>
           {% endif %}
           {% if row.stored_recipe_id %}
           <div class="inline-actions">

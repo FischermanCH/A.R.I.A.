@@ -97,6 +97,9 @@ def test_recipe_experience_memory_text_keeps_context_without_executor_contract()
             "suggested_triggers": ["dns health"],
             "promotion_reason": "Repeated safe status checks.",
             "limits": ["Do not restart services."],
+            "learning_signal": "wording_variant",
+            "learning_signal_reason": "Same pattern, different wording.",
+            "learning_evidence": 2.5,
         }
     )
 
@@ -104,6 +107,9 @@ def test_recipe_experience_memory_text_keeps_context_without_executor_contract()
     assert "Final action: uptime -p && df -h" in text
     assert "Learning origin: guardrail_healthcheck_fallback" in text
     assert "Curated confidence: 0.9" in text
+    assert "Learning signal: wording_variant" in text
+    assert "Learning evidence: 2.5" in text
+    assert "Learning reason: Same pattern, different wording." in text
     assert "Generalization: Useful for read-only health checks." in text
     assert "Limits: Do not restart services." in text
     assert "Target fingerprint: ssh|pihole1" in text

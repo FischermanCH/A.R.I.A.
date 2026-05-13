@@ -198,6 +198,62 @@ def _curation_confidence_label(entry: dict[str, Any]) -> str:
     return f"{confidence:.2f}"
 
 
+def _curation_debug_label(entry: dict[str, Any], *, language: str | None = None) -> str:
+    parts: list[str] = []
+    source = str(entry.get("curation_source", "") or "").strip()
+    policy = str(entry.get("curation_policy", "") or "").strip()
+    status = str(entry.get("curation_status", "") or "").strip()
+    curated_at = str(entry.get("curated_at", "") or "").strip()
+    last_error = str(entry.get("curation_last_error", "") or "").strip()
+    if source:
+        parts.append(_learned_recipe_ui_text(language, "curation_debug_source", "source {source}", source=source))
+    if policy:
+        parts.append(_learned_recipe_ui_text(language, "curation_debug_policy", "policy {policy}", policy=policy))
+    if status:
+        parts.append(_learned_recipe_ui_text(language, "curation_debug_status", "status {status}", status=status))
+    if curated_at:
+        parts.append(_learned_recipe_ui_text(language, "curation_debug_time", "curated {time}", time=curated_at.replace("T", " ").replace("Z", " UTC")))
+    if last_error:
+        parts.append(_learned_recipe_ui_text(language, "curation_debug_error", "last skip/error {error}", error=last_error))
+    return " · ".join(parts)
+
+
+def _learning_signal_label(entry: dict[str, Any], *, language: str | None = None) -> str:
+    signal = str(entry.get("learning_signal", "") or "").strip().lower()
+    if not signal:
+        return ""
+    label_key = f"learning_signal_{signal}"
+    fallback = signal.replace("_", " ")
+    return _learned_recipe_ui_text(language, label_key, fallback)
+
+
+def _learning_quality_label(entry: dict[str, Any], *, language: str | None = None) -> str:
+    evidence = float(entry.get("learning_evidence", 0.0) or 0.0)
+    weight = float(entry.get("learning_weight", 0.0) or 0.0)
+    variant_count = int(entry.get("variant_count", 0) or 0)
+    scope_variant_count = int(entry.get("scope_variant_count", 0) or 0)
+    action_variant_count = int(entry.get("action_variant_count", 0) or 0)
+    return _learned_recipe_ui_text(
+        language,
+        "learning_quality_summary",
+        "score {evidence:.2f} · last weight {weight:.2f} · wording {wording} · scope {scope} · action {action}",
+        evidence=evidence,
+        weight=weight,
+        wording=variant_count,
+        scope=scope_variant_count,
+        action=action_variant_count,
+    )
+
+
+def _learning_signal_class(entry: dict[str, Any]) -> str:
+    signal = str(entry.get("learning_signal", "") or "").strip().lower()
+    if signal == "risky_deviation":
+        return "status-warn"
+    if signal in {"new_pattern", "wording_variant", "scope_variant"}:
+        return "status-ok"
+    return "status-muted"
+
+
 def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | None = None) -> dict[str, Any]:
     entry = normalize_learned_recipe_store_entry(source)
     promotion_state = str(entry.get("promotion_state", "") or "").strip().lower()
@@ -221,6 +277,10 @@ def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | N
         "review_contract_label": _review_contract_label(entry, language=language),
         "review_maturity_label": _review_maturity_label(entry, language=language),
         "curation_confidence_label": _curation_confidence_label(entry),
+        "curation_debug_label": _curation_debug_label(entry, language=language),
+        "learning_signal_label": _learning_signal_label(entry, language=language),
+        "learning_quality_label": _learning_quality_label(entry, language=language),
+        "learning_signal_class": _learning_signal_class(entry),
         "can_promote_to_stored_recipe": is_stored_recipe_promotable_capability(entry.get("capability", "")) and promotion_state != PROMOTION_STATE_PROMOTED,
     }
 
