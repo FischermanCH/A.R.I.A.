@@ -9,13 +9,41 @@ Zweck:
 
 ## Vorbereitet fuer naechsten Build
 
-- Kein weiterer Build vorbereitet; `alpha254` ist gebaut und fuer den internen Live-Test bereit.
+- Kein weiterer Build vorbereitet; `alpha255` ist gebaut und fuer den internen Live-Test bereit.
 - Naechster bewusst zu pruefender Punkt:
   - interner Update-Button auf ARIA testen
-  - Smoke-Test: freie Multi-SSH-Summary muss LLM-Tokens zeigen und flexible Schwellen wie `zehn Gigabyte Reserve` verstehen
+  - `/recipes/learned`: Curator-Debug, Learning-Signal und gewichtete Lern-Evidenz pruefen
+  - Agentic Smoke-Test: Multi-SSH-Summary muss LLM-Tokens zeigen und flexible Schwellen wie `zehn Gigabyte Reserve` verstehen
+  - Guardrail-Smoke-Test: DNS-Restart muss blockiert bleiben
   - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren
 
 ## Bereits gebaut
+
+### alpha255
+
+- enthaelt den Self-Learning-/Recipes-Nachzug nach `alpha254`:
+  - Learned Recipes zeigen Curator-Debug mit Quelle, Policy, Status, Zeitpunkt und Skip-/Fehlergrund
+  - gelernte Erfolgslaeufe bekommen qualitative Lernsignale: neues Muster, Wiederholung, Formulierungsvariante, Scope-Variante, Aktionsvariante und riskante Abweichung
+  - Review-Reife nutzt gewichtete Lern-Evidenz statt nur rohe Run-Anzahl
+  - Recipe Experience Memory transportiert Lernsignal und Evidenz als context-only Planner-Kontext
+  - riskante Aktionsabweichungen ueberschreiben nicht automatisch die bisher gelernte Aktion
+- Verifikation:
+  - Vorbuild-Regressionsblock: `55 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` 200
+  - CLI-Version: `0.1.0-alpha255`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha255-local.tar`
+  - TAR-SHA256: `2bdf7997b1c94511545a4f2a904b5ae398a3245b584a591415c847483a3e35e2`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.255`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:38213cd916f0708c9fa8c545534d91b9dec03df1b7ab397e73f21d46461d377b`
+  - Image-Size: `242536838` bytes
+  - Created: `2026-05-13T13:42:51.648344968+02:00`
+- Release-Label:
+  - `0.1.0-alpha255`
 
 ### alpha254
 

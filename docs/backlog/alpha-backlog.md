@@ -10,13 +10,13 @@ Zweck:
 - groessere Zukunftsthemen stehen in `docs/backlog/future-features.md`
 
 Aktueller Release-Stand:
-- aktuell gebaut: `0.1.0-alpha254`
+- aktuell gebaut: `0.1.0-alpha255`
 - public veroeffentlicht: `0.1.0-alpha251`
 - Public Docker Tags: `fischermanch/aria:0.1.0-alpha.251` und `fischermanch/aria:alpha`
 - Public Docker Digest: `sha256:3aacbe8145da283dddaeb9c8cdef0b56961b05119770df1871570f0e26388321`
-- interner Docker Build: `fischermanch/aria:0.1.0-alpha.254` / `aria:alpha-local`
-- internes TAR: `/mnt/NAS/aria-images/aria-alpha254-local.tar`
-- interner Image-Digest: `sha256:677cd3f044cbb913e1abf470819832b8c17e3f897d41be0b1c16c1fcac62a06e`
+- interner Docker Build: `fischermanch/aria:0.1.0-alpha.255` / `aria:alpha-local`
+- internes TAR: `/mnt/NAS/aria-images/aria-alpha255-local.tar`
+- interner Image-Digest: `sha256:38213cd916f0708c9fa8c545534d91b9dec03df1b7ab397e73f21d46461d377b`
 - GitHub Release: `https://github.com/FischermanCH/A.R.I.A./releases/tag/v0.1.0-alpha.251`
 - GitHub Wiki und lokale Hilfe sind fuer `0.1.0-alpha251` nachgezogen
 - Live-Updates auf NOX und joe sind laut Live-Test gruen
@@ -49,7 +49,7 @@ Aktueller Release-Stand:
 Keine offenen Alpha-Blocker im aktuellen Arbeits-Backlog.
 
 Naechster sinnvoller Schritt:
-- Interner Build und Live-Test der Self-Learning-/Recipes-UI, danach entscheiden ob `0.1.0-alpha255` intern bleibt oder als naechster Public-Kandidat vorbereitet wird
+- Live-Test von `0.1.0-alpha255`: Self-Learning-/Recipes-UI, Multi-SSH-Summary, DNS-Guardrail, RSS und Discord-One-Click pruefen
 
 ## Dauer-Guardrails
 
