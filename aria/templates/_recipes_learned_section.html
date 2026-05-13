@@ -209,12 +209,7 @@
           {% if not recipes_readonly %}
           <div class="inline-actions">
             {% if row.can_promote_to_stored_recipe %}
-            <form method="post" action="/recipes/learned/promote" class="inline-danger-form">
-              <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
-              <input type="hidden" name="recipe_id" value="{{ row.recipe_id }}">
-              <input type="hidden" name="return_to" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
-              <button type="submit" class="button-like">{{ tr(request, 'learned_recipes.promote', 'Promote') }}</button>
-            </form>
+            <a class="button-like" href="/recipes/learned/promote-preview?recipe_id={{ row.recipe_id | urlencode }}&return_to={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) | urlencode }}">{{ tr(request, 'learned_recipes.promote_preview', 'Promotion prüfen') }}</a>
             {% else %}
             <span class="status-badge status-badge-muted">{{ tr(request, 'learned_recipes.context_only_badge', 'Context only') }}</span>
             {% endif %}

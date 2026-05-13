@@ -191,6 +191,8 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "uptime &amp;&amp; df -h /" in response.text
     assert "Nur Kontext: nicht direkt ausführbar" in response.text
     assert "Reviewen und promoten, wenn weiterhin korrekt" in response.text
+    assert "/recipes/learned/promote-preview?recipe_id=learned-ssh-server-health-check" in response.text
+    assert "Promotion prüfen" in response.text
     assert "Action Contract" in response.text
     assert "Contract: command · Policy ssh_readonly · Runtime run_command · read-only/bounded" in response.text
     assert "LLM-kuratiert" in response.text
@@ -381,10 +383,30 @@ def test_recipes_learned_admin_actions_update_store(monkeypatch, tmp_path) -> No
             "title": "Linux Health",
             "summary": "Checks a Linux host.",
             "router_keywords": ["linux health", "server check"],
+            "suggested_triggers": ["host ok"],
+            "promotion_reason": "Repeated safe status checks.",
+            "limits": ["Do not use for restarts."],
+            "confidence": 0.91,
+            "risk_level": "low",
+            "curation_policy": "context_only_not_executable",
         }
     )
 
     client = _build_recipes_app()
+
+    preview = client.get(
+        "/recipes/learned/promote-preview?recipe_id=learned-ssh-health-check&return_to=/recipes/learned"
+    )
+    assert preview.status_code == 200
+    assert "Promotion Preview" in preview.text
+    assert "Geplantes Rezept" in preview.text
+    assert "Linux Health" in preview.text
+    assert "Read-only / bounded" in preview.text
+    assert "Repeated safe status checks." in preview.text
+    assert "Do not use for restarts." in preview.text
+    assert "linux health" in preview.text
+    assert "host ok" in preview.text
+    assert "Jetzt als gespeichertes Rezept übernehmen" in preview.text
 
     promote = client.post(
         "/recipes/learned/promote",

@@ -7,6 +7,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ## [Unreleased]
 
 ### Added
+- Added a Learned Recipe promotion preview page that shows the planned stored recipe manifest, policy/side-effect boundary, confidence/risk, trigger set, limits, and step parameters before an admin writes the promoted recipe.
 - Added a bounded LLM Learned Recipe Curator that enriches successful single Agentic/Recipe learning events with review-only metadata: confidence, risk level, generalization hint, suggested trigger phrasings, promotion reason, and explicit reuse limits.
 - Managed and internal update helpers now prune dangling Docker image layers and unused ARIA Docker images after a successful health check, keeping old image layers from filling `/var/lib/docker` while leaving containers, sidecars, volumes and tagged non-ARIA images untouched.
 - Added machine-readable Agentic debug boundary constants that map debug lines back to the canonical context-enrichment, LLM-draft, policy/guardrail, and runtime-execution phases.
@@ -24,6 +25,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added `docs/product/operator-observability-guardrails.md` to document the `/stats` release/operations guardrail rows, status semantics, cost-tracking strictness, and maintenance rules.
 
 ### Changed
+- Learned Recipe cards now route promotable candidates through the promotion preview instead of writing a stored recipe directly from the list action.
 - Learned Recipe Experience Memory now includes curated confidence/risk/generalization/limits in its semantic text, so future planning can use richer context while runtime execution remains gated by normal bounded planning and guardrails.
 - `/recipes/learned` now explains the full learning lifecycle in the UI: where learned patterns come from, where review candidates and semantic experience memory are stored, what Promote/Dismiss/Delete do, and how learned context is retrieved without bypassing policy or guardrails.
 - `/recipes` overview status cards now use compact, non-duplicated status labels and link directly to the matching recipe sections, so the lamp cards behave like the navigation elements they visually resemble.

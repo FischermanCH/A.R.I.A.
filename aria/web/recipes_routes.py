@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.templating import Jinja2Templates
 
 from aria.core.learned_recipe_store import load_learned_recipe_store_entries
+from aria.core.learned_recipe_promotion import build_learned_recipe_promotion_preview
 from aria.core.stored_recipe_manifest_view import stored_recipe_candidate_metadata
 from aria.web.recipes_route_support import canonical_recipe_surface_return_to as _canonical_recipe_surface_return_to
 from aria.web.recipes_route_support import canonical_recipe_surface_path as _canonical_recipe_surface_path
@@ -540,6 +541,47 @@ def register_recipe_routes(
             recipe_id=recipe_id,
             csrf_token=csrf_token,
             return_to=return_to,
+        )
+
+    @app.get("/recipes/learned/promote-preview", response_class=HTMLResponse)
+    async def recipes_learned_promote_preview(
+        request: Request,
+        recipe_id: str = "",
+        return_to: str = "/recipes/learned",
+    ) -> Response:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        target_return_to = _recipe_surface_return_to(return_to, fallback="/recipes/learned")
+        if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
+            return _redirect_with_return_to(
+                f"{target_return_to}?error=readonly",
+                request,
+                fallback="/recipes/learned",
+                return_to=target_return_to,
+            )
+        try:
+            preview = build_learned_recipe_promotion_preview(recipe_id)
+        except (OSError, ValueError) as exc:
+            return _redirect_with_return_to(
+                f"{target_return_to}?error={quote_plus(str(exc))}",
+                request,
+                fallback="/recipes/learned",
+                return_to=target_return_to,
+            )
+        _set_logical_back_url(request, fallback=target_return_to)
+        return templates.TemplateResponse(
+            request,
+            "recipes_learned_promote_preview.html",
+            {
+                "title": get_settings().ui.title,
+                "username": get_username_from_request(request),
+                "recipes_nav": "learned",
+                "recipes_page_heading": translate(lang, "learned_recipes.promote_preview_title", "Promotion preview"),
+                "recipes_readonly": False,
+                "preview": preview,
+                "learned": preview["learned"],
+                "manifest": preview["manifest"],
+                "return_to": target_return_to,
+            },
         )
 
     @app.post("/recipes/learned/dismiss")

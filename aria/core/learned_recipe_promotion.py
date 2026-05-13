@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from aria.core.i18n import I18NStore
+from aria.core.connection_action_contract import connection_action_contract
 from aria.core.learned_recipe_store import load_learned_recipe_store_entries
 from aria.core.learned_recipe_store import update_learned_recipe_store_entry
 from aria.core.learned_recipe_store_contract import normalize_learned_recipe_store_entry
@@ -41,6 +42,20 @@ def _stored_recipe_category(entry: dict[str, Any]) -> str:
     if capability == "feed_read":
         return "knowledge"
     return "automation"
+
+
+def _unique_recipe_keywords(*sources: Any) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        for item in list(source or []) if isinstance(source, list) else []:
+            clean = str(item or "").strip()[:80]
+            key = clean.lower()
+            if not clean or key in seen:
+                continue
+            seen.add(key)
+            rows.append(clean)
+    return rows
 
 
 def _promoted_step(entry: dict[str, Any]) -> dict[str, Any]:
@@ -128,6 +143,9 @@ def build_stored_recipe_manifest_from_learned_entry(entry: dict[str, Any]) -> di
     router_keywords = normalized.get("router_keywords", [])
     if not isinstance(router_keywords, list):
         router_keywords = []
+    suggested_triggers = normalized.get("suggested_triggers", [])
+    if not isinstance(suggested_triggers, list):
+        suggested_triggers = []
     connection_kind = str(normalized.get("connection_kind", "") or "").strip().lower()
 
     return {
@@ -137,7 +155,7 @@ def build_stored_recipe_manifest_from_learned_entry(entry: dict[str, Any]) -> di
         "description": summary[:400] or "Promoted from learned recipe.",
         "category": _stored_recipe_category(normalized),
         "prompt_file": "",
-        "router_keywords": [str(item or "").strip()[:80] for item in router_keywords if str(item or "").strip()],
+        "router_keywords": _unique_recipe_keywords(router_keywords, suggested_triggers),
         "connections": [connection_kind] if connection_kind else [],
         "enabled_default": True,
         "steps": [_promoted_step(normalized)],
@@ -155,7 +173,7 @@ def build_stored_recipe_manifest_from_learned_entry(entry: dict[str, Any]) -> di
     }
 
 
-def promote_learned_recipe_to_stored_recipe(recipe_id: str) -> dict[str, Any]:
+def _learned_recipe_by_id(recipe_id: str) -> dict[str, Any]:
     clean_recipe_id = str(recipe_id or "").strip()
     if not clean_recipe_id:
         raise ValueError("recipe_id missing")
@@ -169,6 +187,29 @@ def promote_learned_recipe_to_stored_recipe(recipe_id: str) -> dict[str, Any]:
     )
     if learned_entry is None:
         raise ValueError(f"Learned recipe not found: {clean_recipe_id}")
+    return normalize_learned_recipe_store_entry(learned_entry)
+
+
+def build_learned_recipe_promotion_preview(recipe_id: str) -> dict[str, Any]:
+    learned_entry = _learned_recipe_by_id(recipe_id)
+    manifest = build_stored_recipe_manifest_from_learned_entry(learned_entry)
+    capability = str(learned_entry.get("capability", "") or "").strip().lower()
+    contract = connection_action_contract(capability)
+    return {
+        "learned": learned_entry,
+        "manifest": manifest,
+        "contract": contract.manifest_row() if contract is not None else {},
+        "steps": list(manifest.get("steps", []) or []),
+        "router_keywords": list(manifest.get("router_keywords", []) or []),
+        "side_effect": bool(getattr(contract, "side_effect", False)) if contract is not None else False,
+        "policy_family": str(getattr(contract, "policy_family", "") or "").strip() if contract is not None else "",
+        "runtime_operation": str(getattr(contract, "operation", "") or "").strip() if contract is not None else "",
+    }
+
+
+def promote_learned_recipe_to_stored_recipe(recipe_id: str) -> dict[str, Any]:
+    clean_recipe_id = str(recipe_id or "").strip()
+    learned_entry = _learned_recipe_by_id(clean_recipe_id)
     manifest = build_stored_recipe_manifest_from_learned_entry(learned_entry)
     stored = save_stored_recipe_manifest(manifest)
     update_learned_recipe_store_entry(

@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="skills-layout skills-clean-layout skills-surface-layout">
+  {% include "_recipes_nav.html" %}
+  <section class="floating-card skills-section">
+    <div class="page-title-row"><h2>{{ tr(request, 'learned_recipes.promote_preview_title', 'Promotion Preview') }}</h2></div>
+    <p class="hint-text">{{ tr(request, 'learned_recipes.promote_preview_intro', 'Prüfe zuerst, welches gespeicherte Rezept aus diesem gelernten Muster entstehen würde. Erst der Button unten schreibt das Rezept wirklich.') }}</p>
+    <div class="memory-health-grid">
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'learned_recipes.promote_preview_recipe_title', 'Geplantes Rezept') }}</h3>
+        </div>
+        <p>{{ manifest.name }}</p>
+        <small>{{ manifest.id }} · {{ manifest.category }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ 'warn' if preview.side_effect else 'ok' }}"></span>
+          <h3>{{ tr(request, 'learned_recipes.promote_preview_policy_title', 'Policy / Side-Effect') }}</h3>
+        </div>
+        <p>{{ tr(request, 'learned_recipes.promote_preview_side_effect_yes', 'Side-Effect: Bestätigung/Policy nötig') if preview.side_effect else tr(request, 'learned_recipes.promote_preview_side_effect_no', 'Read-only / bounded') }}</p>
+        <small>{{ preview.policy_family or '-' }} · {{ preview.runtime_operation or '-' }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-warn"></span>
+          <h3>{{ tr(request, 'learned_recipes.promote_preview_risk_title', 'Risiko / Confidence') }}</h3>
+        </div>
+        <p>{{ learned.risk_level or '-' }}{% if learned.confidence %} · {{ '%.2f'|format(learned.confidence) }}{% endif %}</p>
+        <small>{{ learned.curation_policy or tr(request, 'learned_recipes.promote_preview_context_only', 'context-only bis zur Promotion') }}</small>
+      </article>
+    </div>
+  </section>
+
+  <section class="floating-card skills-section">
+    <h3>{{ tr(request, 'learned_recipes.promote_preview_why_title', 'Warum / Grenzen') }}</h3>
+    {% if learned.promotion_reason %}
+    <p class="hint-text">{{ tr(request, 'learned_recipes.promotion_reason', 'Promotion-Begründung') }}: {{ learned.promotion_reason }}</p>
+    {% endif %}
+    {% if learned.generalization_hint %}
+    <p class="hint-text">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ learned.generalization_hint }}</p>
+    {% endif %}
+    {% if learned.limits %}
+    <p class="hint-text">{{ tr(request, 'learned_recipes.limits', 'Grenzen') }}: {{ learned.limits|join("; ") }}</p>
+    {% endif %}
+    {% if manifest.router_keywords %}
+    <p class="hint-text">{{ tr(request, 'learned_recipes.trigger', 'Trigger') }}: {{ manifest.router_keywords|join(", ") }}</p>
+    {% endif %}
+  </section>
+
+  <section class="floating-card skills-section">
+    <h3>{{ tr(request, 'learned_recipes.promote_preview_steps_title', 'Geplante Schritte') }}</h3>
+    <div class="config-group-grid">
+      {% for step in preview.steps %}
+      <article class="config-group-card skill-card">
+        <div class="skill-card-head">
+          <h3>{{ step.name or step.id }}</h3>
+          <span class="skill-state is-on">{{ step.type }}</span>
+        </div>
+        <p class="hint-text">{{ tr(request, 'learned_recipes.promote_preview_on_error', 'On error') }}: {{ step.on_error or 'stop' }}</p>
+        {% if step.params %}
+        <details class="skill-details">
+          <summary>{{ tr(request, 'learned_recipes.promote_preview_params', 'Parameter') }}</summary>
+          <div class="skill-details-content">
+            {% for key, value in step.params.items() %}
+            <p class="hint-text">{{ key }}: {{ value }}</p>
+            {% endfor %}
+          </div>
+        </details>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    <details class="skill-details">
+      <summary>{{ tr(request, 'learned_recipes.promote_preview_manifest', 'Manifest Preview') }}</summary>
+      <pre class="code-block">{{ manifest | tojson(indent=2) }}</pre>
+    </details>
+    <div class="inline-actions">
+      <form method="post" action="/recipes/learned/promote" class="inline-danger-form">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
+        <input type="hidden" name="recipe_id" value="{{ learned.recipe_id }}">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <button type="submit" class="button-like">{{ tr(request, 'learned_recipes.promote_confirm', 'Jetzt als gespeichertes Rezept übernehmen') }}</button>
+      </form>
+      <a class="button-like ghost" href="{{ return_to }}">{{ tr(request, 'learned_recipes.promote_cancel', 'Zurück ohne Promotion') }}</a>
+    </div>
+  </section>
+</main>
+{% endblock %}

@@ -43,10 +43,16 @@ Aktueller Release-Stand:
 
 ## Offen Auf Einen Blick
 
-Keine unmittelbaren Produkt-/Cleanup-Blocker fuer diese Alpha-Runde.
+1. Self-Learning Curator Debug sichtbarer machen
+- auf `/recipes/learned` oder in Details zeigen: `curated_at`, `curation_policy`, `curation_source` und ggf. letzter Curator-Skip-/Fehlergrund
+- Ziel: nachvollziehbar machen, wann die LLM-Kuratierung lief und warum ein Kandidat nur context-only bleibt
+
+2. Learning-Noise reduzieren
+- unterscheiden zwischen neuem Muster, Wiederholung, Formulierungsvariante, anderem Scope und riskanter Abweichung
+- Ziel: Experience Counts nicht blind hochzaehlen, sondern Lernevidenz qualitativ gewichten
 
 Naechster sinnvoller Schritt:
-- Public-Push erst nach gruenem `alpha254`-Live-Test; vorher keine weiteren Produkt-/Cleanup-Blocker offen
+- Public-Push erst nach gruenem internem Live-Test; Self-Learning-Folgepunkte koennen davor oder danach in kleinen Bloecken nachgezogen werden
 
 ## Dauer-Guardrails
 
