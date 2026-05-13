@@ -75,6 +75,13 @@ def test_recipes_page_sets_logical_back_url() -> None:
     assert "const logical='/config';" in response.text
     assert 'aria-label="Rezepte Navigation"' in response.text
     assert 'memory-health-grid' in response.text
+    assert 'memory-health-card memory-health-card-link" href="/recipes/mine"' in response.text
+    assert 'memory-health-card memory-health-card-link" href="/recipes/learned"' in response.text
+    assert 'memory-health-card memory-health-card-link" href="/recipes/system"' in response.text
+    assert 'memory-health-card memory-health-card-link" href="/recipes/templates"' in response.text
+    assert "<h3>Eigene</h3>" in response.text
+    assert "<h3>Gelernt</h3>" in response.text
+    assert "<h3>Importierbar</h3>" in response.text
     assert "Meine Rezepte" in response.text
     assert "Gelernte Rezepte" in response.text
     assert "Rezept starten" in response.text

@@ -21,34 +21,38 @@ def build_recipes_overview_checks(
 
     return [
         {
-            "title": translate(lang, "recipes.my_recipes_title", "My recipes"),
+            "title": translate(lang, "recipes.overview_custom_title", "Eigene"),
             "status": "ok" if custom_rows else "warn",
             "summary": str(len(custom_rows)),
             "meta": translate(lang, "recipes.overview_custom_meta", "{count} active").replace(
                 "{count}", str(active_custom_count)
             ),
+            "href": "/recipes/mine",
         },
         {
-            "title": translate(lang, "learned_recipes.title", "Learned recipes"),
+            "title": translate(lang, "recipes.overview_learned_title", "Gelernt"),
             "status": "ok" if learned_rows else "warn",
             "summary": str(len(learned_rows)),
             "meta": translate(lang, "recipes.overview_learned_meta", "{count} reviewable / promoted").replace(
                 "{count}", str(learned_reviewable_count)
             ),
+            "href": "/recipes/learned",
         },
         {
-            "title": translate(lang, "recipes.system_title", "Core / System"),
+            "title": translate(lang, "recipes.overview_core_title", "Core"),
             "status": "ok" if core_recipe_rows else "warn",
             "summary": str(len(core_recipe_rows)),
             "meta": translate(lang, "recipes.overview_core_meta", "{count} active").replace(
                 "{count}", str(active_core_count)
             ),
+            "href": "/recipes/system",
         },
         {
-            "title": translate(lang, "recipes.templates_title", "Templates"),
+            "title": translate(lang, "recipes.overview_templates_title", "Importierbar"),
             "status": "ok" if sample_recipe_rows else "warn",
             "summary": str(len(sample_recipe_rows)),
             "meta": translate(lang, "recipes.overview_templates_meta", "importable samples"),
+            "href": "/recipes/templates",
         },
         {
             "title": translate(lang, "recipes.overview_mode_title", "Mode"),
