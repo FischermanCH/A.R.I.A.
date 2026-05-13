@@ -46,10 +46,18 @@ Aktueller Release-Stand:
 
 ## Offen Auf Einen Blick
 
-Keine offenen Alpha-Blocker im aktuellen Arbeits-Backlog.
+1. RSS-Digest Ergebnisumfang LLM-first machen
+- Live-Ausreisser: `mach mir eine zusammenfassung der letzten 10 it-security news` liefert nur 4 Eintraege, ohne zu erklaeren ob nur 4 verfuegbar waren oder ob der Runtime-/Formatter-Limitpfad begrenzt hat
+- Ziel: User-Wunsch nach Anzahl/Detailgrad/Filter per bounded LLM-Draft verstehen und an den RSS-Read-/Summary-Pfad uebergeben
+- deterministisch nur fuer sichere Obergrenzen, Fetch-/Timeout-Limits, Dedupe und Fallback; nicht fuer starre `1 Eintrag pro Feed`/`max 6`-Produktlogik
+- Antwort muss transparent sein: `10 angefragt, N gefunden/lesbar, M wegen Fehler/Timeout ausgelassen`
+
+2. Learned-Recipe-Live-Dossier nach `alpha255` auswerten
+- Live-Seite zeigt wertvolle Self-Learning-Signale, aber auch Noise-/Scope-/Promotion-Probleme: Multi-Target-SSH pollutes einzelne Ziel-Rezepte, side-effect Messaging wird zu schnell promotion-faehig, File-Labels sind teils `read_file` statt `list`, und ein RSS-Kandidat wurde aus einer SSH-Disk-Frage gelernt
+- Ziel: echte Fehl-Learnings als Dossier-/Policy-/Curator-Luecken klassifizieren, nicht blind Spezialfaelle bauen
 
 Naechster sinnvoller Schritt:
-- Live-Test von `0.1.0-alpha255`: Self-Learning-/Recipes-UI, Multi-SSH-Summary, DNS-Guardrail, RSS und Discord-One-Click pruefen
+- Live-Test von `0.1.0-alpha255`: Self-Learning-/Recipes-UI, Multi-SSH-Summary, DNS-Guardrail, RSS und Discord-One-Click pruefen; danach RSS-Digest-Count und Learned-Recipe-Dossier priorisieren
 
 ## Dauer-Guardrails
 
