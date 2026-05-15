@@ -20,7 +20,7 @@ Repository and full documentation:
 
 Current public alpha release on Docker Hub:
 
-- `0.1.0-alpha251`
+- `0.1.0-alpha266`
 
 Current public alpha focus:
 
@@ -33,6 +33,9 @@ Current public alpha focus:
 - Managed updates are safer: normal `aria-stack.sh update` refreshes/recreates only `aria`; Qdrant, SearXNG, Valkey, and volumes stay untouched.
 - Host-side updates fail closed on host-port conflicts before recreating ARIA.
 - LLM Prompt Debug gives admins a redacted view into prompts, responses, model, operation, duration, and token usage.
+- RSS security/news digests honor requested counts more reliably and keep source links visible.
+- Learned Recipes now expose review-only LLM curator metadata with safer layout, evidence weighting, Qdrant cleanup on delete, and explicit context-only boundaries.
+- Docker release builds use pinned base-image digests and runtime dependency constraints for lower release drift.
 
 ## What you need
 

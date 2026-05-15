@@ -11,6 +11,15 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
   <script src="/static/vendor/htmx-1.9.12.min.js?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}"></script>
   <link rel="stylesheet" href="/static/style.css?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/update-reconnect-sw.js", { scope: "/", updateViaCache: "none" }).catch(function () {
+          // The update reconnect shell is best-effort. Normal ARIA usage must not depend on it.
+        });
+      });
+    }
+  </script>
 </head>
 <body data-theme="{{ request.state.ui_theme if request and request.state else 'matrix' }}" data-background="{{ request.state.ui_background if request and request.state else 'grid' }}"{% if request and request.state and request.state.ui_background_asset_url %} style="--background-art: url('{{ request.state.ui_background_asset_url|e }}'); --background-size: cover; --background-repeat: no-repeat;"{% endif %}>
   {% from "_icons.html" import icon %}

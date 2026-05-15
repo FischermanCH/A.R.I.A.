@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from aria.core.i18n import I18NStore
 from aria.core.recipe_runtime_contract import is_recipe_confirmation_reason
@@ -145,7 +146,23 @@ def reason_label(
     return clean
 
 
-def decision_summary(*, action: str, language: str, target: str = "", preview: str = "") -> str:
+def _guardrail_config_link(guardrail_ref: str, language: str) -> str:
+    clean_ref = str(guardrail_ref or "").strip()
+    if not clean_ref:
+        return ""
+    href = f"/config/security?guardrail_ref={quote(clean_ref, safe='')}"
+    link = f"[{clean_ref}]({href}) ({href})"
+    return _dry_run_text(
+        language,
+        "message_163",
+        "Guardrail profile: {link}",
+        clean_ref=clean_ref,
+        href=href,
+        link=link,
+    )
+
+
+def decision_summary(*, action: str, language: str, target: str = "", preview: str = "", guardrail_ref: str = "") -> str:
     clean_action = str(action or "").strip().lower()
     clean_target = str(target or "").strip()
     clean_preview = str(preview or "").strip()
@@ -160,9 +177,13 @@ def decision_summary(*, action: str, language: str, target: str = "", preview: s
             return _dry_run_text(language, "message_155", 'ARIA would ask for confirmation before executing on {clean_target}.', clean_target=clean_target)
         return _dry_run_text(language, "message_156", 'ARIA would ask for confirmation before execution.')
     if clean_action == "block":
+        guardrail_link = _guardrail_config_link(guardrail_ref, language)
         if clean_target and clean_preview:
-            return _dry_run_text(language, "message_159", 'ARIA would block the planned action on {clean_target}: {clean_preview}', clean_target=clean_target, clean_preview=clean_preview)
+            summary = _dry_run_text(language, "message_159", 'ARIA cannot execute this action on {clean_target}: {clean_preview}', clean_target=clean_target, clean_preview=clean_preview)
+            return f"{summary}\n\n{guardrail_link}" if guardrail_link else summary
         if clean_target:
-            return _dry_run_text(language, "message_161", 'ARIA would block the planned action on {clean_target}.', clean_target=clean_target)
-        return _dry_run_text(language, "message_162", 'ARIA would block this action.')
+            summary = _dry_run_text(language, "message_161", 'ARIA cannot execute this action on {clean_target}.', clean_target=clean_target)
+            return f"{summary}\n\n{guardrail_link}" if guardrail_link else summary
+        summary = _dry_run_text(language, "message_162", 'ARIA cannot execute this action.')
+        return f"{summary}\n\n{guardrail_link}" if guardrail_link else summary
     return ""

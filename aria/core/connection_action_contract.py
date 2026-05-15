@@ -16,9 +16,11 @@ class ConnectionActionContract:
     operation: str
     executors: tuple[str, ...] = field(default_factory=tuple)
     policy_family: str = ""
+    guardrail_kind: str = ""
     required_fields: tuple[str, ...] = field(default_factory=tuple)
     payload_fields: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     side_effect: bool = False
+    direct_capability_gate: bool = True
 
     def payload_for_plan(self, plan: ActionPlan) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -37,9 +39,11 @@ class ConnectionActionContract:
             "operation": self.operation,
             "executors": list(self.executors),
             "policy_family": self.policy_family,
+            "guardrail_kind": self.guardrail_kind,
             "required_fields": list(self.required_fields),
             "payload_fields": [{"payload": key, "plan": attr} for key, attr in self.payload_fields],
             "side_effect": self.side_effect,
+            "direct_capability_gate": self.direct_capability_gate,
         }
 
 
@@ -49,9 +53,11 @@ def _contract(
     family: str,
     operation: str,
     policy_family: str,
+    guardrail_kind: str = "",
     required_fields: tuple[str, ...] = ("connection_ref",),
     payload_fields: tuple[tuple[str, str], ...] = (),
     side_effect: bool = False,
+    direct_capability_gate: bool = True,
 ) -> ConnectionActionContract:
     clean_capability = normalize_capability(capability)
     return ConnectionActionContract(
@@ -60,6 +66,7 @@ def _contract(
         operation=str(operation or "").strip().lower(),
         executors=tuple(capability_executor_kinds(clean_capability)),
         policy_family=str(policy_family or "").strip().lower(),
+        guardrail_kind=str(guardrail_kind or "").strip().lower(),
         required_fields=tuple(str(item or "").strip() for item in required_fields if str(item or "").strip()),
         payload_fields=tuple(
             (str(key or "").strip(), str(attr or "").strip())
@@ -67,6 +74,7 @@ def _contract(
             if str(key or "").strip() and str(attr or "").strip()
         ),
         side_effect=bool(side_effect),
+        direct_capability_gate=bool(direct_capability_gate),
     )
 
 
@@ -76,14 +84,17 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         family="command",
         operation="run_command",
         policy_family="ssh_readonly",
+        guardrail_kind="ssh_command",
         required_fields=("connection_ref", "content"),
         payload_fields=(("command", "content"),),
+        direct_capability_gate=False,
     ),
     "api_request": _contract(
         "api_request",
         family="request",
         operation="request",
         policy_family="http_api",
+        guardrail_kind="http_request",
         payload_fields=(("path", "path"), ("content", "content")),
     ),
     "file_list": _contract(
@@ -91,6 +102,7 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         family="file",
         operation="list",
         policy_family="file_access",
+        guardrail_kind="file_access",
         payload_fields=(("path", "path"),),
     ),
     "file_read": _contract(
@@ -98,6 +110,7 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         family="file",
         operation="read",
         policy_family="file_access",
+        guardrail_kind="file_access",
         required_fields=("connection_ref", "path"),
         payload_fields=(("path", "path"),),
     ),
@@ -106,6 +119,7 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         family="file",
         operation="write",
         policy_family="file_access",
+        guardrail_kind="file_access",
         required_fields=("connection_ref", "path", "content"),
         payload_fields=(("path", "path"), ("content", "content")),
         side_effect=True,
@@ -115,6 +129,7 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         family="message",
         operation="send",
         policy_family="message_confirm",
+        guardrail_kind="http_request",
         required_fields=("connection_ref", "content"),
         payload_fields=(("message", "content"),),
         side_effect=True,
@@ -142,6 +157,7 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         family="message",
         operation="publish",
         policy_family="message_confirm",
+        guardrail_kind="mqtt_publish",
         required_fields=("connection_ref", "content"),
         payload_fields=(("topic", "path"), ("message", "content")),
         side_effect=True,
@@ -159,6 +175,7 @@ _CONNECTION_ACTION_CONTRACTS: dict[str, ConnectionActionContract] = {
         operation="read",
         policy_family="read_only",
         payload_fields=(("selector", "path"), ("query", "content")),
+        direct_capability_gate=False,
     ),
     "mail_read": _contract(
         "mail_read",
@@ -225,6 +242,42 @@ def connection_action_executor_kinds() -> tuple[str, ...]:
     return tuple(rows)
 
 
+def connection_action_direct_gate_executor_kinds() -> tuple[str, ...]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for contract in connection_action_contracts():
+        if not contract.direct_capability_gate:
+            continue
+        for executor in contract.executors:
+            clean_kind = normalize_connection_kind(executor)
+            if not clean_kind or clean_kind in seen:
+                continue
+            seen.add(clean_kind)
+            rows.append(clean_kind)
+    return tuple(rows)
+
+
+def connection_action_capabilities_by_family(family: str) -> tuple[str, ...]:
+    clean_family = str(family or "").strip().lower()
+    rows: list[str] = []
+    for contract in connection_action_contracts():
+        if contract.family != clean_family:
+            continue
+        rows.append(contract.capability)
+    return tuple(rows)
+
+
+def connection_action_capability_for_executor_family(connection_kind: str, family: str) -> str:
+    clean_kind = normalize_connection_kind(connection_kind)
+    clean_family = str(family or "").strip().lower()
+    for contract in connection_action_contracts():
+        if contract.family != clean_family:
+            continue
+        if clean_kind in set(contract.executors):
+            return contract.capability
+    return ""
+
+
 def connection_action_binding_is_supported(connection_kind: str, capability: str) -> bool:
     clean_kind = normalize_connection_kind(connection_kind)
     contract = connection_action_contract(capability)
@@ -236,6 +289,11 @@ def connection_action_binding_is_supported(connection_kind: str, capability: str
 def runtime_operation_for_capability(capability: str) -> str:
     contract = connection_action_contract(capability)
     return contract.operation if contract is not None else normalize_capability(capability) or "execute"
+
+
+def guardrail_kind_for_capability(capability: str) -> str:
+    contract = connection_action_contract(capability)
+    return contract.guardrail_kind if contract is not None else ""
 
 
 def runtime_payload_for_action_plan(plan: ActionPlan) -> dict[str, Any]:

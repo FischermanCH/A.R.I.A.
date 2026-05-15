@@ -65,6 +65,14 @@
       <p>{{ routing_rows|length }}</p>
       <small>{{ tr(request, 'memories_map.collections', 'Collections') }}: {{ qdrant_overview.collection_count or 0 }} · {{ tr(request, 'memories_map.total_points', 'Total Points') }}: {{ qdrant_overview.total_points or 0 }}</small>
     </article>
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-{{ 'ok' if system_rows else 'warn' }}"></span>
+        <h3>{{ tr(request, 'memories_map.system_collections_title', 'System-Collections') }}</h3>
+      </div>
+      <p>{{ system_rows|length }}</p>
+      <small>{{ tr(request, 'memories_map.total_points', 'Total Points') }}: {{ system_total_points or 0 }}</small>
+    </article>
   </section>
 
   {% if rollup_groups %}
@@ -307,6 +315,53 @@
         <tr>
           <td><code>{{ row.name }}</code></td>
           <td>{{ tr(request, 'memories_map.kind_routing', 'Routing') }}</td>
+          <td>{{ row.points }}</td>
+          <td>{{ row.share_pct }}%</td>
+          <td>{{ row.status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if system_rows %}
+  <section class="memory-create-card">
+    <div class="memory-section-head">
+      <div class="memory-section-title-wrap">
+        <span class="memory-section-icon">{{ icon('settings', 'ui-action-icon') }}</span>
+        <div>
+    <h2>{{ tr(request, 'memories_map.system_collections_title', 'System-Collections') }}</h2>
+    <p>{{ tr(request, 'memories_map.system_collections_subtitle', 'Weitere ARIA-Qdrant-Collections wie Recipe Experience Memory. Sie gehören zur Systemintelligenz und werden automatisch aus Qdrant erkannt.') }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="memory-type-grid">
+      {% for row in system_rows %}
+      <a class="memory-type-card memory-collection-card" href="{{ row.browse_url }}">
+        <strong><code>{{ row.name }}</code></strong>
+        <span>{{ row.kind }} · {{ row.points }} {{ tr(request, 'memories_map.total_points', 'Total Points') }}{% if system_total_points %} · {{ row.share_pct }}%{% endif %} · {{ row.status }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="prompt-table-wrap">
+    <table class="prompt-table">
+      <thead>
+        <tr>
+          <th>{{ tr(request, 'memories_map.col_collection', 'Collection') }}</th>
+          <th>{{ tr(request, 'memories_map.col_type', 'Typ') }}</th>
+          <th>{{ tr(request, 'memories_map.col_points', 'Punkte') }}</th>
+          <th>{{ tr(request, 'memories_map.col_share', 'Anteil') }}</th>
+          <th>{{ tr(request, 'memories_map.col_status', 'Status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in system_rows %}
+        <tr>
+          <td><code>{{ row.name }}</code></td>
+          <td>{{ row.kind }}</td>
           <td>{{ row.points }}</td>
           <td>{{ row.share_pct }}%</td>
           <td>{{ row.status }}</td>

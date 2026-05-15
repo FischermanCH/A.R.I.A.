@@ -85,12 +85,20 @@ def summarize_file_result_for_chat(
                 entries.append(item)
         if not entries:
             return ""
+        folders = [item for item in entries if item.endswith("/")]
+        files = [item for item in entries if not item.endswith("/")]
         if is_english(language):
             parts = [_file_text(language, "listing", "File listing for {ref} in `{path}`: {count} entries.", ref=ref_label, path=resolved_path, count=len(entries))]
-            parts.append(_file_text(language, "examples", "Examples: {items}.", items=", ".join(entries[:5])))
+            if folders:
+                parts.append(_file_text(language, "folders", "Folders: {items}.", items=", ".join(folders[:5])))
+            if files:
+                parts.append(_file_text(language, "examples", "Examples: {items}.", items=", ".join(files[:5])))
         else:
             parts = [_file_text(language, "listing", "File listing for {ref} in `{path}`: {count} entries.", ref=ref_label, path=resolved_path, count=len(entries))]
-            parts.append(_file_text(language, "examples", "Examples: {items}.", items=", ".join(entries[:5])))
+            if folders:
+                parts.append(_file_text(language, "folders", "Folders: {items}.", items=", ".join(folders[:5])))
+            if files:
+                parts.append(_file_text(language, "examples", "Examples: {items}.", items=", ".join(files[:5])))
         return " ".join(parts).strip()
 
     if capability == "file_write":

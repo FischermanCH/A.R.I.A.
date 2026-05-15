@@ -38,12 +38,12 @@ from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import build_pricing_catalog_snapshot
 from aria.core.pricing_catalog import resolve_pricing_entry as resolve_catalog_pricing_entry
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.qdrant_collection_classifier import is_recipe_experience_qdrant_collection
 from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
 from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
 from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
 from aria.core.release_meta import read_release_meta
 from aria.core.recipe_experience_promotion import promote_recipe_experience_to_learned_review
-from aria.core.recipe_experience_memory import RECIPE_EXPERIENCE_COLLECTION_PREFIX
 from aria.core.routing_admin import build_connection_routing_index_status
 from aria.core.runtime_endpoint import resolve_runtime_url
 from aria.core.update_helper_client import fetch_update_helper_status
@@ -1035,7 +1035,7 @@ async def _build_recipe_experience_memory_meta(settings: Any) -> dict[str, Any]:
         names = [
             str(getattr(item, "name", "") or "").strip()
             for item in getattr(resp, "collections", []) or []
-            if str(getattr(item, "name", "") or "").strip().startswith(RECIPE_EXPERIENCE_COLLECTION_PREFIX)
+            if is_recipe_experience_qdrant_collection(str(getattr(item, "name", "") or "").strip())
         ]
         for name in sorted(names):
             points = 0

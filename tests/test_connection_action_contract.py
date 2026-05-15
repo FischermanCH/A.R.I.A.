@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from aria.core.action_plan import ActionPlan
 from aria.core.capability_catalog import capability_executor_bindings
+from aria.core.connection_action_contract import connection_action_capabilities_by_family
+from aria.core.connection_action_contract import connection_action_capability_for_executor_family
 from aria.core.connection_action_contract import connection_action_contract
 from aria.core.connection_action_contract import connection_action_binding_is_supported
+from aria.core.connection_action_contract import connection_action_direct_gate_executor_kinds
 from aria.core.connection_action_contract import connection_action_executor_bindings
 from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.connection_action_contract import connection_action_contracts
 from aria.core.connection_action_contract import connection_action_manifest_rows
+from aria.core.connection_action_contract import guardrail_kind_for_capability
 from aria.core.connection_action_contract import runtime_operation_for_capability
 from aria.core.connection_action_contract import runtime_payload_for_action_plan
+from aria.core.pipeline_capability_execution import PipelineCapabilityExecutor
 
 
 def test_every_executor_binding_has_a_connection_action_contract() -> None:
@@ -42,6 +47,50 @@ def test_connection_action_contract_is_the_executor_binding_source() -> None:
     assert connection_action_binding_is_supported("rss", "ssh_command") is False
 
 
+def test_connection_action_contract_exposes_family_lookups_for_agentic_resolvers() -> None:
+    assert set(connection_action_capabilities_by_family("read")) == {
+        "feed_read",
+        "calendar_read",
+        "mail_read",
+        "mail_search",
+        "website_read",
+        "website_list",
+    }
+    assert connection_action_capability_for_executor_family("discord", "message") == "discord_send"
+    assert connection_action_capability_for_executor_family("webhook", "message") == "webhook_send"
+    assert connection_action_capability_for_executor_family("email", "message") == "email_send"
+    assert connection_action_capability_for_executor_family("mqtt", "message") == "mqtt_publish"
+    assert connection_action_capability_for_executor_family("rss", "message") == ""
+
+
+def test_pipeline_capability_executor_has_handler_for_every_action_contract() -> None:
+    missing = [
+        contract.capability
+        for contract in connection_action_contracts()
+        if not hasattr(PipelineCapabilityExecutor, f"execute_{contract.capability}")
+    ]
+
+    assert missing == []
+
+
+def test_direct_capability_gate_kinds_are_contract_backed() -> None:
+    assert connection_action_direct_gate_executor_kinds() == (
+        "http_api",
+        "sftp",
+        "smb",
+        "webhook",
+        "discord",
+        "email",
+        "mqtt",
+        "rss",
+        "imap",
+        "website",
+    )
+    assert connection_action_contract("ssh_command").direct_capability_gate is False  # type: ignore[union-attr]
+    assert connection_action_contract("calendar_read").direct_capability_gate is False  # type: ignore[union-attr]
+    assert connection_action_contract("feed_read").direct_capability_gate is True  # type: ignore[union-attr]
+
+
 def test_connection_action_contracts_keep_policy_and_runtime_boundaries_explicit() -> None:
     contracts = {row.capability: row for row in connection_action_contracts()}
 
@@ -52,6 +101,10 @@ def test_connection_action_contracts_keep_policy_and_runtime_boundaries_explicit
     assert contracts["discord_send"].policy_family == "message_confirm"
     assert contracts["feed_read"].side_effect is False
     assert contracts["feed_read"].policy_family == "read_only"
+    assert contracts["api_request"].guardrail_kind == "http_request"
+    assert contracts["webhook_send"].guardrail_kind == "http_request"
+    assert contracts["mqtt_publish"].guardrail_kind == "mqtt_publish"
+    assert contracts["discord_send"].guardrail_kind == ""
 
 
 def test_connection_action_contracts_make_side_effect_boundaries_auditable() -> None:
@@ -98,6 +151,11 @@ def test_runtime_operation_and_payload_are_contract_backed() -> None:
     assert runtime_payload_for_action_plan(mqtt) == {"topic": "aria/events", "message": "Deployment finished"}
     assert runtime_operation_for_capability("mail_search") == "read"
     assert runtime_payload_for_action_plan(mail) == {"selector": "", "query": "backup failed"}
+    assert guardrail_kind_for_capability("ssh_command") == "ssh_command"
+    assert guardrail_kind_for_capability("file_list") == "file_access"
+    assert guardrail_kind_for_capability("api_request") == "http_request"
+    assert guardrail_kind_for_capability("webhook_send") == "http_request"
+    assert guardrail_kind_for_capability("discord_send") == ""
 
 
 def test_connection_action_manifest_rows_are_declarative_and_complete() -> None:
@@ -111,9 +169,11 @@ def test_connection_action_manifest_rows_are_declarative_and_complete() -> None:
         "operation": "run_command",
         "executors": ["ssh"],
         "policy_family": "ssh_readonly",
+        "guardrail_kind": "ssh_command",
         "required_fields": ["connection_ref", "content"],
         "payload_fields": [{"payload": "command", "plan": "content"}],
         "side_effect": False,
+        "direct_capability_gate": False,
     }
     for row in rows:
         assert row["capability"]
@@ -121,4 +181,6 @@ def test_connection_action_manifest_rows_are_declarative_and_complete() -> None:
         assert row["operation"]
         assert row["executors"]
         assert row["policy_family"]
+        assert "guardrail_kind" in row
         assert isinstance(row["side_effect"], bool)
+        assert isinstance(row["direct_capability_gate"], bool)

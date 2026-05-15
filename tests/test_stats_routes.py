@@ -803,6 +803,7 @@ def test_build_recipe_experience_memory_meta_counts_qdrant_collections(monkeypat
             return SimpleNamespace(
                 collections=[
                     SimpleNamespace(name="aria_recipe_experience_neo"),
+                    SimpleNamespace(name="aria_recipe_experiencefoo"),
                     SimpleNamespace(name="aria_memory_neo"),
                 ]
             )

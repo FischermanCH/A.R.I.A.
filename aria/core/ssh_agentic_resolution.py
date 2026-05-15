@@ -489,7 +489,12 @@ async def apply_agentic_ssh_command_resolution(
             dossier=dossier,
         )
         guardrail_intent = {}
-        if not fallback_command and allow_commands and policy.action != "allow":
+        if (
+            not fallback_command
+            and allow_commands
+            and policy.action != "allow"
+            and not _looks_like_mutating_request(str(message or "").strip())
+        ):
             guardrail_intent = await classify_ssh_guardrail_intent(
                 client=client,
                 message=str(message or "").strip(),
@@ -685,7 +690,12 @@ async def apply_agentic_ssh_command_resolution(
         dossier=dossier,
     )
     guardrail_intent = {}
-    if not fallback_command and allow_commands and policy.action != "allow":
+    if (
+        not fallback_command
+        and allow_commands
+        and policy.action != "allow"
+        and not _looks_like_mutating_request(str(message or "").strip())
+    ):
         guardrail_intent = await classify_ssh_guardrail_intent(
             client=client,
             message=str(message or "").strip(),

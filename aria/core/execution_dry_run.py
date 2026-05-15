@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.connection_action_contract import guardrail_kind_for_capability
 from aria.core.agentic_action_resolution import action_draft_from_file_operation
 from aria.core.agentic_action_resolution import action_draft_from_http_request
 from aria.core.agentic_action_resolution import action_draft_from_message_operation
@@ -32,18 +33,6 @@ from aria.core.ssh_guardrail_commands import combined_ssh_allow_commands
 from aria.core.ssh_guardrail_commands import ssh_guardrail_allow_terms
 from aria.core.ssh_policy import validate_ssh_readonly_policy
 
-
-def _guardrail_kind_for_capability(capability: str) -> str:
-    clean = str(capability or "").strip().lower()
-    if clean == "ssh_command":
-        return "ssh_command"
-    if clean in {"file_read", "file_write", "file_list"}:
-        return "file_access"
-    if clean in {"api_request", "webhook_send"}:
-        return "http_request"
-    if clean == "mqtt_publish":
-        return "mqtt_publish"
-    return ""
 
 _EXECUTION_DRY_RUN_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
@@ -251,7 +240,7 @@ def evaluate_guardrail_confirm_dry_run(
     connection = connection_row(settings, connection_kind, connection_ref)
     connection_method = read_row_value(connection, "method").upper() if connection is not None else ""
     guardrail_ref = read_row_value(connection, "guardrail_ref") if connection is not None else ""
-    guardrail_kind = _guardrail_kind_for_capability(capability)
+    guardrail_kind = guardrail_kind_for_capability(capability)
     guardrail_profile = resolve_guardrail_profile(settings, guardrail_ref) if guardrail_ref and guardrail_kind else None
     guardrail_text = _guardrail_text_for_payload(payload)
     guardrail_decision = evaluate_guardrail(
@@ -340,6 +329,7 @@ def evaluate_guardrail_confirm_dry_run(
                 language=language,
                 target=target,
                 preview=str(payload.get("preview", "") or "").strip(),
+                guardrail_ref=guardrail_ref,
             ),
             "guardrail_ref": guardrail_ref,
             "guardrail_kind": guardrail_kind,

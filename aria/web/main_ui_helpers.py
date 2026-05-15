@@ -28,7 +28,7 @@ LANGUAGE_LABELS = {
 }
 _MAIN_UI_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:https?://|/)[^\s)]+)\)")
+_MARKDOWN_LINK_RE = re.compile(r"\[(.+?)\]\(((?:https?://|/)[^\s)]+)\)")
 
 
 def _main_ui_text(language: str | None, key: str, default: str = "", **values: Any) -> str:

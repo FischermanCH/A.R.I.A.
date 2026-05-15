@@ -6077,6 +6077,13 @@ section.docs-clean-layout {
   color: var(--muted);
 }
 
+.learned-flow-grid .memory-health-card p {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
 .learned-review-grid {
   margin: 0.85rem 0;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -6086,6 +6093,93 @@ section.docs-clean-layout {
   font-size: 0.95rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.learned-recipe-grid {
+  grid-template-columns: 1fr;
+}
+
+.learned-recipe-card {
+  overflow: hidden;
+  align-content: start;
+}
+
+.learned-recipe-card .status-badge {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.learned-recipe-summary {
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.learned-recipe-meta-stack {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.learned-recipe-meta {
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+.learned-detail-list {
+  display: grid;
+  gap: 0.58rem;
+  margin: 0;
+}
+
+.learned-detail-list > div {
+  display: grid;
+  gap: 0.2rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
+  min-width: 0;
+}
+
+.learned-detail-list > div:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.learned-detail-list dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.learned-detail-list dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.learned-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.learned-plain-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+}
+
+.learned-plain-list li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .memory-overview-layout .floating-card,
@@ -6805,6 +6899,11 @@ section.docs-clean-layout {
   border-color: rgba(255, 170, 72, 0.82);
 }
 
+.memory-graph-node.kind-recipe_experience,
+.memory-graph-node.kind-system {
+  border-color: rgba(150, 165, 185, 0.82);
+}
+
 .memory-graph-node.variant-rollup {
   background: color-mix(in srgb, var(--surface-card) 75%, rgba(70, 35, 116, 0.55) 25%);
 }
@@ -6836,6 +6935,11 @@ section.docs-clean-layout {
 
 .memory-graph-node.variant-routing {
   background: color-mix(in srgb, var(--surface-card) 72%, rgba(104, 63, 10, 0.4) 28%);
+}
+
+.memory-graph-node.variant-recipe_experience,
+.memory-graph-node.variant-system {
+  background: color-mix(in srgb, var(--surface-card) 76%, rgba(71, 85, 105, 0.38) 24%);
 }
 
 .memory-rollup-grid {

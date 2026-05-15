@@ -88,17 +88,17 @@
     <a class="status-badge{% if learned_sort == 'experience' %} status-badge-readonly{% endif %}" href="/recipes/learned?sort=experience{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_experience', 'Erfahrung') }}</a>
     <a class="status-badge{% if learned_sort == 'title' %} status-badge-readonly{% endif %}" href="/recipes/learned?sort=title{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_title', 'Titel') }}</a>
   </div>
-  <div class="config-group-grid">
+  <div class="config-group-grid learned-recipe-grid">
     {% for row in learned_rows %}
-    <article class="config-group-card skill-card">
+    <article class="config-group-card skill-card learned-recipe-card">
       <div class="skill-card-head">
-        <h3>{{ row.title }}</h3>
+        <h3>{{ row.display_title or row.title }}</h3>
         <span class="skill-state {{ row.promotion_class }}">{{ row.promotion_label }}</span>
       </div>
       {% if row.review_next_action_label %}
       <p class="hint-text">{{ row.review_next_action_label }}</p>
       {% endif %}
-      <p>{{ row.summary or row.preview }}</p>
+      <p class="learned-recipe-summary">{{ row.summary or row.preview }}</p>
       <div class="memory-health-grid learned-review-grid">
         <article class="memory-health-card">
           <div class="memory-health-head">
@@ -134,16 +134,18 @@
         </article>
       </div>
       <div class="status-badge-row compact">
-        {% if row.intent %}<span class="status-badge">{{ row.intent }}</span>{% endif %}
+        {% if row.intent_label %}<span class="status-badge">{{ row.intent_label }}</span>{% endif %}
         {% if row.capability %}<span class="status-badge">{{ row.capability }}</span>{% endif %}
         <span class="status-badge">{{ tr(request, 'learned_recipes.runs', 'Runs') }}: {{ row.experience_count }}</span>
       </div>
-      {% if row.review_contract_label %}
-      <p class="hint-text">{{ tr(request, 'learned_recipes.action_contract', 'Action Contract') }}: {{ row.review_contract_label }}</p>
-      {% endif %}
-      {% if row.review_maturity_label %}
-      <p class="hint-text">{{ tr(request, 'learned_recipes.review_maturity', 'Review-Reife') }}: {{ row.review_maturity_label }}</p>
-      {% endif %}
+      <div class="learned-recipe-meta-stack">
+        {% if row.review_contract_label %}
+        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.action_contract', 'Action Contract') }}: {{ row.review_contract_label }}</p>
+        {% endif %}
+        {% if row.review_maturity_label %}
+        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.review_maturity', 'Review-Reife') }}: {{ row.review_maturity_label }}</p>
+        {% endif %}
+      </div>
       {% if row.learning_signal_label %}
       <div class="status-badge-row compact">
         <span class="status-badge">{{ tr(request, 'learned_recipes.learning_signal', 'Learning-Signal') }}: {{ row.learning_signal_label }}</span>
@@ -157,18 +159,20 @@
         {% if row.risk_level %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_risk', 'Risiko') }}: {{ row.risk_level }}</span>{% endif %}
       </div>
       {% endif %}
-      {% if row.curation_debug_label %}
-      <p class="hint-text">{{ tr(request, 'learned_recipes.curation_debug', 'Curator-Debug') }}: {{ row.curation_debug_label }}</p>
-      {% endif %}
-      {% if row.generalization_hint %}
-      <p class="hint-text">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ row.generalization_hint }}</p>
-      {% endif %}
-      {% if row.scope_label %}
-      <p class="hint-text">{{ tr(request, 'learned_recipes.scope', 'Scope') }}: {{ row.scope_label }}</p>
-      {% endif %}
-      {% if row.last_success_label %}
-      <p class="hint-text">{{ tr(request, 'learned_recipes.last_success', 'Letzter Erfolg') }}: {{ row.last_success_label }}</p>
-      {% endif %}
+      <div class="learned-recipe-meta-stack">
+        {% if row.curation_debug_label %}
+        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.curation_debug', 'Curator-Debug') }}: {{ row.curation_debug_label }}</p>
+        {% endif %}
+        {% if row.generalization_hint %}
+        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ row.generalization_hint }}</p>
+        {% endif %}
+        {% if row.scope_label %}
+        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.scope', 'Scope') }}: {{ row.scope_label }}</p>
+        {% endif %}
+        {% if row.last_success_label %}
+        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.last_success', 'Letzter Erfolg') }}: {{ row.last_success_label }}</p>
+        {% endif %}
+      </div>
       {% if row.stored_recipe_id %}
       <p class="hint-text">
         {{ tr(request, 'learned_recipes.promoted_target', 'Gespeichertes Rezept') }}:
@@ -178,36 +182,80 @@
       <details class="skill-details">
         <summary>{{ tr(request, 'learned_recipes.details', 'Details') }}</summary>
         <div class="skill-details-content">
+          <dl class="learned-detail-list">
           {% if row.preview %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.preview', 'Preview') }}: {{ row.preview }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.preview', 'Preview') }}</dt>
+            <dd>{{ row.preview }}</dd>
+          </div>
           {% endif %}
           {% if row.chosen_action %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.action', 'Aktion') }}: {{ row.chosen_action }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.action', 'Aktion') }}</dt>
+            <dd>{{ row.chosen_action }}</dd>
+          </div>
           {% endif %}
           {% if row.user_message %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.user_wording', 'User-Formulierung') }}: {{ row.user_message }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.user_wording', 'User-Formulierung') }}</dt>
+            <dd>{{ row.user_message }}</dd>
+          </div>
           {% endif %}
           {% if row.learning_origin %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.origin', 'Lernquelle') }}: {{ row.learning_origin }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.origin', 'Lernquelle') }}</dt>
+            <dd>{{ row.learning_origin }}</dd>
+          </div>
           {% endif %}
           {% if row.promotion_hint %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.promotion_hint', 'Promotion-Hinweis') }}: {{ row.promotion_hint }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.promotion_hint', 'Promotion-Hinweis') }}</dt>
+            <dd>{{ row.promotion_hint }}</dd>
+          </div>
           {% endif %}
           {% if row.promotion_reason %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.promotion_reason', 'Promotion-Begründung') }}: {{ row.promotion_reason }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.promotion_reason', 'Promotion-Begründung') }}</dt>
+            <dd>{{ row.promotion_reason }}</dd>
+          </div>
           {% endif %}
           {% if row.suggested_triggers %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.suggested_triggers', 'Vorgeschlagene Trigger') }}: {{ row.suggested_triggers|join(", ") }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.suggested_triggers', 'Vorgeschlagene Trigger') }}</dt>
+            <dd>
+              <span class="learned-token-list">
+                {% for trigger in row.suggested_triggers %}
+                <span class="status-badge status-badge-muted">{{ trigger }}</span>
+                {% endfor %}
+              </span>
+            </dd>
+          </div>
           {% endif %}
           {% if row.limits %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.limits', 'Grenzen') }}: {{ row.limits|join("; ") }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.limits', 'Grenzen') }}</dt>
+            <dd>
+              <ul class="learned-plain-list">
+                {% for limit in row.limits %}
+                <li>{{ limit }}</li>
+                {% endfor %}
+              </ul>
+            </dd>
+          </div>
           {% endif %}
           {% if row.learning_signal_reason %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.learning_signal_reason', 'Lernsignal-Grund') }}: {{ row.learning_signal_reason }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.learning_signal_reason', 'Lernsignal-Grund') }}</dt>
+            <dd>{{ row.learning_signal_reason }}</dd>
+          </div>
           {% endif %}
           {% if row.last_deviation_action %}
-          <p class="hint-text">{{ tr(request, 'learned_recipes.last_deviation_action', 'Letzte Abweichung') }}: {{ row.last_deviation_action }}</p>
+          <div>
+            <dt>{{ tr(request, 'learned_recipes.last_deviation_action', 'Letzte Abweichung') }}</dt>
+            <dd>{{ row.last_deviation_action }}</dd>
+          </div>
           {% endif %}
+          </dl>
           {% if row.stored_recipe_id %}
           <div class="inline-actions">
             <a

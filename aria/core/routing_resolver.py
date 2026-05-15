@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Protocol
 
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.connection_catalog import ordered_connection_kinds
 from aria.core.connection_semantic_resolver import build_connection_aliases, connection_label_match_score
 
 _ROUTING_RESOLVER_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "routing_resolver.json"
@@ -92,19 +93,7 @@ def infer_preferred_connection_kind(
     if not lower:
         return ""
 
-    scores = {
-        "ssh": 0,
-        "sftp": 0,
-        "smb": 0,
-        "google_calendar": 0,
-        "discord": 0,
-        "rss": 0,
-        "http_api": 0,
-        "webhook": 0,
-        "email": 0,
-        "imap": 0,
-        "mqtt": 0,
-    }
+    scores = {kind: 0 for kind in ordered_connection_kinds()}
 
     for row in _ROUTING_RESOLVER_LEXICON.get("regex_scores", []):
         if not isinstance(row, dict):

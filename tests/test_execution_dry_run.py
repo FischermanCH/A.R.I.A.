@@ -456,7 +456,11 @@ def test_guardrail_confirm_dry_run_blocks_denied_ssh_command() -> None:
     assert result["decision"]["action"] == "block"
     assert result["decision"]["reason"] == "guardrail_denied"
     assert result["decision"]["reason_label"] == "Guardrail profile safe-ssh blocks this action."
-    assert result["decision"]["summary"] == "ARIA would block the planned action on ssh/pihole1: SSH command: rm -rf /tmp/test"
+    assert result["decision"]["summary"] == (
+        "ARIA cannot execute this action on ssh/pihole1: SSH command: rm -rf /tmp/test\n\n"
+        "Review/change guardrail: [safe-ssh](/config/security?guardrail_ref=safe-ssh) "
+        "(/config/security?guardrail_ref=safe-ssh)"
+    )
 
 
 def test_guardrail_confirm_dry_run_ask_user_summary_includes_preview_when_available() -> None:

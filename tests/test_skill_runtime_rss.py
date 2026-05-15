@@ -1,4 +1,5 @@
 import json
+import time
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
@@ -64,7 +65,97 @@ def test_execute_rss_group_read_sorts_mixed_timestamp_types(monkeypatch) -> None
     assert "Entry B" in result
 
 
-def _build_runtime() -> RecipeRuntime:
+def test_execute_rss_group_read_honors_requested_count_across_feed_entries(monkeypatch) -> None:
+    runtime = _build_runtime()
+
+    def fake_load_rss_entries(connection_ref: str, *, language: str = "de"):
+        _ = language
+        return connection_ref, [
+            {
+                "title": f"{connection_ref} Entry {idx}",
+                "link": f"https://example.org/{connection_ref}/{idx}",
+                "published": f"2026-05-13T10:0{idx}:00+00:00",
+                "summary": f"Summary {idx}",
+            }
+            for idx in range(1, 4)
+        ]
+
+    monkeypatch.setattr(runtime, "_load_rss_entries", fake_load_rss_entries)
+
+    result = runtime.execute_rss_group_read(
+        "Security",
+        ["feed-a", "feed-b"],
+        language="de",
+        requested_count=5,
+    )
+
+    assert '__rss_digest_meta__:{"requested_count":5,"readable_count":6,"skipped_count":0,"safe_cap":12}' in result
+    assert result.count("Entry") == 5
+    assert "feed-b Entry 3" in result
+
+
+def test_execute_rss_group_read_loads_feeds_bounded_parallel(monkeypatch) -> None:
+    runtime = _build_runtime()
+
+    def fake_load_rss_entries(connection_ref: str, *, language: str = "de"):
+        _ = language
+        time.sleep(0.05)
+        return connection_ref, [
+            {
+                "title": f"{connection_ref} Entry",
+                "link": f"https://example.org/{connection_ref}",
+                "published": "2026-05-13T10:00:00+00:00",
+                "summary": "Summary",
+            }
+        ]
+
+    monkeypatch.setattr(runtime, "_load_rss_entries", fake_load_rss_entries)
+
+    start = time.perf_counter()
+    result = runtime.execute_rss_group_read(
+        "Security",
+        ["feed-a", "feed-b", "feed-c", "feed-d", "feed-e", "feed-f"],
+        language="de",
+        requested_count=6,
+    )
+    duration = time.perf_counter() - start
+
+    assert duration < 0.22
+    assert result.count("Entry") == 6
+
+
+def test_execute_rss_group_read_keeps_requested_entries_before_chat_summary(monkeypatch) -> None:
+    runtime = _build_runtime(truncate_text=lambda text, limit: text[:limit])
+
+    def fake_load_rss_entries(connection_ref: str, *, language: str = "de"):
+        _ = language
+        return connection_ref, [
+            {
+                "title": f"{connection_ref} Entry {idx} with a deliberately long but useful security title",
+                "link": f"https://example.org/{connection_ref}/{idx}",
+                "published": f"2026-05-13T10:{idx:02d}:00+00:00",
+                "summary": (
+                    "Long security summary that still needs to survive the runtime transport limit "
+                    "before the chat summarizer condenses it for the user."
+                ),
+            }
+            for idx in range(1, 4)
+        ]
+
+    monkeypatch.setattr(runtime, "_load_rss_entries", fake_load_rss_entries)
+
+    result = runtime.execute_rss_group_read(
+        "Security",
+        ["feed-a", "feed-b", "feed-c", "feed-d"],
+        language="de",
+        requested_count=10,
+    )
+
+    assert '__rss_digest_meta__:{"requested_count":10,"readable_count":12,"skipped_count":0,"safe_cap":12}' in result
+    assert result.count("deliberately long but useful security title") == 10
+
+
+def _build_runtime(*, truncate_text=None) -> RecipeRuntime:
     settings = SimpleNamespace(
         connections=SimpleNamespace(
             google_calendar={
@@ -90,7 +181,7 @@ def _build_runtime() -> RecipeRuntime:
         facts_collection_for_user=lambda _user: "",
         preferences_collection_for_user=lambda _user: "",
         normalize_spaces=lambda text: text,
-        truncate_text=lambda text, _limit: text,
+        truncate_text=truncate_text or (lambda text, _limit: text),
     )
 
 

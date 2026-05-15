@@ -21,6 +21,7 @@ dist/*.tgz
 
 data/auth/
 data/logs/
+data/pricing/
 data/skills/
 data/chat_history/
 data/qdrant/

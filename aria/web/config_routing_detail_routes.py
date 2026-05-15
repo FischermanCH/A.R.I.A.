@@ -11,6 +11,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from aria.core.connection_catalog import routing_workbench_kind_options
 from aria.core.stored_recipe_manifest_view import stored_recipe_candidate_metadata
 from aria.web.config_routing_i18n import config_routing_lang, config_routing_text
 
@@ -179,7 +180,7 @@ def register_config_routing_detail_routes(app: FastAPI, deps: ConfigRoutingDetai
                 "routing_test_query": str(routing_query or "").strip(),
                 "routing_test_kind": str(routing_kind or "auto").strip().lower() or "auto",
                 "routing_test_llm_qdrant_only": llm_qdrant_only,
-                "routing_test_kind_options": ["auto", "ssh", "sftp", "rss", "discord", "http_api"],
+                "routing_test_kind_options": routing_workbench_kind_options(),
                 "selected_scope": selected_scope,
                 "return_to": return_to,
             }

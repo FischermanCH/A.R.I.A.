@@ -1086,10 +1086,35 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
             {
                 "llm": {"model": "fake"},
                 "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "ssh": {
+                        "srv-a": {
+                            "host": "srv-a.local",
+                            "user": "aria",
+                            "guardrail_ref": "safe-ssh",
+                        }
+                    }
+                },
             }
         )
-        llm = FakeLLMClient()
+        class BlockExplanationLLM(FakeLLMClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.operations: list[str] = []
+
+            async def chat(self, messages, **kwargs):
+                self.operations.append(str(kwargs.get("operation", "") or ""))
+                if kwargs.get("operation") == "blocked_action_explanation":
+                    return FakeLLMResponse(
+                        "ARIA kann diese Aktion auf ssh/srv-a nicht ausfuehren, weil die aktive Guardrail sie blockiert.\n\n"
+                        "Geplante Aktion: SSH command: rm -rf /tmp/test\n\n"
+                        "Guardrail pruefen/anpassen: [safe-ssh](/config/security?guardrail_ref=safe-ssh)"
+                    )
+                return await super().chat(messages, **kwargs)
+
+        llm = BlockExplanationLLM()
         pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
 
         async def fake_chain(*_args, **_kwargs):
@@ -1107,8 +1132,15 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
                         "missing_fields": [],
                     }
                 },
-                "safety_debug": {"decision": {"action": "block", "reason_label": "Das aktive Guardrail-Profil blockiert diese Aktion."}},
-                "execution_debug": {"decision": {"next_step": "block", "summary": "ARIA wuerde die geplante Aktion auf ssh/srv-a blockieren."}},
+                "safety_debug": {
+                    "decision": {
+                        "action": "block",
+                        "reason": "ssh_command_not_in_allow_list",
+                        "reason_label": "Das aktive Guardrail-Profil blockiert diese Aktion.",
+                        "guardrail_kind": "ssh_command",
+                    }
+                },
+                "execution_debug": {"decision": {"next_step": "block", "summary": "ARIA kann diese Aktion auf ssh/srv-a nicht ausfuehren: SSH command: rm -rf /tmp/test"}},
             }
 
         monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
@@ -1118,7 +1150,12 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
 
         assert result.pending_action is None
         assert result.skill_errors == []
-        assert "blockieren" in result.text
+        assert "nicht ausfuehren" in result.text
+        assert "SSH command: rm -rf /tmp/test" in result.text
+        assert "[safe-ssh](/config/security?guardrail_ref=safe-ssh)" in result.text
+        details = "\n".join(result.detail_lines)
+        assert "blocked_action_explanation agentic_source=deterministic_fallback reason=ssh_policy_block_fast_path" in details
+        assert "blocked_action_explanation" not in llm.operations
 
     asyncio.run(_run())
 
@@ -2710,7 +2747,7 @@ def test_pipeline_file_list_summarizes_runtime_directory_listing() -> None:
     )
 
     assert result.intents == ["capability:file_list"]
-    assert result.text == "Dateiliste für `server-main` in `/srv`: 3 Einträge. Beispiele: backups/, config.yml, logs/."
+    assert result.text == "Dateiliste für `server-main` in `/srv`: 3 Einträge. Ordner: backups/, logs/. Beispiele: config.yml."
 
 
 def test_pipeline_file_write_summarizes_runtime_write_confirmation() -> None:
@@ -4148,6 +4185,91 @@ def test_pipeline_rss_group_digest_summarizes_multiple_headlines(monkeypatch) ->
         "   Quelle: Feed Alpha · 2026-04-28 21:00\n"
         "2. Alert B\n"
         "   Quelle: Feed Beta · 2026-04-28 20:00"
+    )
+
+
+def test_pipeline_rss_group_digest_uses_llm_extracted_requested_count(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "rss": {
+                    "feed-a": {
+                        "feed_url": "https://example.org/a.xml",
+                        "title": "Feed A",
+                        "group_name": "Security",
+                    },
+                    "feed-b": {
+                        "feed_url": "https://example.org/b.xml",
+                        "title": "Feed B",
+                        "group_name": "Security",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DigestOptionsLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            self.last_messages = messages
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "rss_digest_options":
+                return FakeLLMResponse(json.dumps({"requested_count": 10, "detail_level": "normal", "reason": "10 requested"}))
+            return FakeLLMResponse(json.dumps({"ref": "feed-a", "confidence": "high", "reason": "security group"}))
+
+    llm = DigestOptionsLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def _fake_resolve_rss_ref(message: str, available_connections: dict[str, object], candidates=None) -> SemanticConnectionHint:
+        _ = (message, available_connections, candidates)
+        return SemanticConnectionHint(
+            connection_kind="rss",
+            connection_ref="feed-a",
+            source="semantic_llm",
+            note="semantic_llm:security category",
+        )
+
+    calls: list[tuple[str, list[str], int]] = []
+
+    def fake_rss_group_read(group_name: str, connection_refs: list[str], *, language: str = "de", requested_count: int = 0) -> str:
+        _ = language
+        calls.append((group_name, list(connection_refs), requested_count))
+        return (
+            "Neueste Einträge aus Kategorie `Security`:\n"
+            '__rss_digest_meta__:{"requested_count":10,"readable_count":4,"skipped_count":0,"safe_cap":12}\n'
+            "1. Alert A · Quelle: Feed Alpha\n"
+            "2. Alert B · Quelle: Feed Beta"
+        )
+
+    monkeypatch.setattr(pipeline._semantic_connection_resolver, "resolve_rss_ref", _fake_resolve_rss_ref)
+    pipeline._skill_runtime.execute_rss_group_read = fake_rss_group_read  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "mach mir eine zusammenfassung der letzten 10 it-security news",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert "rss_digest_options" in llm.operations
+    assert calls == [("Security", ["feed-a", "feed-b"], 10)]
+    assert result.text == (
+        "RSS-Digest für `Security`: 2 aktuelle Meldungen.\n"
+        "Anfrage: 10 angefragt, 2 angezeigt, 4 gefunden/lesbar.\n\n"
+        "1. Alert A\n"
+        "   Quelle: Feed Alpha\n"
+        "2. Alert B\n"
+        "   Quelle: Feed Beta"
     )
 
 
@@ -8461,9 +8583,14 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
 
     class MisclassifyingRestartLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
         async def chat(self, messages, **kwargs):
             self.calls += 1
             self.last_messages = messages
+            self.operations.append(str(kwargs.get("operation", "") or ""))
             if kwargs.get("operation") == "ssh_command_decision":
                 return FakeLLMResponse(
                     json.dumps(
@@ -8487,6 +8614,7 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
                 )
             return await super().chat(messages, **kwargs)
 
+    llm = MisclassifyingRestartLLM()
     updated, updated_draft, debug_line = asyncio.run(
         pipeline._apply_agentic_ssh_command_resolution(
             message="starte meinen dns server neu",
@@ -8502,7 +8630,7 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
                 behavior_profile="ssh_run_command",
             ),
             language="de",
-            llm_client=MisclassifyingRestartLLM(),
+            llm_client=llm,
         )
     )
 
@@ -8511,6 +8639,7 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
     assert getattr(updated_draft, "content") == "sudo systemctl restart pihole-FTL"
     assert "guardrail_fallback_from" not in updated["decision"]
     assert "ssh_command_guardrail_fallback" not in debug_line
+    assert "ssh_guardrail_intent" not in llm.operations
 
 
 def test_pipeline_refresh_rebuilds_block_preview_when_ssh_command_changes() -> None:
@@ -10696,7 +10825,7 @@ def test_pipeline_delete_on_management_server_routes_to_blocked_ssh_action() -> 
 
     assert result.intents == ["capability:ssh_command"]
     assert "ssh/ubnsrv-mgmt-master" in result.text
-    assert "blockieren" in result.text
+    assert "nicht ausfuehren" in result.text
 
 
 def test_pipeline_capability_router_sends_email_via_explicit_profile() -> None:

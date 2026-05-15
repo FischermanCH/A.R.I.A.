@@ -1,10 +1,10 @@
-# ARIA 0.1.0-alpha251 - Public Alpha Rollup since 0.1.0-alpha167
+# ARIA 0.1.0-alpha266 - Public Alpha Rollup since 0.1.0-alpha167
 
-GitHub Release and Docker Hub announcement source for `v0.1.0-alpha.251`.
+GitHub Release and Docker Hub announcement source for `v0.1.0-alpha.266`.
 
 ## Summary
 
-`0.1.0-alpha251` is the largest ARIA alpha rollup since `0.1.0-alpha167`.
+`0.1.0-alpha266` is the current ARIA public alpha rollup since `0.1.0-alpha167`.
 
 ARIA has moved from a mostly deterministic chat/router with legacy Skills toward a recipe-first, LLM-assisted action architecture. The visible product language is now `Recipes`, while legacy Skill compatibility remains only where it is still needed for old data and routes.
 
@@ -21,6 +21,10 @@ The biggest change is architectural: ARIA now treats natural-language requests a
 - Managed Docker updates were hardened so normal updates recreate only the ARIA app container, not Qdrant/SearXNG sidecars.
 - The host-side update helper now checks host-port conflicts before recreating ARIA, so a blocked port aborts safely instead of breaking a running stack halfway through an update.
 - The UI, docs, routes, tests, and i18n surfaces were cleaned up heavily around the new recipe-first model.
+- RSS digests now honor explicit requested counts more reliably, fetch bounded feed groups concurrently, and keep visible links even for bracketed titles.
+- Learned Recipes now include LLM curator metadata, weighted evidence, promotion preview, Qdrant cleanup on delete, and a calmer review layout.
+- Docker release builds now pin base-image digests and runtime dependencies through `constraints/runtime.txt`.
+- The update reconnect service worker gives browsers a small waiting shell during brief ARIA container recreates.
 
 ## Added
 

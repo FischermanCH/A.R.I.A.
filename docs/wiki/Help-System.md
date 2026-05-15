@@ -1,12 +1,12 @@
 # ARIA - Hilfe-System / Doku-Hub
 
-Stand: 2026-05-12
+Stand: 2026-05-15
 
 ## Aktuelle Richtung
 
 `/help` ist der lokale Docs-Hub von ARIA. Die Inhalte sollen dieselben Kerninformationen liefern wie das GitHub-Wiki, damit Nutzer nicht zwischen altem Wiki-Stand und neuer Produktrealitaet hin und her fallen.
 
-Seit `0.1.0-alpha251` muessen Hilfe und Wiki klar abbilden:
+Seit `0.1.0-alpha266` muessen Hilfe und Wiki klar abbilden:
 
 - recipe-first statt Skill-first
 - Agentic Action Flow: Kontext anreichern, LLM-Draft, Policy/Guardrail, Runtime

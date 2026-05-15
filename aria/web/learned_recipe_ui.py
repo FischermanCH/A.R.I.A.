@@ -124,6 +124,24 @@ def _audit_action_label(entry: dict[str, Any]) -> str:
     return str(entry.get("preview", "") or "").strip()
 
 
+def _display_title(entry: dict[str, Any]) -> str:
+    capability = str(entry.get("capability", "") or "").strip().lower()
+    if capability == "file_list":
+        kind = str(entry.get("connection_kind", "") or "").strip().upper()
+        if kind:
+            return f"{kind} List Files"
+        return "File List"
+    return str(entry.get("title", "") or "").strip()
+
+
+def _intent_label(entry: dict[str, Any]) -> str:
+    intent = str(entry.get("intent", "") or "").strip()
+    capability = str(entry.get("capability", "") or "").strip().lower()
+    if capability == "file_list" and intent.lower() in {"read_file", "file_read"}:
+        return "list_files"
+    return intent
+
+
 def _review_safety_label(entry: dict[str, Any], promotion_state: str, *, language: str | None = None) -> str:
     if promotion_state == PROMOTION_STATE_PROMOTED:
         return _learned_recipe_ui_text(language, "review_safety_promoted", "Promoted: executable stored recipe")
@@ -262,6 +280,8 @@ def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | N
     scope = dict(entry.get("recipe_scope", {}) or {})
     return {
         **entry,
+        "display_title": _display_title(entry),
+        "intent_label": _intent_label(entry),
         "promotion_label": _promotion_state_label(promotion_state, language=language),
         "promotion_class": _promotion_state_class(promotion_state),
         "scope_label": _scope_label(entry),
@@ -299,7 +319,7 @@ def sort_learned_recipe_rows(rows: list[dict[str, Any]] | None, sort_key: str | 
                 int(row.get("experience_count", 0) or 0),
                 promotion_state_rank(str(row.get("promotion_state", "") or "")),
                 str(row.get("last_success_at", "") or ""),
-                str(row.get("title", "") or ""),
+                str(row.get("display_title", "") or row.get("title", "") or ""),
             ),
             reverse=True,
         )
@@ -307,7 +327,7 @@ def sort_learned_recipe_rows(rows: list[dict[str, Any]] | None, sort_key: str | 
     if clean_sort == LEARNED_RECIPE_SORT_TITLE:
         all_rows.sort(
             key=lambda row: (
-                str(row.get("title", "") or "").lower(),
+                str(row.get("display_title", "") or row.get("title", "") or "").lower(),
                 -promotion_state_rank(str(row.get("promotion_state", "") or "")),
                 -int(row.get("experience_count", 0) or 0),
             ),
@@ -318,7 +338,7 @@ def sort_learned_recipe_rows(rows: list[dict[str, Any]] | None, sort_key: str | 
             str(row.get("last_success_at", "") or ""),
             promotion_state_rank(str(row.get("promotion_state", "") or "")),
             int(row.get("experience_count", 0) or 0),
-            str(row.get("title", "") or ""),
+            str(row.get("display_title", "") or row.get("title", "") or ""),
         ),
         reverse=True,
     )

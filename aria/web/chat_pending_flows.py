@@ -9,24 +9,13 @@ from uuid import uuid4
 
 import aria.web.chat_admin_actions as chat_admin_actions
 from aria.core.i18n import I18NStore
+from aria.core.connection_catalog import ordered_connection_kinds
 from aria.core.routing_resolver import infer_preferred_connection_kind
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 _CHAT_PENDING_I18N = I18NStore(BASE_DIR / "aria" / "i18n")
-_PENDING_ROUTE_KINDS = (
-    "ssh",
-    "sftp",
-    "smb",
-    "google_calendar",
-    "discord",
-    "rss",
-    "http_api",
-    "webhook",
-    "email",
-    "imap",
-    "mqtt",
-)
+_PENDING_ROUTE_KINDS = tuple(ordered_connection_kinds())
 
 
 def _pending_text(language: str | None, key: str, default: str = "", **values: Any) -> str:

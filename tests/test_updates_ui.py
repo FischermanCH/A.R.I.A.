@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -557,6 +558,26 @@ def test_updates_running_page_renders_reconnect_shell(monkeypatch) -> None:
     assert "Update in progress" in response.text or "Update laeuft gerade" in response.text
     assert "/updates/status" in response.text
     assert "/health" in response.text
+
+
+def test_update_reconnect_service_worker_is_available() -> None:
+    client = TestClient(main_mod.app)
+
+    response = client.get("/update-reconnect-sw.js")
+
+    assert response.status_code == 200
+    assert "application/javascript" in response.headers["content-type"]
+    assert "X-ARIA-Reconnect-Shell" in response.text
+    assert 'request.mode !== "navigate"' in response.text
+    assert "reconnectShell(request.url)" in response.text
+
+
+def test_base_registers_update_reconnect_service_worker() -> None:
+    template = Path("aria/templates/base.html").read_text(encoding="utf-8")
+
+    assert 'navigator.serviceWorker.register("/update-reconnect-sw.js"' in template
+    assert 'scope: "/"' in template
+    assert 'updateViaCache: "none"' in template
 
 
 def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -> None:

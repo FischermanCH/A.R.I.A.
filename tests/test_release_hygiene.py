@@ -27,6 +27,7 @@ def test_release_label_matches_current_alpha_backlog_build() -> None:
 
 def test_source_runtime_assets_are_present_for_container_builds() -> None:
     required_files = [
+        ROOT / "constraints" / "runtime.txt",
         ROOT / "prompts" / "persona.md",
         ROOT / "prompts" / "recipes" / "memory.md",
         ROOT / "prompts" / "recipes" / "memory_compress.md",
@@ -44,6 +45,20 @@ def test_source_runtime_assets_are_present_for_container_builds() -> None:
     missing = [path.relative_to(ROOT).as_posix() for path in required_files if not path.exists()]
 
     assert missing == []
+
+
+def test_dockerfile_uses_runtime_constraints_for_reproducible_installs() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    constraints = (ROOT / "constraints" / "runtime.txt").read_text(encoding="utf-8")
+
+    assert "FROM docker:26-cli@sha256:" in dockerfile
+    assert "FROM python:3.12-slim@sha256:" in dockerfile
+    assert "COPY constraints /app/constraints" in dockerfile
+    assert "-c /app/constraints/runtime.txt" in dockerfile
+    assert "--no-build-isolation" in dockerfile
+    assert "pip==25.0.1" in dockerfile
+    for package in ("litellm==", "openai==", "aiohttp==", "pydantic==", "fastapi==", "qdrant-client=="):
+        assert package in constraints
 
 
 def test_sample_recipe_manifests_are_recipe_first() -> None:

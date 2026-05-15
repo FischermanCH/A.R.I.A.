@@ -7,13 +7,15 @@ from typing import Any, Callable
 from aria.core.agentic_action_resolution import action_draft_from_message_operation
 from aria.core.agentic_action_resolution import agentic_action_contract_prompt
 from aria.core.agentic_action_resolution import agentic_debug_line
+from aria.core.connection_action_contract import connection_action_capability_for_executor_family
+from aria.core.connection_action_contract import runtime_operation_for_capability
 
 
+MESSAGE_CONNECTION_KINDS = ("discord", "webhook", "email", "mqtt")
 MESSAGE_CAPABILITY_BY_KIND = {
-    "discord": "discord_send",
-    "webhook": "webhook_send",
-    "email": "email_send",
-    "mqtt": "mqtt_publish",
+    kind: capability
+    for kind in MESSAGE_CONNECTION_KINDS
+    if (capability := connection_action_capability_for_executor_family(kind, "message"))
 }
 
 
@@ -25,9 +27,9 @@ def message_draft_is_complete(*, capability: str, topic: str = "", content: str 
     clean_capability = str(capability or "").strip().lower()
     clean_content = str(content or "").strip()
     clean_topic = str(topic or "").strip()
-    if clean_capability == "mqtt_publish":
+    if runtime_operation_for_capability(clean_capability) == "publish":
         return bool(clean_topic and clean_content)
-    if clean_capability in {"discord_send", "webhook_send", "email_send"}:
+    if clean_capability in set(MESSAGE_CAPABILITY_BY_KIND.values()):
         return bool(clean_content)
     return True
 
@@ -129,7 +131,7 @@ async def apply_agentic_message_operation_resolution(
 
     capability = str(getattr(capability_draft, "capability", "") or decision.get("capability", "") or "").strip()
     capability = capability or message_capability_for_kind(connection_kind)
-    if capability not in {"discord_send", "webhook_send", "email_send", "mqtt_publish"}:
+    if capability not in set(MESSAGE_CAPABILITY_BY_KIND.values()):
         return action_payload, capability_draft, ""
     decision_inputs = dict(decision.get("inputs", {}) or {})
     existing_topic = str(
@@ -145,7 +147,7 @@ async def apply_agentic_message_operation_resolution(
         or ""
     ).strip()
     dossier = build_message_target_dossier(connection_kind, connection_ref, user_id=user_id)
-    if capability == "mqtt_publish" and not existing_topic:
+    if runtime_operation_for_capability(capability) == "publish" and not existing_topic:
         existing_topic = str(dossier.get("default_topic", "") or "").strip()
     if message_draft_is_complete(capability=capability, topic=existing_topic, content=existing_content):
         return action_payload, capability_draft, ""
@@ -197,7 +199,7 @@ async def apply_agentic_message_operation_resolution(
         )
     decision["capability"] = capability
     decision["inputs"] = {"message": content} if content else {}
-    if capability == "mqtt_publish" and topic:
+    if runtime_operation_for_capability(capability) == "publish" and topic:
         decision["inputs"] = {**dict(decision.get("inputs", {}) or {}), "topic": topic}
     decision["input_items"] = [
         {"key": key, "key_label": key.replace("_", " ").title(), "value": value}

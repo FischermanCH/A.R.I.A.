@@ -10,6 +10,7 @@ from urllib.request import urlopen
 
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.config import RoutingLanguageConfig
+from aria.core.connection_action_contract import guardrail_kind_for_capability
 from aria.core.guardrails import evaluate_guardrail, resolve_guardrail_profile
 from aria.core.i18n import I18NStore
 from aria.core.notes_context import search_note_hits
@@ -437,13 +438,19 @@ class RecipeRuntime:
         resolved_path: str,
         content: str = "",
     ) -> None:
-        eval_parts = [str(operation or "").strip().lower(), str(resolved_path or "").strip()]
+        clean_operation = str(operation or "").strip().lower()
+        eval_parts = [clean_operation, str(resolved_path or "").strip()]
         if content:
             eval_parts.append(str(content).strip())
+        capability = {
+            "read": "file_read",
+            "write": "file_write",
+            "list": "file_list",
+        }.get(clean_operation, "")
         self._enforce_connection_guardrail(
             connection=connection,
             connection_ref="",
-            guardrail_kind="file_access",
+            guardrail_kind=guardrail_kind_for_capability(capability),
             evaluation_text=" ".join(part for part in eval_parts if part),
             label=_recipe_text("de", "file_label", "File"),
         )
@@ -493,14 +500,22 @@ class RecipeRuntime:
     def _load_rss_entries(self, connection_ref: str, *, language: str = "de") -> tuple[str, list[dict[str, str]]]:
         return self.rss_runtime.load_entries(connection_ref, language=language)
 
-    def _run_rss_read_step(self, connection_ref: str, *, language: str = "de") -> str:
-        return self.rss_runtime.execute_read(connection_ref, language=language)
+    def _run_rss_read_step(self, connection_ref: str, *, language: str = "de", requested_count: int = 0) -> str:
+        return self.rss_runtime.execute_read(connection_ref, language=language, requested_count=requested_count)
 
-    def execute_rss_group_read(self, group_name: str, connection_refs: list[str], *, language: str = "de") -> str:
+    def execute_rss_group_read(
+        self,
+        group_name: str,
+        connection_refs: list[str],
+        *,
+        language: str = "de",
+        requested_count: int = 0,
+    ) -> str:
         return self.rss_runtime.execute_group_read(
             group_name,
             connection_refs,
             language=language,
+            requested_count=requested_count,
             entry_loader=self._load_rss_entries,
         )
 
@@ -522,8 +537,8 @@ class RecipeRuntime:
     def execute_smb_list(self, connection_ref: str, remote_path: str, *, language: str = "de") -> str:
         return self.file_runtime.execute_smb_list(connection_ref, remote_path, language=language)
 
-    def execute_rss_read(self, connection_ref: str, *, language: str = "de") -> str:
-        return self._run_rss_read_step(connection_ref, language=language)
+    def execute_rss_read(self, connection_ref: str, *, language: str = "de", requested_count: int = 0) -> str:
+        return self._run_rss_read_step(connection_ref, language=language, requested_count=requested_count)
 
     def execute_google_calendar_read(
         self,

@@ -7,6 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request as URLRequest
 
+from aria.core.connection_action_contract import guardrail_kind_for_capability
 from aria.core.http_api_policy import validate_http_api_request_policy
 
 RecipeText = Callable[..., str]
@@ -47,7 +48,7 @@ class RecipeHttpRuntime:
         self.enforce_connection_guardrail(
             connection=connection,
             connection_ref=connection_ref,
-            guardrail_kind="http_request",
+            guardrail_kind=guardrail_kind_for_capability("webhook_send"),
             evaluation_text=" ".join(
                 part
                 for part in (
@@ -171,7 +172,7 @@ class RecipeHttpRuntime:
         self.enforce_connection_guardrail(
             connection=connection,
             connection_ref=connection_ref,
-            guardrail_kind="http_request",
+            guardrail_kind=guardrail_kind_for_capability("api_request"),
             evaluation_text=" ".join(
                 part
                 for part in (

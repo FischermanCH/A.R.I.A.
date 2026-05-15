@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from aria.core.learned_recipe_store import load_learned_recipe_store_entries
 from aria.core.learned_recipe_promotion import build_learned_recipe_promotion_preview
+from aria.core.recipe_experience_memory import delete_recipe_experience_memory
 from aria.core.stored_recipe_manifest_view import stored_recipe_candidate_metadata
 from aria.web.recipes_route_support import canonical_recipe_surface_return_to as _canonical_recipe_surface_return_to
 from aria.web.recipes_route_support import canonical_recipe_surface_path as _canonical_recipe_surface_path
@@ -78,6 +79,7 @@ RoleSanitizer = Callable[[str | None], str]
 RawConfigReader = Callable[[], dict[str, Any]]
 RawConfigWriter = Callable[[dict[str, Any]], None]
 RuntimeReloader = Callable[[], None]
+PipelineGetter = Callable[[], Any]
 Translate = Callable[[str, str, str], str]
 LocalizeRecipeDescription = Callable[[dict[str, Any], str], str]
 FormatInfoMessage = Callable[[str, str], str]
@@ -285,6 +287,7 @@ def register_recipe_routes(
     suggest_skill_keywords_with_llm: SuggestKeywords,
     daily_time_to_cron: DailyTimeToCron,
     daily_time_from_cron: DailyTimeFromCron,
+    get_pipeline: PipelineGetter | None = None,
 ) -> None:
     def _build_recipes_page_context(
         request: Request,
@@ -503,7 +506,23 @@ def register_recipe_routes(
             page_heading=translate(lang, "recipes.system_title", "Core / System"),
         )
 
-    def _redirect_learned_recipe_admin_action(
+    async def _purge_deleted_learned_recipe_experience_memory(request: Request, *, recipe_id: str) -> None:
+        if get_pipeline is None:
+            return
+        try:
+            pipeline = get_pipeline()
+            memory_skill = getattr(pipeline, "memory_skill", None)
+            await delete_recipe_experience_memory(
+                memory_skill,
+                user_id=get_username_from_request(request),
+                recipe_id=recipe_id,
+            )
+        except Exception:
+            # Delete from the review store must not be undone by a best-effort
+            # semantic-memory cleanup failure. The stats page still exposes Qdrant health.
+            return
+
+    async def _redirect_learned_recipe_admin_action(
         request: Request,
         *,
         action: str,
@@ -519,6 +538,8 @@ def register_recipe_routes(
             return _redirect_with_return_to(f"{surface_path}?error=csrf_failed", request, fallback="/", return_to=return_to)
         try:
             url = learned_recipe_admin_success_url(action=action, recipe_id=recipe_id, surface_path=surface_path)
+            if str(action or "").strip().lower() == "delete":
+                await _purge_deleted_learned_recipe_experience_memory(request, recipe_id=recipe_id)
             return _redirect_with_return_to(url, request, fallback="/", return_to=return_to)
         except (OSError, ValueError) as exc:
             return _redirect_with_return_to(
@@ -535,7 +556,7 @@ def register_recipe_routes(
         csrf_token: str = Form(""),
         return_to: str = Form(""),
     ) -> RedirectResponse:
-        return _redirect_learned_recipe_admin_action(
+        return await _redirect_learned_recipe_admin_action(
             request,
             action="promote",
             recipe_id=recipe_id,
@@ -591,7 +612,7 @@ def register_recipe_routes(
         csrf_token: str = Form(""),
         return_to: str = Form(""),
     ) -> RedirectResponse:
-        return _redirect_learned_recipe_admin_action(
+        return await _redirect_learned_recipe_admin_action(
             request,
             action="dismiss",
             recipe_id=recipe_id,
@@ -606,7 +627,7 @@ def register_recipe_routes(
         csrf_token: str = Form(""),
         return_to: str = Form(""),
     ) -> RedirectResponse:
-        return _redirect_learned_recipe_admin_action(
+        return await _redirect_learned_recipe_admin_action(
             request,
             action="delete",
             recipe_id=recipe_id,

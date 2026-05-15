@@ -5,10 +5,11 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 import re
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointIdsList, PointStruct
 
+from aria.core.qdrant_collection_classifier import RECIPE_EXPERIENCE_PREFIX
 
-RECIPE_EXPERIENCE_COLLECTION_PREFIX = "aria_recipe_experience"
+RECIPE_EXPERIENCE_COLLECTION_PREFIX = RECIPE_EXPERIENCE_PREFIX
 RECIPE_EXPERIENCE_SOURCE = "recipe_experience"
 
 
@@ -188,6 +189,80 @@ async def store_recipe_experience_memory(
         "collection": collection,
         "point_id": point_id,
         "embedding_usage": dict(usage or {}),
+    }
+
+
+async def delete_recipe_experience_memory(
+    memory_skill: Any,
+    *,
+    user_id: str,
+    recipe_id: str,
+) -> dict[str, Any]:
+    clean_user = _clean_text(user_id) or "web"
+    clean_recipe_id = _clean_text(recipe_id)
+    if memory_skill is None or not clean_recipe_id:
+        return {"deleted": False, "reason": "missing_memory_or_recipe_id", "deleted_points": 0, "collections": []}
+
+    base_collection = recipe_experience_collection_for_user(clean_user)
+    try:
+        collections = await memory_skill._candidate_collections(base_collection)
+    except Exception:
+        collections = [base_collection]
+
+    recipe_filter = Filter(
+        must=[
+            FieldCondition(key="user_id", match=MatchValue(value=clean_user)),
+            FieldCondition(key="source", match=MatchValue(value=RECIPE_EXPERIENCE_SOURCE)),
+            FieldCondition(key="recipe_id", match=MatchValue(value=clean_recipe_id)),
+        ]
+    )
+    deleted_points = 0
+    touched_collections: list[str] = []
+    errors: list[str] = []
+    for collection in collections:
+        collection_name = _clean_text(collection)
+        if not collection_name:
+            continue
+        try:
+            exists = await memory_skill.qdrant.collection_exists(collection_name=collection_name)
+            if not exists:
+                continue
+            point_ids: list[str | int] = []
+            offset: Any = None
+            while True:
+                rows, next_offset = await memory_skill.qdrant.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=recipe_filter,
+                    limit=128,
+                    offset=offset,
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                for row in rows:
+                    point_id = getattr(row, "id", None)
+                    if point_id not in (None, ""):
+                        point_ids.append(point_id)
+                if next_offset is None:
+                    break
+                offset = next_offset
+            if not point_ids:
+                continue
+            await memory_skill.qdrant.delete(
+                collection_name=collection_name,
+                points_selector=PointIdsList(points=point_ids),
+                wait=True,
+            )
+            deleted_points += len(point_ids)
+            touched_collections.append(collection_name)
+        except Exception as exc:
+            errors.append(f"{collection_name}:{exc}")
+            continue
+
+    return {
+        "deleted": deleted_points > 0,
+        "deleted_points": deleted_points,
+        "collections": touched_collections,
+        "errors": errors,
     }
 
 

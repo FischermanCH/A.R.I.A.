@@ -6,7 +6,13 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha266] - 2026-05-15
+
 ### Added
+- Added `constraints/runtime.txt` as the Docker release-build dependency lock baseline, pinned from the tested `alpha264` container.
+- Added an update-reconnect service worker that serves a small multilingual waiting shell when navigation happens during ARIA's brief container-recreate downtime, then polls `/health` and returns to the original page once ARIA is reachable again.
+- Added `docs/product/codebase-modularity-audit-alpha257.md` to document the full codebase modularity audit, accepted provider-specific seams, residual watchpoints, and the LLM-first versus deterministic safety boundary.
+- RSS digest planning now has a bounded LLM preference extraction step for explicit count/detail requests, passing the requested result count into the read-only RSS runtime while keeping deterministic caps and fallbacks.
 - Learned Recipe review cards now show Curator debug metadata (`curation_source`, policy, status, timestamp, and skip/error reason), making it visible when bounded LLM curation ran or why it stayed skipped/context-only.
 - Learned Recipe store entries now record qualitative learning signals (`new_pattern`, repeat, wording/scope/action variants, risky deviations) plus weighted learning evidence, so self-learning can distinguish repeated noise from useful variation.
 - Added a Learned Recipe promotion preview page that shows the planned stored recipe manifest, policy/side-effect boundary, confidence/risk, trigger set, limits, and step parameters before an admin writes the promoted recipe.
@@ -27,6 +33,15 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Added `docs/product/operator-observability-guardrails.md` to document the `/stats` release/operations guardrail rows, status semantics, cost-tracking strictness, and maintenance rules.
 
 ### Changed
+- Docker builds now pin the Python and Docker CLI base image digests, install ARIA through the runtime constraints file, and disable build isolation after pinned `pip/setuptools/wheel` bootstrap, reducing base-image and Python transitive dependency drift before public releases.
+- RSS read-only runtimes now size their internal transport budget from the requested digest count, so a `10 news` request is not truncated before the chat summarizer can format all requested entries.
+- Learned Recipe curation and Recipe Experience Memory writes now run as non-blocking post-response follow-up work, keeping self-learning context-only while preventing successful chat actions from waiting on curation LLM calls or memory embeddings.
+- RSS category reads now fetch the bounded feed set concurrently instead of serially, so slow or timing-out feeds no longer stack into minute-long digest responses.
+- File-list summaries now separate directories from file examples, making SMB/SFTP folder listings easier to scan without changing the bounded file-list runtime.
+- Routing Workbench kind options, pending chat action route kinds, default Qdrant routing-index kinds, and generic pipeline capability-gate pools now derive from the Connection Catalog / Connection Action Contract instead of page- or pipeline-local provider lists.
+- Agentic read/message resolver capability families now derive from the Connection Action Contract, keeping LLM-backed operation resolution attached to the same provider contract used by runtime and policy.
+- RSS category digests now collect multiple entries per feed up to a safe cap, instead of always taking one item per feed and formatting at most six items.
+- RSS digest summaries now explain request/result gaps such as `10 requested, 4 found/readable, 1 skipped`, making feed count limits, timeouts, and sparse sources visible to the user.
 - Learned Recipe review maturity now prefers weighted learning evidence over raw run count, reducing overconfidence from repeated identical executions while still keeping raw success count visible for audit.
 - Recipe Experience Memory text now carries the learning signal and weighted evidence as planner context, so future LLM-backed planning can see whether an experience was fresh evidence, wording variation, or repeated noise.
 - Learned Recipe cards now route promotable candidates through the promotion preview instead of writing a stored recipe directly from the list action.
@@ -43,6 +58,22 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Learned Recipe admin success messages now use recipe-first `learned_recipes.*` i18n keys instead of legacy `skills.learned_*` compatibility keys.
 - Stored recipe summaries now render skipped step markers through the same readable Recipe Result View formatter as executed steps.
 - Connection Action Contract tests now pin the side-effect boundary so write/send/publish capabilities stay auditable and cannot silently look read-only.
+
+### Fixed
+- Learned Recipes review cards now render as full-width contained cards with wrapped badges and structured details for long LLM curator fields, preventing promotion reasons, trigger lists, and limits from tearing the `/recipes/learned` layout apart.
+- Learned Recipe `file_list` candidates now display list/browse labels in the review UI even when older stored learning records still carry legacy `Read File` titles or intents.
+- Assistant-message Markdown rendering now supports link labels that contain square brackets, so RSS titles such as Exploit-DB `[webapps]` entries remain clickable in the chat UI.
+- Guardrail review hints now keep the visible `/config/security?guardrail_ref=...` path next to the clickable Markdown link, so copied chat text still contains the concrete review target.
+- RSS digest formatting now preserves explicit `Link:` lines for source titles that already contain bracketed Markdown labels such as Exploit-DB `[webapps]` entries.
+- Guardrail review references in blocked-action answers now render as Markdown links to `/config/security?guardrail_ref=...` instead of plain URL text.
+- SSH policy-block responses now use a deterministic safety fast-path after the LLM has identified the intended action, avoiding an extra blocked-action LLM call and recovering the guardrail review URL from the selected connection when the safety decision did not carry it forward.
+- Blocked policy/guardrail actions now keep the deterministic block decision but use a bounded LLM explanation step for the user-facing answer, with deterministic fallback, visible planned action, and direct `/config/security?guardrail_ref=...` review links when a guardrail profile is attached.
+- Blocked-action LLM explanations now post-process live wording more strictly: if the LLM already mentions the concrete command, ARIA does not append a duplicate planned-action line, and weak guardrail references are replaced with the canonical guardrail review link.
+- Blocked-action explanation calls now have a short timeout with deterministic fallback, and clearly mutating SSH requests skip the extra guardrail-intent LLM classification once policy has already blocked the command.
+- Guardrail-kind mapping now lives in the Connection Action Contract and is reused by dry-run plus recipe runtimes, removing duplicated HTTP/file/MQTT/SSH mapping tables from execution paths.
+- Memory Overview/Map and Stats now share a central Qdrant collection classifier, auto-detect ARIA system collections such as `aria_recipe_experience_*`, show Recipe Experience Memory even when empty, and keep future unknown `aria_*` system collections visible instead of silently dropping them from the graph.
+- Learned Recipes flow explainer cards now render explanatory body text with the same subdued visual weight as the meta hints, keeping `/recipes/learned` calmer when the learned store is empty.
+- Deleting a Learned Recipe now also purges matching Recipe Experience Memory points from Qdrant for the current user, preventing stale context-only learning data from surviving after an admin deliberately removes a bad candidate.
 - `/stats` Operator Guardrail now has a dedicated Cost Tracking row: disabled token tracking and UsageMeter bypasses fail the release guardrail, while estimated-vs-logged cost gaps surface as warnings.
 - `/stats` Operator Guardrail now includes Recipe Experience Memory reachability when that metadata is available, so Qdrant learning-memory outages are visible without making disabled/fresh installs look broken.
 - Pricing refresh now reuses the shared pricing-settings sync path after preserving manual prices and aliases, so manual alias overrides remain visible in the running settings object immediately after a LiteLLM refresh.
@@ -53,8 +84,6 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - Recipe Result View summaries now include executed/skipped step counts ahead of the detailed step list, making multi-step recipe output easier to scan.
 - Operator Guardrail rows now carry stable machine-readable keys, so tests and future UI/admin tooling do not have to infer row meaning from visual order.
 - The Legacy Recipe Compatibility Audit now includes an explicit migration gate for removing old Skill-era bridges instead of leaving those compatibility seams as vague cleanup debt.
-
-### Fixed
 - Multi-target SSH LLM summaries now carry structured threshold facts and are validated against the measured read-only `df -h` results; if the first LLM summary contradicts hard measurements, ARIA asks the LLM for a bounded repair and only falls back to a measured threshold summary if repair fails.
 - Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.
 - Multi-target SSH LLM summaries no longer pass unsupported per-call `temperature` overrides to the shared `LLMClient`; skipped or failed summary calls now leave a routing-debug line instead of silently falling back to the old deterministic summary.
@@ -233,6 +262,11 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 - connection detail pages opened from `/connections/types` no longer render as an empty page when no profile exists yet; ARIA now opens the create form automatically for empty connection types such as Discord
 - the Discord connection page now receives its toggle-section builder through the normal route-helper dependency wiring, fixing the broken `/config/connections/discord?...` render path
 - German HTTP API field labels now use `Base-URL` again in connection-admin validation messages
+
+### Upgrade Notes
+- Public release `0.1.0-alpha266` publishes Docker tags `fischermanch/aria:0.1.0-alpha.266` and `fischermanch/aria:alpha`.
+- Python dependencies and base-image digests are pinned for Docker release builds; Debian `apt` packages still come from normal Debian repositories unless a future snapshot-repo hardening step is added.
+- A hard browser refresh is recommended after updating because this release includes UI, CSS, service-worker, and chat-rendering changes.
 
 ## [0.1.0-alpha.167] - 2026-04-25
 

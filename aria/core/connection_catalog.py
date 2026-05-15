@@ -982,6 +982,11 @@ def ordered_connection_kinds() -> list[str]:
     return list(CONNECTION_CATALOG.keys())
 
 
+def routing_workbench_kind_options(*, include_auto: bool = True) -> list[str]:
+    rows = ordered_connection_kinds()
+    return ["auto", *rows] if include_auto else rows
+
+
 def connection_example_ref(kind: str, connection_catalog: dict[str, list[str]] | None = None) -> str:
     clean_kind = normalize_connection_kind(kind)
     refs = (connection_catalog or {}).get(clean_kind, [])

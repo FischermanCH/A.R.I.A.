@@ -11,6 +11,7 @@ from aria.core.connection_catalog import (
     connection_status_meta,
     connection_template_name,
     ordered_connection_kinds,
+    routing_workbench_kind_options,
 )
 
 
@@ -25,6 +26,11 @@ def test_connection_menu_rows_follow_catalog_order() -> None:
     assert [row["kind"] for row in rows] == ordered_connection_kinds()
     assert [row["kind"] for row in rows[-4:]] == ["searxng", "mqtt", "email", "imap"]
     assert all(bool(row["alpha"]) for row in rows[-4:])
+
+
+def test_routing_workbench_kind_options_follow_connection_catalog() -> None:
+    assert routing_workbench_kind_options() == ["auto", *ordered_connection_kinds()]
+    assert routing_workbench_kind_options(include_auto=False) == ordered_connection_kinds()
 
 
 def test_connection_menu_meta_exposes_page_text_keys() -> None:

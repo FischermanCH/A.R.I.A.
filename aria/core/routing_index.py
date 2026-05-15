@@ -11,25 +11,15 @@ from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from aria.core.connection_catalog import connection_kind_label, connection_routing_spec, normalize_connection_kind
+from aria.core.connection_catalog import connection_kind_label
+from aria.core.connection_catalog import connection_routing_spec
+from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.connection_catalog import ordered_connection_kinds
 from aria.core.connection_semantic_resolver import build_connection_aliases
 
 
 ROUTING_INDEX_VERSION = 1
-DEFAULT_CONNECTION_ROUTING_KINDS: tuple[str, ...] = (
-    "ssh",
-    "sftp",
-    "smb",
-    "google_calendar",
-    "rss",
-    "website",
-    "discord",
-    "http_api",
-    "webhook",
-    "email",
-    "imap",
-    "mqtt",
-)
+DEFAULT_CONNECTION_ROUTING_KINDS: tuple[str, ...] = tuple(ordered_connection_kinds())
 
 _SECRET_FIELD_NAMES = {
     "api_key",

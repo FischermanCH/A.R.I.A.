@@ -1,6 +1,6 @@
 # ARIA Alpha Hilfe
 
-Stand: 2026-05-12 / Public Alpha `0.1.0-alpha251`
+Stand: 2026-05-15 / Public Alpha `0.1.0-alpha266`
 
 Diese Seite ist die praktische Kurz-Hilfe fuer ARIA Alpha. Sie beschreibt den aktuellen Stand nach dem grossen Umbau von Legacy-Skills zu Rezepten, LLM-gestuetzter Action-Planung und kontrollierter Ausfuehrung.
 

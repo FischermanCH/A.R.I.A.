@@ -613,8 +613,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release candidate: `0.1.0-alpha251`
-- `alpha251` is the first public rollup after `alpha167`: recipe-first automation, LLM-assisted action planning, token/cost visibility, one-click confirmations, multi-target SSH read-only checks, RSS link summaries, and hardened managed update paths.
+- Current public alpha release candidate: `0.1.0-alpha266`
+- `alpha266` is the current public alpha rollup after `alpha167`: recipe-first automation, LLM-assisted action planning, token/cost visibility, one-click confirmations, multi-target SSH read-only checks, richer RSS digests, self-learning review UX, safer managed updates, and pinned Docker release dependencies.
 
 ## One-line summary
 
@@ -947,7 +947,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-ARIA ist nah an einem ersten Public-ALPHA-Release. Der Rest ist vor allem Release-Hygiene und End-to-End-Verifikation.
+Aktuelle Public Alpha: `0.1.0-alpha266`. Dieser Stand buendelt den recipe-first Umbau, LLM-gestuetzte Action-Planung, Self-Learning-Review, stabile Update-Pfade und gepinnte Docker-Release-Dependencies.
 
 ## Ein-Satz-Zusammenfassung
 

@@ -12,7 +12,7 @@ import aria.web.recipes_routes as recipes_routes_module
 from aria.web.recipes_routes import register_recipe_routes
 
 
-def _build_recipes_app(*, language: str = "de") -> TestClient:
+def _build_recipes_app(*, language: str = "de", get_pipeline=None) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
@@ -62,6 +62,7 @@ def _build_recipes_app(*, language: str = "de") -> TestClient:
         suggest_skill_keywords_with_llm=_suggest_recipe_keywords_with_llm,
         daily_time_to_cron=lambda value: value,
         daily_time_from_cron=lambda value: value,
+        get_pipeline=get_pipeline,
     )
     return TestClient(app)
 
@@ -221,6 +222,51 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Do not use for restarts." in response.text
     assert "Review-Reife" in response.text
     assert "Starke Evidenz: 5 Runs, Ziel und Aktion sind bekannt." in response.text
+
+
+def test_recipes_learned_page_keeps_long_curator_fields_contained(monkeypatch) -> None:
+    monkeypatch.setattr(
+        recipes_routes_module,
+        "load_learned_recipe_store_entries",
+        lambda: [
+            {
+                "title": "SMB Read File",
+                "summary": "Dateiliste fuer einen Share.",
+                "intent": "read_file",
+                "connection_kind": "smb",
+                "connection_ref": "fischer_ronny",
+                "capability": "file_list",
+                "chosen_action": ".",
+                "user_message": "zeige mir die folder auf dem share Ronny Fischer",
+                "experience_count": 4,
+                "last_success_at": "2026-05-15T09:37:20Z",
+                "promotion_state": "observed",
+                "promotion_reason": "Single successful execution demonstrates that the list pattern works, but it should stay context-only until more usage proves the target scope and wording are stable.",
+                "suggested_triggers": ["zeige mir die folder", "liste den share", "was liegt auf dem share"],
+                "limits": [
+                    "Only list directories or files, never read file contents.",
+                    "Do not use for write or delete operations.",
+                ],
+                "curation_source": "llm_curator",
+                "curation_policy": "context_only_not_executable",
+                "curation_status": "ok",
+                "confidence": 0.75,
+                "risk_level": "low",
+            }
+        ],
+    )
+    client = _build_recipes_app()
+
+    response = client.get("/recipes/learned")
+
+    assert response.status_code == 200
+    assert "learned-recipe-grid" in response.text
+    assert "learned-detail-list" in response.text
+    assert "learned-token-list" in response.text
+    assert "learned-plain-list" in response.text
+    assert "SMB List Files" in response.text
+    assert "list_files" in response.text
+    assert "Only list directories or files" in response.text
 
 
 def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:
@@ -389,6 +435,13 @@ def test_recipes_learned_admin_actions_update_store(monkeypatch, tmp_path) -> No
     (tmp_path / "data" / "recipes").mkdir(parents=True, exist_ok=True)
     learned_store.invalidate_learned_recipe_store_cache()
     recipe_manifests._invalidate_stored_recipe_manifest_cache()
+    purged: list[tuple[str, str, str]] = []
+
+    async def _delete_recipe_experience_memory(memory_skill, *, user_id: str, recipe_id: str):
+        purged.append((str(memory_skill), user_id, recipe_id))
+        return {"deleted": True, "deleted_points": 1, "collections": ["aria_recipe_experience_neo"]}
+
+    monkeypatch.setattr(recipes_routes_module, "delete_recipe_experience_memory", _delete_recipe_experience_memory)
     learned_store.save_learned_recipe_store_entry(
         {
             "recipe_id": "learned-ssh-health-check",
@@ -410,7 +463,7 @@ def test_recipes_learned_admin_actions_update_store(monkeypatch, tmp_path) -> No
         }
     )
 
-    client = _build_recipes_app()
+    client = _build_recipes_app(get_pipeline=lambda: SimpleNamespace(memory_skill="fake-memory"))
 
     preview = client.get(
         "/recipes/learned/promote-preview?recipe_id=learned-ssh-health-check&return_to=/recipes/learned"
@@ -469,6 +522,7 @@ def test_recipes_learned_admin_actions_update_store(monkeypatch, tmp_path) -> No
     )
     assert delete.status_code == 303
     assert learned_store.load_learned_recipe_store_entries() == []
+    assert purged == [("fake-memory", "neo", "learned-ssh-health-check")]
 
 
 def test_recipes_learned_admin_action_preserves_filtered_return_to(monkeypatch, tmp_path) -> None:

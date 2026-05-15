@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 from contextlib import asynccontextmanager, suppress
@@ -834,6 +835,36 @@ def _build_app() -> FastAPI:
             BASE_DIR / "aria" / "static" / "favicon.ico",
             media_type="image/x-icon",
         )
+
+    @app.get("/update-reconnect-sw.js", include_in_schema=False)
+    async def update_reconnect_service_worker() -> Response:
+        template = (BASE_DIR / "aria" / "static" / "update-reconnect-sw.js").read_text(encoding="utf-8")
+
+        def reconnect_labels(language: str) -> dict[str, str]:
+            prefix = "updates.reconnect_shell"
+            return {
+                "language": language,
+                "kicker": I18N.t(language, f"{prefix}.kicker", "Update in progress"),
+                "title": I18N.t(language, f"{prefix}.title", "ARIA is restarting."),
+                "body": I18N.t(
+                    language,
+                    f"{prefix}.body",
+                    "The container is briefly replaced during the update. This is expected; this waiting page checks automatically when ARIA is reachable again.",
+                ),
+                "target": I18N.t(language, f"{prefix}.target", "Target page:"),
+                "status": I18N.t(language, f"{prefix}.status", "Waiting for /health ..."),
+                "retry": I18N.t(language, f"{prefix}.retry", "Check again now"),
+                "online": I18N.t(language, f"{prefix}.online", "ARIA is reachable again. Reloading ..."),
+                "waiting": I18N.t(language, f"{prefix}.waiting", "Still waiting for ARIA to come back ..."),
+            }
+
+        labels = {"de": reconnect_labels("de"), "en": reconnect_labels("en")}
+        script = template.replace("__ARIA_RECONNECT_LABELS__", json.dumps(labels, ensure_ascii=False))
+        return Response(
+            content=script,
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
     if settings.channels.api.enabled:
         register_api_routes(app, pipeline=pipeline, auth_token=settings.channels.api.auth_token)
 
@@ -1044,6 +1075,7 @@ def _build_app() -> FastAPI:
         suggest_skill_keywords_with_llm=_suggest_skill_keywords_with_llm,
         daily_time_to_cron=_daily_time_to_cron,
         daily_time_from_cron=_daily_time_from_cron,
+        get_pipeline=_get_runtime_pipeline,
     )
 
     register_memories_routes(

@@ -10,6 +10,7 @@ from aria.web.memories_routes import (
     _memory_document_link,
     _build_notes_collection_rows,
     _build_routing_collection_rows,
+    _build_system_collection_rows,
     _build_memory_graph,
     _build_document_collection_groups,
     _build_document_entries,
@@ -105,8 +106,9 @@ def _build_memories_app() -> TestClient:
                 {"name": "aria_notes_tester", "points": 6, "status": "ok"},
                 {"name": "aria_docs_tester_manuals", "points": 8, "status": "ok"},
                 {"name": "aria_routing_connections_aria_8800", "points": 5, "status": "green"},
+                {"name": "aria_recipe_experience_tester", "points": 0, "status": "ok"},
             ],
-            "collection_count": 4,
+            "collection_count": 5,
         }
 
     register_memories_routes(
@@ -182,6 +184,26 @@ def test_build_notes_collection_rows_keeps_only_active_user_notes_collection() -
     assert [row["name"] for row in rows] == ["aria_notes_tester"]
     assert rows[0]["kind"] == "notes"
     assert rows[0]["browse_url"] == "/notes"
+
+
+def test_build_system_collection_rows_includes_recipe_experience_and_future_aria_collections() -> None:
+    rows = _build_system_collection_rows(
+        [
+            {"name": "aria_recipe_experience_tester", "points": 0, "status": "ok"},
+            {"name": "aria_routing_connections_aria_8800", "points": 5, "status": "ok"},
+            {"name": "aria_notes_tester", "points": 6, "status": "ok"},
+            {"name": "aria_future_signal_tester", "points": 2, "status": "yellow"},
+            {"name": "aria_facts_tester", "points": 12, "status": "ok"},
+            {"name": "aria_docs_tester_manuals", "points": 4, "status": "ok"},
+        ],
+        known_collection_names={"aria_facts_tester"},
+    )
+
+    assert [row["name"] for row in rows] == ["aria_recipe_experience_tester", "aria_future_signal_tester"]
+    assert rows[0]["kind"] == "recipe_experience"
+    assert rows[0]["browse_url"] == "/recipes/learned"
+    assert rows[1]["kind"] == "system"
+    assert rows[1]["browse_url"] == "/memories/config#qdrant-access"
 
 
 def test_normalize_document_collection_name_adds_docs_prefix() -> None:
@@ -274,6 +296,8 @@ def test_memories_overview_page_renders_unified_memory_hub() -> None:
     assert "/memories/config#qdrant-access" in response.text
     assert '/memories/config#auto-memory' in response.text
     assert "Qdrant" in response.text
+    assert "aria_recipe_experience_tester" in response.text
+    assert "System-Collections" in response.text
 
 
 def test_memories_map_page_shows_notes_and_routing_collections() -> None:
@@ -283,10 +307,13 @@ def test_memories_map_page_shows_notes_and_routing_collections() -> None:
 
     assert response.status_code == 200
     assert "aria_notes_tester" in response.text
+    assert "aria_recipe_experience_tester" in response.text
     assert "Notes-Collections" in response.text
     assert "Routing-Collections" in response.text
+    assert "System-Collections" in response.text
     assert 'href="/notes"' in response.text
     assert "/config/routing" in response.text
+    assert "/recipes/learned" in response.text
 
 
 def test_memories_explorer_stays_focused_on_browsing_not_creation() -> None:
@@ -606,6 +633,15 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
                 "browse_url": "/config/routing",
             }
         ],
+        system_rows=[
+            {
+                "name": "aria_recipe_experience_neo",
+                "kind": "recipe_experience",
+                "points": 0,
+                "share_pct": 0,
+                "browse_url": "/recipes/learned",
+            }
+        ],
     )
 
     labels = [node["label"] for node in graph["nodes"]]
@@ -620,16 +656,21 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
     assert "aria_notes_neo" in labels
     assert "Routing" in labels
     assert "aria_routing_connections_neo_8800" in labels
+    assert "Recipe Experience" in labels
+    assert "aria_recipe_experience_neo" in labels
     assert "type=document" in str(hrefs.get("aria_docs_neo_manuals", ""))
     assert hrefs.get("Notizen", "") == "/notes"
     assert hrefs.get("aria_notes_neo", "") == "/notes"
     assert hrefs.get("Routing", "") == "/config/routing"
     assert hrefs.get("aria_routing_connections_neo_8800", "") == "/config/routing"
+    assert hrefs.get("Recipe Experience", "") == "/recipes/learned"
+    assert hrefs.get("aria_recipe_experience_neo", "") == "/recipes/learned"
     icons = {node["label"]: node.get("icon", "") for node in graph["nodes"]}
     assert icons.get("aria_docs_neo_manuals") == "files"
     assert icons.get("WOCHE") == "llm"
     assert icons.get("aria_notes_neo") == "notes"
     assert icons.get("aria_routing_connections_neo_8800") == "routing"
+    assert icons.get("aria_recipe_experience_neo") == "skills"
     assert graph["edges"]
 
 

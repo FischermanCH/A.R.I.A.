@@ -1,6 +1,6 @@
-FROM docker:26-cli AS docker_cli
+FROM docker:26-cli@sha256:f13cbf1ea352bdbdc825a9233fc56716bdf818e4f608f63280a1aa0b3dc1f2f7 AS docker_cli
 
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:ec948fa5f90f4f8907e89f4800cfd2d2e91e391a4bce4a6afa77ba265bc3a2fe
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml README.md /app/
+COPY constraints /app/constraints
 COPY aria /app/aria
 COPY docs /app/docs
 COPY prompts /app/prompts
@@ -22,7 +23,9 @@ RUN apt-get update \
 COPY --from=docker_cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker_cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
-RUN pip install --no-cache-dir ".[model-gateway]"
+RUN python -m pip install --no-cache-dir -c /app/constraints/runtime.txt \
+      pip==25.0.1 setuptools==80.9.0 wheel==0.45.1 \
+    && python -m pip install --no-cache-dir --no-build-isolation -c /app/constraints/runtime.txt ".[model-gateway]"
 
 RUN mkdir -p /app/data/auth /app/data/logs /app/data/skills /app/bootstrap \
     && cp -a /app/config /app/bootstrap/config \

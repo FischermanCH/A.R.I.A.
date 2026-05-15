@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
 from aria.core.recipe_experience_memory import build_recipe_experience_memory_text
+from aria.core.recipe_experience_memory import delete_recipe_experience_memory
 from aria.core.recipe_experience_memory import normalize_recipe_experience_memory_entry
 from aria.core.recipe_experience_memory import recipe_experience_collection_for_user
 from aria.core.recipe_experience_memory import search_recipe_experience_memory
@@ -57,6 +58,30 @@ class FakeQdrant:
             for index, point in enumerate(points)
         ]
         return SimpleNamespace(points=hits)
+
+    async def scroll(
+        self,
+        collection_name: str,
+        scroll_filter=None,
+        limit: int = 128,
+        offset=None,
+        with_payload: bool = False,
+        with_vectors: bool = False,
+    ):
+        _ = (offset, with_payload, with_vectors)
+        points = [
+            point
+            for point in self.collections.get(collection_name, [])
+            if self._matches_filter(getattr(point, "payload", {}) or {}, scroll_filter)
+        ][:limit]
+        return points, None
+
+    async def delete(self, collection_name: str, points_selector, wait: bool = True):
+        _ = wait
+        point_ids = {str(point_id) for point_id in list(getattr(points_selector, "points", []) or [])}
+        self.collections[collection_name] = [
+            point for point in self.collections.get(collection_name, []) if str(getattr(point, "id", "")) not in point_ids
+        ]
 
     async def get_collections(self):
         return SimpleNamespace(collections=[SimpleNamespace(name=name) for name in sorted(self.collections)])
@@ -209,6 +234,49 @@ def test_recipe_experience_memory_keeps_distinct_actions_for_same_recipe() -> No
 
         assert {row["chosen_action"] for row in rows} == {"uptime -p", "df -h"}
         assert len({row["experience_fingerprint"] for row in rows}) == 2
+
+    asyncio.run(_run())
+
+
+def test_delete_recipe_experience_memory_removes_all_points_for_recipe() -> None:
+    async def _run() -> None:
+        skill = _memory_skill()
+        base = {
+            "recipe_id": "learned-ssh-health-check-pihole1",
+            "title": "Gelernter Server-Healthcheck: pihole1",
+            "user_message": "wie geht es meinem dns server",
+            "intent": "health_check",
+            "connection_kind": "ssh",
+            "connection_ref": "pihole1",
+            "capability": "ssh_command",
+            "experience_count": 2,
+        }
+
+        await store_recipe_experience_memory(skill, user_id="u1", entry={**base, "chosen_action": "uptime -p"})
+        await store_recipe_experience_memory(skill, user_id="u1", entry={**base, "chosen_action": "df -h"})
+        await store_recipe_experience_memory(
+            skill,
+            user_id="u1",
+            entry={**base, "recipe_id": "learned-other", "chosen_action": "free -h"},
+        )
+
+        deleted = await delete_recipe_experience_memory(
+            skill,
+            user_id="u1",
+            recipe_id="learned-ssh-health-check-pihole1",
+        )
+        rows = await search_recipe_experience_memory(
+            skill,
+            user_id="u1",
+            query="wie geht es meinem dns server",
+            connection_kind="ssh",
+            connection_ref="pihole1",
+            top_k=5,
+        )
+
+        assert deleted["deleted"] is True
+        assert deleted["deleted_points"] == 2
+        assert {row["recipe_id"] for row in rows} == {"learned-other"}
 
     asyncio.run(_run())
 

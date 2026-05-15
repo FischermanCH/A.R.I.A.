@@ -6,9 +6,10 @@ from typing import Any, Callable
 from aria.core.agentic_action_resolution import action_draft_from_read_operation
 from aria.core.agentic_action_resolution import agentic_action_contract_prompt
 from aria.core.agentic_action_resolution import agentic_debug_line
+from aria.core.connection_action_contract import connection_action_capabilities_by_family
 
 
-READ_CAPABILITIES = {"feed_read", "calendar_read", "mail_read", "mail_search", "website_read", "website_list"}
+READ_CAPABILITIES = set(connection_action_capabilities_by_family("read"))
 
 
 def read_draft_is_complete(*, capability: str, selector: str = "", query: str = "") -> bool:

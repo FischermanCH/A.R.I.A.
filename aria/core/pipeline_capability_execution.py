@@ -19,6 +19,7 @@ from aria.core.result_summarizers import summarize_imap_result_for_chat
 from aria.core.result_summarizers import summarize_rss_category_result_for_chat
 from aria.core.result_summarizers import summarize_rss_group_result_for_chat
 from aria.core.result_summarizers import summarize_ssh_result_for_chat
+from aria.core.rss_digest_options import parse_rss_digest_options_note
 from aria.core.ssh_policy import validate_ssh_readonly_policy
 from aria.core.website_runtime import build_website_list_text
 from aria.core.website_runtime import build_website_read_text
@@ -120,18 +121,50 @@ class PipelineCapabilityExecutor:
         return summarized or result_text
 
     async def execute_feed_read(self, plan: ActionPlan, *, language: str = "de") -> str:
+        digest_options = parse_rss_digest_options_note(plan.notes)
+        requested_count = int(digest_options.get("requested_count", 0) or 0)
         bundle = self._parse_rss_group_bundle_note(plan.notes)
         if bundle is not None:
             group_name, refs = bundle
-            result_text = self._call_with_optional_language(
-                self._skill_runtime.execute_rss_group_read,
-                group_name,
-                refs,
-                language=language,
-            )
+            if requested_count > 0:
+                try:
+                    result_text = self._skill_runtime.execute_rss_group_read(
+                        group_name,
+                        refs,
+                        language=language,
+                        requested_count=requested_count,
+                    )
+                except TypeError as exc:
+                    if "unexpected keyword argument 'requested_count'" not in str(exc):
+                        raise
+                    result_text = self._call_with_optional_language(
+                        self._skill_runtime.execute_rss_group_read,
+                        group_name,
+                        refs,
+                        language=language,
+                    )
+            else:
+                result_text = self._call_with_optional_language(
+                    self._skill_runtime.execute_rss_group_read,
+                    group_name,
+                    refs,
+                    language=language,
+                )
             summarized = summarize_rss_group_result_for_chat(result_text, group_name=group_name, language=language)
             return summarized or result_text
-        result_text = self._call_with_optional_language(self._skill_runtime.execute_rss_read, plan.connection_ref, language=language)
+        if requested_count > 0:
+            try:
+                result_text = self._skill_runtime.execute_rss_read(
+                    plan.connection_ref,
+                    language=language,
+                    requested_count=requested_count,
+                )
+            except TypeError as exc:
+                if "unexpected keyword argument 'requested_count'" not in str(exc):
+                    raise
+                result_text = self._call_with_optional_language(self._skill_runtime.execute_rss_read, plan.connection_ref, language=language)
+        else:
+            result_text = self._call_with_optional_language(self._skill_runtime.execute_rss_read, plan.connection_ref, language=language)
         summarized = summarize_rss_category_result_for_chat(result_text, language=language)
         return summarized or result_text
 

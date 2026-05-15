@@ -1,6 +1,6 @@
 # ARIA — Alpha Build Log
 
-Stand: 2026-05-13
+Stand: 2026-05-15
 
 Zweck:
 - nachvollziehen, **was bereits in Alpha-Builds gelandet ist**
@@ -9,15 +9,301 @@ Zweck:
 
 ## Vorbereitet fuer naechsten Build
 
-- Kein weiterer Build vorbereitet; `alpha255` ist gebaut und fuer den internen Live-Test bereit.
-- Naechster bewusst zu pruefender Punkt:
-  - interner Update-Button auf ARIA testen
-  - `/recipes/learned`: Curator-Debug, Learning-Signal und gewichtete Lern-Evidenz pruefen
+- aktuell kein neuer Codeblock vorbereitet; `alpha266` ist gebaut, als internes TAR exportiert und auf Docker Hub gepusht.
+- Nach GitHub-/Live-Release pruefen:
+  - `/stats`: Release-Metadaten muessen `0.1.0-alpha266` zeigen und Operator Guardrail darf keinen Release-Fehler melden
+  - `/recipes/learned`: Layout-Polish und `file_list`-Labels live pruefen
   - Agentic Smoke-Test: Multi-SSH-Summary muss LLM-Tokens zeigen und flexible Schwellen wie `zehn Gigabyte Reserve` verstehen
-  - Guardrail-Smoke-Test: DNS-Restart muss blockiert bleiben
-  - Public-Registry-Push/Tag nur nach finaler Freigabe ausfuehren
+  - RSS-Smoke-Test: `mach mir eine zusammenfassung der letzten 10 it-security news` muss 10 Eintraege anzeigen, sofern mindestens 10 gelesen wurden
+  - SMB-Smoke-Test: Folder-Listing muss Ordner separat hervorheben
+  - Guardrail-Smoke-Test: DNS-Restart muss blockiert bleiben und den Guardrail-Link sichtbar halten
+  - Discord-Smoke-Test: One-Click-Bestaetigung muss senden, ohne Token-Eingabe
 
 ## Bereits gebaut
+
+### alpha266
+
+- Public-Release-Kandidat nach `alpha265` mit finalem Learned-Recipes-Layout-Polish:
+  - `/recipes/learned` rendert Review-Karten einspaltig/layout-stabil
+  - lange LLM-Curator-Felder werden in strukturierte Details, Trigger-Chips und Limit-Listen verpackt
+  - alte `file_list`-Learnings werden als `SMB List Files` / `SFTP List Files` statt `Read File` angezeigt
+  - Public-Dokus, Help/Wiki-Quellen, Docker-Hub-Text und Release Notes sind auf `0.1.0-alpha266` nachgezogen
+- Verifikation vor Build/Publish:
+  - voller Regressionslauf: `1098 passed`, 4 bekannte aiohttp/Python-Deprecation-Warnings
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - normalisierter Dependency-Check: `85` Constraints, `85` installierte Pakete, keine Missing/Extra
+  - CLI-Version im Container: `0.1.0-alpha266`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha266-local.tar`
+  - TAR-SHA256: `bebe761da8470f6851788d75d4dda0cb770151d181ee7237ab4aac0e48792dcd`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.266`
+  - `fischermanch/aria:alpha`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:528ea0ef93eb346811542e85b46f671461a0d9b49e32385f48c52b7056c7a45d`
+  - Image-Size: `245139758` bytes
+  - Created: `2026-05-15T13:59:46.616539877+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha259-local.tar` entfernt
+
+
+### alpha265
+
+- enthaelt den Dependency-Pinning-/Locking-Nachzug nach `alpha264`:
+  - Docker-Release-Builds pinnen Python- und Docker-CLI-Base-Images per Digest
+  - Runtime-Dependencies werden ueber `constraints/runtime.txt` aus dem getesteten `alpha264`-Container fixiert
+  - Docker installiert mit gepinntem `pip==25.0.1`, `setuptools==80.9.0`, `wheel==0.45.1` und `--no-build-isolation`
+  - `pip freeze --all` im fertigen Image matched `constraints/runtime.txt` fuer `85` Pakete
+- Verifikation:
+  - voller Vorbuild-Regressionslauf vor Version-Bump: `1097 passed`, 4 bekannte aiohttp/Python-Deprecation-Warnings
+  - Release-/Update-/Stats-Regressionsblock nach Version-Bump: `66 passed`, 4 bekannte aiohttp/Python-Deprecation-Warnings
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha265`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha265-local.tar`
+  - TAR-SHA256: `88151e0d05eb8f11466c76bb759aa632208a64162a715d08c3d546d90fc97182`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.265`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:e1e0d5f4f172edaddb5266f7a7189c6a06e242c3d473dc24612f49fd072c3a39`
+  - Image-Size: `245137172` bytes
+  - Created: `2026-05-15T00:36:37.57545884+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha258-local.tar` entfernt
+- Beobachtung:
+  - Python-Dependencies und Base-Image-Digests sind jetzt reproduzierbar fixiert; Debian-`apt`-Pakete kommen weiterhin aus den normalen Debian-Repos und waeren erst mit Snapshot-Repos voll eingefroren.
+
+### alpha264
+
+- enthaelt den Antwortqualitaets-Nachzug nach dem `alpha263`-Live-Test:
+  - RSS-Runtime-Transportlimit skaliert jetzt mit dem angefragten Digest-Count, damit `10 News` nicht vor der Chat-Zusammenfassung auf 8 sichtbare Eintraege abgeschnitten wird
+  - Chat-Markdown rendert Link-Labels mit eckigen Klammern, z.B. Exploit-DB `[[webapps] ...](...)`
+  - Guardrail-Review-Hinweise behalten neben dem klickbaren Markdown-Link auch den sichtbaren `/config/security?guardrail_ref=...`-Pfad
+- Verifikation:
+  - Vorbuild-Regressionsblock: `114 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha264`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha264-local.tar`
+  - TAR-SHA256: `a5118690a2b909272e1f0e22e8d2b32b546a2d80ecff06b864821d264f09a6f0`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.264`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:5c3d4d832b99d4a5908566cfc9a95c7e7fdb942a9666fd590ac997107a53bc27`
+  - Image-Size: `243495940` bytes
+  - Created: `2026-05-14T15:40:46.618634695+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha257-local.tar` entfernt
+- Beobachtung:
+  - Dependency-Drift bleibt wie bei `alpha263`: Docker zieht neuere nicht gepinnte transitive Model-Gateway-Abhaengigkeiten (`litellm`, `openai`, `aiohttp`, `pydantic`). Vor Public weiter als Release-Hygiene-Punkt behandeln.
+
+### alpha263
+
+- enthaelt den Performance-/Antwortqualitaets-Nachzug nach `alpha262`:
+  - Learned-Recipe-Curator und Recipe-Experience-Memory laufen nach erfolgreicher Antwort im Hintergrund, damit Chat-Antworten nicht auf Curation-LLM oder Memory-Embedding warten
+  - RSS-Gruppenfeeds werden bounded parallel gelesen statt seriell, sodass einzelne langsame Feeds/Timeouts nicht mehr additiv die gesamte Digest-Antwort blockieren
+  - RSS-Link-Parsing erhaelt `Link:`-Zeilen auch fuer Titel mit bracketed Markdown-Labels wie Exploit-DB `[webapps]`
+  - Guardrail-Review-Referenzen werden als Markdown-Link auf `/config/security?guardrail_ref=...` gerendert
+  - File-Listen trennen Ordner von Datei-Beispielen, damit SMB/SFTP-Folder-Listings lesbarer werden
+- Verifikation:
+  - Vorbuild-Regressionsblock: `254 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha263`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha263-local.tar`
+  - TAR-SHA256: `7ea7f28b2adc13f55376d17fb9a4d17fe523a5652c315f5e8b4765d3b5d55d20`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.263`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:26e945926d41670008cd6f3a8ddd77d8ef47cff07805e3a218cbb8ff3e2f007d`
+  - Image-Size: `243490656` bytes
+  - Created: `2026-05-14T11:11:10.222342563+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha256-local.tar` entfernt
+- Beobachtung:
+  - Docker zog beim Build neuere nicht gepinnte transitive Model-Gateway-Abhaengigkeiten als bei `alpha262` (`litellm`, `openai`, `aiohttp`, `pydantic`); vor Public sollte Dependency-Pinning/Locking als eigener Release-Hygiene-Punkt bewertet werden.
+
+### alpha262
+
+- enthaelt die Update-Downtime-Reconnect-Shell nach `alpha261`:
+  - ARIA registriert einen Service Worker mit Scope `/`
+  - Navigation waehrend der kurzen ARIA-Container-Recreate-Downtime bekommt eine kleine mehrsprachige Warteseite statt einer harten Browser-Fehlerseite
+  - die Warteseite pollt `/health` und laedt die urspruengliche Zielseite wieder, sobald ARIA erreichbar ist
+  - der Effekt greift erst ab dem Update nach der ersten erfolgreichen `alpha262`-Seitenladung, weil der Browser den Service Worker vorher noch nicht registriert haben kann
+- Verifikation:
+  - Vorbuild-Regressionsblock: `232 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha262`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha262-local.tar`
+  - TAR-SHA256: `e0056ae2046138b95414ff98a00ea7ae7d520d286ffe1b76171fe8fdcccaea7e`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.262`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:47cb1a81cb7e9f6a3771c639d9f4c12f3871950e14a727877ad1181db78d861f`
+  - Image-Size: `242651151` bytes
+  - Created: `2026-05-14T01:56:53.694720543+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha255-local.tar` entfernt
+
+### alpha261
+
+- enthaelt den SSH-Policy-Block-Fast-Path nach `alpha260`:
+  - die LLM erkennt weiter die beabsichtigte SSH-Aktion
+  - sobald Policy/Guardrail blockiert, baut ARIA die finale Safety-Antwort deterministisch und schnell
+  - fehlende Guardrail-Review-Links werden aus der selektierten Connection nachgezogen
+  - der Debug-Pfad zeigt `blocked_action_explanation agentic_source=deterministic_fallback reason=ssh_policy_block_fast_path`
+- Verifikation:
+  - Vorbuild-Regressionsblock: `204 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha261`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha261-local.tar`
+  - TAR-SHA256: `565cc20a98658c7b82f00566d97a79ca856962edba75af061e5c30d80df2383b`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.261`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:2eff4eb101e80a74e47492dd24fef3a8e266bbd8045c4432fd9af67305911c92`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha254-local.tar` entfernt
+
+### alpha260
+
+- enthaelt den Block-Erklaerungs-Performance-Fix nach `alpha259`:
+  - Block-Erklaerungs-LLM hat ein kurzes Timeout mit deterministischem Fallback
+  - klar mutierende SSH-Blocks ueberspringen `ssh_guardrail_intent`, sobald Policy bereits blockiert hat
+  - Guardrail-Review wird als sichtbare Plain-URL ausgegeben
+- Verifikation:
+  - Vorbuild-Regressionsblock: `230 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha260`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha260-local.tar`
+  - TAR-SHA256: `2217fd9339b74db45fcd4f9555a06bb69516fd9996024772fddfed59273a8637`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.260`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:3e20513b27e622c3f476f27f6e5913a6de91e861320dfb2e31c6c35200aa3abf`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha253-local.tar` entfernt
+
+### alpha259
+
+- enthaelt den Block-Erklaerungs-Polish nach `alpha258`:
+  - live formulierte geplante Aktionen werden nicht mehr doppelt angehaengt
+  - schwache Guardrail-Referenzen wie `Guardrail pruefen/anpassen: ssh-healtcheck` werden durch den kanonischen `/config/security?guardrail_ref=...`-Link ersetzt
+  - Regressionstest pinnt den DNS-Restart-Live-Ausreisser
+- Verifikation:
+  - Vorbuild-Regressionsblock: `194 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha259`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha259-local.tar`
+  - TAR-SHA256: `dc2a6fad0c870ef61b933f5f4853fd5de8ecf5c9d52360f18aca89a5f8f77d2c`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.259`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:e6dc82f3584ca5faf0fc7c9e4b8fe65aede37a86b20e6f0b055e0ac24e12ea2a`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha252-local.tar` entfernt
+
+### alpha258
+
+- enthaelt den Block-Erklaerungs-Nachzug nach `alpha257`:
+  - geblockte Policy-/Guardrail-Aktionen behalten die deterministische Block-Entscheidung
+  - die User-Antwort wird danach ueber einen bounded LLM-Schritt erklaert, statt nur statisch `wuerde blockieren` zu formulieren
+  - geplante Aktion/Command bleibt sichtbar
+  - bei aktivem Guardrail-Profil wird direkt auf `/config/security?guardrail_ref=...` verlinkt
+  - LLM-/Fallback-Pfad ist in Debug als `blocked_action_explanation` sichtbar
+- Verifikation:
+  - Vorbuild-Regressionsblock: `193 passed`
+  - Pipeline-Regression komplett: `185 passed`
+  - Block-/Guardrail-/Agentic-Regressionen: `37 passed`
+  - i18n strict: gruen
+  - `py_compile`: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha258`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha258-local.tar`
+  - TAR-SHA256: `6da0fbcc45626de2d6366a6ec500b2bbaf8464973e817601c90b6285768f9b5e`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.258`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:041925547a62e8c8b1011071f24c28f773aef2bfd72a13928b26d485485a3420`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha251-local.tar` entfernt
+
+### alpha257
+
+- enthaelt den Modularitaets-/Memory-/Recipes-Nachzug nach `alpha256`:
+  - `/recipes/learned` rendert die Flow-Erklaertexte dezenter, damit die leere Learned-Recipe-Ansicht ruhiger wirkt
+  - `/memories`, `/memories/map` und `/stats` nutzen einen zentralen Qdrant-Collection-Classifier
+  - `aria_recipe_experience_*` und zukuenftige unbekannte `aria_*`-System-Collections bleiben automatisch sichtbar
+  - codebase-weiter Modularitaetscheck zentralisiert Routing-Workbench-Optionen, Pending-Route-Kinds, Qdrant-Routing-Kinds, Pipeline-Capability-Gate, Guardrail-Kind-Mapping sowie Agentic Read/Message-Familien auf Connection Catalog / Connection Action Contract
+  - Audit-Dokument: `docs/product/codebase-modularity-audit-alpha257.md`
+- Verifikation:
+  - gezielter Vorbuild-Regressionsblock: `376 passed`
+  - i18n strict: gruen
+  - `py_compile` fuer geaenderte Runtime-/Web-Module: gruen
+  - `git diff --check`: gruen
+  - CLI-Version im Container: `0.1.0-alpha257`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha257-local.tar`
+  - TAR-SHA256: `ef67d1d9c4c5c155a3cb5beafc9bbd94a6d1a53aa3ab48e77b28e06314f04463`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.257`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:960921f81fe8537ae738a1ff34361694eff0969fef2b0c4d98f649cc6e7c1bb0`
+  - Image-Size: `242617896` bytes
+  - Created: `2026-05-13T23:34:02.600357358+02:00`
+- Release-Label:
+  - `0.1.0-alpha257`
+
+### alpha256
+
+- enthaelt den Self-Learning-/RSS-Nachzug nach `alpha255`:
+  - Learned-Recipe-Delete entfernt jetzt den lokalen Review-Kandidaten und passende Recipe-Experience-Memory-Punkte in Qdrant fuer den aktuellen User
+  - Delete bleibt best-effort fuer Qdrant: der lokale Admin-Delete wird nicht zurueckgerollt, aber ein Purge-Fehler bleibt sichtbar/debugbar
+  - RSS-Digest-Planung extrahiert explizite Count-/Detail-Wuensche bounded LLM-first und uebergibt sie an die read-only RSS-Runtime
+  - RSS-Gruppenreads sammeln mehrere Eintraege pro Feed bis zur sicheren Obergrenze, statt immer nur einen Eintrag pro Feed zu zeigen
+  - RSS-Antworten erklaeren Anfrage-/Ergebnisluecken wie angefragt, angezeigt, gefunden/lesbar und ausgelassen
+- Verifikation:
+  - gezielter Regressionsblock: `232 passed`
+  - kompletter Testlauf: `1077 passed, 4 warnings`
+  - i18n strict: gruen
+  - `py_compile` fuer geaenderte Runtime-Module: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - CLI-Version: `0.1.0-alpha256`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha256-local.tar`
+  - TAR-SHA256: `2f3c6688a2501f8ba7fa12e3caa6e3c2f892afab27a2ecda044ee20bd28a9f1d`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.256`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:8474da472da22fddca88ccde7152b7a8d1a8593e046c80493b3185f7a9d0939b`
+  - Image-Size: `242578057` bytes
+  - Created: `2026-05-13T22:50:02.221231124+02:00`
+- Release-Label:
+  - `0.1.0-alpha256`
 
 ### alpha255
 

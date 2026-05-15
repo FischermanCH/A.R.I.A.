@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 from pathlib import Path
 
@@ -8,8 +9,9 @@ from aria.core.i18n import I18NStore
 
 _RSS_SUMMARY_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
 _RSS_ENTRY_RE = re.compile(r"^\d+\.\s+(.+)$")
-_RSS_MARKDOWN_LINK_RE = re.compile(r"^\[([^\]]+)\]\(([^)]+)\)(.*)$")
+_RSS_MARKDOWN_LINK_RE = re.compile(r"^\[(.+)\]\((https?://[^)\s]+)\)(.*)$")
 _RSS_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?")
+_RSS_DIGEST_META_PREFIX = "__rss_digest_meta__:"
 
 
 def _rss_text(language: str | None, key: str, default: str = "", **values: object) -> str:
@@ -103,6 +105,27 @@ def _parse_entries(lines: list[str]) -> list[dict[str, str]]:
     return entries
 
 
+def _split_digest_meta(lines: list[str]) -> tuple[list[str], dict[str, int]]:
+    clean_lines: list[str] = []
+    meta: dict[str, int] = {}
+    for line in lines:
+        clean = str(line or "").strip()
+        if clean.startswith(_RSS_DIGEST_META_PREFIX):
+            try:
+                payload = json.loads(clean[len(_RSS_DIGEST_META_PREFIX) :])
+            except Exception:
+                payload = {}
+            if isinstance(payload, dict):
+                for key in ("requested_count", "readable_count", "skipped_count", "safe_cap"):
+                    try:
+                        meta[key] = int(payload.get(key, 0) or 0)
+                    except Exception:
+                        meta[key] = 0
+            continue
+        clean_lines.append(line)
+    return clean_lines, meta
+
+
 def _format_entry_title(entry: dict[str, str]) -> str:
     title = str(entry.get("title") or "").strip()
     link = str(entry.get("link") or "").strip()
@@ -111,10 +134,54 @@ def _format_entry_title(entry: dict[str, str]) -> str:
     return title
 
 
-def _format_rss_digest(entries: list[dict[str, str]], *, group_name: str, language: str | None) -> str:
+def _request_status_line(
+    *,
+    requested_count: int,
+    shown_count: int,
+    readable_count: int,
+    skipped_count: int,
+    safe_cap: int,
+    language: str | None,
+) -> str:
+    if requested_count <= 0:
+        return ""
+    skipped_part = ""
+    if skipped_count > 0:
+        skipped_part = _rss_text(
+            language,
+            "request_status_skipped_suffix",
+            ", {skipped} skipped due to errors/timeouts",
+            skipped=skipped_count,
+        )
+    capped_part = ""
+    if safe_cap > 0 and requested_count > safe_cap:
+        capped_part = _rss_text(
+            language,
+            "request_status_capped_suffix",
+            ", capped at safe limit {safe_cap}",
+            safe_cap=safe_cap,
+        )
+    return _rss_text(
+        language,
+        "request_status",
+        "Requested {requested}; showing {shown}; {readable} found/readable{skipped_part}{capped_part}.",
+        requested=requested_count,
+        shown=shown_count,
+        readable=readable_count,
+        skipped_part=skipped_part,
+        capped_part=capped_part,
+    )
+
+
+def _format_rss_digest(entries: list[dict[str, str]], *, group_name: str, language: str | None, meta: dict[str, int] | None = None) -> str:
     if not entries:
         return ""
-    count = len(entries)
+    meta = dict(meta or {})
+    max_entries = int(meta.get("requested_count", 0) or 0) or 6
+    safe_cap = int(meta.get("safe_cap", 0) or 0) or 12
+    max_entries = max(1, min(max_entries, safe_cap))
+    display_entries = entries[:max_entries]
+    count = len(display_entries)
     lines = [
         _rss_text(
             language,
@@ -125,16 +192,28 @@ def _format_rss_digest(entries: list[dict[str, str]], *, group_name: str, langua
             entry_word=_entry_word(language, count),
         )
     ]
+    request_line = _request_status_line(
+        requested_count=int(meta.get("requested_count", 0) or 0),
+        shown_count=count,
+        readable_count=max(count, int(meta.get("readable_count", 0) or 0)),
+        skipped_count=int(meta.get("skipped_count", 0) or 0),
+        safe_cap=int(meta.get("safe_cap", 0) or 0),
+        language=language,
+    )
+    if request_line:
+        lines.append(request_line)
     link_label = _rss_text(language, "link_label", "Link")
     source_label = _rss_text(language, "source_label", "Source")
     summary_template = _rss_text(language, "summary", "Summary: {text}")
-    for idx, entry in enumerate(entries[:6], start=1):
+    wrote_entry = False
+    for idx, entry in enumerate(display_entries, start=1):
         title = _format_entry_title(entry)
         if not title:
             continue
-        if len(lines) == 1:
+        if not wrote_entry:
             lines.append("")
         lines.append(f"{idx}. {title}")
+        wrote_entry = True
         link = str(entry.get("link") or "").strip()
         if link:
             lines.append(f"   {link_label}: {link}")
@@ -165,7 +244,8 @@ def summarize_rss_category_result_for_chat(text: str, *, language: str | None = 
     if not match:
         return ""
     group_name = str(match.group(1) or "").strip() or "RSS"
-    return _format_rss_digest(_parse_entries(lines[1:]), group_name=group_name, language=language)
+    entry_lines, meta = _split_digest_meta(lines[1:])
+    return _format_rss_digest(_parse_entries(entry_lines), group_name=group_name, language=language, meta=meta)
 
 
 def summarize_rss_group_result_for_chat(text: str, *, group_name: str, language: str | None = None) -> str:
@@ -175,4 +255,5 @@ def summarize_rss_group_result_for_chat(text: str, *, group_name: str, language:
     lines = [str(line or "").rstrip() for line in clean_text.splitlines() if str(line or "").strip()]
     if len(lines) < 2:
         return ""
-    return _format_rss_digest(_parse_entries(lines[1:]), group_name=group_name, language=language)
+    entry_lines, meta = _split_digest_meta(lines[1:])
+    return _format_rss_digest(_parse_entries(entry_lines), group_name=group_name, language=language, meta=meta)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -16,6 +17,7 @@ from aria.core.action_planner import debug_bounded_action_plan_decision
 from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_CONTEXT
 from aria.core.agentic_prompt_flow import agentic_prompt_flow_debug_line
 from aria.core.agentic_prompt_flow import build_agentic_prompt_flow
+from aria.core.blocked_action_explanation import explain_blocked_action
 from aria.core.bounded_planner import debug_bounded_planner_decision
 from aria.core.capability_catalog import (
     capability_executor_kinds,
@@ -24,7 +26,10 @@ from aria.core.capability_catalog import (
 )
 from aria.core.capability_context import CapabilityContextStore
 from aria.core.capability_router import CapabilityRouter
-from aria.core.connection_catalog import connection_kind_label, connection_routing_spec, normalize_connection_kind
+from aria.core.connection_catalog import connection_kind_label
+from aria.core.connection_catalog import connection_routing_spec
+from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.connection_catalog import ordered_connection_kinds
 from aria.core.connection_dossiers import build_file_target_dossier
 from aria.core.connection_dossiers import build_http_api_target_dossier
 from aria.core.connection_dossiers import build_message_target_dossier
@@ -41,6 +46,7 @@ from aria.core.connection_semantic_resolver import format_routing_decision_recor
 from aria.core.connection_semantic_resolver import message_has_connection_disambiguation_terms
 from aria.core.connection_semantic_resolver import normalize_connection_alias
 from aria.core.connection_semantic_resolver import split_connection_tokens
+from aria.core.connection_action_contract import connection_action_direct_gate_executor_kinds
 from aria.core.connection_action_contract import connection_action_executor_bindings
 from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.config import RoutingLanguageConfig, Settings
@@ -132,6 +138,8 @@ from aria.core.routing_admin import routing_connections_collection_name
 from aria.core.routing_index import DEFAULT_CONNECTION_ROUTING_KINDS
 from aria.core.routing_resolver import infer_preferred_connection_kind
 from aria.core.routing_resolver import RoutingResolver
+from aria.core.rss_digest_options import build_rss_digest_options_note
+from aria.core.rss_digest_options import infer_rss_digest_options
 from aria.core.rss_grouping import build_rss_status_groups
 from aria.core.safe_fix import SafeFixExecutor, build_safe_fix_plan, extract_held_packages, format_held_packages_summary
 from aria.core.recipe_runtime import (
@@ -351,25 +359,8 @@ class Pipeline:
             extract_json_object=self._extract_json_object,
         )
         self._executor_registry = ExecutorRegistry()
-        handler_map = {
-            "file_read": self._capability_executor.execute_file_read,
-            "file_write": self._capability_executor.execute_file_write,
-            "file_list": self._capability_executor.execute_file_list,
-            "feed_read": self._capability_executor.execute_feed_read,
-            "website_read": self._capability_executor.execute_website_read,
-            "website_list": self._capability_executor.execute_website_list,
-            "calendar_read": self._capability_executor.execute_calendar_read,
-            "webhook_send": self._capability_executor.execute_webhook_send,
-            "discord_send": self._capability_executor.execute_discord_send,
-            "api_request": self._capability_executor.execute_api_request,
-            "email_send": self._capability_executor.execute_email_send,
-            "mail_read": self._capability_executor.execute_mail_read,
-            "mail_search": self._capability_executor.execute_mail_search,
-            "mqtt_publish": self._capability_executor.execute_mqtt_publish,
-            "ssh_command": self._capability_executor.execute_ssh_command,
-        }
         for connection_kind, capability in connection_action_executor_bindings():
-            handler = handler_map.get(capability)
+            handler = getattr(self._capability_executor, f"execute_{capability}", None)
             if handler is not None:
                 self._executor_registry.register(connection_kind, capability, handler)
 
@@ -1232,6 +1223,14 @@ class Pipeline:
         _, group_name, refs = best
         return group_name, refs
 
+    async def _rss_digest_options_note_for_query(self, message: str, *, language: str = "") -> str:
+        options = await infer_rss_digest_options(
+            message,
+            llm_client=self.llm_client,
+            language=language,
+        )
+        return build_rss_digest_options_note(options)
+
     @staticmethod
     def _rss_candidates_need_semantic_refine(candidates: list[SemanticConnectionCandidate]) -> bool:
         rss_candidates = [item for item in list(candidates or []) if str(item.connection_kind or "").strip().lower() == "rss"]
@@ -1283,6 +1282,47 @@ class Pipeline:
 
     def _routing_debug_line(self, text: str) -> list[str]:
         return [text] if self._routing_debug_enabled() and str(text or "").strip() else []
+
+    def _schedule_learned_recipe_followup(
+        self,
+        *,
+        entry: dict[str, Any] | None,
+        user_id: str,
+        language: str,
+        detail_lines: list[str],
+        curate: bool = True,
+    ) -> None:
+        if not entry:
+            return
+
+        async def _run() -> None:
+            learned_entry = dict(entry or {})
+            if curate:
+                learned_entry, _curation_debug = await curate_learned_recipe_entry(
+                    llm_client=self.llm_client,
+                    entry=learned_entry,
+                    language=language,
+                    user_id=user_id,
+                )
+            if learned_entry and self.memory_skill is not None:
+                await store_recipe_experience_memory(
+                    self.memory_skill,
+                    user_id=user_id,
+                    entry=learned_entry,
+                )
+
+        try:
+            task = asyncio.create_task(_run())
+        except RuntimeError:
+            return
+
+        def _consume_result(done: asyncio.Task[None]) -> None:
+            try:
+                done.result()
+            except Exception:
+                pass
+
+        task.add_done_callback(_consume_result)
 
     def _append_debug_detail_lines(self, resolved: dict[str, Any], *lines: str) -> dict[str, Any]:
         return append_debug_detail_lines(resolved, *lines, routing_debug_enabled=self._routing_debug_enabled())
@@ -2542,6 +2582,55 @@ class Pipeline:
 
     def _routing_reason_text(self, resolved: dict[str, Any], *, language: str | None = None) -> str:
         return routing_reason_text(resolved, language=language)
+
+    async def _blocked_action_response_text(
+        self,
+        resolved: dict[str, Any],
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        language: str | None = None,
+        detail_lines: list[str] | None = None,
+    ) -> tuple[str, list[str]]:
+        routing = dict(resolved.get("decision", {}) or {})
+        safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        fallback = self._routing_reason_text(resolved, language=language)
+        target_kind = str(routing.get("kind", "") or payload.get("connection_kind", "") or "").strip()
+        target_ref = str(routing.get("ref", "") or payload.get("connection_ref", "") or "").strip()
+        target = f"{target_kind}/{target_ref}".strip("/")
+        capability = str(payload.get("capability", "") or "").strip()
+        guardrail_ref = str(safety.get("guardrail_ref", "") or "").strip()
+        guardrail_kind = str(safety.get("guardrail_kind", "") or "").strip()
+        guardrail_text = str(safety.get("guardrail_text", "") or "").strip()
+        if (not guardrail_ref or not guardrail_kind or not guardrail_text) and target_kind and target_ref:
+            row = payload_connection_row(self.settings, target_kind, target_ref)
+            if row is not None:
+                guardrail_ref = guardrail_ref or read_row_value(row, "guardrail_ref")
+                if not guardrail_kind:
+                    guardrail_kind = "ssh_command" if capability == "ssh_command" else guardrail_kind
+        explanation = await explain_blocked_action(
+            llm_client=self.llm_client,
+            user_message=message,
+            fallback_text=fallback,
+            language=language,
+            user_id=user_id,
+            request_id=request_id,
+            target=target,
+            preview=str(payload.get("preview", "") or payload.get("content", "") or "").strip(),
+            capability=capability,
+            policy_reason=str(safety.get("reason", "") or "").strip(),
+            policy_reason_label=str(safety.get("reason_label", "") or "").strip(),
+            guardrail_ref=str(guardrail_ref or "").strip(),
+            guardrail_kind=str(guardrail_kind or "").strip(),
+            guardrail_text=str(guardrail_text or "").strip(),
+            skip_llm_reason="ssh_policy_block_fast_path" if capability == "ssh_command" and str(safety.get("action", "") or "").strip().lower() == "block" else "",
+        )
+        updated_details = list(detail_lines or [])
+        if self._routing_debug_enabled() and explanation.debug_line and explanation.debug_line not in updated_details:
+            updated_details.append(explanation.debug_line)
+        return explanation.text, updated_details
 
     def _build_routed_confirmation_text(
         self,
@@ -4363,12 +4452,13 @@ class Pipeline:
                     recorder=record_successful_learned_recipe_execution,
                     user_message=str(resolved.get("query", "") or ""),
                 )
-                if learned_entry and self.memory_skill is not None:
-                    await store_recipe_experience_memory(
-                        self.memory_skill,
-                        user_id=user_id,
-                        entry=learned_entry,
-                    )
+                self._schedule_learned_recipe_followup(
+                    entry=learned_entry,
+                    user_id=user_id,
+                    language=language,
+                    detail_lines=detail_lines,
+                    curate=False,
+                )
             except Exception:
                 pass
 
@@ -4494,21 +4584,12 @@ class Pipeline:
                         skill_result=skill_result,
                         recorder=record_successful_learned_recipe_execution,
                     )
-                    if learned_entry:
-                        learned_entry, curation_debug = await curate_learned_recipe_entry(
-                            llm_client=self.llm_client,
-                            entry=learned_entry,
-                            language=language,
-                            user_id=user_id,
-                        )
-                        if curation_debug and self._routing_debug_enabled():
-                            detail_lines.append(curation_debug)
-                    if learned_entry and self.memory_skill is not None:
-                        await store_recipe_experience_memory(
-                            self.memory_skill,
-                            user_id=user_id,
-                            entry=learned_entry,
-                        )
+                    self._schedule_learned_recipe_followup(
+                        entry=learned_entry,
+                        user_id=user_id,
+                        language=language,
+                        detail_lines=detail_lines,
+                    )
             except Exception:
                 pass
             return intents, text, detail_lines, []
@@ -4544,6 +4625,12 @@ class Pipeline:
                 )
             if rss_bundle is not None:
                 plan = replace(plan, notes=[*list(plan.notes or []), self._build_rss_group_bundle_note(*rss_bundle)])
+            digest_options_note = await self._rss_digest_options_note_for_query(
+                str(resolved.get("query", "") or ""),
+                language=language,
+            )
+            if digest_options_note:
+                plan = replace(plan, notes=[*list(plan.notes or []), digest_options_note])
         intents = [f"capability:{plan.capability}"] if str(plan.capability or "").strip() else ["chat"]
         detail_lines: list[str] = []
         if self._routing_debug_enabled():
@@ -4575,21 +4662,12 @@ class Pipeline:
                 recorder=record_successful_learned_recipe_execution,
                 user_message=str(resolved.get("query", "") or ""),
             )
-            if learned_entry:
-                learned_entry, curation_debug = await curate_learned_recipe_entry(
-                    llm_client=self.llm_client,
-                    entry=learned_entry,
-                    language=language,
-                    user_id=user_id,
-                )
-                if curation_debug and self._routing_debug_enabled():
-                    detail_lines.append(curation_debug)
-            if learned_entry and self.memory_skill is not None:
-                await store_recipe_experience_memory(
-                    self.memory_skill,
-                    user_id=user_id,
-                    entry=learned_entry,
-                )
+            self._schedule_learned_recipe_followup(
+                entry=learned_entry,
+                user_id=user_id,
+                language=language,
+                detail_lines=detail_lines,
+            )
         except Exception:
             pass
         return intents, result_text, detail_lines, []
@@ -4680,7 +4758,14 @@ class Pipeline:
             return duration_ms
 
         if next_step == "block":
-            text = self._routing_reason_text(resolved, language=language)
+            text, routing_detail_lines = await self._blocked_action_response_text(
+                resolved,
+                message=message,
+                user_id=user_id,
+                request_id=request_id,
+                language=language,
+                detail_lines=routing_detail_lines,
+            )
             duration_ms = await _log_routed_result(intents, [])
             return self._build_routed_action_result(
                 request_id=request_id,
@@ -4986,7 +5071,14 @@ class Pipeline:
             )
 
         if next_step == "block":
-            text = self._routing_reason_text(resolved, language=language)
+            text, routing_detail_lines = await self._blocked_action_response_text(
+                resolved,
+                message=base_query,
+                user_id=user_id,
+                request_id=request_id,
+                language=language,
+                detail_lines=routing_detail_lines,
+            )
             duration_ms = await _log_routed_result(intents, [])
             return self._build_routed_action_result(
                 request_id=request_id,
@@ -5094,7 +5186,10 @@ class Pipeline:
         language: str | None = None,
     ) -> tuple[list[str], str, list[str], ActionPlan, list[str]] | None:
         connection_pools: dict[str, dict[str, Any]] = {}
-        for kind in ("sftp", "smb", "rss", "website", "webhook", "discord", "http_api", "email", "imap", "mqtt"):
+        direct_gate_kinds = set(connection_action_direct_gate_executor_kinds())
+        for kind in ordered_connection_kinds():
+            if kind not in direct_gate_kinds:
+                continue
             rows = getattr(getattr(self.settings, "connections", object()), kind, {})
             if isinstance(rows, dict) and rows:
                 connection_pools[kind] = rows
@@ -5332,7 +5427,15 @@ class Pipeline:
             detail_lines = qdrant_details + self._build_capability_detail_lines(plan, language=language)
             detail_lines = [*detail_lines, *self._resolved_routing_detail_lines(resolved)]
             if next_step == "block":
-                return intent, self._routing_reason_text(resolved, language=language), detail_lines, plan, []
+                text, detail_lines = await self._blocked_action_response_text(
+                    resolved,
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    language=language,
+                    detail_lines=detail_lines,
+                )
+                return intent, text, detail_lines, plan, []
         if not plan.is_complete:
             return intent, self._format_capability_missing_message(plan, language=language), qdrant_details, plan, []
 

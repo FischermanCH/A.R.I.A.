@@ -143,6 +143,13 @@ def test_render_assistant_message_html_renders_markdown_link() -> None:
     assert "<br>" in rendered
 
 
+def test_render_assistant_message_html_renders_markdown_link_with_bracketed_label() -> None:
+    rendered = str(_render_assistant_message_html("[[webapps] glances 4.5](https://example.com/exploit)"))
+
+    assert '<a href="https://example.com/exploit"' in rendered
+    assert ">[webapps] glances 4.5</a>" in rendered
+
+
 def test_clean_feed_summary_removes_html_and_truncates() -> None:
     raw = "<p>Hallo <strong>ARIA</strong> mit <a href='https://example.com'>Link</a> und etwas mehr Text für eine Summary.</p>"
     cleaned = RecipeRuntime._clean_feed_summary(raw, limit=40)

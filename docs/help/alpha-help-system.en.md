@@ -1,6 +1,6 @@
 # ARIA Alpha Help
 
-Updated: 2026-05-12 / Public Alpha `0.1.0-alpha251`
+Updated: 2026-05-15 / Public Alpha `0.1.0-alpha266`
 
 This is the practical short help for ARIA Alpha. It reflects the current state after the larger move from legacy skills to recipes, LLM-assisted action planning, and controlled execution.
 

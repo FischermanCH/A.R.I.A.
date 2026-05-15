@@ -207,6 +207,45 @@ def test_summarize_rss_category_result_for_chat_keeps_links_and_snippets() -> No
     )
 
 
+def test_summarize_rss_category_result_for_chat_keeps_markdown_links_with_bracketed_titles() -> None:
+    text = (
+        "Neueste Einträge aus Kategorie `Security`:\n"
+        "1. [[webapps] glances 4.5.2 - command injection](https://www.exploit-db.com/exploits/52559) · Quelle: Exploit-DB.com RSS Feed\n"
+        "   2026-05-13 00:00\n"
+        "   glances 4.5.2 - command injection\n"
+    )
+
+    summary = summarize_rss_category_result_for_chat(text, language="de")
+
+    assert summary == (
+        "RSS-Digest für `Security`: 1 aktuelle Meldung.\n\n"
+        "1. [[webapps] glances 4.5.2 - command injection](https://www.exploit-db.com/exploits/52559)\n"
+        "   Link: https://www.exploit-db.com/exploits/52559\n"
+        "   Quelle: Exploit-DB.com RSS Feed · 2026-05-13 00:00\n"
+        "   Kurz: glances 4.5.2 - command injection"
+    )
+
+
+def test_summarize_rss_category_result_for_chat_explains_requested_count_gap() -> None:
+    text = (
+        "Neueste Einträge aus Kategorie `Security`:\n"
+        '__rss_digest_meta__:{"requested_count":10,"readable_count":4,"skipped_count":1,"safe_cap":12}\n'
+        "1. Alert A · Quelle: Feed Alpha\n"
+        "2. Alert B · Quelle: Feed Beta\n"
+    )
+
+    summary = summarize_rss_category_result_for_chat(text, language="de")
+
+    assert summary == (
+        "RSS-Digest für `Security`: 2 aktuelle Meldungen.\n"
+        "Anfrage: 10 angefragt, 2 angezeigt, 4 gefunden/lesbar, 1 wegen Fehler/Timeout ausgelassen.\n\n"
+        "1. Alert A\n"
+        "   Quelle: Feed Alpha\n"
+        "2. Alert B\n"
+        "   Quelle: Feed Beta"
+    )
+
+
 def test_summarize_file_result_for_chat_list() -> None:
     text = "Inhalt von /srv:\n- backups/\n- config.yml\n- logs/\n"
 
@@ -219,4 +258,4 @@ def test_summarize_file_result_for_chat_list() -> None:
         language="de",
     )
 
-    assert summary == "Dateiliste für `server-main` in `/srv`: 3 Einträge. Beispiele: backups/, config.yml, logs/."
+    assert summary == "Dateiliste für `server-main` in `/srv`: 3 Einträge. Ordner: backups/, logs/. Beispiele: config.yml."

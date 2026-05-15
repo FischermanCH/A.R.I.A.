@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, Callable
 from urllib.error import URLError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request as URLRequest, urlopen
+
+from aria.core.rss_digest_options import RSS_DIGEST_MAX_REQUESTED_COUNT
 
 RecipeText = Callable[..., str]
 
@@ -32,6 +36,16 @@ _FEED_TRACKING_KEYS = {
     "igshid",
     "mkt_tok",
 }
+_RSS_DIGEST_META_PREFIX = "__rss_digest_meta__:"
+
+
+def rss_digest_transport_limit(entry_count: int) -> int:
+    count = max(1, int(entry_count or 1))
+    return min(9000, 1800 + count * 650)
+
+
+def json_dumps_compact(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
 
 
 def xml_name(tag: str) -> str:
@@ -87,6 +101,16 @@ def clean_feed_summary(value: str, limit: int = 220) -> str:
         return text
     short = text[:limit].rsplit(" ", 1)[0].strip()
     return (short or text[:limit]).rstrip(".,;:") + "…"
+
+
+def bounded_digest_count(value: Any, *, default: int = 6) -> int:
+    try:
+        count = int(value)
+    except Exception:
+        count = 0
+    if count <= 0:
+        count = default
+    return max(1, min(count, RSS_DIGEST_MAX_REQUESTED_COUNT))
 
 
 def parse_feed_timestamp(value: str) -> datetime | None:
@@ -203,7 +227,7 @@ class RecipeRssRuntime:
                     entries.append({"title": title, "link": link, "published": published, "summary": summary})
         return feed_title, entries
 
-    def execute_read(self, connection_ref: str, *, language: str = "de") -> str:
+    def execute_read(self, connection_ref: str, *, language: str = "de", requested_count: int = 0) -> str:
         feed_title, entries = self.load_entries(connection_ref, language=language)
 
         if not entries:
@@ -212,6 +236,7 @@ class RecipeRssRuntime:
                 1400,
             )
 
+        max_items = bounded_digest_count(requested_count, default=5)
         lines = [
             self._text(
                 language,
@@ -220,7 +245,19 @@ class RecipeRssRuntime:
                 feed_title_or_connection_ref=feed_title or connection_ref,
             )
         ]
-        for idx, item in enumerate(entries[:5], start=1):
+        if int(requested_count or 0) > 0:
+            lines.append(
+                _RSS_DIGEST_META_PREFIX
+                + json_dumps_compact(
+                    {
+                        "requested_count": int(requested_count or 0),
+                        "readable_count": len(entries),
+                        "skipped_count": 0,
+                        "safe_cap": RSS_DIGEST_MAX_REQUESTED_COUNT,
+                    }
+                )
+            )
+        for idx, item in enumerate(entries[:max_items], start=1):
             title = item.get("title", "").strip() or self._text(language, "message_1009", "(untitled)")
             link = clean_feed_url(item.get("link", ""))
             published = format_feed_timestamp(item.get("published", ""))
@@ -233,9 +270,9 @@ class RecipeRssRuntime:
             lines.append(line)
             if summary:
                 lines.append(f"   {summary}")
-            if idx < min(len(entries), 5):
+            if idx < min(len(entries), max_items):
                 lines.append("")
-        return self.truncate_text("\n".join(lines), 1800)
+        return self.truncate_text("\n".join(lines), rss_digest_transport_limit(max_items))
 
     def execute_group_read(
         self,
@@ -243,6 +280,7 @@ class RecipeRssRuntime:
         connection_refs: list[str],
         *,
         language: str = "de",
+        requested_count: int = 0,
         entry_loader: Callable[..., tuple[str, list[dict[str, str]]]] | None = None,
     ) -> str:
         clean_group = str(group_name or "").strip() or self._text(language, "message_1026", "RSS category")
@@ -253,15 +291,35 @@ class RecipeRssRuntime:
         rows: list[dict[str, Any]] = []
         errors: list[str] = []
         seen_titles: set[str] = set()
+        max_items = bounded_digest_count(requested_count, default=6)
+        per_feed_limit = max(1, min(5, max_items))
 
-        for ref in refs[:6]:
-            try:
-                loader = entry_loader or self.load_entries
-                feed_title, entries = loader(ref, language=language)
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{ref}: {exc}")
+        loader = entry_loader or self.load_entries
+        refs_to_load = refs[: RSS_DIGEST_MAX_REQUESTED_COUNT]
+        max_workers = max(1, min(6, len(refs_to_load)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_refs = {
+                executor.submit(loader, ref, language=language): ref
+                for ref in refs_to_load
+            }
+            completed_rows: list[tuple[str, str, list[dict[str, str]] | None, Exception | None]] = []
+            for future in as_completed(future_refs):
+                ref = future_refs[future]
+                try:
+                    feed_title, entries = future.result()
+                    completed_rows.append((ref, feed_title, list(entries or []), None))
+                except Exception as exc:  # noqa: BLE001
+                    completed_rows.append((ref, "", None, exc))
+
+        for ref, feed_title, entries, error in completed_rows:
+            if error is not None:
+                errors.append(f"{ref}: {error}")
                 continue
-            for item in entries[:1]:
+            try:
+                feed_entries = list(entries or [])
+            except Exception:
+                continue
+            for item in feed_entries[:per_feed_limit]:
                 title = str(item.get("title", "") or "").strip()
                 key = title.lower()
                 if key and key in seen_titles:
@@ -308,7 +366,19 @@ class RecipeRssRuntime:
                 clean_group=clean_group,
             )
         ]
-        for idx, item in enumerate(rows[:6], start=1):
+        if int(requested_count or 0) > 0:
+            lines.append(
+                _RSS_DIGEST_META_PREFIX
+                + json_dumps_compact(
+                    {
+                        "requested_count": int(requested_count or 0),
+                        "readable_count": len(rows),
+                        "skipped_count": len(errors),
+                        "safe_cap": RSS_DIGEST_MAX_REQUESTED_COUNT,
+                    }
+                )
+            )
+        for idx, item in enumerate(rows[:max_items], start=1):
             title = str(item.get("title", "") or "").strip() or self._text(language, "message_1082", "(untitled)")
             link = clean_feed_url(str(item.get("link", "") or "").strip())
             published = format_feed_timestamp(str(item.get("published", "") or "").strip())
@@ -324,6 +394,6 @@ class RecipeRssRuntime:
             lines.append(line)
             if summary:
                 lines.append(f"   {summary}")
-            if idx < min(len(rows), 6):
+            if idx < min(len(rows), max_items):
                 lines.append("")
-        return self.truncate_text("\n".join(lines), 2200)
+        return self.truncate_text("\n".join(lines), rss_digest_transport_limit(max_items))

@@ -16,6 +16,10 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from aria.core.document_ingest import DocumentIngestError, prepare_uploaded_document, supported_upload_suffixes
 from aria.core.i18n import I18NStore
 from aria.core.pipeline import Pipeline
+from aria.core.qdrant_collection_classifier import classify_qdrant_collection
+from aria.core.qdrant_collection_classifier import is_notes_qdrant_collection
+from aria.core.qdrant_collection_classifier import is_recipe_experience_qdrant_collection
+from aria.core.qdrant_collection_classifier import is_routing_qdrant_collection
 from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
 
 
@@ -234,6 +238,7 @@ async def _build_memory_map_snapshot(
     user_rows: list[dict[str, Any]] = []
     notes_rows: list[dict[str, Any]] = []
     routing_rows: list[dict[str, Any]] = []
+    system_rows: list[dict[str, Any]] = []
     collection_stats: list[dict[str, Any]] = []
     document_entries: list[dict[str, Any]] = []
     document_groups: list[dict[str, Any]] = []
@@ -315,9 +320,16 @@ async def _build_memory_map_snapshot(
             },
             browse_url="/config/routing",
         )
+        system_rows = _build_system_collection_rows(
+            list(overview.get("collections", []) or []),
+            known_collection_names={
+                str(row.get("name", "")).strip() for row in [*user_rows, *notes_rows, *routing_rows]
+            },
+        )
 
     notes_total_points = int(sum(int(row.get("points", 0) or 0) for row in notes_rows))
     routing_total_points = int(sum(int(row.get("points", 0) or 0) for row in routing_rows))
+    system_total_points = int(sum(int(row.get("points", 0) or 0) for row in system_rows))
     cleanup_status = _build_cleanup_status(memory_skill)
     cleanup_status["timestamp"] = _format_display_timestamp(cleanup_status.get("timestamp"))
 
@@ -338,6 +350,7 @@ async def _build_memory_map_snapshot(
         rollup_groups=rollup_groups,
         notes_rows=notes_rows,
         routing_rows=routing_rows,
+        system_rows=system_rows,
     )
 
     return {
@@ -346,6 +359,8 @@ async def _build_memory_map_snapshot(
         "notes_total_points": notes_total_points,
         "routing_rows": routing_rows,
         "routing_total_points": routing_total_points,
+        "system_rows": system_rows,
+        "system_total_points": system_total_points,
         "collection_stats": collection_stats,
         "document_entries": document_entries,
         "document_groups": document_groups,
@@ -545,6 +560,8 @@ def _graph_kind_order(kind: str) -> int:
         "knowledge": 4,
         "notes": 5,
         "routing": 6,
+        "recipe_experience": 7,
+        "system": 8,
     }
     return order.get(str(kind or "").strip().lower(), 99)
 
@@ -559,6 +576,8 @@ def _graph_kind_label(kind: str) -> str:
         "knowledge": _memory_routes_text("de", "graph.knowledge", "Knowledge"),
         "notes": _memory_routes_text("de", "graph.notes", "Notes"),
         "routing": "Routing",
+        "recipe_experience": _memory_routes_text("de", "graph.recipe_experience", "Recipe Experience"),
+        "system": _memory_routes_text("de", "graph.system", "System"),
     }
     return labels.get(normalized, normalized.upper() or "Memory")
 
@@ -574,6 +593,8 @@ def _graph_kind_icon(kind: str) -> str:
         "knowledge": "llm",
         "notes": "notes",
         "routing": "routing",
+        "recipe_experience": "skills",
+        "system": "settings",
     }
     return icons.get(normalized, "memories")
 
@@ -621,14 +642,20 @@ def _build_memory_graph(
     rollup_groups: list[dict[str, Any]],
     notes_rows: list[dict[str, Any]] | None = None,
     routing_rows: list[dict[str, Any]] | None = None,
+    system_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     note_items = list(notes_rows or [])
     routing_items = list(routing_rows or [])
+    system_items = list(system_rows or [])
     kinds = [kind for kind, points in kind_totals.items() if int(points or 0) > 0]
     if note_items:
         kinds.append("notes")
     if routing_items:
         kinds.append("routing")
+    for row in system_items:
+        kind = str(row.get("kind", "system")).strip().lower() or "system"
+        if kind not in kinds:
+            kinds.append(kind)
     if not kinds:
         return {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
 
@@ -698,6 +725,20 @@ def _build_memory_graph(
                     }
                 )
             continue
+        if kind in {"recipe_experience", "system"}:
+            for row in [item for item in system_items if str(item.get("kind", "")).strip().lower() == kind][:3]:
+                detail_nodes_by_kind[kind].append(
+                    {
+                        "label": str(row.get("name", "")).strip(),
+                        "meta": (
+                            f"{int(row.get('points', 0) or 0)} Punkte"
+                            f" · {int(row.get('share_pct', 0) or 0)}%"
+                        ),
+                        "href": str(row.get("browse_url", "")).strip() or "/memories/config#qdrant-access",
+                        "variant": kind,
+                    }
+                )
+            continue
         for row in collection_rows_by_kind.get(kind, [])[:2]:
             detail_nodes_by_kind[kind].append(
                 {
@@ -731,11 +772,14 @@ def _build_memory_graph(
     memory_total_points = sum(int(value or 0) for value in kind_totals.values())
     notes_total_points = sum(int(row.get("points", 0) or 0) for row in note_items)
     routing_total_points = sum(int(row.get("points", 0) or 0) for row in routing_items)
+    system_total_points = sum(int(row.get("points", 0) or 0) for row in system_items)
     root_meta = f"{memory_total_points} Punkte im Memory"
     if notes_total_points > 0:
         root_meta += f" · {notes_total_points} Notes-Punkte"
     if routing_total_points > 0:
         root_meta += f" · {routing_total_points} Routing-Punkte"
+    if system_items:
+        root_meta += f" · {len(system_items)} System-Collections"
     nodes.append(
         {
             "id": "graph-root",
@@ -762,6 +806,19 @@ def _build_memory_graph(
                 "meta": (
                     _memory_routes_text("de", "graph.routing_points", "{points} points · System", points=routing_total_points)
                     if kind == "routing"
+                    else _memory_routes_text(
+                        "de",
+                        "graph.recipe_experience_points",
+                        "{points} points · Learning",
+                        points=sum(
+                            int(row.get("points", 0) or 0)
+                            for row in system_items
+                            if str(row.get("kind", "")).strip().lower() == "recipe_experience"
+                        ),
+                    )
+                    if kind == "recipe_experience"
+                    else _memory_routes_text("de", "graph.system_points", "{points} points · System", points=system_total_points)
+                    if kind == "system"
                     else _memory_routes_text("de", "graph.notes_points", "{points} points · Notes", points=notes_total_points)
                     if kind == "notes"
                     else _memory_routes_text("de", "graph.points", "{points} points", points=int(kind_totals.get(kind, 0) or 0))
@@ -771,6 +828,10 @@ def _build_memory_graph(
                 "width": type_width,
                 "href": _routing_graph_link()
                 if kind == "routing"
+                else "/recipes/learned"
+                if kind == "recipe_experience"
+                else "/memories/config#qdrant-access"
+                if kind == "system"
                 else "/notes"
                 if kind == "notes"
                 else _memory_graph_link(kind=kind if kind != "knowledge" else "knowledge"),
@@ -944,17 +1005,15 @@ def _document_collection_names(collection_names: list[str]) -> list[str]:
 
 
 def _is_routing_collection_name(name: str) -> bool:
-    clean = str(name or "").strip().lower()
-    return bool(clean) and clean.startswith("aria_routing_")
+    return is_routing_qdrant_collection(name)
+
+
+def _is_recipe_experience_collection_name(name: str) -> bool:
+    return is_recipe_experience_qdrant_collection(name)
 
 
 def _is_notes_collection_name(name: str, *, username: str = "") -> bool:
-    clean = str(name or "").strip().lower()
-    if not clean.startswith("aria_notes_"):
-        return False
-    if not username:
-        return True
-    return clean == f"aria_notes_{_slug_user_id(username)}"
+    return is_notes_qdrant_collection(name, username=username)
 
 
 def _build_notes_collection_rows(
@@ -1013,6 +1072,42 @@ def _build_routing_collection_rows(
             }
         )
     items.sort(key=lambda item: (-(int(item.get("points", 0) or 0)), str(item.get("name", "")).lower()))
+    total_points = int(sum(int(item.get("points", 0) or 0) for item in items))
+    max_points = max((int(item.get("points", 0) or 0) for item in items), default=0)
+    for item in items:
+        points = int(item.get("points", 0) or 0)
+        item["share_pct"] = int((points / total_points) * 100) if total_points > 0 else 0
+        item["pct"] = int((points / max_points) * 100) if max_points > 0 else 0
+    return items
+
+
+def _build_system_collection_rows(
+    overview_rows: list[dict[str, Any]],
+    *,
+    known_collection_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    blocked = {str(name or "").strip() for name in (known_collection_names or set()) if str(name or "").strip()}
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in overview_rows:
+        name = str(row.get("name", "")).strip()
+        if not name or name in seen or name in blocked:
+            continue
+        classification = classify_qdrant_collection(name)
+        if not classification.is_aria or classification.kind not in {"recipe_experience", "system"}:
+            continue
+        kind = classification.kind if classification.kind == "recipe_experience" else "system"
+        seen.add(name)
+        items.append(
+            {
+                "name": name,
+                "kind": kind,
+                "points": int(row.get("points", 0) or 0),
+                "status": str(row.get("status", "ok")).strip() or "ok",
+                "browse_url": "/recipes/learned" if kind == "recipe_experience" else "/memories/config#qdrant-access",
+            }
+        )
+    items.sort(key=lambda item: (str(item.get("kind", "")), -(int(item.get("points", 0) or 0)), str(item.get("name", "")).lower()))
     total_points = int(sum(int(item.get("points", 0) or 0) for item in items))
     max_points = max((int(item.get("points", 0) or 0) for item in items), default=0)
     for item in items:
@@ -1182,11 +1277,6 @@ def register_memories_routes(
             if str(row.get("name", "")).strip()
         ]
         document_collections = _document_collection_names(collection_names)
-        routing_rows = _build_routing_collection_rows(
-            overview.get("collections", []),
-            known_user_collection_names=set(collection_names),
-            browse_url="/config/routing",
-        )
         collection_stats: list[dict[str, Any]] = []
         if getattr(pipeline, "memory_skill", None):
             with suppress(Exception):
@@ -1201,6 +1291,8 @@ def register_memories_routes(
             settings=settings,
             parse_collection_day_suffix=parse_collection_day_suffix,
         )
+        routing_rows = list(map_snapshot.get("routing_rows", []) or [])
+        system_rows = list(map_snapshot.get("system_rows", []) or [])
         overview_checks = [
             {
                 "title": "Qdrant",
@@ -1225,6 +1317,12 @@ def register_memories_routes(
                 "status": "ok" if document_collections else "warn",
                 "summary": default_document_collection,
                 "meta": f"{len(document_collections)} Dokument-Collections",
+            },
+            {
+                "title": "System-Collections",
+                "status": "ok" if system_rows or routing_rows else "warn",
+                "summary": str(len(system_rows) + len(routing_rows)),
+                "meta": "Routing, Recipe Experience und weitere ARIA-Collections",
             },
             {
                 "title": "Auto-Memory",
@@ -1299,6 +1397,7 @@ def register_memories_routes(
                 "collection_count": len(collection_names),
                 "document_collection_count": len(document_collections),
                 "routing_collection_count": len(routing_rows),
+                "system_collection_count": len(system_rows),
                 "user_memory_points": user_memory_points,
                 "overview_checks": overview_checks,
                 "next_steps": next_steps,
@@ -1570,8 +1669,12 @@ def register_memories_routes(
                 "map_rows": snapshot["user_rows"],
                 "map_total_points": snapshot["total_points"],
                 "map_kind_totals": snapshot["kind_totals"],
+                "notes_rows": snapshot["notes_rows"],
+                "notes_total_points": snapshot["notes_total_points"],
                 "routing_rows": snapshot["routing_rows"],
                 "routing_total_points": snapshot["routing_total_points"],
+                "system_rows": snapshot["system_rows"],
+                "system_total_points": snapshot["system_total_points"],
                 "document_entries": snapshot["document_entries"],
                 "document_groups": snapshot["document_groups"],
                 "rollup_entries": snapshot["rollup_entries"],
