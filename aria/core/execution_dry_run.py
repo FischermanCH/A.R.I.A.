@@ -49,14 +49,45 @@ def _execution_dry_run_text(language: str | None, key: str, default: str = "", *
 
 
 
+def _join_guardrail_text(*parts: object) -> str:
+    return " ".join(str(part or "").strip() for part in parts if str(part or "").strip())
+
+
+def _file_guardrail_aliases(capability: str) -> str:
+    if capability == "file_list":
+        return "file_list file access list read readonly directory"
+    if capability == "file_read":
+        return "file_read file access read get download readonly"
+    if capability == "file_write":
+        return "file_write file access write create upload put delete"
+    return "file access"
+
+
 def _guardrail_text_for_payload(payload: dict[str, Any]) -> str:
     capability = str(payload.get("capability", "") or "").strip().lower()
     if capability == "ssh_command":
         return str(payload.get("content", "") or payload.get("preview", "") or "").strip()
     if capability in {"file_read", "file_write", "file_list"}:
-        return str(payload.get("path", "") or payload.get("preview", "") or "").strip()
-    if capability in {"api_request", "webhook_send"}:
-        return str(payload.get("path", "") or payload.get("content", "") or "").strip()
+        return _join_guardrail_text(
+            _file_guardrail_aliases(capability),
+            payload.get("path"),
+            payload.get("content"),
+            payload.get("preview"),
+        )
+    if capability == "api_request":
+        return _join_guardrail_text(
+            "api_request http_request status health get head",
+            payload.get("path"),
+            payload.get("content"),
+            payload.get("preview"),
+        )
+    if capability == "webhook_send":
+        return _join_guardrail_text(
+            "webhook_send webhook http_request post status notification benachrichtigung",
+            payload.get("path"),
+            payload.get("content"),
+            payload.get("preview"),
+        )
     if capability == "mqtt_publish":
         return str(payload.get("path", "") or payload.get("content", "") or "").strip()
     return ""

@@ -9,6 +9,7 @@ from aria.core.config import Settings
 from aria.core.config import EmbeddingsConfig
 from aria.core.config import MemoryConfig
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.guardrail_drafts import build_guardrail_draft_context, suggest_guardrail_with_llm
 from aria.core.llm_client import LLMClient
 from aria.core.usage_meter import UsageMeter
 from aria.skills.memory import MemorySkill
@@ -73,6 +74,49 @@ def test_llm_client_logs_direct_calls_via_usage_meter(monkeypatch, tmp_path: Pat
     assert rows[0]["chat_model"] == "gpt-5.1"
     assert rows[0]["total_tokens"] == 15
     assert rows[0]["embedding_total_tokens"] == 0
+
+
+def test_guardrail_draft_llm_call_is_metered(monkeypatch, tmp_path: Path) -> None:
+    async def _fake_completion(**_kwargs):
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=(
+                            '{"ref":"no-sudo","kind":"ssh_command","title":"No sudo",'
+                            '"description":"Blocks sudo.","allow_terms":[],"deny_terms":["sudo"],'
+                            '"scope_summary":"SSH only","review_notes":[],"examples":[],"confidence":0.8}'
+                        )
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=42, completion_tokens=21, total_tokens=63),
+        )
+
+    monkeypatch.setattr("aria.core.llm_client._acompletion", _fake_completion)
+
+    settings = _settings(tmp_path)
+    meter = UsageMeter(settings)
+    client = LLMClient(settings.llm, usage_meter=meter)
+
+    asyncio.run(
+        suggest_guardrail_with_llm(
+            llm_client=client,
+            instruction="Keine sudo Befehle auf Ubuntu.",
+            draft_context=build_guardrail_draft_context({}, guardrail_kind="ssh_command"),
+            user_id="neo",
+            request_id="guardrail-test",
+        )
+    )
+
+    rows = _read_log_rows(tmp_path / "tokens.jsonl")
+    assert len(rows) == 1
+    assert rows[0]["source"] == "guardrail_draft"
+    assert rows[0]["intents"] == ["llm:draft_ssh_command"]
+    assert rows[0]["user_id"] == "neo"
+    assert rows[0]["request_id"] == "guardrail-test"
+    assert rows[0]["total_tokens"] == 63
 
 
 def test_embedding_client_logs_direct_calls_via_usage_meter(monkeypatch, tmp_path: Path) -> None:

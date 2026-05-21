@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from aria.core.action_plan import ActionPlan
 from aria.core.connection_catalog import connection_kind_label
 from aria.core.text_utils import is_english
 from aria.core.i18n import I18NStore
+from aria.core.recipe_runtime_http import HTTPAPIStatusError
 from aria.core.website_runtime import find_website_matches
 from aria.core.website_runtime import normalize_website_rows
 
@@ -104,12 +107,124 @@ def sanitize_capability_error(exc: Exception, *, language: str | None = None) ->
     return _capability_text(language, "message_118", 'Unexpected runtime error.')
 
 
+def capability_execution_error_code(plan: ActionPlan, exc: Exception) -> str:
+    capability = str(plan.capability or "").strip()
+    if capability == "api_request" and isinstance(exc, HTTPAPIStatusError):
+        status = int(getattr(exc, "status_code", 0) or 0)
+        return f"external_http_api_status:{status}" if status else "external_http_api_status"
+    if isinstance(exc, ValueError) and _is_guardrail_block_error(str(exc)):
+        return f"capability_{capability}_guardrail_blocked"
+    return f"capability_{capability}_error:{type(exc).__name__}"
+
+
+def _is_guardrail_block_error(text: str) -> bool:
+    clean = str(text or "").strip().lower()
+    if "guardrail" not in clean:
+        return False
+    return any(term in clean for term in ("blockiert", "blocks", "erlaubt diese anfrage nicht", "does not allow"))
+
+
+def _extract_guardrail_ref(text: str) -> str:
+    raw = str(text or "").strip()
+    if ":" in raw:
+        candidate = raw.rsplit(":", 1)[-1].strip()
+        if re.fullmatch(r"[A-Za-z0-9_.:-]{2,120}", candidate):
+            return candidate
+    return ""
+
+
+def _guardrail_config_line(guardrail_ref: str, language: str | None = None) -> str:
+    clean_ref = str(guardrail_ref or "").strip()
+    if not clean_ref:
+        return ""
+    href = f"/config/security?guardrail_ref={quote(clean_ref, safe='')}"
+    label = _capability_text(language, "message_158", "Review/change guardrail")
+    return f"{label}: [{clean_ref}]({href}) ({href})"
+
+
+def _format_http_api_status_error(plan: ActionPlan, exc: HTTPAPIStatusError, *, language: str | None = None) -> str:
+    status_code = int(getattr(exc, "status_code", 0) or 0)
+    path = str(getattr(exc, "path", "") or "").strip() or str(plan.path or "").strip() or "/"
+    method = str(getattr(exc, "method", "") or "").strip().upper() or "GET"
+    health_path = str(getattr(exc, "health_path", "") or "").strip()
+    response_excerpt = str(getattr(exc, "response_excerpt", "") or "").strip()
+    base = _capability_text(
+        language,
+        "message_150",
+        "The HTTP API profile `{connection_ref}` was reached, but the endpoint returned HTTP {status_code} for `{path}` ({method}).",
+        connection_ref=plan.connection_ref,
+        status_code=status_code,
+        path=path,
+        method=method,
+    )
+    if health_path:
+        base += " " + _capability_text(
+            language,
+            "message_151",
+            "The profile health path is configured as `{health_path}`.",
+            health_path=health_path,
+        )
+    if response_excerpt:
+        base += " " + _capability_text(
+            language,
+            "message_152",
+            "Endpoint response: {response_excerpt}",
+            response_excerpt=response_excerpt,
+        )
+    base += " " + _capability_text(
+        language,
+        "message_153",
+        "This is most likely an endpoint/profile-path issue on the external service, not an internal ARIA execution error.",
+    )
+    return base
+
+
+def _format_guardrail_block_error(plan: ActionPlan, exc: ValueError, *, language: str | None = None) -> str:
+    guardrail_ref = _extract_guardrail_ref(str(exc))
+    capability = str(plan.capability or "").strip().lower()
+    link = _guardrail_config_line(guardrail_ref, language)
+    if capability == "api_request":
+        if guardrail_ref:
+            text = _capability_text(
+                language,
+                "message_154",
+                "The HTTP API request was blocked by Guardrail profile `{guardrail_ref}`. This is an active security rule, not a broken profile or access error.",
+                guardrail_ref=guardrail_ref,
+            )
+            return f"{text}\n\n{link}" if link else text
+        return _capability_text(
+            language,
+            "message_155",
+            "The HTTP API request was blocked by an active Guardrail. This is an active security rule, not a broken profile or access error.",
+        )
+    kind_label = connection_kind_label(plan.connection_kind)
+    if guardrail_ref:
+        text = _capability_text(
+            language,
+            "message_156",
+            "The {kind_label} action was blocked by Guardrail profile `{guardrail_ref}`. This is an active security rule, not a technical execution error.",
+            kind_label=kind_label,
+            guardrail_ref=guardrail_ref,
+        )
+        return f"{text}\n\n{link}" if link else text
+    return _capability_text(
+        language,
+        "message_157",
+        "The {kind_label} action was blocked by an active Guardrail. This is an active security rule, not a technical execution error.",
+        kind_label=kind_label,
+    )
+
+
 def format_capability_execution_error(
     plan: ActionPlan,
     exc: Exception,
     *,
     language: str | None = None,
 ) -> str:
+    if str(plan.capability or "").strip() == "api_request" and isinstance(exc, HTTPAPIStatusError):
+        return _format_http_api_status_error(plan, exc, language=language)
+    if isinstance(exc, ValueError) and _is_guardrail_block_error(str(exc)):
+        return _format_guardrail_block_error(plan, exc, language=language)
     labels = {
         "feed_read": _capability_text(language, "message_128", 'The feed could not be read.'),
         "website_read": _capability_text(language, "message_129", "The watched website could not be opened."),

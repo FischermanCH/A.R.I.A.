@@ -6,6 +6,7 @@ from pathlib import Path
 
 from aria.core.config import load_settings
 from aria.core.i18n import I18NStore
+from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG
 from aria.core.usage_meter import UsageMeter
 from aria.skills.memory import MemorySkill
 
@@ -55,11 +56,15 @@ async def run_memory_maintenance(config_path: str | Path = "config/config.yaml")
         "collections_removed": 0,
         "session_noise_removed": 0,
         "token_log_removed": 0,
+        "llm_audit_removed": 0,
     }
 
     tracker = TokenTracker(settings.token_tracking.log_file, enabled=settings.token_tracking.enabled)
-    pruned = await tracker.prune_old_entries(int(getattr(settings.token_tracking, "retention_days", 0) or 0))
+    retention_days = int(getattr(settings.token_tracking, "retention_days", 90) or 0)
+    pruned = await tracker.prune_old_entries(retention_days)
     stats["token_log_removed"] = int(pruned.get("removed", 0) or 0)
+    llm_pruned = GLOBAL_LLM_AUDIT_LOG.prune_old_entries(retention_days)
+    stats["llm_audit_removed"] = int(llm_pruned.get("removed", 0) or 0)
 
     if not settings.memory.enabled or settings.memory.backend.lower() != "qdrant":
         return stats
@@ -90,7 +95,8 @@ def main() -> int:
         f"month={stats.get('compressed_month', 0)} "
         f"removed={stats.get('collections_removed', 0)} "
         f"noise={stats.get('session_noise_removed', 0)} "
-        f"token_logs={stats.get('token_log_removed', 0)}"
+        f"token_logs={stats.get('token_log_removed', 0)} "
+        f"llm_audit={stats.get('llm_audit_removed', 0)}"
     )
     return 0
 

@@ -14,9 +14,21 @@ from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints, buil
 from aria.core.action_candidate_taxonomy import is_recipe_candidate_kind
 from aria.core.action_candidate_taxonomy import normalize_action_candidate_kind
 from aria.core.action_planner import debug_bounded_action_plan_decision
+from aria.core.agentic_content_access import content_access_request_from_action_plan
+from aria.core.agentic_content_access_registry import AgenticContentAccessRegistry
 from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_CONTEXT
+from aria.core.agentic_prompt_flow import AGENTIC_BOUNDARY_DRAFT
+from aria.core.agentic_prompt_flow import agentic_context_debug_line
 from aria.core.agentic_prompt_flow import agentic_prompt_flow_debug_line
 from aria.core.agentic_prompt_flow import build_agentic_prompt_flow
+from aria.core.agentic_execution import AgenticExecutionHandler
+from aria.core.agentic_execution import AgenticExecutionRequest
+from aria.core.agentic_execution_learning import AgenticExecutionLearningService
+from aria.core.agentic_execution_registry import AgenticExecutionRegistry
+from aria.core.agentic_rss_execution import RSSFeedExecutionHandler
+from aria.core.agentic_rss_execution import RSSFeedExecutionHooks
+from aria.core.agentic_ssh_execution import MultiTargetSSHExecutionHandler
+from aria.core.agentic_ssh_execution import MultiTargetSSHExecutionHooks
 from aria.core.blocked_action_explanation import explain_blocked_action
 from aria.core.bounded_planner import debug_bounded_planner_decision
 from aria.core.capability_catalog import (
@@ -100,6 +112,7 @@ from aria.core.pipeline_capability_execution import PipelineCapabilityExecutor
 from aria.core.pipeline_capability_details import build_pipeline_capability_detail_lines
 from aria.core.pipeline_capability_details import default_mqtt_topic_from_settings
 from aria.core.pipeline_capability_execution import website_rows_from_settings
+from aria.core.pipeline_capability_messages import capability_execution_error_code
 from aria.core.pipeline_capability_messages import format_capability_execution_error
 from aria.core.pipeline_capability_messages import format_capability_missing_message
 from aria.core.pipeline_capability_messages import sanitize_capability_error
@@ -363,6 +376,7 @@ class Pipeline:
             handler = getattr(self._capability_executor, f"execute_{capability}", None)
             if handler is not None:
                 self._executor_registry.register(connection_kind, capability, handler)
+        self._content_access_registry = AgenticContentAccessRegistry([])
 
     @staticmethod
     def _connection_kind_label(kind: str) -> str:
@@ -1257,13 +1271,37 @@ class Pipeline:
         return None
 
     @staticmethod
-    def _call_with_optional_language(func: Any, *args: Any, language: str = "de") -> Any:
+    def _call_with_optional_language(func: Any, *args: Any, language: str = "de", **kwargs: Any) -> Any:
         try:
-            return func(*args, language=language)
+            return func(*args, language=language, **kwargs)
         except TypeError as exc:
-            if "unexpected keyword argument 'language'" not in str(exc):
+            message = str(exc)
+            unexpected = re.search(r"unexpected keyword argument '([^']+)'", message)
+            if not unexpected:
                 raise
-            return func(*args)
+            bad_keyword = unexpected.group(1)
+            if bad_keyword == "language":
+                if kwargs:
+                    try:
+                        return func(*args, **kwargs)
+                    except TypeError as retry_exc:
+                        retry_unexpected = re.search(r"unexpected keyword argument '([^']+)'", str(retry_exc))
+                        if retry_unexpected and retry_unexpected.group(1) in kwargs:
+                            retry_kwargs = dict(kwargs)
+                            retry_kwargs.pop(retry_unexpected.group(1), None)
+                            return func(*args, **retry_kwargs)
+                        raise
+                return func(*args)
+            if bad_keyword in kwargs:
+                retry_kwargs = dict(kwargs)
+                retry_kwargs.pop(bad_keyword, None)
+                return Pipeline._call_with_optional_language(
+                    func,
+                    *args,
+                    language=language,
+                    **retry_kwargs,
+                )
+            raise
 
     def _default_mqtt_topic(self, connection_ref: str) -> str:
         return default_mqtt_topic_from_settings(self.settings, connection_ref)
@@ -1552,6 +1590,7 @@ class Pipeline:
         message: str,
         timeout_seconds: int | None = None,
         language: str = "de",
+        policy_confirmed: bool = False,
     ) -> SkillResult:
         return await self._ssh_runtime.execute_custom_ssh_command(
             skill_id=skill_id,
@@ -1561,6 +1600,7 @@ class Pipeline:
             message=message,
             timeout_seconds=timeout_seconds,
             language=language,
+            policy_confirmed=policy_confirmed,
         )
 
     async def _execute_custom_steps(self, row: dict[str, Any], message: str, language: str = "de") -> SkillResult:
@@ -1662,6 +1702,9 @@ class Pipeline:
     def _format_capability_execution_error(self, plan: ActionPlan, exc: Exception, *, language: str | None = None) -> str:
         return format_capability_execution_error(plan, exc, language=language)
 
+    def _capability_execution_error_code(self, plan: ActionPlan, exc: Exception) -> str:
+        return capability_execution_error_code(plan, exc)
+
     @staticmethod
     def _requested_connection_ref_is_soft_hint(value: str) -> bool:
         clean = str(value or "").strip().lower()
@@ -1679,6 +1722,7 @@ class Pipeline:
             "broker",
             "feed",
             "endpoint",
+            "http",
             "api",
         )
         serverish_tail_terms = (
@@ -1832,6 +1876,140 @@ class Pipeline:
             f"allowed={len(allowed_refs)} blocked={len(blocked)}"
         )
         return allowed_refs, blocked, detail_lines
+
+    @staticmethod
+    def _normalized_user_text(message: str) -> str:
+        text = f" {str(message or '').strip().lower()} "
+        return (
+            text.replace("\u00e4", "ae")
+            .replace("\u00f6", "oe")
+            .replace("\u00fc", "ue")
+            .replace("\u00df", "ss")
+        )
+
+    @staticmethod
+    def _explicit_single_probe_terms() -> tuple[str, ...]:
+        return (
+            "uptime",
+            "laufzeit",
+            "betriebszeit",
+            "load average",
+            "cpu",
+            "festplatte",
+            "festplatten",
+            "harddisk",
+            "hd",
+            "speicherplatz",
+            "disk",
+            "df -h",
+            "ram",
+            "arbeitsspeicher",
+            "free -h",
+        )
+
+    @classmethod
+    def _looks_like_broad_capacity_request(cls, message: str) -> bool:
+        text = cls._normalized_user_text(message)
+        capacity_terms = (
+            "kapazitaet",
+            "capacity",
+            "ressourcen",
+            "resources",
+            "reserve",
+            "genug platz",
+            "genuegend platz",
+        )
+        return any(term in text for term in capacity_terms) and not any(term in text for term in cls._explicit_single_probe_terms())
+
+    @classmethod
+    def _looks_like_broad_health_request(cls, message: str) -> bool:
+        text = cls._normalized_user_text(message)
+        health_terms = (
+            "wie geht es",
+            "wie gehts",
+            "wie geht ",
+            "server ok",
+            "servern ok",
+            "server gesund",
+            "servern gesund",
+            "server in ordnung",
+            "servern in ordnung",
+            "server okay",
+            "servern okay",
+            "servers ok",
+            "servers okay",
+            "server healthy",
+            "servers healthy",
+            "server alright",
+            "servers alright",
+            "server all good",
+            "servers all good",
+            "healthcheck",
+            "health check",
+            "server health",
+            "status meiner server",
+            "zustand meiner server",
+            "systemzustand",
+            "alles ok",
+            "alles in ordnung",
+            "laufen meine server",
+        )
+        return any(term in text for term in health_terms) and not any(term in text for term in cls._explicit_single_probe_terms())
+
+    def _ssh_command_allowed_for_all_refs(self, refs: list[str], command: str) -> bool:
+        clean_command = str(command or "").strip()
+        if not refs or not clean_command:
+            return False
+        for ref in refs:
+            row = payload_connection_row(self.settings, "ssh", ref)
+            if row is None:
+                return False
+            guardrail_ref = read_row_value(row, "guardrail_ref")
+            guardrail_profile = resolve_guardrail_profile(self.settings, guardrail_ref)
+            allow_commands = combined_ssh_allow_commands(
+                read_row_list(row, "allow_commands"),
+                ssh_guardrail_allow_terms(guardrail_profile),
+            )
+            if validate_ssh_readonly_policy(clean_command, allow_commands=allow_commands).action != "allow":
+                return False
+            if not evaluate_guardrail(
+                profile_ref=guardrail_ref,
+                profile=guardrail_profile,
+                kind="ssh_command",
+                text=clean_command,
+            ).allowed:
+                return False
+        return True
+
+    @staticmethod
+    def _capability_draft_target_intent(capability_draft: Any | None) -> str:
+        for note in list(getattr(capability_draft, "notes", []) or []):
+            clean = str(note or "").strip().lower()
+            if clean.startswith("target_intent:"):
+                return clean.split(":", 1)[1].strip()
+        return ""
+
+    def _adapt_multi_target_ssh_operator_command(
+        self,
+        refs: list[str],
+        command: str,
+        message: str,
+        capability_draft: Any | None = None,
+    ) -> tuple[str, str]:
+        clean_command = str(command or "").strip()
+        target_intent = self._capability_draft_target_intent(capability_draft)
+        if target_intent == "capacity_check" or self._looks_like_broad_capacity_request(message):
+            reason = "capacity"
+        elif target_intent == "health_check" or self._looks_like_broad_health_request(message):
+            reason = "health"
+        else:
+            return clean_command, ""
+        if clean_command.lower() not in {"", "uptime", "uptime -p"}:
+            return clean_command, ""
+        for candidate in ("uptime -p && df -h && free -h", "uptime && df -h && free -h", "df -h && free -h", "df -h", "free -h"):
+            if self._ssh_command_allowed_for_all_refs(refs, candidate):
+                return candidate, reason
+        return clean_command, ""
 
     @staticmethod
     def _multi_target_ssh_result_state(text: str) -> str:
@@ -2376,6 +2554,22 @@ class Pipeline:
         )
         if len(refs) < 2:
             return resolved
+        adapted_command, adaptation_reason = self._adapt_multi_target_ssh_operator_command(
+            refs,
+            command,
+            str(resolved.get("query", "") or ""),
+            capability_draft,
+        )
+        if adapted_command and adapted_command != command:
+            command = adapted_command
+            payload["content"] = command
+            if capability_draft is not None:
+                capability_draft = with_capability_draft_updates(capability_draft, content=command)
+            resolved = self._append_debug_detail_lines(
+                resolved,
+                f"Routing Debug: plural_target_scope {adaptation_reason}_command_adapted "
+                f"command={command}",
+            )
 
         missing_fields = [
             str(item or "").strip()
@@ -2466,14 +2660,16 @@ class Pipeline:
         capability_draft: Any | None,
         language: str | None = None,
     ) -> tuple[dict[str, Any], Any | None]:
+        draft_multi_target_scope = self._capability_draft_has_multi_target_scope(capability_draft)
         looks_like_plural_target = getattr(self._memory_assist, "_looks_like_plural_target_request", None)
-        if not callable(looks_like_plural_target):
+        if not callable(looks_like_plural_target) and not draft_multi_target_scope:
             return resolved, capability_draft
-        try:
-            if not bool(looks_like_plural_target(message, "ssh")):
+        if not draft_multi_target_scope:
+            try:
+                if not bool(looks_like_plural_target(message, "ssh")):
+                    return resolved, capability_draft
+            except Exception:
                 return resolved, capability_draft
-        except Exception:
-            return resolved, capability_draft
 
         connection_pools = self._unified_routing_connection_pools()
         ssh_connections = connection_pools.get("ssh", {})
@@ -3325,6 +3521,7 @@ class Pipeline:
                 line += f" confidence={confidence}"
             if bool(planner_decision.get("ask_user")):
                 line += " ask_user=true"
+            line += f" boundary={AGENTIC_BOUNDARY_DRAFT}"
             if debug_line and debug_line not in detail_lines:
                 detail_lines.append(debug_line)
             if line not in detail_lines:
@@ -3634,16 +3831,24 @@ class Pipeline:
         )
         resolved = self._append_debug_detail_lines(
             resolved,
-            "Routing Debug: capability_draft "
-            f"capability={str(getattr(working_draft, 'capability', '') or '').strip() or '-'} "
-            f"kind={effective_kind or '-'} "
-            f"explicit_ref={str(getattr(working_draft, 'explicit_connection_ref', '') or '').strip() or '-'} "
-            f"requested_ref={str(getattr(working_draft, 'requested_connection_ref', '') or '').strip() or '-'} "
-            f"path={str(getattr(working_draft, 'path', '') or '').strip() or '-'} "
-            f"content={str(getattr(working_draft, 'content', '') or '').strip() or '-'}",
-            "Routing Debug: candidate_pool "
-            f"effective_kind={effective_kind or '-'} "
-            f"candidates={', '.join(sorted(str(ref).strip() for ref in candidate_connections.keys() if str(ref).strip())) or '-'}",
+            agentic_context_debug_line(
+                "capability_draft",
+                {
+                    "capability": str(getattr(working_draft, "capability", "") or "").strip() or "-",
+                    "kind": effective_kind or "-",
+                    "explicit_ref": str(getattr(working_draft, "explicit_connection_ref", "") or "").strip() or "-",
+                    "requested_ref": str(getattr(working_draft, "requested_connection_ref", "") or "").strip() or "-",
+                    "path": str(getattr(working_draft, "path", "") or "").strip() or "-",
+                    "content": str(getattr(working_draft, "content", "") or "").strip() or "-",
+                },
+            ),
+            agentic_context_debug_line(
+                "candidate_pool",
+                {
+                    "effective_kind": effective_kind or "-",
+                    "candidates": ", ".join(sorted(str(ref).strip() for ref in candidate_connections.keys() if str(ref).strip())) or "-",
+                },
+            ),
         )
         if effective_llm_client is not None and not self._resolved_routing_chain_complete(resolved):
             fallback_resolved = await self._resolve_live_routing_chain(
@@ -3784,9 +3989,9 @@ class Pipeline:
             )
 
         requested_ref_hint = str(getattr(working_draft, "requested_connection_ref", "") or "").strip()
-        plural_target_scope = False
+        plural_target_scope = self._capability_draft_has_multi_target_scope(working_draft)
         looks_like_plural_target = getattr(self._memory_assist, "_looks_like_plural_target_request", None)
-        if callable(looks_like_plural_target) and not explicit_ref and not requested_ref_hint:
+        if callable(looks_like_plural_target) and not plural_target_scope and not explicit_ref and not requested_ref_hint:
             try:
                 plural_target_scope = bool(looks_like_plural_target(message, effective_kind))
             except Exception:
@@ -4335,6 +4540,213 @@ class Pipeline:
         )
         return await self._execute_custom_steps(row, message, language=language)
 
+    def _build_multi_target_ssh_execution_handler(self) -> MultiTargetSSHExecutionHandler:
+        def _remember_action(target_user_id: str, plan: ActionPlan) -> None:
+            if self.capability_context_store is None:
+                return
+            try:
+                self.capability_context_store.remember_action(
+                    target_user_id,
+                    capability=plan.capability,
+                    connection_kind=plan.connection_kind,
+                    connection_ref=plan.connection_ref,
+                    path=plan.path,
+                    content=plan.content,
+                )
+            except Exception:
+                pass
+
+        async def _execute_plan(plan: ActionPlan, target_language: str) -> str:
+            return await self._executor_registry.execute(plan, language=target_language)
+
+        async def _llm_summary(
+            message: str,
+            command: str,
+            records: list[dict[str, str]],
+            fallback_summary: str,
+            target_language: str,
+        ) -> tuple[str, str]:
+            return await self._multi_target_ssh_llm_operator_summary(
+                message=message,
+                command=command,
+                records=records,
+                fallback_summary=fallback_summary,
+                language=target_language,
+            )
+
+        return MultiTargetSSHExecutionHandler(
+            MultiTargetSSHExecutionHooks(
+                routing_debug_enabled=self._routing_debug_enabled,
+                payload_to_action_plan=self._payload_to_action_plan,
+                format_missing_message=lambda plan, target_language: self._format_capability_missing_message(
+                    plan,
+                    language=target_language,
+                ),
+                format_execution_error=lambda plan, exc, target_language: self._format_capability_execution_error(
+                    plan,
+                    exc,
+                    language=target_language,
+                ),
+                build_capability_detail_lines=lambda plan, target_language: self._build_capability_detail_lines(
+                    plan,
+                    language=target_language,
+                ),
+                text=_pipeline_text,
+                learning_service=self._agentic_execution_learning_service(),
+                payload_multi_target_refs=self._payload_multi_target_refs,
+                preflight_refs=self._preflight_multi_target_ssh_refs,
+                execute_plan=_execute_plan,
+                remember_action=_remember_action,
+                result_state=self._multi_target_ssh_result_state,
+                extract_free_disk_threshold_gib=self._extract_free_disk_threshold_gib,
+                extract_summary_free_disk_gib=self._extract_summary_free_disk_gib,
+                operator_summary=lambda target_language, target_count, records: self._multi_target_ssh_operator_summary(
+                    language=target_language,
+                    target_count=target_count,
+                    records=records,
+                ),
+                relevant_result_texts=self._multi_target_ssh_relevant_result_texts,
+                llm_operator_summary=_llm_summary,
+            )
+        )
+
+    def _agentic_execution_learning_service(self) -> AgenticExecutionLearningService:
+        def _schedule(
+            entry: dict[str, Any] | None,
+            target_user_id: str,
+            target_language: str,
+            detail_lines: list[str],
+            curate: bool,
+        ) -> None:
+            self._schedule_learned_recipe_followup(
+                entry=entry,
+                user_id=target_user_id,
+                language=target_language,
+                detail_lines=detail_lines,
+                curate=curate,
+            )
+
+        return AgenticExecutionLearningService(schedule_followup=_schedule)
+
+    def _build_rss_feed_execution_handler(self) -> RSSFeedExecutionHandler:
+        def _remember_action(target_user_id: str, plan: ActionPlan) -> None:
+            if self.capability_context_store is None:
+                return
+            try:
+                self.capability_context_store.remember_action(
+                    target_user_id,
+                    capability=plan.capability,
+                    connection_kind=plan.connection_kind,
+                    connection_ref=plan.connection_ref,
+                    path=plan.path,
+                    content=plan.content,
+                )
+            except Exception:
+                pass
+
+        async def _execute_plan(plan: ActionPlan, target_language: str) -> str:
+            return await self._executor_registry.execute(plan, language=target_language)
+
+        async def _rss_group_bundle_for_query(query: str, selected_ref: str) -> tuple[str, list[str]] | None:
+            return await self._rss_group_bundle_for_query(query, selected_ref=selected_ref)
+
+        def _rss_group_bundle_from_candidate_aliases(
+            query: str,
+            selected_ref: str,
+            candidate_rows: list[dict[str, Any]],
+        ) -> tuple[str, list[str]] | None:
+            return self._rss_group_bundle_from_candidate_aliases(
+                query,
+                selected_ref=selected_ref,
+                candidate_rows=candidate_rows,
+            )
+
+        async def _rss_digest_options_note_for_query(query: str, target_language: str) -> str:
+            return await self._rss_digest_options_note_for_query(query, language=target_language)
+
+        return RSSFeedExecutionHandler(
+            RSSFeedExecutionHooks(
+                routing_debug_enabled=self._routing_debug_enabled,
+                payload_to_action_plan=self._payload_to_action_plan,
+                format_missing_message=lambda plan, target_language: self._format_capability_missing_message(
+                    plan,
+                    language=target_language,
+                ),
+                format_execution_error=lambda plan, exc, target_language: self._format_capability_execution_error(
+                    plan,
+                    exc,
+                    language=target_language,
+                ),
+                build_capability_detail_lines=lambda plan, target_language: self._build_capability_detail_lines(
+                    plan,
+                    language=target_language,
+                ),
+                text=_pipeline_text,
+                learning_service=self._agentic_execution_learning_service(),
+                execute_plan=_execute_plan,
+                remember_action=_remember_action,
+                rss_group_bundle_for_query=_rss_group_bundle_for_query,
+                rss_group_bundle_from_candidate_aliases=_rss_group_bundle_from_candidate_aliases,
+                build_rss_group_bundle_note=self._build_rss_group_bundle_note,
+                rss_digest_options_note_for_query=_rss_digest_options_note_for_query,
+            )
+        )
+
+    def _agentic_execution_handlers(self) -> list[AgenticExecutionHandler]:
+        return [
+            self._build_multi_target_ssh_execution_handler(),
+            self._build_rss_feed_execution_handler(),
+        ]
+
+    def _agentic_execution_registry(self) -> AgenticExecutionRegistry:
+        return AgenticExecutionRegistry(self._agentic_execution_handlers())
+
+    async def _execute_content_access_if_available(
+        self,
+        plan: ActionPlan,
+        *,
+        user_id: str,
+        language: str,
+    ) -> tuple[str, list[str], list[str]] | None:
+        request = content_access_request_from_action_plan(
+            plan,
+            user_id=user_id,
+            language=language,
+        )
+        if request is None:
+            return None
+        result = await self._content_access_registry.access_first(request)
+        if result is None:
+            return None
+        detail_lines = list(result.detail_lines)
+        if self._routing_debug_enabled():
+            detail_lines.insert(
+                0,
+                "Routing Debug: agentic_content_access "
+                f"kind={request.connection_kind} capability={request.capability} "
+                f"planner_role={request.planner_role} sensitive_content={str(request.sensitive_content).lower()}",
+            )
+        return result.summary, detail_lines, list(result.errors)
+
+    async def _execute_rss_feed_action(
+        self,
+        *,
+        resolved: dict[str, Any],
+        payload: dict[str, Any],
+        action: dict[str, Any],
+        user_id: str,
+        language: str = "de",
+    ) -> tuple[list[str], str, list[str], list[str]]:
+        request = AgenticExecutionRequest(
+            resolved=resolved,
+            payload=payload,
+            action=action,
+            user_id=user_id,
+            language=language,
+        )
+        result = await self._build_rss_feed_execution_handler().execute(request)
+        return result.as_pipeline_tuple()
+
     async def _execute_multi_target_ssh_action(
         self,
         *,
@@ -4344,201 +4756,15 @@ class Pipeline:
         user_id: str,
         language: str = "de",
     ) -> tuple[list[str], str, list[str], list[str]]:
-        refs = self._payload_multi_target_refs(payload)
-        command = str(payload.get("content", "") or "").strip()
-        intents = ["capability:ssh_command"]
-        if not refs or not command:
-            plan = self._payload_to_action_plan(payload)
-            return intents, self._format_capability_missing_message(plan, language=language), [], []
-
-        detail_lines: list[str] = []
-        result_records: list[dict[str, str]] = []
-        errors: list[str] = []
-        success_count = 0
-        original_count = len(refs)
-        free_disk_threshold = self._extract_free_disk_threshold_gib(str(resolved.get("query", "") or ""))
-        allowed_refs, blocked_refs, preflight_detail_lines = self._preflight_multi_target_ssh_refs(refs, command)
-        if self._routing_debug_enabled():
-            detail_lines.extend(preflight_detail_lines)
-        for blocked in blocked_refs:
-            ref = str(blocked.get("ref", "") or "").strip()
-            reason = str(blocked.get("reason", "") or "").strip() or "blocked"
-            errors.append(f"capability_ssh_command_blocked:{ref}:{reason}")
-            blocked_text = _pipeline_text(
-                language,
-                "multi_target_ssh_blocked_target",
-                "{ref} blocked: {reason}.",
-                ref=ref,
-                reason=reason,
-            )
-            result_records.append({"ref": ref, "state": "blocked", "text": blocked_text})
-
-        for ref in allowed_refs:
-            plan = ActionPlan(
-                capability="ssh_command",
-                connection_kind="ssh",
-                connection_ref=ref,
-                content=command,
-                plan_class=str(payload.get("plan_class", "") or "").strip().lower(),
-                behavior_profile=str(payload.get("behavior_profile", "") or "").strip().lower(),
-                resolution_source="plural_target_scope",
-                notes=list(payload.get("notes", []) or []),
-            )
-            if self._routing_debug_enabled():
-                detail_lines.append(runtime_debug_line_for_plan(plan))
-            detail_lines.extend(self._build_capability_detail_lines(plan, language=language))
-            try:
-                result_text = await self._executor_registry.execute(plan, language=language)
-            except Exception as exc:
-                error_text = self._format_capability_execution_error(plan, exc, language=language)
-                errors.append(f"capability_ssh_command_error:{ref}:{type(exc).__name__}")
-                result_records.append({"ref": ref, "state": "error", "text": error_text})
-                continue
-
-            success_count += 1
-            clean_text = str(result_text or "").strip()
-            if clean_text:
-                state = self._multi_target_ssh_result_state(clean_text)
-                threshold_text = ""
-                free_disk = self._extract_summary_free_disk_gib(clean_text) if free_disk_threshold else None
-                if free_disk_threshold and free_disk:
-                    threshold_gib, threshold_label = free_disk_threshold
-                    free_gib, free_label = free_disk
-                    if free_gib < threshold_gib:
-                        state = "attention"
-                        threshold_text = _pipeline_text(
-                            language,
-                            "multi_target_ssh_disk_threshold_below",
-                            "`{ref}` below requested free-disk threshold {threshold}: {free} free.",
-                            ref=ref,
-                            threshold=threshold_label,
-                            free=free_label,
-                        )
-                    elif state == "ok":
-                        threshold_text = _pipeline_text(
-                            language,
-                            "multi_target_ssh_disk_threshold_ok",
-                            "`{ref}` has at least {threshold} free ({free}).",
-                            ref=ref,
-                            threshold=threshold_label,
-                            free=free_label,
-                        )
-                result_records.append(
-                    {
-                        "ref": ref,
-                        "state": state,
-                        "text": threshold_text or clean_text,
-                        "raw_text": clean_text,
-                    }
-                )
-
-            if self.capability_context_store is not None:
-                try:
-                    self.capability_context_store.remember_action(
-                        user_id,
-                        capability=plan.capability,
-                        connection_kind=plan.connection_kind,
-                        connection_ref=plan.connection_ref,
-                        path=plan.path,
-                        content=plan.content,
-                    )
-                except Exception:
-                    pass
-            try:
-                learned_entry = record_routed_action_success(
-                    action=action,
-                    plan=plan,
-                    result_text=clean_text,
-                    recorder=record_successful_learned_recipe_execution,
-                    user_message=str(resolved.get("query", "") or ""),
-                )
-                self._schedule_learned_recipe_followup(
-                    entry=learned_entry,
-                    user_id=user_id,
-                    language=language,
-                    detail_lines=detail_lines,
-                    curate=False,
-                )
-            except Exception:
-                pass
-
-        relevant_summary = " ".join(self._multi_target_ssh_relevant_result_texts(result_records)).strip()
-        if not result_records and not relevant_summary:
-            summary = _pipeline_text(
-                language,
-                "multi_target_ssh_no_output",
-                "No SSH target returned output.",
-            )
-        else:
-            threshold_records = [row for row in result_records if str(row.get("raw_text", "") or "").strip()] if free_disk_threshold else []
-            if free_disk_threshold and threshold_records:
-                threshold_gib, threshold_label = free_disk_threshold
-                threshold_ok = 0
-                threshold_below = 0
-                for row in threshold_records:
-                    parsed_free = self._extract_summary_free_disk_gib(str(row.get("raw_text", "") or ""))
-                    if not parsed_free:
-                        continue
-                    if parsed_free[0] >= threshold_gib:
-                        threshold_ok += 1
-                    else:
-                        threshold_below += 1
-                if threshold_below <= 0:
-                    operator_summary = _pipeline_text(
-                        language,
-                        "multi_target_ssh_disk_threshold_all_ok",
-                        "Overall: {ok_count}/{count} SSH targets have at least {threshold} free. No action required.",
-                        ok_count=threshold_ok,
-                        count=original_count,
-                        threshold=threshold_label,
-                    )
-                else:
-                    operator_summary = _pipeline_text(
-                        language,
-                        "multi_target_ssh_disk_threshold_mixed",
-                        "Overall: {ok_count}/{count} SSH targets have at least {threshold} free; {below_count} are below the requested threshold.",
-                        ok_count=threshold_ok,
-                        count=original_count,
-                        below_count=threshold_below,
-                        threshold=threshold_label,
-                    )
-            else:
-                operator_summary = self._multi_target_ssh_operator_summary(
-                    language=language,
-                    target_count=original_count,
-                    records=result_records,
-                )
-            summary = f"{operator_summary} {relevant_summary}".strip()
-            llm_summary, llm_debug_line = await self._multi_target_ssh_llm_operator_summary(
-                message=str(resolved.get("query", "") or ""),
-                command=command,
-                records=result_records,
-                fallback_summary=summary,
-                language=language,
-            )
-            if llm_summary:
-                summary = llm_summary
-            if llm_debug_line and self._routing_debug_enabled():
-                detail_lines.append(llm_debug_line)
-        if errors:
-            text = _pipeline_text(
-                language,
-                "multi_target_ssh_partial",
-                "Checked {count} SSH targets; {success_count} succeeded and {error_count} failed. {summary}",
-                count=original_count,
-                success_count=success_count,
-                error_count=len(errors),
-                summary=summary,
-            )
-        else:
-            text = _pipeline_text(
-                language,
-                "multi_target_ssh_success",
-                "Checked {count} SSH targets. {summary}",
-                count=original_count,
-                summary=summary,
-            )
-        return intents, text, detail_lines, errors
+        request = AgenticExecutionRequest(
+            resolved=resolved,
+            payload=payload,
+            action=action,
+            user_id=user_id,
+            language=language,
+        )
+        result = await self._build_multi_target_ssh_execution_handler().execute(request)
+        return result.as_pipeline_tuple()
 
     async def _execute_routed_action(
         self,
@@ -4594,44 +4820,27 @@ class Pipeline:
                 pass
             return intents, text, detail_lines, []
 
-        if (
-            normalize_capability(str(payload.get("capability", "") or "")) == "ssh_command"
-            and normalize_connection_kind(str(payload.get("connection_kind", "") or "")) == "ssh"
-            and self._payload_multi_target_refs(payload)
-        ):
-            return await self._execute_multi_target_ssh_action(
-                resolved=resolved,
-                payload=payload,
-                action=action,
-                user_id=user_id,
-                language=language,
-            )
+        execution_request = AgenticExecutionRequest(
+            resolved=resolved,
+            payload=payload,
+            action=action,
+            user_id=user_id,
+            language=language,
+        )
+        execution_result = await self._agentic_execution_registry().execute_first(execution_request)
+        if execution_result is not None:
+            return execution_result.as_pipeline_tuple()
 
         plan = self._payload_to_action_plan(payload)
-        if (
-            plan.capability == "feed_read"
-            and normalize_connection_kind(plan.connection_kind) == "rss"
-            and not str(getattr(plan, "requested_connection_ref", "") or "").strip()
-        ):
-            rss_bundle = await self._rss_group_bundle_for_query(
-                str(resolved.get("query", "") or ""),
-                selected_ref=plan.connection_ref,
-            )
-            if rss_bundle is None:
-                rss_bundle = self._rss_group_bundle_from_candidate_aliases(
-                    str(resolved.get("query", "") or ""),
-                    selected_ref=plan.connection_ref,
-                    candidate_rows=list(resolved.get("connection_candidates_debug", []) or []),
-                )
-            if rss_bundle is not None:
-                plan = replace(plan, notes=[*list(plan.notes or []), self._build_rss_group_bundle_note(*rss_bundle)])
-            digest_options_note = await self._rss_digest_options_note_for_query(
-                str(resolved.get("query", "") or ""),
-                language=language,
-            )
-            if digest_options_note:
-                plan = replace(plan, notes=[*list(plan.notes or []), digest_options_note])
         intents = [f"capability:{plan.capability}"] if str(plan.capability or "").strip() else ["chat"]
+        content_access_result = await self._execute_content_access_if_available(
+            plan,
+            user_id=user_id,
+            language=language,
+        )
+        if content_access_result is not None:
+            text, content_detail_lines, content_errors = content_access_result
+            return intents, text, content_detail_lines, content_errors
         detail_lines: list[str] = []
         if self._routing_debug_enabled():
             detail_lines.append(runtime_debug_line_for_plan(plan))
@@ -4640,7 +4849,7 @@ class Pipeline:
             result_text = await self._executor_registry.execute(plan, language=language)
         except Exception as exc:
             error_text = self._format_capability_execution_error(plan, exc, language=language)
-            error_code = f"capability_{plan.capability}_error:{type(exc).__name__}"
+            error_code = self._capability_execution_error_code(plan, exc)
             return intents, error_text, detail_lines, [error_code]
         if self.capability_context_store is not None and plan.is_complete:
             try:
@@ -4904,6 +5113,20 @@ class Pipeline:
             "safety_debug": {"decision": dict(pending_action.get("safety_decision", {}) or {})},
             "execution_debug": {"decision": dict(pending_action.get("execution_decision", {}) or {})},
         }
+        safety_decision = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        if str(safety_decision.get("action", "") or "").strip().lower() == "ask_user":
+            payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+            notes = [
+                str(item or "").strip()
+                for item in list(payload.get("notes", []) or [])
+                if str(item or "").strip()
+            ]
+            reason = str(safety_decision.get("reason", "") or "").strip()
+            marker = f"user_confirmed_policy:{reason}" if reason else "user_confirmed_policy"
+            if marker not in notes:
+                notes.append(marker)
+            payload["notes"] = notes
+            resolved["payload_debug"] = {"payload": payload}
         routing_detail_lines = self._resolved_routing_detail_lines(resolved)
         result_intents, result_text, detail_lines, errors = await self._execute_routed_action(
             resolved,
@@ -5175,7 +5398,7 @@ class Pipeline:
             result_text = await self._execute_ssh_command(plan, language=str(language or "de"))
         except Exception as exc:
             error_text = self._format_capability_execution_error(plan, exc, language=language)
-            error_code = f"capability_{plan.capability}_error:{type(exc).__name__}"
+            error_code = self._capability_execution_error_code(plan, exc)
             return intent, error_text, details, plan, [error_code]
         return intent, result_text, details, plan, []
 
@@ -5239,6 +5462,23 @@ class Pipeline:
             and not str(draft.explicit_connection_ref or "").strip()
             and not str(draft.requested_connection_ref or "").strip()
             and len(candidate_connections) == 1
+        ):
+            only_ref = next(iter(candidate_connections.keys()), "")
+            if str(only_ref or "").strip():
+                hints = replace(
+                    hints,
+                    connection_kind=draft.connection_kind,
+                    connection_ref=str(only_ref).strip(),
+                    source="default_single_profile",
+                )
+        if (
+            not hints.connection_ref
+            and not str(draft.explicit_connection_ref or "").strip()
+            and len(candidate_connections) == 1
+            and (
+                not str(draft.requested_connection_ref or "").strip()
+                or self._requested_connection_ref_is_soft_hint(str(draft.requested_connection_ref or ""))
+            )
         ):
             only_ref = next(iter(candidate_connections.keys()), "")
             if str(only_ref or "").strip():
@@ -5463,11 +5703,19 @@ class Pipeline:
         if self._routing_debug_enabled():
             details.append(runtime_debug_line_for_plan(plan))
         details.extend(self._build_capability_detail_lines(plan, language=language))
+        content_access_result = await self._execute_content_access_if_available(
+            plan,
+            user_id=user_id,
+            language=str(language or "de"),
+        )
+        if content_access_result is not None:
+            text, content_detail_lines, content_errors = content_access_result
+            return intent, text, details + content_detail_lines, plan, content_errors
         try:
             result_text = await self._executor_registry.execute(plan, language=str(language or "de"))
         except Exception as exc:
             error_text = self._format_capability_execution_error(plan, exc, language=language)
-            error_code = f"capability_{plan.capability}_error:{type(exc).__name__}"
+            error_code = self._capability_execution_error_code(plan, exc)
             return intent, error_text, details, plan, [error_code]
         return intent, result_text, details, plan, []
 
@@ -5555,6 +5803,134 @@ class Pipeline:
             available_connection_aliases_by_kind=connection_aliases_by_kind,
         )
 
+    def _should_try_llm_capability_draft(self, message: str, capability_draft: Any | None) -> bool:
+        if capability_draft is not None or self.llm_client is None:
+            return False
+        connection_pools = self._capability_routing_connection_pools()
+        return bool(connection_pools)
+
+    @staticmethod
+    def _pre_rag_gate_may_classify_action(decision: Any) -> bool:
+        intents = [str(intent or "").strip() for intent in list(getattr(decision, "intents", []) or [])]
+        if intents in (["chat"], ["memory_recall"], ["memory_store"]):
+            return True
+        return False
+
+    async def _classify_capability_draft_with_llm(
+        self,
+        message: str,
+        *,
+        language: str | None = None,
+    ) -> Any | None:
+        if self.llm_client is None:
+            return None
+        connection_pools = self._capability_routing_connection_pools()
+        configured_kinds = sorted(str(kind).strip().lower() for kind, rows in connection_pools.items() if rows)
+        allowed_pairs = sorted(
+            {
+                (normalize_connection_kind(kind), normalize_capability(capability))
+                for kind, capability in connection_action_executor_bindings()
+                if normalize_connection_kind(kind) in configured_kinds
+            }
+        )
+        if not allowed_pairs:
+            return None
+        prompt_payload = {
+            "message": str(message or ""),
+            "language": str(language or ""),
+            "configured_connection_kinds": configured_kinds,
+            "allowed_capability_bindings": [
+                {"connection_kind": kind, "capability": capability}
+                for kind, capability in allowed_pairs
+            ],
+            "contract": {
+                "return_no_action_when": "The user is asking general knowledge, memory recall, document QA, or non-operational chat.",
+                "return_action_when": "The user asks ARIA to inspect/read/send/check/list/run something through a configured connection kind.",
+                "target_scope": "Use multi_target only when the user clearly refers to several/all targets.",
+                "target_intent": "Use health_check for broad server fitness/health/status phrasing, capacity_check for broad resource/capacity questions, otherwise leave empty.",
+                "content": "For ssh_command, include only a safe read-only command when obvious; otherwise leave content empty for the SSH resolver.",
+            },
+            "examples": [
+                {
+                    "message": "wie fit sind meine server?",
+                    "action": "action",
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "target_scope": "multi_target",
+                    "target_intent": "health_check",
+                    "content": "uptime",
+                },
+                {
+                    "message": "are my servers still looking good?",
+                    "action": "action",
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "target_scope": "multi_target",
+                    "target_intent": "health_check",
+                    "content": "uptime",
+                },
+                {
+                    "message": "haben meine server genug reserve?",
+                    "action": "action",
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "target_scope": "multi_target",
+                    "target_intent": "capacity_check",
+                    "content": "uptime",
+                },
+            ],
+        }
+        try:
+            response = await self.llm_client.chat(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You classify whether a user message is a bounded ARIA connection action. "
+                            "Return one JSON object only with: action, capability, connection_kind, "
+                            "target_scope, target_intent, content, confidence, reason. Never invent connection kinds or capabilities."
+                        ),
+                    },
+                    {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
+                ],
+                operation="capability_draft_decision",
+            )
+        except Exception:
+            return None
+        payload = self._extract_json_object(getattr(response, "content", "") or "")
+        if not payload:
+            return None
+        if str(payload.get("action", "") or "").strip().lower() not in {"action", "capability_action"}:
+            return None
+        capability = normalize_capability(str(payload.get("capability", "") or ""))
+        connection_kind = normalize_connection_kind(str(payload.get("connection_kind", "") or ""))
+        if (connection_kind, capability) not in set(allowed_pairs):
+            return None
+        confidence_raw = str(payload.get("confidence", "") or "").strip().lower()
+        confidence = 0.0
+        if confidence_raw in {"high", "medium"}:
+            confidence = 0.82 if confidence_raw == "high" else 0.66
+        else:
+            try:
+                confidence = float(payload.get("confidence") or 0.0)
+            except (TypeError, ValueError):
+                confidence = 0.0
+        if confidence < 0.55:
+            return None
+        notes = ["capability_draft_source:llm"]
+        if str(payload.get("target_scope", "") or "").strip().lower() == "multi_target":
+            notes.append("target_scope:multi_target")
+        target_intent = str(payload.get("target_intent", "") or "").strip().lower()
+        if target_intent in {"health_check", "capacity_check"}:
+            notes.append(f"target_intent:{target_intent}")
+        return CapabilityDraft(
+            capability=capability,
+            connection_kind=connection_kind,
+            content=str(payload.get("content", "") or "").strip(),
+            confidence=confidence,
+            notes=notes,
+        )
+
     def _should_try_unified_routing(
         self,
         message: str,
@@ -5613,6 +5989,8 @@ class Pipeline:
         content = str(getattr(capability_draft, "content", "") or "").strip()
         if capability != "ssh_command" or kind != "ssh":
             return False
+        if self._capability_draft_has_multi_target_scope(capability_draft):
+            return True
         if content == "df -h":
             return True
         looks_like_plural_target = getattr(self._memory_assist, "_looks_like_plural_target_request", None)
@@ -5622,6 +6000,11 @@ class Pipeline:
             except Exception:
                 return False
         return False
+
+    @staticmethod
+    def _capability_draft_has_multi_target_scope(capability_draft: Any | None) -> bool:
+        notes = [str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])]
+        return "target_scope:multi_target" in notes
 
     def _pre_rag_gate_debug_line(
         self,
@@ -5690,7 +6073,7 @@ class Pipeline:
         runtime_recipes: list[dict[str, Any]],
         language: str | None = None,
     ) -> tuple[PipelineResult | None, list[str], Any | None]:
-        if decision.intents not in (["chat"], ["memory_recall"]):
+        if not self._pre_rag_gate_may_classify_action(decision):
             return None, [], None
 
         capability_message = self._rewrite_calendar_followup_message(message, user_id)
@@ -5701,6 +6084,16 @@ class Pipeline:
         )
         capability_draft = self._classify_capability_draft(capability_message, language=language)
         custom_intents = self._match_stored_recipe_intents(message, runtime_recipes)
+        if (
+            not custom_intents
+            and self._should_try_llm_capability_draft(capability_message, capability_draft)
+        ):
+            llm_capability_draft = await self._classify_capability_draft_with_llm(
+                capability_message,
+                language=language,
+            )
+            if llm_capability_draft is not None:
+                capability_draft = llm_capability_draft
         if self._should_suppress_recipe_candidates_for_capability_draft(capability_draft, capability_message):
             custom_intents = []
 

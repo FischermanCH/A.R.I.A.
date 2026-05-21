@@ -115,10 +115,13 @@ def learned_recipe_scope(record: dict[str, Any], *, fallback_connection_kind: st
             if str(item or "").strip()
         ]
         learning_origin = str(scope.get("learning_origin", "") or "").strip()
+        target_scope = str(scope.get("target_scope", "") or "").strip()
         if connection_refs:
             normalized["connection_refs"] = list(dict.fromkeys(connection_refs))
         if learning_origin:
             normalized["learning_origin"] = learning_origin
+        if target_scope:
+            normalized["target_scope"] = target_scope
     return normalized
 
 

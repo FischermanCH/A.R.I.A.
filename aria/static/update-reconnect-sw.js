@@ -1,4 +1,4 @@
-const ARIA_UPDATE_SW_VERSION = "2026-05-15-alpha266";
+const ARIA_UPDATE_SW_VERSION = "2026-05-16-alpha269";
 const ARIA_RECONNECT_LABELS = __ARIA_RECONNECT_LABELS__;
 
 self.addEventListener("install", () => {
@@ -31,7 +31,7 @@ function reconnectShell(targetUrl) {
 <html lang="${escapeHtml(labels.language || "de")}">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${escapeHtml(labels.title || "ARIA")}</title>
   <style>
     :root { color-scheme: dark; }

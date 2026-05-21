@@ -965,6 +965,7 @@ def _build_operator_guardrail_meta(
                 error=int(preflight_meta.get("error_count", 0) or 0),
             ),
             detail=str(preflight_meta.get("checked_at", "") or ""),
+            url="/stats#startup-preflight",
         ),
         _guardrail_row(
             key="health",
@@ -978,6 +979,7 @@ def _build_operator_guardrail_meta(
                 warn=int(health_meta.get("warn_count", 0) or 0),
                 error=int(health_meta.get("error_count", 0) or 0),
             ),
+            url="/stats#runtime-health",
         ),
         _guardrail_row(
             key="updates",
@@ -1949,10 +1951,12 @@ def register_stats_routes(
             return RedirectResponse(f"/stats?reset_error={quote_plus(error)}", status_code=303)
 
         pipeline = get_pipeline()
-        removed = await pipeline.token_tracker.clear_log()
+        removed = await pipeline.token_tracker.clear_log(archive=True)
         _clear_runtime_stats_cache(_project_root())
+        archive_name = str(removed.get("archive_name", "") or "")
+        archive_qs = f"&reset_archive={quote_plus(archive_name)}" if archive_name else ""
         return RedirectResponse(
-            f"/stats?reset_done={int(removed.get('removed', 0) or 0)}",
+            f"/stats?reset_done={int(removed.get('removed', 0) or 0)}{archive_qs}",
             status_code=303,
         )
 
@@ -1960,6 +1964,7 @@ def register_stats_routes(
     async def stats_page(
         request: Request,
         reset_done: int | None = None,
+        reset_archive: str = "",
         reset_error: str = "",
     ) -> HTMLResponse:
         settings = get_settings()
@@ -2049,6 +2054,7 @@ def register_stats_routes(
                 'activities': activity_data,
                 'connection_status_rows': connection_status_rows,
                 'reset_done': reset_done,
+                'reset_archive': reset_archive,
                 'reset_error': reset_error,
             },
         )

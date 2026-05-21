@@ -51,6 +51,12 @@ def test_router_delete_on_server_does_not_map_to_memory_forget() -> None:
     assert decision.intents == ["chat"]
 
 
+def test_router_webhook_payload_delete_does_not_map_to_memory_forget() -> None:
+    router = KeywordRouter(RoutingConfig())
+    decision = router.classify("sende an webhook : delete user record")
+    assert decision.intents == ["chat"]
+
+
 def test_router_recipe_status_intent() -> None:
     router = KeywordRouter(RoutingConfig())
     decision = router.classify("Kannst du deine Skills ueberpruefen und mir sagen was aktiv ist?")
@@ -100,6 +106,13 @@ def test_router_english_recipe_status_intent() -> None:
 def test_router_speicherplatz_is_not_memory_store() -> None:
     router = KeywordRouter(RoutingConfig())
     decision = router.classify("hab ich noch genug speicherplatz auf meinen servern ?")
+
+    assert decision.intents == ["chat"]
+
+
+def test_router_speicher_frei_disk_question_is_not_memory_store() -> None:
+    router = KeywordRouter(RoutingConfig())
+    decision = router.classify("hab ich auf all meinen server mehr als 10gb harddisk speicher frei ?")
 
     assert decision.intents == ["chat"]
 

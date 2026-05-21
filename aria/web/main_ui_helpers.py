@@ -148,10 +148,25 @@ def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> 
 
     if recipe_errors:
         text = " ".join(recipe_errors).lower()
+        if "external_http_api_status" in text:
+            for intent in intents:
+                if not str(intent).startswith("capability:"):
+                    continue
+                badge = capability_badge(str(intent).split(":", 1)[1])
+                if badge:
+                    return badge
         if "memory_unavailable" in text:
             return "⚠", "memory_unavailable"
         if "embedding_failed" in text:
             return "⚠", "embedding_failed"
+        if "capability_" in text:
+            for intent in intents:
+                if not str(intent).startswith("capability:"):
+                    continue
+                badge = capability_badge(str(intent).split(":", 1)[1])
+                if badge:
+                    return badge
+            return "⚠", "capability_error"
         return "⚠", "memory_error"
     if "memory_recall" in intents:
         return "🧠", "memory_recall"
@@ -179,6 +194,10 @@ def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> 
 
 def friendly_error_text(recipe_errors: list[str] | None, *, language: str = "de") -> str:
     text = " ".join(recipe_errors or []).lower()
+    if "external_http_api_status" in text:
+        return ""
+    if "_guardrail_blocked" in text:
+        return ""
     if "memory_unavailable" in text:
         return _main_ui_text(language, "memory_unavailable", "Memory service is unavailable. I will answer without stored knowledge.")
     if "embedding_failed" in text:
@@ -188,6 +207,18 @@ def friendly_error_text(recipe_errors: list[str] | None, *, language: str = "de"
     if "capability_" in text:
         return _main_ui_text(language, "capability_error", "The action could not be completed. Please check profile, target, and access rights.")
     return ""
+
+
+def should_alert_recipe_errors(recipe_errors: list[str] | None) -> bool:
+    cleaned = [str(item or "").strip().lower() for item in list(recipe_errors or []) if str(item or "").strip()]
+    if not cleaned:
+        return False
+    quiet_prefixes = ("external_http_api_status",)
+    quiet_markers = ("_guardrail_blocked",)
+    return any(
+        not item.startswith(quiet_prefixes) and not any(marker in item for marker in quiet_markers)
+        for item in cleaned
+    )
 
 
 def discord_alert_error_lines(recipe_errors: list[str] | None, *, limit: int = 4) -> str:

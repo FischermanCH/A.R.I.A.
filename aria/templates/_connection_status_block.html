@@ -1,14 +1,19 @@
-<section class="config-card">
-  <div class="connection-status-stack">
-    <div class="connection-status-head">
-      <h2>{{ tr(request, connection_status_block.title_key, connection_status_block.title) }}</h2>
-      <small>{{ tr(request, connection_status_block.hint_key, connection_status_block.hint) }}</small>
-    </div>
+<details class="config-card config-section-details connection-status-details" open>
+  <summary class="config-section-summary">
+    <span class="config-section-heading">
+      <span class="config-section-title-row">
+        <h3>{{ tr(request, connection_status_block.title_key, connection_status_block.title) }}</h3>
+        {% if connection_status_block.rows %}<span class="config-section-count">{{ connection_status_block.rows|length }}</span>{% endif %}
+      </span>
+      <span class="config-section-desc">{{ tr(request, connection_status_block.hint_key, connection_status_block.hint) }}</span>
+    </span>
+  </summary>
+  <div class="config-section-content connection-status-stack">
     {% if connection_status_block.rows %}
     <div class="connection-status-grid">
       {% for item in connection_status_block.rows %}
       {% if item.edit_url %}
-      <a href="{{ item.edit_url }}" class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}">
+      <a href="{{ item.edit_url }}" class="connection-test-card connection-test-card-link connection-profile-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}">
       {% else %}
       <article class="connection-test-card status-{{ item.status }}{% if item.selected %} current-profile{% endif %}">
       {% endif %}
@@ -17,6 +22,7 @@
         {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
         {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request, 'config_conn.last_success', 'Last success') }}: {{ item.last_success_at|replace('T', ' ') }}</small>{% endif %}
         <small>{{ item.message }}</small>
+        {% if item.edit_url %}<span class="button-link subtle-link connection-profile-edit-link ui-action-link">{{ tr(request, 'config_conn.edit_profile', 'Editieren') }}</span>{% endif %}
       {% if item.edit_url %}
       </a>
       {% else %}
@@ -28,4 +34,4 @@
     <div class="skill-summary"><span>{{ tr(request, connection_status_block.empty_key, connection_status_block.empty_text) }}</span></div>
     {% endif %}
   </div>
-</section>
+</details>

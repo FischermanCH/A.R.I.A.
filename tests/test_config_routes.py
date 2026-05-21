@@ -1,6 +1,4 @@
-import json
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -939,6 +937,78 @@ def test_routing_index_test_json_route(monkeypatch, tmp_path: Path) -> None:
     assert response.json()["preferred_kind"] == "ssh"
 
 
+def test_security_guardrail_ai_draft_renders_review_form(tmp_path: Path) -> None:
+    class _FakeLLM:
+        async def chat(self, *_args, **_kwargs):
+            return SimpleNamespace(
+                content=(
+                    '{"ref":"no-sudo-linux","kind":"ssh_command","title":"No sudo on Linux",'
+                    '"description":"Blocks sudo command execution on SSH targets.",'
+                    '"allow_terms":[],"deny_terms":["sudo","su"],'
+                    '"scope_summary":"Use on Ubuntu SSH profiles.",'
+                    '"review_notes":["Confirm that privileged maintenance should be blocked."],'
+                    '"examples":[{"text":"sudo systemctl restart nginx","expected":"block","reason":"sudo is denied"}],'
+                    '"confidence":0.9}'
+                )
+            )
+
+    client = _build_profile_config_app(tmp_path)
+    client.app.state.test_pipeline.llm_client = _FakeLLM()
+
+    response = client.post(
+        "/config/security/guardrails/draft",
+        data={
+            "draft_kind": "ssh_command",
+            "draft_connection_kind": "ssh",
+            "draft_instruction": "Ich möchte keine sudo Befehle auf Ubuntu Linux.",
+            "return_to": "/config/access",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "KI-Vorschlag" in response.text
+    assert "guardrail-draft-working" in response.text
+    assert "guardrail-draft-working-line" in response.text
+    assert "KI-Vorschlag wird angefragt" in response.text
+    assert "no-sudo-linux" in response.text
+    assert "sudo" in response.text
+    assert "Geprüften Vorschlag als Guardrail speichern" in response.text
+
+
+def test_security_guardrail_test_mode_evaluates_saved_guardrail(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("security", {})
+    raw["security"]["guardrails"] = {
+        "no-sudo": {
+            "kind": "ssh_command",
+            "title": "No sudo",
+            "description": "Blocks privileged commands",
+            "allow_terms": ["uptime", "df -h"],
+            "deny_terms": ["sudo", "su"],
+        }
+    }
+    _write_profile_yaml(config_path, raw)
+
+    response = client.post(
+        "/config/security/guardrails/test",
+        data={
+            "guardrail_ref": "no-sudo",
+            "kind": "ssh_command",
+            "test_text": "sudo systemctl restart nginx",
+            "return_to": "/config/access",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Guardrail testen" in response.text
+    assert "Testergebnis" in response.text
+    assert "block" in response.text
+    assert "Deny wording matched" in response.text
+    assert "sudo systemctl restart nginx" in response.text
+
+
 def test_llm_test_route_reports_active_profile_result(monkeypatch, tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
@@ -1093,11 +1163,176 @@ def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: 
     assert 'data-connection-meta-source-fields="service_url"' in response.text
     assert 'name="create_matching_sftp"' in response.text
     assert 'id="create-new"' in nav_response.text
-    assert 'connection-mode-create" hidden' not in nav_response.text
+    assert '<details id="create-new"' in nav_response.text
+
+
+def test_ssh_page_profile_cards_link_to_edit_mode_and_expose_guardrail_select(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})
+    raw["connections"]["ssh"] = {
+        "pihole1": {
+            "title": "Pi-hole 1",
+            "host": "pihole1.local",
+            "user": "admin",
+            "port": 22,
+            "timeout_seconds": 10,
+            "guardrail_ref": "no-sudo",
+        }
+    }
+    raw.setdefault("security", {})
+    raw["security"]["guardrails"] = {
+        "no-sudo": {
+            "kind": "ssh_command",
+            "title": "No sudo",
+            "description": "Blocks sudo",
+            "allow_terms": ["uptime"],
+            "deny_terms": ["sudo"],
+        }
+    }
+    _write_profile_yaml(config_path, raw)
+
+    response = client.get("/config/connections/ssh?ref=pihole1&return_to=%2Fconnections%2Ftypes")
+
+    assert response.status_code == 200
+    assert "connection-profile-card" in response.text
+    assert "/config/connections/ssh?ref=pihole1#manage-existing" in response.text
+    assert "Editieren" in response.text
+    assert "Bestehendes Profil bearbeiten" in response.text
+    assert 'id="guardrail_ref_edit"' in response.text
+    assert 'value="no-sudo" selected' in response.text
+    assert "/config/connections/ssh?ref=pihole1&amp;return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" not in response.text
+    assert "/config/connections/ssh?ref=pihole1&amp;return_to=%2Fconnections%2Ftypes&amp;mode=edit#manage-existing" not in response.text
+    assert "/config/connections/ssh?return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" in response.text
 
 
 @pytest.mark.parametrize(
-    ("kind", "selected_query", "profiles", "visible_refs"),
+    ("kind", "path", "ref_param", "connection_ref", "profile", "field_id"),
+    [
+        (
+            "sftp",
+            "/config/connections/sftp",
+            "sftp_ref",
+            "files",
+            {"host": "files.local", "user": "aria", "port": 22, "timeout_seconds": 10, "root_path": "/", "guardrail_ref": "file-safe"},
+            "guardrail_ref_sftp_edit",
+        ),
+        (
+            "smb",
+            "/config/connections/smb",
+            "smb_ref",
+            "share",
+            {"host": "nas.local", "share": "docs", "user": "aria", "port": 445, "timeout_seconds": 10, "root_path": "/", "guardrail_ref": "file-safe"},
+            "guardrail_ref_smb_edit",
+        ),
+        (
+            "webhook",
+            "/config/connections/webhook",
+            "webhook_ref",
+            "hook",
+            {"timeout_seconds": 10, "method": "POST", "content_type": "application/json", "guardrail_ref": "http-safe"},
+            "guardrail_ref_webhook_edit",
+        ),
+        (
+            "http_api",
+            "/config/connections/http-api",
+            "http_api_ref",
+            "api",
+            {"base_url": "https://api.example.test", "health_path": "/", "method": "GET", "timeout_seconds": 10, "guardrail_ref": "http-safe"},
+            "guardrail_ref_http_api_edit",
+        ),
+    ],
+)
+def test_guardrail_capable_connection_pages_use_shared_guardrail_selector(
+    tmp_path: Path,
+    kind: str,
+    path: str,
+    ref_param: str,
+    connection_ref: str,
+    profile: dict[str, object],
+    field_id: str,
+) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})
+    raw["connections"][kind] = {connection_ref: profile}
+    raw.setdefault("security", {})
+    raw["security"]["guardrails"] = {
+        "file-safe": {
+            "kind": "file_access",
+            "title": "File safe",
+            "description": "File boundary",
+            "allow_terms": ["/"],
+            "deny_terms": [".."],
+        },
+        "http-safe": {
+            "kind": "http_request",
+            "title": "HTTP safe",
+            "description": "HTTP boundary",
+            "allow_terms": ["https://"],
+            "deny_terms": ["localhost"],
+        },
+    }
+    _write_profile_yaml(config_path, raw)
+
+    response = client.get(f"{path}?{ref_param}={connection_ref}&return_to=%2Fconnections%2Ftypes")
+
+    assert response.status_code == 200
+    assert f'id="{field_id}"' in response.text
+    assert 'name="guardrail_ref"' in response.text
+    assert "Aktives Guardrail" in response.text or "Attached guardrail" in response.text
+    assert 'selected' in response.text
+
+
+def test_file_guardrail_selector_filters_connection_kind_scope(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+    config_path = tmp_path / "config" / "config.yaml"
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    raw.setdefault("connections", {})
+    raw["connections"]["smb"] = {
+        "share": {
+            "host": "nas.local",
+            "share": "docs",
+            "user": "aria",
+            "port": 445,
+            "timeout_seconds": 10,
+            "root_path": "/",
+        }
+    }
+    raw.setdefault("security", {})
+    raw["security"]["guardrails"] = {
+        "sftp-only": {
+            "kind": "file_access",
+            "connection_kinds": ["sftp"],
+            "title": "SFTP only",
+            "description": "SFTP boundary",
+            "allow_terms": ["read"],
+            "deny_terms": ["write"],
+        },
+        "smb-only": {
+            "kind": "file_access",
+            "connection_kinds": ["smb"],
+            "title": "SMB only",
+            "description": "SMB boundary",
+            "allow_terms": ["read"],
+            "deny_terms": ["write"],
+        },
+    }
+    _write_profile_yaml(config_path, raw)
+
+    response = client.get("/config/connections/smb?smb_ref=share&return_to=%2Fconnections%2Ftypes")
+
+    assert response.status_code == 200
+    assert "SMB only" in response.text
+    assert "smb-only" in response.text
+    assert "SFTP only" not in response.text
+    assert "sftp-only" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "selected_query", "profiles", "visible_refs", "edit_fragment"),
     [
         (
             "ssh",
@@ -1113,6 +1348,7 @@ def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: 
                 for idx in range(1, 7)
             },
             ("srv-1", "srv-6"),
+            "/config/connections/ssh?ref=srv-1#manage-existing",
         ),
         (
             "sftp",
@@ -1129,6 +1365,7 @@ def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: 
                 for idx in range(1, 7)
             },
             ("files-1", "files-6"),
+            "/config/connections/sftp?sftp_ref=files-1#manage-existing",
         ),
         (
             "smb",
@@ -1145,6 +1382,7 @@ def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: 
                 for idx in range(1, 7)
             },
             ("share-1", "share-6"),
+            "/config/connections/smb?smb_ref=share-1#manage-existing",
         ),
     ],
 )
@@ -1154,6 +1392,7 @@ def test_connection_page_renders_existing_profiles_directly(
     selected_query: str,
     profiles: dict[str, dict[str, object]],
     visible_refs: tuple[str, str],
+    edit_fragment: str,
 ) -> None:
     client = _build_profile_config_app(tmp_path)
     raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
@@ -1169,6 +1408,9 @@ def test_connection_page_renders_existing_profiles_directly(
     assert 'connection-status-summary' not in response.text
     assert visible_refs[0] in response.text
     assert visible_refs[1] in response.text
+    assert "connection-profile-card" in response.text
+    assert "Editieren" in response.text
+    assert edit_fragment in response.text
 
 
 def test_connection_page_without_profiles_opens_create_mode_from_type_link(tmp_path: Path) -> None:
@@ -1690,178 +1932,71 @@ def test_google_calendar_connection_page_renders(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Google Calendar" in response.text
     assert "/config/connections/google-calendar/save" in response.text
-    assert "/config/connections/google-calendar/oauth/start" in response.text
-    assert "Mit Google verbinden" in response.text
-    assert "/config/connections/google-calendar/oauth/callback" in response.text
+    assert "/config/connections/google-calendar/oauth/start" not in response.text
+    assert "/config/connections/google-calendar/oauth/device/start" not in response.text
+    assert "/config/connections/google-calendar/oauth/callback" not in response.text
+    assert "Mit Google per Code verbinden" not in response.text
+    assert "iCal" in response.text
+    assert 'name="ical_url"' in response.text
+    assert "Geheime Adresse im iCal-Format" in response.text or "Secret address in iCal format" in response.text
     assert 'name="refresh_token"' not in response.text
-    assert 'name="oauth_client_file"' in response.text
-    assert "OAuth-Client-JSON" in response.text or "OAuth Client JSON" in response.text
-    assert "https://console.cloud.google.com/auth/clients" in response.text
-    assert "Der manuelle Refresh-Token-Weg ist entfernt" in response.text
-    assert "Google-Projekt einmal vorbereiten" in response.text
-    assert "In ARIA verbinden" in response.text
-    assert "Reconnect-Tipp" in response.text or "Reconnect tip" in response.text
+    assert 'name="client_id"' not in response.text
+    assert 'name="client_secret"' not in response.text
+    assert 'name="oauth_client_file"' not in response.text
+    assert "https://console.cloud.google.com/auth/clients" not in response.text
     assert "Recommended flow" not in response.text
     assert "Empfohlener Ablauf" not in response.text
     assert "OAuth-Branding einrichten" not in response.text
     assert "Dich selbst als Testnutzer eintragen" not in response.text
 
 
-def test_google_calendar_oauth_start_redirects_to_google_and_persists_profile(tmp_path: Path) -> None:
-    client = _build_profile_config_app(tmp_path)
-
-    response = client.post(
-        "/config/connections/google-calendar/oauth/start",
-        data={
-            "connection_ref": "primary-calendar",
-            "connection_title": "Mein Kalender",
-            "calendar_id": "primary",
-            "client_id": "123.apps.googleusercontent.com",
-            "client_secret": "top-secret",
-            "timeout_seconds": "10",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    location = response.headers["location"]
-    parsed = urlparse(location)
-    assert parsed.netloc == "accounts.google.com"
-    assert parsed.path.endswith("/o/oauth2/v2/auth")
-    params = parse_qs(parsed.query)
-    assert params["client_id"] == ["123.apps.googleusercontent.com"]
-    assert params["response_type"] == ["code"]
-    assert params["access_type"] == ["offline"]
-    assert params["prompt"] == ["consent"]
-    assert params["scope"] == ["https://www.googleapis.com/auth/calendar.readonly"]
-    assert params["redirect_uri"] == ["http://testserver/config/connections/google-calendar/oauth/callback"]
-    assert params["state"][0]
-
-    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
-    row = raw["connections"]["google_calendar"]["primary-calendar"]
-    assert row["client_id"] == "123.apps.googleusercontent.com"
-    assert row["calendar_id"] == "primary"
-
-
-def test_google_calendar_oauth_start_can_read_client_credentials_from_uploaded_json(tmp_path: Path) -> None:
-    client = _build_profile_config_app(tmp_path)
-
-    response = client.post(
-        "/config/connections/google-calendar/oauth/start",
-        data={
-            "connection_ref": "primary-calendar",
-            "connection_title": "Mein Kalender",
-            "calendar_id": "primary",
-            "timeout_seconds": "10",
-        },
-        files={
-            "oauth_client_file": (
-                "google-client.json",
-                json.dumps(
-                    {
-                        "web": {
-                            "client_id": "json-client.apps.googleusercontent.com",
-                            "client_secret": "json-top-secret",
-                        }
-                    }
-                ).encode("utf-8"),
-                "application/json",
-            )
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    params = parse_qs(urlparse(response.headers["location"]).query)
-    assert params["client_id"] == ["json-client.apps.googleusercontent.com"]
-
-    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
-    row = raw["connections"]["google_calendar"]["primary-calendar"]
-    assert row["client_id"] == "json-client.apps.googleusercontent.com"
-
-
-def test_google_calendar_oauth_callback_stores_refresh_token_and_redirects_success(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
+def test_google_calendar_save_persists_ical_profile_without_leaking_secret(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         config_routes_mod,
         "build_connection_status_row",
-        lambda *args, **kwargs: {"status": "ok", "message": "Google Calendar ok"},
+        lambda *args, **kwargs: {"status": "ok", "message": "Google Calendar iCal ok"},
     )
     client = _build_profile_config_app(tmp_path)
 
-    start = client.post(
-        "/config/connections/google-calendar/oauth/start",
+    response = client.post(
+        "/config/connections/google-calendar/save",
         data={
             "connection_ref": "primary-calendar",
             "connection_title": "Mein Kalender",
-            "calendar_id": "primary",
-            "client_id": "123.apps.googleusercontent.com",
-            "client_secret": "top-secret",
+            "ical_url": "https://calendar.google.com/calendar/ical/private/basic.ics",
             "timeout_seconds": "10",
         },
-        follow_redirects=False,
-    )
-    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
-
-    class _FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self) -> bytes:
-            return json.dumps({"access_token": "ya29.access", "refresh_token": "refresh-123"}).encode("utf-8")
-
-    monkeypatch.setattr(
-        "aria.web.connection_mutation_handlers.urlopen",
-        lambda request, timeout=10: _FakeResponse(),  # noqa: ARG005
-    )
-
-    response = client.get(
-        f"/config/connections/google-calendar/oauth/callback?state={state}&code=test-code",
         follow_redirects=False,
     )
 
     assert response.status_code == 303
     assert "google_calendar_test_status=ok" in response.headers["location"]
-    assert "google_calendar_ref=primary-calendar" in response.headers["location"]
+    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
+    row = raw["connections"]["google_calendar"]["primary-calendar"]
+    assert row["calendar_id"] == "ical"
+    assert row["timeout_seconds"] == 10
+    assert "ical_url" not in row
+    assert "client_id" not in row
+    assert "client_secret" not in row
+    assert "refresh_token" not in row
 
 
-def test_google_calendar_oauth_start_uses_original_ref_when_connection_ref_missing(tmp_path: Path) -> None:
+def test_google_calendar_save_requires_ical_url(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
-    client.post(
+    response = client.post(
         "/config/connections/google-calendar/save",
         data={
             "connection_ref": "primary-calendar",
             "connection_title": "Mein Kalender",
-            "calendar_id": "primary",
-            "client_id": "123.apps.googleusercontent.com",
-            "client_secret": "top-secret",
-            "refresh_token": "refresh-123",
-            "timeout_seconds": "10",
-        },
-        follow_redirects=False,
-    )
-
-    response = client.post(
-        "/config/connections/google-calendar/oauth/start",
-        data={
-            "original_ref": "primary-calendar",
-            "connection_title": "Mein Kalender",
-            "calendar_id": "primary",
-            "client_id": "123.apps.googleusercontent.com",
-            "client_secret": "top-secret",
             "timeout_seconds": "10",
         },
         follow_redirects=False,
     )
 
     assert response.status_code == 303
-    assert "accounts.google.com" in response.headers["location"]
+    assert "google_calendar_ref=primary-calendar" in response.headers["location"]
+    assert "error=" in response.headers["location"]
 
 
 def test_searxng_connection_page_prefills_local_stack_defaults(tmp_path: Path) -> None:

@@ -386,6 +386,11 @@ ARIA schreibt und zeigt strukturiert:
 - Qdrant-DB-Größe
 - Startup-Preflight und Systemzustand
 
+Retention/Hygiene:
+- Token-/Kosten-/Activity-Logs und der redigierte LLM-Debug-Log werden lokal als Runtime-Daten behandelt.
+- Standard-Retention ist 90 Tage; beim Start und in der Maintenance werden aeltere lokale Runtime-Logs bereinigt.
+- Config-Backups werden als Download erzeugt und nicht dauerhaft in ARIA gesammelt.
+
 Pricing:
 - LiteLLM-GitHub-Preisliste als primaere Preisquelle
 - lokale gecachte Kopie unter `data/pricing/litellm_model_prices.json`

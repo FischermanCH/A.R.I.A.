@@ -174,7 +174,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Testposts und Rezept-Ziel-Freigabe konfigurierbar
 - Discord Rezept-Error-Alerts mit gekürzten/sanitized Fehlerdetails
 - HTTP-API- und Webhook-Connections mit eigenen Profilen
-- `ARIA_PUBLIC_URL` / `aria.public_url` für externe Links in Messages statt Docker-Bridge-IP
+- optionale Basis-URL über `ARIA_PUBLIC_URL` / `aria.public_url` fuer Host-/Link-Hinweise in Messages; interne LAN-URLs wie `http://aria.black.lan/` sind gueltig
 
 ## Websuche / SearXNG
 
@@ -205,12 +205,14 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 ## Google Calendar
 
 - eigener Connection-Typ fuer `read-only` Kalenderzugriff
-- Secure Store fuer `client_secret` und `refresh_token`
-- gefuehrter Setup-Flow mit Google Cloud plus direktem `Mit Google verbinden`-Login aus der Config-Seite
+- Enduser-Setup ueber die geheime iCal-Adresse aus Google Calendar
+- kein Google-Cloud-Projekt, kein OAuth-Client, keine Redirect-URI und kein Refresh-Token fuer den aktuellen Alpha-Pfad notwendig
+- iCal-URL wird serverseitig im Secure Store gehalten und beim Verbindungstest als `VCALENDAR` validiert
 - erster persoenlicher Produktpfad fuer natuerliche Kalenderfragen:
   - `was steht heute an?`
   - `was habe ich morgen im kalender?`
   - `wann ist mein naechster termin?`
+- Schreibaktionen wie Termine erstellen oder beantworten bleiben fuer einen spaeteren Provider-Pfad getrennt vom einfachen read-only Kalenderzugriff
 
 ## RSS / OPML
 
@@ -256,6 +258,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Systemzustand
 - Live-Status aller konfigurierten Verbindungen
 - Aktivitäten & Runs direkt in `Statistiken`
+- 90-Tage-Retention als Betriebsstandard fuer Token-/Kosten-/Activity-Logs und redigierte LLM-Debug-Logs
 - manuelles Pricing-Refresh für:
   - LiteLLM-GitHub-Preisliste als primaere Quelle
   - lokale 7-Tage-Cache-Kopie mit Fallback bei GitHub-Ausfall

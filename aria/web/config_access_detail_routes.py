@@ -13,15 +13,24 @@ from fastapi.templating import Jinja2Templates
 
 from aria.core.i18n import I18NStore
 from aria.core.guardrails import (
+    GUARDRAIL_CATALOG,
+    evaluate_guardrail,
     guardrail_is_compatible,
     guardrail_kind_label,
     guardrail_kind_options,
+    normalize_guardrail_connection_kinds,
     normalize_guardrail_kind,
+)
+from aria.core.guardrail_drafts import (
+    build_guardrail_draft_context,
+    guardrail_connection_kind_options,
+    suggest_guardrail_with_llm,
 )
 from aria.core.runtime_endpoint import cookie_should_be_secure
 
 
 SettingsGetter = Callable[[], Any]
+PipelineGetter = Callable[[], Any]
 AuthManagerGetter = Callable[[], Any | None]
 AuthSessionResolver = Callable[[Request], dict[str, Any] | None]
 StringSanitizer = Callable[[str | None], str]
@@ -65,6 +74,7 @@ class ConfigAccessDetailRouteDeps:
     username_cookie: str
     memory_collection_cookie: str
     get_settings: SettingsGetter
+    get_pipeline: PipelineGetter
     get_auth_manager: AuthManagerGetter
     get_auth_session_from_request: AuthSessionResolver
     sanitize_username: StringSanitizer
@@ -92,6 +102,87 @@ class ConfigAccessDetailRouteDeps:
 
 
 def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailRouteDeps) -> None:
+    def _security_page_context(
+        request: Request,
+        *,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        guardrail_ref: str = "",
+        guardrail_draft: dict[str, Any] | None = None,
+        guardrail_draft_instruction: str = "",
+        guardrail_draft_kind: str = "ssh_command",
+        guardrail_draft_connection_kind: str = "",
+        guardrail_test_result: dict[str, Any] | None = None,
+        guardrail_test_ref: str = "",
+        guardrail_test_kind: str = "ssh_command",
+        guardrail_test_text: str = "",
+    ) -> dict[str, Any]:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        settings = deps.get_settings()
+        guardrail_rows = deps.read_guardrails()
+        guardrail_refs = sorted(guardrail_rows.keys())
+        selected_guardrail_ref = deps.sanitize_connection_name(guardrail_ref) or (guardrail_refs[0] if guardrail_refs else "")
+        selected_guardrail = guardrail_rows.get(selected_guardrail_ref, {})
+        timeout_minutes = max(5, int(getattr(settings.security, "session_max_age_seconds", 60 * 60 * 12) or 0) // 60)
+        context = deps.build_config_page_context(
+            request,
+            saved=saved,
+            error=error,
+            logical_back_fallback="/config/access",
+            page_return_to="/config/access",
+            config_nav="access",
+            page_heading=deps.msg(lang, "Security Guardrails", "Security guardrails"),
+            info=info,
+        )
+        context.update(
+            {
+                "security_cfg": settings.security,
+                "security_session_timeout_minutes": timeout_minutes,
+                "security_session_timeout_display": deps.format_session_timeout_label(timeout_minutes, lang=lang),
+                "guardrail_refs": guardrail_refs,
+                "guardrail_ref_options": deps.build_guardrail_ref_options(guardrail_rows)[1:],
+                "selected_guardrail_ref": selected_guardrail_ref,
+                "selected_guardrail": selected_guardrail,
+                "guardrail_kind_options": [{"value": kind, "label": guardrail_kind_label(kind)} for kind in guardrail_kind_options()],
+                "guardrail_connection_kind_options": guardrail_connection_kind_options(),
+                "guardrail_compatibility_rows": [
+                    {
+                        "kind": kind,
+                        "label": guardrail_kind_label(kind),
+                        "connections": ", ".join(sorted(GUARDRAIL_CATALOG.get(kind, {}).get("connection_kinds", set()))),
+                    }
+                    for kind in guardrail_kind_options()
+                ],
+                "guardrail_draft": guardrail_draft or {},
+                "guardrail_draft_instruction": guardrail_draft_instruction,
+                "guardrail_draft_kind": normalize_guardrail_kind(guardrail_draft_kind or "ssh_command"),
+                "guardrail_draft_connection_kind": str(guardrail_draft_connection_kind or "").strip().lower().replace("-", "_"),
+                "guardrail_test_result": guardrail_test_result or {},
+                "guardrail_test_ref": deps.sanitize_connection_name(guardrail_test_ref) or selected_guardrail_ref,
+                "guardrail_test_kind": normalize_guardrail_kind(guardrail_test_kind or (selected_guardrail.get("kind") if isinstance(selected_guardrail, dict) else "") or "ssh_command"),
+                "guardrail_test_text": str(guardrail_test_text or ""),
+                "sample_guardrail_rows": deps.build_sample_guardrail_rows(),
+            }
+        )
+        return context
+
+    def _guardrail_test_reason_label(reason: str, *, lang: str | None = None) -> str:
+        clean = str(reason or "").strip()
+        if clean == "guardrail_denied":
+            return _config_access_text(lang, "guardrail_test_reason_denied", "Deny wording matched. The request would be blocked.")
+        if clean == "guardrail_not_allowed":
+            return _config_access_text(lang, "guardrail_test_reason_not_allowed", "Allow wording is set, but no allow term matched. The request would be blocked.")
+        if clean.startswith("guardrail_kind_mismatch"):
+            expected = clean.split(":", 1)[1] if ":" in clean else ""
+            return _config_access_text(
+                lang,
+                "guardrail_test_reason_kind_mismatch",
+                "Guardrail type mismatch. The selected profile is {expected}.",
+                expected=expected or "unknown",
+            )
+        return _config_access_text(lang, "guardrail_test_reason_allowed", "No deny wording matched and allow wording permits this request.")
+
     async def _save_user_security_settings(
         request: Request,
         bootstrap_locked: str,
@@ -179,36 +270,117 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
         info: str = "",
         guardrail_ref: str = "",
     ) -> HTMLResponse:
+        context = _security_page_context(request, saved=saved, error=error, info=info, guardrail_ref=guardrail_ref)
+        return deps.templates.TemplateResponse(request=request, name="config_security.html", context=context)
+
+    @app.post("/config/security/guardrails/draft", response_class=HTMLResponse)
+    async def config_security_guardrail_draft(
+        request: Request,
+        draft_instruction: str = Form(""),
+        draft_kind: str = Form("ssh_command"),
+        draft_connection_kind: str = Form(""),
+        return_to: str = Form(""),
+    ) -> HTMLResponse:
+        _ = return_to
         lang = str(getattr(request.state, "lang", "de") or "de")
-        settings = deps.get_settings()
-        guardrail_rows = deps.read_guardrails()
-        guardrail_refs = sorted(guardrail_rows.keys())
-        selected_guardrail_ref = deps.sanitize_connection_name(guardrail_ref) or (guardrail_refs[0] if guardrail_refs else "")
-        selected_guardrail = guardrail_rows.get(selected_guardrail_ref, {})
-        timeout_minutes = max(5, int(getattr(settings.security, "session_max_age_seconds", 60 * 60 * 12) or 0) // 60)
-        context = deps.build_config_page_context(
-            request,
-            saved=saved,
-            error=error,
-            logical_back_fallback="/config/access",
-            page_return_to="/config/access",
-            config_nav="access",
-            page_heading=deps.msg(lang, "Security Guardrails", "Security guardrails"),
-            info=info,
-        )
-        context.update(
-            {
-                "security_cfg": settings.security,
-                "security_session_timeout_minutes": timeout_minutes,
-                "security_session_timeout_display": deps.format_session_timeout_label(timeout_minutes, lang=lang),
-                "guardrail_refs": guardrail_refs,
-                "guardrail_ref_options": deps.build_guardrail_ref_options(guardrail_rows)[1:],
-                "selected_guardrail_ref": selected_guardrail_ref,
-                "selected_guardrail": selected_guardrail,
-                "guardrail_kind_options": [{"value": kind, "label": guardrail_kind_label(kind)} for kind in guardrail_kind_options()],
-                "sample_guardrail_rows": deps.build_sample_guardrail_rows(),
-            }
-        )
+        clean_kind = normalize_guardrail_kind(draft_kind or "ssh_command")
+        if clean_kind not in guardrail_kind_options():
+            clean_kind = "ssh_command"
+        clean_connection_kind = str(draft_connection_kind or "").strip().lower().replace("-", "_")
+        try:
+            raw = deps.read_raw_config()
+            draft_context = build_guardrail_draft_context(raw, guardrail_kind=clean_kind, connection_kind=clean_connection_kind)
+            session = deps.get_auth_session_from_request(request) or {}
+            user_id = str(session.get("username", "") or "system")
+            pipeline = deps.get_pipeline()
+            draft = await suggest_guardrail_with_llm(
+                llm_client=getattr(pipeline, "llm_client", None),
+                instruction=draft_instruction,
+                draft_context=draft_context,
+                language=lang,
+                user_id=user_id,
+                request_id=str(getattr(request.state, "request_id", "") or ""),
+            )
+            if clean_connection_kind and not draft.get("connection_kinds"):
+                draft["connection_kinds"] = [clean_connection_kind]
+            context = _security_page_context(
+                request,
+                info=_config_access_text(lang, "guardrail_draft_ready", "Guardrail draft ready for review."),
+                guardrail_draft=draft,
+                guardrail_draft_instruction=draft_instruction,
+                guardrail_draft_kind=clean_kind,
+                guardrail_draft_connection_kind=clean_connection_kind,
+            )
+        except (OSError, ValueError) as exc:
+            context = _security_page_context(
+                request,
+                error=deps.friendly_route_error(
+                    lang,
+                    exc,
+                    _config_access_text(lang, "guardrail_draft_failed", "Could not create guardrail draft."),
+                    "Could not create guardrail draft.",
+                ),
+                guardrail_draft_instruction=draft_instruction,
+                guardrail_draft_kind=clean_kind,
+                guardrail_draft_connection_kind=clean_connection_kind,
+            )
+        return deps.templates.TemplateResponse(request=request, name="config_security.html", context=context)
+
+    @app.post("/config/security/guardrails/test", response_class=HTMLResponse)
+    async def config_security_guardrail_test(
+        request: Request,
+        guardrail_ref: str = Form(""),
+        kind: str = Form("ssh_command"),
+        test_text: str = Form(""),
+        return_to: str = Form(""),
+    ) -> HTMLResponse:
+        _ = return_to
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        clean_ref = deps.sanitize_connection_name(guardrail_ref)
+        clean_kind = normalize_guardrail_kind(kind or "ssh_command")
+        if clean_kind not in guardrail_kind_options():
+            clean_kind = "ssh_command"
+        clean_text = str(test_text or "").strip()
+        try:
+            if not clean_ref:
+                raise ValueError(_config_access_text(lang, "guardrail_test_missing_ref", "Choose a guardrail profile first."))
+            if not clean_text:
+                raise ValueError(_config_access_text(lang, "guardrail_test_missing_text", "Enter a request to test first."))
+            rows = deps.read_guardrails()
+            profile = rows.get(clean_ref)
+            if not profile:
+                raise ValueError(_config_access_text(lang, "guardrail_test_missing_profile", "Guardrail profile not found."))
+            decision = evaluate_guardrail(profile_ref=clean_ref, profile=profile, kind=clean_kind, text=clean_text)
+            action = "allow" if decision.allowed else "block"
+            context = _security_page_context(
+                request,
+                guardrail_ref=clean_ref,
+                guardrail_test_ref=clean_ref,
+                guardrail_test_kind=clean_kind,
+                guardrail_test_text=clean_text,
+                guardrail_test_result={
+                    "action": action,
+                    "action_label": _config_access_text(lang, "guardrail_test_allow", "allow") if action == "allow" else _config_access_text(lang, "guardrail_test_block", "block"),
+                    "reason": decision.reason or "guardrail_allowed",
+                    "reason_label": _guardrail_test_reason_label(decision.reason, lang=lang),
+                    "profile_ref": clean_ref,
+                    "kind": decision.kind or clean_kind,
+                },
+            )
+        except (OSError, ValueError) as exc:
+            context = _security_page_context(
+                request,
+                error=deps.friendly_route_error(
+                    lang,
+                    exc,
+                    _config_access_text(lang, "guardrail_test_failed", "Could not test guardrail."),
+                    "Could not test guardrail.",
+                ),
+                guardrail_ref=clean_ref,
+                guardrail_test_ref=clean_ref,
+                guardrail_test_kind=clean_kind,
+                guardrail_test_text=clean_text,
+            )
         return deps.templates.TemplateResponse(request=request, name="config_security.html", context=context)
 
     @app.post("/config/security/save")
@@ -234,6 +406,7 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
         guardrail_ref: str = Form(...),
         original_ref: str = Form(""),
         kind: str = Form("ssh_command"),
+        connection_kinds: str = Form(""),
         title: str = Form(""),
         description: str = Form(""),
         allow_terms: str = Form(""),
@@ -260,6 +433,7 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
                 raise ValueError(f"Guardrail-Profil '{ref}' existiert bereits.")
             rows[ref] = {
                 "kind": clean_kind,
+                "connection_kinds": normalize_guardrail_connection_kinds(connection_kinds, guardrail_kind=clean_kind),
                 "title": str(title).strip(),
                 "description": str(description).strip(),
                 "allow_terms": deps.split_guardrail_terms(allow_terms),

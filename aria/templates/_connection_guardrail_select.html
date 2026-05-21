@@ -1,0 +1,7 @@
+<label for="{{ guardrail_field_id }}">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
+<select id="{{ guardrail_field_id }}" name="guardrail_ref">
+  {% for item in connection_guardrail_ref_options %}
+  <option value="{{ item.ref }}" {% if item.ref == (selected_guardrail_ref or '') %}selected{% endif %}>{{ item.label }}</option>
+  {% endfor %}
+</select>
+<small class="hint-text">{{ tr(request, connection_guardrail_hint_key, connection_guardrail_hint) }}</small>

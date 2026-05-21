@@ -613,8 +613,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release candidate: `0.1.0-alpha266`
-- `alpha266` is the current public alpha rollup after `alpha167`: recipe-first automation, LLM-assisted action planning, token/cost visibility, one-click confirmations, multi-target SSH read-only checks, richer RSS digests, self-learning review UX, safer managed updates, and pinned Docker release dependencies.
+- Current public alpha release: `0.1.0-alpha298`
+- `alpha298` is the current public alpha rollup after `alpha266`: Google Calendar now uses a simple read-only iCal setup, Guardrails can be drafted with AI and tested before use, connection pages are more consistent, `/stats` has clearer cost/log hygiene, and colloquial server-health prompts route reliably through the controlled SSH health path.
 
 ## One-line summary
 
@@ -947,7 +947,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Aktuelle Public Alpha: `0.1.0-alpha266`. Dieser Stand buendelt den recipe-first Umbau, LLM-gestuetzte Action-Planung, Self-Learning-Review, stabile Update-Pfade und gepinnte Docker-Release-Dependencies.
+Aktuelle Public Alpha: `0.1.0-alpha298`. Dieser Stand buendelt den Google-Calendar-iCal-Pfad, KI-gestuetzte Guardrail-Vorschlaege, konsistentere Connection-Seiten, klarere Kosten-/Log-Hygiene in `/stats` und robustere frei formulierte Server-Health-Fragen.
 
 ## Ein-Satz-Zusammenfassung
 

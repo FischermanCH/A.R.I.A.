@@ -9,7 +9,16 @@
     <div class="alert ok">{{ tr(request, 'config_logs.pruned', 'Log cleanup completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ pruned }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
     {% endif %}
     {% if reset is not none %}
-    <div class="alert ok">{{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ reset }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
+    <div class="alert ok">
+      {{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }}
+      {{ tr(request, 'config_logs.pruned_info', 'Removed') }}:
+      <strong>{{ reset }}</strong>
+      {{ tr(request, 'config_logs.rows', 'rows') }}
+      {% if reset_archive %}
+        · {{ tr(request, 'stats.reset_archive', 'Archive') }}:
+        <code>{{ reset_archive }}</code>
+      {% endif %}
+    </div>
     {% endif %}
     {% if factory_reset %}
     <div class="alert ok">
@@ -38,7 +47,7 @@
 
       <label for="retention-days">{{ tr(request, 'config_logs.retention_days', 'Retention in days') }}</label>
       <input id="retention-days" name="retention_days" type="number" min="0" step="1" value="{{ token_tracking.retention_days }}">
-      <p class="hint-text">{{ tr(request, 'config_logs.retention_hint', '0 = never auto-delete. Recommended for normal operation: 14-90 days.') }}</p>
+      <p class="hint-text">{{ tr(request, 'config_logs.retention_hint', '0 = never auto-delete. Recommended for normal operation: 90 days; ARIA prunes token/cost/activity logs and LLM debug logs during startup and maintenance.') }}</p>
 
       <div class="config-divider"></div>
 
@@ -67,9 +76,18 @@
 
     <section class="config-card" style="margin-top: 1rem;">
       <h3>{{ tr(request, 'config_logs.reset_title', 'Stats reset') }}</h3>
-      <p>{{ tr(request, 'config_logs.reset_subtitle', 'Deletes the stored token/run history that powers stats and activities. Memories and connection profiles stay untouched.') }}</p>
+      <p>{{ tr(request, 'config_logs.reset_subtitle', 'Archives the current token/run history and starts a new local stats period. Memories and connection profiles stay untouched.') }}</p>
       {% if reset is not none %}
-      <div class="alert ok">{{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }} {{ tr(request, 'config_logs.pruned_info', 'Removed') }}: <strong>{{ reset }}</strong> {{ tr(request, 'config_logs.rows', 'rows') }}</div>
+      <div class="alert ok">
+        {{ tr(request, 'config_logs.reset_done', 'Stats and activities reset completed.') }}
+        {{ tr(request, 'config_logs.pruned_info', 'Removed') }}:
+        <strong>{{ reset }}</strong>
+        {{ tr(request, 'config_logs.rows', 'rows') }}
+        {% if reset_archive %}
+          · {{ tr(request, 'stats.reset_archive', 'Archive') }}:
+          <code>{{ reset_archive }}</code>
+        {% endif %}
+      </div>
       {% endif %}
       <p class="hint-text">{{ tr(request, 'config_logs.reset_confirm_hint', 'Type RESET to confirm the reset deliberately.') }}</p>
       <form method="post" action="/config/logs/reset" class="config-form-grid">

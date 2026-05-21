@@ -40,6 +40,13 @@ def _capability_execution_text(language: str | None, key: str, default: str = ""
         return template
 
 
+def _plan_has_user_policy_confirmation(plan: ActionPlan) -> bool:
+    return any(
+        str(note or "").strip().lower().startswith("user_confirmed_policy")
+        for note in list(plan.notes or [])
+    )
+
+
 ExecuteCustomSSHCommand = Callable[..., Awaitable[SkillResult]]
 BundleNoteParser = Callable[[list[str] | tuple[str, ...] | None], tuple[str, list[str]] | None]
 OptionalLanguageCaller = Callable[..., Any]
@@ -221,6 +228,7 @@ class PipelineCapabilityExecutor:
             plan.path,
             plan.content,
             language=language,
+            confirmed=_plan_has_user_policy_confirmation(plan),
         )
         summarized = summarize_http_api_result_for_chat(
             result_text,
@@ -278,6 +286,9 @@ class PipelineCapabilityExecutor:
         )
 
     async def execute_ssh_command(self, plan: ActionPlan, *, language: str = "de") -> str:
+        ssh_kwargs: dict[str, object] = {}
+        if _plan_has_user_policy_confirmation(plan):
+            ssh_kwargs["policy_confirmed"] = True
         result = await self._execute_custom_ssh_command(
             skill_id=DIRECT_SSH_RECIPE_ID,
             skill_name="SSH Command",
@@ -285,6 +296,7 @@ class PipelineCapabilityExecutor:
             command_template=plan.content,
             message=plan.content,
             language=language,
+            **ssh_kwargs,
         )
         if result.success:
             summarized = summarize_ssh_result_for_chat(

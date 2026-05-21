@@ -3,6 +3,7 @@
     {"kind": "ssh", "score": 4, "all": ["\\b(?:wie\\s+lange|seit\\s+wann)\\s+ist\\b.*\\bonline\\b"]},
     {"kind": "ssh", "score": 4, "all": ["\\bhow\\s+long\\b.*\\b(?:been\\s+online|online)\\b"]},
     {"kind": "ssh", "score": 4, "all": ["\\b(?:server|host|system|node|maschine)\\b", "\\b(?:health|status|zustand|gesund|verfassung)\\b"]},
+    {"kind": "ssh", "score": 4, "all": ["\\b(?:server|servern|host|hosts|system|systeme|node|maschine|maschinen|machine|machines)\\b", "\\b(?:capacity|kapazitaet|kapazität|reserve|free|frei|space|platz)\\b"]},
     {"kind": "ssh", "score": 4, "all": ["\\bwie\\s+geht\\s+es\\b", "\\b(?:server|host|system|node|maschine)\\b"]},
     {"kind": "ssh", "score": 4, "all": ["\\bhow\\s+is\\b", "\\b(?:server|host|system|node|machine)\\b"]}
   ],

@@ -86,6 +86,7 @@ class SSHRuntime:
         message: str,
         timeout_seconds: int | None = None,
         language: str = "de",
+        policy_confirmed: bool = False,
     ) -> SkillResult:
         if not connection_ref:
             return SkillResult(
@@ -145,18 +146,21 @@ class SSHRuntime:
         if skill_id == DIRECT_SSH_RECIPE_ID:
             policy = validate_ssh_readonly_policy(command, allow_commands=effective_allow_list)
             if policy.action != "allow":
-                if policy.reason == "ssh_command_not_in_allow_list":
+                if policy.action == "ask_user" and policy_confirmed:
+                    pass
+                elif policy.reason == "ssh_command_not_in_allow_list":
                     error = recipe_ssh_error("not_allowed")
                 elif policy.action == "ask_user":
                     error = recipe_ssh_error("policy_confirmation_required", policy.reason)
                 else:
                     error = recipe_ssh_error("policy_blocked", policy.reason)
-                return SkillResult(
-                    skill_name=build_recipe_runtime_skill_name(skill_id),
-                    content="",
-                    success=False,
-                    error=error,
-                )
+                if not (policy.action == "ask_user" and policy_confirmed):
+                    return SkillResult(
+                        skill_name=build_recipe_runtime_skill_name(skill_id),
+                        content="",
+                        success=False,
+                        error=error,
+                    )
         elif allow_list and not command_matches_allow_commands(command, allow_list):
             return SkillResult(
                 skill_name=build_recipe_runtime_skill_name(skill_id),

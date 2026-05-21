@@ -456,6 +456,35 @@ def test_bounded_action_candidates_include_learned_recipe_candidates_from_experi
     assert learned.promotion_state == "promoted"
 
 
+def test_bounded_action_candidates_skip_learned_recipe_capability_scope_mismatch(monkeypatch) -> None:
+    monkeypatch.setattr(action_planner_mod, "_load_stored_recipe_manifests", lambda: ([], []))
+    monkeypatch.setattr(
+        action_planner_mod,
+        "_load_learned_recipe_records",
+        lambda: [
+            {
+                "intent": "read_feed",
+                "connection_kind": "ssh",
+                "capability": "feed_read",
+                "chosen_action": "security-news",
+                "experience_count": 9,
+                "promotion_state": "promoted",
+                "router_keywords": ["security news", "rss"],
+                "stored_recipe_id": "security-news-digest",
+            }
+        ],
+    )
+
+    candidates = bounded_action_candidates_for_target(
+        "wie geht es meinem management server",
+        connection_kind="ssh",
+        language="de",
+    )
+
+    assert all(item.candidate_id != "security-news-digest" for item in candidates)
+    assert any(item.candidate_id == "ssh_run_command" for item in candidates)
+
+
 def test_load_learned_recipe_records_only_allows_promoted_entries_with_stored_recipe_id(monkeypatch) -> None:
     monkeypatch.setenv("ARIA_ENABLE_LEARNED_RECIPE_CANDIDATES", "1")
     monkeypatch.setattr(

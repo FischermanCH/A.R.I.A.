@@ -196,6 +196,45 @@ def test_execute_custom_ssh_command_requires_confirmation_for_direct_ssh_ask_use
     assert result.error == "recipe_ssh_policy_confirmation_required:ssh_command_needs_confirmation"
 
 
+def test_execute_custom_ssh_command_runs_confirmed_direct_ssh_ask_user_policy(monkeypatch) -> None:
+    connection = SimpleNamespace(
+        host="127.0.0.1",
+        user="aria",
+        port=22,
+        timeout_seconds=10,
+        strict_host_key_checking="accept-new",
+        key_path="",
+        allow_commands=[],
+        guardrail_ref="",
+    )
+    runtime = _runtime(connection=connection)
+
+    class _Proc:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (b"nginx is running\n", b"")
+
+    async def fake_create_subprocess_exec(*_args: object, **_kwargs: object) -> _Proc:
+        return _Proc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = asyncio.run(
+        runtime.execute_custom_ssh_command(
+            skill_id="direct-ssh-command",
+            skill_name="SSH Command",
+            connection_ref="test-ssh",
+            command_template="ps aux | grep nginx | grep -v grep",
+            message="check nginx",
+            policy_confirmed=True,
+        )
+    )
+
+    assert result.success is True
+    assert result.metadata["custom_stdout"].strip() == "nginx is running"
+
+
 def test_execute_custom_ssh_command_uses_structured_allowlist_matching_for_custom_skills() -> None:
     connection = SimpleNamespace(
         host="127.0.0.1",

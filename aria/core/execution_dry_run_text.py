@@ -162,6 +162,26 @@ def _guardrail_config_link(guardrail_ref: str, language: str) -> str:
     )
 
 
+def _blocked_file_write_summary(*, language: str, target: str, preview: str) -> str:
+    clean_preview = str(preview or "").strip()
+    _, _, path = clean_preview.partition(":")
+    clean_path = path.strip() or clean_preview
+    if clean_path:
+        return _dry_run_text(
+            language,
+            "message_158",
+            "ARIA blocked the write action on {target}. The active guardrail does not allow writing `{path}`.",
+            target=target,
+            path=clean_path,
+        )
+    return _dry_run_text(
+        language,
+        "message_160",
+        "ARIA blocked the write action on {target}. The active guardrail does not allow this file change.",
+        target=target,
+    )
+
+
 def decision_summary(*, action: str, language: str, target: str = "", preview: str = "", guardrail_ref: str = "") -> str:
     clean_action = str(action or "").strip().lower()
     clean_target = str(target or "").strip()
@@ -179,7 +199,10 @@ def decision_summary(*, action: str, language: str, target: str = "", preview: s
     if clean_action == "block":
         guardrail_link = _guardrail_config_link(guardrail_ref, language)
         if clean_target and clean_preview:
-            summary = _dry_run_text(language, "message_159", 'ARIA cannot execute this action on {clean_target}: {clean_preview}', clean_target=clean_target, clean_preview=clean_preview)
+            if clean_preview.lower().startswith(("write remote path:", "write share path:")):
+                summary = _blocked_file_write_summary(language=language, target=clean_target, preview=clean_preview)
+            else:
+                summary = _dry_run_text(language, "message_159", 'ARIA cannot execute this action on {clean_target}: {clean_preview}', clean_target=clean_target, clean_preview=clean_preview)
             return f"{summary}\n\n{guardrail_link}" if guardrail_link else summary
         if clean_target:
             summary = _dry_run_text(language, "message_161", 'ARIA cannot execute this action on {clean_target}.', clean_target=clean_target)

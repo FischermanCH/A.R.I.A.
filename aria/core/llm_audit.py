@@ -129,6 +129,45 @@ class LLMAuditLog:
             except Exception:
                 pass
 
+    def prune_old_entries(self, retention_days: int) -> dict[str, int]:
+        clean_retention = int(retention_days or 0)
+        if clean_retention <= 0:
+            return {"total": 0, "kept": 0, "removed": 0}
+
+        cutoff = datetime.now(timezone.utc).timestamp() - (clean_retention * 86400)
+        with self._lock:
+            original_entries = list(self._entries)
+            kept_entries: list[LLMAuditEntry] = []
+            memory_removed = 0
+            for entry in original_entries:
+                parsed = self._parse_timestamp(entry.created_at)
+                if parsed is not None and parsed < cutoff:
+                    memory_removed += 1
+                    continue
+                kept_entries.append(entry)
+            if memory_removed:
+                self._entries.clear()
+                for entry in kept_entries:
+                    self._entries.append(entry)
+
+            file_stats = self._prune_file(cutoff)
+
+        return {
+            "total": int(file_stats.get("total", 0) or len(original_entries)),
+            "kept": int(file_stats.get("kept", 0) or len(kept_entries)),
+            "removed": int(file_stats.get("removed", 0) or memory_removed),
+        }
+
+    @staticmethod
+    def _parse_timestamp(value: object) -> float | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+
     def _append_file(self, entry: LLMAuditEntry) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -157,6 +196,46 @@ class LLMAuditLog:
             if len(entries) >= limit:
                 break
         return entries
+
+    def _prune_file(self, cutoff: float) -> dict[str, int]:
+        try:
+            if not self._path.exists():
+                return {"total": 0, "kept": 0, "removed": 0}
+            lines = self._path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            return {"total": 0, "kept": 0, "removed": 0}
+
+        total = 0
+        kept = 0
+        removed = 0
+        kept_lines: list[str] = []
+        for line in lines:
+            total += 1
+            try:
+                payload = json.loads(line)
+            except Exception:
+                kept_lines.append(line)
+                kept += 1
+                continue
+            if not isinstance(payload, dict):
+                kept_lines.append(line)
+                kept += 1
+                continue
+            parsed = self._parse_timestamp(payload.get("created_at"))
+            if parsed is not None and parsed < cutoff:
+                removed += 1
+                continue
+            kept_lines.append(line)
+            kept += 1
+
+        try:
+            if kept_lines:
+                self._path.write_text("\n".join(kept_lines[-_MAX_FILE_ENTRIES:]) + "\n", encoding="utf-8")
+            else:
+                self._path.unlink(missing_ok=True)
+        except Exception:
+            return {"total": 0, "kept": 0, "removed": 0}
+        return {"total": total, "kept": kept, "removed": removed}
 
     def _trim_file(self) -> None:
         try:

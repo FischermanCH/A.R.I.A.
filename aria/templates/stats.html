@@ -55,6 +55,27 @@
       </span>
     </div>
     <p class="stats-health-summary">{{ operator_guardrail.summary }}</p>
+    {% set operator_review_rows = operator_guardrail.rows|selectattr('status', 'ne', 'ok')|list %}
+    {% if operator_review_rows %}
+    <div class="alert note stats-operator-review">
+      <strong>{{ tr(request, 'stats.operator_guardrail_review_title', 'Review nötig') }}:</strong>
+      <ul class="stats-operator-review-list">
+        {% for row in operator_review_rows %}
+        <li>
+          <span class="health-lamp status-{{ row.visual_status }}"></span>
+          <span>
+            {% if row.url %}
+            <a href="{{ row.url }}">{{ tr(request, row.label_key, row.fallback) }}</a>
+            {% else %}
+            <strong>{{ tr(request, row.label_key, row.fallback) }}</strong>
+            {% endif %}
+            <small>{{ row.summary }}{% if row.detail %} · {{ row.detail }}{% endif %}</small>
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
     <div class="health-meter-row">
       <span class="health-meter status-ok">
         <span class="health-lamp status-ok"></span>
@@ -97,10 +118,14 @@
 
   {% if reset_done is not none %}
   <div class="alert ok">
-    {{ tr(request, 'stats.reset_done', 'Statistiken und Aktivitäten wurden zurückgesetzt.') }}
+    {{ tr(request, 'stats.reset_done', 'Statistiken und Aktivitäten wurden zurückgesetzt. Eine neue Abrechnungsperiode wurde gestartet.') }}
     {{ tr(request, 'config_logs.pruned_info', 'Entfernt') }}:
     <strong>{{ reset_done }}</strong>
     {{ tr(request, 'config_logs.rows', 'Zeilen') }}
+    {% if reset_archive %}
+      · {{ tr(request, 'stats.reset_archive', 'Archiv') }}:
+      <code>{{ reset_archive }}</code>
+    {% endif %}
   </div>
   {% endif %}
   {% if reset_error %}
@@ -125,7 +150,7 @@
             <dd>{{ model_totals.embedding_total_tokens }}</dd>
           </div>
           <div>
-            <dt>{{ tr(request, 'stats.requests_days', 'Requests') }} · {{ stats.days }} {{ tr(request, 'stats.days', 'days') }}</dt>
+            <dt>{{ tr(request, 'stats.requests_days', 'Requests') }} · {{ tr(request, 'stats.current_period', 'current period') }}</dt>
             <dd>{{ stats.request_count }}</dd>
           </div>
           <div>
@@ -138,6 +163,9 @@
 
     <article class="stat-card stats-cluster stats-cost-card">
       <h2>{{ tr(request, 'stats.costs_title', 'Costs') }}</h2>
+      <p class="stat-sub stats-cost-disclaimer">
+        {{ tr(request, 'stats.cost_estimate_disclaimer', 'Kosten sind Usage-Schaetzwerte fuer Orientierung und koennen von Provider-Rechnungen abweichen. Reset startet nur eine neue lokale Abrechnungsperiode.') }}
+      </p>
       {% if pricing_meta.has_unpriced_usage %}
       <div class="stats-price-warning">
         <div>
@@ -172,6 +200,22 @@
           {{ tr(request, 'stats.costs_complete_hint', 'Known model prices are included in the current estimate.') }}
         {% endif %}
       </p>
+      <div class="stats-cost-actions">
+        <a class="secondary-link" href="#stats-pricing-details">{{ tr(request, 'stats.pricing_details_link', 'Details') }}</a>
+        {% if request.state.can_access_advanced_config %}
+        <details class="stats-inline-reset">
+          <summary>{{ tr(request, 'stats.reset_period_title', 'Abrechnungsperiode zurücksetzen') }}</summary>
+          <p class="hint-text">{{ tr(request, 'stats.reset_period_hint', 'Der aktuelle Usage-Log wird archiviert, der sichtbare Kosten-/Tokenzaehler startet wieder bei 0. Memories, Rezepte und Verbindungen bleiben erhalten.') }}</p>
+          <form method="post" action="/stats/reset" class="config-form-grid">
+            <label for="stats-reset-confirm-inline">{{ tr(request, 'config_logs.reset_confirm_label', 'Bestätigung') }}</label>
+            <input id="stats-reset-confirm-inline" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
+            <div class="config-actions">
+              <button type="submit" class="danger-btn">{{ tr(request, 'stats.reset_period_now', 'Periode jetzt zurücksetzen') }}</button>
+            </div>
+          </form>
+        </details>
+        {% endif %}
+      </div>
     </article>
 
     <article class="stat-card stats-cluster stat-card-memory">
@@ -350,7 +394,7 @@
     </details>
   </section>
 
-  <section class="stat-card">
+  <section class="stat-card" id="startup-preflight">
     <div class="stats-health-head">
       <div>
         <h2>{{ tr(request, 'stats.preflight_title', 'Startup Preflight') }}</h2>
@@ -418,7 +462,7 @@
     </div>
   </section>
 
-  <section class="stat-card">
+  <section class="stat-card" id="runtime-health">
     <div class="stats-health-head">
       <div>
         <h2>{{ tr(request, 'stats.health_title', 'Health') }}</h2>
@@ -759,24 +803,36 @@
     </div>
   </details>
 
-  {% if request.state.can_access_advanced_config %}
-  <details class="stats-details">
-    <summary>{{ tr(request, 'stats.reset_title', 'Statistiken zurücksetzen') }}</summary>
-    <div class="stats-details-content">
-      <section class="stat-card">
-        <h2>{{ tr(request, 'stats.reset_title', 'Statistiken zurücksetzen') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.reset_subtitle', 'Löscht die gespeicherte Token-/Kosten-/Activity-Historie. Memories, Rezepte und Verbindungen bleiben erhalten.') }}</p>
-        <p class="hint-text">{{ tr(request, 'stats.reset_confirm_hint', 'Zur bewussten Bestätigung bitte RESET eingeben.') }}</p>
-        <form method="post" action="/stats/reset" class="config-form-grid">
-          <label for="stats-reset-confirm">{{ tr(request, 'config_logs.reset_confirm_label', 'Bestätigung') }}</label>
-          <input id="stats-reset-confirm" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
-          <div class="config-actions">
-            <button type="submit" class="danger-btn">{{ tr(request, 'stats.reset_now', 'Statistiken jetzt löschen') }}</button>
-          </div>
-        </form>
-      </section>
-    </div>
-  </details>
-  {% endif %}
 </main>
+<script>
+  (function () {
+    function openTargetDetails() {
+      if (!window.location.hash) {
+        return;
+      }
+      var targetId = window.location.hash.slice(1);
+      if (!targetId) {
+        return;
+      }
+      var target = document.getElementById(targetId);
+      if (!target) {
+        return;
+      }
+      var details = target.tagName === "DETAILS" ? target : target.closest("details");
+      if (details) {
+        details.open = true;
+      }
+      window.setTimeout(function () {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    }
+
+    window.addEventListener("hashchange", openTargetDetails);
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", openTargetDetails);
+    } else {
+      openTargetDetails();
+    }
+  })();
+</script>
 {% endblock %}

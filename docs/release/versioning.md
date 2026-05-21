@@ -17,7 +17,7 @@ Zweck:
   - bevorzugt: `/mnt/NAS/aria-images/aria-alphaN-local.tar`
   - Fallback lokal: `dist/aria-alphaN-local.tar`
 - Änderungslog aktuell:
-  - `project.docu/alpha-build-log.md`
+  - `docs/internal/alpha-build-log.md`
 
 ## Empfohlene Release-Tag-Strategie
 
@@ -83,7 +83,7 @@ Eine root-nahe `CHANGELOG.md` mit pro Release:
 
 ## Mapping von aktuellem Alpha-Build-Log auf Git-Releases
 
-`project.docu/alpha-build-log.md` bleibt als interne Detail-Historie nützlich.
+`docs/internal/alpha-build-log.md` bleibt als interne Detail-Historie nützlich.
 
 Für Public GitHub Releases sollte daraus je Release eine kompakte Release Note entstehen:
 

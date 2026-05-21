@@ -1,12 +1,14 @@
 {
   "plural_target_patterns": [
-    "\\b(?:meine|meinen|alle|sämtliche|saemtliche|mehrere)\\s+(?:linux\\s+)?(?:server|servern|hosts|systeme)\\b",
-    "\\b(?:my|all|multiple)\\s+(?:linux\\s+)?(?:servers|hosts|systems)\\b"
+    "\\b(?:meine|meinen|alle|all|sämtliche|saemtliche|mehrere)\\s+(?:linux\\s+)?(?:server|servern|hosts|systeme)\\b",
+    "\\b(?:my|all|multiple)\\s+(?:linux\\s+)?(?:servers|server|hosts|systems)\\b"
   ],
   "plural_target_terms": [
     "meine server",
     "meinen servern",
     "alle server",
+    "all meine server",
+    "all meinen server",
     "sämtliche server",
     "saemtliche server",
     "mehrere server",
@@ -24,6 +26,8 @@
     "meine linux server",
     "alle server",
     "alle linux server",
+    "all meine server",
+    "all meinen server",
     "sämtliche server",
     "saemtliche server",
     "mehrere server",

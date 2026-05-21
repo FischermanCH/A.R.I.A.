@@ -2,7 +2,7 @@
 
 Willkommen im ARIA Wiki.
 
-Aktuelle Public Alpha: `0.1.0-alpha266`.
+Aktuelle Public Alpha: `0.1.0-alpha298`.
 
 ARIA ist ein schlanker selbst gehosteter AI-Assistent fuer Menschen, die Kontrolle statt Plattform-Bloat wollen. Die aktuelle Produktlinie ist recipe-first, connection-aware und nutzt LLMs fuer begrenzte Action-Planung, waehrend Guardrails entscheiden, was wirklich laufen darf.
 

@@ -1,6 +1,6 @@
 # ARIA Alpha Help
 
-Updated: 2026-05-15 / Public Alpha `0.1.0-alpha266`
+Updated: 2026-05-15 / Public Alpha `0.1.0-alpha298`
 
 This is the practical short help for ARIA Alpha. It reflects the current state after the larger move from legacy skills to recipes, LLM-assisted action planning, and controlled execution.
 
@@ -121,6 +121,8 @@ Current connection families:
 - SearXNG web search
 - Google Calendar read-only
 - SMTP / IMAP / MQTT
+
+In the current alpha end-user path, Google Calendar does not use Google Cloud or OAuth sign-in. Copy the `Secret address in iCal format` from Google Calendar under `Settings > Integrate calendar`, paste it into ARIA, and save the connection. The URL is a secret and is stored server-side in the Secure Store. This lets ARIA read events, but not modify calendars.
 
 ## Recipes
 

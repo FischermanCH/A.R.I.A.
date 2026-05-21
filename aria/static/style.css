@@ -1961,6 +1961,23 @@ body[data-background="nodes"] {
   --chat-box-max-height: min(62dvh, 40rem);
 }
 
+.app-shell:has(.chat-layout-fill) {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 4rem);
+}
+
+.chat-layout-fill {
+  flex: 1 1 auto;
+  min-height: clamp(32rem, calc(100dvh - 12rem), 66rem);
+}
+
+.chat-layout-fill .chat-box {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
 .login-layout {
   padding: 1.2rem;
 }
@@ -2843,6 +2860,14 @@ button.danger-btn:hover {
     margin: 1rem auto;
   }
 
+  .app-shell:has(.chat-layout-fill) {
+    min-height: calc(100dvh - 2rem);
+  }
+
+  .chat-layout-fill {
+    min-height: calc(100dvh - 8.8rem);
+  }
+
   .chat-box {
     min-height: var(--chat-box-min-height);
     max-height: var(--chat-box-max-height);
@@ -3056,6 +3081,32 @@ button.danger-btn:hover {
 .stats-cost-footnote {
   margin-top: 0;
   line-height: 1.35;
+}
+
+.stats-cost-disclaimer {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.stats-cost-actions {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.15rem;
+}
+
+.stats-inline-reset {
+  border: 1px solid rgba(46, 255, 119, 0.26);
+  border-radius: 8px;
+  padding: 0.58rem 0.66rem;
+}
+
+.stats-inline-reset summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.stats-inline-reset .config-form-grid {
+  margin-top: 0.65rem;
 }
 
 .stats-token-card {
@@ -3531,6 +3582,37 @@ form.htmx-request .stats-refresh-indicator {
   font-weight: 700;
 }
 
+.stats-operator-review {
+  margin-top: 0.8rem;
+}
+
+.stats-operator-review-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats-operator-review-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.stats-operator-review-list a,
+.stats-operator-review-list strong {
+  display: block;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.stats-operator-review-list small {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .stats-health-detail {
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -3981,6 +4063,75 @@ form.htmx-request .stats-refresh-indicator {
   gap: 0.9rem;
   padding: 0 1rem 1rem;
   border-top: 1px solid color-mix(in srgb, var(--border) 34%, transparent);
+}
+
+.guardrail-working-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.72rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 62%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-pill) 84%, black);
+  box-shadow: inset 0 0 0 1px var(--panel-inset-color), 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.guardrail-working-status[hidden] {
+  display: none;
+}
+
+.guardrail-working-status strong,
+.guardrail-working-status span:not(.guardrail-working-pulse) {
+  display: block;
+}
+
+.guardrail-working-status strong {
+  color: var(--title-strong);
+  font-size: 0.92rem;
+  margin-bottom: 0.14rem;
+}
+
+.guardrail-working-status span:not(.guardrail-working-pulse) {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.guardrail-working-pulse {
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.32rem;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 42%, transparent);
+  flex: 0 0 auto;
+  animation: guardrail-working-pulse 1.4s ease-out infinite;
+}
+
+@keyframes guardrail-working-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0.55rem transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.connection-profile-card {
+  cursor: pointer;
+}
+
+.connection-profile-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.connection-profile-edit-link {
+  align-self: flex-start;
+  margin-top: 0.35rem;
 }
 
 .config-card {
@@ -7751,8 +7902,16 @@ select {
 
 @media (max-width: 640px) {
   .app-shell {
-    width: min(96vw, 96vw);
+    width: min(100%, calc(100dvw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
     margin: 0.75rem auto 1.1rem;
+  }
+
+  .app-shell:has(.chat-layout-fill) {
+    min-height: calc(100dvh - 1.85rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+
+  .chat-layout-fill {
+    min-height: calc(100dvh - 8.3rem - env(safe-area-inset-bottom, 0px));
   }
 
   .topbar {
@@ -7859,6 +8018,19 @@ select {
     padding: 0.65rem;
   }
 
+  .chat-form textarea,
+  .chat-form input,
+  .chat-form select,
+  .config-layout input,
+  .config-layout select,
+  .config-layout textarea,
+  .memories-layout input,
+  .memories-layout select,
+  .memories-layout textarea,
+  .login-form input {
+    font-size: 16px;
+  }
+
   .composer-row {
     grid-template-columns: 1fr;
   }
@@ -7894,6 +8066,8 @@ select {
 
   .toolbox-item-title {
     font-size: 0.84rem;
+  }
+}
 
 .context-help-card {
   margin: 0.9rem 0 1.1rem;

@@ -333,7 +333,25 @@ class CapabilityRouter:
             return "df -h"
         if cls._contains_any(lower, lexicon.ssh_natural_uptime_terms) or cls._contains_any(lower, lexicon.ssh_natural_online_terms):
             return "uptime"
+        if cls._looks_like_ssh_health_status_request(lower, lexicon):
+            return "uptime"
         return cls._extract_natural_ssh_command(message)
+
+    @classmethod
+    def _looks_like_ssh_health_status_request(cls, text: str, lexicon: CapabilityRoutingLexicon) -> bool:
+        lower = f" {str(text or '').strip().lower()} "
+        if not cls._contains_any(lower, lexicon.ssh_hints):
+            return False
+        health_status_terms = (
+            "ok",
+            "okay",
+            "in ordnung",
+            "gesund",
+            "healthy",
+            "alright",
+            "all good",
+        )
+        return cls._contains_any(lower, health_status_terms)
 
     @staticmethod
     def _split_ref_tokens(value: str) -> list[str]:
@@ -512,6 +530,19 @@ class CapabilityRouter:
         if tokens[-1] in suffix_set and (len(tokens) == 1 or (len(tokens) == 2 and len(tokens[0]) <= 1)):
             return True
         return False
+
+    @staticmethod
+    def _looks_like_plural_requested_ref(candidate: str) -> bool:
+        clean = re.sub(r"\s+", " ", str(candidate or "").strip().lower())
+        if not clean:
+            return False
+        pattern = str(_CAPABILITY_ROUTER_LEXICON.get("plural_requested_ref_pattern") or "").strip()
+        if not pattern:
+            return False
+        try:
+            return bool(re.search(pattern, clean, flags=re.IGNORECASE))
+        except re.error:
+            return False
 
     @classmethod
     def _extract_requested_connection_phrase_hint(
@@ -846,6 +877,8 @@ class CapabilityRouter:
         requested_candidate = ""
         if connection_kind:
             requested_candidate = self._extract_requested_connection_ref_hint(raw, connection_kind, lexicon)
+        if connection_kind == "ssh" and self._looks_like_plural_requested_ref(requested_candidate):
+            requested_candidate = ""
         if capability == "website_read" and not requested_candidate and not explicit_ref:
             requested_candidate = self._extract_website_target_phrase(raw)
 

@@ -15,6 +15,7 @@ from aria.core.llm_client import LLMClientError
 from aria.core.prompt_loader import PromptLoadError
 from aria.web.chat_route_helpers import ChatPreparedState, ChatResponseState
 from aria.web.main_ui_helpers import discord_alert_error_lines
+from aria.web.main_ui_helpers import should_alert_recipe_errors
 
 
 IntentBadge = Callable[[list[str], list[str] | None], tuple[str, str]]
@@ -242,7 +243,7 @@ async def execute_chat_flow(
         warning = deps.friendly_error_text(result.skill_errors)
         if warning:
             response_state.assistant_text = f"{response_state.assistant_text}\n\n{_chat_execution_text(lang, 'warning_prefix', 'Note')}: {warning}"
-        if result.skill_errors:
+        if should_alert_recipe_errors(result.skill_errors):
             discord_error_text = discord_alert_error_lines(result.skill_errors)
             await asyncio.to_thread(
                 deps.alert_sender,

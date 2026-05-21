@@ -8,6 +8,8 @@ ARIA soll sichtbar machen, wie viel LLM- und Embedding-Nutzung kostet. Das gilt 
 
 ARIA berechnet Kosten nur, wenn fuer das verwendete Modell ein Preis bekannt ist. Unbekannte Modelle werden nicht geraten, sondern in `/stats` als unbepreist gezeigt.
 
+Wichtig: Diese Werte sind lokale Usage-Schaetzungen und keine abrechnungsgenaue Provider-Rechnung. Fuer stabile Betriebs-Hygiene gilt standardmaessig eine **90-Tage-Retention** fuer Token-/Kosten-/Activity-Logs und den redigierten LLM-Debug-Log. Beim Start und in der Maintenance werden aeltere lokale Runtime-Logs automatisch bereinigt; Config-Backups sind Downloads und werden nicht dauerhaft in ARIA gesammelt.
+
 ## Datenquelle
 
 Primaere Quelle ist die LiteLLM-GitHub-Preisliste:

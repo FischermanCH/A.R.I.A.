@@ -12,6 +12,8 @@ from aria.core.recipe_promotion_contract import (
     PROMOTION_STATE_OBSERVED,
     PROMOTION_STATE_PROMOTED,
     PROMOTION_STATE_REVIEW_READY,
+    learned_recipe_can_promote_to_stored_recipe,
+    learned_recipe_promotion_gate_hint,
     promotion_state_rank,
 )
 
@@ -166,6 +168,9 @@ def _review_next_action_label(
 ) -> str:
     if promotion_state == PROMOTION_STATE_PROMOTED:
         return _learned_recipe_ui_text(language, "next_action_open_stored", "Open stored recipe for review")
+    gate_hint = learned_recipe_promotion_gate_hint(entry)
+    if gate_hint:
+        return gate_hint
     if is_stored_recipe_promotable_capability(entry.get("capability", "")):
         return _learned_recipe_ui_text(language, "next_action_promote", "Review and promote if still correct")
     return _learned_recipe_ui_text(language, "next_action_context_only", "Keep as planner context")
@@ -301,7 +306,10 @@ def build_learned_recipe_row(source: dict[str, Any] | None, *, language: str | N
         "learning_signal_label": _learning_signal_label(entry, language=language),
         "learning_quality_label": _learning_quality_label(entry, language=language),
         "learning_signal_class": _learning_signal_class(entry),
-        "can_promote_to_stored_recipe": is_stored_recipe_promotable_capability(entry.get("capability", "")) and promotion_state != PROMOTION_STATE_PROMOTED,
+        "can_promote_to_stored_recipe": (
+            is_stored_recipe_promotable_capability(entry.get("capability", ""))
+            and learned_recipe_can_promote_to_stored_recipe(entry)
+        ),
     }
 
 

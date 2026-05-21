@@ -650,8 +650,10 @@
         "df -h",
         "hd",
         "hdd",
+        "harddisk",
         "hard drive",
         "festplattenplatz",
+        "speicher frei",
         "platte",
         "platten"
       ]
@@ -1234,6 +1236,7 @@
         "df -h",
         "hd",
         "hdd",
+        "harddisk",
         "hard drive"
       ]
     }

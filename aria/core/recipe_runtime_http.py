@@ -15,6 +15,25 @@ UrlOpen = Callable[..., Any]
 GuardrailEnforcer = Callable[..., None]
 
 
+class HTTPAPIStatusError(ValueError):
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        path: str,
+        method: str,
+        health_path: str = "",
+        response_excerpt: str = "",
+        message: str = "",
+    ) -> None:
+        super().__init__(message or f"HTTP API returned HTTP {status_code} on {path} ({method})")
+        self.status_code = int(status_code or 0)
+        self.path = str(path or "").strip()
+        self.method = str(method or "").strip().upper() or "GET"
+        self.health_path = str(health_path or "").strip()
+        self.response_excerpt = str(response_excerpt or "").strip()
+
+
 class RecipeHttpRuntime:
     def __init__(
         self,
@@ -52,6 +71,7 @@ class RecipeHttpRuntime:
             evaluation_text=" ".join(
                 part
                 for part in (
+                    "webhook_send webhook http_request post status notification benachrichtigung",
                     method,
                     webhook_url,
                     content_type,
@@ -176,6 +196,7 @@ class RecipeHttpRuntime:
             evaluation_text=" ".join(
                 part
                 for part in (
+                    f"api_request http_request {method.lower()} status health",
                     method,
                     target_url,
                     resolved_path,
@@ -228,13 +249,26 @@ class RecipeHttpRuntime:
                 message_parts.append(
                     self._text(language, "message_1767", "Response: {response_excerpt}", response_excerpt=response_excerpt)
                 )
-            raise ValueError(" ".join(part for part in message_parts if part)) from exc
+            raise HTTPAPIStatusError(
+                status_code=status_code,
+                path=resolved_path,
+                method=method,
+                health_path=health_path,
+                response_excerpt=response_excerpt,
+                message=" ".join(part for part in message_parts if part),
+            ) from exc
         except URLError as exc:
             raise ValueError(self._text(language, "message_1775", "HTTP API request failed: {exc}", exc=exc)) from exc
         except Exception as exc:  # noqa: BLE001
             raise ValueError(self._text(language, "message_1777", "HTTP API request failed: {exc}", exc=exc)) from exc
         if status_code >= 400:
-            raise ValueError(self._text(language, "message_1779", "HTTP API request failed: HTTP {status_code}", status_code=status_code))
+            raise HTTPAPIStatusError(
+                status_code=status_code,
+                path=resolved_path,
+                method=method,
+                health_path=health_path,
+                message=self._text(language, "message_1779", "HTTP API request failed: HTTP {status_code}", status_code=status_code),
+            )
 
         text = body.decode("utf-8", errors="replace").strip()
         if text:

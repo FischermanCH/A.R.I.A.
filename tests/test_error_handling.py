@@ -18,10 +18,14 @@ from aria.main import (
 from aria.core.access import can_access_settings, is_advanced_config_path
 from aria.core.config import normalize_ui_background, normalize_ui_theme
 from aria.core.connection_runtime import friendly_discord_test_error_message
+from aria.core.action_plan import ActionPlan
+from aria.core.pipeline_capability_messages import capability_execution_error_code
+from aria.core.pipeline_capability_messages import format_capability_execution_error
 from aria.core.recipe_runtime import RecipeRuntime
 from aria.web.config_routes import _apply_factory_reset_to_raw_config
 from aria.web.config_routes import _friendly_ssh_setup_error_impl
 from aria.web.config_routes import _read_ssh_connections_impl
+from aria.web.main_ui_helpers import should_alert_recipe_errors
 from aria.web.recipes_routes import _is_admin_mode_request
 from aria.web.recipes_routes import _is_valid_csrf_submission
 from aria.web.recipes_routes import _remove_custom_skill_config
@@ -62,6 +66,74 @@ def test_intent_badge_uses_capability_category() -> None:
     icon, label = _intent_badge(["capability:file_read"], [])
     assert icon == "📄"
     assert label == "file_read"
+
+
+def test_intent_badge_keeps_capability_category_for_partial_action_errors() -> None:
+    icon, label = _intent_badge(["capability:ssh_command"], ["capability_ssh_command_blocked:pihole1:ssh_command_not_in_allow_list"])
+    assert icon == "💻"
+    assert label == "ssh_command"
+
+
+def test_http_api_external_status_keeps_capability_badge_and_skips_alert() -> None:
+    errors = ["external_http_api_status:404"]
+
+    assert _friendly_error_text(errors) == ""
+    assert should_alert_recipe_errors(errors) is False
+    icon, label = _intent_badge(["capability:api_request"], errors)
+    assert icon == "🌐"
+    assert label == "api_request"
+
+
+def test_http_api_guardrail_block_has_no_generic_warning_or_alert() -> None:
+    plan = ActionPlan(
+        capability="api_request",
+        connection_kind="http_api",
+        connection_ref="n8n-test-http-api",
+        path="/settings",
+        content="",
+    )
+    exc = ValueError("HTTP-Guardrail blockiert die Anfrage: http-api-readonly-health-status")
+
+    error_code = capability_execution_error_code(plan, exc)
+    text = format_capability_execution_error(plan, exc, language="de")
+
+    assert error_code == "capability_api_request_guardrail_blocked"
+    assert "Guardrail-Profil `http-api-readonly-health-status` blockiert" in text
+    assert "aktive Sicherheitsregel" in text
+    assert "Zugriffsfehler" in text
+    assert "Guardrail pruefen/anpassen: [http-api-readonly-health-status]" in text
+    assert "(/config/security?guardrail_ref=http-api-readonly-health-status)" in text
+    assert _friendly_error_text([error_code]) == ""
+    assert should_alert_recipe_errors([error_code]) is False
+    icon, label = _intent_badge(["capability:api_request"], [error_code])
+    assert icon == "🌐"
+    assert label == "api_request"
+
+
+def test_non_http_guardrail_block_has_no_generic_warning_or_alert() -> None:
+    plan = ActionPlan(
+        capability="webhook_send",
+        connection_kind="webhook",
+        connection_ref="n8n-test-webhook",
+        content="delete user record",
+    )
+    exc = ValueError("HTTP-Guardrail blockiert die Anfrage: webhook-status-benachrichtigung")
+
+    error_code = capability_execution_error_code(plan, exc)
+    text = format_capability_execution_error(plan, exc, language="de")
+
+    assert error_code == "capability_webhook_send_guardrail_blocked"
+    assert "Webhook-Aktion" in text
+    assert "Guardrail-Profil `webhook-status-benachrichtigung` blockiert" in text
+    assert "aktive Sicherheitsregel" in text
+    assert "technischer Ausfuehrungsfehler" in text
+    assert "Guardrail pruefen/anpassen: [webhook-status-benachrichtigung]" in text
+    assert "(/config/security?guardrail_ref=webhook-status-benachrichtigung)" in text
+    assert _friendly_error_text([error_code]) == ""
+    assert should_alert_recipe_errors([error_code]) is False
+    icon, label = _intent_badge(["capability:webhook_send"], [error_code])
+    assert icon == "📡"
+    assert label == "webhook_send"
 
 
 def test_intent_badge_uses_feed_category() -> None:

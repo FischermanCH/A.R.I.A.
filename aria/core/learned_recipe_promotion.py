@@ -8,6 +8,8 @@ from aria.core.connection_action_contract import connection_action_contract
 from aria.core.learned_recipe_store import load_learned_recipe_store_entries
 from aria.core.learned_recipe_store import update_learned_recipe_store_entry
 from aria.core.learned_recipe_store_contract import normalize_learned_recipe_store_entry
+from aria.core.recipe_promotion_contract import learned_recipe_can_promote_to_stored_recipe
+from aria.core.recipe_promotion_contract import learned_recipe_promotion_gate_hint
 from aria.core.stored_recipes import sanitize_recipe_id, save_stored_recipe_manifest
 
 _LEARNED_PROMOTION_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
@@ -135,6 +137,15 @@ def _promoted_step(entry: dict[str, Any]) -> dict[str, Any]:
 
 def build_stored_recipe_manifest_from_learned_entry(entry: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_learned_recipe_store_entry(entry)
+    if not learned_recipe_can_promote_to_stored_recipe(normalized):
+        hint = learned_recipe_promotion_gate_hint(normalized)
+        raise ValueError(
+            hint
+            or _promotion_text(
+                "not_ready",
+                "Learned recipe cannot yet be promoted; collect more evidence or review it first.",
+            )
+        )
     stored_recipe_id = _stored_recipe_id_from_learned_entry(normalized)
     if not stored_recipe_id:
         raise ValueError(_promotion_text("recipe_id_missing", "Learned recipe cannot be promoted: recipe ID is missing."))

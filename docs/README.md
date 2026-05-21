@@ -34,3 +34,10 @@ Diese Doku ist für alles gedacht, was mit ARIA als Produkt/Release mitgeliefert
 - Versioning / Git Release Notes Plan: `docs/release/versioning.md`
 - GitHub Release Notes Template: `docs/release/github-release-notes-template.md`
 - Changelog: `CHANGELOG.md`
+
+## Intern / Lokal
+
+- Getrackte interne Build-Historie: `docs/internal/alpha-build-log.md`
+- Lokale, nicht zu committende Arbeitsnotizen: `docs/local/`
+
+`docs/local/` ist in `.gitignore` eingetragen. Dort liegen Handoff-Dateien, alte Planungsstände und lokale Screenshots, die nicht in Public Releases oder GitHub landen sollen.

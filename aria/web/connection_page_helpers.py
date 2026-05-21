@@ -62,15 +62,39 @@ def build_connection_page_helpers(deps: ConnectionPageHelperDeps) -> ConnectionP
         return "#create-new" if _normalize_connection_mode(mode) == "create" else "#manage-existing"
 
     def _connection_mode_url(request: Request, mode: str) -> str:
-        pairs = [(key, value) for key, value in parse_qsl(request.url.query, keep_blank_values=True) if key != "mode"]
-        pairs.append(("mode", _normalize_connection_mode(mode)))
+        target_mode = _normalize_connection_mode(mode)
+        ref_query_keys = {
+            "ref",
+            "ssh_ref",
+            "sftp_ref",
+            "smb_ref",
+            "discord_ref",
+            "rss_ref",
+            "website_ref",
+            "webhook_ref",
+            "http_api_ref",
+            "google_calendar_ref",
+            "searxng_ref",
+            "mqtt_ref",
+            "email_ref",
+            "imap_ref",
+        }
+        pairs = []
+        for key, value in parse_qsl(request.url.query, keep_blank_values=True):
+            if key == "mode":
+                continue
+            if target_mode == "create" and key in ref_query_keys:
+                continue
+            pairs.append((key, value))
+        pairs.append(("mode", target_mode))
         query = urlencode(pairs)
         base = f"{request.url.path}?{query}" if query else str(request.url.path)
         return f"{base}{_connection_mode_anchor(mode)}"
 
     def _has_any_connection_refs(context: dict[str, Any]) -> bool:
         for key, value in context.items():
-            if not str(key).endswith("_refs"):
+            clean_key = str(key)
+            if clean_key != "refs" and not clean_key.endswith("_refs"):
                 continue
             if isinstance(value, list) and value:
                 return True

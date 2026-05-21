@@ -6,6 +6,148 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha298] - 2026-05-21
+
+### Added
+- Added an LLM-assisted Guardrail draft flow on the Security page: ARIA can turn a natural-language safety intent into a reviewable Guardrail proposal, while saving remains an explicit user action and deterministic Guardrail evaluation stays unchanged.
+- Added a lightweight working-status indicator to the Guardrail AI draft form, so users can see when ARIA is checking context, contacting the LLM, and preparing the review draft.
+- Added a Guardrail test mode on the Security page, allowing saved Guardrails to be checked against example requests before they are attached to live connections.
+- Added a visible stats billing-period reset on the Costs card. Reset now archives the current token/run log before starting a fresh local usage period.
+
+### Changed
+- Clarified Discord startup host reporting: ARIA now reports the configured base URL or an automatically detected local address instead of warning about a missing public URL.
+- Clarified the Stats token card request label so it refers to the current local period instead of a misleading fixed 7-day label after a usage reset.
+- Clarified the Stats cost card so ARIA labels LLM costs as usage estimates for orientation, not invoice-grade provider billing.
+- Changed the default runtime log retention to 90 days and extended startup/maintenance cleanup to prune the redacted LLM prompt debug log alongside token/cost/activity logs.
+- Started aligning connection detail pages around the SSH page as the master pattern: the shared connection status block is now collapsible, profile cards show a visible edit action, and the other connection detail pages use collapsible edit/create work areas instead of hidden mode-only cards.
+- Moved guardrail attachment UI and save-time validation for SSH, SFTP, SMB, Webhook, and HTTP API connection pages into shared templates/context/helper logic, keeping current single-Guardrail behavior while preparing a cleaner Multi-Guardrail follow-up.
+- Scoped saved Guardrails can now carry exact compatible connection kinds, so a File Access Guardrail drafted for SFTP is not offered on SMB connection pages and vice versa.
+- Opened the security/advanced option panels by default on Guardrail-capable connection forms, making Guardrail assignment visible without an extra expand step.
+- Reworked the Security Guardrails page into focused collapsible sections, so AI drafting, loading/editing, deletion, manual creation, and sample imports are no longer all expanded at once.
+- Reworked the SSH connection page into focused collapsible sections and made profile cards open the edit mode, with a visible edit action and clearer access to the Guardrail selector.
+- Replaced the unsupported Google Calendar device-code/OAuth setup with a simpler read-only secret iCal URL setup, so LAN/IP-only end-user installs can connect a personal calendar without Google Cloud clients, redirect URIs, client secrets, or refresh-token handling.
+- Updated product, help, and wiki docs so current Google Calendar guidance points to the read-only iCal setup instead of the obsolete OAuth path.
+
+### Fixed
+- Made Operator Guardrail warnings actionable on the Stats page by listing the exact non-OK checks, their details, and deep links to the relevant section.
+- Fixed Stats in-page detail links so targets such as Costs & Pricing open their collapsed details section before scrolling.
+- Fixed Guardrail dry-run and runtime evaluation for file, webhook, and HTTP API actions so generated read-only/status Guardrails receive structured operation context such as `file_list`, `read`, `webhook_send`, `status`, and `health` instead of only a bare path or payload.
+- Fixed pending routed action execution so user-confirmed SSH/HTTP actions that were classified as `ask_user` can pass their explicit confirmation into runtime policy instead of failing again with the same confirmation-required error.
+- Tightened chat admin delete parsing so webhook/API payload text such as `delete user record` is no longer misclassified as a request to delete a connection profile.
+- Tightened memory-forget routing so webhook/API/message payloads containing words like `delete` are not intercepted before capability routing.
+- Improved deterministic blocked-action fallback text for file write attempts, so read-only Guardrail blocks explain the blocked write more naturally when the LLM explanation path times out.
+- Classified HTTP API 4xx/5xx endpoint responses as external endpoint status errors instead of internal recipe failures, with clearer chat wording and no Discord recipe-error alert for expected HTTP status responses.
+- Classified runtime Guardrail blocks as intentional security decisions in chat, avoiding the generic profile/access-rights warning and Discord recipe-error alert for expected policy blocks.
+- Added direct Guardrail review links to runtime Guardrail block messages and aligned the blocked-action timeout fallback with the same security-decision wording.
+- Routed colloquial multi-server health prompts such as `wie fit sind meine server?` into the SSH multi-target health path instead of falling back to generic chat/RAG.
+- Fixed connection mode navigation so switching to “new connection” no longer carries an already selected profile ref, and hash links such as `#manage-existing` reliably open the intended edit card.
+- Fixed SFTP connection status rows so profile cards receive the same edit URLs as other connection types.
+- Removed the obsolete Google Calendar OAuth/device-code routes and setup UI to avoid the repeated `OAuth Client-ID fehlt` loop.
+- Limited Google Calendar `next appointment` reads to the single nearest event, while broader upcoming/week ranges still return event lists.
+
+## [0.1.0-alpha280] - 2026-05-16
+
+### Fixed
+- Added hidden Google OAuth JSON fallback fields for the Calendar device-code flow, so Safari/form-submit edge cases can still send the parsed client ID even when the visible input value is not received by the backend.
+
+## [0.1.0-alpha279] - 2026-05-16
+
+### Fixed
+- Added a backend fallback for Google Calendar device-code start that rereads the submitted form when FastAPI injects an empty client ID, using the last non-empty client ID value from the form before failing.
+
+## [0.1.0-alpha278] - 2026-05-16
+
+### Fixed
+- Autofilled the Google Calendar client ID and optional client secret in the browser as soon as an OAuth JSON file is selected, making upload parsing visible before starting the code flow.
+
+## [0.1.0-alpha277] - 2026-05-16
+
+### Fixed
+- Let the Google Calendar default device-code flow accept OAuth client JSON files that provide a client ID without a client secret, and omit the secret from token refresh/device requests when the Google client has none.
+- Clarified the Google Calendar setup UI so Client Secret is shown as optional for the default code flow and only required for the advanced browser-redirect path.
+
+## [0.1.0-alpha276] - 2026-05-16
+
+### Changed
+- Clarified the Google Calendar setup guide by pointing users to download the OAuth client JSON from the Google OAuth Clients list before uploading it in ARIA.
+- Pre-filled new Google Calendar profiles with `primary-calendar` as the default connection ref so the device-code setup does not fail on an empty internal profile id.
+- Added a server-side Google Calendar default ref fallback so the OAuth/device-code handlers still use `primary-calendar` if the browser submits an empty ref.
+
+## [0.1.0-alpha275] - 2026-05-16
+
+### Added
+- Added a Google Calendar device-code sign-in flow as the default self-hosted setup path, so ARIA can connect calendars from LAN/IP-only installs without requiring a public redirect URI.
+
+## [0.1.0-alpha274] - 2026-05-16
+
+### Fixed
+- Treated `sind meine server in ordnung`, `are my servers healthy`, and related multi-server health phrasings as broad SSH health checks, so strict per-host guardrails can use the richer allowed status bundle instead of falling back to bare `uptime`.
+
+## [0.1.0-alpha273] - 2026-05-16
+
+### Fixed
+- Routed short multi-server health prompts such as `sind meine server ok` into the SSH multi-target health path instead of falling back to generic chat/RAG.
+
+## [0.1.0-alpha272] - 2026-05-16
+
+### Changed
+- Kept long-running chat working-status messages category-specific after the 8-second fallback, so server checks continue to show that ARIA is waiting for server responses instead of falling back to a generic working message.
+
+## [0.1.0-alpha271] - 2026-05-16
+
+### Added
+- Added lightweight chat working-status messages that show the user what ARIA is likely doing while a request is running, such as checking servers, reading feeds, searching files, preparing messages, or summarizing results.
+
+### Changed
+- Let the main chat view expand toward the available viewport height so the message area grows with the screen while the composer remains anchored below it.
+
+## [0.1.0-alpha270] - 2026-05-16
+
+### Added
+- Extended the Connection Action Contract and Provider Manifest with planner-level roles, confirmation metadata, sensitive-content metadata, and optional draft capabilities so future providers such as e-mail can share read/search/draft/send boundaries instead of adding provider-specific pipeline branches.
+- Added the first generic Agentic Content Access request/result contract and handler registry for read/search/list providers, keeping future mail, files, tickets, notes, and similar content adapters separate from send/write side-effect execution.
+- Added an optional Pipeline content-access hook: registered read/search/list handlers can take over from a generic `ActionPlan`, while existing IMAP/file/feed executors remain the fallback when no handler is registered.
+
+### Changed
+- Consolidated documentation under `docs/`: public/release docs stay tracked, the internal build log moved to `docs/internal/alpha-build-log.md`, and local-only handoff/history/screenshots now live under ignored `docs/local/`.
+
+### Fixed
+- Broadened vague multi-server health prompts such as `wie geht es meinen servern` to the same strongest allowed read-only SSH status bundle used for capacity checks, avoiding narrow `uptime` probes that can be blocked by stricter per-host guardrails.
+- Fixed an unterminated mobile CSS block that could break later styles on iPhone-sized screens, added iOS safe-area viewport support, and kept mobile form fields at 16px to avoid Safari input zoom.
+
+## [0.1.0-alpha269] - 2026-05-16
+
+### Fixed
+- Broadened vague multi-server capacity checks such as `haben meine server überall genug kapazität?` from a narrow `uptime` probe to the strongest read-only health/capacity bundle allowed across all SSH targets, with deterministic fallback to disk or memory probes when stricter guardrails require it.
+- Kept partial capability executions labeled as their actual capability in chat details instead of showing misleading `memory_error` badges for blocked SSH subtargets.
+
+## [0.1.0-alpha268] - 2026-05-15
+
+### Fixed
+- Fixed mixed-language plural SSH disk prompts such as `hab ich auf all meinen server mehr als 10gb harddisk speicher frei ?` so they enter the multi-target SSH disk-check path instead of falling back to memory/RAG.
+- Added a bounded LLM capability-draft fallback for operational remote prompts that carry a connection-kind signal but miss deterministic capability lexicons, keeping flexible server/disk wording out of memory/RAG while still routing through deterministic policy, guardrails, and runtime.
+- Loosened the Pre-RAG action gate so bounded LLM capability classification can override ambiguous keyword-router hits such as false `memory_store` matches, while explicit web-search/recipe-status and runtime guardrails remain deterministic.
+
+## [0.1.0-alpha267] - 2026-05-15
+
+### Added
+- Added `docs/product/agentic-flow-map-alpha267.md` to map the controlled Agentic Action Flow from Pre-RAG context enrichment through bounded draft, policy/guardrails, runtime execution, summary, and context-only learning.
+- Added `aria/core/agentic_execution.py` and `docs/product/agentic-execution-handler-contract-alpha267.md` as the first generic Agentic execution handler contract for future connection adapters.
+- Added `aria/core/agentic_execution_registry.py` and `aria/core/agentic_execution_learning.py` so provider adapters register through a shared execution registry and record successful capability learning through one service.
+- Added `aria/core/connection_provider_manifest.py` as the first internal provider-manifest contract, grouping existing Connection Action Contracts by connection kind with auth modes, runtime adapter ids, capability rows, and validation.
+
+### Changed
+- Agentic context debug lines now use a shared context-boundary helper, so capability-draft and candidate-pool debug output explicitly carry `boundary=context_enrichment`.
+- Bounded planner selection debug now marks the draft phase with `boundary=draft`, making the Agentic debug contract easier to audit before further pipeline modularization.
+- Learned Recipe promotion now goes through a shared deterministic promotion gate: multi-target observations stay context-only, side-effect learned actions can become review-ready but not directly executable, and stored-recipe promotion validates the same blockers used by the UI.
+- Multi-target SSH learning now marks learned scope as `target_scope=multi_target` / `learning_origin=plural_target_scope`, preventing fleet checks from looking like single-target recipe evidence.
+- Learned Recipe candidates now validate `connection_kind` plus `capability` against the Connection Action Contract before re-entering the bounded planner, so stale mismatched records such as RSS/feed actions with SSH scope cannot hijack SSH questions.
+- Learned HTTP API action recording now accepts the normalized `api_request` capability as well as the legacy `http_api_request` alias when extracting the learned path.
+- Multi-target SSH runtime execution now runs through `MultiTargetSSHExecutionHandler`, the first adapter on the generic Agentic execution hook path, while preserving existing preflight, guardrail, context-memory, learning, and operator-summary behavior.
+- RSS feed execution now runs through `RSSFeedExecutionHandler`, moving RSS group-bundle and digest-option enrichment onto the same Agentic execution registry while keeping runtime execution, summaries, context memory, and learning behavior intact.
+- Agentic execution learning is now centralized through `AgenticExecutionLearningService`, removing duplicated Learned Recipe recording code from the SSH and RSS handlers.
+- The Connection Provider Manifest checklist now documents the concrete internal schema, built-in export, validator, and tests that future community/provider manifests must satisfy before UI or import support is added.
+
 ## [0.1.0-alpha266] - 2026-05-15
 
 ### Added
@@ -119,7 +261,7 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 ### Changed
 - RSS category digests now keep useful operator context in the main chat answer: entries are rendered as a readable list with source, timestamp, short snippet, and clickable Markdown links instead of collapsing everything into a one-line headline/source summary.
 - Public-facing release copy was refreshed for the post-`alpha167` rollup: README and Docker Hub overview now describe ARIA as recipe-first with LLM-assisted action planning, and `docs/release/public-alpha-rollup-alpha167-to-next.md` provides a human-readable GitHub/Docker release narrative.
-- The active alpha backlog has been compacted so old build history lives in `project.docu/alpha-build-log.md` / `CHANGELOG.md`, while `docs/backlog/alpha-backlog.md` now focuses on current blockers, live-test focus, and next cleanup steps.
+- The active alpha backlog has been compacted so old build history lives in `docs/internal/alpha-build-log.md` / `CHANGELOG.md`, while `docs/backlog/alpha-backlog.md` now focuses on current blockers, live-test focus, and next cleanup steps.
 - LiteLLM is no longer a hard base dependency of the ARIA package; model gateway calls load it lazily and Docker installs it explicitly via the `model-gateway` extra, so pricing can remain independent from the runtime provider package.
 - SSH, HTTP API, SFTP/SMB file, outbound messaging, and read-only agentic resolvers now share one explicit LLM action-draft contract: enrich context via a target dossier, let the LLM propose only a bounded draft, and leave allow/ask/block decisions to policy and guardrails.
 - Agentic Pre-RAG action paths now run inside a request usage scope, so LLM calls used for SSH/HTTP/File/Messaging/Read decisions are reflected in the visible `PipelineResult`, chat token badge, and token log instead of showing misleading `0 tokens`.
@@ -973,7 +1115,7 @@ Public roll-up release covering the already internally tested `alpha111` to `alp
 - `Systemzustand` cards in `/stats` now expose `visual_status` as well, so ARIA Runtime, Model Stack, Memory/Qdrant, Security Store, and Activities/Logs use the same status lamps as the rest of the page
 
 ### Security
-- Repo/privacy sweep: removed personal dev-host defaults from `docker/pull-from-dev.sh`, neutralized `config/secrets.env`, removed stray root artifacts `=1.2` / `=2.1`, and excluded `project.docu/` from the public repo while keeping it locally
+- Repo/privacy sweep: removed personal dev-host defaults from `docker/pull-from-dev.sh`, neutralized `config/secrets.env`, removed stray root artifacts `=1.2` / `=2.1`, and excluded the then-current local project documentation folder from the public repo while keeping it locally
 
 ### Known Limitations
 - ARIA is still primarily a personal single-user system
@@ -1048,7 +1190,7 @@ Public roll-up release covering the already internally tested `alpha111` to `alp
 - MIT `LICENSE` and `THIRD_PARTY_NOTICES.md`
 
 ### Changed
-- Documentation tree reorganized into public `docs/` and internal `project.docu/history/`
+- Documentation tree reorganized into public `docs/` and the then-current internal history folder
 - Login, Users, and Security UI now explain first-run bootstrap and Admin/User mode boundaries more clearly
 - CyberPunk Pulse theme shifted toward stronger hot-pink/magenta accents
 - Auto-Memory now skips transient one-off questions and pure tool/action prompts unless they contain stable facts/preferences
@@ -1108,7 +1250,7 @@ Public roll-up release covering the already internally tested `alpha111` to `alp
 
 ## Internal Notes
 
-- Detailed internal build history currently lives in `project.docu/alpha-build-log.md`
+- Detailed internal build history currently lives in `docs/internal/alpha-build-log.md`
 - Public release wording can be derived from:
   - `docs/product/feature-list.md`
   - `docs/backlog/future-features.md`

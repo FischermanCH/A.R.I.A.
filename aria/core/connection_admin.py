@@ -89,6 +89,7 @@ CONNECTION_ADMIN_SPECS: dict[str, dict[str, Any]] = {
     "google_calendar": {
         "health_prefix": "google_calendar",
         "secret_keys": [
+            "connections.google_calendar.{ref}.ical_url",
             "connections.google_calendar.{ref}.client_secret",
             "connections.google_calendar.{ref}.refresh_token",
         ],
@@ -159,7 +160,7 @@ CONNECTION_CREATE_SPECS: dict[str, dict[str, Any]] = {
     },
     "google_calendar": {
         "section": "google_calendar",
-        "required": ["calendar_id", "client_id", "client_secret", "refresh_token"],
+        "required": ["ical_url"],
         "success_message_key": "connection_admin.success.google_calendar_created",
     },
     "searxng": {
@@ -542,7 +543,6 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
     elif clean_kind == "google_calendar":
         rows[ref] = {
             "calendar_id": str(row_value.get("calendar_id", "primary")).strip() or "primary",
-            "client_id": str(row_value.get("client_id", "")).strip(),
             "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
             "title": str(row_value.get("title", "")).strip(),
             "description": str(row_value.get("description", "")).strip(),
@@ -551,8 +551,7 @@ def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
         }
         if not store:
             raise _admin_error("security_store_required")
-        store.set_secret(f"connections.google_calendar.{ref}.client_secret", str(row_value.get("client_secret", "")).strip())
-        store.set_secret(f"connections.google_calendar.{ref}.refresh_token", str(row_value.get("refresh_token", "")).strip())
+        store.set_secret(f"connections.google_calendar.{ref}.ical_url", str(row_value.get("ical_url", "")).strip())
     elif clean_kind == "mqtt":
         rows[ref] = {
             "host": str(row_value.get("host", "")).strip(),
@@ -753,21 +752,17 @@ def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: 
                 raise _admin_error("security_store_required")
             store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
     elif clean_kind == "google_calendar":
-        for field in ("calendar_id", "client_id"):
+        for field in ("calendar_id",):
             value = str(update_payload.get(field, "")).strip()
             if value:
                 row_value[field] = value
         if "timeout_seconds" in update_payload:
             row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
-        client_secret = str(update_payload.get("client_secret", "")).strip()
-        refresh_token = str(update_payload.get("refresh_token", "")).strip()
-        if client_secret or refresh_token:
+        ical_url = str(update_payload.get("ical_url", "")).strip()
+        if ical_url:
             if not store:
                 raise _admin_error("security_store_required")
-            if client_secret:
-                store.set_secret(f"connections.google_calendar.{ref}.client_secret", client_secret)
-            if refresh_token:
-                store.set_secret(f"connections.google_calendar.{ref}.refresh_token", refresh_token)
+            store.set_secret(f"connections.google_calendar.{ref}.ical_url", ical_url)
     elif clean_kind == "mqtt":
         for field in ("host", "user", "topic"):
             value = str(update_payload.get(field, "")).strip()

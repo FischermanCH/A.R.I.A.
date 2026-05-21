@@ -16,7 +16,7 @@ def _chosen_action_from_plan(plan: ActionPlan) -> str:
     capability = str(plan.capability or "").strip().lower()
     if capability == "ssh_command":
         return str(plan.content or "").strip()
-    if capability in {"file_read", "file_write", "file_list", "http_api_request"}:
+    if capability in {"file_read", "file_write", "file_list", "api_request", "http_api_request"}:
         return str(plan.path or "").strip()
     if capability in {"mail_search", "discord_send", "webhook_send", "email_send", "mqtt_publish"}:
         return str(plan.content or "").strip()
@@ -43,6 +43,7 @@ def should_record_learned_recipe_success(action: dict[str, Any], plan: ActionPla
         "mail_read",
         "mail_search",
         "mqtt_publish",
+        "api_request",
         "http_api_request",
         "discord_send",
         "webhook_send",
@@ -119,6 +120,9 @@ def _learning_router_keywords(
 
 def _learning_recipe_scope(action: dict[str, Any], plan: ActionPlan) -> dict[str, Any]:
     scope = dict(action.get("recipe_scope", {}) or {})
+    if _clean_text(plan.resolution_source).lower() == "plural_target_scope":
+        scope["target_scope"] = "multi_target"
+        scope["learning_origin"] = "plural_target_scope"
     if _is_guardrail_healthcheck_fallback(action, plan):
         connection_kind = _clean_text(plan.connection_kind).lower()
         connection_ref = _clean_text(plan.connection_ref)

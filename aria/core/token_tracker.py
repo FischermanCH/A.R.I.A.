@@ -349,13 +349,34 @@ class TokenTracker:
             return {"total": 0, "kept": 0, "removed": 0}
         return {"total": total, "kept": kept, "removed": removed}
 
-    async def clear_log(self) -> dict[str, int]:
+    def _next_archive_path(self) -> Path:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        candidate = self.log_path.with_name(f"{self.log_path.stem}-archive-{stamp}{self.log_path.suffix}")
+        counter = 2
+        while candidate.exists():
+            candidate = self.log_path.with_name(
+                f"{self.log_path.stem}-archive-{stamp}-{counter}{self.log_path.suffix}"
+            )
+            counter += 1
+        return candidate
+
+    async def clear_log(self, *, archive: bool = False) -> dict[str, int | str]:
         if not self.log_path.exists():
             return {"removed": 0}
         removed = 0
         for _raw, _item in self._iter_log_items():
             removed += 1
         try:
+            if archive:
+                archive_path = self._next_archive_path()
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                self.log_path.replace(archive_path)
+                return {
+                    "removed": removed,
+                    "archived": 1,
+                    "archive_path": str(archive_path),
+                    "archive_name": archive_path.name,
+                }
             self.log_path.unlink(missing_ok=True)
         except OSError:
             return {"removed": 0}

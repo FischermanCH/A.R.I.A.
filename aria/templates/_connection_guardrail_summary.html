@@ -1,0 +1,6 @@
+{% if selected_guardrail_ref %}
+<div class="skill-summary connection-flow-note connection-guardrail-summary">
+  <strong>{{ tr(request, 'config_conn.attached_guardrail', 'Aktives Guardrail') }}</strong>
+  <span><code>{{ selected_guardrail_ref }}</code></span>
+</div>
+{% endif %}

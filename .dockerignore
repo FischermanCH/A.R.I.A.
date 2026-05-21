@@ -18,6 +18,7 @@ data/skills/
 
 tests/
 project.docu/
+docs/local/
 data/chat_history/
 data/qdrant/
 data/runtime/

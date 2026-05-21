@@ -1,6 +1,6 @@
 # ARIA Alpha Hilfe
 
-Stand: 2026-05-15 / Public Alpha `0.1.0-alpha266`
+Stand: 2026-05-15 / Public Alpha `0.1.0-alpha298`
 
 Diese Seite ist die praktische Kurz-Hilfe fuer ARIA Alpha. Sie beschreibt den aktuellen Stand nach dem grossen Umbau von Legacy-Skills zu Rezepten, LLM-gestuetzter Action-Planung und kontrollierter Ausfuehrung.
 
@@ -122,6 +122,8 @@ Aktuelle Connection-Familien:
 - Google Calendar read-only
 - SMTP / IMAP / MQTT
 
+Google Calendar nutzt im aktuellen Alpha-Enduser-Pfad keinen Google-Cloud- oder OAuth-Login. Kopiere in Google Calendar unter `Einstellungen > Kalender integrieren` die `Geheime Adresse im iCal-Format`, fuege sie in ARIA ein und speichere die Verbindung. Die URL ist ein Geheimnis und wird serverseitig im Secure Store gehalten. Damit kann ARIA Termine lesen, aber keine Kalender veraendern.
+
 ## Rezepte
 
 Rezepte sind das sichtbare Automationsmodell. Legacy-Skills sind nur noch Kompatibilitaetsbruecken.
@@ -166,6 +168,8 @@ Beispiele:
 - unbepreiste Modelle
 - LiteLLM-Preislistenstatus
 - Routing-/Gateway-Audit
+
+Wichtig fuer den Betrieb: ARIA behandelt Kosten als lokale Usage-Schaetzung, nicht als Provider-Rechnung. Token-/Kosten-/Activity-Logs und der redigierte LLM-Debug-Log folgen der Log-Retention. Der empfohlene Standard ist **90 Tage**; beim Start und in der Maintenance werden aeltere lokale Laufzeitlogs automatisch bereinigt. Config-Backups sind Downloads und werden nicht dauerhaft in ARIA abgelegt.
 
 ARIA nutzt die LiteLLM-GitHub-Preisliste als Primaerquelle, ohne das LiteLLM-Python-Paket zu installieren. Die letzte gute Preisliste wird lokal gecached. Eigene Preise und Aliase koennen in der Pricing-Admin-UI unter `/stats` gepflegt werden.
 

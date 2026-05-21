@@ -1,5 +1,5 @@
-import json
 import time
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
@@ -160,11 +160,10 @@ def _build_runtime(*, truncate_text=None) -> RecipeRuntime:
         connections=SimpleNamespace(
             google_calendar={
                 "primary-calendar": SimpleNamespace(
-                    calendar_id="primary",
-                    client_id="client-id",
-                    client_secret="client-secret",
-                    refresh_token="refresh-token",
+                    calendar_id="ical",
+                    ical_url="https://calendar.google.com/calendar/ical/private/basic.ics",
                     timeout_seconds=10,
+                    title="Primary Calendar",
                 )
             }
         )
@@ -193,14 +192,22 @@ def test_google_calendar_range_bounds_for_tomorrow() -> None:
     assert max_results == 12
 
 
+def test_google_calendar_range_bounds_for_next_returns_single_event() -> None:
+    start_at, end_at, max_results = RecipeRuntime._google_calendar_time_bounds("next")
+
+    assert start_at < end_at
+    assert max_results == 1
+
+
 def test_execute_google_calendar_read_formats_events(monkeypatch) -> None:
     runtime = _build_runtime()
+    start_day = datetime.now().astimezone().strftime("%Y%m%d")
 
     class _Response:
-        def __init__(self, payload: dict[str, object]) -> None:
-            self._payload = json.dumps(payload).encode("utf-8")
+        def __init__(self, payload: str) -> None:
+            self._payload = payload.encode("utf-8")
 
-        def read(self) -> bytes:
+        def read(self, *_args) -> bytes:
             return self._payload
 
         def __enter__(self) -> "_Response":
@@ -215,19 +222,15 @@ def test_execute_google_calendar_read_formats_events(monkeypatch) -> None:
         _ = timeout
         url = getattr(request, "full_url", str(request))
         calls.append(url)
-        if "oauth2.googleapis.com/token" in url:
-            return _Response({"access_token": "token-123"})
         return _Response(
-            {
-                "summary": "Primary Calendar",
-                "items": [
-                    {
-                        "summary": "Team Standup",
-                        "start": {"dateTime": "2026-04-22T09:00:00+02:00"},
-                        "location": "Meet",
-                    }
-                ],
-            }
+            "BEGIN:VCALENDAR\n"
+            "X-WR-CALNAME:Primary Calendar\n"
+            "BEGIN:VEVENT\n"
+            "SUMMARY:Team Standup\n"
+            f"DTSTART:{start_day}T090000\n"
+            "LOCATION:Meet\n"
+            "END:VEVENT\n"
+            "END:VCALENDAR\n"
         )
 
     monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
@@ -237,18 +240,61 @@ def test_execute_google_calendar_read_formats_events(monkeypatch) -> None:
     assert "Primary Calendar" in result
     assert "Team Standup" in result
     assert "Ort: Meet" in result
-    assert any("oauth2.googleapis.com/token" in call for call in calls)
-    assert any("/calendar/v3/calendars/primary/events" in call for call in calls)
+    assert calls == ["https://calendar.google.com/calendar/ical/private/basic.ics"]
+
+
+def test_execute_google_calendar_read_next_lists_only_first_event(monkeypatch) -> None:
+    runtime = _build_runtime()
+    first_day = (datetime.now().astimezone() + timedelta(days=1)).strftime("%Y%m%d")
+    second_day = (datetime.now().astimezone() + timedelta(days=2)).strftime("%Y%m%d")
+
+    class _Response:
+        def __init__(self, payload: str) -> None:
+            self._payload = payload.encode("utf-8")
+
+        def read(self, *_args) -> bytes:
+            return self._payload
+
+        def __enter__(self) -> "_Response":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            _ = (exc_type, exc, tb)
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        _ = (request, timeout)
+        return _Response(
+            "BEGIN:VCALENDAR\n"
+            "X-WR-CALNAME:Primary Calendar\n"
+            "BEGIN:VEVENT\n"
+            "SUMMARY:First Appointment\n"
+            f"DTSTART:{first_day}T090000\n"
+            "END:VEVENT\n"
+            "BEGIN:VEVENT\n"
+            "SUMMARY:Second Appointment\n"
+            f"DTSTART:{second_day}T090000\n"
+            "END:VEVENT\n"
+            "END:VCALENDAR\n"
+        )
+
+    monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
+
+    result = runtime.execute_google_calendar_read("primary-calendar", "next", language="de")
+
+    assert "First Appointment" in result
+    assert "Second Appointment" not in result
+    assert "\n2." not in result
 
 
 def test_execute_google_calendar_read_passes_search_query_to_google(monkeypatch) -> None:
     runtime = _build_runtime()
+    next_week_day = (datetime.now().astimezone() + timedelta(days=8)).strftime("%Y%m%d")
 
     class _Response:
-        def __init__(self, payload: dict[str, object]) -> None:
-            self._payload = json.dumps(payload).encode("utf-8")
+        def __init__(self, payload: str) -> None:
+            self._payload = payload.encode("utf-8")
 
-        def read(self) -> bytes:
+        def read(self, *_args) -> bytes:
             return self._payload
 
         def __enter__(self) -> "_Response":
@@ -263,9 +309,15 @@ def test_execute_google_calendar_read_passes_search_query_to_google(monkeypatch)
         _ = timeout
         url = getattr(request, "full_url", str(request))
         calls.append(url)
-        if "oauth2.googleapis.com/token" in url:
-            return _Response({"access_token": "token-123"})
-        return _Response({"summary": "Primary Calendar", "items": []})
+        return _Response(
+            "BEGIN:VCALENDAR\n"
+            "X-WR-CALNAME:Primary Calendar\n"
+            "BEGIN:VEVENT\n"
+            "SUMMARY:Team Standup\n"
+            f"DTSTART:{next_week_day}T090000\n"
+            "END:VEVENT\n"
+            "END:VCALENDAR\n"
+        )
 
     monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
 
@@ -273,25 +325,22 @@ def test_execute_google_calendar_read_passes_search_query_to_google(monkeypatch)
 
     assert "Keine Termine" in result
     assert "Zahnarzt" in result
-    assert any("q=Zahnarzt" in call for call in calls if "/calendar/v3/calendars/primary/events" in call)
+    assert calls == ["https://calendar.google.com/calendar/ical/private/basic.ics"]
 
 
-def test_execute_google_calendar_read_surfaces_revoked_refresh_token_helpfully(monkeypatch) -> None:
+def test_execute_google_calendar_read_surfaces_unreachable_ical_feed_helpfully(monkeypatch) -> None:
     runtime = _build_runtime()
 
-    class _TokenError(HTTPError):
+    class _IcalError(HTTPError):
         def __init__(self) -> None:
-            super().__init__("https://oauth2.googleapis.com/token", 400, "Bad Request", hdrs=None, fp=None)
+            super().__init__("https://calendar.google.com/calendar/ical/private/basic.ics", 404, "Not Found", hdrs=None, fp=None)
 
         def read(self) -> bytes:
-            return b'{"error":"invalid_grant","error_description":"Token has been expired or revoked."}'
+            return b""
 
     def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
         _ = timeout
-        url = getattr(request, "full_url", str(request))
-        if "oauth2.googleapis.com/token" in url:
-            raise _TokenError()
-        raise AssertionError("Calendar fetch should not run after token failure.")
+        raise _IcalError()
 
     monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
 
@@ -300,7 +349,7 @@ def test_execute_google_calendar_read_surfaces_revoked_refresh_token_helpfully(m
     except ValueError as exc:
         message = str(exc)
     else:
-        raise AssertionError("Expected ValueError for revoked refresh token.")
+        raise AssertionError("Expected ValueError for failed iCal feed.")
 
-    assert "Refresh-Token" in message
-    assert "mit Google verbinden" in message
+    assert "Kalender" in message or "Calendar" in message
+    assert "404" in message or "nicht gefunden" in message

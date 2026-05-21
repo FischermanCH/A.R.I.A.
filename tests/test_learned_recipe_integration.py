@@ -89,6 +89,81 @@ def test_record_routed_action_success_builds_update_payload_from_template_action
     }
 
 
+def test_record_routed_action_success_marks_plural_target_scope_context_only() -> None:
+    captured: dict[str, object] = {}
+
+    def _recorder(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    action = {
+        "candidate_kind": "template",
+        "candidate_role": "template_candidate",
+        "candidate_id": "ssh_run_command",
+        "title": "SSH Agentic Command",
+        "intent": "run_command",
+        "inputs": {"command": "uptime"},
+        "recipe_scope": {"connection_kinds": ["ssh"]},
+    }
+    plan = ActionPlan(
+        capability="ssh_command",
+        connection_kind="ssh",
+        connection_ref="srv-a",
+        content="uptime",
+        resolution_source="plural_target_scope",
+    )
+
+    result = record_routed_action_success(
+        action=action,
+        plan=plan,
+        result_text="srv-a ok",
+        recorder=_recorder,
+        user_message="check all servers",
+    )
+
+    assert result == {"ok": True}
+    assert captured["recipe_scope"] == {
+        "connection_kinds": ["ssh"],
+        "target_scope": "multi_target",
+        "learning_origin": "plural_target_scope",
+    }
+
+
+def test_record_routed_action_success_records_normalized_api_request_path() -> None:
+    captured: dict[str, object] = {}
+
+    def _recorder(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True}
+
+    action = {
+        "candidate_kind": "template",
+        "candidate_role": "template_candidate",
+        "candidate_id": "http_api_request",
+        "title": "API Request",
+        "intent": "api_request",
+        "inputs": {"path": "/health"},
+        "recipe_scope": {"connection_kinds": ["http_api"]},
+    }
+    plan = ActionPlan(
+        capability="api_request",
+        connection_kind="http_api",
+        connection_ref="inventory-api",
+        path="/health",
+    )
+
+    result = record_routed_action_success(
+        action=action,
+        plan=plan,
+        result_text="ok",
+        recorder=_recorder,
+    )
+
+    assert result == {"ok": True}
+    assert captured["chosen_action"] == "/health"
+    assert captured["capability"] == "api_request"
+
+
 def test_record_routed_action_success_enriches_guardrail_healthcheck_learning() -> None:
     captured: dict[str, object] = {}
 

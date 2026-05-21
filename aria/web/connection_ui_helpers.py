@@ -61,8 +61,7 @@ def build_schema_form_fields(
         ("sftp", "password"): "config_conn.sftp_password_store_hint",
         ("sftp", "key_path"): "config_conn.sftp_key_path_hint",
         ("discord", "webhook_url"): "config_conn.discord_password_hint",
-        ("google_calendar", "client_secret"): "config_conn.google_calendar_auth_hint",
-        ("google_calendar", "refresh_token"): "config_conn.google_calendar_auth_hint",
+        ("google_calendar", "ical_url"): "config_conn.google_calendar_auth_hint",
         ("ssh", "allow_commands"): "config_conn.allow_commands_hint",
         ("ssh", "service_url"): "config_conn.ssh_service_url_hint",
     }
@@ -91,9 +90,7 @@ def build_schema_form_fields(
         "to_email": "config_conn.email_to",
         "mailbox": "config_conn.imap_mailbox",
         "calendar_id": "config_conn.calendar_target",
-        "client_id": "config_conn.google_calendar_client_id",
-        "client_secret": "config_conn.google_calendar_client_secret",
-        "refresh_token": "config_conn.google_calendar_refresh_token",
+        "ical_url": "config_conn.google_calendar_ical_url",
     }
     label_keys_by_kind = {
         ("smb", "share"): "config_conn.smb_share",
@@ -159,7 +156,7 @@ def build_schema_form_fields(
             input_type = "url"
         elif name in {"from_email", "to_email"}:
             input_type = "email"
-        elif name in {"password", "auth_token", "client_secret", "refresh_token"}:
+        elif name in {"password", "auth_token", "client_secret", "refresh_token", "ical_url"}:
             input_type = "password"
         elif name in select_options:
             input_type = "select"

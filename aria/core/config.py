@@ -354,6 +354,7 @@ class GuardrailConfig(BaseModel):
     kind: str = "ssh_command"
     title: str = ""
     description: str = ""
+    connection_kinds: list[str] = Field(default_factory=list)
     allow_terms: list[str] = Field(default_factory=list)
     deny_terms: list[str] = Field(default_factory=list)
 
@@ -369,7 +370,7 @@ class SecurityConfig(BaseModel):
 class TokenTrackingConfig(BaseModel):
     enabled: bool = True
     log_file: str = "data/logs/tokens.jsonl"
-    retention_days: int = 30
+    retention_days: int = 90
 
 
 class ChatPricingModelConfig(BaseModel):
@@ -506,9 +507,7 @@ class HTTPAPIConnectionConfig(ConnectionMetaConfig):
 
 class GoogleCalendarConnectionConfig(ConnectionMetaConfig):
     calendar_id: str = "primary"
-    client_id: str = ""
-    client_secret: str = ""
-    refresh_token: str = ""
+    ical_url: str = ""
     timeout_seconds: int = 10
 
 
@@ -973,12 +972,9 @@ def _apply_secure_store_overrides(data: dict[str, Any], config_path: Path) -> di
     for ref, row in list(merged["connections"]["google_calendar"].items()):
         if not isinstance(row, dict):
             continue
-        client_secret = store.get_secret(f"connections.google_calendar.{ref}.client_secret", default="")
-        refresh_token = store.get_secret(f"connections.google_calendar.{ref}.refresh_token", default="")
-        if client_secret:
-            row["client_secret"] = client_secret
-        if refresh_token:
-            row["refresh_token"] = refresh_token
+        ical_url = store.get_secret(f"connections.google_calendar.{ref}.ical_url", default="")
+        if ical_url:
+            row["ical_url"] = ical_url
     for ref, row in list(merged["connections"]["mqtt"].items()):
         if not isinstance(row, dict):
             continue

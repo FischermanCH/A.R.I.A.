@@ -2,16 +2,14 @@
 {% from "_icons.html" import icon %}
 {% block content %}
 <main class="config-layout">
-  {% set google_enable_api_url = "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" %}
-  {% set google_branding_url = "https://console.cloud.google.com/auth/branding" %}
-  {% set google_audience_url = "https://console.cloud.google.com/auth/audience" %}
-  {% set google_clients_url = "https://console.cloud.google.com/auth/clients" %}
   {% set google_calendar_settings_url = "https://calendar.google.com/calendar/u/0/r/settings" %}
   {% include "_connection_page_intro.html" %}
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
 
-  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_google_calendar_ref %}hidden{% endif %}>
+  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' and selected_google_calendar_ref %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
+    <div class="config-section-content">
     {% if selected_google_calendar_ref %}
     {% if google_calendar_test_status == 'ok' or google_calendar_test_status == 'error' %}
     <article class="connection-test-card status-{{ google_calendar_test_status }}">
@@ -19,11 +17,8 @@
       <small>{% if google_calendar_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
     </article>
     {% endif %}
-    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off" enctype="multipart/form-data">
+    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_google_calendar_ref }}">
-      <label for="google_calendar_oauth_client_file_edit">Google OAuth Client JSON</label>
-      <input id="google_calendar_oauth_client_file_edit" name="oauth_client_file" type="file" accept="application/json,.json">
-      <small class="hint-text">Optional: lade direkt die OAuth-Client-JSON aus Google hoch. ARIA uebernimmt dann Client-ID und Client-Secret automatisch.</small>
       {% set schema_fields = google_calendar_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'google_calendar_edit' %}
@@ -31,7 +26,6 @@
       {% include "_connection_metadata_fields.html" %}
       <div class="inline-actions">
         <button type="submit">{{ tr(request,'config_conn.google_calendar_save_profile','Save Google Calendar profile') }}</button>
-        <button type="submit" formaction="/config/connections/google-calendar/oauth/start" formnovalidate>Mit Google verbinden</button>
       </div>
     </form>
     <h3>{{ tr(request,'config_conn.delete_profile','Profil löschen') }}</h3>
@@ -44,9 +38,12 @@
     <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
     <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
     {% endif %}
-  </section>
+    </div>
+  </details>
 
-  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
+    <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
     <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
     <section class="connection-setup-guide">
@@ -67,46 +64,37 @@
         .connection-setup-guide li strong { color: var(--color-text-primary); font-weight: 500; }
         .connection-setup-guide a.act { display: inline-flex; align-items: center; gap: 4px; color: #185FA5; text-decoration: underline; font-weight: 500; font-size: 13px; }
         .connection-setup-guide a.act:hover { color: #0C447C; }
-        .connection-setup-guide code { font-family: monospace; font-size: 11px; background: var(--color-background-secondary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-primary); word-break: break-all; }
-        .warn { font-size: 12px; color: #633806; background: #FAEEDA; border-left: 2px solid #EF9F27; padding: 7px 10px; margin-top: 10px; }
         .note { font-size: 12px; color: var(--color-text-secondary); border-left: 2px solid var(--color-border-secondary); padding: 7px 10px; margin-top: 10px; }
+        .warn { font-size: 12px; color: #633806; background: #FAEEDA; border-left: 2px solid #EF9F27; padding: 7px 10px; margin-top: 10px; }
       </style>
 
       <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0 0 1.25rem;">
-        Der manuelle Refresh-Token-Weg ist entfernt. ARIA verbindet Google Calendar jetzt direkt ueber den Button <strong>Mit Google verbinden</strong>.
+        ARIA liest Google Calendar vorerst bewusst read-only ueber den geheimen iCal-Link. Dafuer brauchst du kein Google-Cloud-Projekt, keinen OAuth-Client, keine Redirect-URL und keinen oeffentlichen Hostnamen.
       </p>
 
       <div class="sc">
-        <div class="sh"><div class="sn">1</div><div class="st">Google-Projekt einmal vorbereiten</div></div>
+        <div class="sh"><div class="sn">1</div><div class="st">Google Calendar Link kopieren</div></div>
         <ul>
-          <li><a class="act" href="{{ google_enable_api_url }}" target="_blank" rel="noopener noreferrer">Google Calendar API ↗</a> im Google-Cloud-Projekt aktivieren</li>
-          <li>unter <a class="act" href="{{ google_branding_url }}" target="_blank" rel="noopener noreferrer">OAuth Branding ↗</a> den Consent Screen anlegen</li>
-          <li>unter <a class="act" href="{{ google_audience_url }}" target="_blank" rel="noopener noreferrer">Audience / Testnutzer ↗</a> dein eigenes Google-Konto freischalten, solange das Projekt noch im Testing-Modus ist</li>
-          <li>unter <a class="act" href="{{ google_clients_url }}" target="_blank" rel="noopener noreferrer">OAuth Clients ↗</a> einen <strong>Webanwendungs-Client</strong> anlegen</li>
-          <li>als Redirect-URI exakt diesen Wert eintragen: <code data-google-oauth-redirect-uri>lade...</code></li>
+          <li>Oeffne <a class="act" href="{{ google_calendar_settings_url }}" target="_blank" rel="noopener noreferrer">Google Calendar Einstellungen ↗</a></li>
+          <li>waehle links den gewuenschten Kalender unter <strong>Einstellungen fuer meine Kalender</strong></li>
+          <li>oeffne <strong>Kalender integrieren</strong></li>
+          <li>kopiere <strong>Geheime Adresse im iCal-Format</strong> und fuege sie unten in ARIA ein</li>
         </ul>
-        <div class="note">Das ist nur die Google-Cloud-Vorbereitung. Das eigentliche Kalender-Login passiert danach direkt in ARIA.</div>
+        <div class="warn">Dieser Link ist ein Geheimnis. Wer ihn kennt, kann den Kalender lesen. ARIA speichert ihn deshalb im Secure Store.</div>
       </div>
 
       <div class="sc">
-        <div class="sh"><div class="sn">2</div><div class="st">In ARIA verbinden</div></div>
+        <div class="sh"><div class="sn">2</div><div class="st">In ARIA verwenden</div></div>
         <ul>
-          <li>am einfachsten die heruntergeladene <strong>OAuth-Client-JSON</strong> unten hochladen</li>
-          <li>alternativ <strong>Client-ID</strong> und <strong>Client-Secret</strong> manuell eintragen</li>
-          <li>bei <strong>Kalender-ID</strong> fuer den Hauptkalender einfach <code>primary</code> verwenden</li>
-          <li>fuer einen anderen Kalender die ID aus <a class="act" href="{{ google_calendar_settings_url }}" target="_blank" rel="noopener noreferrer">Google Calendar Einstellungen ↗</a> kopieren</li>
-          <li>danach auf <strong>Mit Google verbinden</strong> klicken und den Zugriff bestaetigen</li>
-          <li>Google leitet anschliessend automatisch zu ARIA zurueck; das Refresh-Token wird serverseitig gespeichert</li>
+          <li>Profilname setzen, z. B. <strong>primary-calendar</strong></li>
+          <li>iCal-Link einfuegen und speichern</li>
+          <li>danach kannst du ARIA nach Terminen fragen, z. B. <strong>Was steht heute in meinem Kalender?</strong></li>
         </ul>
-        <div class="note">Nach der Rueckkehr testet ARIA die Verbindung direkt. Ein manuelles Refresh-Token brauchst du nicht mehr.</div>
-        <div class="warn">Reconnect-Tipp: Wenn Google spaeter meldet, dass die Anmeldung abgelaufen ist oder das Refresh-Token widerrufen wurde, reicht meist ein neuer Klick auf <strong>Mit Google verbinden</strong>. Client-ID und Client-Secret koennen in der Regel bleiben.</div>
+        <div class="note">Dieser Alpha-Pfad ist read-only. Termine erstellen oder bearbeiten kommt spaeter ueber einen separaten OAuth-/Provider-Pfad.</div>
       </div>
     </section>
-    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off" enctype="multipart/form-data">
+    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
-      <label for="google_calendar_oauth_client_file_new">Google OAuth Client JSON</label>
-      <input id="google_calendar_oauth_client_file_new" name="oauth_client_file" type="file" accept="application/json,.json">
-      <small class="hint-text">Empfohlen: lade die OAuth-Client-JSON aus Google hoch. Dann musst du Client-ID und Client-Secret nicht von Hand suchen.</small>
       {% set schema_fields = google_calendar_new_form_fields %}
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'google_calendar_new' %}
@@ -114,16 +102,9 @@
       {% include "_connection_metadata_fields.html" %}
       <div class="inline-actions">
         <button type="submit">{{ tr(request,'config_conn.google_calendar_save_profile','Save Google Calendar profile') }}</button>
-        <button type="submit" formaction="/config/connections/google-calendar/oauth/start" formnovalidate>Mit Google verbinden</button>
       </div>
     </form>
-  </section>
+    </div>
+  </details>
 </main>
-<script>
-  document.addEventListener("DOMContentLoaded", function () {
-    var target = document.querySelector("[data-google-oauth-redirect-uri]");
-    if (!target) return;
-    target.textContent = window.location.origin + "/config/connections/google-calendar/oauth/callback";
-  });
-</script>
 {% endblock %}

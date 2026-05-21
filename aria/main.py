@@ -106,6 +106,7 @@ from aria.core.recipe_manifests import (
 )
 from aria.core.discord_alerts import runtime_host_line, send_discord_alerts
 from aria.core.i18n import I18NStore
+from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG
 from aria.core.pipeline import Pipeline
 from aria.core.routing_admin import ensure_connection_routing_index_ready
 from aria.core.routing_hints import suggest_skill_keywords_with_llm
@@ -764,9 +765,9 @@ def _build_app() -> FastAPI:
                         + len(removed_empty)
                     )
 
-                await pipeline.token_tracker.prune_old_entries(
-                    int(getattr(settings.token_tracking, "retention_days", 0) or 0)
-                )
+                log_retention_days = int(getattr(settings.token_tracking, "retention_days", 90) or 0)
+                await pipeline.token_tracker.prune_old_entries(log_retention_days)
+                GLOBAL_LLM_AUDIT_LOG.prune_old_entries(log_retention_days)
                 await pipeline.token_tracker.log(
                     request_id=str(uuid4()),
                     user_id="system",

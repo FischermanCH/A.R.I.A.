@@ -21,6 +21,7 @@ def test_build_stored_recipe_manifest_from_learned_entry_maps_ssh_recipe() -> No
             "chosen_action": "uptime && df -h /",
             "router_keywords": ["linux health", "server check"],
             "inputs": {"command": "uptime && df -h /"},
+            "experience_count": 5,
         }
     )
 
@@ -30,6 +31,45 @@ def test_build_stored_recipe_manifest_from_learned_entry_maps_ssh_recipe() -> No
     assert manifest["steps"][0]["type"] == "ssh_run"
     assert manifest["steps"][0]["params"]["connection_ref"] == "srv-a"
     assert manifest["steps"][0]["params"]["command"] == "uptime && df -h /"
+
+
+def test_build_stored_recipe_manifest_blocks_multi_target_learned_recipe() -> None:
+    try:
+        build_stored_recipe_manifest_from_learned_entry(
+            {
+                "recipe_id": "learned-ssh-health-check",
+                "connection_kind": "ssh",
+                "connection_ref": "srv-a",
+                "capability": "ssh_command",
+                "chosen_action": "uptime",
+                "experience_count": 8,
+                "recipe_scope": {"target_scope": "multi_target", "learning_origin": "plural_target_scope"},
+            }
+        )
+    except ValueError as exc:
+        assert "Multi-target observations stay context-only" in str(exc)
+    else:
+        raise AssertionError("multi-target learned recipes must not promote directly")
+
+
+def test_build_stored_recipe_manifest_blocks_side_effect_learned_recipe() -> None:
+    try:
+        build_stored_recipe_manifest_from_learned_entry(
+            {
+                "recipe_id": "learned-discord-send",
+                "connection_kind": "discord",
+                "connection_ref": "alerts",
+                "capability": "discord_send",
+                "chosen_action": "Deploy finished",
+                "inputs": {"message": "Deploy finished"},
+                "experience_count": 7,
+                "promotion_state": "eligible",
+            }
+        )
+    except ValueError as exc:
+        assert "Side-effect learned actions stay review-only" in str(exc)
+    else:
+        raise AssertionError("side-effect learned recipes must not promote directly")
 
 
 def test_promote_learned_recipe_to_stored_recipe_creates_manifest_and_updates_store(monkeypatch, tmp_path: Path) -> None:

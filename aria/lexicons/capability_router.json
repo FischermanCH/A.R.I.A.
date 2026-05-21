@@ -1,6 +1,7 @@
 {
   "requested_connection_articles": "(?:dem|den|der|des|die|das|the|my|mein(?:em|en|er|e)?|meine(?:m|n|r)?)?",
   "requested_connection_required_articles": "(?:dem|den|der|des|die|das|the|my|mein(?:em|en|er|e)?|meine(?:m|n|r)?)",
+  "plural_requested_ref_pattern": "^(?:all|alle|meine|meinen|sämtliche|saemtliche|mehrere)(?:\\s+mein(?:em|en|er|e)?|\\s+meine(?:m|n|r)?)?\\s+(?:linux\\s+)?(?:server|servern|hosts|systeme)$",
   "website_collection_terms": ["webseiten", "websites", "quellen", "sources", "links"],
   "calendar": {
     "reject_terms": ["event bus", "mqtt", "topic"],

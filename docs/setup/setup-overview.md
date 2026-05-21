@@ -117,6 +117,8 @@ ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
+`ARIA_PUBLIC_URL` is optional and may be an internal LAN URL such as `http://aria.black.lan/`; it is used for clear host/link hints, not as a requirement for an internet-facing install.
+
 Optional LLM / embedding environment overrides should normally stay empty when you manage saved provider profiles inside ARIA. They are only for deliberately forcing runtime values from Docker.
 
 Start:

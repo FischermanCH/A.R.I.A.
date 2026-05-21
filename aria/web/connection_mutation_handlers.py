@@ -1,25 +1,19 @@
 from __future__ import annotations
 
-import json
 import re
-import secrets
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote_plus, urlencode, urlparse
-from urllib.request import Request as URLRequest, urlopen
+from urllib.parse import quote_plus, urlparse
 
 from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from aria.core.connection_admin import ConnectionAdminError
+from aria.core.guardrails import guardrail_applies_to_connection
 from aria.core.connection_admin import friendly_connection_admin_error_text
-from aria.core.google_calendar_support import friendly_google_calendar_error_message
 from aria.core.i18n import I18NStore
-from aria.core.runtime_endpoint import resolve_runtime_url
 
 _CONNECTION_MUTATION_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
@@ -103,8 +97,6 @@ class ConnectionMutationHandlers:
     imap_save: Any
     http_api_save: Any
     google_calendar_save: Any
-    google_calendar_oauth_start: Any
-    google_calendar_oauth_callback: Any
     searxng_save: Any
     rss_save: Any
     website_save: Any
@@ -163,48 +155,18 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
     _ssh_keys_dir = deps.ssh_keys_dir
     _ensure_ssh_keypair = deps.ensure_ssh_keypair
     _autofill_website_connection_metadata = deps.autofill_website_connection_metadata
-    _google_calendar_oauth_pending_prefix = "connections.google_calendar.oauth_pending."
+    _google_calendar_default_ref = "primary-calendar"
 
-    def _google_calendar_redirect_uri(request: Request) -> str:
-        base_url = resolve_runtime_url(_get_settings(), request).rstrip("/")
-        return f"{base_url}/config/connections/google-calendar/oauth/callback"
-
-    def _google_calendar_auth_url(*, client_id: str, redirect_uri: str, state: str) -> str:
-        params = {
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "response_type": "code",
-            "scope": "https://www.googleapis.com/auth/calendar.readonly",
-            "access_type": "offline",
-            "prompt": "consent",
-            "include_granted_scopes": "true",
-            "state": state,
-        }
-        return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
-
-    async def _read_google_oauth_client_upload(oauth_client_file: UploadFile | None) -> tuple[str, str]:
-        if oauth_client_file is None:
-            return "", ""
-        filename = str(getattr(oauth_client_file, "filename", "") or "").strip()
-        if not filename:
-            return "", ""
-        raw_bytes = await oauth_client_file.read()
-        if not raw_bytes:
-            raise ConnectionAdminError("google_oauth_file_empty")
-        try:
-            payload = json.loads(raw_bytes.decode("utf-8", errors="strict"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ConnectionAdminError("google_oauth_invalid_json") from exc
-        if not isinstance(payload, dict):
-            raise ConnectionAdminError("google_oauth_invalid_format")
-        candidate = payload.get("web") or payload.get("installed") or payload
-        if not isinstance(candidate, dict):
-            raise ConnectionAdminError("google_oauth_invalid_web_client")
-        client_id_value = str(candidate.get("client_id", "") or "").strip()
-        client_secret_value = str(candidate.get("client_secret", "") or "").strip()
-        if not client_id_value or not client_secret_value:
-            raise ConnectionAdminError("google_oauth_missing_client_credentials")
-        return client_id_value, client_secret_value
+    def _validated_guardrail_ref(guardrail_ref: str, *, connection_kind: str, label: str) -> str:
+        selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
+        if not selected_guardrail_ref:
+            return ""
+        guardrail_rows = _read_guardrails()
+        if selected_guardrail_ref not in guardrail_rows:
+            raise ConnectionAdminError("guardrail_unknown")
+        if not guardrail_applies_to_connection(guardrail_rows.get(selected_guardrail_ref), connection_kind):
+            raise ConnectionAdminError("guardrail_incompatible", kind=label)
+        return selected_guardrail_ref
 
     async def _persist_google_calendar_profile(
         *,
@@ -214,14 +176,9 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         connection_description: str,
         connection_aliases: str,
         connection_tags: str,
-        calendar_id: str,
-        client_id: str,
-        client_secret: str,
+        ical_url: str,
         timeout_seconds: int,
-        require_refresh_token: bool,
-        oauth_client_file: UploadFile | None = None,
     ) -> tuple[str, str, Any]:
-        upload_client_id, upload_client_secret = await _read_google_oauth_client_upload(oauth_client_file)
         raw, store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save(
             "google_calendar",
             connection_ref,
@@ -230,23 +187,14 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         if not store:
             raise ConnectionAdminError("security_store_required")
         existing_secret_ref = original_ref_clean or ref
-        existing_client_secret = store.get_secret(
-            f"connections.google_calendar.{existing_secret_ref}.client_secret",
+        clean_ical_url = str(ical_url).strip() or store.get_secret(
+            f"connections.google_calendar.{existing_secret_ref}.ical_url",
             default="",
         )
-        existing_refresh_token = store.get_secret(
-            f"connections.google_calendar.{existing_secret_ref}.refresh_token",
-            default="",
-        )
-        clean_client_id = str(client_id).strip() or upload_client_id
-        clean_client_secret = str(client_secret).strip() or upload_client_secret or existing_client_secret
-        if not clean_client_secret:
-            raise ConnectionAdminError("oauth_client_secret_missing")
-        if require_refresh_token and not str(existing_refresh_token).strip():
-            raise ConnectionAdminError("refresh_token_missing")
+        if not clean_ical_url:
+            raise ConnectionAdminError("google_ical_url_missing")
         row_value = {
-            "calendar_id": str(calendar_id).strip() or "primary",
-            "client_id": clean_client_id,
+            "calendar_id": "ical",
             "timeout_seconds": max(5, int(timeout_seconds)),
             **_build_connection_metadata(
                 connection_title,
@@ -255,8 +203,6 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 connection_tags,
             ),
         }
-        if not str(row_value.get("client_id", "")).strip():
-            raise ConnectionAdminError("oauth_client_id_missing")
         await _finalize_connection_save(
             "google_calendar",
             raw=raw,
@@ -267,12 +213,12 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             store=store,
             secret_renames=[
                 (
-                    f"connections.google_calendar.{original_ref_clean}.refresh_token",
-                    f"connections.google_calendar.{ref}.refresh_token",
+                    f"connections.google_calendar.{original_ref_clean}.ical_url",
+                    f"connections.google_calendar.{ref}.ical_url",
                 ),
             ] if original_ref_clean and original_ref_clean != ref else [],
         )
-        store.set_secret(f"connections.google_calendar.{ref}.client_secret", clean_client_secret)
+        store.set_secret(f"connections.google_calendar.{ref}.ical_url", clean_ical_url)
         return ref, original_ref_clean, store
 
     def _normalize_website_url(value: str) -> str:
@@ -424,15 +370,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             lang = str(getattr(request.state, "lang", "de") or "de")
             raw, _store, rows, ref, original_ref_clean, _is_create = _prepare_connection_save("ssh", connection_ref, original_ref)
             allow_list = [line.strip() for line in re.split(r"[\n,]+", str(allow_commands)) if line.strip()]
-            guardrail_rows = _read_guardrails()
-            selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
-            if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ConnectionAdminError("guardrail_unknown")
-            if selected_guardrail_ref and not guardrail_is_compatible(
-                str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
-                "ssh",
-            ):
-                raise ConnectionAdminError("guardrail_incompatible", kind="SSH")
+            selected_guardrail_ref = _validated_guardrail_ref(guardrail_ref, connection_kind="ssh", label="SSH")
             should_exchange = str(run_key_exchange).strip().lower() in {"1", "true", "on", "yes"}
             clean_host = str(host).strip()
             clean_user = str(user).strip()
@@ -660,15 +598,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             clean_key_path = str(key_path).strip()
             if not clean_password and not clean_key_path:
                 raise ConnectionAdminError("sftp_auth_missing")
-            guardrail_rows = _read_guardrails()
-            selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
-            if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ConnectionAdminError("guardrail_unknown")
-            if selected_guardrail_ref and not guardrail_is_compatible(
-                str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
-                "sftp",
-            ):
-                raise ConnectionAdminError("guardrail_incompatible", kind="SFTP")
+            selected_guardrail_ref = _validated_guardrail_ref(guardrail_ref, connection_kind="sftp", label="SFTP")
             clean_service_url = str(service_url).strip()
             metadata, metadata_autofilled = await _autofill_service_connection_metadata(
                 connection_ref=ref,
@@ -767,15 +697,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             clean_password = str(password).strip() or existing_password
             if not clean_password:
                 raise ConnectionAdminError("smb_password_missing")
-            guardrail_rows = _read_guardrails()
-            selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
-            if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ConnectionAdminError("guardrail_unknown")
-            if selected_guardrail_ref and not guardrail_is_compatible(
-                str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
-                "smb",
-            ):
-                raise ConnectionAdminError("guardrail_incompatible", kind="SMB")
+            selected_guardrail_ref = _validated_guardrail_ref(guardrail_ref, connection_kind="smb", label="SMB")
             row_value = {
                 "host": str(host).strip(),
                 "share": str(share).strip(),
@@ -847,15 +769,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             clean_url = str(url).strip() or existing_url
             if not clean_url:
                 raise ConnectionAdminError("webhook_url_missing")
-            guardrail_rows = _read_guardrails()
-            selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
-            if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ConnectionAdminError("guardrail_unknown")
-            if selected_guardrail_ref and not guardrail_is_compatible(
-                str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
-                "webhook",
-            ):
-                raise ConnectionAdminError("guardrail_incompatible", kind="Webhook")
+            selected_guardrail_ref = _validated_guardrail_ref(guardrail_ref, connection_kind="webhook", label="Webhook")
             row_value = {
                 "timeout_seconds": max(5, int(timeout_seconds)),
                 "method": str(method).strip().upper() or "POST",
@@ -1071,15 +985,7 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
             existing_secret_ref = original_ref_clean or ref
             existing_token = store.get_secret(f"connections.http_api.{existing_secret_ref}.auth_token", default="")
             clean_token = str(auth_token).strip() or existing_token
-            guardrail_rows = _read_guardrails()
-            selected_guardrail_ref = _sanitize_connection_name(guardrail_ref)
-            if selected_guardrail_ref and selected_guardrail_ref not in guardrail_rows:
-                raise ConnectionAdminError("guardrail_unknown")
-            if selected_guardrail_ref and not guardrail_is_compatible(
-                str(guardrail_rows.get(selected_guardrail_ref, {}).get("kind", "")).strip(),
-                "http_api",
-            ):
-                raise ConnectionAdminError("guardrail_incompatible", kind="HTTP API")
+            selected_guardrail_ref = _validated_guardrail_ref(guardrail_ref, connection_kind="http_api", label="HTTP API")
             row_value = {
                 "base_url": str(base_url).strip(),
                 "timeout_seconds": max(5, int(timeout_seconds)),
@@ -1133,16 +1039,12 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         connection_description: str = Form(""),
         connection_aliases: str = Form(""),
         connection_tags: str = Form(""),
-        calendar_id: str = Form("primary"),
-        client_id: str = Form(""),
-        client_secret: str = Form(""),
-        refresh_token: str = Form(""),
+        ical_url: str = Form(""),
         timeout_seconds: int = Form(10),
-        oauth_client_file: UploadFile | None = File(None),
     ) -> RedirectResponse:
         try:
             lang = str(getattr(request.state, "lang", "de") or "de")
-            effective_ref = str(connection_ref).strip() or str(original_ref).strip()
+            effective_ref = str(connection_ref).strip() or str(original_ref).strip() or _google_calendar_default_ref
             ref, original_ref_clean, store = await _persist_google_calendar_profile(
                 connection_ref=effective_ref,
                 original_ref=original_ref,
@@ -1150,20 +1052,9 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 connection_description=connection_description,
                 connection_aliases=connection_aliases,
                 connection_tags=connection_tags,
-                calendar_id=calendar_id,
-                client_id=client_id,
-                client_secret=client_secret,
+                ical_url=ical_url,
                 timeout_seconds=timeout_seconds,
-                require_refresh_token=False,
-                oauth_client_file=oauth_client_file,
             )
-            clean_refresh_token = str(refresh_token).strip() or store.get_secret(
-                f"connections.google_calendar.{original_ref_clean or ref}.refresh_token",
-                default="",
-            )
-            if not clean_refresh_token:
-                raise ConnectionAdminError("google_refresh_token_required")
-            store.set_secret(f"connections.google_calendar.{ref}.refresh_token", clean_refresh_token)
             _reload_runtime()
             test_row = _read_google_calendar_connections().get(ref, {})
             test_result = build_connection_status_row("google_calendar", ref, test_row, page_probe=False, base_dir=BASE_DIR, lang=lang)
@@ -1179,169 +1070,9 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
                 fallback="/config",
             )
         except (OSError, ValueError) as exc:
-            ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
+            ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref) or _google_calendar_default_ref
             return _redirect_with_return_to(
                 f"/config/connections/google-calendar?error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='google_calendar'))}&google_calendar_ref={quote_plus(ref_hint)}",
-                request,
-                fallback="/config",
-            )
-
-    async def config_google_calendar_oauth_start(
-        request: Request,
-        connection_ref: str = Form(""),
-        original_ref: str = Form(""),
-        connection_title: str = Form(""),
-        connection_description: str = Form(""),
-        connection_aliases: str = Form(""),
-        connection_tags: str = Form(""),
-        calendar_id: str = Form("primary"),
-        client_id: str = Form(""),
-        client_secret: str = Form(""),
-        timeout_seconds: int = Form(10),
-        oauth_client_file: UploadFile | None = File(None),
-    ) -> RedirectResponse:
-        lang = str(getattr(request.state, "lang", "de") or "de")
-        try:
-            effective_ref = str(connection_ref).strip() or str(original_ref).strip()
-            ref, _original_ref_clean, store = await _persist_google_calendar_profile(
-                connection_ref=effective_ref,
-                original_ref=original_ref,
-                connection_title=connection_title,
-                connection_description=connection_description,
-                connection_aliases=connection_aliases,
-                connection_tags=connection_tags,
-                calendar_id=calendar_id,
-                client_id=client_id,
-                client_secret=client_secret,
-                timeout_seconds=timeout_seconds,
-                require_refresh_token=False,
-                oauth_client_file=oauth_client_file,
-            )
-            if not store:
-                raise ConnectionAdminError("security_store_required")
-            state_token = secrets.token_urlsafe(24)
-            pending_payload = json.dumps(
-                {
-                    "ref": ref,
-                    "iat": int(time.time()),
-                    "lang": lang,
-                },
-                ensure_ascii=True,
-                separators=(",", ":"),
-            )
-            store.set_secret(f"{_google_calendar_oauth_pending_prefix}{state_token}", pending_payload)
-            redirect_uri = _google_calendar_redirect_uri(request)
-            profile = _read_google_calendar_connections().get(ref, {})
-            auth_url = _google_calendar_auth_url(
-                client_id=str(profile.get("client_id", "") or "").strip(),
-                redirect_uri=redirect_uri,
-                state=state_token,
-            )
-            return RedirectResponse(url=auth_url, status_code=303)
-        except (OSError, ValueError) as exc:
-            ref_hint = _sanitize_connection_name(original_ref) or _sanitize_connection_name(connection_ref)
-            return _redirect_with_return_to(
-                f"/config/connections/google-calendar?mode=create&error={quote_plus(_friendly_connection_mutation_error(lang, exc, kind='google_calendar'))}&google_calendar_ref={quote_plus(ref_hint)}",
-                request,
-                fallback="/config",
-            )
-
-    async def config_google_calendar_oauth_callback(
-        request: Request,
-        state: str = "",
-        code: str = "",
-        error: str = "",
-    ) -> RedirectResponse:
-        lang = str(getattr(request.state, "lang", "de") or "de")
-        ref_hint = ""
-        try:
-            raw = _read_raw_config()
-            store = _get_secure_store(raw)
-            if not store:
-                raise ConnectionAdminError("security_store_required")
-            state_token = str(state or "").strip()
-            if not state_token:
-                raise ConnectionAdminError("google_oauth_missing_state")
-            pending_key = f"{_google_calendar_oauth_pending_prefix}{state_token}"
-            pending_raw = store.get_secret(pending_key, default="")
-            store.delete_secret(pending_key)
-            if not pending_raw:
-                raise ConnectionAdminError("google_oauth_expired")
-            pending = json.loads(str(pending_raw))
-            ref = _sanitize_connection_name(str(pending.get("ref", "")))
-            ref_hint = ref
-            if not ref:
-                raise ConnectionAdminError("google_oauth_profile_missing")
-            if error:
-                raise ValueError(
-                    _connection_mutation_text(lang, "message_1289", error=error)
-                )
-            if not str(code or "").strip():
-                raise ConnectionAdminError("google_oauth_missing_code")
-            _raw, store, _rows, ref, _original_ref_clean, _ = _prepare_connection_save("google_calendar", ref, ref)
-            profile = _read_google_calendar_connections().get(ref, {})
-            client_id_value = str(profile.get("client_id", "")).strip()
-            client_secret_value = store.get_secret(f"connections.google_calendar.{ref}.client_secret", default="")
-            if not client_id_value or not client_secret_value:
-                raise ConnectionAdminError("oauth_client_incomplete")
-            timeout_seconds_value = max(5, int(profile.get("timeout_seconds", 10) or 10))
-            redirect_uri = _google_calendar_redirect_uri(request)
-            token_request = URLRequest(
-                "https://oauth2.googleapis.com/token",
-                data=urlencode(
-                    {
-                        "code": str(code).strip(),
-                        "client_id": client_id_value,
-                        "client_secret": client_secret_value,
-                        "redirect_uri": redirect_uri,
-                        "grant_type": "authorization_code",
-                    }
-                ).encode("utf-8"),
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                method="POST",
-            )
-            with urlopen(token_request, timeout=timeout_seconds_value) as resp:  # noqa: S310
-                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-            if not isinstance(payload, dict):
-                payload = {}
-            refresh_token_value = str(payload.get("refresh_token", "") or "").strip() or store.get_secret(
-                f"connections.google_calendar.{ref}.refresh_token",
-                default="",
-            )
-            if not refresh_token_value:
-                raise ValueError(
-                    _connection_mutation_text(lang, "message_1329")
-                )
-            store.set_secret(f"connections.google_calendar.{ref}.refresh_token", refresh_token_value)
-            _reload_runtime()
-            test_row = _read_google_calendar_connections().get(ref, {})
-            test_result = build_connection_status_row(
-                "google_calendar",
-                ref,
-                test_row,
-                page_probe=False,
-                base_dir=BASE_DIR,
-                lang=lang,
-            )
-            if test_result["status"] == "ok":
-                return _redirect_with_return_to(
-                    f"/config/connections/google-calendar?saved=1&info={quote_plus(_connection_mutation_text(lang, 'message_1348'))}&google_calendar_ref={quote_plus(ref)}&google_calendar_test_status=ok",
-                    request,
-                    fallback="/config",
-                )
-            return _redirect_with_return_to(
-                f"/config/connections/google-calendar?saved=1&info={quote_plus(_connection_saved_test_info('Google Calendar', lang, success=False))}&error={quote_plus(test_result['message'])}&google_calendar_ref={quote_plus(ref)}&google_calendar_test_status=error",
-                request,
-                fallback="/config",
-            )
-        except (HTTPError, URLError, OSError, ValueError) as exc:
-            message = (
-                friendly_google_calendar_error_message(exc, lang=lang, operation="sign_in")
-                if isinstance(exc, (HTTPError, URLError))
-                else _friendly_connection_mutation_error(lang, exc, kind='google_calendar')
-            )
-            return _redirect_with_return_to(
-                f"/config/connections/google-calendar?mode=edit&error={quote_plus(message)}&google_calendar_ref={quote_plus(ref_hint)}",
                 request,
                 fallback="/config",
             )
@@ -1905,8 +1636,6 @@ def build_connection_mutation_handlers(deps: ConnectionMutationHandlerDeps) -> C
         imap_save=config_imap_connections_save,
         http_api_save=config_http_api_connections_save,
         google_calendar_save=config_google_calendar_connections_save,
-        google_calendar_oauth_start=config_google_calendar_oauth_start,
-        google_calendar_oauth_callback=config_google_calendar_oauth_callback,
         searxng_save=config_searxng_connections_save,
         rss_save=config_rss_connections_save,
         website_save=config_website_connections_save,

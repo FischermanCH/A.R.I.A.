@@ -12,7 +12,7 @@
         <button type="submit" class="button-like danger-button">{{ tr(request, 'llm_debug.clear', 'Clear debug log') }}</button>
       </form>
     </div>
-    <p>{{ tr(request, 'llm_debug.intro', 'Shows the latest redacted LLM gateway calls across workers. Secrets are masked; the local debug file lives under data/runtime and can be cleared here.') }}</p>
+    <p>{{ tr(request, 'llm_debug.intro', 'Shows the latest redacted LLM gateway calls across workers. Secrets are masked; the local debug file lives under data/runtime, follows the log retention policy, and can be cleared here.') }}</p>
     <small class="stats-health-detail">
       {{ tr(request, 'llm_debug.scope', 'Scope') }}:
       <code>{{ tr(request, 'llm_debug.scope_value', 'central LLMClient gateway, redacted across workers') }}</code>
@@ -73,4 +73,3 @@
   {% endfor %}
 </main>
 {% endblock %}
-

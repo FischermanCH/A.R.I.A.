@@ -196,6 +196,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
         saved: int = 0,
         pruned: int | None = None,
         reset: int | None = None,
+        archive: str = "",
         factory_reset: int = 0,
         factory_qdrant: int | None = None,
         error: str = "",
@@ -225,6 +226,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             {
                 "pruned": pruned,
                 "reset": reset,
+                "reset_archive": archive,
                 "factory_reset": bool(factory_reset),
                 "factory_qdrant": factory_qdrant,
                 "token_tracking": settings.token_tracking,
@@ -295,15 +297,17 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             if str(confirm_text or "").strip().upper() != expected:
                 raise ValueError(_ops_text(lang, "reset_confirm_exact", 'Please type "RESET" exactly to confirm.'))
             pipeline = deps.get_pipeline()
-            removed = await pipeline.token_tracker.clear_log()
+            removed = await pipeline.token_tracker.clear_log(archive=True)
             runtime_dir = (deps.base_dir / "data" / "runtime").resolve()
             for cache_name in ("stats_connections_cache.json",):
                 try:
                     (runtime_dir / cache_name).unlink(missing_ok=True)
                 except OSError:
                     pass
+            archive_name = str(removed.get("archive_name", "") or "")
+            archive_qs = f"&archive={quote_plus(archive_name)}" if archive_name else ""
             return deps.redirect_with_return_to(
-                f"/config/logs?reset={int(removed.get('removed', 0) or 0)}",
+                f"/config/logs?reset={int(removed.get('removed', 0) or 0)}{archive_qs}",
                 request,
                 fallback="/config",
                 return_to=return_to,

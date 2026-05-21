@@ -10,6 +10,7 @@ from aria.core.action_candidate_taxonomy import LEARNED_RECIPE_CANDIDATE_ROLE
 from aria.core.action_candidate_taxonomy import RECIPE_CANDIDATE_KIND
 from aria.core.action_candidate_taxonomy import STORED_RECIPE_MANIFEST_ORIGIN
 from aria.core.action_candidate_taxonomy import STORED_RECIPE_CANDIDATE_ROLE
+from aria.core.connection_action_contract import connection_action_binding_is_supported
 from aria.core.learned_recipe_candidate_view import learned_recipe_candidate_id
 from aria.core.learned_recipe_candidate_view import learned_recipe_candidate_inputs
 from aria.core.learned_recipe_candidate_view import learned_recipe_candidate_metadata
@@ -195,6 +196,9 @@ def build_learned_recipe_action_candidates(
             continue
         intent = str(record.get("intent", "") or "").strip().lower()
         capability = normalize_capability(str(record.get("capability", "") or "").strip())
+        candidate_kind = clean_kind or str(record.get("connection_kind", "") or "").strip().lower()
+        if candidate_kind and capability and not connection_action_binding_is_supported(candidate_kind, capability):
+            continue
         keywords = safe_list(learned_recipe_trigger_values(record))
         rows.append(
             candidate_factory(
@@ -203,7 +207,7 @@ def build_learned_recipe_action_candidates(
                 title=learned_recipe_candidate_title(record, language=language, localized_text=localized_text),
                 summary=learned_recipe_candidate_summary(record, language=language, localized_text=localized_text),
                 intent=intent,
-                connection_kind=clean_kind or str(record.get("connection_kind", "") or "").strip().lower(),
+                connection_kind=candidate_kind,
                 capability=capability,
                 preview=learned_recipe_candidate_preview(record, language=language, localized_text=localized_text),
                 inputs=learned_recipe_candidate_inputs(record),

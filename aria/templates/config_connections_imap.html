@@ -5,7 +5,9 @@
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
 
-  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_imap_ref %}hidden{% endif %}>
+  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' and selected_imap_ref %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
+    <div class="config-section-content">
 
     {% if selected_imap_ref %}
     {% if imap_test_status == 'ok' or imap_test_status == 'error' %}
@@ -36,9 +38,12 @@
     <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
     <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
     {% endif %}
-  </section>
+    </div>
+  </details>
 
-  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
+    <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
     <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
     <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.imap_recommended_flow_text','1) Save IMAP profile with host, user and password. 2) ARIA stores the password in the secure store. 3) Save. 4) ARIA tests the mailbox connection automatically.') }}</span></div>
@@ -54,6 +59,7 @@
 
       <button type="submit">{{ tr(request,'config_conn.imap_save_profile','Save IMAP profile') }}</button>
     </form>
-  </section>
+    </div>
+  </details>
 </main>
 {% endblock %}

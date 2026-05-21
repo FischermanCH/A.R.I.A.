@@ -2,7 +2,7 @@
 <html lang="{{ request.state.lang if request and request.state else 'de' }}">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="csrf-token" content="{{ request.state.csrf_token if request and request.state else '' }}">
   <title>{{ agent_name(request, title) }}</title>
   <link rel="icon" href="/favicon.ico?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" sizes="any">
@@ -186,6 +186,25 @@
       window.ariaEndBusy = endBusy;
       window.ariaCookieNames = {{ (request.state.cookie_names or {})|tojson }};
       window.ariaCsrfCookieName = (window.ariaCookieNames && window.ariaCookieNames.csrf) || "aria_csrf_token";
+
+      function syncConfigDetailsToHash() {
+        const hash = window.location.hash || "";
+        if (hash !== "#manage-existing" && hash !== "#create-new") return;
+        const target = document.querySelector(hash);
+        if (!(target instanceof HTMLDetailsElement)) return;
+        target.open = true;
+        const counterpartSelector = hash === "#manage-existing" ? "#create-new" : "#manage-existing";
+        const counterpart = document.querySelector(counterpartSelector);
+        if (counterpart instanceof HTMLDetailsElement) {
+          counterpart.open = false;
+        }
+        window.requestAnimationFrame(function () {
+          target.scrollIntoView({ block: "start" });
+        });
+      }
+
+      syncConfigDetailsToHash();
+      window.addEventListener("hashchange", syncConfigDetailsToHash);
 
       function readCookie(name) {
         const key = name + "=";

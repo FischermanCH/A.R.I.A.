@@ -5,12 +5,13 @@
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
 
-  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' or not selected_http_api_ref %}hidden{% endif %}>
+  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' and selected_http_api_ref %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
+    <div class="config-section-content">
 
     {% if selected_http_api_ref %}
-    {% if selected_http_api.guardrail_ref %}
-    <div class="skill-summary connection-flow-note connection-guardrail-summary"><strong>{{ tr(request, 'config_conn.attached_guardrail', 'Aktives Guardrail') }}</strong><span><code>{{ selected_http_api.guardrail_ref }}</code></span></div>
-    {% endif %}
+    {% set selected_guardrail_ref = selected_http_api.guardrail_ref %}
+    {% include "_connection_guardrail_summary.html" %}
     {% if http_api_test_status == 'ok' or http_api_test_status == 'error' %}
     <article class="connection-test-card status-{{ http_api_test_status }}">
       <div class="connection-test-head"><span class="health-lamp status-{{ http_api_test_status }}"></span><strong>{% if http_api_test_status == 'ok' %}{{ tr(request,'config_conn.http_api_test_ok','HTTP API connection test successful') }}{% else %}{{ tr(request,'config_conn.http_api_test_error','HTTP API connection test failed') }}{% endif %}</strong></div>
@@ -21,16 +22,12 @@
       <input type="hidden" name="original_ref" value="{{ selected_http_api_ref }}">
       {% set schema_fields = http_api_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
-      <details class="skill-details">
+      <details class="skill-details" open>
         <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
         <div class="skill-details-content">
-          <label for="guardrail_ref_http_api_edit">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
-          <select id="guardrail_ref_http_api_edit" name="guardrail_ref">
-            {% for item in http_api_guardrail_ref_options %}
-            <option value="{{ item.ref }}" {% if item.ref == (selected_http_api.guardrail_ref or '') %}selected{% endif %}>{{ item.label }}</option>
-            {% endfor %}
-          </select>
-          <small class="hint-text">{{ tr(request, 'config_security.http_guardrail_hint', 'HTTP-Guardrails prüfen Ziel-URL, Methode und relevante Request-Fragmente, bevor ARIA den Request wirklich ausführt.') }}</small>
+          {% set guardrail_field_id = 'guardrail_ref_http_api_edit' %}
+          {% set selected_guardrail_ref = selected_http_api.guardrail_ref %}
+          {% include "_connection_guardrail_select.html" %}
         </div>
       </details>
       {% set meta_prefix = 'http_api_edit' %}
@@ -51,9 +48,12 @@
     <div class="skill-summary"><span>{{ tr(request,'config_conn.no_profile_loaded','Noch kein bestehendes Profil geladen') }}</span></div>
     <small class="hint-text">{{ tr(request,'config_conn.no_profile_loaded_hint','Wähle oben ein Profil aus, um es zu bearbeiten oder zu löschen.') }}</small>
     {% endif %}
-  </section>
+    </div>
+  </details>
 
-  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
+    <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
     <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
     <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.http_api_recommended_flow_text','1) Save HTTP API profile with base URL and optional token. 2) ARIA stores the token in the secure store. 3) Save. 4) ARIA tests the endpoint automatically.') }}</span></div>
@@ -61,16 +61,12 @@
       <input type="hidden" name="original_ref" value="">
       {% set schema_fields = http_api_new_form_fields %}
       {% include "_connection_schema_fields.html" %}
-      <details class="skill-details">
+      <details class="skill-details" open>
         <summary>{{ tr(request, 'config_conn.advanced', 'Advanced options') }}</summary>
         <div class="skill-details-content">
-          <label for="guardrail_ref_http_api_new">{{ tr(request, 'config_security.ref', 'Profilname (Ref)') }} / {{ tr(request, 'config_security.title', 'Security Guardrails') }}</label>
-          <select id="guardrail_ref_http_api_new" name="guardrail_ref">
-            {% for item in http_api_guardrail_ref_options %}
-            <option value="{{ item.ref }}">{{ item.label }}</option>
-            {% endfor %}
-          </select>
-          <small class="hint-text">{{ tr(request, 'config_security.http_guardrail_hint', 'HTTP-Guardrails prüfen Ziel-URL, Methode und relevante Request-Fragmente, bevor ARIA den Request wirklich ausführt.') }}</small>
+          {% set guardrail_field_id = 'guardrail_ref_http_api_new' %}
+          {% set selected_guardrail_ref = '' %}
+          {% include "_connection_guardrail_select.html" %}
         </div>
       </details>
       {% set meta_prefix = 'http_api_new' %}
@@ -81,6 +77,7 @@
 
       <button type="submit">{{ tr(request,'config_conn.http_api_save_profile','Save HTTP API profile') }}</button>
     </form>
-  </section>
+    </div>
+  </details>
 </main>
 {% endblock %}

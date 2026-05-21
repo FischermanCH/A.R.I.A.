@@ -20,22 +20,19 @@ Repository and full documentation:
 
 Current public alpha release on Docker Hub:
 
-- `0.1.0-alpha266`
+- `0.1.0-alpha298`
 
 Current public alpha focus:
 
-- Recipes are now the visible automation model; legacy Skills remain only as compatibility bridges where needed.
-- ARIA now uses an LLM-assisted action flow: enrich context, propose a bounded action draft, then let policy and guardrails decide execution.
-- Connections are more capable: SSH, HTTP API, SFTP/SMB files, Discord/webhook/email/MQTT messaging, RSS, IMAP, Calendar, and watched websites follow a more consistent action model.
-- Multi-target SSH read-only checks can summarize fleet status while keeping all technical details in the execution trace.
-- `/stats` now shows token/cost usage, pricing coverage, Model Gateway Audit, and Recipe Experience Memory more clearly.
-- Pricing uses LiteLLM's public model-pricing JSON as primary source, with cache, fallback, and manual override support.
-- Managed updates are safer: normal `aria-stack.sh update` refreshes/recreates only `aria`; Qdrant, SearXNG, Valkey, and volumes stay untouched.
-- Host-side updates fail closed on host-port conflicts before recreating ARIA.
-- LLM Prompt Debug gives admins a redacted view into prompts, responses, model, operation, duration, and token usage.
-- RSS security/news digests honor requested counts more reliably and keep source links visible.
-- Learned Recipes now expose review-only LLM curator metadata with safer layout, evidence weighting, Qdrant cleanup on delete, and explicit context-only boundaries.
-- Docker release builds use pinned base-image digests and runtime dependency constraints for lower release drift.
+- Guardrails are easier to create and review: admins can ask for an AI-generated Guardrail proposal, inspect/edit it, test examples, and only then save it.
+- Google Calendar uses a simple read-only secret iCal URL setup instead of the fragile LAN-hosted OAuth/device-code path.
+- Connection detail pages are more consistent across SSH, SFTP, SMB, Webhook, HTTP API, mail, RSS, MQTT, Calendar, SearXNG, and websites.
+- Guardrail assignment is more visible, scoped Guardrails only appear on compatible connection kinds, and runtime blocks explain the security decision more clearly.
+- Multi-target SSH health prompts such as "wie fit sind meine server?" route through the broad read-only health check and summarize all targets.
+- `/stats` now has clearer cost-estimate wording, local billing-period reset, log retention hygiene, actionable Operator Guardrail details, and better deep links.
+- Runtime logs, token/cost logs, activity logs, and redacted LLM debug logs default to 90-day retention to avoid silent disk growth.
+- Discord system events now report the configured ARIA base URL or a detected local address instead of warning about a missing public URL.
+- The recipe-first, LLM-assisted action flow from previous public releases remains: LLMs draft/summarize, deterministic policy and Guardrails decide execution.
 
 ## What you need
 

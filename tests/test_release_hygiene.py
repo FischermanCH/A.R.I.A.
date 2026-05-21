@@ -47,6 +47,27 @@ def test_source_runtime_assets_are_present_for_container_builds() -> None:
     assert missing == []
 
 
+def test_static_css_has_balanced_blocks() -> None:
+    css = (ROOT / "aria" / "static" / "style.css").read_text(encoding="utf-8")
+    depth = 0
+    for index, char in enumerate(css):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        assert depth >= 0, f"unexpected closing brace at byte {index}"
+
+    assert depth == 0
+
+
+def test_mobile_viewport_uses_ios_safe_area() -> None:
+    template = (ROOT / "aria" / "templates" / "base.html").read_text(encoding="utf-8")
+    reconnect_shell = (ROOT / "aria" / "static" / "update-reconnect-sw.js").read_text(encoding="utf-8")
+
+    assert "viewport-fit=cover" in template
+    assert "viewport-fit=cover" in reconnect_shell
+
+
 def test_dockerfile_uses_runtime_constraints_for_reproducible_installs() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     constraints = (ROOT / "constraints" / "runtime.txt").read_text(encoding="utf-8")

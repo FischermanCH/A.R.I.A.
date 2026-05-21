@@ -53,6 +53,10 @@ class KeywordRouter:
             " service",
             " dienst",
             " api",
+            " webhook",
+            " discord",
+            " mqtt",
+            " http",
             " webseite",
             " rss",
             " postfach",
@@ -128,7 +132,13 @@ class KeywordRouter:
         return re.search(pattern, text, re.IGNORECASE) is not None
 
     def _contains_store_intent(self, text: str, store_keywords: tuple[str, ...]) -> bool:
-        return any(self._contains_store_keyword(text, keyword) for keyword in store_keywords)
+        for keyword in store_keywords:
+            clean_keyword = str(keyword or "").strip().lower()
+            if clean_keyword == "speicher" and "speicher frei" in text:
+                continue
+            if self._contains_store_keyword(text, keyword):
+                return True
+        return False
 
     def classify(self, message: str, routing: RoutingLanguageConfig | None = None) -> RouterDecision:
         text = message.lower().strip()

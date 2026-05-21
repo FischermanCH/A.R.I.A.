@@ -658,6 +658,8 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
     assert meta["rows"][3]["fallback"] == "Cost tracking"
     assert meta["rows"][4]["fallback"] == "Recipe Experience Memory"
     assert meta["rows"][4]["detail"] == "1 collections · 4 points"
+    assert meta["rows"][5]["url"] == "/stats#startup-preflight"
+    assert meta["rows"][6]["url"] == "/stats#runtime-health"
     assert meta["rows"][7]["url"] == "/updates"
 
 

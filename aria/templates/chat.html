@@ -2,7 +2,7 @@
 {% block content %}
 {% set initial_message_count = chat_history|length if chat_history else 0 %}
 {% set initial_chat_state = 'compact' if initial_message_count <= 1 else 'expanded' %}
-<main class="chat-layout" data-chat-state="{{ initial_chat_state }}">
+<main class="chat-layout chat-layout-fill" data-chat-state="{{ initial_chat_state }}">
   {% if debug_mode %}
   <div class="chat-meta-header">
     <div class="chat-status-cluster">
@@ -120,6 +120,25 @@
       cancelled: {{ tr(request, 'chat.cancelled', 'Anfrage im Browser abgebrochen.')|tojson }},
       runningSkill: {{ tr(request, 'chat.running_skill', 'Rezept wird ausgeführt...')|tojson }},
       processingMessage: {{ tr(request, 'chat.processing_message', 'Nachricht wird verarbeitet...')|tojson }},
+      workRouting: {{ tr(request, 'chat.work_routing', 'ARIA sortiert deine Anfrage...')|tojson }},
+      workPlanning: {{ tr(request, 'chat.work_planning', 'ARIA plant den passenden Ablauf...')|tojson }},
+      workRuntime: {{ tr(request, 'chat.work_runtime', 'ARIA führt den passenden Schritt aus...')|tojson }},
+      workSummary: {{ tr(request, 'chat.work_summary', 'ARIA fasst das Ergebnis zusammen...')|tojson }},
+      workServers: {{ tr(request, 'chat.work_servers', 'ARIA prüft deine Server...')|tojson }},
+      workFeeds: {{ tr(request, 'chat.work_feeds', 'ARIA liest aktuelle Feeds...')|tojson }},
+      workFiles: {{ tr(request, 'chat.work_files', 'ARIA durchsucht Dateien und Shares...')|tojson }},
+      workWeb: {{ tr(request, 'chat.work_web', 'ARIA sucht passende Informationen...')|tojson }},
+      workMemory: {{ tr(request, 'chat.work_memory', 'ARIA prüft relevante Erinnerungen...')|tojson }},
+      workMessage: {{ tr(request, 'chat.work_message', 'ARIA bereitet die Nachricht vor...')|tojson }},
+      workAction: {{ tr(request, 'chat.work_action', 'ARIA prüft Aktion und Freigaben...')|tojson }},
+      workWaitingServers: {{ tr(request, 'chat.work_waiting_servers', 'ARIA wartet auf Serverantworten...')|tojson }},
+      workWaitingFeeds: {{ tr(request, 'chat.work_waiting_feeds', 'ARIA wartet auf Feed-Antworten...')|tojson }},
+      workWaitingFiles: {{ tr(request, 'chat.work_waiting_files', 'ARIA wartet auf Dateiantworten...')|tojson }},
+      workWaitingWeb: {{ tr(request, 'chat.work_waiting_web', 'ARIA wartet auf externe Antworten...')|tojson }},
+      workWaitingMessage: {{ tr(request, 'chat.work_waiting_message', 'ARIA bereitet die Nachricht weiter vor...')|tojson }},
+      workWaitingMemory: {{ tr(request, 'chat.work_waiting_memory', 'ARIA prüft Erinnerungen weiter...')|tojson }},
+      workWaitingAction: {{ tr(request, 'chat.work_waiting_action', 'ARIA prüft die Aktion weiter...')|tojson }},
+      workWaitingGeneric: {{ tr(request, 'chat.work_waiting_generic', 'ARIA arbeitet weiter...')|tojson }},
       stillWorking: {{ tr(request, 'chat.still_working', 'ARIA arbeitet noch...')|tojson }},
       longRunningSkill: {{ tr(request, 'chat.long_running_skill', 'Längeres Rezept läuft noch. Das kann 30-60 Sekunden dauern...')|tojson }},
       skillPhase: {{ tr(request, 'chat.skill_phase', 'Aktueller Schritt')|tojson }},
@@ -153,6 +172,7 @@
     const csrfMeta = document.querySelector("meta[name='csrf-token']");
     let pendingStatusTimer = null;
     let pendingStatusInterval = null;
+    let pendingPhaseTimers = [];
     let currentRequestController = null;
 
     const draftStorageKey = "aria_chat_draft_v1";
@@ -214,6 +234,70 @@
         window.clearInterval(pendingStatusInterval);
         pendingStatusInterval = null;
       }
+      pendingPhaseTimers.forEach((timer) => window.clearTimeout(timer));
+      pendingPhaseTimers = [];
+    }
+
+    function messageHasAny(text, terms) {
+      return terms.some((term) => text.includes(term));
+    }
+
+    function resolveWorkStatusInfo(message, likelyRecipe) {
+      if (likelyRecipe) {
+        return {
+          initial: uiText.runningSkill,
+          phases: [uiText.workPlanning, uiText.workRuntime, uiText.workSummary],
+          waiting: uiText.longRunningSkill,
+        };
+      }
+      const text = String(message || "").trim().toLowerCase();
+      if (messageHasAny(text, ["server", "dns", "pihole", "ssh", "kapaz", "speicherplatz", "festplatte", "harddisk", "uptime", "health"])) {
+        return {
+          initial: uiText.workServers,
+          phases: [uiText.workRouting, uiText.workAction, uiText.workSummary],
+          waiting: uiText.workWaitingServers,
+        };
+      }
+      if (messageHasAny(text, ["rss", "feed", "news", "meldungen", "artikel", "cve", "security"])) {
+        return {
+          initial: uiText.workFeeds,
+          phases: [uiText.workRouting, uiText.workRuntime, uiText.workSummary],
+          waiting: uiText.workWaitingFeeds,
+        };
+      }
+      if (messageHasAny(text, ["file", "datei", "folder", "ordner", "share", "smb", "sftp", "pdf", "dokument"])) {
+        return {
+          initial: uiText.workFiles,
+          phases: [uiText.workRouting, uiText.workRuntime, uiText.workSummary],
+          waiting: uiText.workWaitingFiles,
+        };
+      }
+      if (messageHasAny(text, ["mail", "e-mail", "email", "imap", "smtp", "nachricht schreiben", "antworte"])) {
+        return {
+          initial: uiText.workMessage,
+          phases: [uiText.workPlanning, uiText.workAction, uiText.workSummary],
+          waiting: uiText.workWaitingMessage,
+        };
+      }
+      if (messageHasAny(text, ["web", "suche", "such", "internet", "website", "url", "http"])) {
+        return {
+          initial: uiText.workWeb,
+          phases: [uiText.workRouting, uiText.workRuntime, uiText.workSummary],
+          waiting: uiText.workWaitingWeb,
+        };
+      }
+      if (messageHasAny(text, ["merk", "memory", "erinner", "notiz", "wissen"])) {
+        return {
+          initial: uiText.workMemory,
+          phases: [uiText.workRouting, uiText.workPlanning, uiText.workSummary],
+          waiting: uiText.workWaitingMemory,
+        };
+      }
+      return {
+        initial: uiText.workRouting,
+        phases: [uiText.workPlanning, uiText.workRuntime, uiText.workSummary],
+        waiting: uiText.workWaitingGeneric,
+      };
     }
 
     function resolveLikelyRecipeInfo(message) {
@@ -247,12 +331,23 @@
       return baseText + " " + uiText.skillPhase + ": " + phaseLabel + " (" + elapsedSeconds + "s)";
     }
 
-    function startPendingStatusTimers(pendingAssistantNode, likelyRecipe) {
+    function startPendingStatusTimers(pendingAssistantNode, likelyRecipe, workStatus) {
       clearPendingStatusTimers();
       if (!pendingAssistantNode) return;
       const textNode = pendingAssistantNode.querySelector("p");
       if (!textNode) return;
       const startedAt = Date.now();
+      const phases = Array.isArray(workStatus && workStatus.phases) ? workStatus.phases : [];
+      const waitingText = String((workStatus && workStatus.waiting) || uiText.workWaitingGeneric || uiText.stillWorking || "").trim();
+      phases.forEach((phaseText, index) => {
+        const timer = window.setTimeout(function () {
+          const cleanText = String(phaseText || "").trim();
+          if (!cleanText) return;
+          textNode.textContent = cleanText;
+          if (thinkingText) thinkingText.textContent = cleanText;
+        }, 1800 + index * 2200);
+        pendingPhaseTimers.push(timer);
+      });
 
       pendingStatusTimer = window.setTimeout(function () {
         const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
@@ -260,8 +355,8 @@
           textNode.textContent = buildPendingRecipeText(uiText.longRunningSkill, likelyRecipe, elapsed);
           if (thinkingText) thinkingText.textContent = uiText.longRunningSkill;
         } else {
-          textNode.textContent = uiText.stillWorking + " (" + elapsed + "s)";
-          if (thinkingText) thinkingText.textContent = uiText.stillWorking;
+          textNode.textContent = (waitingText || uiText.stillWorking) + " (" + elapsed + "s)";
+          if (thinkingText) thinkingText.textContent = waitingText || uiText.stillWorking;
         }
       }, 8000);
 
@@ -270,7 +365,7 @@
         if (likelyRecipe && elapsed >= 8) {
           textNode.textContent = buildPendingRecipeText(uiText.longRunningSkill, likelyRecipe, elapsed);
         } else if (!likelyRecipe && elapsed >= 8) {
-          textNode.textContent = uiText.stillWorking + " (" + elapsed + "s)";
+          textNode.textContent = (waitingText || uiText.stillWorking) + " (" + elapsed + "s)";
         }
       }, 1000);
     }
@@ -563,9 +658,10 @@
         localStorage.removeItem(draftStorageKey);
       }
       const likelyRecipe = resolveLikelyRecipeInfo(message) || (looksLikeRecipeExecution(message) ? { id: "recipe", name: "recipe", steps: [] } : null);
-      const pendingAssistantNode = appendPendingAssistant(likelyRecipe ? uiText.runningSkill : uiText.processingMessage);
-      setBusy(true, likelyRecipe ? uiText.runningSkill : uiText.processingMessage);
-      startPendingStatusTimers(pendingAssistantNode, likelyRecipe);
+      const workStatus = resolveWorkStatusInfo(message, likelyRecipe);
+      const pendingAssistantNode = appendPendingAssistant(workStatus.initial || uiText.processingMessage);
+      setBusy(true, workStatus.initial || uiText.processingMessage);
+      startPendingStatusTimers(pendingAssistantNode, likelyRecipe, workStatus);
       currentRequestController = new AbortController();
 
       try {

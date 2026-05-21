@@ -29,7 +29,6 @@ from aria.core.recipe_runtime_calendar import RecipeCalendarRuntime
 from aria.core.recipe_runtime_calendar import format_google_calendar_event_time as _calendar_format_event_time
 from aria.core.recipe_runtime_calendar import google_calendar_range_label as _calendar_range_label
 from aria.core.recipe_runtime_calendar import google_calendar_time_bounds as _calendar_time_bounds
-from aria.core.recipe_runtime_calendar import google_calendar_token_request_body as _calendar_token_request_body
 from aria.core.recipe_runtime_rss import RecipeRssRuntime
 from aria.core.recipe_runtime_rss import clean_feed_summary as _rss_clean_feed_summary
 from aria.core.recipe_runtime_rss import clean_feed_url as _rss_clean_feed_url
@@ -439,14 +438,19 @@ class RecipeRuntime:
         content: str = "",
     ) -> None:
         clean_operation = str(operation or "").strip().lower()
-        eval_parts = [clean_operation, str(resolved_path or "").strip()]
-        if content:
-            eval_parts.append(str(content).strip())
         capability = {
             "read": "file_read",
             "write": "file_write",
             "list": "file_list",
         }.get(clean_operation, "")
+        operation_aliases = {
+            "read": "file_read file access read get download readonly",
+            "write": "file_write file access write create upload put delete",
+            "list": "file_list file access list read readonly directory",
+        }.get(clean_operation, "file access")
+        eval_parts = [operation_aliases, clean_operation, str(resolved_path or "").strip()]
+        if content:
+            eval_parts.append(str(content).strip())
         self._enforce_connection_guardrail(
             connection=connection,
             connection_ref="",
@@ -484,10 +488,6 @@ class RecipeRuntime:
     @staticmethod
     def _format_google_calendar_event_time(event: dict[str, Any], *, language: str = "de") -> str:
         return _calendar_format_event_time(_recipe_text, event, language=language)
-
-    @staticmethod
-    def _google_calendar_token_request_body(connection: Any) -> bytes:
-        return _calendar_token_request_body(connection)
 
     @staticmethod
     def _clean_feed_summary(value: str, limit: int = 220) -> str:

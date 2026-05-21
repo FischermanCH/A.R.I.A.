@@ -42,6 +42,27 @@ def guardrail_config_link(guardrail_ref: str, language: str | None = None) -> st
     return f"{label}: [{clean_ref}]({href}) ({href})"
 
 
+def _guardrail_block_fallback_text(*, target: str, guardrail_ref: str, language: str | None) -> str:
+    clean_ref = str(guardrail_ref or "").strip()
+    if not clean_ref:
+        return ""
+    clean_target = str(target or "").strip()
+    if clean_target:
+        return _blocked_text(
+            language,
+            "guardrail_block_summary_target",
+            "The action on `{target}` was blocked by Guardrail profile `{guardrail_ref}`. This is an active security rule, not a technical execution error.",
+            target=clean_target,
+            guardrail_ref=clean_ref,
+        )
+    return _blocked_text(
+        language,
+        "guardrail_block_summary",
+        "The action was blocked by Guardrail profile `{guardrail_ref}`. This is an active security rule, not a technical execution error.",
+        guardrail_ref=clean_ref,
+    )
+
+
 def _clean_llm_text(value: str) -> str:
     text = str(value or "").strip()
     if text.startswith("```"):
@@ -181,8 +202,13 @@ async def explain_blocked_action(
     timeout_seconds: float = 4.0,
     skip_llm_reason: str = "",
 ) -> BlockedActionExplanation:
+    fallback_source = _guardrail_block_fallback_text(
+        target=target,
+        guardrail_ref=guardrail_ref,
+        language=language,
+    ) or str(fallback_text or "").strip()
     fallback = _ensure_context_lines(
-        text=str(fallback_text or "").strip(),
+        text=fallback_source,
         preview=preview,
         guardrail_ref=guardrail_ref,
         language=language,

@@ -7,7 +7,12 @@ from typing import Any
 
 import yaml
 
-from aria.core.guardrails import guardrail_kind_label, guardrail_kind_options, normalize_guardrail_kind
+from aria.core.guardrails import (
+    guardrail_kind_label,
+    guardrail_kind_options,
+    normalize_guardrail_connection_kinds,
+    normalize_guardrail_kind,
+)
 from aria.core.i18n import I18NStore
 
 RawConfigReader = Callable[[], dict[str, Any]]
@@ -204,6 +209,7 @@ def build_config_support_helpers(deps: ConfigSupportHelperDeps) -> ConfigSupport
             result[clean_ref] = {
                 "kind": kind,
                 "kind_label": guardrail_kind_label(kind),
+                "connection_kinds": normalize_guardrail_connection_kinds(value.get("connection_kinds"), guardrail_kind=kind),
                 "title": str(value.get("title", "")).strip(),
                 "description": str(value.get("description", "")).strip(),
                 "allow_terms": list(value.get("allow_terms", []) if isinstance(value.get("allow_terms", []), list) else []),
@@ -217,6 +223,9 @@ def build_config_support_helpers(deps: ConfigSupportHelperDeps) -> ConfigSupport
             item = rows.get(ref, {})
             kind = str(item.get("kind", "")).strip()
             if connection_kind and kind and not guardrail_is_compatible(kind, connection_kind):
+                continue
+            scoped_connection_kinds = normalize_guardrail_connection_kinds(item.get("connection_kinds"), guardrail_kind=kind)
+            if connection_kind and scoped_connection_kinds and connection_kind not in scoped_connection_kinds:
                 continue
             title = str(item.get("title", "")).strip()
             kind_label = str(item.get("kind_label", "")).strip()

@@ -5,7 +5,9 @@
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
 
-  <section id="manage-existing" class="config-card connection-mode-card connection-mode-edit" {% if connection_mode == 'create' %}hidden{% endif %}>
+  <details id="manage-existing" class="config-card config-section-details connection-mode-card connection-mode-edit" {% if connection_mode != 'create' %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.edit_existing_title','Bestehendes Profil bearbeiten') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.edit_existing_subtitle','Profilkarte anklicken oder hier das aktuell geladene Profil bearbeiten.') }}</span></span></summary>
+    <div class="config-section-content">
     {% if website_selected_explicit %}
     {% if website_test_status == 'ok' or website_test_status == 'error' %}
     <article class="connection-test-card status-{{ website_test_status }}">
@@ -93,9 +95,12 @@
       {% endif %}
     </div>
     {% endif %}
-  </section>
+    </div>
+  </details>
 
-  <section id="create-new" class="config-card connection-mode-card connection-mode-create" {% if connection_mode != 'create' %}hidden{% endif %}>
+  <details id="create-new" class="config-card config-section-details connection-mode-card connection-mode-create" {% if connection_mode == 'create' %}open{% endif %}>
+    <summary class="config-section-summary"><span class="config-section-heading"><span class="config-section-title-row"><h3>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h3></span><span class="config-section-desc">{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</span></span></summary>
+    <div class="config-section-content">
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
     <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
 
@@ -116,6 +121,7 @@
       {% include "_connection_metadata_fields.html" %}
       <button type="submit">{{ tr(request,'config_conn.website_save_profile','Save watched website') }}</button>
     </form>
-  </section>
+    </div>
+  </details>
 </main>
 {% endblock %}

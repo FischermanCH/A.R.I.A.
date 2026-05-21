@@ -17,6 +17,7 @@ from aria.core.agentic_action_resolution import (
     ssh_policy_result,
 )
 from aria.core.agentic_prompt_flow import agentic_debug_boundary_phases
+from aria.core.agentic_prompt_flow import agentic_context_debug_line
 from aria.core.agentic_prompt_flow import normalize_agentic_debug_boundary
 from aria.core.connection_dossiers import build_file_target_dossier
 from aria.core.connection_dossiers import build_message_target_dossier
@@ -249,6 +250,17 @@ def test_agentic_debug_boundaries_map_to_prompt_flow_phases() -> None:
     assert agentic_debug_boundary_phases("draft_policy") == ("llm_action_proposal", "policy_guardrail_decision")
     assert agentic_debug_boundary_phases("runtime_execution") == ("runtime_execution",)
     assert normalize_agentic_debug_boundary("unknown") == "context_enrichment"
+
+
+def test_agentic_context_debug_line_marks_context_boundary() -> None:
+    line = agentic_context_debug_line(
+        "capability_draft",
+        {"capability": "ssh_command", "kind": "ssh", "requested_ref": "dns server"},
+    )
+
+    assert line.startswith("Routing Debug: capability_draft capability=ssh_command kind=ssh")
+    assert "requested_ref=dns server" in line
+    assert "boundary=context_enrichment" in line
 
 
 def test_agentic_runtime_debug_line_uses_runtime_boundary() -> None:

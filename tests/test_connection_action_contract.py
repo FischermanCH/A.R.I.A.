@@ -3,6 +3,7 @@ from __future__ import annotations
 from aria.core.action_plan import ActionPlan
 from aria.core.capability_catalog import capability_executor_bindings
 from aria.core.connection_action_contract import connection_action_capabilities_by_family
+from aria.core.connection_action_contract import connection_action_capabilities_by_planner_role
 from aria.core.connection_action_contract import connection_action_capability_for_executor_family
 from aria.core.connection_action_contract import connection_action_contract
 from aria.core.connection_action_contract import connection_action_binding_is_supported
@@ -11,9 +12,12 @@ from aria.core.connection_action_contract import connection_action_executor_bind
 from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.connection_action_contract import connection_action_contracts
 from aria.core.connection_action_contract import connection_action_manifest_rows
+from aria.core.connection_action_contract import confirmation_required_for_capability
+from aria.core.connection_action_contract import draft_capability_for_capability
 from aria.core.connection_action_contract import guardrail_kind_for_capability
 from aria.core.connection_action_contract import runtime_operation_for_capability
 from aria.core.connection_action_contract import runtime_payload_for_action_plan
+from aria.core.connection_action_contract import sensitive_content_for_capability
 from aria.core.pipeline_capability_execution import PipelineCapabilityExecutor
 
 
@@ -61,6 +65,17 @@ def test_connection_action_contract_exposes_family_lookups_for_agentic_resolvers
     assert connection_action_capability_for_executor_family("email", "message") == "email_send"
     assert connection_action_capability_for_executor_family("mqtt", "message") == "mqtt_publish"
     assert connection_action_capability_for_executor_family("rss", "message") == ""
+
+
+def test_connection_action_contract_exposes_provider_planner_boundaries() -> None:
+    assert set(connection_action_capabilities_by_planner_role("search")) == {"mail_search"}
+    assert "mail_read" in set(connection_action_capabilities_by_planner_role("read"))
+    assert "email_send" in set(connection_action_capabilities_by_planner_role("send"))
+    assert confirmation_required_for_capability("email_send") is True
+    assert confirmation_required_for_capability("mail_search") is False
+    assert sensitive_content_for_capability("mail_search") is True
+    assert sensitive_content_for_capability("file_read") is True
+    assert draft_capability_for_capability("email_send") == "email_draft"
 
 
 def test_pipeline_capability_executor_has_handler_for_every_action_contract() -> None:
@@ -120,6 +135,7 @@ def test_connection_action_contracts_make_side_effect_boundaries_auditable() -> 
     for contract in side_effect_contracts:
         assert contract.policy_family
         assert contract.policy_family != "read_only"
+        assert contract.confirmation_required is True
         assert "connection_ref" in contract.required_fields
         assert contract.payload_fields
 
@@ -167,20 +183,28 @@ def test_connection_action_manifest_rows_are_declarative_and_complete() -> None:
         "capability": "ssh_command",
         "family": "command",
         "operation": "run_command",
+        "planner_role": "command",
         "executors": ["ssh"],
         "policy_family": "ssh_readonly",
         "guardrail_kind": "ssh_command",
         "required_fields": ["connection_ref", "content"],
         "payload_fields": [{"payload": "command", "plan": "content"}],
         "side_effect": False,
+        "confirmation_required": False,
+        "sensitive_content": False,
+        "draft_capability": "",
         "direct_capability_gate": False,
     }
     for row in rows:
         assert row["capability"]
         assert row["family"]
         assert row["operation"]
+        assert row["planner_role"]
         assert row["executors"]
         assert row["policy_family"]
         assert "guardrail_kind" in row
         assert isinstance(row["side_effect"], bool)
+        assert isinstance(row["confirmation_required"], bool)
+        assert isinstance(row["sensitive_content"], bool)
+        assert isinstance(row["draft_capability"], str)
         assert isinstance(row["direct_capability_gate"], bool)

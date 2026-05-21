@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import urlparse
 from urllib.request import Request as URLRequest
 
 from aria.core.google_calendar_support import friendly_google_calendar_error_message
@@ -33,19 +32,8 @@ def google_calendar_time_bounds(range_hint: str) -> tuple[datetime, datetime, in
         start = start_of_today + timedelta(days=days_until_next_week)
         return start, start + timedelta(days=7), 20
     if clean == "next":
-        return now, now + timedelta(days=30), 5
+        return now, now + timedelta(days=30), 1
     return now, now + timedelta(days=14), 10
-
-
-def google_calendar_token_request_body(connection: Any) -> bytes:
-    return urlencode(
-        {
-            "client_id": str(getattr(connection, "client_id", "") or "").strip(),
-            "client_secret": str(getattr(connection, "client_secret", "") or "").strip(),
-            "refresh_token": str(getattr(connection, "refresh_token", "") or "").strip(),
-            "grant_type": "refresh_token",
-        }
-    ).encode("utf-8")
 
 
 def google_calendar_range_label(recipe_text: RecipeText, range_hint: str, *, language: str = "de") -> str:
@@ -81,6 +69,95 @@ def format_google_calendar_event_time(recipe_text: RecipeText, event: dict[str, 
     return ""
 
 
+def _unfold_ical_lines(ical_text: str) -> list[str]:
+    rows: list[str] = []
+    for raw_line in str(ical_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if raw_line.startswith((" ", "\t")) and rows:
+            rows[-1] += raw_line[1:]
+        else:
+            rows.append(raw_line.rstrip("\n"))
+    return rows
+
+
+def _decode_ical_text(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("\\n", "\n")
+        .replace("\\N", "\n")
+        .replace("\\,", ",")
+        .replace("\\;", ";")
+        .replace("\\\\", "\\")
+        .strip()
+    )
+
+
+def _parse_ical_datetime(raw_value: str, *, value_type: str = "") -> tuple[dict[str, str], datetime | None]:
+    clean = str(raw_value or "").strip()
+    clean_type = str(value_type or "").strip().upper()
+    if not clean:
+        return {}, None
+    if clean_type == "DATE" or (len(clean) == 8 and clean.isdigit()):
+        try:
+            parsed_date = datetime.strptime(clean, "%Y%m%d").date()
+        except ValueError:
+            return {"date": clean}, None
+        start_at = datetime.combine(parsed_date, dt_time.min).astimezone()
+        return {"date": parsed_date.isoformat()}, start_at
+    try:
+        if clean.endswith("Z"):
+            parsed = datetime.strptime(clean, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        elif "T" in clean:
+            parsed = datetime.strptime(clean, "%Y%m%dT%H%M%S").astimezone()
+        else:
+            parsed = datetime.fromisoformat(clean)
+            if parsed.tzinfo is None:
+                parsed = parsed.astimezone()
+    except ValueError:
+        return {"dateTime": clean}, None
+    return {"dateTime": parsed.isoformat()}, parsed.astimezone()
+
+
+def parse_google_calendar_ical_events(ical_text: str) -> tuple[str, list[dict[str, Any]]]:
+    calendar_name = ""
+    events: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for raw_line in _unfold_ical_lines(ical_text):
+        if raw_line == "BEGIN:VEVENT":
+            current = {}
+            continue
+        if raw_line == "END:VEVENT":
+            if current is not None:
+                events.append(current)
+            current = None
+            continue
+        if ":" not in raw_line:
+            continue
+        left, raw_value = raw_line.split(":", 1)
+        name, *param_parts = left.split(";")
+        prop_name = name.strip().upper()
+        params: dict[str, str] = {}
+        for part in param_parts:
+            if "=" not in part:
+                continue
+            param_name, param_value = part.split("=", 1)
+            params[param_name.strip().upper()] = param_value.strip()
+        if current is None:
+            if prop_name == "X-WR-CALNAME" and not calendar_name:
+                calendar_name = _decode_ical_text(raw_value)
+            continue
+        if prop_name == "SUMMARY":
+            current["summary"] = _decode_ical_text(raw_value)
+        elif prop_name == "LOCATION":
+            current["location"] = _decode_ical_text(raw_value)
+        elif prop_name == "DESCRIPTION":
+            current["description"] = _decode_ical_text(raw_value)
+        elif prop_name == "DTSTART":
+            start_value, start_at = _parse_ical_datetime(raw_value, value_type=params.get("VALUE", ""))
+            current["start"] = start_value
+            current["_start_at"] = start_at
+    return calendar_name, events
+
+
 class RecipeCalendarRuntime:
     def __init__(
         self,
@@ -113,68 +190,24 @@ class RecipeCalendarRuntime:
         language: str = "de",
     ) -> str:
         connection = self.get_connection_profile("google_calendar", connection_ref)
-        calendar_id = str(getattr(connection, "calendar_id", "primary") or "primary").strip() or "primary"
-        client_id = str(getattr(connection, "client_id", "") or "").strip()
-        client_secret = str(getattr(connection, "client_secret", "") or "").strip()
-        refresh_token = str(getattr(connection, "refresh_token", "") or "").strip()
+        ical_url = str(getattr(connection, "ical_url", "") or "").strip()
         timeout_seconds = int(getattr(connection, "timeout_seconds", 10) or 10)
-        if not client_id:
-            raise ValueError(self._text(language, "message_1476", "Google client ID is missing in the profile."))
-        if not client_secret:
-            raise ValueError(self._text(language, "message_1478", "Google client secret is missing in the profile."))
-        if not refresh_token:
-            raise ValueError(self._text(language, "message_1480", "Google refresh token is missing in the profile."))
-
-        token_request = URLRequest(
-            "https://oauth2.googleapis.com/token",
-            data=google_calendar_token_request_body(connection),
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "ARIA/1.0",
-            },
-            method="POST",
-        )
-        try:
-            with self.urlopen_func(token_request, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
-                token_payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-        except HTTPError as exc:
-            raise ValueError(friendly_google_calendar_error_message(exc, lang=language, operation="sign_in")) from exc
-        except URLError as exc:
-            raise ValueError(friendly_google_calendar_error_message(exc, lang=language, operation="sign_in")) from exc
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(friendly_google_calendar_error_message(exc, lang=language, operation="sign_in")) from exc
-
-        access_token = str((token_payload or {}).get("access_token", "") or "").strip()
-        if not access_token:
-            raise ValueError(self._text(language, "message_1503", "Google did not return an access token."))
+        if not ical_url:
+            raise ValueError(self._text(language, "google_ical_url_missing", "Google Calendar iCal URL is missing in the profile."))
+        parsed = urlparse(ical_url)
+        if parsed.scheme.lower() != "https" or not parsed.netloc:
+            raise ValueError(self._text(language, "google_ical_url_invalid", "Google Calendar iCal URL must be a complete HTTPS URL."))
 
         start_at, end_at, max_results = google_calendar_time_bounds(range_hint)
-        query_pairs: list[tuple[str, str]] = [
-            ("singleEvents", "true"),
-            ("orderBy", "startTime"),
-            ("showDeleted", "false"),
-            ("maxResults", str(max_results)),
-            ("timeMin", start_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")),
-            ("timeMax", end_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")),
-        ]
         clean_search = str(search_query or "").strip()
-        if clean_search:
-            query_pairs.append(("q", clean_search))
-        events_url = (
-            f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events?"
-            + urlencode(query_pairs)
-        )
         events_request = URLRequest(
-            events_url,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "User-Agent": "ARIA/1.0",
-            },
+            ical_url,
+            headers={"Accept": "text/calendar,text/plain,*/*;q=0.8", "User-Agent": "ARIA/1.0"},
             method="GET",
         )
         try:
             with self.urlopen_func(events_request, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
-                events_payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+                ical_text = resp.read(1024 * 1024).decode("utf-8", errors="replace")
         except HTTPError as exc:
             raise ValueError(friendly_google_calendar_error_message(exc, lang=language, operation="fetch")) from exc
         except URLError as exc:
@@ -182,8 +215,29 @@ class RecipeCalendarRuntime:
         except Exception as exc:  # noqa: BLE001
             raise ValueError(friendly_google_calendar_error_message(exc, lang=language, operation="fetch")) from exc
 
-        calendar_summary = str((events_payload or {}).get("summary", "") or "").strip() or calendar_id
-        items = list((events_payload or {}).get("items", []) or [])
+        if "BEGIN:VCALENDAR" not in ical_text:
+            raise ValueError(self._text(language, "google_ical_invalid_feed", "Google Calendar iCal URL did not return a calendar feed."))
+        calendar_name, parsed_events = parse_google_calendar_ical_events(ical_text)
+        calendar_summary = calendar_name or str(getattr(connection, "title", "") or "").strip() or connection_ref
+        items: list[dict[str, Any]] = []
+        search_lower = clean_search.lower()
+        for event in parsed_events:
+            start_value = event.get("_start_at")
+            if not isinstance(start_value, datetime):
+                continue
+            start_local = start_value.astimezone()
+            if start_local < start_at or start_local >= end_at:
+                continue
+            if search_lower:
+                haystack = " ".join(
+                    str(event.get(field, "") or "").lower()
+                    for field in ("summary", "location", "description")
+                )
+                if search_lower not in haystack:
+                    continue
+            public_event = {key: value for key, value in event.items() if not key.startswith("_")}
+            items.append(public_event)
+        items.sort(key=lambda item: str(item.get("start", {}).get("dateTime") or item.get("start", {}).get("date") or ""))
         range_label = self.range_label(range_hint, language=language)
         if not items:
             base = self._text(

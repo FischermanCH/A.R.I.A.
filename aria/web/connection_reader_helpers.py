@@ -332,16 +332,12 @@ def build_connection_reader_helpers(deps: ConnectionReaderHelperDeps) -> Connect
                 ref = _sanitize_connection_name(key)
                 if not ref or not isinstance(value, dict):
                     continue
-                client_secret = store.get_secret(f"connections.google_calendar.{ref}.client_secret", default="") if store else ""
-                refresh_token = store.get_secret(f"connections.google_calendar.{ref}.refresh_token", default="") if store else ""
+                ical_url = store.get_secret(f"connections.google_calendar.{ref}.ical_url", default="") if store else ""
                 rows[ref] = {
                     "calendar_id": str(value.get("calendar_id", "primary")).strip() or "primary",
-                    "client_id": str(value.get("client_id", "")).strip(),
+                    "ical_url": ical_url,
+                    "ical_url_present": bool(ical_url),
                     "timeout_seconds": int(value.get("timeout_seconds", 10) or 10),
-                    "client_secret": client_secret,
-                    "client_secret_present": bool(client_secret),
-                    "refresh_token": refresh_token,
-                    "refresh_token_present": bool(refresh_token),
                     **_read_connection_metadata(value),
                 }
             return rows

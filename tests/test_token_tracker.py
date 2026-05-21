@@ -222,6 +222,28 @@ def test_clear_log_removes_all_entries_and_file(tmp_path: Path) -> None:
     assert not log_path.exists()
 
 
+def test_clear_log_can_archive_current_period(tmp_path: Path) -> None:
+    log_path = tmp_path / "tokens.jsonl"
+    entries = [
+        {"timestamp": "2026-03-26T10:00:00+00:00", "user_id": "u1", "intents": ["chat"]},
+        {"timestamp": "2026-03-26T11:00:00+00:00", "user_id": "u1", "intents": ["memory_recall"]},
+    ]
+    with log_path.open("w", encoding="utf-8") as file:
+        for entry in entries:
+            file.write(json.dumps(entry) + "\n")
+
+    tracker = TokenTracker(str(log_path), enabled=True)
+    result = asyncio.run(tracker.clear_log(archive=True))
+
+    assert result["removed"] == 2
+    assert result["archived"] == 1
+    assert not log_path.exists()
+    archive_path = Path(str(result["archive_path"]))
+    assert archive_path.exists()
+    assert archive_path.name.startswith("tokens-archive-")
+    assert archive_path.read_text(encoding="utf-8").count("\n") == 2
+
+
 def test_get_stats_does_not_count_zero_cost_rows_as_priced(tmp_path: Path) -> None:
     log_path = tmp_path / "tokens.jsonl"
     entries = [

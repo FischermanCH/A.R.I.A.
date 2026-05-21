@@ -19,6 +19,7 @@ from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
 from aria.core.connection_semantic_resolver import SemanticConnectionHint
 from aria.core.recipe_runtime_contract import RECIPE_EXECUTION_CAPABILITY
 from aria.core.recipe_runtime_contract import RECIPE_LEGACY_SOURCE
+from aria.core.recipe_runtime_http import HTTPAPIStatusError
 from aria.core.routing_admin import routing_connections_collection_name
 from aria.core.routing_index import build_connection_routing_documents
 from aria.core.routing_index import routing_documents_fingerprint
@@ -332,6 +333,7 @@ def test_rss_refiner_prefers_unique_group_profile_over_single_source_when_scores
 def test_requested_connection_ref_soft_hint_keeps_specific_server_phrases_hard() -> None:
     assert Pipeline._requested_connection_ref_is_soft_hint("server") is True
     assert Pipeline._requested_connection_ref_is_soft_hint("alerts channel") is True
+    assert Pipeline._requested_connection_ref_is_soft_hint("http api") is True
     assert Pipeline._requested_connection_ref_is_soft_hint("backup server") is False
     assert Pipeline._requested_connection_ref_is_soft_hint("monitoring server") is False
 
@@ -1150,7 +1152,8 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
 
         assert result.pending_action is None
         assert result.skill_errors == []
-        assert "nicht ausfuehren" in result.text
+        assert "wurde durch das Guardrail-Profil `safe-ssh` blockiert" in result.text
+        assert "aktive Sicherheitsregel" in result.text
         assert "SSH command: rm -rf /tmp/test" in result.text
         assert "[safe-ssh](/config/security?guardrail_ref=safe-ssh)" in result.text
         details = "\n".join(result.detail_lines)
@@ -4710,6 +4713,7 @@ def test_pipeline_bounded_planner_can_override_ssh_target_and_action() -> None:
     assert updated["planner_debug"]["decision"]["target_ref"] == "backup-host"
     assert any("Planner: agentic_prompt_flow phases=context_enrichment>llm_action_proposal>policy_guardrail_decision>runtime_execution" in line for line in updated.get("detail_lines", []))
     assert any("Planner: bounded_planner selected `ssh/backup-host` + `template/ssh_run_command` confidence=high" in line for line in updated.get("detail_lines", []))
+    assert any("Planner: bounded_planner selected" in line and "boundary=draft" in line for line in updated.get("detail_lines", []))
 
 
 def test_pipeline_bounded_planner_filters_out_custom_skills_for_ssh_run_command(monkeypatch) -> None:
@@ -5517,6 +5521,40 @@ def test_pipeline_capability_router_sends_webhook_via_explicit_ref_name() -> Non
     assert result.detail_lines == []
     assert calls == []
     assert llm.calls == 0
+
+
+def test_pipeline_webhook_payload_delete_is_not_memory_forget() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "webhook": {
+                    "n8n-test-webhook": {
+                        "url": "https://example.org/hook",
+                        "method": "POST",
+                        "content_type": "application/json",
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    result = asyncio.run(
+        pipeline.process(
+            "sende an webhook : delete user record",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:webhook_send"]
+    assert result.pending_action is not None
+    assert result.pending_action["payload"]["content"] == "delete user record"
+    assert "memory_forget" not in result.intents
 
 
 def test_pipeline_capability_router_calls_http_api_with_similar_webhook_ref_present() -> None:
@@ -9181,6 +9219,81 @@ def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> N
     assert "boundary=context_enrichment" in result.detail_lines[0]
 
 
+def test_pipeline_bounded_llm_capability_draft_can_override_false_memory_store_keyword() -> None:
+    class CapabilityDraftLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            self.last_messages = messages
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "single_target",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "user asks whether disk space is free on the named server",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "pihole1": {
+                        "host": "172.31.10.10",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "allow_commands": ["df -h"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    llm = CapabilityDraftLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline.capability_router.classify = lambda *args, **kwargs: None  # type: ignore[method-assign]
+
+    calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        calls.append((plan.connection_ref, plan.content))
+        return "Festplattencheck für `pihole1`: Root-Dateisystem /: 40% belegt, 20G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "speicher pihole1 status",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert calls == [("pihole1", "df -h")]
+    assert "memory_store" not in result.intents
+    assert "capability_draft_decision" in llm.operations
+    assert result.detail_lines[0].startswith(
+        "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh"
+    )
+
+
 def test_pipeline_final_chat_keeps_pre_rag_no_action_debug_visible() -> None:
     settings = Settings.model_validate(
         {
@@ -10494,12 +10607,47 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
     )
 
     class LiveTestLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
         async def chat(self, messages, **kwargs):
             self.calls += 1
             self.last_messages = messages
             operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
             user_text = "\n".join(str((row or {}).get("content", "")) for row in messages if (row or {}).get("role") == "user")
             lower = user_text.lower()
+            if operation == "capability_draft_decision" and "kapazität" in lower:
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "uptime",
+                            "confidence": "high",
+                            "reason": "capacity question about all servers",
+                        }
+                    )
+                )
+            if operation == "capability_draft_decision" and ("fit" in lower or "stabil" in lower):
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "health_check",
+                            "content": "uptime",
+                            "confidence": "high",
+                            "reason": "colloquial health question about all servers",
+                        }
+                    )
+                )
             if operation == "ssh_command_decision":
                 if "starte" in lower or "restart" in lower:
                     return FakeLLMResponse(
@@ -10523,7 +10671,13 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                             }
                         )
                     )
-                if "festplatten" in lower or "speicherplatz" in lower or "hd" in lower:
+                if (
+                    "festplatten" in lower
+                    or "speicherplatz" in lower
+                    or "speicher frei" in lower
+                    or "harddisk" in lower
+                    or "hd" in lower
+                ):
                     return FakeLLMResponse(
                         json.dumps(
                             {
@@ -10590,6 +10744,118 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
     assert "memory_store" not in multi.intents
     assert any("multi_target_ssh_preflight_result allowed=3 blocked=0" in line for line in multi.detail_lines)
     assert not any("rss/" in line for line in multi.detail_lines)
+
+    exact_harddisk_prompt = asyncio.run(
+        pipeline.process(
+            "hab ich auf all meinen server mehr als 10gb harddisk speicher frei ?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    assert exact_harddisk_prompt.intents == ["capability:ssh_command"]
+    assert exact_harddisk_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == "df -h"]) == 6
+    assert "Mehrere SSH-Ziele geprueft (3)." in exact_harddisk_prompt.text
+    assert "memory_store" not in exact_harddisk_prompt.intents
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in exact_harddisk_prompt.detail_lines)
+    assert any("multi_target_ssh_preflight_result allowed=3 blocked=0" in line for line in exact_harddisk_prompt.detail_lines)
+
+    flexible_capacity_prompt = asyncio.run(
+        pipeline.process(
+            "haben meine server überall genug kapazität?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    assert flexible_capacity_prompt.intents == ["capability:ssh_command"]
+    assert flexible_capacity_prompt.pending_action is None
+    capacity_command = "uptime -p && df -h && free -h"
+    assert len([call for call in ssh_calls if call[1] == "df -h"]) == 6
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 3
+    assert "Mehrere SSH-Ziele geprueft (3)." in flexible_capacity_prompt.text
+    assert "capability_draft_decision" in llm.operations
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in flexible_capacity_prompt.detail_lines)
+    assert any(f"plural_target_scope capacity_command_adapted command={capacity_command}" in line for line in flexible_capacity_prompt.detail_lines)
+
+    broad_health_prompt = asyncio.run(
+        pipeline.process(
+            "wie geht es meinen servern",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    assert broad_health_prompt.intents == ["capability:ssh_command"]
+    assert broad_health_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == "df -h"]) == 6
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 6
+    assert "Mehrere SSH-Ziele geprueft (3)." in broad_health_prompt.text
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in broad_health_prompt.detail_lines)
+    assert any(f"plural_target_scope health_command_adapted command={capacity_command}" in line for line in broad_health_prompt.detail_lines)
+
+    short_health_prompt = asyncio.run(
+        pipeline.process(
+            "sind meine server ok",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    assert short_health_prompt.intents == ["capability:ssh_command"]
+    assert short_health_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 9
+    assert "Mehrere SSH-Ziele geprueft (3)." in short_health_prompt.text
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in short_health_prompt.detail_lines)
+    assert any(f"plural_target_scope health_command_adapted command={capacity_command}" in line for line in short_health_prompt.detail_lines)
+
+    in_order_health_prompt = asyncio.run(
+        pipeline.process(
+            "sind meine server in ordnung",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    assert in_order_health_prompt.intents == ["capability:ssh_command"]
+    assert in_order_health_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 12
+    assert "Mehrere SSH-Ziele geprueft (3)." in in_order_health_prompt.text
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in in_order_health_prompt.detail_lines)
+    assert any(f"plural_target_scope health_command_adapted command={capacity_command}" in line for line in in_order_health_prompt.detail_lines)
+
+    fit_health_prompt = asyncio.run(
+        pipeline.process(
+            "wie fit sind meine server?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    assert fit_health_prompt.intents == ["capability:ssh_command"]
+    assert fit_health_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 15
+    assert "Mehrere SSH-Ziele geprueft (3)." in fit_health_prompt.text
+    assert "memory_store" not in fit_health_prompt.intents
+    assert "capability_draft_decision" in llm.operations
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in fit_health_prompt.detail_lines)
+    assert any(f"plural_target_scope health_command_adapted command={capacity_command}" in line for line in fit_health_prompt.detail_lines)
+
+    english_health_prompt = asyncio.run(
+        pipeline.process(
+            "are my servers healthy",
+            user_id="u1",
+            source="test",
+            language="en",
+        )
+    )
+    assert english_health_prompt.intents == ["capability:ssh_command"]
+    assert english_health_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 18
+    assert "Checked 3 SSH targets." in english_health_prompt.text
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in english_health_prompt.detail_lines)
+    assert any(f"plural_target_scope health_command_adapted command={capacity_command}" in line for line in english_health_prompt.detail_lines)
 
     management_hd = asyncio.run(
         pipeline.process(
@@ -10764,6 +11030,51 @@ def test_pipeline_capability_api_request_does_not_execute_when_policy_requires_c
 
     assert result.intents == ["capability:api_request"]
     assert "braucht vor der Ausfuehrung noch Bestaetigung" in result.text
+
+
+def test_pipeline_http_api_404_is_external_status_not_recipe_error() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "http_api": {
+                    "n8n-test-http-api": {
+                        "base_url": "https://n8n.example.org/webhook/health",
+                        "health_path": "/",
+                        "method": "GET",
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    def fail_api_request(connection_ref: str, path: str, content: str) -> str:
+        raise HTTPAPIStatusError(
+            status_code=404,
+            path=path,
+            method="GET",
+            health_path="/",
+            response_excerpt='{"message":"The requested webhook \\"GET health/health\\" is not registered."}',
+        )
+
+    pipeline._skill_runtime.execute_http_api_request = fail_api_request  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "prüfe /health auf meiner http api",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:api_request"]
+    assert result.skill_errors == ["external_http_api_status:404"]
+    assert "wurde erreicht" in result.text
+    assert "Endpoint-/Profilpfad" in result.text
+    assert "kein interner ARIA" in result.text
 
 
 def test_pipeline_delete_on_management_server_routes_to_blocked_ssh_action() -> None:

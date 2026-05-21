@@ -1,6 +1,6 @@
 # ARIA — Alpha Build Log
 
-Stand: 2026-05-15
+Stand: 2026-05-21
 
 Zweck:
 - nachvollziehen, **was bereits in Alpha-Builds gelandet ist**
@@ -9,17 +9,938 @@ Zweck:
 
 ## Vorbereitet fuer naechsten Build
 
-- aktuell kein neuer Codeblock vorbereitet; `alpha266` ist gebaut, als internes TAR exportiert und auf Docker Hub gepusht.
+- `alpha298` ist intern gebaut/exportiert, aber nicht public gepusht, nicht getaggt und nicht als GitHub Release angelegt.
 - Nach GitHub-/Live-Release pruefen:
-  - `/stats`: Release-Metadaten muessen `0.1.0-alpha266` zeigen und Operator Guardrail darf keinen Release-Fehler melden
-  - `/recipes/learned`: Layout-Polish und `file_list`-Labels live pruefen
-  - Agentic Smoke-Test: Multi-SSH-Summary muss LLM-Tokens zeigen und flexible Schwellen wie `zehn Gigabyte Reserve` verstehen
-  - RSS-Smoke-Test: `mach mir eine zusammenfassung der letzten 10 it-security news` muss 10 Eintraege anzeigen, sofern mindestens 10 gelesen wurden
-  - SMB-Smoke-Test: Folder-Listing muss Ordner separat hervorheben
-  - Guardrail-Smoke-Test: DNS-Restart muss blockiert bleiben und den Guardrail-Link sichtbar halten
-  - Discord-Smoke-Test: One-Click-Bestaetigung muss senden, ohne Token-Eingabe
+  - `/stats`: Release-Metadaten muessen den installierten Stand zeigen und Operator Guardrail darf keinen Release-Fehler melden.
+  - `/stats`: Kostenkarte muss klar als Schaetzung formuliert sein; Abrechnungsperiode-Reset muss Tokenlog archivieren statt loeschen.
+  - `/config/logs`: Log-Hygiene muss 90 Tage Retention fuer Token-/Kosten-/Aktivitaetslogs und LLM-Debug-Logs ausweisen.
+  - `/config/llm/debug`: Debug-Log muss 90-Tage-Retention und manuelles Loeschen korrekt erklaeren.
+  - Stats-Details-Link-Test: Kostenkarte `Details` muss die `Costs & Pricing`-Kachel oeffnen und dorthin springen.
+  - Stats-Tokenkarten-Test: Nach Reset muss die Anfrage-Karte `Anfragen · aktuelle Periode` anzeigen, nicht mehr `7 Tage`.
+  - Discord-Startup-Test: Startup-Event darf nicht mehr `Public URL nicht konfiguriert` melden; ohne Basis-URL nennt es die optionale Basis-URL, mit `ARIA_PUBLIC_URL=http://aria.black.lan/` diese interne LAN-URL.
+  - Operator-Guardrail-Warnung-Test: Bei `Warnung`/`Fehler` muss die Karte die konkreten betroffenen Checks mit Detailtext und Link anzeigen.
+  - Guardrail-Live-Test: SFTP-/SMB-Read-only-Guardrails sollen `list/read` erlauben, `write/create/delete` blockieren.
+  - Webhook-Live-Test: Status-/Benachrichtigungs-Payload erlauben, `delete user record` als Webhook-Payload behandeln und durch Guardrail blockieren, nicht als Connection-Delete.
+  - HTTP-API-Live-Test: generische Formulierungen wie `meine http api` sollen bei Single-Profil sauber auf das Profil fallen.
+  - HTTP-API-Status-Test: Ziel-HTTP-Status wie 404 sollen als externe Endpoint-Antwort erklaert werden und keinen Discord-Recipe-Error erzeugen.
+  - Guardrail-Block-UX-Test: erwartete Policy-Blocks sollen als Sicherheitsentscheidung erklaert werden und keinen generischen Profil-/Zugriffsrechte-Hinweis zeigen.
+  - Pending-Action-Test: bestaetigte SSH-`ask_user`-Aktionen muessen nach Klick wirklich in die Runtime laufen.
+  - Server-Fitness-Test: `wie fit sind meine server?` muss in `capability:ssh_command` laufen und `plural_target_scope health_command_adapted command=uptime -p && df -h && free -h` zeigen.
 
 ## Bereits gebaut
+
+### alpha298
+
+- Interner Build nach `alpha297` mit Discord-Startup-Host-Nachzug:
+  - Startup-Discord-Events nutzen jetzt die zentrale Runtime-URL-Ermittlung.
+  - Wenn `ARIA_PUBLIC_URL`/`aria.public_url` gesetzt ist, wird diese Basis-URL angezeigt.
+  - Wenn keine Basis-URL gesetzt ist, faellt ARIA auf eine automatisch erkannte lokale Adresse mit Port zurueck statt eine Konfigurationswarnung zu senden.
+- Verifikation vor Build:
+  - Discord-/Release-/Package-Hygiene: `15 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha298`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha298-local.tar`
+  - TAR-SHA256: `5d8e55db537cb8320b428385a73d6eacc7620de4eda8b9803007566c05ef02d8`
+  - TAR-Size: `235M` (`ls -lh`)
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.298`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:7f5a55506d087e0479d0087bb1d9bdfab7706055ba1d21f08d8f6f30ae7db0ad`
+  - Image-Size: `245498292` bytes
+  - Created: `2026-05-21T14:27:55.648243956+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha291` entfernt; interne TARs `alpha292` bis `alpha298` bleiben als letzte sieben Builds erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Smoke: ca. `20G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - Public Docker Tags `fischermanch/aria:0.1.0-alpha.298` und `fischermanch/aria:alpha` wurden mit Digest `sha256:7f5a55506d087e0479d0087bb1d9bdfab7706055ba1d21f08d8f6f30ae7db0ad` gepusht.
+  - Git Commit, Git Tag und GitHub Release werden im Public-Release-Schritt erstellt.
+
+### alpha297
+
+- Interner Build nach `alpha296` mit Stats-/Discord-Nachzug:
+  - Die Stats-Anfragekarte spricht nach einem Kosten-/Aktivitaetsreset von `aktueller Periode` statt von einem starren 7-Tage-Fenster.
+  - Discord-Startup-Events nennen eine optionale Basis-URL statt `Public URL nicht konfiguriert`; interne LAN-URLs wie `http://aria.black.lan/` sind ausdruecklich ok.
+  - Der Discord-Eventbus-Test deckt die relevanten konfigurierbaren Kategorien ab: Recipe Errors, Skill Errors, Safe Fix, Connection Changes und System Events.
+- Verifikation vor Build:
+  - Stats-/Token-/Discord-/Chat-Tooling-/Release-/Package-Hygiene: `65 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha297`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha297-local.tar`
+  - TAR-SHA256: `08b680104a20e3002c747d3e097d53e88bc64122f45600a512bab9dc655ec7c4`
+  - TAR-Size: `235M` (`ls -lh`)
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.297`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:978db8ec570f2ab551d9bcf9dd9f43e20f7bccde40c4e18d7beaca35ba3ee694`
+  - Image-Size: `245498989` bytes
+  - Created: `2026-05-21T13:56:32.123447618+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha290` entfernt; interne TARs `alpha291` bis `alpha297` bleiben als letzte sieben Builds erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Smoke: ca. `21G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha297`
+
+### alpha296
+
+- Interner Build nach `alpha295` mit Stats-UX-Nachzug:
+  - Der `Details`-Link auf der Kostenkarte oeffnet die eingeklappte `Costs & Pricing`-Kachel direkt und springt zum Ziel.
+  - Die Operator-Guardrail-Karte listet bei Warnungen/Fehlern die konkreten betroffenen Checks inklusive Detailtext und Link zur passenden Sektion.
+  - `Startup-Preflight` und `Runtime-Health` haben eigene Sprungziele fuer diese Review-Links.
+- Verifikation vor Build:
+  - Stats-/Release-/Package-Hygiene: `50 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha296`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha296-local.tar`
+  - TAR-SHA256: `e3b5ba9667092c14584888cad0f3b56128f10ce7547a68fe7266f86468afb239`
+  - TAR-Size: `235M` (`ls -lh`)
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.296`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:3ea610b061dbe311963ab7df7e010b8c238d896664e28be9ada7d5257548b7bc`
+  - Image-Size: `245497255` bytes
+  - Created: `2026-05-21T11:01:53.29749486+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha289` entfernt; interne TARs `alpha290` bis `alpha296` bleiben als letzte sieben Builds erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Smoke: ca. `23G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha296`
+
+### alpha295
+
+- Interner Build nach `alpha294` mit Kosten-/Log-Hygiene:
+  - `/stats` kennzeichnet Provider-Kosten als lokale Schaetzung, nicht als Rechnung.
+  - Abrechnungsperioden koennen ueber `/stats` und `/config/logs` zurueckgesetzt werden; der bisherige Token-/Kostenlog wird vorher archiviert.
+  - Token-/Kosten-/Aktivitaetslogs und LLM-Debug-Audit werden standardmaessig 90 Tage gehalten und beim App-Start sowie in der Maintenance bereinigt.
+  - Hilfe, Wiki, Pricing- und Architektur-Doku beschreiben die 90-Tage-Retention und den Reset-Pfad.
+- Verifikation vor Build:
+  - Token-/Stats-/LLM-Audit-Fokus: `59 passed`
+  - Recipes-/Learned-Views: `22 passed`
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha295`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha295-local.tar`
+  - TAR-SHA256: `366842b932fbad72a9f41ae64a9b7c78a9ac17396be44654dc037d12fa652282`
+  - TAR-Size: `235M` (`ls -lh`)
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.295`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:d1a641e96b59e3bf27f50f0e3fa4ab47aa1ca2d82ff0499d5f75585b08731908`
+  - Image-Size: `245494926` bytes
+  - Created: `2026-05-21T09:51:11.484121101+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha288` entfernt; interne TARs `alpha289` bis `alpha295` bleiben als letzte sieben Builds erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Smoke: ca. `24G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha295`
+
+### alpha294
+
+- Interner Build nach `alpha293` mit colloquial Server-Health-Nachzug:
+  - Der bounded LLM-Capability-Draft kann fuer frei formulierte Server-Fitness-/Health-/Kapazitaetsfragen `target_intent=health_check` oder `target_intent=capacity_check` liefern.
+  - Die deterministische SSH-Multi-Target-Schicht nutzt diesen Intent nur zur sicheren Normalisierung auf den breitesten erlaubten Read-only-Statuscheck und prueft weiterhin Guardrails/Preflight vor Runtime.
+  - Der Live-Ausreisser `wie fit sind meine server?` ist als Regressionstest abgesichert, ohne `fit` als hartes Health-Wort in den deterministischen Lexika zu verdrahten.
+- Verifikation vor Build:
+  - Fokusblock Capability/Pipeline/Error/Blocked-Action: `106 passed`
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha294`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha294-local.tar`
+  - TAR-SHA256: `30932eaad007296d0ef7321bf9d2a1677fac74f04218ec9b1e2ffa5aac0c825e`
+  - TAR-Size: `245498880` bytes
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.294`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:793ba137d78e3b00149b5c003f61aae04833f9c31c274ab9e2a10d0d6c6e04da`
+  - Image-Size: `245471005` bytes
+  - Created: `2026-05-20T23:48:25.923267018+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha287` entfernt; interne TARs `alpha288` bis `alpha294` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha292` entfernt; `alpha293` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `25G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha294`
+
+### alpha293
+
+- Interner Build nach `alpha292` mit Guardrail-Link-/Fallback-Nachzug:
+  - Runtime-Guardrail-Blocktexte enthalten wieder direkte Review-Links zur passenden Guardrail.
+  - Der blocked-action Timeout-Fallback nutzt dieselbe Sicherheitsentscheidungs-Sprache wie der Runtime-Pfad, statt auf `ARIA kann diese Aktion nicht ausfuehren...` zurueckzufallen.
+  - Geplante Aktion/Payload bleibt bei Blocks sichtbar, damit User den blockierten Wunsch nachvollziehen koennen.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `25 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha293`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha293-local.tar`
+  - TAR-SHA256: `c0a58a986ccad5d5c552e39c63f2cafa02b34a74fea6214b727e6ccb43981a21`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.293`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:6a0786fa61b89d34b3130c0be4dae5df861950e7971f6f66acf764da27320c8e`
+  - Image-Size: `245470075` bytes
+  - Created: `2026-05-20T01:24:02.806597949+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha286` entfernt; interne TARs `alpha287` bis `alpha293` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha291` entfernt; `alpha292` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `25G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha293`
+
+### alpha292
+
+- Interner Build nach `alpha291` mit Guardrail-Block-UX-Nachzug:
+  - Runtime-Guardrail-Blocks erhalten eigene Capability-Fehlercodes wie `capability_api_request_guardrail_blocked`.
+  - Chat-Antworten formulieren erwartete Guardrail-Blocks als aktive Sicherheitsentscheidung, nicht als defektes Profil, Ziel- oder Zugriffsrechteproblem.
+  - Der generische Zusatzhinweis `Profil, Ziel und Zugriffsrechte pruefen` wird fuer erwartete Guardrail-Blocks unterdrueckt.
+  - Discord-/Eventbus-Rezeptfehler-Alerts werden fuer erwartete Guardrail-Policy-Blocks unterdrueckt; echte Runtime-/Codefehler bleiben alertbar.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `20 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha292`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha292-local.tar`
+  - TAR-SHA256: `040d6c6fa45c6f2093858711bc734b8314288f36399ea2aff1f28aba2b9981ed`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.292`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:660d403089fc8cacc8a7224931aa0f63010d3795acc77f225a6bb53adeea8331`
+  - Image-Size: `245467051` bytes
+  - Created: `2026-05-20T00:49:51.594944353+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha285` entfernt; interne TARs `alpha286` bis `alpha292` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha290` entfernt; `alpha291` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `26G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha292`
+
+### alpha291
+
+- Interner Build nach `alpha290` mit HTTP-API-Statusklassifizierung:
+  - HTTP-API-4xx/5xx-Antworten werden als externe Endpoint-Statusantworten behandelt, nicht als interner Rezeptfehler.
+  - Die Chat-Antwort erklaert, dass das HTTP-API-Profil erreicht wurde, aber der Ziel-Endpunkt einen Statuscode wie `404` geliefert hat.
+  - Health-Pfad und ein begrenzter Antwortauszug werden in die Fehlermeldung aufgenommen, damit Profile-/Pfadprobleme schneller erkennbar sind.
+  - Discord-/Eventbus-Rezeptfehler-Alerts werden fuer erwartbare HTTP-Statusantworten unterdrueckt; echte Runtime-/Codefehler bleiben alertbar.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `19 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha291`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha291-local.tar`
+  - TAR-SHA256: `836436dab2c2f6c854a7a0876a7cae1e0d8a239e17fd598772fd8365aa958d40`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.291`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:e5f395d897c481990b68d9a5a387ba7b534c7b9a82d024cc220f363d51974845`
+  - Image-Size: `245463201` bytes
+  - Created: `2026-05-19T23:24:35.395267358+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha284` entfernt; interne TARs `alpha285` bis `alpha291` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha289` entfernt; `alpha290` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `27G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha291`
+
+### alpha290
+
+- Interner Build nach `alpha289` mit gezieltem Live-Ausreisser-Nachzug:
+  - Webhook-/API-/Message-Payloads mit Woertern wie `delete` werden nicht mehr vom Memory-Forget-Router abgefangen, bevor Capability-Routing greifen kann.
+  - Datei-Schreibaktionen, die durch Read-only-Guardrails blockiert werden, bekommen einen natuerlicheren deterministischen Fallback-Text, falls der LLM-Erklaerer nicht rechtzeitig liefert.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `66 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha290`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha290-local.tar`
+  - TAR-SHA256: `471deac0fa6b2268b853f0bafda862e1a1bb83cc51664c8946bc1c1c77e0213b`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.290`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:dde907cce2e52d2cb67a1e5bd509c06262eec431ea578901732d062d9890d1ac`
+  - Image-Size: `245461777` bytes
+  - Created: `2026-05-19T22:22:53.111419654+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha283` entfernt; interne TARs `alpha284` bis `alpha290` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha288` entfernt; `alpha289` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `28G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha290`
+
+### alpha289
+
+- Interner Build nach `alpha288` mit Guardrail-Runtime- und Pending-Confirmation-Fix:
+  - Guardrail-Auswertung fuer SFTP/SMB speist Operation-Aliasse wie `file_list`, `read`, `list`, `file_write`, `write`, `create` und `delete` in Dry-Run und Runtime ein.
+  - Webhook-/HTTP-API-Guardrails bekommen strukturierte Payload-/Method-/Pfad-Aliasse, damit Status-/Health-Guardrails nicht nur auf freie Textfragmente angewiesen sind.
+  - Webhook-Payloads wie `delete user record` werden nicht mehr als Connection-Delete-Adminaktion fehlinterpretiert.
+  - Bestaetigte SSH-`ask_user`-Aktionen reichen die User-Bestaetigung bis in die Runtime-Policy weiter.
+  - Generische HTTP-API-Zielworte wie `http api` gelten als weicher Hint; bei genau einem HTTP-API-Profil wird dieses Profil genutzt.
+- Verifikation vor Build:
+  - Agentic-/Guardrail-/Release-Fokus: `376 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha289`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha289-local.tar`
+  - TAR-SHA256: `1a57d76f6dfc5a35d3c4426d212e87e162dd7f66d3e8b0267b915ae1e556529d`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.289`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:4d6571e034d334e7748620ff9457aefd887382c8d3fdf13fcce9da934df77e6e`
+  - Image-Size: `245460462` bytes
+  - Created: `2026-05-19T15:15:28.280508139+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha282` entfernt; interne TARs `alpha283` bis `alpha289` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha287` entfernt; `alpha288` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `29G` frei; NAS: ca. `900G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha289`
+
+### alpha288
+
+- Interner Build nach `alpha287` mit Guardrail-Scope-Fix und sichtbarerem Guardrail-Selector:
+  - Gespeicherte Guardrails koennen optional exakte `connection_kinds` tragen, z. B. nur `sftp` oder nur `smb`.
+  - KI-Vorschlaege mit gewaehlter Verbindungsklasse speichern diesen Scope mit.
+  - Guardrail-Selectoren auf Connection-Seiten filtern nun neben Guardrail-Typ auch nach konkretem Verbindungsklassen-Scope.
+  - Save-Validation prueft denselben Scope serverseitig; eine SFTP-only Guardrail kann nicht an SMB gespeichert werden.
+  - Alte Guardrails ohne Scope bleiben als Legacy-/Kompatibilitaetsprofile sichtbar.
+  - Security/Advanced-Bereiche auf guardrail-faehigen Connection-Formularen sind standardmaessig offen, damit Guardrail-Zuweisungen nicht versteckt wirken.
+- Verifikation vor Build:
+  - Guardrail-/Connection-/Release-Fokus: `28 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha288`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha288-local.tar`
+  - TAR-SHA256: `5ac9065a7d63c9e5b58ad9a25cd2c82bf38abe1b5dc635fdc6e6aedbdf17e8f5`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.288`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:4d0a5917f1d0f8c4f20bba22acdb48ae4b62129b0e4b7641795666ab02d76fcd`
+  - Image-Size: `245455093` bytes
+  - Created: `2026-05-18T21:52:26.248492036+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `alpha281` entfernt; interne TARs `alpha282` bis `alpha288` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha286` entfernt; `alpha287` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `29G` frei; NAS: ca. `899G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha288`
+
+### alpha287
+
+- Interner Build nach `alpha286` mit Connection-UX-Paritaet und gemeinsamen Guardrail-Attachments:
+  - Connection-Detailseiten nutzen wie SSH einklappbare Arbeitsbereiche fuer gespeicherte Profile, bestehendes Profil bearbeiten und neue Verbindung.
+  - Profilkarten sind auf allen gemeinsamen Statusbloecken klickbar und zeigen eine sichtbare `Editieren`-Aktion.
+  - SSH landet beim Editieren nicht mehr optisch im Bereich `Neue Verbindung erfassen`; Hash-/Mode-Sync oeffnet den passenden Arbeitsbereich.
+  - Guardrail-Auswahl und Guardrail-Zusammenfassung der guardrail-faehigen Verbindungstypen (`ssh`, `sftp`, `smb`, `webhook`, `http_api`) laufen ueber gemeinsame Templates und gemeinsame Context-Keys.
+  - Guardrail-Ref-Validierung beim Speichern laeuft ueber einen gemeinsamen Save-Helper; aktuell bleibt es bewusst bei single `guardrail_ref`.
+  - SFTP-Statuskarten bekommen denselben Edit-URL-Pfad wie die generischen Connection-Seiten.
+- Verifikation vor Build:
+  - Vollsuite: `1140 passed`, danach erwarteter Release-Metadaten-Nachzug fuer `alpha287`
+  - Release-/Package-Hygiene nach Metadaten-Nachzug: `11 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha287`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha287-local.tar`
+  - TAR-SHA256: `db49cd4b75b71d5875d00766505c562093bdf8acbfb66378ad3877408eada020`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.287`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:4c10b77df6a42fea6bbdd356947ee18eca86307693b7e2f7e616738ea5c17b65`
+  - Image-Size: `245446055` bytes
+  - Created: `2026-05-17T23:11:23.821301591+02:00`
+- Update-/Export-Hinweis:
+  - Alte interne TARs `alpha278` bis `alpha280` entfernt; interne TARs `alpha281` bis `alpha287` bleiben als letzte sieben Builds erhalten.
+  - Lokales ARIA-Image `alpha285` entfernt; `alpha286` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `30G` frei; NAS: ca. `899G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha287`
+
+### alpha286
+
+- Interner Build nach `alpha285` mit Guardrail-Testmodus und SSH-Verbindungs-UX:
+  - `/config/security` hat einen Guardrail-only Testmodus fuer gespeicherte Guardrails.
+  - Beispielanfragen koennen gegen die deterministische Guardrail-Engine geprueft werden, bevor ein Profil an echte Verbindungen gehaengt wird.
+  - `/config/connections/ssh` ist in einklappbare Bereiche fuer Profile, bestehendes Profil bearbeiten, neue Verbindung und Tools aufgeteilt.
+  - SSH-Profilkarten sind direkt klickbar und haben zusaetzlich eine sichtbare `Editieren`-Aktion.
+  - Der Guardrail-Selector ist im SSH-Edit-Modus klarer unter `Security & advanced options` auffindbar.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `15 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha286`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha286-local.tar`
+  - TAR-SHA256: `fa2564b04c90e3c04382fae4989940637084b2ff47e33178811da264a7256f16`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.286`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:f56a0462de1a4dc5e876209cc3094bf7bceb95bf963a43abf875013729de8e83`
+  - Image-Size: `245431676` bytes
+  - Created: `2026-05-17T21:35:18.027739094+02:00`
+- Update-/Export-Hinweis:
+  - Lokales ARIA-Image `alpha284` entfernt; `alpha285` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `31G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha286`
+
+### alpha285
+
+- Interner Build nach `alpha284` mit Guardrail-KI-Working-Status:
+  - Das Formular `KI-Vorschlag fuer Guardrail erstellen` zeigt waehrend laengerer LLM-Draft-Erstellung eine kleine Arbeitsanzeige.
+  - Die Anzeige nennt grobe Enduser-Schritte wie Kontext pruefen, Verbindungstypen/Profile beruecksichtigen, LLM-Vorschlag anfragen und Review-Entwurf vorbereiten.
+  - Keine Debugdaten oder Rohlogs werden im User-Flow angezeigt; die bestehende Serverlogik und UsageMeter-Fakturierung bleiben unveraendert.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `19 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha285`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha285-local.tar`
+  - TAR-SHA256: `b7d6b2636e5f0ac16d21d96a9f174754d893df3dfbfe7e92d2bc98bd4169449e`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.285`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:05fd0d5ffd79b4879902ac2af0738ffd284d7df0955043e44599a5e803e1cf55`
+  - Image-Size: `245417047` bytes
+  - Created: `2026-05-17T15:03:34.32304587+02:00`
+- Update-/Export-Hinweis:
+  - Lokales ARIA-Image `alpha283` entfernt; `alpha284` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `31G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha285`
+
+### alpha284
+
+- Interner Build nach `alpha283` mit Security-Guardrail-UX-Nachzug:
+  - `/config/security` ist in einklappbare Arbeitsbereiche fuer KI-Vorschlag, bestehendes Guardrail, Loeschen, manuelles Erfassen und Samples aufgeteilt.
+  - Der KI-Bereich oeffnet automatisch, wenn ein Vorschlag vorhanden ist; riskante Bereiche bleiben getrennt.
+  - Guardrail-Draft-LLM-Aufrufe sind explizit gegen UsageMeter/Token-Tracking abgesichert: `source=guardrail_draft`, Intent `llm:draft_ssh_command`.
+- Verifikation vor Build:
+  - Fokus + Release-/Package-Hygiene: `73 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha284`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha284-local.tar`
+  - TAR-SHA256: `c20caa77dca61cf1bd022d6bd1c513f6176dc84599dbc542eab77857258acea6`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.284`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:909491513ed242f79af463bb6776e4c4eb8f0e2c9417acfc1b3b9d5b6504b743`
+  - Image-Size: `245414260` bytes
+  - Created: `2026-05-17T13:32:54.077311372+02:00`
+- Update-/Export-Hinweis:
+  - Lokales ARIA-Image `alpha282` entfernt; `alpha283` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `33G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha284`
+
+### alpha283
+
+- Interner Build nach `alpha282` mit KI-gestuetztem Guardrail-Vorschlagsflow:
+  - `/config/security` kann aus natuerlicher Sprache einen Guardrail-Entwurf erzeugen.
+  - Der Entwurf nutzt Guardrail-Typ, kompatible Connection-Klassen, vorhandene Guardrails und Connection Action Contract als begrenzten Kontext.
+  - Die KI speichert nichts automatisch; der Vorschlag erscheint als editierbare Review-Karte und wird erst durch den bestehenden Guardrail-Speicherpfad aktiv.
+  - Deterministische Guardrail-Auswertung bleibt unveraendert.
+- Verifikation vor Build:
+  - Vollsuite: `1134 passed`
+  - Fokus + Release-/Package-Hygiene nach Release-Bump: `66 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha283`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha283-local.tar`
+  - TAR-SHA256: `027a211d1b51c84d33c73af8eba64bd432ed3eec6a1bec99770487dd61007764`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.283`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:61615cd4e4a6af97343060df4a0827fa66fbd9413cbb82c19c08f116f37cf6ff`
+  - Image-Size: `245414117` bytes
+  - Created: `2026-05-17T13:06:25.079983779+02:00`
+- Update-/Export-Hinweis:
+  - Lokales ARIA-Image `alpha281` entfernt; `alpha282` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `33G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha283`
+
+### alpha282
+
+- Interner Build nach `alpha281` mit Calendar-Live-Test-Fix:
+  - `next` / `nächster Termin` gibt jetzt nur noch den einzelnen naechsten Termin zurueck.
+  - `upcoming`, `today`, `tomorrow`, `this_week` und `next_week` bleiben Listen.
+- Verifikation vor Build:
+  - Vollsuite: `1130 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha282`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha282-local.tar`
+  - TAR-SHA256: `a9110d6fa2484b63ddebd9342b9733086115bf541a25aa9425ec2e38277aad17`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.282`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:8dd1ea9cea54ddca071877f2cb7fe277e4a054c610d6875d31595ffe0167682a`
+  - Image-Size: `245386404` bytes
+  - Created: `2026-05-17T02:43:28.146272833+02:00`
+- Update-/Export-Hinweis:
+  - Lokales ARIA-Image `alpha280` entfernt; `alpha281` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `33G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha282`
+
+### alpha281
+
+- Interner Build nach `alpha280` mit Rueckbau des nicht tragfaehigen Google-Calendar-OAuth-/Device-Code-Pfads:
+  - Google Calendar nutzt im aktuellen Enduser-Pfad die geheime iCal-Adresse aus Google Calendar.
+  - OAuth-Client-JSON, Client-ID, Client-Secret, Refresh-Token, Device-Code und Browser-Redirect wurden aus der aktuellen Calendar-UI und den Calendar-Routes entfernt.
+  - ARIA speichert die iCal-URL serverseitig im Secure Store, testet den Feed auf `VCALENDAR` und liest Termine aus `VEVENT`-Eintraegen.
+  - Produkt-, Hilfe- und Wiki-Doku zeigen den iCal-read-only-Pfad statt alter Google-Cloud-/OAuth-Anleitungen.
+- Verifikation vor Build:
+  - Vollsuite vor Release-Bump: `1128 passed`
+  - Nach Release-Bump: Vollsuite stoppte nur am erwarteten Release-Hygiene-Abgleich, danach Backlog auf `alpha281` synchronisiert
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+  - Release-Metadaten im Container: `0.1.0-alpha281`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha281-local.tar`
+  - TAR-SHA256: `5255796b2ee3a98c6aa6dec050556cde21744131506da8e99f9c7d729b1e10c9`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.281`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:34e4922e8d67e10a50a3eea3562fd6f7c3504c59d8cb14b18fd69293dcaacc73`
+  - Image-Size: `245386853` bytes
+  - Created: `2026-05-17T01:20:59.274808839+02:00`
+- Update-/Export-Hinweis:
+  - Alte lokale interne ARIA-Images `alpha275` bis `alpha279` entfernt; `alpha280` bleibt als Rollback erhalten.
+  - Lokaler Root-Speicher nach Build/Export/Cleanup: ca. `34G` frei.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha281`
+
+### alpha280
+
+- Interner Build nach `alpha279` mit Google-Calendar-Device-Code-Safari-Fallback:
+  - OAuth-JSON-Autofill schreibt Client-ID und ein optional vorhandenes Client-Secret weiterhin in die sichtbaren Felder.
+  - Zusaetzlich werden dieselben Werte in versteckte Fallback-Felder geschrieben, damit Safari/Form-Submit-Edge-Cases nicht wieder mit `OAuth Client-ID fehlt` enden.
+  - Der Backend-Handler akzeptiert diese Fallback-Felder beim Device-Code-Start.
+- Verifikation vor Build:
+  - Google-Calendar-Fokusblock: `12 passed`
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha280`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha280-local.tar`
+  - TAR-SHA256: `cc5c1927a46ec4cf016cf15fd59301048150da172740977f9349a0e817b1dc4f`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.280`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:85a7a3f7184d686c263c125fbb4aa319de13bc841fb0114a58a4f440d5cb22a4`
+  - Image-Size: `245426801` bytes
+  - Created: `2026-05-16T23:25:34.070690749+02:00`
+- Update-/Export-Hinweis:
+  - Alte interne TARs `alpha273` bis `alpha277` entfernt; lokales ARIA-Image `alpha274` entfernt.
+  - Lokaler Root-Speicher nach Build/Export: ca. `32G` frei
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha280`
+
+### alpha279
+
+- Interner Build nach `alpha278` mit Google-Calendar-Device-Code-Backend-Fallback:
+  - Device-Code-Start liest bei leer injizierter Client-ID die Form nochmal direkt und nutzt den letzten nicht-leeren `client_id`-Wert.
+  - Ziel ist der Live-Fall, in dem die Client-ID sichtbar im Feld steht, FastAPI aber trotzdem einen leeren Handler-Parameter liefert.
+- Verifikation vor Build:
+  - Google-Calendar-Fokusblock: `11 passed`
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - JSON-i18n-Validierung: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha279`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha279-local.tar`
+  - TAR-SHA256: `8d125efc85e7e4f61e149e8129beef99d4a6d095199cef384c261f4ac3ba34ed`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.279`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:988e26f3b3d1ee340b20f467dbd761ff5682eff6e804d56bc2ec3010f0e82f4b`
+  - Image-Size: `245425352` bytes
+  - Created: `2026-05-16T17:32:40.896463001+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `/mnt/NAS/aria-images/aria-alpha272-local.tar` entfernt; lokales ARIA-Image `alpha272` entfernt.
+  - Lokaler Root-Speicher nach Build/Export: ca. `33G` frei
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha279`
+
+### alpha278
+
+- Interner Build nach `alpha277` mit Google-Calendar-UI-Nachzug:
+  - Beim Auswaehlen einer Google OAuth-Client-JSON liest die Setup-Seite die Datei im Browser und fuellt Client-ID sowie ein optional vorhandenes Client-Secret sichtbar in die Formularfelder.
+  - Damit ist vor dem Klick auf `Mit Google per Code verbinden` sichtbar, ob ARIA die JSON erkannt hat.
+- Verifikation vor Build:
+  - Google-Calendar-Fokusblock: `11 passed`
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - JSON-i18n-Validierung: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha278`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha278-local.tar`
+  - TAR-SHA256: `e60ad21e99d497c53cef0b598ecfe3b0845461698de3b79e8cc07adef9469d17`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.278`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:dd540dfa41a3766f1817422ba3368e230c678e34737ec8a29b8f1b4bf0cc9f69`
+  - Image-Size: `245419042` bytes
+  - Created: `2026-05-16T15:20:24.530221637+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `/mnt/NAS/aria-images/aria-alpha271-local.tar` entfernt; lokales ARIA-Image `alpha271` entfernt.
+  - Lokaler Root-Speicher nach Build/Export: ca. `33G` frei
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha278`
+
+### alpha277
+
+- Interner Build nach `alpha276` mit Google-Calendar-Device-Code-Nachzug:
+  - OAuth-Client-JSONs vom Typ `TVs and Limited Input devices` duerfen ohne Client-Secret verwendet werden, solange sie eine Client-ID enthalten.
+  - Device-Code-Token-Tausch und Calendar-Refresh senden das Client-Secret nur, wenn es im Profil vorhanden ist.
+  - Die Google-Calendar-UI markiert das Client-Secret fuer den Default-Code-Flow als optional und grenzt den Advanced-Browser-Redirect-Pfad klarer ab.
+- Verifikation vor Build:
+  - Volltest: `1136 passed`
+  - Google-Calendar-Fokusblock: `11 passed`
+  - Calendar-Runtime-/Connection-Runtime-Fokusblock: `7 passed`
+  - Release-/Package-Hygiene: `11 passed`
+  - i18n strict: gruen
+  - JSON-i18n-Validierung: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha277`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha277-local.tar`
+  - TAR-SHA256: `2faa0f4f585172f0ea350ff9fa9a16545aaea5a00109e0c7e0f21b30e186ee8f`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.277`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:fd17fb73d6d3128000ea23e2e31ea19d789927854933beab6406750b6a5af3d9`
+  - Image-Size: `245414965` bytes
+  - Created: `2026-05-16T14:54:30.018565209+02:00`
+- Update-/Export-Hinweis:
+  - Altes internes TAR `/mnt/NAS/aria-images/aria-alpha270-local.tar` entfernt; lokale ARIA-Images `alpha269` und `alpha270` entfernt.
+  - Lokaler Root-Speicher nach Build/Export: ca. `34G` frei
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha277`
+
+### alpha276
+
+- Interner Build nach `alpha275` mit Google-Calendar-Setup-Nachzug:
+  - Google-Calendar-Setup-Hilfe nennt jetzt explizit den Download der OAuth-Client-JSON aus der Google OAuth-Client-Liste.
+  - Neue Google-Calendar-Profile sind mit `primary-calendar` als Connection-Ref vorausgefuellt.
+  - Save-, Browser-OAuth- und Device-Code-Handler nutzen serverseitig `primary-calendar`, falls der Browser einen leeren Ref abschickt.
+  - Regressionstest deckt den Live-Ausreisser ab: Device-Code-Start mit leerem `connection_ref` darf nicht mehr mit `invalid_ref` abbrechen.
+- Verifikation vor Build:
+  - Google-Calendar-/Release-/Package-Hygieneblock: `16 passed`
+  - i18n strict: gruen
+  - JSON-i18n-Validierung: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha276`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha276-local.tar`
+  - TAR-SHA256: `80e19744e8c89d79846fae4506ecb0d01683fbd57bcf6979438895e7bf8b78a5`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.276`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:3005177b3a98780e857f19a9c7ecc49e836373fe3b54534290b88c9b0748222a`
+  - Image-Size: `245414510` bytes
+  - Created: `2026-05-16T14:34:48.391406338+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha269-local.tar` entfernt
+  - Lokaler Root-Speicher nach Build/Export: ca. `34G` frei
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha276`
+
+### alpha275
+
+- Interner Build nach `alpha274` mit Google-Calendar-Device-Code-Flow:
+  - `Mit Google per Code verbinden` ist der Default-Selfhosted-Pfad fuer LAN/IP-Installationen ohne Redirect-URI.
+  - ARIA ruft Googles Device-Code-Endpunkt auf, zeigt Verification-URL und User-Code, tauscht nach User-Bestaetigung den Device-Code gegen ein Refresh-Token und speichert dieses im Secure Store.
+  - Der bestehende Web-Redirect-OAuth-Pfad bleibt als `Advanced: Browser-Redirect` erhalten.
+  - Bei zu fruehem Klick auf `Verbindung abschliessen` bleiben Code und Google-URL sichtbar, solange Google noch `authorization_pending` oder `slow_down` meldet.
+- Verifikation vor Build:
+  - Google-Calendar-/Release-/Package-Hygieneblock: `17 passed`
+  - i18n strict: gruen
+  - JSON-i18n-Validierung: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha275`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha275-local.tar`
+  - TAR-SHA256: `d6e3cc06d5460d90465b40635c283b1d6064a0f50c0e7f9e6c3d852feec45595`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.275`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:3f37dea85ca848e4f1e974d133a9fdb0e76ea7e15f363a4fe5993d1492b8609a`
+  - Image-Size: `245411042` bytes
+  - Created: `2026-05-16T12:18:27.23689935+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha268-local.tar` entfernt
+  - Lokaler Docker-Build-Cache wurde vor dem Build bereinigt; alte lokale ARIA-Images vor `alpha269` wurden entfernt, Public-Stand `alpha266` und interne `alpha269`-`alpha275` bleiben lokal erhalten.
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha275`
+
+### alpha274
+
+- Interner Build nach `alpha273` mit Multi-Server-Health-Adaptionsnachzug:
+  - Formulierungen wie `sind meine server in ordnung` und `are my servers healthy` werden auf den breiten erlaubten Statuscheck gehoben, statt bei blockierbarem `uptime` zu bleiben.
+  - Betroffene Variantenfamilie: `server/servern in ordnung`, `server/servern gesund`, `server/servern okay`, `servers healthy`, `servers ok`, `servers okay`, `servers alright`, `servers all good`.
+- Verifikation vor Build:
+  - Capability-/Pipeline-/Release-/Package-Hygieneblock: `76 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha274`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha274-local.tar`
+  - TAR-SHA256: `49aa3a4449b6521a9b76985b5592d9b43e0c44f1bb4a008e41bca8ec3b9ac023`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.274`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:81649b33f7cf1afb80604c35a3dcc9fd3422ff8d4a21cf5257b5fb93e62acdfa`
+  - Image-Size: `245372805` bytes
+  - Created: `2026-05-16T03:21:12.134488697+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha267-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha274`
+
+### alpha273
+
+- Interner Build nach `alpha272` mit Multi-Server-Health-Nachzug:
+  - Kurzfragen wie `sind meine server ok` routen wieder in den SSH-Multi-Target-Healthpfad statt in Chat/RAG.
+  - Der Router erkennt generisch SSH-Zielwoerter plus Health-Statuswoerter wie `ok`, `okay`, `gesund`, `in Ordnung` oder `healthy`; konkrete Befehlswahl bleibt im bestehenden Agentic-/Guardrail-Pfad.
+- Verifikation vor Build:
+  - Capability-/Pipeline-/Release-/Package-Hygieneblock: `76 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha273`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha273-local.tar`
+  - TAR-SHA256: `a4dfe87cce7d132db2cd8029df762c12af891bf093a32a04f98010013c3220f4`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.273`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:fdf0497a1527d02c2a0466a940cd0b6f412208a596bcc66503a96b3ad0b09f87`
+  - Image-Size: `245371646` bytes
+  - Created: `2026-05-16T03:11:36.573814482+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha266-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha273`
+
+### alpha272
+
+- Interner Build nach `alpha271` mit Chat-Arbeitsstatus-Nachzug:
+  - Lang laufende Requests behalten nach dem 8-Sekunden-Fallback den Arbeitstyp, z. B. Serverantworten statt generischem Arbeiten.
+  - Fuer Multi-Server-Checks soll die UI nach laengerer Laufzeit `ARIA wartet auf Serverantworten...` statt einer generischen Arbeitsmeldung zeigen.
+- Verifikation vor Build:
+  - Chat-/Release-/Package-Hygieneblock: `12 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha272`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha272-local.tar`
+  - TAR-SHA256: `aa68404dd74849df22a7e6f60709bf14ac68dfdccc62369dcc7ed22b724ecc48`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.272`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:b568e7b1b0c11904ca34d6fa67b246a1908a918fb54ae5fe946bb274aa051c39`
+  - Image-Size: `245372712` bytes
+  - Created: `2026-05-16T02:51:44.655553589+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha265-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha272`
+
+### alpha271
+
+- Interner Build nach `alpha270` mit Chat-UX-Nachzug:
+  - Chat-Frontend zeigt waehrend laufender Requests grobe, enduser-taugliche Arbeitsmeldungen wie Server pruefen, Feeds lesen, Dateien/Shares durchsuchen, Nachricht vorbereiten oder Ergebnis zusammenfassen
+  - Haupt-Chatansicht nutzt den verfuegbaren Viewport dynamischer aus; der Nachrichtenbereich waechst mit dem Screen, der Composer bleibt darunter
+- Verifikation vor Build:
+  - Chat-/Release-/Package-Hygieneblock: `12 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - CSS-Brace-Check: gruen
+  - JSON-i18n-Validierung: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha271`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha271-local.tar`
+  - TAR-SHA256: `b7de4594b91c2c18af147ce0f9d22407d07eda369cfa3cb724cdeee33189a434`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.271`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:0acaf5e07318b815a0572a3192d04ca3710e6c61e3ac9b8f8503e078272fbd66`
+  - Image-Size: `245372189` bytes
+  - Created: `2026-05-16T02:12:26.647924401+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha264-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha271`
+
+### alpha270
+
+- Interner Build nach `alpha269` mit Agentic-/Provider-Fundament, Healthcheck- und Mobile-Nachzug:
+  - Connection Action Contract und Provider Manifest tragen planner roles, confirmation/sensitive-content/draft metadata und optionale Draft-Capability
+  - generisches Agentic Content Access Request/Result Modell plus Registry fuer Read/Search/List-Provider vorbereitet und optional in den Pipeline-Orchestrator eingehaengt
+  - breite Multi-Server-Healthfragen wie `wie geht es meinen servern` werden auf den staerksten ueber alle SSH-Ziele erlaubten Read-only-Statuscheck gehoben, bevorzugt `uptime -p && df -h && free -h`
+  - iPhone-/Mobile-UI-Fix: offener CSS-Block im 640px-Bereich geschlossen, iOS Safe-Area-Viewport aktiviert und mobile Formularfelder gegen Safari-Zoom stabilisiert
+  - Dokumentation unter `docs/` konsolidiert; lokale Handoff-/History-Dateien liegen ignoriert unter `docs/local/`
+- Verifikation vor Build:
+  - Multi-Server-Health-/Guardrail-Regressionsblock: `4 passed`
+  - Content-Access-/Provider-/Release-/Package-Hygieneblock: `33 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+  - Release-Metadaten im Container: `0.1.0-alpha270`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha270-local.tar`
+  - TAR-SHA256: `ca4205ad99fbb49b9caddfb691e8bbc75d507e6ed4e95f4dacb2c3e0cbc029d3`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.270`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:e8faf0a9f02e78b64e0c758570e023bc3f55cb5d0452bb520851f931dcbed82d`
+  - Image-Size: `245369167` bytes
+  - Created: `2026-05-16T01:48:53.322511477+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha263-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha270`
+
+### alpha269
+
+- Interner Build nach `alpha268` mit Kapazitaetscheck- und UI-Badge-Nachzug:
+  - vage Multi-Server-Kapazitaetsfragen werden vom generischen `uptime` auf den staerksten ueber alle SSH-Ziele erlaubten Read-only-Kapazitaetscheck gehoben
+  - bevorzugter Multi-Target-Read-only-Check ist `uptime -p && df -h && free -h`, mit deterministischem Fallback auf schmalere erlaubte Checks
+  - teilweise blockierte SSH-Aktionen werden in der Chat-UI nicht mehr als `memory_error` gelabelt
+- Verifikation vor Build:
+  - fokussierter Vorbuild-Regressions-/Releaseblock: `11 passed`
+  - vorheriger breiter Pipeline-Block fuer den Fix: `186 passed`
+  - Router-/Error-Block: `116 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - `py_compile`: gruen
+  - Release-Metadaten im Container: `0.1.0-alpha269`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}` und Docker-Health ist `healthy`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha269-local.tar`
+  - TAR-SHA256: `76332a3997fa35ec1c750b884120cef82ea0a8ae8d843e790fbbaa725364bd1a`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.269`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:6d0bac4a3c2bb958b6ea7287d7bd45d6f46115c052dcae5366faa291f118d391`
+  - Image-Size: `245281003` bytes
+  - Created: `2026-05-16T00:26:33.122570003+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha262-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha269`
+
+### alpha268
+
+- Interner Build nach `alpha267` mit SSH-Disk-Prompt-Regressionsfix und LLM-first Capability-Draft-Hardening:
+  - gemischtsprachige Formulierungen wie `all meinen server` werden als pluraler SSH-Ziel-Scope erkannt
+  - `harddisk` und `speicher frei` zaehlen als natuerliche SSH-Disk-Signale
+  - ein bounded LLM-Capability-Draft-Fallback faengt operative Remote-Formulierungen ab, die deterministisch kein Capability-Draft erzeugen
+  - der Pre-RAG-Gate kann falsche `memory_store`-Keyword-Treffer durch bounded LLM-Capability-Klassifikation ueberstimmen
+  - Policy, Guardrails, Auth, Runtime und Validierung bleiben deterministisch
+- Verifikation vor Build:
+  - voller Regressionslauf: `1119 passed`, 4 bekannte aiohttp/Python-Deprecation-Warnings
+  - fokussierter Release-/Package-/Agentic-/Provider-Hygieneblock: `18 passed`
+  - Release-/Package-Metadaten nach Version-Bump: `9 passed`
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Release-Metadaten im Container: `0.1.0-alpha268`
+  - Container-Smoke-Test: Docker-Health prueft `/health` mit HTTP 200
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha268-local.tar`
+  - TAR-SHA256: `980e8116529ffdbc32597748a9725748efe643f21f0bd04abe1edfad2c798bb0`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.268`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:9287ab82bf5a8c444322da6001178b75c6567c2a4d43edd7822a4fb8525a9e74`
+  - Image-Size: `245266081` bytes
+  - Created: `2026-05-15T23:48:23.219254369+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha261-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha268`
+
+### alpha267
+
+- Interner Build nach `alpha266` mit dem ersten kontrollierten Agentic-Enduser-Helfer-Hardening:
+  - Agentic Flow Map und Debug-Boundaries fuer Kontext-Enrichment, bounded Draft und Runtime-Execution nachgezogen
+  - Learned-Recipe-Promotion-Gates fuer Multi-Target-Scope, Side-Effects und Contract-Mismatch gehaertet
+  - generischer Agentic Execution Handler Contract mit Registry, Learning-Service, SSH-Multi-Target-Adapter und RSS-Feed-Adapter eingefuehrt
+  - internes Connection Provider Manifest Modell mit Export/Validator und Contract-Tests vorbereitet
+- Verifikation vor Build:
+  - voller Regressionslauf: `1116 passed`, 4 bekannte aiohttp/Python-Deprecation-Warnings
+  - fokussierter Release-/Package-/Agentic-/Provider-Hygieneblock: `18 passed`
+  - `py_compile` fuer neue Agentic-/Provider-Module: gruen
+  - i18n strict: gruen
+  - `git diff --check`: gruen
+  - Runtime-Constraints im Container entsprechen `constraints/runtime.txt`
+  - Release-Metadaten im Container: `0.1.0-alpha267`
+  - Container-Smoke-Test: `/health` liefert `{"status":"ok"}`
+- Artefakt:
+  - `/mnt/NAS/aria-images/aria-alpha267-local.tar`
+  - TAR-SHA256: `adf506d083b1bc422975208011d0d92968e22a0af15fd9062ca724ce91c51f7b`
+- Image:
+  - `fischermanch/aria:0.1.0-alpha.267`
+  - `aria:alpha-local`
+  - Image-Digest: `sha256:d9ad21e15827ec9ead4382459def8e38c908c7c6d18442149ced55daed456d45`
+  - Image-Size: `245264614` bytes
+  - Created: `2026-05-15T21:19:16.323653011+02:00`
+- Update-/Export-Hinweis:
+  - Export-Script hat wegen `KEEP_TARS=7` das alte interne TAR `/mnt/NAS/aria-images/aria-alpha260-local.tar` entfernt
+- Public-Hinweis:
+  - kein Git Commit, kein Git Tag, kein Public Docker Push und kein GitHub Release fuer `alpha267`
 
 ### alpha266
 
@@ -2835,7 +3756,7 @@ Zweck:
 - Themes:
   - `CyberPunk Pulse` staerker Richtung Hot-Pink/Magenta gezogen, weniger violette Flaechen
 - Docs / Release:
-  - Doku-Struktur unter `docs/` und `project.docu/history/` aufgeraeumt
+  - Doku-Struktur unter `docs/` und der damaligen lokalen History-Ablage aufgeraeumt
   - `Hilfe` und `Produkt-Info` als Read-only-Seiten im UI angebunden
   - `LICENSE` und `THIRD_PARTY_NOTICES.md` ergaenzt
   - `docs/product/roadmap.md` als GitHub-tauglicher Roadmap-Snapshot ergaenzt

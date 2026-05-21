@@ -151,7 +151,7 @@ Examples of what ARIA can already do:
 - access remote file areas via `SMB`
 - read `RSS` feeds
 - search the web via configured `SearXNG`
-- ask for upcoming calendar events via configured `Google Calendar`
+- ask for upcoming calendar events via configured read-only `Google Calendar` iCal feeds
 - send to `Discord`
 - call configured `HTTP APIs`
 - send to `Webhook` targets

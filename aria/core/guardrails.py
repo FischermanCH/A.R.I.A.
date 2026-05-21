@@ -55,6 +55,37 @@ def guardrail_is_compatible(kind: str, connection_kind: str) -> bool:
     return isinstance(allowed, set) and clean_connection_kind in allowed
 
 
+def normalize_guardrail_connection_kinds(values: Any, *, guardrail_kind: str = "") -> list[str]:
+    if isinstance(values, str):
+        source = re.split(r"[\s,]+", values)
+    elif isinstance(values, list):
+        source = values
+    else:
+        source = []
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in source:
+        clean = str(item or "").strip().lower().replace("-", "_")
+        if not clean or clean in seen:
+            continue
+        if guardrail_kind and not guardrail_is_compatible(guardrail_kind, clean):
+            continue
+        seen.add(clean)
+        rows.append(clean)
+    return rows
+
+
+def guardrail_applies_to_connection(profile: dict[str, Any] | None, connection_kind: str) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    clean_kind = normalize_guardrail_kind(str(profile.get("kind", "") or "ssh_command"))
+    clean_connection_kind = str(connection_kind or "").strip().lower().replace("-", "_")
+    if not guardrail_is_compatible(clean_kind, clean_connection_kind):
+        return False
+    scoped_kinds = normalize_guardrail_connection_kinds(profile.get("connection_kinds"), guardrail_kind=clean_kind)
+    return not scoped_kinds or clean_connection_kind in scoped_kinds
+
+
 def _clean_term_list(values: Any) -> list[str]:
     if not isinstance(values, list):
         return []

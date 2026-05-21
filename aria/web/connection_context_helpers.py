@@ -173,6 +173,27 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
     _SEARXNG_CATEGORY_OPTIONS = deps.searxng_category_options
     _SEARXNG_ENGINE_OPTIONS = deps.searxng_engine_options
 
+    def _attach_guardrail_context(
+        context: dict[str, Any],
+        *,
+        connection_kind: str,
+        guardrail_rows: dict[str, dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        options = _build_guardrail_ref_options(guardrail_rows, connection_kind=connection_kind, lang=str(context.get("lang", "de") or "de"))
+        if connection_kind in {"sftp", "smb"}:
+            hint_key = "config_security.file_guardrail_hint"
+            hint = "File guardrails inspect operation and path before ARIA reads, writes, or lists directories."
+        elif connection_kind in {"webhook", "http_api"}:
+            hint_key = "config_security.http_guardrail_hint"
+            hint = "HTTP guardrails inspect target URL, method, and relevant request fragments before ARIA executes the request."
+        else:
+            hint_key = "config_security.guardrails_subtitle"
+            hint = "Reusable security profiles for individual services. Guardrails can be attached to compatible connections and extended modularly later."
+        context["connection_guardrail_ref_options"] = options
+        context["connection_guardrail_hint_key"] = hint_key
+        context["connection_guardrail_hint"] = hint
+        return options
+
     def _attach_connection_intro_and_status(
         context: dict[str, Any],
         *,
@@ -201,7 +222,6 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
     def _build_ssh_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
         rows = _read_ssh_connections()
         guardrail_rows = _read_guardrails()
-        guardrail_ref_options = _build_guardrail_ref_options(guardrail_rows, connection_kind="ssh", lang=lang)
         refs = sorted(rows.keys())
         selected_ref = _sanitize_connection_name(selected_ref_raw) or (refs[0] if refs else "")
         selected = rows.get(selected_ref, {})
@@ -232,7 +252,8 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
                     public_key = pub_path.read_text(encoding="utf-8").strip()
                 except OSError:
                     public_key = ""
-        return {
+        context = {
+            "lang": lang,
             "connection_intro": _build_connection_intro(
                 kind="ssh",
                 summary_cards=_build_connection_summary_cards(
@@ -335,9 +356,11 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             "private_key_exists": private_key_exists,
             "public_key_exists": public_key_exists,
             "guardrail_rows": guardrail_rows,
-            "guardrail_ref_options": guardrail_ref_options,
             "test_status": str(test_status).strip().lower(),
         }
+        guardrail_ref_options = _attach_guardrail_context(context, connection_kind="ssh", guardrail_rows=guardrail_rows)
+        context["guardrail_ref_options"] = guardrail_ref_options
+        return context
 
     def _build_discord_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
         context = _build_generic_connections_context(
@@ -437,17 +460,21 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
                 "key_present": seed_key_present,
                 "timeout_seconds": int(selected_ssh_seed.get("timeout_seconds", 10) or 10),
             }
-        sftp_status_rows = build_connection_status_rows(
+        sftp_status_rows = _attach_connection_edit_urls(
             "sftp",
-            sftp_rows,
-            selected_ref=selected_sftp_ref,
-            cached_only=True,
-            base_dir=BASE_DIR,
-            lang=lang,
+            build_connection_status_rows(
+                "sftp",
+                sftp_rows,
+                selected_ref=selected_sftp_ref,
+                cached_only=True,
+                base_dir=BASE_DIR,
+                lang=lang,
+            ),
         )
         sftp_healthy_count = sum(1 for item in sftp_status_rows if item["status"] == "ok")
         sftp_issue_count = sum(1 for item in sftp_status_rows if item["status"] == "error")
-        return {
+        context = {
+            "lang": lang,
             "connection_intro": _build_connection_intro(
                 kind="sftp",
                 summary_cards=_build_connection_summary_cards(
@@ -523,8 +550,9 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             "sftp_healthy_count": sftp_healthy_count,
             "sftp_issue_count": sftp_issue_count,
             "sftp_test_status": str(test_status).strip().lower(),
-            "sftp_guardrail_ref_options": _build_guardrail_ref_options(guardrail_rows, connection_kind="sftp", lang=lang),
         }
+        context["sftp_guardrail_ref_options"] = _attach_guardrail_context(context, connection_kind="sftp", guardrail_rows=guardrail_rows)
+        return context
 
     def _build_smb_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
         guardrail_rows = _read_guardrails()
@@ -579,7 +607,8 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             secrets_with_hints={"password": "The password is stored in the secure store and never written into config.yaml."},
             ordered_fields=["host", "share", "port", "user", "timeout_seconds", "root_path", "password"],
         )
-        context["smb_guardrail_ref_options"] = _build_guardrail_ref_options(guardrail_rows, connection_kind="smb", lang=lang)
+        context["lang"] = lang
+        context["smb_guardrail_ref_options"] = _attach_guardrail_context(context, connection_kind="smb", guardrail_rows=guardrail_rows)
         return context
 
     def _build_webhook_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
@@ -637,7 +666,8 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             secrets_with_hints={"url": "The webhook URL is stored in the secure store, not in config.yaml."},
             ordered_fields=["timeout_seconds", "method", "content_type", "url"],
         )
-        context["webhook_guardrail_ref_options"] = _build_guardrail_ref_options(guardrail_rows, connection_kind="webhook", lang=lang)
+        context["lang"] = lang
+        context["webhook_guardrail_ref_options"] = _attach_guardrail_context(context, connection_kind="webhook", guardrail_rows=guardrail_rows)
         return context
 
     def _build_email_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
@@ -808,7 +838,8 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             secrets_with_hints={"auth_token": "Bearer token is stored in the secure store when provided."},
             ordered_fields=["base_url", "health_path", "method", "timeout_seconds", "auth_token"],
         )
-        context["http_api_guardrail_ref_options"] = _build_guardrail_ref_options(guardrail_rows, connection_kind="http_api", lang=lang)
+        context["lang"] = lang
+        context["http_api_guardrail_ref_options"] = _attach_guardrail_context(context, connection_kind="http_api", guardrail_rows=guardrail_rows)
         return context
 
     def _build_google_calendar_connections_context(selected_ref_raw: str = "", test_status: str = "", lang: str = "de") -> dict[str, Any]:
@@ -827,7 +858,7 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             test_status_key="google_calendar_test_status",
         )
         selected = dict(context.get("selected_google_calendar", {}))
-        auth_ready = bool(selected.get("client_secret_present")) and bool(selected.get("refresh_token_present"))
+        auth_ready = bool(selected.get("ical_url_present"))
         context["connection_intro"] = _build_connection_intro(
             kind="google_calendar",
             summary_cards=_build_connection_summary_cards(
@@ -842,14 +873,14 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
                         "value": str(selected.get("calendar_id", "")).strip() or "primary",
                         "value_key": "",
                         "hint_key": "config_conn.google_calendar_target_hint",
-                        "hint": "The read-only calendar target ARIA will query first.",
+                        "hint": "The read-only iCal feed ARIA will query first.",
                     },
                     _secret_status_card(
                         label_key="config_conn.sign_in_status",
                         label="Sign-in status",
                         secret_present=auth_ready,
                         connected_hint_key="config_conn.google_calendar_auth_hint",
-                        connected_hint="OAuth client secret and refresh token are stored in the secure store.",
+                        connected_hint="The secret iCal URL is stored in the secure store.",
                     ),
                 ],
             ),
@@ -865,40 +896,36 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
             ref_value=str(context.get("selected_google_calendar_ref", "")).strip(),
             placeholders={
                 "connection_ref": "z.B. primary-calendar",
-                "calendar_id": "primary",
-                "client_id": "1234567890-abc.apps.googleusercontent.com",
+                "ical_url": "https://calendar.google.com/calendar/ical/...",
             },
-            required_fields={"calendar_id", "client_id", "timeout_seconds"},
+            required_fields={"ical_url", "timeout_seconds"},
             field_hints={
-                "client_id": _context_text(lang, "google_client_id_hint", "OAuth client from Google Cloud > Google Auth platform > Clients."),
-                "calendar_id": _context_text(lang, "google_calendar_id_hint", "Use `primary` for the main calendar. For other calendars, copy the Calendar ID from Google Calendar > Settings > Integrate calendar."),
+                "ical_url": _context_text(lang, "google_ical_url_hint", "Copy the Secret address in iCal format from Google Calendar > Settings > Integrate calendar."),
                 "timeout_seconds": _context_text(lang, "google_timeout_hint", "Read-only probe timeout against Google in seconds."),
             },
             secrets_with_hints={
-                "client_secret": "OAuth client secret is stored in the secure store.",
+                "ical_url": "Stored in the secure store. Keep this link private.",
             },
-            ordered_fields=["client_id", "calendar_id", "timeout_seconds", "client_secret"],
+            ordered_fields=["ical_url", "timeout_seconds"],
         )
         context["google_calendar_new_form_fields"] = _build_schema_form_fields(
             kind="google_calendar",
-            values={"calendar_id": "primary", "timeout_seconds": 10},
+            values={"timeout_seconds": 10},
             prefix="google_calendar_new",
-            ref_value="",
+            ref_value="primary-calendar",
             placeholders={
                 "connection_ref": "z.B. primary-calendar",
-                "calendar_id": "primary",
-                "client_id": "1234567890-abc.apps.googleusercontent.com",
+                "ical_url": "https://calendar.google.com/calendar/ical/...",
             },
-            required_fields={"calendar_id", "client_id", "timeout_seconds", "client_secret"},
+            required_fields={"ical_url", "timeout_seconds"},
             field_hints={
-                "client_id": _context_text(lang, "google_client_id_hint", "OAuth client from Google Cloud > Google Auth platform > Clients."),
-                "calendar_id": _context_text(lang, "google_calendar_id_hint", "Use `primary` for the main calendar. For other calendars, copy the Calendar ID from Google Calendar > Settings > Integrate calendar."),
+                "ical_url": _context_text(lang, "google_ical_url_hint", "Copy the Secret address in iCal format from Google Calendar > Settings > Integrate calendar."),
                 "timeout_seconds": _context_text(lang, "google_timeout_hint", "Read-only probe timeout against Google in seconds."),
             },
             secrets_with_hints={
-                "client_secret": "OAuth client secret is stored in the secure store.",
+                "ical_url": "Stored in the secure store. Keep this link private.",
             },
-            ordered_fields=["client_id", "calendar_id", "timeout_seconds", "client_secret"],
+            ordered_fields=["ical_url", "timeout_seconds"],
         )
         return context
 

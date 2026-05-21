@@ -79,6 +79,36 @@ def test_blocked_action_explanation_times_out_to_fast_fallback() -> None:
     asyncio.run(_run())
 
 
+def test_blocked_action_explanation_timeout_uses_guardrail_security_fallback_for_webhook() -> None:
+    async def _run() -> None:
+        result = await explain_blocked_action(
+            llm_client=_SlowLLM(),
+            user_message="sende an webhook : delete user record",
+            fallback_text="ARIA kann diese Aktion auf webhook/n8n-test-webhook nicht ausfuehren: Webhook payload: delete user record",
+            language="de",
+            user_id="u1",
+            request_id="r1",
+            target="webhook/n8n-test-webhook",
+            preview="Webhook payload: delete user record",
+            capability="webhook_send",
+            policy_reason="guardrail_denied",
+            policy_reason_label="Guardrail profile blocks this action.",
+            guardrail_ref="webhook-status-benachrichtigung",
+            guardrail_kind="http_request",
+            timeout_seconds=0.001,
+        )
+
+        assert result.used_llm is False
+        assert "reason=llm_timeout" in result.debug_line
+        assert "wurde durch das Guardrail-Profil `webhook-status-benachrichtigung` blockiert" in result.text
+        assert "aktive Sicherheitsregel" in result.text
+        assert "WebHook payload" not in result.text
+        assert "Geplante Aktion: Webhook payload: delete user record" in result.text
+        assert "[webhook-status-benachrichtigung](/config/security?guardrail_ref=webhook-status-benachrichtigung)" in result.text
+
+    asyncio.run(_run())
+
+
 def test_blocked_action_explanation_can_skip_llm_for_safety_fast_path() -> None:
     async def _run() -> None:
         result = await explain_blocked_action(

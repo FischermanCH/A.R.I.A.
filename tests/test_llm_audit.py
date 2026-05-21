@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
+import json
 from types import SimpleNamespace
 
 import aria.core.llm_client as llm_client_mod
@@ -76,3 +78,27 @@ def test_llm_audit_reads_redacted_entries_from_shared_file(tmp_path) -> None:
     assert rows[0]["operation"] == "final_chat_response"
     assert rows[0]["usage"]["total_tokens"] == 5
     assert "secret-token" not in rows[0]["messages"][0]["content"]
+
+
+def test_llm_audit_prunes_entries_by_retention_days(tmp_path) -> None:
+    path = tmp_path / "llm_audit.jsonl"
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat(timespec="seconds")
+    fresh_ts = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"created_at": old_ts, "operation": "old", "messages": []}),
+                json.dumps({"created_at": fresh_ts, "operation": "fresh", "messages": []}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    audit = LLMAuditLog(path=path)
+    stats = audit.prune_old_entries(90)
+
+    assert stats == {"total": 2, "kept": 1, "removed": 1}
+    rows = audit.entries()
+    assert len(rows) == 1
+    assert rows[0]["operation"] == "fresh"

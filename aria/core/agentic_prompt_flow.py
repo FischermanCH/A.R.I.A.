@@ -94,3 +94,15 @@ def agentic_prompt_flow_debug_line(flow: AgenticPromptFlow, *, planner_source: s
         f"phases={phases} context={context} proposal={source} "
         f"policy={flow.policy_gate} runtime={flow.runtime_rule}"
     )
+
+
+def agentic_context_debug_line(label: str, fields: dict[str, Any] | None = None) -> str:
+    parts = [f"Routing Debug: {str(label or '').strip() or 'context'}"]
+    for key, value in dict(fields or {}).items():
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            continue
+        clean_value = str(value if value is not None else "").strip() or "-"
+        parts.append(f"{clean_key}={clean_value}")
+    parts.append(f"boundary={AGENTIC_BOUNDARY_CONTEXT}")
+    return " ".join(parts)

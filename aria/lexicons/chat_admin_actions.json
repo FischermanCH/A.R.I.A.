@@ -10,7 +10,7 @@
     "forget_query_prefix": "^(vergiss|lösch|loesch|entfern|delete|remove)\\s+",
     "forget_confirm_token": "(?:bestätige|bestaetige|lösche|loesche|delete)\\s+(?:jetzt\\s+)?([a-z0-9]{6,16})",
     "safe_fix_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:safe-?fix\\s+|fix\\s+)?([a-z0-9]{6,16})",
-    "connection_delete_request": "(?:lösche|loesche|entferne|delete|remove)\\s+(?:die\\s+|das\\s+|den\\s+)?(?:(ssh|discord|sftp|smb|webhook|smtp|email|imap|http api|http-api|rss|mqtt)\\s+)?(?:verbindung|profil)?\\s*([a-z0-9._-]+)",
+    "connection_delete_request": "(?:lösche|loesche|entferne|delete|remove)\\s+(?:die\\s+|das\\s+|den\\s+)?(?:(ssh|discord|sftp|smb|webhook|smtp|email|imap|http api|http-api|rss|mqtt)\\s+(?:verbindung|profil)?\\s*|(?:verbindung|profil)\\s+)([a-z0-9._-]+)",
     "connection_delete_confirm_token": "(?:bestätige|bestaetige|confirm)\\s+(?:verbindung\\s+)?(?:(?:löschen|loeschen|delete)\\s+)?([a-z0-9]{6,16})",
     "connection_request_header": "^{verbs}\\s+(?:eine\\s+|ein\\s+)?(?P<alias>{alias_pattern})(?:\\s+verbindung|\\s+profil)?\\s+(?P<ref>[a-z0-9._-]+)(?P<rest>.*)$",
     "metadata_title": "(?:titel|title)\\s+\"([^\"]+)\"",

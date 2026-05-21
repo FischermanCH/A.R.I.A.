@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import Request as URLRequest, urlopen
 
 from aria.core.connection_health import get_connection_health
@@ -681,69 +681,22 @@ def _test_http_api_connection(ref: str, row: Any, *, timeout_override: int | Non
 
 def _test_google_calendar_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:
     del base_dir, page_probe
-    calendar_id = str(_value(row, "calendar_id", "primary")).strip() or "primary"
-    client_id = str(_value(row, "client_id", "")).strip()
-    client_secret = str(_value(row, "client_secret", "")).strip()
-    refresh_token = str(_value(row, "refresh_token", "")).strip()
+    ical_url = str(_value(row, "ical_url", "")).strip()
     timeout_seconds = int(timeout_override or _value(row, "timeout_seconds", 10) or 10)
-    if not client_id:
-        raise ValueError(_runtime_text(lang, "message_789", 'OAuth client ID is missing.'))
-    if not client_secret:
-        raise ValueError(_runtime_text(lang, "message_791", 'OAuth client secret is missing.'))
-    if not refresh_token:
-        raise ValueError(_runtime_text(lang, "message_793", 'Refresh token is missing.'))
-
-    token_payload = urlencode(
-        {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        }
-    ).encode("utf-8")
-    token_request = URLRequest(
-        "https://oauth2.googleapis.com/token",
-        data=token_payload,
-        headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": "ARIA/1.0"},
-        method="POST",
-    )
-    try:
-        with urlopen(token_request, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
-            token_status = int(getattr(resp, "status", 200) or 200)
-            token_data = json.loads(resp.read().decode("utf-8", errors="replace"))
-    except HTTPError as exc:
-        raise ValueError(friendly_google_calendar_test_error_message(exc, lang=lang)) from exc
-    except URLError as exc:
-        raise ValueError(friendly_google_calendar_test_error_message(exc, lang=lang)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(friendly_google_calendar_test_error_message(exc, lang=lang)) from exc
-    if token_status >= 400:
-        raise ValueError(
-            friendly_google_calendar_test_error_message(
-                HTTPError("https://oauth2.googleapis.com/token", token_status, "", hdrs=None, fp=None),
-                lang=lang,
-            )
-        )
-    access_token = str((token_data or {}).get("access_token", "")).strip()
-    if not access_token:
-        raise ValueError(
-            _runtime_text(lang, "message_829", 'Google Calendar test failed: Google did not return an access token.')
-        )
-
-    calendar_url = f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}"
+    if not ical_url:
+        raise ValueError(_runtime_text(lang, "google_ical_url_missing", "Google Calendar iCal URL is missing."))
+    parsed = urlparse(ical_url)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        raise ValueError(_runtime_text(lang, "google_ical_url_invalid", "Google Calendar iCal URL must be a complete HTTPS URL."))
     calendar_request = URLRequest(
-        calendar_url,
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json",
-            "User-Agent": "ARIA/1.0",
-        },
+        ical_url,
+        headers={"Accept": "text/calendar,text/plain,*/*;q=0.8", "User-Agent": "ARIA/1.0"},
         method="GET",
     )
     try:
         with urlopen(calendar_request, timeout=max(5, timeout_seconds)) as resp:  # noqa: S310
             calendar_status = int(getattr(resp, "status", 200) or 200)
-            calendar_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            calendar_text = resp.read(1024 * 1024).decode("utf-8", errors="replace")
     except HTTPError as exc:
         raise ValueError(friendly_google_calendar_test_error_message(exc, lang=lang)) from exc
     except URLError as exc:
@@ -753,15 +706,20 @@ def _test_google_calendar_connection(ref: str, row: Any, *, timeout_override: in
     if calendar_status >= 400:
         raise ValueError(
             friendly_google_calendar_test_error_message(
-                HTTPError(calendar_url, calendar_status, "", hdrs=None, fp=None),
+                HTTPError(ical_url, calendar_status, "", hdrs=None, fp=None),
                 lang=lang,
             )
         )
-    summary = str((calendar_data or {}).get("summary", "")).strip() or calendar_id
-    timezone_name = str((calendar_data or {}).get("timeZone", "")).strip()
-    if timezone_name:
-        return _runtime_text(lang, "message_866", 'Google Calendar test successful for {summary} · Time zone: {timezone_name} (Ref: {ref})', summary=summary, timezone_name=timezone_name, ref=ref)
-    return _runtime_text(lang, "message_871", 'Google Calendar test successful for {summary} (Ref: {ref})', summary=summary, ref=ref)
+    if "BEGIN:VCALENDAR" not in calendar_text:
+        raise ValueError(_runtime_text(lang, "google_ical_invalid_feed", "Google Calendar iCal test failed: the URL did not return a calendar feed."))
+    event_count = calendar_text.count("BEGIN:VEVENT")
+    return _runtime_text(
+        lang,
+        "google_ical_test_ok",
+        "Google Calendar iCal test successful for {ref} ({event_count} events readable)",
+        ref=ref,
+        event_count=event_count,
+    )
 
 
 def _test_rss_connection(ref: str, row: Any, *, timeout_override: int | None = None, base_dir: Path | None = None, page_probe: bool = False, lang: str = "de") -> str:

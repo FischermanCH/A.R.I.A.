@@ -62,6 +62,7 @@ def _requested_ref_is_soft_hint(value: str) -> bool:
         "broker",
         "feed",
         "endpoint",
+        "http",
         "api",
     )
     return " " in clean or clean.endswith(generic_tail_terms)

@@ -5,6 +5,7 @@ from aria.core.execution_dry_run import (
     build_payload_dry_run,
     evaluate_guardrail_confirm_dry_run,
 )
+from aria.core.execution_dry_run_text import decision_summary
 
 
 class _Settings:
@@ -72,6 +73,57 @@ class _Settings:
                 "allow_terms": ["uptime", "hostname"],
                 "deny_terms": ["rm -rf", "shutdown"],
             }
+        }
+
+    connections = _Connections()
+    security = _Security()
+
+
+class _GuardrailRuntimeSettings:
+    class _Connections:
+        sftp = {
+            "pihole1": {
+                "host": "pihole1.lan",
+                "user": "root",
+                "guardrail_ref": "sftp-readonly",
+            }
+        }
+        smb = {
+            "fischer_ronny": {
+                "host": "fileserver.lan",
+                "share": "Fischer_Ronny",
+                "user": "Ronny",
+                "guardrail_ref": "smb-readonly",
+            }
+        }
+        webhook = {
+            "n8n-test-webhook": {
+                "url": "https://n8n.example.local/webhook/status",
+                "method": "POST",
+                "guardrail_ref": "webhook-status",
+            }
+        }
+
+    class _Security:
+        guardrails = {
+            "sftp-readonly": {
+                "kind": "file_access",
+                "connection_kinds": ["sftp"],
+                "allow_terms": ["file_read", "file_list", "read", "list", "download", "get"],
+                "deny_terms": ["file_write", "write", "upload", "put", "create", "delete"],
+            },
+            "smb-readonly": {
+                "kind": "file_access",
+                "connection_kinds": ["smb"],
+                "allow_terms": ["file_read", "file_list", "read", "list", "download", "get"],
+                "deny_terms": ["file_write", "write", "upload", "put", "create", "delete"],
+            },
+            "webhook-status": {
+                "kind": "http_request",
+                "connection_kinds": ["webhook"],
+                "allow_terms": ["status", "benachrichtigung", "notification"],
+                "deny_terms": ["delete", "admin", "settings"],
+            },
         }
 
     connections = _Connections()
@@ -544,6 +596,107 @@ def test_guardrail_confirm_dry_run_allows_simple_http_api_health_check() -> None
     assert "policy=http_api" in result["decision"]["agentic_debug"]
 
 
+def test_guardrail_confirm_dry_run_allows_sftp_readonly_list_guardrail() -> None:
+    payload_debug = {
+        "payload": {
+            "found": True,
+            "capability": "file_list",
+            "connection_kind": "sftp",
+            "connection_ref": "pihole1",
+            "path": ".",
+            "preview": "List remote path: .",
+            "missing_fields": [],
+        }
+    }
+
+    result = evaluate_guardrail_confirm_dry_run(
+        _GuardrailRuntimeSettings(),
+        payload_debug=payload_debug,
+        language="de",
+    )
+
+    assert result["status"] == "ok"
+    assert result["decision"]["action"] == "allow"
+    assert result["decision"]["guardrail_ref"] == "sftp-readonly"
+    assert "file_list" in result["decision"]["guardrail_text"]
+
+
+def test_guardrail_confirm_dry_run_allows_smb_readonly_list_guardrail() -> None:
+    payload_debug = {
+        "payload": {
+            "found": True,
+            "capability": "file_list",
+            "connection_kind": "smb",
+            "connection_ref": "fischer_ronny",
+            "path": ".",
+            "preview": "List share path: .",
+            "missing_fields": [],
+        }
+    }
+
+    result = evaluate_guardrail_confirm_dry_run(
+        _GuardrailRuntimeSettings(),
+        payload_debug=payload_debug,
+        language="de",
+    )
+
+    assert result["status"] == "ok"
+    assert result["decision"]["action"] == "allow"
+    assert result["decision"]["guardrail_ref"] == "smb-readonly"
+    assert "file_list" in result["decision"]["guardrail_text"]
+
+
+def test_guardrail_confirm_dry_run_allows_status_webhook_then_asks_confirmation() -> None:
+    payload_debug = {
+        "payload": {
+            "found": True,
+            "capability": "webhook_send",
+            "connection_kind": "webhook",
+            "connection_ref": "n8n-test-webhook",
+            "content": "service ist online",
+            "preview": "Webhook payload: service ist online",
+            "missing_fields": [],
+        }
+    }
+
+    result = evaluate_guardrail_confirm_dry_run(
+        _GuardrailRuntimeSettings(),
+        payload_debug=payload_debug,
+        language="de",
+    )
+
+    assert result["status"] == "warn"
+    assert result["decision"]["action"] == "ask_user"
+    assert result["decision"]["reason"] == "side_effect_confirmation"
+    assert result["decision"]["guardrail_ref"] == "webhook-status"
+    assert "status" in result["decision"]["guardrail_text"]
+
+
+def test_guardrail_confirm_dry_run_blocks_denied_webhook_payload() -> None:
+    payload_debug = {
+        "payload": {
+            "found": True,
+            "capability": "webhook_send",
+            "connection_kind": "webhook",
+            "connection_ref": "n8n-test-webhook",
+            "content": "delete user record",
+            "preview": "Webhook payload: delete user record",
+            "missing_fields": [],
+        }
+    }
+
+    result = evaluate_guardrail_confirm_dry_run(
+        _GuardrailRuntimeSettings(),
+        payload_debug=payload_debug,
+        language="de",
+    )
+
+    assert result["status"] == "error"
+    assert result["decision"]["action"] == "block"
+    assert result["decision"]["reason"] == "guardrail_denied"
+    assert result["decision"]["guardrail_ref"] == "webhook-status"
+
+
 def test_guardrail_confirm_dry_run_blocks_mutating_http_api_path() -> None:
     payload_debug = {
         "payload": {
@@ -563,6 +716,20 @@ def test_guardrail_confirm_dry_run_blocks_mutating_http_api_path() -> None:
     assert result["status"] == "error"
     assert result["decision"]["action"] == "block"
     assert result["decision"]["reason"] == "http_api_mutating_path"
+
+
+def test_blocked_file_write_summary_is_user_friendly() -> None:
+    summary = decision_summary(
+        action="block",
+        language="de",
+        target="sftp/pihole1",
+        preview="Write remote path: test.txt",
+        guardrail_ref="sftp-nur-lesen",
+    )
+
+    assert "Schreibaktion" in summary
+    assert "test.txt" in summary
+    assert "Write remote path" not in summary
 
 
 def test_execution_preview_dry_run_reports_allow_path() -> None:

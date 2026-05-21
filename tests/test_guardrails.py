@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from aria.core.guardrails import (
     evaluate_guardrail,
+    guardrail_applies_to_connection,
     guardrail_is_compatible,
     resolve_guardrail_profile,
 )
@@ -12,6 +13,13 @@ from aria.core.guardrails import (
 def test_guardrail_compatibility_matches_connection_kind() -> None:
     assert guardrail_is_compatible("ssh_command", "ssh") is True
     assert guardrail_is_compatible("http_request", "ssh") is False
+
+
+def test_scoped_guardrail_applies_only_to_selected_connection_kind() -> None:
+    profile = {"kind": "file_access", "connection_kinds": ["smb"]}
+
+    assert guardrail_applies_to_connection(profile, "smb") is True
+    assert guardrail_applies_to_connection(profile, "sftp") is False
 
 
 def test_resolve_guardrail_profile_reads_generic_security_profiles() -> None:
