@@ -167,7 +167,7 @@ def test_build_connection_aliases_include_rss_group_name() -> None:
 def test_build_connection_aliases_adds_discord_alert_channel_hints() -> None:
     aliases = build_connection_aliases(
         "discord",
-        "fischerman-aria-logs",
+        "demo_user-aria-logs",
         {
             "title": "ARIA Logs",
             "allow_skill_messages": True,

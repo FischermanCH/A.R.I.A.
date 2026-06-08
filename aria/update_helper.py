@@ -31,13 +31,13 @@ HELPER_PORT = int(str(os.environ.get("ARIA_UPDATE_HELPER_PORT", "8094") or "8094
 EXCLUDED_SERVICES = {part.strip() for part in str(os.environ.get("ARIA_UPDATE_EXCLUDE_SERVICES", "aria-updater")).split(",") if part.strip()}
 HEALTH_URL = str(os.environ.get("ARIA_UPDATE_HEALTH_URL", "http://aria:8800/health") or "http://aria:8800/health").strip()
 HELPER_MODE = str(os.environ.get("ARIA_UPDATE_HELPER_MODE", "managed") or "managed").strip().lower()
-LOCAL_UPDATE_SCRIPT = Path(os.environ.get("ARIA_UPDATE_LOCAL_SCRIPT", "/mnt/NAS/aria-images/update-local-aria.sh")).resolve()
-LOCAL_TAR_DIR = str(os.environ.get("ARIA_UPDATE_LOCAL_TAR_DIR", "/mnt/NAS/aria-images") or "/mnt/NAS/aria-images").strip()
+LOCAL_UPDATE_SCRIPT = Path(os.environ.get("ARIA_UPDATE_LOCAL_SCRIPT", "/var/lib/aria/images/update-local-aria.sh")).resolve()
+LOCAL_TAR_DIR = str(os.environ.get("ARIA_UPDATE_LOCAL_TAR_DIR", "/var/lib/aria/images") or "/var/lib/aria/images").strip()
 LOCAL_STACK_FILE = str(
-    os.environ.get("ARIA_UPDATE_LOCAL_STACK_FILE", "/mnt/NAS/aria-images/portainer-stack.alpha3.local.yml")
-    or "/mnt/NAS/aria-images/portainer-stack.alpha3.local.yml"
+    os.environ.get("ARIA_UPDATE_LOCAL_STACK_FILE", "/var/lib/aria/images/portainer-stack.alpha3.local.yml")
+    or "/var/lib/aria/images/portainer-stack.alpha3.local.yml"
 ).strip()
-LOCAL_ENV_FILE = str(os.environ.get("ARIA_UPDATE_LOCAL_ENV_FILE", "/mnt/NAS/aria-images/aria-stack.env") or "/mnt/NAS/aria-images/aria-stack.env").strip()
+LOCAL_ENV_FILE = str(os.environ.get("ARIA_UPDATE_LOCAL_ENV_FILE", "/var/lib/aria/images/aria-stack.env") or "/var/lib/aria/images/aria-stack.env").strip()
 LOCAL_IMAGE_REF = str(os.environ.get("ARIA_UPDATE_LOCAL_IMAGE_REF", "aria:alpha-local") or "aria:alpha-local").strip()
 LOCAL_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_SERVICE_NAME", "aria") or "aria").strip()
 LOCAL_QDRANT_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_QDRANT_SERVICE_NAME", "aria-qdrant") or "aria-qdrant").strip()

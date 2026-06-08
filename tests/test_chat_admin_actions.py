@@ -8,8 +8,8 @@ def test_connection_delete_parser_ignores_webhook_payload_delete_text() -> None:
 
 
 def test_connection_delete_parser_still_accepts_explicit_kind_delete() -> None:
-    assert _parse_connection_delete_request("delete ssh pihole1") == ("ssh", "pihole1")
+    assert _parse_connection_delete_request("delete ssh dns-node-01") == ("ssh", "dns-node-01")
 
 
 def test_connection_delete_parser_still_accepts_explicit_connection_delete() -> None:
-    assert _parse_connection_delete_request("delete verbindung pihole1") == ("", "pihole1")
+    assert _parse_connection_delete_request("delete verbindung dns-node-01") == ("", "dns-node-01")

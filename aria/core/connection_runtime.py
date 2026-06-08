@@ -413,6 +413,8 @@ def _test_ssh_connection(ref: str, row: Any, *, timeout_override: int | None = N
     err = (proc.stderr or "").strip()
     if proc.returncode != 0:
         detail = err or out or f"Exit Code {proc.returncode}"
+        if "host key verification failed" in detail.lower() or "no ed25519 host key is known" in detail.lower():
+            detail = _runtime_text(lang, "message_509", "{detail}", detail=detail)
         raise ValueError(_runtime_text(lang, "message_508", 'SSH test failed: {detail}', detail=detail))
     if "ARIA_SSH_OK" not in out:
         unclear = out or _runtime_text(lang, "message_510", 'no expected response')

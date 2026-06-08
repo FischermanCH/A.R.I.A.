@@ -16,7 +16,7 @@
         <h3>{{ tr(request, 'learned_recipes.flow_store_title', 'Wo gespeichert?') }}</h3>
       </div>
       <p>{{ tr(request, 'learned_recipes.flow_store_text', 'Review-Kandidaten liegen lokal in data/runtime/learned_recipes.json; semantischer Nutzungskontext liegt zusätzlich in Recipe Experience Memory.') }}</p>
-      <small>{{ tr(request, 'learned_recipes.flow_store_meta', 'Der lokale Store ist die Admin-Review-Liste; Memory ist nur Kontext.') }}</small>
+      <small>{{ tr(request, 'learned_recipes.flow_store_meta', 'Die lokale Lernliste ist die Admin-Review-Liste; Memory ist nur Kontext.') }}</small>
     </article>
     <article class="memory-health-card">
       <div class="memory-health-head">
@@ -25,6 +25,14 @@
       </div>
       <p>{{ tr(request, 'learned_recipes.flow_action_text', 'Beobachten, filtern und bei starken Kandidaten bewusst promoten. Dismiss hält den Kandidaten als Beobachtung, Delete entfernt ihn.') }}</p>
       <small>{{ tr(request, 'learned_recipes.flow_action_meta', 'Promotion erzeugt ein normales gespeichertes Rezept mit eigener ID.') }}</small>
+    </article>
+    <article class="memory-health-card">
+      <div class="memory-health-head">
+        <span class="health-lamp status-warn"></span>
+        <h3>{{ tr(request, 'learned_recipes.flow_maturity_title', 'Wann reviewbereit?') }}</h3>
+      </div>
+      <p>{{ tr(request, 'learned_recipes.flow_maturity_text', 'Review bereit ab 3 Evidenzpunkten, Promotion fällig ab 5. Neue Muster zählen 1.0, andere Formulierungen oder Scopes 0.75, andere Aktionsformen 0.5 und reine Wiederholungen 0.25.') }}</p>
+      <small>{{ tr(request, 'learned_recipes.flow_maturity_meta', 'Multi-Target-Kandidaten bleiben context-only; Side-Effects brauchen 5 Evidenzpunkte und bleiben reviewpflichtig.') }}</small>
     </article>
     <article class="memory-health-card">
       <div class="memory-health-head">
@@ -42,7 +50,7 @@
         <h3>{{ tr(request, 'learned_recipes.total_title', 'Gesamt') }}</h3>
       </div>
       <p>{{ learned_total_count }}</p>
-      <small>{{ tr(request, 'learned_recipes.total_meta', 'alle gelernten Rezepte im Store') }}</small>
+      <small>{{ tr(request, 'learned_recipes.total_meta', 'alle Review-Kandidaten in der Lernliste') }}</small>
     </article>
     <article class="memory-health-card">
       <div class="memory-health-head">

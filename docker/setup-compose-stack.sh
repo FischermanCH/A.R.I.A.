@@ -78,7 +78,7 @@ Options:
   -h, --help                  Show this help
 
 Examples:
-  ./docker/setup-compose-stack.sh --stack-name aria-main --public-url http://aria.black.lan:8800
+  ./docker/setup-compose-stack.sh --stack-name aria-main --public-url http://aria.example.lan:8800
   ./docker/setup-compose-stack.sh --stack-name lab --http-port 8810 --no-start
 USAGE
 }

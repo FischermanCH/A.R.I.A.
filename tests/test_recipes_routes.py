@@ -155,7 +155,7 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
                 "preview": "uptime && df -h /",
                 "intent": "server_health_check",
                 "connection_kind": "ssh",
-                "connection_ref": "ubnsrv-netalert",
+                "connection_ref": "ops-monitor-01",
                 "capability": "ssh_command",
                 "chosen_action": "uptime && df -h /",
                 "user_message": "wie geht es dem monitoring server",
@@ -193,10 +193,10 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Monitoring Quick Check" in response.text
     assert "Promotion fällig" in response.text
     assert "Runs: 5" in response.text
-    assert "ubnsrv-netalert" in response.text
+    assert "ops-monitor-01" in response.text
     assert "User sagte" in response.text
     assert "wie geht es dem monitoring server" in response.text
-    assert "ssh/ubnsrv-netalert" in response.text
+    assert "ssh/ops-monitor-01" in response.text
     assert "Hat funktioniert" in response.text
     assert "uptime &amp;&amp; df -h /" in response.text
     assert "Nur Kontext: nicht direkt ausführbar" in response.text
@@ -234,10 +234,10 @@ def test_recipes_learned_page_keeps_long_curator_fields_contained(monkeypatch) -
                 "summary": "Dateiliste fuer einen Share.",
                 "intent": "read_file",
                 "connection_kind": "smb",
-                "connection_ref": "fischer_ronny",
+                "connection_ref": "example_share",
                 "capability": "file_list",
                 "chosen_action": ".",
-                "user_message": "zeige mir die folder auf dem share Ronny Fischer",
+                "user_message": "zeige mir die folder auf dem share Example Share",
                 "experience_count": 4,
                 "last_success_at": "2026-05-15T09:37:20Z",
                 "promotion_state": "observed",
@@ -279,7 +279,7 @@ def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:
                 "summary": "Short check.",
                 "intent": "server_health_check",
                 "connection_kind": "ssh",
-                "connection_ref": "ubnsrv-netalert",
+                "connection_ref": "ops-monitor-01",
                 "capability": "ssh_command",
                 "chosen_action": "uptime && df -h /",
                 "experience_count": 5,
@@ -309,7 +309,7 @@ def test_recipes_learned_page_links_to_promoted_stored_recipe(monkeypatch) -> No
                 "summary": "Kurzcheck fuer uptime und Speicher.",
                 "intent": "server_health_check",
                 "connection_kind": "ssh",
-                "connection_ref": "ubnsrv-netalert",
+                "connection_ref": "ops-monitor-01",
                 "capability": "ssh_command",
                 "experience_count": 7,
                 "promotion_state": "promoted",
@@ -922,7 +922,7 @@ def test_recipes_wizard_save_preserves_selected_mode(monkeypatch, tmp_path) -> N
             "step_1_name": "Check uptime",
             "step_1_type": "ssh_run",
             "step_1_on_error": "stop",
-            "step_1_connection_ref": "pihole1",
+            "step_1_connection_ref": "dns-node-01",
             "step_1_command": "uptime",
         },
         follow_redirects=False,
@@ -972,7 +972,7 @@ def test_recipes_wizard_health_check_defaults_apply_in_simple_mode(monkeypatch, 
             "step_1_name": "",
             "step_1_type": "ssh_run",
             "step_1_on_error": "stop",
-            "step_1_connection_ref": "pihole1",
+            "step_1_connection_ref": "dns-node-01",
             "step_1_command": "",
         },
         follow_redirects=False,

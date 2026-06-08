@@ -20,7 +20,7 @@ def test_env_llm_overrides_do_not_clobber_active_saved_profiles(monkeypatch, tmp
             "aria": {"host": "0.0.0.0", "port": 8800},
             "llm": {
                 "model": "anthropic/claude-sonnet-4-5",
-                "api_base": "http://172.31.10.210:4000",
+                "api_base": "http://192.0.2.30:4000",
                 "api_key": "",
                 "temperature": 0.2,
                 "max_tokens": 2048,
@@ -28,7 +28,7 @@ def test_env_llm_overrides_do_not_clobber_active_saved_profiles(monkeypatch, tmp
             },
             "embeddings": {
                 "model": "text-embedding-3-small",
-                "api_base": "http://172.31.10.210:4000",
+                "api_base": "http://192.0.2.30:4000",
                 "api_key": "",
                 "timeout_seconds": 30,
             },
@@ -37,7 +37,7 @@ def test_env_llm_overrides_do_not_clobber_active_saved_profiles(monkeypatch, tmp
                 "llm": {
                     "claude-sonnet-4-5": {
                         "model": "anthropic/claude-sonnet-4-5",
-                        "api_base": "http://172.31.10.210:4000",
+                        "api_base": "http://192.0.2.30:4000",
                         "api_key": "",
                         "temperature": 0.2,
                         "max_tokens": 2048,
@@ -47,7 +47,7 @@ def test_env_llm_overrides_do_not_clobber_active_saved_profiles(monkeypatch, tmp
                 "embeddings": {
                     "litellm-emb": {
                         "model": "text-embedding-3-small",
-                        "api_base": "http://172.31.10.210:4000",
+                        "api_base": "http://192.0.2.30:4000",
                         "api_key": "",
                         "timeout_seconds": 30,
                     }
@@ -64,9 +64,9 @@ def test_env_llm_overrides_do_not_clobber_active_saved_profiles(monkeypatch, tmp
 
     settings = load_settings(config_path)
 
-    assert settings.llm.api_base == "http://172.31.10.210:4000"
+    assert settings.llm.api_base == "http://192.0.2.30:4000"
     assert settings.llm.model == "anthropic/claude-sonnet-4-5"
-    assert settings.embeddings.api_base == "http://172.31.10.210:4000"
+    assert settings.embeddings.api_base == "http://192.0.2.30:4000"
     assert settings.embeddings.model == "text-embedding-3-small"
 
 
@@ -78,7 +78,7 @@ def test_env_llm_overrides_still_apply_without_active_profiles(monkeypatch, tmp_
             "aria": {"host": "0.0.0.0", "port": 8800},
             "llm": {
                 "model": "anthropic/claude-sonnet-4-5",
-                "api_base": "http://172.31.10.210:4000",
+                "api_base": "http://192.0.2.30:4000",
                 "api_key": "",
                 "temperature": 0.2,
                 "max_tokens": 2048,
@@ -86,7 +86,7 @@ def test_env_llm_overrides_still_apply_without_active_profiles(monkeypatch, tmp_
             },
             "embeddings": {
                 "model": "text-embedding-3-small",
-                "api_base": "http://172.31.10.210:4000",
+                "api_base": "http://192.0.2.30:4000",
                 "api_key": "",
                 "timeout_seconds": 30,
             },
@@ -116,7 +116,7 @@ def test_blank_env_values_do_not_erase_existing_runtime_config(monkeypatch, tmp_
             "aria": {"host": "0.0.0.0", "port": 8800},
             "llm": {
                 "model": "anthropic/claude-sonnet-4-5",
-                "api_base": "http://172.31.10.210:4000",
+                "api_base": "http://192.0.2.30:4000",
                 "api_key": "",
                 "temperature": 0.2,
                 "max_tokens": 2048,
@@ -124,7 +124,7 @@ def test_blank_env_values_do_not_erase_existing_runtime_config(monkeypatch, tmp_
             },
             "embeddings": {
                 "model": "text-embedding-3-small",
-                "api_base": "http://172.31.10.210:4000",
+                "api_base": "http://192.0.2.30:4000",
                 "api_key": "",
                 "timeout_seconds": 30,
             },
@@ -139,7 +139,7 @@ def test_blank_env_values_do_not_erase_existing_runtime_config(monkeypatch, tmp_
 
     settings = load_settings(config_path)
 
-    assert settings.llm.api_base == "http://172.31.10.210:4000"
+    assert settings.llm.api_base == "http://192.0.2.30:4000"
     assert settings.llm.model == "anthropic/claude-sonnet-4-5"
-    assert settings.embeddings.api_base == "http://172.31.10.210:4000"
+    assert settings.embeddings.api_base == "http://192.0.2.30:4000"
     assert settings.embeddings.model == "text-embedding-3-small"

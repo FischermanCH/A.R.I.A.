@@ -21,6 +21,7 @@ Zweck:
 
 - Chat-UI unter `/`
 - serverseitiges Rendering mit FastAPI + Jinja2
+- Tool-Box mit direkten Startpunkten fuer Suche, Stats, Activities, kontrollierte Updates, Config-Backup und expliziten Rezept-Lernmodus
 - Message-Details pro Antwort:
   - Intent / Rezept / Capability
   - Token-Anzahl
@@ -97,6 +98,7 @@ Zweck:
 - Notiz anlegen, bearbeiten, löschen und zwischen Ordnern verschieben
 - Markdown-Export pro Notiz
 - Chat-Pfade für natürliches Anlegen, z. B. `notiere ...` oder `halte fest ...`
+- aktive Chats per Toolbox oder `/chat note` als normale Markdown-Notiz archivieren
 - semantische Suche über Qdrant mit lokalem Dateifallback
 - passende Notes können Websuche und Research als Zusatzkontext anreichern
 
@@ -128,6 +130,11 @@ Zweck:
   - `chat_send`
 - Sample-Rezepte für SSH/SFTP/SMB/Discord/RSS liegen unter `samples/recipes`
   - darunter jetzt auch kompakte Vorlagen für RSS-Headlines im Chat, SSH-Disk-Usage und SFTP-Config-Preview
+- Gelernte Rezepte:
+  - erfolgreiche sichere Läufe können als Learned-Recipe-Kandidaten in `/recipes/learned` landen
+  - Chat-Lernmodus in der Tool-Box kann bewusst aus einer kurzen Chat-Sequenz einen Review-Kandidaten erzeugen
+  - Kandidaten bleiben context-only und werden erst nach expliziter Promotion zu ausführbaren gespeicherten Rezepten
+  - LLM-Kuration ergänzt Review-Metadaten; Guardrails, Runtime-Policy und Bestätigungen bleiben deterministisch davor
 
 ## Connections
 
@@ -174,7 +181,7 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - Testposts und Rezept-Ziel-Freigabe konfigurierbar
 - Discord Rezept-Error-Alerts mit gekürzten/sanitized Fehlerdetails
 - HTTP-API- und Webhook-Connections mit eigenen Profilen
-- optionale Basis-URL über `ARIA_PUBLIC_URL` / `aria.public_url` fuer Host-/Link-Hinweise in Messages; interne LAN-URLs wie `http://aria.black.lan/` sind gueltig
+- optionale Basis-URL über `ARIA_PUBLIC_URL` / `aria.public_url` fuer Host-/Link-Hinweise in Messages; interne LAN-URLs wie `http://aria.example.lan/` sind gueltig
 
 ## Websuche / SearXNG
 

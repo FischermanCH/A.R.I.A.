@@ -87,6 +87,22 @@ class CapabilityRouter:
         return False
 
     @staticmethod
+    def looks_like_general_instruction_request(text: str) -> bool:
+        lower = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not lower:
+            return False
+        patterns = (
+            r"\bwie\s+(?:verbinde|verbindet|richte|installiere|konfiguriere|nutze|verwende)\b",
+            r"\bwie\s+kann\s+ich\b.*\b(?:verbinden|einrichten|installieren|konfigurieren|nutzen|verwenden)\b",
+            r"\bwas\s+(?:muss|brauche)\s+ich\b.*\b(?:verbinden|einrichten|installieren|konfigurieren)\b",
+            r"\b(?:anleitung|tutorial)\b.*\b(?:ssh|server|api|webhook|kalender|calendar)\b",
+            r"\bhow\s+(?:do|can)\s+i\b.*\b(?:connect|configure|install|set\s+up|setup|use)\b",
+            r"\bhow\s+to\b.*\b(?:connect|configure|install|set\s+up|setup|use)\b",
+            r"\bwhat\s+do\s+i\s+need\b.*\b(?:connect|configure|install|set\s+up|setup)\b",
+        )
+        return any(re.search(pattern, lower, flags=re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
     def _extract_calendar_range(text: str) -> str:
         lower = str(text or "").strip().lower()
         if not lower:
@@ -617,6 +633,18 @@ class CapabilityRouter:
             marker_terms = (*lexicon.ssh_requested_ref_prepositions, *lexicon.ssh_requested_ref_terms)
         else:
             marker_terms = markers_by_kind.get(kind, ())
+            if not marker_terms:
+                marker_terms = tuple(
+                    sorted(
+                        (
+                            str(item).strip()
+                            for item in connection_routing_spec(kind).requested_ref_prefixes
+                            if str(item).strip()
+                        ),
+                        key=len,
+                        reverse=True,
+                    )
+                )
 
         for marker in marker_terms:
             candidate = cls._requested_ref_candidate_after_term(raw, marker)
@@ -773,6 +801,8 @@ class CapabilityRouter:
             return None
 
         lower = raw.lower()
+        if self.looks_like_general_instruction_request(lower):
+            return None
         lexicon = self._lexicon_for_language(language)
         refs_by_kind = available_connection_refs_by_kind or {"sftp": available_connection_refs}
         explicit_kind, explicit_ref = self._extract_explicit_connection_by_kind(

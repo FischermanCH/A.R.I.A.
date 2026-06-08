@@ -144,7 +144,7 @@ def test_runtime_operation_and_payload_are_contract_backed() -> None:
     ssh = ActionPlan(
         capability="ssh_command",
         connection_kind="ssh",
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         content="uptime -p",
     )
     mqtt = ActionPlan(

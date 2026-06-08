@@ -112,7 +112,7 @@ def test_capability_router_detects_smb_list_for_what_files_are_in_my_share_phras
         },
         available_connection_aliases_by_kind={
             "smb": {
-                "nas-docker": ["mein share", "ronny share"],
+                "nas-docker": ["mein share", "example share"],
             }
         },
     )
@@ -226,6 +226,27 @@ def test_capability_router_does_not_steal_explicit_internet_search_as_feed_read(
         available_connection_refs_by_kind={"rss": ["heise-news"]},
     )
     assert draft is None
+
+
+def test_capability_router_keeps_ssh_howto_as_general_chat() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "wie verbinde ich codex von openai mit meinem ssh developement server",
+        available_connection_refs_by_kind={"ssh": ["ops-mgmt-01"]},
+        available_connection_aliases_by_kind={"ssh": {"ops-mgmt-01": ["management server", "server"]}},
+    )
+    assert draft is None
+
+
+def test_capability_router_still_detects_ssh_health_request() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "sind meine server gesund?",
+        available_connection_refs_by_kind={"ssh": ["dev-node-01", "dev-node-02"]},
+    )
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
 
 
 def test_capability_router_detects_watched_website_read() -> None:
@@ -368,7 +389,7 @@ def test_capability_router_keeps_api_request_out_of_sftp_fallback() -> None:
         "prüfe den status der inventory api",
         available_connection_refs_by_kind={
             "http_api": ["inventory-api"],
-            "sftp": ["rasp-homebridge"],
+            "sftp": ["homebridge-node"],
         },
     )
     assert draft is not None
@@ -575,14 +596,14 @@ def test_capability_router_detects_mqtt_publish() -> None:
 def test_capability_router_detects_ssh_command_on_explicit_profile() -> None:
     router = CapabilityRouter()
     draft = router.classify(
-        "Run uptime on pihole1",
+        "Run uptime on dns-node-01",
         language="en",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == "uptime"
 
 
@@ -591,7 +612,7 @@ def test_capability_router_keeps_unknown_ssh_target_as_requested_ref() -> None:
     draft = router.classify(
         "Run uptime on backup-node",
         language="en",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
@@ -604,13 +625,13 @@ def test_capability_router_keeps_unknown_ssh_target_as_requested_ref() -> None:
 def test_capability_router_detects_ssh_command_with_trimmed_profile_ref() -> None:
     router = CapabilityRouter()
     draft = router.classify(
-        "Führe uptime auf pihole1 aus",
-        available_connection_refs_by_kind={"ssh": [" pihole1 "]},
+        "Führe uptime auf dns-node-01 aus",
+        available_connection_refs_by_kind={"ssh": [" dns-node-01 "]},
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == "uptime"
 
 
@@ -618,17 +639,17 @@ def test_capability_router_detects_natural_ssh_uptime_request_via_alias() -> Non
     router = CapabilityRouter()
     draft = router.classify(
         "Zeig mir die Laufzeit vom primären DNS Server",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
         available_connection_aliases_by_kind={
             "ssh": {
-                "pihole1": ["Pi-hole Primary DNS Server", "dns server"],
+                "dns-node-01": ["Pi-hole Primary DNS Server", "dns server"],
             }
         },
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == ""
 
 
@@ -636,17 +657,17 @@ def test_capability_router_detects_how_long_server_runs_phrase_via_alias() -> No
     router = CapabilityRouter()
     draft = router.classify(
         "Wie lange läuft mein DNS Server schon?",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
         available_connection_aliases_by_kind={
             "ssh": {
-                "pihole1": ["Pi-hole Primary DNS Server", "dns server"],
+                "dns-node-01": ["Pi-hole Primary DNS Server", "dns server"],
             }
         },
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == ""
 
 
@@ -654,17 +675,17 @@ def test_capability_router_detects_how_long_server_is_online_phrase_via_alias() 
     router = CapabilityRouter()
     draft = router.classify(
         "Wie lange ist mein DNS Server schon online?",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
         available_connection_aliases_by_kind={
             "ssh": {
-                "pihole1": ["Pi-hole Primary DNS Server", "dns server"],
+                "dns-node-01": ["Pi-hole Primary DNS Server", "dns server"],
             }
         },
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == ""
 
 
@@ -672,7 +693,7 @@ def test_capability_router_detects_natural_ssh_uptime_request_without_target_for
     router = CapabilityRouter()
     draft = router.classify(
         "Zeig mir die Laufzeit vom primären DNS Server",
-        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
     assert draft is not None
     assert draft.capability == "ssh_command"
@@ -685,7 +706,7 @@ def test_capability_router_detects_status_phrase_for_backup_server() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "prüfe den status vom backup server",
-        available_connection_refs_by_kind={"ssh": ["ubnsrv-netalert", "ubnsrv-mgmt-master"]},
+        available_connection_refs_by_kind={"ssh": ["ops-monitor-01", "ops-mgmt-01"]},
     )
 
     assert draft is not None
@@ -700,7 +721,7 @@ def test_capability_router_detects_how_is_monitoring_server_phrase() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "wie geht es dem monitoring server",
-        available_connection_refs_by_kind={"ssh": ["ubnsrv-netalert", "ubnsrv-mgmt-master"]},
+        available_connection_refs_by_kind={"ssh": ["ops-monitor-01", "ops-mgmt-01"]},
     )
 
     assert draft is not None
@@ -716,12 +737,12 @@ def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_backup
     draft = router.classify(
         "prüfe den status vom backup server",
         available_connection_refs_by_kind={
-            "ssh": ["ubnsrv-mgmt-master", "ubnsrv-backup"],
+            "ssh": ["ops-mgmt-01", "ops-backup-01"],
         },
         available_connection_aliases_by_kind={
             "ssh": {
-                "ubnsrv-mgmt-master": ["server", "management server"],
-                "ubnsrv-backup": ["backup host"],
+                "ops-mgmt-01": ["server", "management server"],
+                "ops-backup-01": ["backup host"],
             }
         },
     )
@@ -739,12 +760,12 @@ def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_monito
     draft = router.classify(
         "wie geht es dem monitoring server",
         available_connection_refs_by_kind={
-            "ssh": ["ubnsrv-mgmt-master", "ubnsrv-netalert"],
+            "ssh": ["ops-mgmt-01", "ops-monitor-01"],
         },
         available_connection_aliases_by_kind={
             "ssh": {
-                "ubnsrv-mgmt-master": ["server", "management server"],
-                "ubnsrv-netalert": ["monitoring host"],
+                "ops-mgmt-01": ["server", "management server"],
+                "ops-monitor-01": ["monitoring host"],
             }
         },
     )
@@ -762,12 +783,12 @@ def test_capability_router_keeps_matching_explicit_ssh_alias_for_management_serv
     draft = router.classify(
         "check health auf management server",
         available_connection_refs_by_kind={
-            "ssh": ["ubnsrv-mgmt-master", "ubnsrv-backup"],
+            "ssh": ["ops-mgmt-01", "ops-backup-01"],
         },
         available_connection_aliases_by_kind={
             "ssh": {
-                "ubnsrv-mgmt-master": ["server", "management server"],
-                "ubnsrv-backup": ["backup server", "backup host"],
+                "ops-mgmt-01": ["server", "management server"],
+                "ops-backup-01": ["backup server", "backup host"],
             }
         },
     )
@@ -775,7 +796,7 @@ def test_capability_router_keeps_matching_explicit_ssh_alias_for_management_serv
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "ubnsrv-mgmt-master"
+    assert draft.explicit_connection_ref == "ops-mgmt-01"
     assert draft.requested_connection_ref == ""
     assert draft.content == ""
 
@@ -784,14 +805,14 @@ def test_capability_router_normalizes_natural_disk_check_to_df_h() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "check mal die festplatte auf meinen dns server",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
-        available_connection_aliases_by_kind={"ssh": {"pihole1": ["dns server"]}},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
+        available_connection_aliases_by_kind={"ssh": {"dns-node-01": ["dns server"]}},
     )
 
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == ""
 
 
@@ -799,7 +820,7 @@ def test_capability_router_does_not_keep_article_fragment_as_requested_ref() -> 
     router = CapabilityRouter()
     draft = router.classify(
         "check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht",
-        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
 
     assert draft is not None
@@ -813,14 +834,14 @@ def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "check mit dem befehl df wieviel festplatte noch frei ist auf meinen dns server",
-        available_connection_refs_by_kind={"ssh": ["pihole1"]},
-        available_connection_aliases_by_kind={"ssh": {"pihole1": ["dns server"]}},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01"]},
+        available_connection_aliases_by_kind={"ssh": {"dns-node-01": ["dns server"]}},
     )
 
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "pihole1"
+    assert draft.explicit_connection_ref == "dns-node-01"
     assert draft.content == ""
 
 
@@ -829,7 +850,7 @@ def test_capability_router_detects_plural_speicherplatz_server_question() -> Non
     router = CapabilityRouter()
     draft = router.classify(
         "hab ich noch genug speicherplatz auf meinen servern ?",
-        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
 
     assert draft is not None
@@ -844,7 +865,7 @@ def test_capability_router_detects_mixed_harddisk_free_space_server_question() -
     router = CapabilityRouter()
     draft = router.classify(
         "hab ich auf all meinen server mehr als 10gb harddisk speicher frei ?",
-        available_connection_refs_by_kind={"ssh": ["pihole1", "pihole2"]},
+        available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
 
     assert draft is not None
@@ -887,7 +908,7 @@ def test_capability_router_keeps_unknown_explicit_discord_target_as_requested_re
     draft = router.classify(
         'Send a test message to Discord alerts-discord "ARIA lives"',
         language="en",
-        available_connection_refs_by_kind={"discord": ["fischerman-aria-messages"]},
+        available_connection_refs_by_kind={"discord": ["demo_user-aria-messages"]},
     )
 
     assert draft is not None
@@ -903,7 +924,7 @@ def test_capability_router_ignores_generic_discord_channel_token_as_requested_re
     draft = router.classify(
         'Send a test message to Discord channel "ARIA lives"',
         language="en",
-        available_connection_refs_by_kind={"discord": ["fischerman-aria-messages"]},
+        available_connection_refs_by_kind={"discord": ["demo_user-aria-messages"]},
     )
 
     assert draft is not None
@@ -919,7 +940,7 @@ def test_capability_router_keeps_multiword_discord_requested_ref_phrase() -> Non
     draft = router.classify(
         'Send a test message to Discord my ops alerts channel "ARIA lives"',
         language="en",
-        available_connection_refs_by_kind={"discord": ["fischerman-aria-messages"]},
+        available_connection_refs_by_kind={"discord": ["demo_user-aria-messages"]},
     )
 
     assert draft is not None

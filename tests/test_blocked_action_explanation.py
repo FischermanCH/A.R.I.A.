@@ -6,7 +6,7 @@ from aria.core.blocked_action_explanation import explain_blocked_action
 class _Response:
     content = (
         "Die Aktion wurde durch eine Sicherheitsrichtlinie blockiert.\n\n"
-        "**Geplante Aktion:** SSH-Befehl `sudo systemctl restart pihole-FTL` auf Ziel `ssh/pihole1`\n\n"
+        "**Geplante Aktion:** SSH-Befehl `sudo systemctl restart pihole-FTL` auf Ziel `ssh/dns-node-01`\n\n"
         "Der Befehl zum Neustart des DNS-Servers ist durch die aktive Guardrail-Konfiguration nicht erlaubt.\n\n"
         "Guardrail pruefen/anpassen: ssh-healtcheck"
     )
@@ -28,11 +28,11 @@ def test_blocked_action_explanation_deduplicates_preview_and_canonicalizes_guard
         result = await explain_blocked_action(
             llm_client=_LLM(),
             user_message="starte meinen dns server neu",
-            fallback_text="ARIA kann diese Aktion auf ssh/pihole1 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
+            fallback_text="ARIA kann diese Aktion auf ssh/dns-node-01 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
             language="de",
             user_id="u1",
             request_id="r1",
-            target="ssh/pihole1",
+            target="ssh/dns-node-01",
             preview="SSH command: sudo systemctl restart pihole-FTL",
             capability="ssh_command",
             policy_reason="ssh_command_not_in_allow_list",
@@ -56,11 +56,11 @@ def test_blocked_action_explanation_times_out_to_fast_fallback() -> None:
         result = await explain_blocked_action(
             llm_client=_SlowLLM(),
             user_message="starte meinen dns server neu",
-            fallback_text="ARIA kann diese Aktion auf ssh/pihole1 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
+            fallback_text="ARIA kann diese Aktion auf ssh/dns-node-01 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
             language="de",
             user_id="u1",
             request_id="r1",
-            target="ssh/pihole1",
+            target="ssh/dns-node-01",
             preview="SSH command: sudo systemctl restart pihole-FTL",
             capability="ssh_command",
             policy_reason="ssh_command_not_in_allow_list",
@@ -114,11 +114,11 @@ def test_blocked_action_explanation_can_skip_llm_for_safety_fast_path() -> None:
         result = await explain_blocked_action(
             llm_client=_LLM(),
             user_message="starte meinen dns server neu",
-            fallback_text="ARIA kann diese Aktion auf ssh/pihole1 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
+            fallback_text="ARIA kann diese Aktion auf ssh/dns-node-01 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
             language="de",
             user_id="u1",
             request_id="r1",
-            target="ssh/pihole1",
+            target="ssh/dns-node-01",
             preview="SSH command: sudo systemctl restart pihole-FTL",
             capability="ssh_command",
             policy_reason="ssh_command_not_in_allow_list",
@@ -133,5 +133,31 @@ def test_blocked_action_explanation_can_skip_llm_for_safety_fast_path() -> None:
         assert "sudo systemctl restart pihole-FTL" in result.text
         assert "[ssh-healtcheck](/config/security?guardrail_ref=ssh-healtcheck)" in result.text
         assert "(/config/security?guardrail_ref=ssh-healtcheck)" in result.text
+
+    asyncio.run(_run())
+
+
+def test_blocked_action_explanation_adds_security_link_for_builtin_ssh_policy_block() -> None:
+    async def _run() -> None:
+        result = await explain_blocked_action(
+            llm_client=_LLM(),
+            user_message="starte meinen dns server neu",
+            fallback_text="ARIA kann diese Aktion auf ssh/dns-node-01 nicht ausfuehren: SSH command: sudo systemctl restart pihole-FTL",
+            language="de",
+            user_id="u1",
+            request_id="r1",
+            target="ssh/dns-node-01",
+            preview="SSH command: sudo systemctl restart pihole-FTL",
+            capability="ssh_command",
+            policy_reason="ssh_command_mutating_operation",
+            policy_reason_label="Mutating SSH commands are blocked.",
+            skip_llm_reason="ssh_policy_block_fast_path",
+            review_link_kind="ssh_policy",
+        )
+
+        assert result.used_llm is False
+        assert "sudo systemctl restart pihole-FTL" in result.text
+        assert "Sicherheitsregeln pruefen/anpassen: [Security Guardrails](/config/security)" in result.text
+        assert "(/config/security)" in result.text
 
     asyncio.run(_run())

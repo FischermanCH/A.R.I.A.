@@ -39,6 +39,7 @@
       <a class="brand brand-home" href="/" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
         <div class="brand-mark">
           <img src="/static/logo-aria-v01.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" alt="{{ agent_name(request, title) }} Logo" class="brand-logo">
+          <span class="brand-logo-rotate" aria-hidden="true"></span>
           <span class="thinking-rings brand-thinking-rings" aria-hidden="true">
             <span class="ring ring-a"></span>
             <span class="ring ring-b"></span>

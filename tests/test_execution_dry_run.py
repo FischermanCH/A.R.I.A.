@@ -11,8 +11,8 @@ from aria.core.execution_dry_run_text import decision_summary
 class _Settings:
     class _Connections:
         ssh = {
-            "pihole1": {
-                "host": "pihole1.lan",
+            "dns-node-01": {
+                "host": "dns-node-01.lan",
                 "user": "root",
                 "guardrail_ref": "safe-ssh",
             }
@@ -82,17 +82,17 @@ class _Settings:
 class _GuardrailRuntimeSettings:
     class _Connections:
         sftp = {
-            "pihole1": {
-                "host": "pihole1.lan",
+            "dns-node-01": {
+                "host": "dns-node-01.lan",
                 "user": "root",
                 "guardrail_ref": "sftp-readonly",
             }
         }
         smb = {
-            "fischer_ronny": {
+            "example_share": {
                 "host": "fileserver.lan",
-                "share": "Fischer_Ronny",
-                "user": "Ronny",
+                "share": "Example_Share",
+                "user": "Example",
                 "guardrail_ref": "smb-readonly",
             }
         }
@@ -134,7 +134,7 @@ def test_payload_dry_run_builds_ssh_run_command() -> None:
     result = build_payload_dry_run(
         "pruef mal den pi-hole",
         settings=_Settings(),
-        routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+        routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
         action_decision={"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"},
     )
 
@@ -151,7 +151,7 @@ def test_payload_dry_run_builds_command_single_from_plan_class_without_template_
     result = build_payload_dry_run(
         "wie geht es dem monitoring server",
         settings=_Settings(),
-        routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+        routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
         action_decision={"found": True, "candidate_kind": "template", "plan_class": "command_single"},
     )
 
@@ -361,7 +361,7 @@ def test_guardrail_confirm_dry_run_allows_safe_health_check() -> None:
             "found": True,
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "content": "uptime",
             "preview": "SSH command: uptime",
             "missing_fields": [],
@@ -373,7 +373,7 @@ def test_guardrail_confirm_dry_run_allows_safe_health_check() -> None:
     assert result["status"] == "ok"
     assert result["decision"]["action"] == "allow"
     assert result["decision"]["guardrail_ref"] == "safe-ssh"
-    assert result["decision"]["agentic_debug"].startswith("Routing Debug: ssh_command_policy ref=pihole1")
+    assert result["decision"]["agentic_debug"].startswith("Routing Debug: ssh_command_policy ref=dns-node-01")
     assert "agentic_source=payload_dry_run" in result["decision"]["agentic_debug"]
     assert "policy=ssh_readonly" in result["decision"]["agentic_debug"]
 
@@ -384,7 +384,7 @@ def test_guardrail_confirm_dry_run_allows_safe_disk_check() -> None:
             "found": True,
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "content": "df -h",
             "preview": "SSH command: df -h",
             "missing_fields": [],
@@ -406,7 +406,7 @@ def test_guardrail_confirm_dry_run_allows_read_only_shell_chain() -> None:
             "found": True,
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "content": "uptime && df -h / && systemctl status netalertx 2>/dev/null || ps aux | grep -i netalert | grep -v grep",
             "preview": "SSH command: uptime && df -h / && systemctl status netalertx 2>/dev/null || ps aux | grep -i netalert | grep -v grep",
             "missing_fields": [],
@@ -442,7 +442,7 @@ def test_guardrail_confirm_dry_run_allows_exact_guardrail_health_bundle() -> Non
             "found": True,
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "content": " && ".join(allow_commands),
             "preview": f"SSH command: {' && '.join(allow_commands)}",
             "missing_fields": [],
@@ -456,7 +456,7 @@ def test_guardrail_confirm_dry_run_allows_exact_guardrail_health_bundle() -> Non
     assert result["status"] == "ok"
     assert result["decision"]["action"] == "allow"
     assert result["decision"]["reason"] == "ssh_command_allow_list_allow"
-    assert result["decision"]["agentic_debug"].startswith("Routing Debug: ssh_command_policy ref=pihole1")
+    assert result["decision"]["agentic_debug"].startswith("Routing Debug: ssh_command_policy ref=dns-node-01")
     assert "agentic_source=payload_dry_run" in result["decision"]["agentic_debug"]
     assert "policy=ssh_readonly" in result["decision"]["agentic_debug"]
 
@@ -495,7 +495,7 @@ def test_guardrail_confirm_dry_run_blocks_denied_ssh_command() -> None:
             "found": True,
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "content": "rm -rf /tmp/test",
             "preview": "SSH command: rm -rf /tmp/test",
             "missing_fields": [],
@@ -509,7 +509,7 @@ def test_guardrail_confirm_dry_run_blocks_denied_ssh_command() -> None:
     assert result["decision"]["reason"] == "guardrail_denied"
     assert result["decision"]["reason_label"] == "Guardrail profile safe-ssh blocks this action."
     assert result["decision"]["summary"] == (
-        "ARIA cannot execute this action on ssh/pihole1: SSH command: rm -rf /tmp/test\n\n"
+        "ARIA cannot execute this action on ssh/dns-node-01: SSH command: rm -rf /tmp/test\n\n"
         "Review/change guardrail: [safe-ssh](/config/security?guardrail_ref=safe-ssh) "
         "(/config/security?guardrail_ref=safe-ssh)"
     )
@@ -547,7 +547,7 @@ def test_guardrail_confirm_dry_run_blocks_ssh_allowlist_mismatch() -> None:
             "found": True,
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "content": "cat /etc/hosts",
             "preview": "SSH command: cat /etc/hosts",
             "missing_fields": [],
@@ -555,15 +555,15 @@ def test_guardrail_confirm_dry_run_blocks_ssh_allowlist_mismatch() -> None:
     }
 
     settings = _Settings()
-    original = list(settings._Connections.ssh["pihole1"].get("allow_commands", []))
-    original_guardrail = settings._Connections.ssh["pihole1"].get("guardrail_ref", "")
-    settings._Connections.ssh["pihole1"]["allow_commands"] = ["uptime", "df -h"]
-    settings._Connections.ssh["pihole1"]["guardrail_ref"] = ""
+    original = list(settings._Connections.ssh["dns-node-01"].get("allow_commands", []))
+    original_guardrail = settings._Connections.ssh["dns-node-01"].get("guardrail_ref", "")
+    settings._Connections.ssh["dns-node-01"]["allow_commands"] = ["uptime", "df -h"]
+    settings._Connections.ssh["dns-node-01"]["guardrail_ref"] = ""
     try:
         result = evaluate_guardrail_confirm_dry_run(settings, payload_debug=payload_debug, language="de")
     finally:
-        settings._Connections.ssh["pihole1"]["allow_commands"] = original
-        settings._Connections.ssh["pihole1"]["guardrail_ref"] = original_guardrail
+        settings._Connections.ssh["dns-node-01"]["allow_commands"] = original
+        settings._Connections.ssh["dns-node-01"]["guardrail_ref"] = original_guardrail
 
     assert result["status"] == "error"
     assert result["decision"]["action"] == "block"
@@ -602,7 +602,7 @@ def test_guardrail_confirm_dry_run_allows_sftp_readonly_list_guardrail() -> None
             "found": True,
             "capability": "file_list",
             "connection_kind": "sftp",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "path": ".",
             "preview": "List remote path: .",
             "missing_fields": [],
@@ -627,7 +627,7 @@ def test_guardrail_confirm_dry_run_allows_smb_readonly_list_guardrail() -> None:
             "found": True,
             "capability": "file_list",
             "connection_kind": "smb",
-            "connection_ref": "fischer_ronny",
+            "connection_ref": "example_share",
             "path": ".",
             "preview": "List share path: .",
             "missing_fields": [],
@@ -722,7 +722,7 @@ def test_blocked_file_write_summary_is_user_friendly() -> None:
     summary = decision_summary(
         action="block",
         language="de",
-        target="sftp/pihole1",
+        target="sftp/dns-node-01",
         preview="Write remote path: test.txt",
         guardrail_ref="sftp-nur-lesen",
     )
@@ -734,7 +734,7 @@ def test_blocked_file_write_summary_is_user_friendly() -> None:
 
 def test_execution_preview_dry_run_reports_allow_path() -> None:
     result = build_execution_preview_dry_run(
-        routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+        routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
         action_decision={"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"},
         payload_debug={
             "payload": {
@@ -750,18 +750,18 @@ def test_execution_preview_dry_run_reports_allow_path() -> None:
     assert result["status"] == "ok"
     assert result["decision"]["next_step"] == "allow"
     assert result["decision"]["next_step_label"] == "Freigeben"
-    assert result["decision"]["target"] == "ssh/pihole1"
+    assert result["decision"]["target"] == "ssh/dns-node-01"
     assert result["decision"]["plan_class"] == ""
     assert result["decision"]["preview"] == "SSH command: uptime"
     assert (
         result["decision"]["summary"]
-        == "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: uptime"
+        == "ARIA wuerde auf ssh/dns-node-01 direkt ausfuehren: SSH command: uptime"
     )
 
 
 def test_execution_preview_dry_run_reports_command_single_plan_class_without_template_id() -> None:
     result = build_execution_preview_dry_run(
-        routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+        routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
         action_decision={"found": True, "candidate_kind": "template", "plan_class": "command_single"},
         payload_debug={
             "payload": {

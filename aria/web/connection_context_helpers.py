@@ -301,11 +301,10 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
                 placeholders={
                     "connection_ref": "z.B. main-ssh",
                     "host": "server.example.local",
-                    "service_url": "https://service.example.local",
                     "user": "admin",
                 },
                 required_fields={"host", "user", "port", "timeout_seconds"},
-                ordered_fields=["host", "service_url", "user", "port", "timeout_seconds"],
+                ordered_fields=["host", "user", "port", "timeout_seconds"],
             ),
             "ssh_new_base_form_fields": _build_schema_form_fields(
                 kind="ssh",
@@ -315,11 +314,10 @@ def build_connection_context_helpers(deps: ConnectionContextHelperDeps) -> Conne
                 placeholders={
                     "connection_ref": "z.B. main-ssh",
                     "host": "server.example.local",
-                    "service_url": "https://service.example.local",
                     "user": "admin",
                 },
                 required_fields={"host", "user", "port", "timeout_seconds"},
-                ordered_fields=["host", "service_url", "user", "port", "timeout_seconds"],
+                ordered_fields=["host", "user", "port", "timeout_seconds"],
             ),
             "ssh_edit_advanced_form_fields": _build_schema_form_fields(
                 kind="ssh",

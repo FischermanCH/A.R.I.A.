@@ -19,6 +19,10 @@ data/skills/
 tests/
 project.docu/
 docs/local/
+docs/AI_CONTEXT.md
+docs/backlog/
+docs/internal/
+docs/release/
 data/chat_history/
 data/qdrant/
 data/runtime/

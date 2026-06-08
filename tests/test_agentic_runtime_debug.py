@@ -10,7 +10,7 @@ def test_runtime_debug_line_exposes_normalized_ssh_execution_boundary() -> None:
     plan = ActionPlan(
         capability="ssh_command",
         connection_kind="ssh",
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         content="uptime -p",
     )
 
@@ -18,7 +18,7 @@ def test_runtime_debug_line_exposes_normalized_ssh_execution_boundary() -> None:
     assert runtime_payload_for_plan(plan) == {"command": "uptime -p"}
     line = runtime_debug_line_for_plan(plan)
 
-    assert line.startswith("Routing Debug: agentic_runtime ref=pihole1")
+    assert line.startswith("Routing Debug: agentic_runtime ref=dns-node-01")
     assert "kind=ssh" in line
     assert "capability=ssh_command" in line
     assert "operation=run_command" in line

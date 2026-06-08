@@ -8,13 +8,13 @@ ARIA is a small self-hosted AI assistant for people who want control instead of 
 
 ## Start here
 
-1. `Quick Start`
-2. `Memory`
-3. `Connections`
-4. `Recipes`
-5. `Releases and Upgrades`
-6. `Pricing`
-7. `Security`
+1. [Quick Start](/help?doc=quick-start)
+2. [Memory](/help?doc=memory)
+3. [Connections](/help?doc=connections)
+4. [Recipes](/help?doc=skills)
+5. [Releases and Upgrades](/help?doc=releases)
+6. [Pricing](/help?doc=pricing)
+7. [Security](/help?doc=security)
 
 ## Current product focus
 
@@ -29,8 +29,8 @@ ARIA is a small self-hosted AI assistant for people who want control instead of 
 
 The same core docs are available locally inside ARIA under `/help`.
 
-- `Alpha-Help-System` for the full local alpha help
-- `Help-System` for documentation maintenance notes
+- [Alpha-Help-System](/help?doc=alpha-help-system) for the full local alpha help
+- [Help-System](/help?doc=help-system) for documentation maintenance notes
 
 ## Core references
 

@@ -52,7 +52,7 @@ You can chat normally or give natural work requests, for example:
 - `is my dns server ok`
 - `check whether my servers still have enough disk space and tell me if action is needed`
 - `check whether the api is reachable`
-- `show me the folders on the Ronny Fischer share`
+- `show me the folders on the Example Share share`
 - `summarize the latest it-security news`
 
 ARIA tries to:
@@ -99,7 +99,7 @@ On `/memories`, you can inspect, search, edit, delete, and export memories. `/me
 
 ## Notes
 
-`/notes` is a standalone Markdown workspace with folder navigation, cards, and an editor. Notes are intentionally separate from Memory, but can be indexed for search.
+`/notes` is a standalone Markdown workspace with folder navigation, cards, and an editor. Notes are intentionally separate from Memory, but can be indexed for search. Active chats can be archived as normal Markdown notes through the chat toolbox or `/chat note`; deleting a note through ARIA also removes the derived Notes index entries from Qdrant.
 
 ## Connections
 

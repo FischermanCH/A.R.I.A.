@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_TAR_DIR="/mnt/NAS/aria-images"
+DEFAULT_TAR_DIR="/var/lib/aria/images"
 
 if [[ ! -d "$DEFAULT_TAR_DIR" ]]; then
   DEFAULT_TAR_DIR="$REPO_ROOT/dist"
@@ -149,7 +149,7 @@ if [[ ! -f "$ENV_FILE" && -f "$TAR_DIR/aria-stack.env" ]]; then
 fi
 [[ -f "$STACK_FILE" ]] || die "Stack-Datei nicht gefunden: $STACK_FILE"
 
-if [[ "$TAR_DIR" == "/mnt/NAS/aria-images" ]]; then
+if [[ "$TAR_DIR" == "/var/lib/aria/images" ]]; then
   log "Nutze NAS-Artefakte aus $TAR_DIR"
 else
   log "NAS nicht verfuegbar, nutze lokalen Fallback: $TAR_DIR"

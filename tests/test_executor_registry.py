@@ -17,10 +17,10 @@ def test_executor_registry_accepts_only_contract_backed_bindings() -> None:
     registry.register("ssh", "ssh_command", _executor)
 
     result = asyncio.run(
-        registry.execute(ActionPlan(capability="ssh_command", connection_kind="ssh", connection_ref="pihole1"))
+        registry.execute(ActionPlan(capability="ssh_command", connection_kind="ssh", connection_ref="dns-node-01"))
     )
 
-    assert result == "ssh:ssh_command:pihole1"
+    assert result == "ssh:ssh_command:dns-node-01"
 
 
 def test_executor_registry_rejects_bindings_missing_from_connection_action_contract() -> None:

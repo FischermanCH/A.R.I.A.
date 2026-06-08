@@ -313,7 +313,7 @@ def test_document_guide_targets_prefer_keyword_matched_document() -> None:
             {
                 "document_id": "mill-doc",
                 "document_name": "Mill Manual.pdf",
-                "collection": "aria_docs_fischerman",
+                "collection": "aria_docs_demo_user",
                 "guide_score": 0.74,
                 "keyword_hits": 1,
                 "text_hits": 2,
@@ -321,7 +321,7 @@ def test_document_guide_targets_prefer_keyword_matched_document() -> None:
             {
                 "document_id": "arlo-doc",
                 "document_name": "Arlo Ultra.pdf",
-                "collection": "aria_docs_fischerman",
+                "collection": "aria_docs_demo_user",
                 "guide_score": 0.71,
                 "keyword_hits": 0,
                 "text_hits": 2,
@@ -344,7 +344,7 @@ def test_document_guide_targets_keep_close_scored_same_keyword_matches() -> None
             {
                 "document_id": "net-1",
                 "document_name": "Network Atlas.pdf",
-                "collection": "aria_docs_fischerman",
+                "collection": "aria_docs_demo_user",
                 "guide_score": 0.82,
                 "keyword_hits": 1,
                 "text_hits": 2,
@@ -352,7 +352,7 @@ def test_document_guide_targets_keep_close_scored_same_keyword_matches() -> None
             {
                 "document_id": "net-2",
                 "document_name": "Network Rack Notes.pdf",
-                "collection": "aria_docs_fischerman",
+                "collection": "aria_docs_demo_user",
                 "guide_score": 0.78,
                 "keyword_hits": 1,
                 "text_hits": 1,

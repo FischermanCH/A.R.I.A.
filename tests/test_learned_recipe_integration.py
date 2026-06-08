@@ -187,21 +187,21 @@ def test_record_routed_action_success_enriches_guardrail_healthcheck_learning() 
     plan = ActionPlan(
         capability="ssh_command",
         connection_kind="ssh",
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         content="uptime -p && df -h && free -h && systemctl --failed --no-pager",
     )
 
     result = record_routed_action_success(
         action=action,
         plan=plan,
-        result_text="Server-Healthcheck fuer pihole1: ok.",
+        result_text="Server-Healthcheck fuer dns-node-01: ok.",
         recorder=_recorder,
         user_message="wie geht es meinem dns server",
     )
 
     assert result == {"ok": True}
-    assert captured["recipe_id"] == "learned-ssh-health-check-pihole1"
-    assert captured["title"] == "Gelernter Server-Healthcheck: pihole1"
+    assert captured["recipe_id"] == "learned-ssh-health-check-dns-node-01"
+    assert captured["title"] == "Gelernter Server-Healthcheck: dns-node-01"
     assert captured["intent"] == "health_check"
     assert captured["inputs"] == {
         "command": "uptime -p && df -h && free -h && systemctl --failed --no-pager",
@@ -215,11 +215,11 @@ def test_record_routed_action_success_enriches_guardrail_healthcheck_learning() 
         "healthcheck",
         "health check",
         "wie geht es",
-        "pihole1",
+        "dns-node-01",
     ]
     assert captured["recipe_scope"] == {
         "connection_kinds": ["ssh"],
-        "connection_refs": ["pihole1"],
+        "connection_refs": ["dns-node-01"],
         "learning_origin": "guardrail_healthcheck_fallback",
     }
     assert captured["user_message"] == "wie geht es meinem dns server"

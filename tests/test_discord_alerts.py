@@ -94,7 +94,7 @@ def test_runtime_host_line_treats_configured_url_as_optional_basis_url() -> None
     configured = Settings.model_validate(
         {
             "llm": {"model": "fake"},
-            "aria": {"public_url": "http://aria.black.lan/"},
+            "aria": {"public_url": "http://aria.example.lan/"},
         }
     )
     wildcard = Settings.model_validate(
@@ -104,7 +104,7 @@ def test_runtime_host_line_treats_configured_url_as_optional_basis_url() -> None
         }
     )
 
-    assert runtime_host_line(configured) == "Host: http://aria.black.lan"
-    with patch("aria.core.runtime_endpoint._detect_lan_ip", return_value="172.31.100.42"):
-        assert runtime_host_line(wildcard) == "Host: http://172.31.100.42:8800"
+    assert runtime_host_line(configured) == "Host: http://aria.example.lan"
+    with patch("aria.core.runtime_endpoint._detect_lan_ip", return_value="192.0.2.29"):
+        assert runtime_host_line(wildcard) == "Host: http://192.0.2.29:8800"
     assert "Public URL" not in runtime_host_line(wildcard)

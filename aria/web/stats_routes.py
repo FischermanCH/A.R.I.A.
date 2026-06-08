@@ -7,6 +7,7 @@ import inspect
 import json
 import os
 import sqlite3
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -177,6 +178,90 @@ def _overall_status(services: list[dict[str, str]]) -> str:
 
 def _pick_text(language: str, de_text: str, en_text: str) -> str:
     return de_text if str(language or "de").strip().lower().startswith("de") else en_text
+
+
+def _build_sidecar_inventory_meta(language: str) -> dict[str, Any]:
+    targets = {
+        "qdrant": "qdrant/qdrant",
+        "searxng": "searxng/searxng",
+        "valkey": "valkey/valkey",
+    }
+    unavailable_row = {
+        "name": _stats_route_text(language, "sidecars_name", "Third-party sidecars"),
+        "status": "ok",
+        "summary": _stats_route_text(
+            language,
+            "sidecars_inventory_unavailable",
+            "Sidecar inventory is not exposed to the ARIA runtime.",
+        ),
+        "detail": _stats_route_text(
+            language,
+            "sidecars_update_note",
+            "Normal updates leave Qdrant/SearXNG/Valkey unchanged; update-all/repair is a deliberate full-stack path.",
+        ),
+        "url": "/updates",
+    }
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}\t{{.Image}}\t{{.Status}}"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=1.5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return unavailable_row
+    if result.returncode != 0:
+        return unavailable_row
+
+    found: dict[str, dict[str, str]] = {}
+    for raw_line in result.stdout.splitlines():
+        parts = raw_line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        name, image, status = (part.strip() for part in parts)
+        name_l = name.lower()
+        image_l = image.lower()
+        for key, image_prefix in targets.items():
+            if key == "searxng" and "valkey" in f"{name_l} {image_l}":
+                continue
+            if image_l.startswith(image_prefix) or key in name_l:
+                found.setdefault(key, {"name": name, "image": image, "status": status})
+
+    if not found:
+        return unavailable_row
+
+    missing = [key for key in targets if key not in found]
+    details = [
+        f"{key}: {row['image']} ({row['status']})"
+        for key, row in found.items()
+    ]
+    if missing:
+        details.append(
+            _stats_route_text(
+                language,
+                "sidecars_missing_detail",
+                "Missing: {items}",
+                items=", ".join(missing),
+            )
+        )
+    return {
+        "name": _stats_route_text(language, "sidecars_name", "Third-party sidecars"),
+        "status": "warn" if missing else "ok",
+        "summary": _stats_route_text(
+            language,
+            "sidecars_visible",
+            "Sidecar containers are visible. Normal updates keep them unchanged.",
+        )
+        if not missing
+        else _stats_route_text(
+            language,
+            "sidecars_partial",
+            "Only part of the expected sidecar group is visible.",
+        ),
+        "detail": " · ".join(details),
+        "url": "/updates",
+    }
 
 
 def _read_meminfo_kb() -> dict[str, int]:
@@ -1612,6 +1697,7 @@ async def _build_health_meta(
             "detail": memory_detail,
         }
     )
+    services.append(_build_sidecar_inventory_meta(language))
 
     security_db = _resolve_runtime_path(base_dir, getattr(settings.security, "db_path", ""))
     try:

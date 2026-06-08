@@ -273,6 +273,16 @@ Unterstützte Step-Typen:
 
 Sample-Rezepte liegen unter `samples/recipes/`.
 
+### Gelernte Rezept-Kandidaten
+
+ARIA trennt bewusst zwischen **Erfahrung**, **Review-Kandidat** und **ausführbarem Rezept**.
+
+- Erfolgreiche, policy-erlaubte Läufe können als Learned-Recipe-Kontext oder Review-Kandidat gespeichert werden.
+- Der Chat-Lernmodus in der Tool-Box startet diesen Prozess explizit: `/lernen start` sammelt beobachtete Chat-Schritte, `/lernen stop` erzeugt einen Kandidaten in `/recipes/learned`.
+- Der Kandidat ist context-only und wird nicht automatisch ausführbar.
+- Erst eine bewusste Promotion erzeugt ein normales Rezept-Manifest.
+- LLMs dürfen dabei Bedeutung, Grenzen und Trigger vorschlagen; Guardrails, Runtime-Policy und Ausführungsentscheidungen bleiben deterministisch.
+
 ---
 
 ## Connection- und Persistenzmodell

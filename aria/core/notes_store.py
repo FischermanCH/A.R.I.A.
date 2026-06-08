@@ -15,6 +15,7 @@ from aria.core.i18n import I18NStore
 
 
 _FRONTMATTER_BOUNDARY = "---"
+_NOTE_PREVIEW_CHARS = 24000
 _NOTES_STORE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 _NOTES_STORE_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "notes_store.json"
 try:
@@ -173,10 +174,14 @@ class NotesStore:
         value = str(parent).replace("\\", "/")
         return "" if value == "." else value
 
-    def _load_note_from_path(self, user_id: str, path: Path) -> NoteRecord | None:
+    def _load_note_from_path(self, user_id: str, path: Path, *, preview_only: bool = False) -> NoteRecord | None:
         user_root = self._user_root(user_id)
         try:
-            raw = path.read_text(encoding="utf-8")
+            if preview_only:
+                with path.open("r", encoding="utf-8") as handle:
+                    raw = handle.read(_NOTE_PREVIEW_CHARS)
+            else:
+                raw = path.read_text(encoding="utf-8")
         except OSError:
             return None
         meta, body = self._split_frontmatter(raw)
@@ -201,17 +206,17 @@ class NotesStore:
             tags=tags,
         )
 
-    def list_notes(self, user_id: str) -> list[NoteRecord]:
+    def list_notes(self, user_id: str, *, preview_only: bool = False) -> list[NoteRecord]:
         notes = [
             note
             for path in self._iter_note_files(user_id)
-            if (note := self._load_note_from_path(user_id, path)) is not None
+            if (note := self._load_note_from_path(user_id, path, preview_only=preview_only)) is not None
         ]
         notes.sort(key=lambda item: (item.folder.lower(), item.updated_at, item.title.lower()), reverse=False)
         notes.sort(key=lambda item: item.updated_at, reverse=True)
         return notes
 
-    def list_folders(self, user_id: str) -> list[str]:
+    def list_folders(self, user_id: str, *, notes: list[NoteRecord] | None = None) -> list[str]:
         folders = {""}
         user_root = self._user_root(user_id)
         for path in user_root.rglob("*"):
@@ -220,16 +225,16 @@ class NotesStore:
             folder = str(path.relative_to(user_root)).replace("\\", "/")
             if folder and folder != ".":
                 folders.add(folder)
-        for note in self.list_notes(user_id):
+        for note in (notes if notes is not None else self.list_notes(user_id, preview_only=True)):
             folders.add(note.folder)
         return sorted(item for item in folders if item != "")
 
-    def resolve_folder_name(self, user_id: str, folder: str | None) -> str:
+    def resolve_folder_name(self, user_id: str, folder: str | None, *, folders: list[str] | None = None) -> str:
         clean_folder = self._normalize_folder(folder)
         if not clean_folder:
             return ""
         requested = clean_folder.lower()
-        for existing in self.list_folders(user_id):
+        for existing in folders if folders is not None else self.list_folders(user_id):
             if str(existing or "").strip().lower() == requested:
                 return str(existing or "").strip()
         return clean_folder

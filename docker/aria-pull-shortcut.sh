@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NAS_DIR="/mnt/NAS/aria-images"
+NAS_DIR="/var/lib/aria/images"
 FALLBACK_DIR="$HOME/aria-images"
 TARGET_DIR="$NAS_DIR"
 

@@ -168,14 +168,14 @@ def test_public_health_request_with_invalid_auth_cookie_does_not_delete_cookie()
 
 
 def test_cookie_namespace_differs_between_ports() -> None:
-    cookie_a = main_mod._cookie_name(AUTH_COOKIE, public_url="http://aria.black.lan:8800")
-    cookie_b = main_mod._cookie_name(AUTH_COOKIE, public_url="http://aria.black.lan:8810")
+    cookie_a = main_mod._cookie_name(AUTH_COOKIE, public_url="http://aria.example.lan:8800")
+    cookie_b = main_mod._cookie_name(AUTH_COOKIE, public_url="http://aria.example.lan:8810")
 
     assert cookie_a != cookie_b
 
 
 def test_cookie_scope_prefers_request_host_over_configured_public_url() -> None:
-    host = "aria.black.lan:8820"
+    host = "aria.example.lan:8820"
     request = Request(
         {
             "type": "http",
@@ -188,12 +188,12 @@ def test_cookie_scope_prefers_request_host_over_configured_public_url() -> None:
                 (b"host", host.encode("utf-8")),
             ],
             "client": ("127.0.0.1", 1234),
-            "server": ("aria.black.lan", 8820),
+            "server": ("aria.example.lan", 8820),
         }
     )
 
     expected = main_mod._cookie_name(AUTH_COOKIE, public_url=f"http://{host}")
-    actual = main_mod._cookie_name(AUTH_COOKIE, request=request, public_url="http://aria.black.lan:8810")
+    actual = main_mod._cookie_name(AUTH_COOKIE, request=request, public_url="http://aria.example.lan:8810")
 
     assert actual == expected
 
@@ -256,7 +256,7 @@ def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None
 
 
 def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() -> None:
-    host = "aria.black.lan:8810"
+    host = "aria.example.lan:8810"
     valid_cookie = main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope())
     cookie_header = "; ".join(
         [
@@ -277,7 +277,7 @@ def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() ->
                 (b"cookie", cookie_header.encode("utf-8")),
             ],
             "client": ("127.0.0.1", 1234),
-            "server": ("aria.black.lan", 8810),
+            "server": ("aria.example.lan", 8810),
         }
     )
     request.state.cookie_public_url = ""
@@ -287,7 +287,7 @@ def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() ->
 
 
 def test_legacy_auth_cookie_is_ignored_when_no_namespaced_cookie_exists() -> None:
-    host = "aria.black.lan:8810"
+    host = "aria.example.lan:8810"
     legacy_cookie = main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope())
     request = Request(
         {
@@ -302,7 +302,7 @@ def test_legacy_auth_cookie_is_ignored_when_no_namespaced_cookie_exists() -> Non
                 (b"cookie", f"{AUTH_COOKIE}={legacy_cookie}".encode("utf-8")),
             ],
             "client": ("127.0.0.1", 1234),
-            "server": ("aria.black.lan", 8810),
+            "server": ("aria.example.lan", 8810),
         }
     )
     request.state.cookie_public_url = f"http://{host}"
@@ -313,7 +313,7 @@ def test_legacy_auth_cookie_is_ignored_when_no_namespaced_cookie_exists() -> Non
 
 def test_auth_cookie_from_other_instance_scope_is_rejected() -> None:
     client = TestClient(app)
-    foreign_scope = main_mod._cookie_scope_source(public_url="http://aria.black.lan:8810")
+    foreign_scope = main_mod._cookie_scope_source(public_url="http://aria.example.lan:8810")
     client.cookies.set(
         _current_cookie_name(AUTH_COOKIE),
         main_mod._encode_auth_session("whity", "admin", scope=foreign_scope),

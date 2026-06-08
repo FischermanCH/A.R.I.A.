@@ -132,6 +132,20 @@ def _board_notes(
     return rows, selected_note
 
 
+def _replace_note(notes: list[NoteRecord], replacement: NoteRecord) -> list[NoteRecord]:
+    rows: list[NoteRecord] = []
+    replaced = False
+    for note in notes:
+        if note.note_id == replacement.note_id:
+            rows.append(replacement)
+            replaced = True
+        else:
+            rows.append(note)
+    if not replaced:
+        rows.append(replacement)
+    return rows
+
+
 def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
     def _store() -> NotesStore:
         return deps.build_notes_store(deps.base_dir / "data" / "notes")
@@ -149,14 +163,21 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
         create_mode: bool = False,
         search_query: str = "",
         search_results: list[dict[str, Any]] | None = None,
+        store: NotesStore | None = None,
+        notes: list[NoteRecord] | None = None,
+        folders: list[str] | None = None,
+        selected_note: NoteRecord | None = None,
     ) -> HTMLResponse:
         settings = deps.get_settings()
         username = deps.get_username_from_request(request) or "web"
         lang = str(getattr(request.state, "lang", "de") or "de")
-        store = _store()
-        notes = store.list_notes(username)
-        folders = store.list_folders(username)
-        selected_note = None if create_mode else (store.get_note(username, selected_note_id) if selected_note_id else None)
+        store = store or _store()
+        notes = notes if notes is not None else store.list_notes(username, preview_only=True)
+        folders = folders if folders is not None else store.list_folders(username, notes=notes)
+        if selected_note is None and not create_mode and selected_note_id:
+            selected_note = store.get_note(username, selected_note_id)
+            if selected_note is not None:
+                notes = _replace_note(notes, selected_note)
         if selected_note is not None and selected_folder == _ALL_FOLDER_TOKEN:
             selected_folder = _folder_token(selected_note.folder)
         board_notes, selected_note = _board_notes(
@@ -204,15 +225,23 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
         username = deps.get_username_from_request(request) or "web"
         selected = str(note or "").strip()
         selected_folder = str(folder or _ALL_FOLDER_TOKEN).strip() or _ALL_FOLDER_TOKEN
+        store = _store()
+        known_notes = store.list_notes(username, preview_only=True)
+        folders = store.list_folders(username, notes=known_notes)
         if selected_folder not in {_ALL_FOLDER_TOKEN, _ROOT_FOLDER_TOKEN}:
-            selected_folder = _store().resolve_folder_name(username, selected_folder)
+            selected_folder = store.resolve_folder_name(username, selected_folder, folders=folders)
         search_query = str(q or "").strip()
         info_message = str(info or "").strip()
         error_message = str(error or "").strip()
         search_results: list[dict[str, Any]] = []
-        known_notes = _store().list_notes(username)
         known_note_ids = {item.note_id for item in known_notes}
         known_note_ids_by_title = {item.title.strip().lower(): item.note_id for item in known_notes if item.title.strip()}
+        selected_note = None if bool(new) or not selected else store.get_note(username, selected)
+        if selected_note is not None:
+            known_notes = _replace_note(known_notes, selected_note)
+            known_note_ids.add(selected_note.note_id)
+            if selected_note.title.strip():
+                known_note_ids_by_title[selected_note.title.strip().lower()] = selected_note.note_id
         if search_query:
             notes_index = _index()
             try:
@@ -280,6 +309,10 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
             error_message=error_message,
             search_query=search_query,
             search_results=search_results,
+            store=store,
+            notes=known_notes,
+            folders=folders,
+            selected_note=selected_note,
         )
 
     @app.post("/notes/save")

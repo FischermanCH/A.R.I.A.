@@ -1344,6 +1344,24 @@ def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
     assert not any(group["key"] == "admin" for group in toolbox_groups)
 
 
+def test_build_chat_command_catalog_shows_chat_learn_mode_controls() -> None:
+    entries, group_titles, toolbox_groups = build_chat_command_catalog(
+        lang="de",
+        auth_role="user",
+        advanced_mode=False,
+        recall_templates=[],
+        store_templates=[],
+        recipe_trigger_hints=[],
+        chat_learn_active=True,
+    )
+
+    assert group_titles["learning"] == "Lernmodus"
+    assert any(entry["group"] == "learning" and entry["insert"].strip() == "/lernen stop" for entry in entries)
+    assert any(entry["group"] == "learning" and entry["insert"].strip() == "/lernen abbrechen" for entry in entries)
+    learning_group = next(group for group in toolbox_groups if group["key"] == "learning")
+    assert len(learning_group["items"]) == 2
+
+
 def test_build_chat_command_catalog_localizes_visible_inserts_for_english() -> None:
     entries, _group_titles, _toolbox_groups = build_chat_command_catalog(
         lang="en",

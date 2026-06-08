@@ -33,12 +33,12 @@ class _JSONLLM:
 class _DryRunSettings:
     class _Connections:
         ssh = {
-            "pihole1": {
-                "host": "pihole1.lan",
+            "dns-node-01": {
+                "host": "dns-node-01.lan",
                 "user": "root",
                 "guardrail_ref": "safe-ssh",
             },
-            "pihole-open": {"host": "pihole1.lan", "user": "root"},
+            "pihole-open": {"host": "dns-node-01.lan", "user": "root"},
         }
         http_api = {
             "inventory-api": {
@@ -121,14 +121,14 @@ def test_free_form_file_list_defaults_to_share_root_without_llm() -> None:
     action_debug, updated_draft, debug_line = asyncio.run(
         apply_agentic_file_operation_resolution(
             client=llm,
-            message='zeige mir die folder auf dem share "Ronny Fischer"',
-            routing_decision={"kind": "smb", "ref": "fischer_ronny"},
+            message='zeige mir die folder auf dem share "Example Share"',
+            routing_decision={"kind": "smb", "ref": "example_share"},
             action_debug={"decision": {"candidate_kind": "template", "plan_class": "file_list_basic"}},
             capability_draft=draft,
             build_file_target_dossier=lambda kind, ref, user_id="": {
                 "kind": kind,
                 "connection_ref": ref,
-                "share": "Fischer_Ronny",
+                "share": "Example_Share",
                 "allowed_operations": ["list", "read"],
             },
             extract_json_object=json.loads,
@@ -166,7 +166,7 @@ def test_ssh_health_status_replaces_blocked_uptime_with_allowed_guardrail_bundle
         apply_agentic_ssh_command_resolution(
             client=llm,
             message="ist mein dns server ok",
-            routing_decision={"kind": "ssh", "ref": "pihole1"},
+            routing_decision={"kind": "ssh", "ref": "dns-node-01"},
             action_debug={
                 "decision": {
                     "candidate_kind": "template",

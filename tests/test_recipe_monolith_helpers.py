@@ -23,7 +23,7 @@ def test_build_recipe_status_text_groups_core_and_custom_recipes() -> None:
                 "name": "DNS Health",
                 "enabled": False,
                 "description": "Checks DNS health.",
-                "connections": ["ssh/pihole1"],
+                "connections": ["ssh/dns-node-01"],
             }
         ],
         auto_memory_enabled=True,
@@ -35,7 +35,7 @@ def test_build_recipe_status_text_groups_core_and_custom_recipes() -> None:
     assert "[Core] Auto-Memory" in text
     assert "[Core] Web Search" in text
     assert "[Custom] DNS Health" in text
-    assert "Connections: ssh/pihole1" in text
+    assert "Connections: ssh/dns-node-01" in text
 
 
 def test_recipes_manifest_actions_delete_manifest_and_config(monkeypatch, tmp_path) -> None:

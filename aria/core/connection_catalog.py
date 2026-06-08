@@ -286,6 +286,7 @@ CONNECTION_CATALOG: dict[str, dict[str, Any]] = {
         "ref_query": "sftp_ref",
         "toolbox_keywords": ["sftp", "ssh datei", "dateiserver", "remote file", "server datei"],
         "semantic_suffixes": ["server", "host", "sftp"],
+        "requested_ref_prefixes": ["sftp verbindung", "sftp profil", "sftp profile", "sftp connection", "sftp"],
         "routing_supported_actions": [
             "read file",
             "list directory",

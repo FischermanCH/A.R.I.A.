@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable
 
@@ -34,34 +35,6 @@ def _ssh_agentic_terms(language: str | None, key: str, defaults: tuple[str, ...]
     return tuple(dict.fromkeys([*terms, *defaults]))
 
 
-_HEALTHCHECK_REQUEST_TERMS = (
-    "health",
-    "healthcheck",
-    "health check",
-    "server health",
-    "status",
-    "zustand",
-    "wie geht",
-    "geht es",
-    "how is",
-    "how's",
-    "check",
-    "diagnose",
-) + _ssh_agentic_terms("de", "healthcheck_terms", ())
-
-_COMPREHENSIVE_HEALTHCHECK_REQUEST_TERMS = (
-    "health",
-    "healthcheck",
-    "health check",
-    "server health",
-    "diagnose",
-    "diagnostik",
-    "wie geht",
-    "geht es",
-    "how is",
-    "how's",
-)
-
 _MUTATING_REQUEST_TERMS = (
     "delete",
     "remove",
@@ -77,6 +50,31 @@ _GENERIC_STATUS_COMMANDS = {
     "uptime -p",
 }
 
+def _text_blob(*values: Any) -> str:
+    parts: list[str] = []
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            parts.extend(str(item or "").strip() for item in value if str(item or "").strip())
+        else:
+            clean = str(value or "").strip()
+            if clean:
+                parts.append(clean)
+    text = " ".join(parts).lower()
+    return "".join(
+        char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char)
+    )
+
+
+def _dossier_semantic_text(dossier: dict[str, Any]) -> str:
+    return _text_blob(
+        dossier.get("ref", ""),
+        dossier.get("title", ""),
+        dossier.get("description", ""),
+        dossier.get("service_url", ""),
+        dossier.get("aliases", []),
+        dossier.get("tags", []),
+    )
+
 
 def _guardrail_healthcheck_commands(dossier: dict[str, Any]) -> list[str]:
     commands: list[str] = []
@@ -88,16 +86,6 @@ def _guardrail_healthcheck_commands(dossier: dict[str, Any]) -> list[str]:
         if policy.action == "allow":
             commands.append(command)
     return commands
-
-
-def _looks_like_healthcheck_request(message: str, reason: str = "") -> bool:
-    text = f"{message} {reason}".strip().lower()
-    return any(term in text for term in _HEALTHCHECK_REQUEST_TERMS)
-
-
-def _looks_like_comprehensive_healthcheck_request(message: str, reason: str = "") -> bool:
-    text = f"{message} {reason}".strip().lower()
-    return any(term in text for term in _COMPREHENSIVE_HEALTHCHECK_REQUEST_TERMS)
 
 
 def _looks_like_mutating_request(message: str) -> bool:
@@ -135,7 +123,7 @@ def _guardrail_healthcheck_fallback(
     if _looks_like_mutating_request(message):
         return "", []
     clean_intent = str(guardrail_intent or "").strip().lower()
-    if clean_intent not in {"health_check", "status_check"} and not _looks_like_healthcheck_request(message, reason):
+    if clean_intent not in {"health_check", "status_check"}:
         return "", []
     commands = _guardrail_healthcheck_commands(dossier)
     if not commands:
@@ -520,10 +508,7 @@ async def apply_agentic_ssh_command_resolution(
         ) or (
             bool(fallback_command)
             and not explicit_existing_command
-            and (
-                str(guardrail_intent.get("intent", "") or "") in {"health_check", "status_check"}
-                or _looks_like_comprehensive_healthcheck_request(str(message or "").strip(), str(decision.get("reason", "") or ""))
-            )
+            and str(guardrail_intent.get("intent", "") or "") in {"health_check", "status_check"}
             and command != fallback_command
         )
         if should_use_guardrail_bundle:
@@ -722,10 +707,7 @@ async def apply_agentic_ssh_command_resolution(
     ) or (
         bool(fallback_command)
         and not explicit_resolved_command
-        and (
-            str(guardrail_intent.get("intent", "") or "") in {"health_check", "status_check"}
-            or _looks_like_comprehensive_healthcheck_request(str(message or "").strip(), reason)
-        )
+        and str(guardrail_intent.get("intent", "") or "") in {"health_check", "status_check"}
         and command != fallback_command
     )
     if should_use_guardrail_bundle:

@@ -64,7 +64,7 @@ def test_managed_setup_writes_repair_capable_stack_helper(tmp_path: Path) -> Non
             "--http-port",
             "8810",
             "--public-url",
-            "http://aria.black.lan:8810",
+            "http://aria.example.lan:8810",
             "--force",
             "--no-start",
         ],

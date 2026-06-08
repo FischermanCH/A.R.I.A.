@@ -52,7 +52,7 @@ Im Chat kannst du normal fragen oder natuerliche Arbeitsauftraege geben, zum Bei
 - `ist mein dns server ok`
 - `check mal die festplatten von meinen servern und melde mir falls handlungsbedarf besteht`
 - `pruef ob die api erreichbar ist`
-- `zeige mir die folder auf dem share Ronny Fischer`
+- `zeige mir die folder auf dem share Example Share`
 - `mach mir eine zusammenfassung der letzten it-security news`
 
 ARIA versucht dann:
@@ -99,7 +99,7 @@ Auf `/memories` kannst du Erinnerungen ansehen, suchen, bearbeiten, loeschen und
 
 ## Notizen
 
-Unter `/notes` gibt es einen eigenstaendigen Markdown-Arbeitsbereich mit Ordnernavigation, Kartenansicht und Editor. Notizen sind bewusst von Memory getrennt, koennen aber fuer Suche indiziert werden.
+Unter `/notes` gibt es einen eigenstaendigen Markdown-Arbeitsbereich mit Ordnernavigation, Kartenansicht und Editor. Notizen sind bewusst von Memory getrennt, koennen aber fuer Suche indiziert werden. Aktive Chats lassen sich in der Chat-Toolbox oder mit `/chat note` als normale Markdown-Notiz archivieren; beim Loeschen einer Note ueber ARIA wird auch der dazugehoerige Notes-Index in Qdrant bereinigt.
 
 ## Connections
 

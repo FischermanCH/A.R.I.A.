@@ -44,7 +44,7 @@ ARIA is now much closer to the intended controlled agentic design: LLMs help int
 - `habe ich auf meinen servern überall mehr als zehn gigabyte reserve auf der festplatte?` reports hosts below the threshold.
 - `mach mir eine zusammenfassung der letzten 10 it-security news` returns up to 10 visible linked entries and explains skipped feeds.
 - `starte meinen dns server neu` is blocked and shows the guardrail review path.
-- `zeige mir die folder auf dem share Ronny Fischer` separates folders from file examples.
+- `zeige mir die folder auf dem share Example Share` separates folders from file examples.
 - Discord send prompts ask for confirmation and send after the one-click action.
 
 Full technical details are in `CHANGELOG.md`.

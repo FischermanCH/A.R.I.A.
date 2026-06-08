@@ -42,6 +42,21 @@ def guardrail_config_link(guardrail_ref: str, language: str | None = None) -> st
     return f"{label}: [{clean_ref}]({href}) ({href})"
 
 
+def security_guardrails_link(language: str | None = None) -> str:
+    href = "/config/security"
+    label = _blocked_text(
+        language,
+        "security_link_label",
+        "Review security rules",
+    )
+    target = _blocked_text(
+        language,
+        "security_link_target",
+        "Security Guardrails",
+    )
+    return f"{label}: [{target}]({href}) ({href})"
+
+
 def _guardrail_block_fallback_text(*, target: str, guardrail_ref: str, language: str | None) -> str:
     clean_ref = str(guardrail_ref or "").strip()
     if not clean_ref:
@@ -157,7 +172,14 @@ def _looks_like_safe_block_explanation(text: str) -> bool:
     return not any(marker in clean for marker in unsafe_suggestions)
 
 
-def _ensure_context_lines(*, text: str, preview: str, guardrail_ref: str, language: str | None) -> str:
+def _ensure_context_lines(
+    *,
+    text: str,
+    preview: str,
+    guardrail_ref: str,
+    language: str | None,
+    review_link_kind: str = "",
+) -> str:
     base_text = _strip_weak_guardrail_link_lines(text, guardrail_ref=guardrail_ref, language=language)
     lines = [base_text]
     clean_preview = str(preview or "").strip()
@@ -170,6 +192,8 @@ def _ensure_context_lines(*, text: str, preview: str, guardrail_ref: str, langua
         )
         lines.append(planned)
     link = guardrail_config_link(guardrail_ref, language)
+    if not link and str(review_link_kind or "").strip() == "ssh_policy":
+        link = security_guardrails_link(language)
     if link and "/config/security" not in "\n".join(lines):
         lines.append(link)
     return "\n\n".join(line for line in lines if line).strip()
@@ -201,6 +225,7 @@ async def explain_blocked_action(
     guardrail_text: str = "",
     timeout_seconds: float = 4.0,
     skip_llm_reason: str = "",
+    review_link_kind: str = "",
 ) -> BlockedActionExplanation:
     fallback_source = _guardrail_block_fallback_text(
         target=target,
@@ -212,6 +237,7 @@ async def explain_blocked_action(
         preview=preview,
         guardrail_ref=guardrail_ref,
         language=language,
+        review_link_kind=review_link_kind,
     )
     if skip_llm_reason:
         return BlockedActionExplanation(text=fallback, debug_line=_fallback_debug(skip_llm_reason))
@@ -220,6 +246,8 @@ async def explain_blocked_action(
 
     lang = "de" if str(language or "").strip().lower().startswith("de") else "en"
     link = guardrail_config_link(guardrail_ref, language)
+    if not link and str(review_link_kind or "").strip() == "ssh_policy":
+        link = security_guardrails_link(language)
     system = (
         "You write the user-facing explanation for an ARIA action that has already been blocked by policy/guardrails. "
         "Never change or question the decision. Never suggest bypassing policy. "
@@ -265,7 +293,13 @@ async def explain_blocked_action(
     if not _looks_like_safe_block_explanation(text):
         return BlockedActionExplanation(text=fallback, debug_line=_fallback_debug("llm_unusable"))
 
-    text = _ensure_context_lines(text=text, preview=preview, guardrail_ref=guardrail_ref, language=language)
+    text = _ensure_context_lines(
+        text=text,
+        preview=preview,
+        guardrail_ref=guardrail_ref,
+        language=language,
+        review_link_kind=review_link_kind,
+    )
     return BlockedActionExplanation(
         text=text,
         debug_line=(

@@ -72,6 +72,47 @@ def test_web_search_skill_filters_results_without_meaningful_query_overlap() -> 
     assert [item.title for item in ordered] == ["Rabbit R1 wird zum Android-Agent"]
 
 
+def test_web_search_skill_prefers_release_sources_for_current_version_queries() -> None:
+    skill = WebSearchSkill(settings=object())
+    results = [
+        SearXNGSearchResult(
+            title="Claude Code bekommt Sprachmodus",
+            url="https://t3n.de/news/claude-code-bekommt-sprachmodus-1732349/",
+            snippet="News zu Claude Code ohne konkrete Release-Version.",
+            engine="bing news",
+            published_at="2026-03-04T10:00:00+00:00",
+            published_label="2026-03-04",
+        ),
+        SearXNGSearchResult(
+            title="Releases · anthropics/claude-code",
+            url="https://github.com/anthropics/claude-code/releases",
+            snippet="Latest releases and tags for Claude Code.",
+            engine="duckduckgo",
+        ),
+        SearXNGSearchResult(
+            title="@anthropic-ai/claude-code",
+            url="https://www.npmjs.com/package/@anthropic-ai/claude-code",
+            snippet="Official npm package with current version information.",
+            engine="brave",
+        ),
+        SearXNGSearchResult(
+            title="version",
+            url="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/version",
+            snippet="Manifest version field documentation.",
+            engine="mdn",
+        ),
+    ]
+
+    ordered = skill._prepare_results("Claude Code current version latest release", results)  # type: ignore[attr-defined]
+
+    assert [item.title for item in ordered[:2]] == [
+        "Releases · anthropics/claude-code",
+        "@anthropic-ai/claude-code",
+    ]
+    assert all("news" not in item.engine for item in ordered[:2])
+    assert all("mozilla.org" not in item.url for item in ordered[:2])
+
+
 def test_web_search_skill_localizes_english_output() -> None:
     class FakeClient:
         async def search(self, **kwargs):

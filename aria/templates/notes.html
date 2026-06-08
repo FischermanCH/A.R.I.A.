@@ -50,7 +50,8 @@
         {% endfor %}
       </nav>
 
-      <div class="notes-sidebar-foot">
+      <details class="notes-sidebar-foot notes-sidebar-management">
+        <summary>{{ tr(request, 'notes.manage_folders', 'Ordner verwalten') }}</summary>
         {% if selected_folder not in ['__all__', '__root__'] %}
         <form method="post" action="/notes/folders/rename" class="notes-folder-create-form">
           <label for="rename_folder_name">{{ tr(request, 'notes.folder_rename_title', 'Aktiven Ordner umbenennen') }}</label>
@@ -64,7 +65,7 @@
           <input id="new_folder_name" name="folder" type="text" placeholder="{{ tr(request, 'notes.folder_placeholder', 'z. B. Projekte/ARIA') }}" required>
           <button type="submit">{{ tr(request, 'notes.folder_create_button', 'Ordner erstellen') }}</button>
         </form>
-      </div>
+      </details>
     </aside>
 
     <section class="notes-workspace">

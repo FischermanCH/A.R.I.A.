@@ -96,10 +96,10 @@ The goal is to stay lean, understandable, and extensible.
 
 ARIA was not created by a human alone, and not by AI alone.
 
-It was built through a real long-form collaboration between **Fischerman** and **AI coding/research systems**:
+It was built through a real long-form collaboration between the project maintainer and AI coding/research systems:
 
 - **Codex** played a major role in implementation, debugging, refactoring, release preparation, and day-to-day product iteration
-- the broader **masterplan and architectural direction** were shaped in collaboration between **Fischerman** and **Claude.ai**
+- the broader **masterplan and architectural direction** were shaped in collaboration with Claude.ai
 
 That means ARIA is itself a product of the workflow it represents:
 human direction, AI acceleration, shared iteration, and a lot of stubborn refinement.
@@ -137,11 +137,11 @@ Not the current target:
 - Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
 - Chat details now show document recall sources with file name, collection, and chunk reference
 - pre-alpha web search via self-hosted `SearXNG`, with a fixed in-stack target URL, slim search profiles, and source lines in chat details
-- Chat toolbox includes direct phrases for web search, stats, activities, controlled updates, and config-backup helpers; the same actions can now also be triggered from chat instead of only through the respective pages
+- Chat toolbox includes direct phrases for web search, stats, activities, controlled updates, config-backup helpers, and explicit Recipe Learn Mode; the same actions can now also be triggered from chat instead of only through the respective pages
 - Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
 - `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
 - Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, SearXNG, Webhook, SMTP, IMAP, and MQTT
-- Recipes as JSON manifests with a browser wizard, import/export, learned recipe review, and bundled sample recipes
+- Recipes as JSON manifests with a browser wizard, import/export, learned recipe review, chat-driven review-only learn mode, and bundled sample recipes
 - `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset
 - Read-only `/help` and `/product-info`
 - OpenAI-compatible endpoint `POST /v1/chat/completions`
@@ -151,6 +151,11 @@ Not the current target:
 ## Recent alpha highlights
 
 - Recipes are now the visible automation model; legacy Skills remain only as compatibility bridges where needed
+- chat Recipe Learn Mode can create review-only learned recipe candidates from an explicit observed chat run without activating anything automatically
+- the chat toolbox can save the current chat history as a Markdown Note, with Notes search reindexing when the Notes index is enabled
+- Notes now has a calmer desktop/mobile workspace with consistent ARIA form styling and contained long titles, URLs, tags, and folder labels
+- general how-to/product questions filter weak or mixed local Memory/RAG context, so unrelated manuals are not shown as sources unless the user explicitly asks for local notes/documents
+- `/help` home entries now link directly to Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security, and local help-system docs
 - agentic action flow: ARIA enriches context, lets an LLM propose bounded action drafts, then lets policy/guardrails decide execution
 - multi-target SSH read-only checks can summarize fleet health without forcing one stale target
 - `/stats` now shows token/cost coverage, pricing source status, Model Gateway Audit, and Recipe Experience Memory
@@ -268,6 +273,10 @@ Managed update rules:
 - admin-triggered browser update:
   - `/updates`
 
+When Docker container metadata is exposed to the ARIA runtime, `/stats#runtime-health` also shows the visible Qdrant/SearXNG/Valkey sidecar images and status. Missing Docker visibility is informational; it does not mean the install is unhealthy.
+
+After a deliberate full-stack sidecar update, verify `/health`, `/stats#runtime-health`, one memory/notes-backed chat question, one web search, and `/updates`.
+
 If a managed ARIA install already exists, `aria-setup` detects that and upgrades it instead of creating an accidental second install.
 
 ### Option 2: manual Docker Compose
@@ -349,6 +358,7 @@ Important:
   - or `/updates` in the UI
   - or a controlled update directly from chat for admin users
   - use `./aria-stack.sh update-all` or `./aria-stack.sh repair` only when a release note or recovery step explicitly calls for full-stack work
+  - after deliberate sidecar/full-stack work, verify `/health`, `/stats#runtime-health`, memory/notes, web search, and `/updates`
 - host-side helper for multi-stack or fixed-tag installs:
   - `docker/aria-host-update.sh detect`
   - `docker/aria-host-update.sh update --project <name> --dry-run`
@@ -613,8 +623,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha298`
-- `alpha298` is the current public alpha rollup after `alpha266`: Google Calendar now uses a simple read-only iCal setup, Guardrails can be drafted with AI and tested before use, connection pages are more consistent, `/stats` has clearer cost/log hygiene, and colloquial server-health prompts route reliably through the controlled SSH health path.
+- Current public alpha release: `0.1.0-alpha331`
+- `alpha331` is the public alpha rollup after `alpha298`: it adds chat Recipe Learn Mode, chat-to-Notes archiving, a polished and faster Notes workspace, stronger RAG/source hygiene for general chat, clickable `/help` entry links, modularized chat-context filtering, the generic routed capability execution handler, improved current-version/web-research freshness, and refreshed ARIA logo/favicons with a cleaner busy animation.
 
 ## One-line summary
 
@@ -643,10 +653,10 @@ Das Ziel ist, klein, verständlich und erweiterbar zu bleiben.
 
 ARIA wurde weder allein von einem Menschen noch allein von einer KI gebaut.
 
-Das Projekt ist aus einer echten, langen Zusammenarbeit zwischen **Fischerman** und **KI-gestützten Entwicklungs- und Research-Systemen** entstanden:
+Das Projekt ist aus einer echten, langen Zusammenarbeit zwischen Projekt-Maintainer und KI-gestützten Entwicklungs- und Research-Systemen entstanden:
 
 - **Codex** war maßgeblich an Implementierung, Debugging, Refactoring, Release-Vorbereitung und der täglichen Produktentwicklung beteiligt
-- der größere **Masterplan und die architektonische Leitlinie** entstanden in Zusammenarbeit zwischen **Fischerman** und **Claude.ai**
+- der größere **Masterplan und die architektonische Leitlinie** entstanden in Zusammenarbeit mit Claude.ai
 
 ARIA ist damit selbst ein Ergebnis genau der Arbeitsweise, die es unterstützen soll:
 menschliche Richtung, KI als Beschleuniger, gemeinsame Iteration und sehr viel hartnäckige Feinarbeit.
@@ -682,6 +692,7 @@ Aktuell **nicht** gedacht für:
 - Qdrant-Memory mit typisierten Collections, gewichtetem Recall und JSON-Export
 - Connection-Seiten für SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP und MQTT
 - Rezepte als JSON-Manifeste mit Wizard, Import/Export, Learned-Recipe-Review und mitgelieferten Sample-Rezepten
+- Chat-Tool-Box mit explizitem Rezept-Lernmodus: aus einer bewusst gestarteten Chat-Sequenz kann ein Review-Kandidat entstehen, aber kein automatisch aktives Rezept
 - `Statistiken` unter `/stats` mit Health, Token-/Kosten-Stats, Connection-Status, Aktivitäten und Reset
 - Read-only `/help` und `/product-info`
 - CLI-Schnellcheck via `aria --version` und `aria version-check`
@@ -692,9 +703,15 @@ Aktuell **nicht** gedacht für:
 ## Neu in der aktuellen Alpha-Linie
 
 - Rezepte sind jetzt das sichtbare Automationsmodell; Legacy-Skills bleiben nur als Kompatibilitaetsbruecken erhalten
+- Der Chat-Lernmodus erzeugt reviewbare Learned-Recipe-Kandidaten aus bewusst beobachteten Chatlaeufen, ohne Guardrails oder Promotion zu umgehen
+- Aktive Chatverlaeufe koennen als Markdown-Notiz archiviert und bei aktivem Notes-Index direkt fuer die Notizsuche neu indiziert werden
+- Die Notes-Seite ist ruhiger, konsistenter und mobil besser bedienbar; lange Titel, URLs, Tags und Ordnerlabels bleiben innerhalb der Karten
+- Allgemeine How-to-/Produktfragen filtern schwache oder gemischte lokale Memory-/RAG-Quellen aus, damit unpassende Handbuecher nicht als Quellen erscheinen
+- `/help` hat klickbare Einstiegspunkte fuer Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security und lokale Help-System-Dokumente
 - Agentic Action Flow: ARIA reichert Kontext an, laesst ein LLM begrenzte Action-Drafts vorschlagen und laesst Policy/Guardrails ueber Ausfuehrung entscheiden
 - Multi-Target-SSH kann sichere read-only Checks ueber mehrere Server zusammenfassen
 - `/stats` zeigt Token/Kosten, Pricing-Quellen, Model Gateway Audit und Recipe Experience Memory deutlich sichtbarer
+- `/stats#runtime-health` kann sichtbare Third-party-Sidecars wie Qdrant, SearXNG und Valkey anzeigen; normale Updates lassen diese Dienste weiter unangetastet
 - Managed Public Updates sind sicherer: normales Update recreatet nur `aria`, Qdrant/SearXNG/Valkey bleiben unangetastet
 - natuerliche Laufzeit-/Online-Fragen wie `Wie lange ist mein DNS Server schon online?` koennen direkt auf SSH `uptime` geroutet werden
 - Runtime-Reloads tauschen ihren Live-Bundle jetzt atomar aus, was Config-Saves und Profilwechsel robuster macht
@@ -947,7 +964,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Aktuelle Public Alpha: `0.1.0-alpha298`. Dieser Stand buendelt den Google-Calendar-iCal-Pfad, KI-gestuetzte Guardrail-Vorschlaege, konsistentere Connection-Seiten, klarere Kosten-/Log-Hygiene in `/stats` und robustere frei formulierte Server-Health-Fragen.
+Aktueller Public-Alpha-Release: `0.1.0-alpha331`. Dieser Stand buendelt Chat-Lernmodus, Chat-Archivierung in Notizen, eine ruhigere und schnellere Notes-Oberflaeche, bessere RAG-/Quellenhygiene fuer allgemeine Chatfragen, klickbare `/help`-Einstiege, modularisierte Chat-Kontextfilterung, die generische routed Capability Execution, bessere Freshness-Websuche fuer aktuelle Versions- und Recherchefragen sowie das neue ARIA-Logo mit sauberer Busy-Animation.
 
 ## Ein-Satz-Zusammenfassung
 

@@ -21,6 +21,19 @@ def test_summarize_ssh_result_for_chat_disk_only() -> None:
     assert summary == "Festplattencheck für `server-main`: Root-Dateisystem /: 28% belegt, 28G frei (ok)."
 
 
+def test_summarize_ssh_result_for_chat_uptime_since() -> None:
+    result = SimpleNamespace(
+        metadata={
+            "custom_command": "uptime -s",
+            "custom_stdout": "2026-03-03 23:23:57\n",
+        },
+    )
+
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dns-node-01", language="de")
+
+    assert summary == "Kurzcheck für `dns-node-01`: Erreichbar. Läuft seit 2026-03-03 23:23:57."
+
+
 def test_summarize_ssh_result_for_chat_full_healthcheck() -> None:
     result = SimpleNamespace(
         metadata={
@@ -41,10 +54,10 @@ def test_summarize_ssh_result_for_chat_full_healthcheck() -> None:
         },
     )
 
-    summary = summarize_ssh_result_for_chat(result, connection_ref="pihole1", language="de")
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dns-node-01", language="de")
 
     assert summary == (
-        "Server-Healthcheck für `pihole1`: Laufzeit 2 weeks, 3 days. "
+        "Server-Healthcheck für `dns-node-01`: Laufzeit 2 weeks, 3 days. "
         "Root-Dateisystem /: 28% belegt, 28G frei (ok). Verfügbarer RAM: 3.4Gi (ok). "
         "Systemd: keine fehlgeschlagenen Units. "
         "Journal: keine aktuellen Fehler im abgefragten Boot-Log-Ausschnitt. "
@@ -72,10 +85,10 @@ def test_summarize_ssh_result_for_chat_full_healthcheck_english() -> None:
         },
     )
 
-    summary = summarize_ssh_result_for_chat(result, connection_ref="pihole1", language="en")
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dns-node-01", language="en")
 
     assert summary == (
-        "Server health check for `pihole1`: Uptime up 2 weeks, 3 days. "
+        "Server health check for `dns-node-01`: Uptime up 2 weeks, 3 days. "
         "Root filesystem /: 28% used, 28G free (ok). Available RAM: 3.4Gi (ok). "
         "Systemd: no failed units. "
         "Journal: no recent error entries in the sampled boot log. "
@@ -98,15 +111,15 @@ def test_summarize_ssh_result_for_chat_full_healthcheck_with_findings() -> None:
                 "Mem:           3.7Gi       3.0Gi       150Mi       1.5Gi       500Mi       700Mi\n"
                 "Swap:          2.0Gi       300Mi       1.7Gi\n"
                 "1 loaded units listed.\n"
-                "May 04 12:10:11 pihole1 kernel: I/O error on device sda\n"
+                "May 04 12:10:11 dns-node-01 kernel: I/O error on device sda\n"
             ),
         },
     )
 
-    summary = summarize_ssh_result_for_chat(result, connection_ref="pihole1", language="de")
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dns-node-01", language="de")
 
     assert summary == (
-        "Server-Healthcheck für `pihole1`: Laufzeit 1 day. "
+        "Server-Healthcheck für `dns-node-01`: Laufzeit 1 day. "
         "Root-Dateisystem /: 94% belegt, 1.5G frei (knapp). Verfügbarer RAM: 700Mi (knapp). "
         "Systemd: 1 fehlgeschlagene Units. "
         "Journal: 1 ernsthafte Storage-/Dateisystem-Fehlerzeilen; Platte und Dateisystem zeitnah pruefen. "
@@ -129,13 +142,13 @@ def test_summarize_ssh_result_for_chat_full_healthcheck_humanizes_auth_noise() -
                 "Mem:           3.7Gi       430Mi       250Mi       1.5Gi       3.1Gi       3.4Gi\n"
                 "Swap:             0B          0B          0B\n"
                 "0 loaded units listed.\n"
-                "Apr 12 03:00:02 debsrv-pihole sudo[211347]: pam_unix(sudo:auth): conversation failed\n"
-                "Apr 12 03:00:02 debsrv-pihole sudo[211347]: pam_unix(sudo:auth): conversation failed\n"
+                "Apr 12 03:00:02 dns-node-01 sudo[211347]: pam_unix(sudo:auth): conversation failed\n"
+                "Apr 12 03:00:02 dns-node-01 sudo[211347]: pam_unix(sudo:auth): conversation failed\n"
             ),
         },
     )
 
-    summary = summarize_ssh_result_for_chat(result, connection_ref="pihole1", language="de")
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dns-node-01", language="de")
 
     assert "pam_unix" not in summary
     assert "conversation failed" not in summary

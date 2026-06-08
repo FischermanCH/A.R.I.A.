@@ -42,7 +42,7 @@ Zweck: kurze, wiederholbare Pruefliste fuer interne Alpha-Builds, bevor ein Buil
 7. Prompt: `prüf ob die api erreichbar ist`
    - Erwartung: konfiguriertes HTTP-API-Profil wird geprueft, kein RAG/Chat-Ausweichen.
 
-8. Prompt: `zeige mir die folder auf dem share Ronny Fischer`
+8. Prompt: `zeige mir die folder auf dem share Example Share`
    - Erwartung: SMB Root-Listing ohne Rueckfrage nach Pfad.
 
 9. Prompt: `schick eine testnachricht an discord: <build-label> läuft`

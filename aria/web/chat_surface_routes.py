@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -10,6 +11,8 @@ from fastapi.templating import Jinja2Templates
 
 from aria.core.stored_recipe_manifest_view import stored_recipe_candidate_metadata
 from aria.core.stored_recipe_manifest_view import stored_recipe_trigger_values
+from aria.core.chat_learn_mode import chat_learn_mode_active
+from aria.core.chat_learn_mode import chat_learn_mode_event_count
 from aria.web.stored_recipe_ui import build_stored_recipe_toolbox_row
 
 
@@ -35,6 +38,7 @@ CookieSetter = Callable[..., None]
 
 @dataclass(frozen=True)
 class ChatSurfaceRouteDeps:
+    base_dir: Path
     templates: Jinja2Templates
     get_settings: SettingsGetter
     get_username_from_request: UsernameResolver
@@ -93,6 +97,8 @@ def register_chat_surface_routes(app: FastAPI, deps: ChatSurfaceRouteDeps) -> No
         chat_history = deps.load_chat_history(username) if username else []
         auth_role = deps.sanitize_role(auth.get("role"))
         client_recipe_progress_hints = deps.build_client_recipe_progress_hints(stored_recipe_manifests)
+        learn_active = chat_learn_mode_active(deps.base_dir, username=username or "web", session_id=session_id)
+        learn_event_count = chat_learn_mode_event_count(deps.base_dir, username=username or "web", session_id=session_id)
         chat_command_entries, chat_command_group_titles, chat_toolbox_groups = deps.build_chat_command_catalog(
             lang=lang,
             auth_role=auth_role,
@@ -113,6 +119,7 @@ def register_chat_surface_routes(app: FastAPI, deps: ChatSurfaceRouteDeps) -> No
                 for item in chat_history[-8:]
                 if isinstance(item, dict) and str(item.get("text", "")).strip()
             ],
+            chat_learn_active=learn_active,
         )
         response = deps.templates.TemplateResponse(
             request=request,
@@ -129,6 +136,8 @@ def register_chat_surface_routes(app: FastAPI, deps: ChatSurfaceRouteDeps) -> No
                 "chat_command_entries": chat_command_entries,
                 "chat_command_group_titles": chat_command_group_titles,
                 "chat_toolbox_groups": chat_toolbox_groups,
+                "chat_learn_active": learn_active,
+                "chat_learn_event_count": learn_event_count,
                 "active_memory_collection": active_collection,
                 "active_session_collection": session_collection,
                 "auto_memory_enabled": auto_memory_enabled,

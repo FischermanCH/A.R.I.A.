@@ -112,6 +112,7 @@ async def execute_chat_flow(
     session_collection: str,
     auto_memory_enabled: bool,
     deps: ChatExecutionDeps,
+    pipeline_message: str | None = None,
 ) -> ChatResponseState:
     response_state = ChatResponseState()
 
@@ -224,8 +225,9 @@ async def execute_chat_flow(
 
     response_state.badge_details = []
     try:
+        effective_message = str(pipeline_message or clean_message or "").strip()
         result = await deps.pipeline.process(
-            clean_message,
+            effective_message,
             user_id=username,
             source="web",
             language=lang,

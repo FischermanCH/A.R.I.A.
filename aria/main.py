@@ -405,6 +405,26 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "icon": "security",
         "group": "reference",
     },
+    {
+        "id": "alpha-help-system",
+        "label_i18n": "help.doc_alpha_help_system",
+        "label_default": "Alpha Help System",
+        "path": "docs/wiki/Alpha-Help-System.md",
+        "summary_i18n": "help.doc_alpha_help_system_summary",
+        "summary_default": "Full practical alpha help covering chat, memory, connections, recipes, costs, updates, and security.",
+        "icon": "help",
+        "group": "reference",
+    },
+    {
+        "id": "help-system",
+        "label_i18n": "help.doc_help_system",
+        "label_default": "Help System",
+        "path": "docs/wiki/Help-System.md",
+        "summary_i18n": "help.doc_help_system_summary",
+        "summary_default": "Documentation maintenance notes for keeping local help and wiki content aligned.",
+        "icon": "files",
+        "group": "reference",
+    },
 )
 HELP_DOC_MAP = {entry["id"]: entry for entry in HELP_DOC_CATALOG}
 HELP_DOC_GROUPS: tuple[dict[str, str], ...] = (
@@ -973,6 +993,7 @@ def _build_app() -> FastAPI:
     register_chat_surface_routes(
         app,
         ChatSurfaceRouteDeps(
+            base_dir=BASE_DIR,
             templates=TEMPLATES,
             get_settings=lambda: settings,
             get_username_from_request=_get_username_from_request,
@@ -1223,6 +1244,7 @@ def _build_app() -> FastAPI:
                 read_raw_config=lambda: globals()["_read_raw_config"](),
             ),
             append_chat_history=chat_history_store.append_exchange,
+            load_chat_history=chat_history_store.load_history,
             clear_chat_history=chat_history_store.clear_history,
             clear_capability_context=capability_context_store.clear_user,
             session_cookie=SESSION_COOKIE,

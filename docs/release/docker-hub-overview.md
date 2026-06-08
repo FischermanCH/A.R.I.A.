@@ -20,19 +20,19 @@ Repository and full documentation:
 
 Current public alpha release on Docker Hub:
 
-- `0.1.0-alpha298`
+- `0.1.0-alpha331`
 
 Current public alpha focus:
 
-- Guardrails are easier to create and review: admins can ask for an AI-generated Guardrail proposal, inspect/edit it, test examples, and only then save it.
-- Google Calendar uses a simple read-only secret iCal URL setup instead of the fragile LAN-hosted OAuth/device-code path.
-- Connection detail pages are more consistent across SSH, SFTP, SMB, Webhook, HTTP API, mail, RSS, MQTT, Calendar, SearXNG, and websites.
-- Guardrail assignment is more visible, scoped Guardrails only appear on compatible connection kinds, and runtime blocks explain the security decision more clearly.
-- Multi-target SSH health prompts such as "wie fit sind meine server?" route through the broad read-only health check and summarize all targets.
-- `/stats` now has clearer cost-estimate wording, local billing-period reset, log retention hygiene, actionable Operator Guardrail details, and better deep links.
-- Runtime logs, token/cost logs, activity logs, and redacted LLM debug logs default to 90-day retention to avoid silent disk growth.
-- Discord system events now report the configured ARIA base URL or a detected local address instead of warning about a missing public URL.
-- The recipe-first, LLM-assisted action flow from previous public releases remains: LLMs draft/summarize, deterministic policy and Guardrails decide execution.
+- Chat Recipe Learn Mode can create review-only learned recipe candidates from an explicit observed chat run. Learned candidates never become active automatically.
+- Chats can be archived into Notes; the Notes workspace is faster, calmer, mobile-friendly, and handles long titles, URLs, tags, and folders without horizontal overflow.
+- General how-to/product/version answers filter weak local Memory/RAG context unless the user explicitly asks for local notes, documents, or memory.
+- Explicit web-research and current-version prompts can trigger Web Search freshness context, with source lines in chat details.
+- `/help` landing entries are clickable and route directly to Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security, and help-system docs.
+- Connection/action routing is more LLM-first for ambiguous language, while deterministic policy, Guardrails, confirmations, and runtime validation still decide execution.
+- Multi-target SSH checks are faster through bounded parallelism and better group scoping for role phrases such as developer servers.
+- `/stats` includes cost estimates, local billing-period reset, Operator Guardrail details, Runtime Health, third-party sidecar visibility, and safer update-path reporting.
+- The ARIA logo and browser icons were refreshed, and the global busy indicator now uses a cleaner holographic logo animation.
 
 ## What you need
 

@@ -25,6 +25,9 @@ def register_connection_metadata_routes(app: FastAPI, deps: ConnectionMetadataRo
     async def config_connections_ssh_suggest_metadata(
         request: Request,
         connection_ref: str = "",
+        host: str = "",
+        user: str = "",
+        port: str = "",
         service_url: str = "",
         connection_title: str = "",
         connection_description: str = "",
@@ -33,16 +36,20 @@ def register_connection_metadata_routes(app: FastAPI, deps: ConnectionMetadataRo
     ) -> JSONResponse:
         lang = str(getattr(request.state, "lang", "de") or "de")
         clean_service_url = str(service_url or "").strip()
-        if not clean_service_url:
+        clean_host = str(host or "").strip()
+        if not clean_service_url and not clean_host:
             return JSONResponse(
                 {
                     "ok": False,
-                    "error": deps.msg(lang, "Service-URL fehlt.", "Service URL is missing."),
+                    "error": deps.msg(lang, "Host/IP oder Service-URL fehlt.", "Host/IP or service URL is missing."),
                 },
                 status_code=400,
             )
         suggestion = await deps.suggest_ssh_metadata_with_llm(
             service_url=clean_service_url,
+            host=clean_host,
+            user=str(user or "").strip(),
+            port=str(port or "").strip(),
             connection_ref=deps.sanitize_connection_name(connection_ref),
             current_title=str(connection_title or "").strip(),
             current_description=str(connection_description or "").strip(),

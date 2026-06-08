@@ -514,6 +514,9 @@ def build_connection_reader_helpers(deps: ConnectionReaderHelperDeps) -> Connect
     async def _suggest_ssh_metadata_with_llm(
             *,
             service_url: str,
+            host: str = "",
+            user: str = "",
+            port: str = "",
             connection_ref: str,
             current_title: str,
             current_description: str,
@@ -521,13 +524,31 @@ def build_connection_reader_helpers(deps: ConnectionReaderHelperDeps) -> Connect
             current_tags: str,
             lang: str,
         ) -> dict[str, Any]:
-            seed = _extract_ssh_service_seed(service_url)
+            clean_service_url = str(service_url or "").strip()
+            clean_host = str(host or "").strip()
+            clean_user = str(user or "").strip()
+            clean_port = str(port or "").strip()
+            if clean_service_url:
+                seed = _extract_ssh_service_seed(clean_service_url)
+                source_label = "Service URL"
+                source_value = clean_service_url
+            else:
+                host_short = clean_host.split(".", 1)[0].replace("-", " ")
+                seed = {
+                    "service_title": clean_host or connection_ref,
+                    "service_description": "SSH host profile",
+                    "keywords": [item for item in ["ssh", clean_user, host_short] if item],
+                    "host": clean_host,
+                    "aliases": [item for item in [connection_ref, clean_host, host_short] if item],
+                }
+                source_label = "SSH host"
+                source_value = f"{clean_user + '@' if clean_user else ''}{clean_host}{':' + clean_port if clean_port else ''}"
             return await suggest_connection_metadata_with_llm(
                 getattr(pipeline, "llm_client", None),
                 connection_kind_label="SSH",
                 connection_ref=connection_ref,
-                source_label="Service URL",
-                source_value=service_url,
+                source_label=source_label,
+                source_value=source_value,
                 detected_title=seed["service_title"],
                 detected_description=seed["service_description"],
                 detected_keywords=seed["keywords"],
@@ -539,7 +560,7 @@ def build_connection_reader_helpers(deps: ConnectionReaderHelperDeps) -> Connect
                 lang=lang,
                 goal_text=(
                     "Goal: produce user-friendly metadata that helps ARIA route chat requests to this SSH connection. "
-                    "Aliases should reflect how someone would naturally refer to the service behind this host."
+                    "Aliases should reflect how someone would naturally refer to this host or the service behind it."
                 ),
             )
 

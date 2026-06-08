@@ -75,8 +75,16 @@
         <div class="chat-tools" data-open="false">
           <button type="button" class="chat-tools-toggle" aria-expanded="false" aria-controls="chat-toolbox-panel">
             <span class="toolbox-summary-label"><span class="toolbox-summary-icon">🧰</span>{{ tr(request, 'chat.toolbox', 'Tool-Box') }}</span>
+            {% if chat_learn_active %}<span class="toolbox-live-badge">{{ tr(request, 'chat.learn_mode_live', 'Lernen aktiv') }}</span>{% endif %}
           </button>
           <div id="chat-toolbox-panel" class="toolbox-groups" hidden>
+            {% if chat_learn_active %}
+            <div class="toolbox-learn-status">
+              <strong>{{ tr(request, 'chat.learn_mode_live', 'Lernen aktiv') }}</strong>
+              <span>{{ tr(request, 'chat.learn_mode_status', 'ARIA sammelt beobachtete Chat-Schritte fuer einen spaeteren Review-Kandidaten.') }}</span>
+              <small>{{ tr(request, 'chat.learn_mode_events', 'Beobachtete Schritte') }}: {{ chat_learn_event_count }}</small>
+            </div>
+            {% endif %}
             {% for group in chat_toolbox_groups %}
             <details class="toolbox-group" {% if group["key"] == "suggested" %}open{% endif %}>
               <summary class="toolbox-group-title"><span class="toolbox-group-title-main"><span class="toolbox-group-icon">{{ group.get("icon", "•") }}</span>{{ group["title"] }}</span></summary>
@@ -563,6 +571,24 @@
       currentRequestController.abort();
     }
 
+    function isLearnModeCommand(message) {
+      const text = String(message || "").trim().toLowerCase().replace(/\s+/g, " ");
+      return [
+        "/lernen start",
+        "/learn start",
+        "/rezept lernen",
+        "/recipe learn",
+        "/lernen stop",
+        "/learn stop",
+        "/rezept fertig",
+        "/recipe done",
+        "/lernen abbrechen",
+        "/learn cancel",
+        "/rezept abbrechen",
+        "/recipe cancel"
+      ].includes(text);
+    }
+
     function looksLikeRecipeExecution(message) {
       const text = String(message || "").trim().toLowerCase();
       if (!text) return false;
@@ -651,6 +677,7 @@
         await clearChatHistory();
         return;
       }
+      let shouldRefreshToolbox = false;
 
       const pendingUserNode = appendUserMessage(displayMessage || message);
       if (clearComposer) {
@@ -718,6 +745,7 @@
           appendErrorMessage(uiText.parseError);
         }
         updateChatState();
+        shouldRefreshToolbox = isLearnModeCommand(message);
       } catch (err) {
         pendingAssistantNode.remove();
         pendingUserNode.classList.remove("pending-user");
@@ -734,6 +762,11 @@
         messages.scrollTop = messages.scrollHeight;
         textarea.focus();
         hideSlashMenu();
+        if (shouldRefreshToolbox) {
+          window.setTimeout(function () {
+            window.location.reload();
+          }, 450);
+        }
       }
     }
 

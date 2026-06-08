@@ -106,12 +106,12 @@ def _memory_skill() -> MemorySkill:
 def test_recipe_experience_memory_text_keeps_context_without_executor_contract() -> None:
     text = build_recipe_experience_memory_text(
         {
-            "recipe_id": "learned-ssh-health-check-pihole1",
-            "title": "Gelernter Server-Healthcheck: pihole1",
+            "recipe_id": "learned-ssh-health-check-dns-node-01",
+            "title": "Gelernter Server-Healthcheck: dns-node-01",
             "user_message": "wie geht es meinem dns server",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "chosen_action": "uptime -p && df -h",
             "inputs": {"learned_from_command": "uptime"},
@@ -137,7 +137,7 @@ def test_recipe_experience_memory_text_keeps_context_without_executor_contract()
     assert "Learning reason: Same pattern, different wording." in text
     assert "Generalization: Useful for read-only health checks." in text
     assert "Limits: Do not restart services." in text
-    assert "Target fingerprint: ssh|pihole1" in text
+    assert "Target fingerprint: ssh|dns-node-01" in text
     assert "Action fingerprint: ssh_command|health_check|uptime-p-df-h" in text
 
 
@@ -147,7 +147,7 @@ def test_normalize_recipe_experience_memory_entry_adds_stable_fingerprints() -> 
             "recipe_id": " learned-health ",
             "intent": "Health_Check",
             "connection_kind": "SSH",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "SSH_COMMAND",
             "chosen_action": "uptime -p && df -h",
             "router_keywords": [" dns server ", "", "health"],
@@ -163,21 +163,21 @@ def test_normalize_recipe_experience_memory_entry_adds_stable_fingerprints() -> 
     assert row["router_keywords"] == ["dns server", "health"]
     assert row["learned_from_action"] == "uptime"
     assert row["learning_origin"] == "guardrail_healthcheck_fallback"
-    assert row["target_fingerprint"] == "ssh|pihole1"
+    assert row["target_fingerprint"] == "ssh|dns-node-01"
     assert row["action_fingerprint"] == "ssh_command|health_check|uptime-p-df-h"
-    assert row["experience_fingerprint"] == "ssh|pihole1|ssh_command|health_check|uptime-p-df-h"
+    assert row["experience_fingerprint"] == "ssh|dns-node-01|ssh_command|health_check|uptime-p-df-h"
 
 
 def test_store_and_search_recipe_experience_memory_round_trips_context_only() -> None:
     async def _run() -> None:
         skill = _memory_skill()
         entry = {
-            "recipe_id": "learned-ssh-health-check-pihole1",
-            "title": "Gelernter Server-Healthcheck: pihole1",
+            "recipe_id": "learned-ssh-health-check-dns-node-01",
+            "title": "Gelernter Server-Healthcheck: dns-node-01",
             "user_message": "wie geht es meinem dns server",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "chosen_action": "uptime -p && df -h && free -h",
             "promotion_state": "observed",
@@ -190,16 +190,16 @@ def test_store_and_search_recipe_experience_memory_round_trips_context_only() ->
             user_id="u1",
             query="wie geht es meinem dns server",
             connection_kind="ssh",
-            connection_ref="pihole1",
+            connection_ref="dns-node-01",
         )
 
         assert stored["stored"] is True
         assert stored["collection"] == recipe_experience_collection_for_user("u1")
         assert len(rows) == 1
-        assert rows[0]["recipe_id"] == "learned-ssh-health-check-pihole1"
+        assert rows[0]["recipe_id"] == "learned-ssh-health-check-dns-node-01"
         assert rows[0]["chosen_action"] == "uptime -p && df -h && free -h"
         assert rows[0]["promotion_state"] == "observed"
-        assert rows[0]["target_fingerprint"] == "ssh|pihole1"
+        assert rows[0]["target_fingerprint"] == "ssh|dns-node-01"
         assert rows[0]["action_fingerprint"] == "ssh_command|health_check|uptime-p-df-h-free-h"
         assert rows[0]["semantic_score"] == 0.9
         assert rows[0]["score"] > rows[0]["semantic_score"]
@@ -211,12 +211,12 @@ def test_recipe_experience_memory_keeps_distinct_actions_for_same_recipe() -> No
     async def _run() -> None:
         skill = _memory_skill()
         base = {
-            "recipe_id": "learned-ssh-health-check-pihole1",
-            "title": "Gelernter Server-Healthcheck: pihole1",
+            "recipe_id": "learned-ssh-health-check-dns-node-01",
+            "title": "Gelernter Server-Healthcheck: dns-node-01",
             "user_message": "wie geht es meinem dns server",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "experience_count": 2,
         }
@@ -228,7 +228,7 @@ def test_recipe_experience_memory_keeps_distinct_actions_for_same_recipe() -> No
             user_id="u1",
             query="wie geht es meinem dns server",
             connection_kind="ssh",
-            connection_ref="pihole1",
+            connection_ref="dns-node-01",
             top_k=5,
         )
 
@@ -242,12 +242,12 @@ def test_delete_recipe_experience_memory_removes_all_points_for_recipe() -> None
     async def _run() -> None:
         skill = _memory_skill()
         base = {
-            "recipe_id": "learned-ssh-health-check-pihole1",
-            "title": "Gelernter Server-Healthcheck: pihole1",
+            "recipe_id": "learned-ssh-health-check-dns-node-01",
+            "title": "Gelernter Server-Healthcheck: dns-node-01",
             "user_message": "wie geht es meinem dns server",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "experience_count": 2,
         }
@@ -263,14 +263,14 @@ def test_delete_recipe_experience_memory_removes_all_points_for_recipe() -> None
         deleted = await delete_recipe_experience_memory(
             skill,
             user_id="u1",
-            recipe_id="learned-ssh-health-check-pihole1",
+            recipe_id="learned-ssh-health-check-dns-node-01",
         )
         rows = await search_recipe_experience_memory(
             skill,
             user_id="u1",
             query="wie geht es meinem dns server",
             connection_kind="ssh",
-            connection_ref="pihole1",
+            connection_ref="dns-node-01",
             top_k=5,
         )
 
@@ -286,10 +286,10 @@ def test_recipe_experience_debug_lines_mark_context_only_policy() -> None:
 
     rows = [
         {
-            "recipe_id": "learned-ssh-health-check-pihole1",
-            "title": "Gelernter Server-Healthcheck: pihole1",
+            "recipe_id": "learned-ssh-health-check-dns-node-01",
+            "title": "Gelernter Server-Healthcheck: dns-node-01",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "chosen_action": "uptime -p && df -h && free -h",
             "experience_count": 3,
             "score": 0.91,
@@ -303,8 +303,8 @@ def test_recipe_experience_debug_lines_mark_context_only_policy() -> None:
     assert "worked_action=uptime -p && df -h && free -h" in context["recipe_experience"]
     assert debug_lines[0] == "Planner: recipe_experience_context policy=context_only executor=bounded_candidate_guardrails"
     assert debug_lines[1] == (
-        "Planner: recipe_experience hit `learned-ssh-health-check-pihole1` "
-        "score=0.910 semantic=0.910 target=ssh/pihole1 successes=3 worked_action=uptime -p && df -h && free -h"
+        "Planner: recipe_experience hit `learned-ssh-health-check-dns-node-01` "
+        "score=0.910 semantic=0.910 target=ssh/dns-node-01 successes=3 worked_action=uptime -p && df -h && free -h"
     )
 
 
@@ -318,7 +318,7 @@ def test_recipe_experience_promotion_builds_review_candidate_without_executor() 
             "title": "DNS health",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "chosen_action": "uptime -p && df -h",
             "experience_count": 2,

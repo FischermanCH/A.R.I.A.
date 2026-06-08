@@ -4,18 +4,37 @@
     <span>{{ tr(request, 'config_conn.meta_hint', 'Diese Angaben helfen ARIA, Verbindungen natürlicher zu erkennen und später auch modularer zu erweitern.') }}</span>
   </div>
   {% if meta_llm_kind %}
-  <div class="inline-actions">
-    <button
-      type="button"
-      class="button-link subtle-link"
-      data-connection-meta-llm-kind="{{ meta_llm_kind|e }}"
-      data-connection-meta-prefix="{{ meta_prefix|e }}"
-      data-connection-meta-endpoint="{{ meta_llm_endpoint|e }}"
-      data-connection-meta-source-fields="{{ (meta_llm_source_fields or [])|join(',')|e }}"
-      data-default-label="{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}"
-      data-loading-label="{{ tr(request, 'config_conn.meta_llm_suggest_loading', 'LLM denkt nach ...') }}"
-    >{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}</button>
+  <div class="connection-meta-llm-row{% if meta_show_service_url_field %} with-source-field{% endif %}">
+    {% if meta_show_service_url_field %}
+    <div class="connection-meta-source-field">
+      <label for="{{ meta_prefix }}_service_url">{{ tr(request, 'config_conn.ssh_service_url', 'Service-URL (optional)') }}</label>
+      <input
+        id="{{ meta_prefix }}_service_url"
+        name="service_url"
+        type="url"
+        value="{{ meta_values.service_url or '' }}"
+        maxlength="300"
+        placeholder="https://service.example.local"
+        autocomplete="off"
+      >
+    </div>
+    {% endif %}
+    <div class="connection-meta-llm-action">
+      <button
+        type="button"
+        class="button-link subtle-link"
+        data-connection-meta-llm-kind="{{ meta_llm_kind|e }}"
+        data-connection-meta-prefix="{{ meta_prefix|e }}"
+        data-connection-meta-endpoint="{{ meta_llm_endpoint|e }}"
+        data-connection-meta-source-fields="{{ (meta_llm_source_fields or [])|join(',')|e }}"
+        data-default-label="{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}"
+        data-loading-label="{{ tr(request, 'config_conn.meta_llm_suggest_loading', 'LLM denkt nach ...') }}"
+      >{{ tr(request, 'config_conn.meta_llm_suggest', 'Check mit LLM') }}</button>
+    </div>
   </div>
+  {% if meta_llm_kind == 'ssh' %}
+  <small class="hint-text connection-meta-source-hint">{{ tr(request, 'config_conn.ssh_meta_llm_source_hint', 'Check mit LLM nutzt Host/IP, User, Port und optional diese Service-URL. Fuer reine SSH-Hosts kannst du die Service-URL leer lassen.') }}</small>
+  {% endif %}
   {% endif %}
 
   <div class="connection-form-grid">

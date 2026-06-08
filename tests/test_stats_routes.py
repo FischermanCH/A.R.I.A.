@@ -20,6 +20,7 @@ from aria.web.stats_routes import (
     _build_preflight_meta,
     _build_pricing_meta,
     _build_recipe_experience_memory_meta,
+    _build_sidecar_inventory_meta,
     _build_stats_model_totals,
     _build_qdrant_storage_meta,
     _build_release_meta,
@@ -33,6 +34,54 @@ from aria.web.stats_routes import (
     _extract_qdrant_telemetry_disk_bytes,
     register_stats_routes,
 )
+
+
+def test_build_sidecar_inventory_meta_reads_visible_docker_sidecars(monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = "\n".join(
+            [
+                "aria-qdrant\tqdrant/qdrant:latest\tUp 2 hours",
+                "aria-searxng\tsearxng/searxng:latest\tUp 2 hours",
+                "aria-searxng-valkey\tvalkey/valkey:8-alpine\tUp 2 hours",
+            ]
+        )
+
+    monkeypatch.setattr(stats_routes.subprocess, "run", lambda *_args, **_kwargs: Result())
+
+    row = _build_sidecar_inventory_meta("en")
+
+    assert row["status"] == "ok"
+    assert "qdrant/qdrant:latest" in row["detail"]
+    assert "searxng/searxng:latest" in row["detail"]
+    assert "valkey/valkey:8-alpine" in row["detail"]
+    assert row["url"] == "/updates"
+
+
+def test_build_sidecar_inventory_meta_warns_for_partial_visible_sidecars(monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = "aria-qdrant\tqdrant/qdrant:latest\tUp 2 hours\n"
+
+    monkeypatch.setattr(stats_routes.subprocess, "run", lambda *_args, **_kwargs: Result())
+
+    row = _build_sidecar_inventory_meta("en")
+
+    assert row["status"] == "warn"
+    assert "Missing: searxng, valkey" in row["detail"]
+
+
+def test_build_sidecar_inventory_meta_stays_ok_when_docker_is_not_exposed(monkeypatch) -> None:
+    def raise_missing(*_args, **_kwargs):
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(stats_routes.subprocess, "run", raise_missing)
+
+    row = _build_sidecar_inventory_meta("en")
+
+    assert row["status"] == "ok"
+    assert "not exposed" in row["summary"]
+    assert "update-all/repair" in row["detail"]
 
 
 def test_build_settings_connection_status_rows_supports_sftp_key_profiles(monkeypatch, tmp_path) -> None:
@@ -828,7 +877,7 @@ def test_build_recipe_experience_memory_meta_counts_qdrant_collections(monkeypat
                             "title": "DNS health",
                             "intent": "health_check",
                             "connection_kind": "ssh",
-                            "connection_ref": "pihole1",
+                            "connection_ref": "dns-node-01",
                             "capability": "ssh_command",
                             "chosen_action": "uptime -p && df -h",
                             "experience_summary": "ok",
@@ -854,10 +903,10 @@ def test_build_recipe_experience_memory_meta_counts_qdrant_collections(monkeypat
         {
             "recipe_id": "learned-dns-health",
             "title": "DNS health",
-            "target": "ssh/pihole1",
+            "target": "ssh/dns-node-01",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "action": "uptime -p && df -h",
             "summary": "ok",
@@ -1225,7 +1274,7 @@ def test_manual_pricing_admin_helpers_persist_alias_and_price(tmp_path) -> None:
 
 
 def test_stats_pricing_refresh_htmx_returns_fragment(monkeypatch, tmp_path) -> None:
-    templates = Jinja2Templates(directory="/home/fischerman/ARIA/aria/templates")
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
 
@@ -1300,7 +1349,7 @@ def test_stats_pricing_refresh_htmx_returns_fragment(monkeypatch, tmp_path) -> N
 
 
 def test_stats_pricing_admin_htmx_saves_alias_and_manual_price(monkeypatch, tmp_path) -> None:
-    templates = Jinja2Templates(directory="/home/fischerman/ARIA/aria/templates")
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
 
@@ -1372,7 +1421,7 @@ def test_stats_pricing_admin_htmx_saves_alias_and_manual_price(monkeypatch, tmp_
 
 
 def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
-    templates = Jinja2Templates(directory="/home/fischerman/ARIA/aria/templates")
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
 
@@ -1487,7 +1536,7 @@ def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
 
 
 def test_stats_recipe_experience_review_promotes_context_candidate(monkeypatch, tmp_path) -> None:
-    templates = Jinja2Templates(directory="/home/fischerman/ARIA/aria/templates")
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
 
@@ -1530,7 +1579,7 @@ def test_stats_recipe_experience_review_promotes_context_candidate(monkeypatch, 
             "title": "DNS health",
             "intent": "health_check",
             "connection_kind": "ssh",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "capability": "ssh_command",
             "action": "uptime -p && df -h",
             "summary": "Looks healthy.",

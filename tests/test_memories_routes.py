@@ -501,32 +501,32 @@ def test_memories_redirect_keeps_collection_filter() -> None:
     response = _memories_redirect(
         filter_type="all",
         query="atlas",
-        collection_filter="aria_docs_fischerman",
+        collection_filter="aria_docs_demo_user",
         page=2,
         limit=50,
         sort="collection",
     )
 
     assert response.status_code == 303
-    assert "collection_filter=aria_docs_fischerman" in response.headers["location"]
+    assert "collection_filter=aria_docs_demo_user" in response.headers["location"]
 
 
 def test_memory_collection_link_uses_matching_type_for_document_collections() -> None:
-    url = _memory_collection_link(kind="document", collection="aria_docs_fischerman_manuals")
+    url = _memory_collection_link(kind="document", collection="aria_docs_demo_user_manuals")
 
     assert url.startswith("/memories/explorer?type=document")
-    assert "collection_filter=aria_docs_fischerman_manuals" in url
+    assert "collection_filter=aria_docs_demo_user_manuals" in url
 
 
 def test_memory_document_link_points_to_document_chunks_view() -> None:
     url = _memory_document_link(
-        collection="aria_docs_fischerman",
+        collection="aria_docs_demo_user",
         document_id="doc-42",
         document_name="Atlas.pdf",
     )
 
     assert url.startswith("/memories/explorer?type=document")
-    assert "collection_filter=aria_docs_fischerman" in url
+    assert "collection_filter=aria_docs_demo_user" in url
     assert "document_id=doc-42" in url
 
 

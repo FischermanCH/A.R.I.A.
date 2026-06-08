@@ -53,15 +53,15 @@ def test_build_connection_routing_documents_keeps_metadata_and_excludes_secrets(
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    " pihole1 ": {
-                        "host": "pihole1.black.lan",
+                    " dns-node-01 ": {
+                        "host": "dns-node-01.example.lan",
                         "user": "root",
                         "key_path": "/secrets/pihole_ed25519",
                         "title": "Pi-hole DNS",
                         "description": "DNS blocker and DHCP helper",
                         "aliases": ["dns blocker"],
                         "tags": ["infra", "dns"],
-                        "service_url": "https://pihole1.black.lan/admin",
+                        "service_url": "https://dns-node-01.example.lan/admin",
                     }
                 },
                 "discord": {
@@ -78,12 +78,12 @@ def test_build_connection_routing_documents_keeps_metadata_and_excludes_secrets(
     docs = build_connection_routing_documents(settings)
 
     ssh_doc = next(doc for doc in docs if doc.kind == "ssh")
-    assert ssh_doc.ref == "pihole1"
+    assert ssh_doc.ref == "dns-node-01"
     assert ssh_doc.title == "Pi-hole DNS"
     assert "dns blocker" in ssh_doc.aliases
     assert "infra" in ssh_doc.tags
     assert "run command" in ssh_doc.supported_actions
-    assert "pihole1.black.lan" in ssh_doc.text
+    assert "dns-node-01.example.lan" in ssh_doc.text
     assert "/secrets/pihole_ed25519" not in ssh_doc.text
 
     all_text = "\n".join(doc.text for doc in docs)
@@ -98,8 +98,8 @@ async def _upsert_documents() -> tuple[dict[str, object], FakeQdrant]:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "pihole1.black.lan",
+                    "dns-node-01": {
+                        "host": "dns-node-01.example.lan",
                         "title": "Pi-hole DNS",
                     }
                 }
@@ -129,7 +129,7 @@ def test_routing_index_store_upserts_documents() -> None:
     payload = points[0].payload
     assert payload["scope"] == "connection"
     assert payload["kind"] == "ssh"
-    assert payload["ref"] == "pihole1"
+    assert payload["ref"] == "dns-node-01"
     assert payload["embedding_model"] == "fake-embedding"
     assert payload["routing_index_hash"] == result["routing_index_hash"]
     assert payload["routing_index_document_count"] == 1
@@ -139,13 +139,13 @@ def test_routing_documents_fingerprint_is_stable_and_changes_with_metadata() -> 
     base = Settings.model_validate(
         {
             "llm": {"model": "fake"},
-            "connections": {"ssh": {"pihole1": {"title": "Pi-hole DNS"}}},
+            "connections": {"ssh": {"dns-node-01": {"title": "Pi-hole DNS"}}},
         }
     )
     changed = Settings.model_validate(
         {
             "llm": {"model": "fake"},
-            "connections": {"ssh": {"pihole1": {"title": "Pi-hole DNS", "tags": ["dns"]}}},
+            "connections": {"ssh": {"dns-node-01": {"title": "Pi-hole DNS", "tags": ["dns"]}}},
         }
     )
 

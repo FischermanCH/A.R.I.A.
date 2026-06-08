@@ -21,7 +21,7 @@ Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen 
 | `ist mein dns server ok` | SSH Healthcheck ueber Guardrail-Fallback | Darf keinen blockierten Bare-`uptime`-Fehler produzieren. |
 | `starte meinen dns server neu` | LLM erkennt mutierenden Restart-Befehl -> SSH Policy blockiert | Darf nicht in einen harmlosen Healthcheck umgebogen werden. |
 | `pruef ob die api erreichbar ist` | HTTP API single-profile health path | Darf `erreichbar` nicht als Profilname interpretieren. |
-| `zeige mir die folder auf dem share Ronny Fischer` | SMB root list | Darf nicht nach einem Pfad fragen, wenn der Share-Root gemeint ist. |
+| `zeige mir die folder auf dem share Example Share` | SMB root list | Darf nicht nach einem Pfad fragen, wenn der Share-Root gemeint ist. |
 | `schick eine testnachricht an discord: ...` | Discord send -> one-click confirmation | Darf nicht von altem SMB/SFTP-Kontext aufgefressen werden. |
 | `mach mir eine zusammenfassung der letzten it-security news` | RSS semantic routing -> Digest mit Links | Darf nicht nur eine unbrauchbare Headline-Liste ohne Links liefern. |
 

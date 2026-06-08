@@ -69,11 +69,11 @@ def test_curate_learned_recipe_entry_uses_llm_and_updates_store(monkeypatch, tmp
         curate_learned_recipe_entry(
             llm_client=llm,
             entry={
-                "recipe_id": "learned-ssh-health-check-pihole1",
-                "title": "Gelernter Server-Healthcheck: pihole1",
+                "recipe_id": "learned-ssh-health-check-dns-node-01",
+                "title": "Gelernter Server-Healthcheck: dns-node-01",
                 "intent": "health_check",
                 "connection_kind": "ssh",
-                "connection_ref": "pihole1",
+                "connection_ref": "dns-node-01",
                 "capability": "ssh_command",
                 "chosen_action": "uptime -p && df -h",
                 "execution_result": "success",
@@ -107,10 +107,10 @@ def test_curate_learned_recipe_entry_persists_skip_reason(monkeypatch, tmp_path)
         curate_learned_recipe_entry(
             llm_client=None,
             entry={
-                "recipe_id": "learned-ssh-health-check-pihole1",
+                "recipe_id": "learned-ssh-health-check-dns-node-01",
                 "intent": "health_check",
                 "connection_kind": "ssh",
-                "connection_ref": "pihole1",
+                "connection_ref": "dns-node-01",
                 "capability": "ssh_command",
                 "chosen_action": "uptime -p && df -h",
                 "execution_result": "success",

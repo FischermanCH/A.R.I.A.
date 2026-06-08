@@ -63,7 +63,8 @@
         {% set meta_prefix = 'ssh_edit' %}
         {% set meta_llm_kind = 'ssh' %}
         {% set meta_llm_endpoint = '/config/connections/ssh/suggest-metadata' %}
-        {% set meta_llm_source_fields = ['service_url'] %}
+        {% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}
+        {% set meta_show_service_url_field = true %}
         {% set meta_values = selected %}
         {% include "_connection_metadata_fields.html" %}
         <button type="submit">{{ tr(request, 'config_conn.save_profile', 'Save profile') }}</button>
@@ -102,7 +103,8 @@
         {% set meta_prefix = 'ssh_new' %}
         {% set meta_llm_kind = 'ssh' %}
         {% set meta_llm_endpoint = '/config/connections/ssh/suggest-metadata' %}
-        {% set meta_llm_source_fields = ['service_url'] %}
+        {% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}
+        {% set meta_show_service_url_field = true %}
         {% set meta_values = {} %}
         {% include "_connection_metadata_fields.html" %}
         <button type="submit">{{ tr(request, 'config_conn.save_profile', 'Save profile') }}</button>

@@ -8,13 +8,13 @@ ARIA ist ein schlanker selbst gehosteter AI-Assistent fuer Menschen, die Kontrol
 
 ## Einstieg
 
-1. `Quick Start`
-2. `Memory`
-3. `Connections`
-4. `Recipes`
-5. `Releases and Upgrades`
-6. `Pricing`
-7. `Security`
+1. [Quick Start](/help?doc=quick-start)
+2. [Memory](/help?doc=memory)
+3. [Connections](/help?doc=connections)
+4. [Recipes](/help?doc=skills)
+5. [Releases and Upgrades](/help?doc=releases)
+6. [Pricing](/help?doc=pricing)
+7. [Security](/help?doc=security)
 
 ## Aktuelle Produktschwerpunkte
 
@@ -29,8 +29,8 @@ ARIA ist ein schlanker selbst gehosteter AI-Assistent fuer Menschen, die Kontrol
 
 Dieselben Kerninhalte sind lokal in ARIA unter `/help` verfuegbar.
 
-- `Alpha-Help-System` fuer die ausfuehrliche lokale Hilfe
-- `Help-System` fuer Pflegehinweise zur Doku
+- [Alpha-Help-System](/help?doc=alpha-help-system) fuer die ausfuehrliche lokale Hilfe
+- [Help-System](/help?doc=help-system) fuer Pflegehinweise zur Doku
 
 ## Wichtige Referenzen
 

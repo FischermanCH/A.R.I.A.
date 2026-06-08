@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import date
 from pathlib import Path
 import re
 import sys
@@ -8,13 +9,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import aria.core.pipeline as pipeline_mod
+import aria.core.agentic_execution_learning as agentic_execution_learning_mod
 import aria.core.recipe_runtime as skill_runtime_mod
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints
+from aria.core.agentic_execution_learning import suppress_auto_learning
 from aria.core.capability_context import CapabilityContextStore
 from aria.core.config import Settings
 from aria.core.notes_context import NotesContextHit
 from aria.core.pipeline import Pipeline
+from aria.core.chat_context_filter import filter_chat_context_skill_results
 from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
 from aria.core.connection_semantic_resolver import SemanticConnectionHint
 from aria.core.recipe_runtime_contract import RECIPE_EXECUTION_CAPABILITY
@@ -95,6 +99,67 @@ class FakeLLMClient:
         return FakeLLMResponse("ok")
 
 
+class ChatArbitrationLLMClient(FakeLLMClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.operations: list[str] = []
+
+    async def chat(self, messages, **kwargs):
+        if kwargs.get("operation") == "pre_rag_action_arbitration":
+            self.calls += 1
+            self.last_messages = messages
+            self.operations.append("pre_rag_action_arbitration")
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "route": "chat",
+                        "confidence": "high",
+                        "reason": "User asks for interpretation and guidance, not immediate execution.",
+                    }
+                )
+            )
+        return await super().chat(messages, **kwargs)
+
+
+class CapabilityDraftThenChatArbitrationLLMClient(FakeLLMClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.operations: list[str] = []
+
+    async def chat(self, messages, **kwargs):
+        operation = str(kwargs.get("operation") or "")
+        if operation:
+            self.operations.append(operation)
+        if operation == "capability_draft_decision":
+            self.calls += 1
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "action": "action",
+                        "capability": "ssh_command",
+                        "connection_kind": "ssh",
+                        "target_scope": "single_target",
+                        "target_intent": "",
+                        "content": "uptime; cat /proc/loadavg; dmesg | tail -20",
+                        "confidence": "high",
+                        "reason": "diagnostic command proposal for pasted kernel log",
+                    }
+                )
+            )
+        if operation == "pre_rag_action_arbitration":
+            self.calls += 1
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "route": "chat",
+                        "confidence": "high",
+                        "reason": "User asks what to do with pasted log text, not to execute diagnostics.",
+                    }
+                )
+            )
+        return await super().chat(messages, **kwargs)
+
+
 class FeedResolverLLMClient(FakeLLMClient):
     def __init__(self, ref: str):
         super().__init__()
@@ -146,10 +211,11 @@ def test_memory_assist_does_not_override_requested_connection_ref_with_memory_hi
         {
             "llm": {"model": "fake"},
             "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                     }
@@ -160,7 +226,7 @@ def test_memory_assist_does_not_override_requested_connection_ref_with_memory_hi
     )
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
     pipeline.memory_skill = FakeMemoryAssistSkill(
-        rows=[{"text": "brauchen meine linux server updates ? ubnsrv-mgmt-master"}]
+        rows=[{"text": "brauchen meine linux server updates ? ops-mgmt-01"}]
     )  # type: ignore[assignment]
 
     hints = asyncio.run(
@@ -168,7 +234,7 @@ def test_memory_assist_does_not_override_requested_connection_ref_with_memory_hi
             draft=SimpleNamespace(connection_kind="ssh", requested_connection_ref="proxmox", path=""),
             message="zeige mir uptime auf proxmox",
             user_id="u1",
-            available_connections={"ubnsrv-mgmt-master": {"host": "172.31.1.1"}},
+            available_connections={"ops-mgmt-01": {"host": "192.0.2.10"}},
         )
     )
 
@@ -184,8 +250,8 @@ def test_memory_assist_does_not_accept_generic_server_alias_as_direct_match() ->
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "aliases": ["server"],
@@ -197,7 +263,7 @@ def test_memory_assist_does_not_accept_generic_server_alias_as_direct_match() ->
     )
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
     pipeline.memory_skill = FakeMemoryAssistSkill(
-        rows=[{"text": "management server health check ubnsrv-mgmt-master"}]
+        rows=[{"text": "management server health check ops-mgmt-01"}]
     )  # type: ignore[assignment]
 
     hints = asyncio.run(
@@ -206,8 +272,8 @@ def test_memory_assist_does_not_accept_generic_server_alias_as_direct_match() ->
             message="prüfe den status vom backup server",
             user_id="u1",
             available_connections={
-                "ubnsrv-mgmt-master": {
-                    "host": "172.31.1.1",
+                "ops-mgmt-01": {
+                    "host": "192.0.2.10",
                     "aliases": ["server"],
                 }
             },
@@ -216,6 +282,473 @@ def test_memory_assist_does_not_accept_generic_server_alias_as_direct_match() ->
 
     assert hints.connection_ref == ""
     assert hints.source == ""
+
+
+def test_pipeline_keeps_ssh_howto_question_in_chat_path() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "aliases": ["management server", "server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    result = asyncio.run(
+        pipeline.process(
+            "wie verbinde ich codex von openai mit meinem ssh developement server",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.intents == ["chat"]
+    assert not any("ssh_command" in line for line in result.detail_lines)
+
+
+def test_pipeline_keeps_pasted_syslog_advice_request_in_chat_path() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "demo_user",
+                        "key_path": "/tmp/test_ed25519",
+                        "aliases": ["dev-env", "developer server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = ChatArbitrationLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    result = asyncio.run(
+        pipeline.process(
+            """
+            diese message kommt von einem server mit dem ich via ssh verbunden bin, was mach ich damit ;
+
+            Message from syslogd@dev-node-01 at Jun  7 03:39:59 ...
+             kernel:[55071.935682] watchdog: BUG: soft lockup - CPU#1 stuck for 22s! [sshd:22300]
+
+            Message from syslogd@dev-node-01 at Jun  7 03:41:23 ...
+             kernel:[55155.171096] watchdog: BUG: soft lockup - CPU#0 stuck for 22s! [tokio-runtime-w:2441]
+            """,
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.intents == ["chat"]
+    assert "pre_rag_action_arbitration" in llm.operations
+    assert any("action_path=no_action" in line for line in result.detail_lines)
+    assert not any("ssh_command" in line for line in result.detail_lines)
+
+
+def test_pipeline_arbitrates_llm_capability_draft_for_pasted_syslog_advice() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "demo_user",
+                        "key_path": "/tmp/test_ed25519",
+                        "aliases": ["dev-env", "developer server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = CapabilityDraftThenChatArbitrationLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    result = asyncio.run(
+        pipeline.process(
+            """
+            interpretiere folgenden kernel log von dev-node-01:
+
+            Message from syslogd@dev-node-01 at Jun  7 03:39:59 ...
+             kernel:[55071.935682] watchdog: BUG: soft lockup - CPU#1 stuck for 22s! [sshd:22300]
+            """,
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.intents == ["chat"]
+    assert "capability_draft_decision" in llm.operations
+    assert "pre_rag_action_arbitration" in llm.operations
+    assert any("action_path=no_action" in line for line in result.detail_lines)
+    assert not any("agentic_runtime" in line for line in result.detail_lines)
+    assert not any("ssh_command_shell_injection" in line for line in result.detail_lines)
+
+
+def test_pipeline_uses_chat_arbitration_before_capability_draft_for_clear_pasted_log_advice() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "demo_user",
+                        "key_path": "/tmp/test_ed25519",
+                        "aliases": ["dev-env", "developer server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = CapabilityDraftThenChatArbitrationLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    result = asyncio.run(
+        pipeline.process(
+            """
+            was mach ich damit:
+
+            Message from syslogd@dev-node-01 at Jun  7 03:39:59 ...
+             kernel:[55071.935682] watchdog: BUG: soft lockup - CPU#1 stuck for 22s! [sshd:22300]
+            """,
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.intents == ["chat"]
+    assert "pre_rag_action_arbitration" in llm.operations
+    assert "capability_draft_decision" not in llm.operations
+    assert any("action_path=no_action" in line for line in result.detail_lines)
+    assert not any("agentic_runtime" in line for line in result.detail_lines)
+    assert not any("ssh_command_shell_injection" in line for line in result.detail_lines)
+
+
+def test_pipeline_filters_weak_local_rag_context_for_general_howto() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [DOKUMENT: Arlo Ultra Manual] connect the camera to wifi",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "type": "document",
+                            "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                            "collection": "aria_docs_demo_user",
+                            "chunk_index": 85,
+                            "chunk_total": 108,
+                        }
+                    ],
+                    "detail_lines": [
+                        "Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user · Chunk 85/108"
+                    ],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "wie verbinde ich codex von openai mit meinem ssh developement server",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.detail_lines == []
+    assert "Arlo Ultra" not in llm.last_messages[1]["content"]
+
+
+def test_pipeline_filters_weak_local_rag_context_for_general_diagnostic_advice() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [DOKUMENT: Mill Manual] WiFi heater capacity note",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "type": "document",
+                            "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                            "collection": "aria_docs_demo_user",
+                            "chunk_index": 53,
+                            "chunk_total": 99,
+                        }
+                    ],
+                    "detail_lines": [
+                        "Quelle: Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf · aria_docs_demo_user · Chunk 53/99"
+                    ],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            (
+                "was mach ich damit: Message from syslogd@dev-node-01 at Jun 7 ... "
+                "kernel:[55071.935682] watchdog: BUG: soft lockup - CPU#1 stuck for 22s!"
+            ),
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.detail_lines == []
+    assert "Mill Gentle Air" not in llm.last_messages[1]["content"]
+
+
+def test_pipeline_filters_weak_local_rag_context_even_with_memory_recall_intent() -> None:
+    result = SkillResult(
+        skill_name="memory_recall",
+        content="- [DOKUMENT: Arlo Ultra Manual] connect the camera to wifi",
+        success=True,
+        metadata={
+            "sources": [
+                {
+                    "type": "document",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "collection": "aria_docs_demo_user",
+                    "chunk_index": 85,
+                    "chunk_total": 108,
+                }
+            ],
+            "detail_lines": [
+                "Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user · Chunk 85/108"
+            ],
+        },
+    )
+
+    filtered = filter_chat_context_skill_results(
+        [result],
+        message="welche version von claude code ist momentan aktuell",
+        intents=["chat", "memory_recall"],
+    )
+
+    assert filtered == []
+
+
+def test_pipeline_filters_mixed_local_rag_context_for_general_howto() -> None:
+    result = SkillResult(
+        skill_name="memory",
+        content=(
+            "- [DOKUMENT: Arlo Ultra Manual] connect the camera to wifi\n"
+            "- [FAKT] sind meine server ok\n"
+            "- [KONTEXT] habe ich auf meinen server genug speicherplatz"
+        ),
+        success=True,
+        metadata={
+            "sources": [
+                {
+                    "type": "document",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "collection": "aria_docs_demo_user",
+                },
+                {"type": "fact", "collection": "aria_facts_demo_user"},
+                {"type": "session", "collection": "aria_sessions_demo_user_260516"},
+            ],
+            "detail_lines": [
+                "Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user · Chunk 85/108",
+                "Quelle: FAKT · aria_facts_demo_user",
+                "Quelle: KONTEXT · aria_sessions_demo_user_260516",
+            ],
+        },
+    )
+
+    filtered = filter_chat_context_skill_results(
+        [result],
+        message="wie verbinde ich codex von openai mit meinem ssh developement server",
+        intents=["chat", "memory_recall"],
+    )
+
+    assert filtered == []
+
+
+def test_pipeline_filters_local_rag_context_for_auto_freshness_web_search() -> None:
+    local_result = SkillResult(
+        skill_name="memory_recall",
+        content="Notiz-Kontext: ARIA - Technische Architektur",
+        success=True,
+        metadata={
+            "sources": [{"type": "note", "collection": "aria_notes_demo_user"}],
+            "detail_lines": ["Notiz-Kontext: ARIA - Technische Architektur · ARIA"],
+        },
+    )
+    web_result = SkillResult(
+        skill_name="web_search",
+        content="[Web Search via web-search]\nSuche: Apple Watch aktuell",
+        success=True,
+        metadata={"detail_lines": ["Quelle: Apple · https://www.apple.com/watch/ · duckduckgo"]},
+    )
+
+    filtered = filter_chat_context_skill_results(
+        [local_result, web_result],
+        message="welches ist die aktuelle apple watch",
+        intents=["chat", "memory_recall", "web_search"],
+        allow_web_search_local_context=False,
+    )
+
+    assert filtered == [web_result]
+
+
+def test_pipeline_keeps_local_rag_context_when_user_requests_documents() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [DOKUMENT: Arlo Ultra Manual] connect the camera to wifi",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "type": "document",
+                            "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                            "collection": "aria_docs_demo_user",
+                        }
+                    ],
+                    "detail_lines": [
+                        "Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user · Chunk 85/108"
+                    ],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "was steht in meinen dokumenten zu codex",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.detail_lines == [
+        "Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user · Chunk 85/108"
+    ]
+    assert "Arlo Ultra" in llm.last_messages[1]["content"]
+
+
+def test_pipeline_does_not_route_notes_question_to_ssh_alias() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ai-agent-01": {
+                        "host": "192.0.2.12",
+                        "user": "demo_user",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "ARIA AI Agent Server",
+                        "aliases": ["aria", "ai agent"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [NOTIZ: ARIA] ARIA ist der lokale Agent.",
+                success=True,
+                metadata={
+                    "sources": [{"type": "note", "note_title": "ARIA", "collection": "aria_notes_u1"}],
+                    "detail_lines": ["Notiz-Kontext: ARIA · ARIA"],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "was steht in meinen notizen zu ARIA?",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.intents == ["chat"]
+    assert "ARIA ist der lokale Agent" in llm.last_messages[1]["content"]
+    assert "ssh_command" not in "\n".join(result.detail_lines)
 
 
 def test_memory_assist_skips_ambiguous_direct_rss_category_match() -> None:
@@ -346,14 +879,14 @@ def test_pipeline_does_not_force_memory_hint_when_requested_server_phrase_differ
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "title": "Management Server",
                         "aliases": ["management server"],
                     },
-                    "ubnsrv-backup": {
-                        "host": "172.31.5.230",
+                    "ops-backup-01": {
+                        "host": "192.0.2.13",
                         "user": "root",
                         "title": "Backup Server",
                         "aliases": ["backup server", "backup host"],
@@ -384,7 +917,7 @@ def test_pipeline_does_not_force_memory_hint_when_requested_server_phrase_differ
     async def fake_memory_resolve(*_args, **_kwargs):
         return MemoryHints(
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             source="memory_hint",
             matched_text="brauchen meine linux server updates ?",
         )
@@ -407,15 +940,15 @@ def test_pipeline_does_not_force_memory_hint_when_requested_server_phrase_differ
     )
 
     assert resolved is not None
-    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ubnsrv-backup"
+    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ops-backup-01"
     payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
-    assert payload.get("connection_ref") == "ubnsrv-backup"
+    assert payload.get("connection_ref") == "ops-backup-01"
     detail_lines = list(resolved.get("detail_lines", []) or [])
     assert any("Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=- requested_ref=backup server" in line for line in detail_lines)
-    assert any("Routing Debug: memory_hint source=memory_hint ref=ubnsrv-mgmt-master matched_text=brauchen meine linux server updates ?" in line for line in detail_lines)
-    assert any("Routing Debug: memory_hint blocked requested_ref=backup server ref=ubnsrv-mgmt-master" in line for line in detail_lines)
-    assert not any("Routing: forced_connection_resolution selected `ssh/ubnsrv-mgmt-master`" in line for line in detail_lines)
-    assert any("Routing: semantic_candidate_resolution selected `ssh/ubnsrv-backup`" in line for line in detail_lines)
+    assert any("Routing Debug: memory_hint source=memory_hint ref=ops-mgmt-01 matched_text=brauchen meine linux server updates ?" in line for line in detail_lines)
+    assert any("Routing Debug: memory_hint blocked requested_ref=backup server ref=ops-mgmt-01" in line for line in detail_lines)
+    assert not any("Routing: forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in detail_lines)
+    assert any("Routing: semantic_candidate_resolution selected `ssh/ops-backup-01`" in line for line in detail_lines)
 
 
 def test_pipeline_process_shows_live_routing_debug_and_blocks_stale_memory_hint_for_backup_server(monkeypatch) -> None:
@@ -426,14 +959,14 @@ def test_pipeline_process_shows_live_routing_debug_and_blocks_stale_memory_hint_
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "title": "Management Server",
                         "aliases": ["management server"],
                     },
-                    "ubnsrv-backup": {
-                        "host": "172.31.5.230",
+                    "ops-backup-01": {
+                        "host": "192.0.2.13",
                         "user": "root",
                         "title": "Backup Server",
                         "aliases": ["backup server", "backup host"],
@@ -482,7 +1015,7 @@ def test_pipeline_process_shows_live_routing_debug_and_blocks_stale_memory_hint_
     async def fake_memory_resolve(*_args, **_kwargs):
         return MemoryHints(
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             source="memory_hint",
             matched_text="brauchen meine linux server updates ?",
         )
@@ -520,10 +1053,10 @@ def test_pipeline_process_shows_live_routing_debug_and_blocks_stale_memory_hint_
     assert result.intents == ["capability:ssh_command"]
     assert result.text == "backup uptime ok"
     assert any("Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=- requested_ref=backup server" in line for line in result.detail_lines)
-    assert any("Routing Debug: memory_hint source=memory_hint ref=ubnsrv-mgmt-master matched_text=brauchen meine linux server updates ?" in line for line in result.detail_lines)
-    assert any("Routing Debug: memory_hint blocked requested_ref=backup server ref=ubnsrv-mgmt-master" in line for line in result.detail_lines)
-    assert not any("Routing: forced_connection_resolution selected `ssh/ubnsrv-mgmt-master`" in line for line in result.detail_lines)
-    assert any("Routing: semantic_candidate_resolution selected `ssh/ubnsrv-backup`" in line for line in result.detail_lines)
+    assert any("Routing Debug: memory_hint source=memory_hint ref=ops-mgmt-01 matched_text=brauchen meine linux server updates ?" in line for line in result.detail_lines)
+    assert any("Routing Debug: memory_hint blocked requested_ref=backup server ref=ops-mgmt-01" in line for line in result.detail_lines)
+    assert not any("Routing: forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in result.detail_lines)
+    assert any("Routing: semantic_candidate_resolution selected `ssh/ops-backup-01`" in line for line in result.detail_lines)
 
 
 def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(monkeypatch) -> None:
@@ -534,14 +1067,14 @@ def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(mon
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "title": "Management Server",
                         "aliases": ["management server"],
                     },
-                    "ubnsrv-backup": {
-                        "host": "172.31.5.230",
+                    "ops-backup-01": {
+                        "host": "192.0.2.13",
                         "user": "root",
                         "title": "Backup Server",
                         "aliases": ["backup server", "backup host"],
@@ -590,14 +1123,14 @@ def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(mon
     async def fake_memory_resolve(*_args, **_kwargs):
         return MemoryHints(
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             source="memory_hint",
             matched_text="brauchen meine linux server updates ?",
         )
 
     async def fake_execute(_self, plan, *, language="de"):
         _ = language
-        assert plan.connection_ref == "ubnsrv-backup"
+        assert plan.connection_ref == "ops-backup-01"
         assert plan.capability == "ssh_command"
         return "ok"
 
@@ -618,17 +1151,17 @@ def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(mon
     assert result.intents == ["capability:ssh_command"]
     assert result.text == "ok"
     assert any(
-        "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ubnsrv-backup requested_ref=-"
+        "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ops-backup-01 requested_ref=-"
         in line
         for line in result.detail_lines
     )
-    assert any("Routing Debug: explicit_ref selected ref=ubnsrv-backup" in line for line in result.detail_lines)
+    assert any("Routing Debug: explicit_ref selected ref=ops-backup-01" in line for line in result.detail_lines)
     assert any(
-        "Routing: explicit_connection_resolution selected `ssh/ubnsrv-backup` source=explicit_ref note=ubnsrv-backup"
+        "Routing: explicit_connection_resolution selected `ssh/ops-backup-01` source=explicit_ref note=ops-backup-01"
         in line
         for line in result.detail_lines
     )
-    assert not any("Routing: forced_connection_resolution selected `ssh/ubnsrv-mgmt-master`" in line for line in result.detail_lines)
+    assert not any("Routing: forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in result.detail_lines)
 
 
 async def _run_pipeline() -> None:
@@ -707,26 +1240,26 @@ def test_pipeline_unified_routing_executes_template_action(monkeypatch) -> None:
 
         async def fake_chain(*_args, **_kwargs):
             return {
-                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "pihole1",
+                        "connection_ref": "dns-node-01",
                         "content": "uptime",
                         "preview": "SSH command: uptime",
                         "missing_fields": [],
                     }
                 },
                 "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
-                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: uptime"}},
+                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/dns-node-01 direkt ausfuehren: SSH command: uptime"}},
             }
 
         async def fake_execute(plan, *, language="de"):
             assert plan.capability == "ssh_command"
-            assert plan.connection_ref == "pihole1"
+            assert plan.connection_ref == "dns-node-01"
             assert plan.content == "uptime"
             assert language == "de"
             return "Host läuft seit 5 Tagen."
@@ -766,26 +1299,26 @@ def test_pipeline_unified_routing_executes_normalized_df_h_command(monkeypatch) 
 
         async def fake_chain(*_args, **_kwargs):
             return {
-                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "pihole1",
+                        "connection_ref": "dns-node-01",
                         "content": "df -h",
                         "preview": "SSH command: df -h",
                         "missing_fields": [],
                     }
                 },
                 "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
-                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: df -h"}},
+                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/dns-node-01 direkt ausfuehren: SSH command: df -h"}},
             }
 
         async def fake_execute(plan, *, language="de"):
             assert plan.capability == "ssh_command"
-            assert plan.connection_ref == "pihole1"
+            assert plan.connection_ref == "dns-node-01"
             assert plan.content == "df -h"
             assert language == "de"
             return "Filesystem      Size  Used Avail Use% Mounted on"
@@ -931,8 +1464,8 @@ def test_pipeline_unified_routing_ssh_alias_runs_before_legacy_fallbacks(monkeyp
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
                 "connections": {
                     "ssh": {
-                        "pihole1": {
-                            "host": "pihole1.lan",
+                        "dns-node-01": {
+                            "host": "dns-node-01.lan",
                             "user": "root",
                             "aliases": ["dns server"],
                         }
@@ -945,26 +1478,26 @@ def test_pipeline_unified_routing_ssh_alias_runs_before_legacy_fallbacks(monkeyp
 
         async def fake_chain(*_args, **_kwargs):
             return {
-                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "pihole1",
+                        "connection_ref": "dns-node-01",
                         "content": "uptime",
                         "preview": "SSH command: uptime",
                         "missing_fields": [],
                     }
                 },
                 "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
-                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/pihole1 direkt ausfuehren: SSH command: uptime"}},
+                "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/dns-node-01 direkt ausfuehren: SSH command: uptime"}},
             }
 
         async def fake_execute(plan, *, language="de"):
             assert plan.capability == "ssh_command"
-            assert plan.connection_ref == "pihole1"
+            assert plan.connection_ref == "dns-node-01"
             assert language == "de"
             return "Host läuft seit 5 Tagen."
 
@@ -994,8 +1527,8 @@ def test_pipeline_unified_routing_discord_channel_runs_before_legacy_fallbacks(m
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
                 "connections": {
                     "discord": {
-                        "fischerman-aria-messages": {
-                            "title": "fischerman-aria-messages",
+                        "demo_user-aria-messages": {
+                            "title": "demo_user-aria-messages",
                         }
                     }
                 },
@@ -1006,21 +1539,21 @@ def test_pipeline_unified_routing_discord_channel_runs_before_legacy_fallbacks(m
 
         async def fake_chain(*_args, **_kwargs):
             return {
-                "decision": {"found": True, "kind": "discord", "ref": "fischerman-aria-messages"},
+                "decision": {"found": True, "kind": "discord", "ref": "demo_user-aria-messages"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "discord_send",
                         "connection_kind": "discord",
-                        "connection_ref": "fischerman-aria-messages",
+                        "connection_ref": "demo_user-aria-messages",
                         "content": "ARIA Testnachricht",
                         "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
                         "missing_fields": [],
                     }
                 },
                 "safety_debug": {"decision": {"action": "ask_user", "reason_label": "Das Ziel ist noch nicht eindeutig bestaetigt."}},
-                "execution_debug": {"decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/fischerman-aria-messages noch nachfragen."}},
+                "execution_debug": {"decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/demo_user-aria-messages noch nachfragen."}},
             }
 
         async def _unexpected(*_args, **_kwargs):
@@ -1052,9 +1585,9 @@ def test_pipeline_discord_request_without_discord_profile_does_not_reuse_smb_con
             "memory": {"enabled": False},
             "connections": {
                 "smb": {
-                    "fischer_ronny": {
+                    "example_share": {
                         "host": "synrs816-01",
-                        "share": "Fischer_Ronny",
+                        "share": "Example_Share",
                         "user": "demo",
                     }
                 }
@@ -1156,6 +1689,88 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
         assert "aktive Sicherheitsregel" in result.text
         assert "SSH command: rm -rf /tmp/test" in result.text
         assert "[safe-ssh](/config/security?guardrail_ref=safe-ssh)" in result.text
+        details = "\n".join(result.detail_lines)
+        assert "blocked_action_explanation agentic_source=deterministic_fallback reason=ssh_policy_block_fast_path" in details
+        assert "blocked_action_explanation" not in llm.operations
+
+    asyncio.run(_run())
+
+
+def test_pipeline_unified_routing_adds_security_link_for_builtin_ssh_policy_block(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "ssh": {
+                        "dns-node-01": {
+                            "host": "192.0.2.14",
+                            "user": "demo_user",
+                            "aliases": ["dns server", "pihole"],
+                        }
+                    }
+                },
+            }
+        )
+
+        class BlockExplanationLLM(FakeLLMClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.operations: list[str] = []
+
+            async def chat(self, messages, **kwargs):
+                self.operations.append(str(kwargs.get("operation", "") or ""))
+                return await super().chat(messages, **kwargs)
+
+        llm = BlockExplanationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01"},
+                "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "ssh_command",
+                        "connection_kind": "ssh",
+                        "connection_ref": "dns-node-01",
+                        "content": "sudo systemctl restart pihole-FTL",
+                        "preview": "SSH command: sudo systemctl restart pihole-FTL",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {
+                    "decision": {
+                        "action": "block",
+                        "reason": "ssh_command_mutating_operation",
+                        "reason_label": "Mutating SSH commands are blocked.",
+                    }
+                },
+                "execution_debug": {
+                    "decision": {
+                        "next_step": "block",
+                        "summary": (
+                            "ARIA kann diese Aktion auf ssh/dns-node-01 nicht ausfuehren: "
+                            "SSH command: sudo systemctl restart pihole-FTL"
+                        ),
+                    }
+                },
+            }
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+        result = await pipeline.process("starte meinen dns server neu", user_id="u1", source="test", language="de")
+
+        assert result.pending_action is None
+        assert result.skill_errors == []
+        assert "sudo systemctl restart pihole-FTL" in result.text
+        assert "Sicherheitsregeln pruefen/anpassen: [Security Guardrails](/config/security)" in result.text
+        assert "(/config/security)" in result.text
         details = "\n".join(result.detail_lines)
         assert "blocked_action_explanation agentic_source=deterministic_fallback reason=ssh_policy_block_fast_path" in details
         assert "blocked_action_explanation" not in llm.operations
@@ -1327,6 +1942,341 @@ def test_pipeline_includes_web_search_context_and_source_details() -> None:
         assert result.intents == ["web_search"]
         assert result.detail_lines == ["Quelle: Mill Manual · https://example.org/mill · duckduckgo"]
         assert "Web Search via web-search" in str(llm.last_messages[1]["content"])
+        assert llm.calls == 1
+
+    asyncio.run(_run())
+
+
+def test_pipeline_auto_adds_web_search_for_fresh_product_howto() -> None:
+    class FreshnessLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                self.calls += 1
+                self.last_messages = messages
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "OpenAI Codex SSH development server",
+                            "confidence": "high",
+                            "reason": "current product setup may depend on current docs",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FreshnessLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _FreshWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "codex" in query.lower()
+                assert "ssh" in query.lower()
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "Suche: OpenAI Codex SSH development server\n"
+                        "- [1] OpenAI Codex docs\n"
+                        "  URL: https://developers.openai.com/codex\n"
+                        "  Engine: duckduckgo\n"
+                        "  Snippet: Codex is OpenAI's coding agent."
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: OpenAI Codex docs · https://developers.openai.com/codex · duckduckgo",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _FreshWebSearchSkill()
+
+        result = await pipeline.process(
+            "wie verbinde ich codex von openai mit meinem ssh developement server",
+            user_id="u1",
+            source="test",
+        )
+
+        assert result.text == "ok"
+        assert result.intents == ["chat", "web_search"]
+        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
+        assert result.detail_lines[-1] == "Quelle: OpenAI Codex docs · https://developers.openai.com/codex · duckduckgo"
+        assert "OpenAI Codex docs" in str(llm.last_messages[1]["content"])
+        assert llm.calls == 2
+
+    asyncio.run(_run())
+
+
+def test_pipeline_auto_adds_web_search_for_explicit_research_request() -> None:
+    class ResearchLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                self.calls += 1
+                self.last_messages = messages
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "DIY cyberdeck self build projects kits components",
+                            "confidence": "high",
+                            "reason": "user explicitly requested internet research",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = ResearchLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _ResearchWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "cyberdeck" in query.lower()
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "Suche: DIY cyberdeck self build projects kits components\n"
+                        "- [1] CyberDeck Cafe\n"
+                        "  URL: https://cyberdeck.cafe/\n"
+                        "  Engine: duckduckgo\n"
+                        "  Snippet: Community cyberdeck builds and parts."
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: CyberDeck Cafe · https://cyberdeck.cafe/ · duckduckgo",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _ResearchWebSearchSkill()
+
+        result = await pipeline.process(
+            "ich suche ein cyberdeck zum selbst bauen, kannst du mal im internet recherchieren was es so gibt",
+            user_id="u1",
+            source="test",
+        )
+
+        assert result.text == "ok"
+        assert result.intents == ["chat", "web_search"]
+        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
+        assert result.detail_lines[-1] == "Quelle: CyberDeck Cafe · https://cyberdeck.cafe/ · duckduckgo"
+        assert "CyberDeck Cafe" in str(llm.last_messages[1]["content"])
+
+    asyncio.run(_run())
+
+
+def test_pipeline_auto_freshness_web_search_suppresses_local_notes_context() -> None:
+    class FreshnessLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                self.calls += 1
+                self.last_messages = messages
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "aktuelle Apple Watch Modell",
+                            "confidence": "high",
+                            "reason": "current product question",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FreshnessLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_run_skills(*args, **kwargs):
+            _ = args, kwargs
+            return [
+                SkillResult(
+                    skill_name="memory_recall",
+                    content="Notiz-Kontext: ARIA - Technische Architektur",
+                    success=True,
+                    metadata={
+                        "sources": [{"type": "note", "collection": "aria_notes_demo_user"}],
+                        "detail_lines": ["Notiz-Kontext: ARIA - Technische Architektur · ARIA"],
+                    },
+                ),
+                SkillResult(
+                    skill_name="web_search",
+                    content="[Web Search via web-search]\nSuche: aktuelle Apple Watch Modell",
+                    success=True,
+                    metadata={"detail_lines": ["Quelle: Apple · https://www.apple.com/watch/ · duckduckgo"]},
+                ),
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+        result = await pipeline.process("welches ist die aktuelle apple watch", user_id="u1", source="test")
+
+        assert result.text == "ok"
+        assert result.intents == ["chat", "web_search"]
+        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
+        assert result.detail_lines[-1] == "Quelle: Apple · https://www.apple.com/watch/ · duckduckgo"
+        assert not any("Notiz-Kontext" in line for line in result.detail_lines)
+        assert f"Today is {date.today().isoformat()}" in llm.last_messages[0]["content"]
+        assert "Notiz-Kontext" not in llm.last_messages[1]["content"]
+        assert "Web Search via web-search" in llm.last_messages[1]["content"]
+
+    asyncio.run(_run())
+
+
+def test_pipeline_auto_freshness_web_search_does_not_pass_note_hits_to_web_skill() -> None:
+    class FreshnessLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                self.calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "aktuelle Apple Watch Modell",
+                            "confidence": "high",
+                            "reason": "current product question",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FreshnessLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        captured: dict[str, object] = {}
+
+        class _FreshWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = query
+                captured["note_context_hits"] = list(params.get("note_context_hits", []) or [])
+                return SkillResult(
+                    skill_name="web_search",
+                    content="[Web Search via web-search]\nSuche: aktuelle Apple Watch Modell",
+                    success=True,
+                    metadata={"detail_lines": ["Quelle: Apple · https://www.apple.com/watch/ · duckduckgo"]},
+                )
+
+        pipeline.web_search_skill = _FreshWebSearchSkill()
+
+        async def _fake_note_hits(**kwargs):
+            _ = kwargs
+            return [
+                NotesContextHit(
+                    note_id="n1",
+                    title="ARIA - Technische Architektur",
+                    folder="ARIA",
+                    relative_path="ARIA/architektur.md",
+                    updated_at="2026-04-23T12:00:00+00:00",
+                    score=0.91,
+                    snippet="interne ARIA Notiz",
+                    source="markdown",
+                )
+            ]
+
+        with patch.object(skill_runtime_mod, "search_note_hits", _fake_note_hits):
+            result = await pipeline.process("welches ist die aktuelle apple watch", user_id="u1", source="test")
+
+        assert result.text == "ok"
+        assert result.intents == ["chat", "web_search"]
+        assert captured["note_context_hits"] == []
+        assert result.detail_lines[-1] == "Quelle: Apple · https://www.apple.com/watch/ · duckduckgo"
+        assert not any("Notiz-Kontext" in line for line in result.detail_lines)
+
+    asyncio.run(_run())
+
+
+def test_pipeline_does_not_auto_web_search_explicit_notes_question() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _UnexpectedWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                raise AssertionError(f"unexpected web search: {query} {params}")
+
+        pipeline.web_search_skill = _UnexpectedWebSearchSkill()
+
+        result = await pipeline.process("was steht in meinen notizen zu ARIA?", user_id="u1", source="test")
+
+        assert result.text == "ok"
+        assert result.intents == ["chat"]
+        assert not any("chat_freshness" in line for line in result.detail_lines)
         assert llm.calls == 1
 
     asyncio.run(_run())
@@ -2674,6 +3624,45 @@ def test_pipeline_capability_router_uses_memory_hint_for_sftp_profile() -> None:
     assert llm.calls == 0
 
 
+def test_pipeline_sftp_requested_missing_profile_blocks_stale_memory_hint() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "sftp": {
+                    "ops-mgmt-01": {"host": "10.0.3.160", "user": "demo_user"},
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = FakeLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = FakeMemoryAssistSkill(
+        [{"text": "und jetzt nochmal den management server ops-mgmt-01"}]
+    )
+
+    def fake_list(connection_ref: str, remote_path: str) -> str:
+        raise AssertionError(f"SFTP list should not run via stale memory hint: {connection_ref}:{remote_path}")
+
+    pipeline._skill_runtime.execute_sftp_list = fake_list  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "liste die dateien auf meiner sftp verbindung dev-node-01",
+            user_id="u1",
+            source="test",
+        )
+    )
+
+    assert result.intents == ["capability:file_list"]
+    assert "kein passendes SFTP-Profil" in result.text
+    assert "`dev-node-01`" in result.text
+    assert "ops-mgmt-01" in result.text
+    assert not any("forced_connection_resolution selected `sftp/ops-mgmt-01`" in line for line in result.detail_lines)
+
+
 def test_pipeline_file_debug_includes_semantic_candidate_record() -> None:
     settings = Settings.model_validate(
         {
@@ -2923,7 +3912,7 @@ def test_pipeline_capability_router_uses_recent_context_for_same_path_phrase() -
             "Pfad: /tmp",
         ]
         assert list_calls == [("server-main", "/tmp")]
-        assert llm.calls == 0
+        assert llm.calls == 1
 
 
 def test_pipeline_capability_router_keeps_recent_list_directory_for_same_folder_phrase() -> None:
@@ -2981,7 +3970,7 @@ def test_pipeline_capability_router_keeps_recent_list_directory_for_same_folder_
             "Pfad: /tmp",
         ]
         assert list_calls == [("server-main", "/tmp")]
-        assert llm.calls == 0
+        assert llm.calls == 1
 
 
 def test_pipeline_rewrites_short_calendar_followup_with_recent_filter(monkeypatch) -> None:
@@ -3077,7 +4066,7 @@ def test_pipeline_rewrites_same_ssh_target_followup_from_recent_context(monkeypa
             "u1",
             capability="ssh_command",
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             path="",
             content="uptime",
         )
@@ -3087,8 +4076,8 @@ def test_pipeline_rewrites_same_ssh_target_followup_from_recent_context(monkeypa
                 "memory": {"enabled": False},
                 "connections": {
                     "ssh": {
-                        "ubnsrv-mgmt-master": {
-                            "host": "172.31.1.1",
+                        "ops-mgmt-01": {
+                            "host": "192.0.2.10",
                             "user": "root",
                             "aliases": ["management server"],
                         }
@@ -3105,16 +4094,16 @@ def test_pipeline_rewrites_same_ssh_target_followup_from_recent_context(monkeypa
         )
 
         async def fake_chain(message, *, preferred_kind="", llm_client=None, language=None):
-            assert message == "ssh ubnsrv-mgmt-master prüfe dort den status"
+            assert message == "ssh ops-mgmt-01 prüfe dort den status"
             return {
-                "decision": {"found": True, "kind": "ssh", "ref": "ubnsrv-mgmt-master"},
+                "decision": {"found": True, "kind": "ssh", "ref": "ops-mgmt-01"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "ubnsrv-mgmt-master",
+                        "connection_ref": "ops-mgmt-01",
                         "path": "",
                         "content": "uptime",
                         "preview": "SSH-Befehl: uptime",
@@ -3127,7 +4116,7 @@ def test_pipeline_rewrites_same_ssh_target_followup_from_recent_context(monkeypa
 
         async def fake_execute(plan, *, language="de"):
             assert plan.capability == "ssh_command"
-            assert plan.connection_ref == "ubnsrv-mgmt-master"
+            assert plan.connection_ref == "ops-mgmt-01"
             assert plan.content == "uptime"
             assert language == "de"
             return "mgmt uptime ok"
@@ -3157,7 +4146,7 @@ def test_pipeline_rewrites_named_ssh_followup_to_explicit_management_target(monk
             "u1",
             capability="ssh_command",
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             path="",
             content="uptime",
         )
@@ -3167,13 +4156,13 @@ def test_pipeline_rewrites_named_ssh_followup_to_explicit_management_target(monk
                 "memory": {"enabled": False},
                 "connections": {
                     "ssh": {
-                        "ubnsrv-netalert": {
-                            "host": "172.31.3.160",
+                        "ops-monitor-01": {
+                            "host": "192.0.2.15",
                             "user": "root",
                             "aliases": ["monitoring server"],
                         },
-                        "ubnsrv-mgmt-master": {
-                            "host": "172.31.1.1",
+                        "ops-mgmt-01": {
+                            "host": "192.0.2.10",
                             "user": "root",
                             "aliases": ["management server"],
                         },
@@ -3190,16 +4179,16 @@ def test_pipeline_rewrites_named_ssh_followup_to_explicit_management_target(monk
         )
 
         async def fake_chain(message, *, preferred_kind="", llm_client=None, language=None):
-            assert message == "ssh ubnsrv-mgmt-master und jetzt nochmal den management server"
+            assert message == "ssh ops-mgmt-01 und jetzt nochmal den management server"
             return {
-                "decision": {"found": True, "kind": "ssh", "ref": "ubnsrv-mgmt-master"},
+                "decision": {"found": True, "kind": "ssh", "ref": "ops-mgmt-01"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "ubnsrv-mgmt-master",
+                        "connection_ref": "ops-mgmt-01",
                         "path": "",
                         "content": "uptime",
                         "preview": "SSH-Befehl: uptime",
@@ -3211,7 +4200,7 @@ def test_pipeline_rewrites_named_ssh_followup_to_explicit_management_target(monk
             }
 
         async def fake_execute(plan, *, language="de"):
-            assert plan.connection_ref == "ubnsrv-mgmt-master"
+            assert plan.connection_ref == "ops-mgmt-01"
             return "mgmt uptime ok"
 
         monkeypatch.setattr(pipeline, "classify_routing", lambda *_args, **_kwargs: SimpleNamespace(intents=["chat"], level=0))
@@ -3239,7 +4228,7 @@ def test_pipeline_rewrites_named_ssh_followup_to_requested_monitoring_target(mon
             "u1",
             capability="ssh_command",
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             path="",
             content="uptime",
         )
@@ -3249,14 +4238,14 @@ def test_pipeline_rewrites_named_ssh_followup_to_requested_monitoring_target(mon
                 "memory": {"enabled": False},
                 "connections": {
                     "ssh": {
-                        "ubnsrv-netalert": {
-                            "host": "172.31.3.160",
+                        "ops-monitor-01": {
+                            "host": "192.0.2.15",
                             "user": "root",
                             "title": "NetAlert Monitoring",
                             "description": "Network monitoring and alerting system",
                         },
-                        "ubnsrv-mgmt-master": {
-                            "host": "172.31.1.1",
+                        "ops-mgmt-01": {
+                            "host": "192.0.2.10",
                             "user": "root",
                             "aliases": ["management server"],
                         },
@@ -3275,14 +4264,14 @@ def test_pipeline_rewrites_named_ssh_followup_to_requested_monitoring_target(mon
         async def fake_chain(message, *, preferred_kind="", llm_client=None, language=None):
             assert message == "ssh monitoring server und wie sieht es beim monitoring server aus"
             return {
-                "decision": {"found": True, "kind": "ssh", "ref": "ubnsrv-netalert"},
+                "decision": {"found": True, "kind": "ssh", "ref": "ops-monitor-01"},
                 "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
                 "payload_debug": {
                     "payload": {
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "ubnsrv-netalert",
+                        "connection_ref": "ops-monitor-01",
                         "path": "",
                         "content": "uptime",
                         "preview": "SSH-Befehl: uptime",
@@ -3295,7 +4284,7 @@ def test_pipeline_rewrites_named_ssh_followup_to_requested_monitoring_target(mon
             }
 
         async def fake_execute(plan, *, language="de"):
-            assert plan.connection_ref == "ubnsrv-netalert"
+            assert plan.connection_ref == "ops-monitor-01"
             assert plan.content == "uptime"
             return "netalert uptime ok"
 
@@ -3324,7 +4313,7 @@ def test_pipeline_does_not_rewrite_fresh_named_ssh_request_after_recent_context(
             "u1",
             capability="ssh_command",
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             path="",
             content="uptime",
         )
@@ -3334,13 +4323,13 @@ def test_pipeline_does_not_rewrite_fresh_named_ssh_request_after_recent_context(
                 "memory": {"enabled": False},
                 "connections": {
                     "ssh": {
-                        "ubnsrv-netalert": {
-                            "host": "172.31.3.160",
+                        "ops-monitor-01": {
+                            "host": "192.0.2.15",
                             "user": "root",
                             "aliases": ["monitoring server"],
                         },
-                        "ubnsrv-mgmt-master": {
-                            "host": "172.31.1.1",
+                        "ops-mgmt-01": {
+                            "host": "192.0.2.10",
                             "user": "root",
                             "aliases": ["management server"],
                         },
@@ -3424,11 +4413,11 @@ def test_pipeline_lists_smb_share_root_when_user_asks_for_folders_on_share() -> 
             "memory": {"enabled": False},
             "connections": {
                 "smb": {
-                    "fischer_ronny": {
+                    "example_share": {
                         "host": "10.0.3.200",
-                        "share": "Fischer_Ronny",
+                        "share": "Example_Share",
                         "user": "demo_user",
-                        "aliases": ["Ronny Fischer", "ronny"],
+                        "aliases": ["Example Share", "example"],
                     }
                 }
             },
@@ -3447,7 +4436,7 @@ def test_pipeline_lists_smb_share_root_when_user_asks_for_folders_on_share() -> 
 
     result = asyncio.run(
         pipeline.process(
-            "zeige mir die folder auf dem share Ronny Fischer",
+            "zeige mir die folder auf dem share Example Share",
             user_id="u1",
             source="test",
         )
@@ -3456,7 +4445,7 @@ def test_pipeline_lists_smb_share_root_when_user_asks_for_folders_on_share() -> 
     assert result.intents == ["capability:file_list"]
     assert result.text == "SMB LIST ROOT"
     assert result.pending_action is None
-    assert calls == [("fischer_ronny", ".")]
+    assert calls == [("example_share", ".")]
 
 
 def test_pipeline_capability_router_uses_single_smb_profile_as_default() -> None:
@@ -3608,9 +4597,9 @@ def test_pipeline_capability_router_uses_smb_alias_for_what_files_are_in_my_shar
                 "smb": {
                     "nas-docker": {
                         "host": "synrs816-01",
-                        "share": "Ronny",
+                        "share": "Example",
                         "user": "demo_user",
-                        "aliases": ["mein Share", "Ronny Share"],
+                        "aliases": ["mein Share", "Example Share"],
                     }
                 }
             },
@@ -3859,7 +4848,7 @@ def test_pipeline_capability_router_resolves_rss_feed_via_llm_semantics() -> Non
         "Ausgeführt via RSS-Profil `tech-news-1`",
     ]
     assert calls == ["tech-news-1"]
-    assert llm.calls == 0
+    assert llm.calls == 1
 
 
 def test_pipeline_rss_llm_refiner_can_override_weak_alias_choice(monkeypatch) -> None:
@@ -4560,7 +5549,7 @@ def test_pipeline_builds_planner_input_set_with_recent_session_context(monkeypat
             "u1",
             capability="ssh_command",
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             path="",
             content="uptime",
         )
@@ -4570,7 +5559,7 @@ def test_pipeline_builds_planner_input_set_with_recent_session_context(monkeypat
                 "memory": {"enabled": False},
                 "connections": {
                     "ssh": {
-                        "ubnsrv-netalert": {"host": "172.31.3.160", "user": "ops"},
+                        "ops-monitor-01": {"host": "192.0.2.15", "user": "ops"},
                     }
                 },
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -4587,13 +5576,13 @@ def test_pipeline_builds_planner_input_set_with_recent_session_context(monkeypat
             "connection_candidates_debug": [
                 {
                     "connection_kind": "ssh",
-                    "connection_ref": "ubnsrv-netalert",
+                    "connection_ref": "ops-monitor-01",
                     "source": "semantic_llm",
                     "note": "monitoring server",
                     "alias": "monitoring server",
                     "score": 171.0,
-                    "preview": "ssh/ubnsrv-netalert",
-                    "title": "ubnsrv-netalert",
+                    "preview": "ssh/ops-monitor-01",
+                    "title": "ops-monitor-01",
                 }
             ],
             "action_debug": {
@@ -4620,14 +5609,14 @@ def test_pipeline_builds_planner_input_set_with_recent_session_context(monkeypat
             resolved=resolved,
             user_id="u1",
             preferred_connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             language="de",
             notes=["pilot"],
         )
 
         assert payload["session_context"]["recent_capability"] == "ssh_command"
         assert payload["session_context"]["recent_connection_kind"] == "ssh"
-        assert payload["session_context"]["recent_connection_ref"] == "ubnsrv-netalert"
+        assert payload["session_context"]["recent_connection_ref"] == "ops-monitor-01"
         assert payload["session_context"]["recent_content"] == "uptime"
 
 
@@ -4724,13 +5713,13 @@ def test_pipeline_bounded_planner_filters_out_custom_skills_for_ssh_run_command(
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "ops",
                         "title": "Management Server",
                     },
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "ops",
                         "title": "Monitoring Host",
                     },
@@ -4745,7 +5734,7 @@ def test_pipeline_bounded_planner_filters_out_custom_skills_for_ssh_run_command(
         pipeline._build_forced_routed_resolution(
             "wie geht es dem monitoring server",
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             language="de",
             llm_client=None,
             capability_draft=SimpleNamespace(capability="ssh_command", connection_kind="ssh"),
@@ -4756,23 +5745,23 @@ def test_pipeline_bounded_planner_filters_out_custom_skills_for_ssh_run_command(
     resolved["connection_candidates_debug"] = [
         {
             "connection_kind": "ssh",
-            "connection_ref": "ubnsrv-mgmt-master",
+            "connection_ref": "ops-mgmt-01",
             "source": "semantic_alias",
             "note": "alias:management server",
             "alias": "management server",
             "score": 140.0,
-            "preview": "ssh/ubnsrv-mgmt-master",
-            "title": "ubnsrv-mgmt-master",
+            "preview": "ssh/ops-mgmt-01",
+            "title": "ops-mgmt-01",
         },
         {
             "connection_kind": "ssh",
-            "connection_ref": "ubnsrv-netalert",
+            "connection_ref": "ops-monitor-01",
             "source": "semantic_llm",
             "note": "monitoring server",
             "alias": "monitoring server",
             "score": 165.0,
-            "preview": "ssh/ubnsrv-netalert",
-            "title": "ubnsrv-netalert",
+            "preview": "ssh/ops-monitor-01",
+            "title": "ops-monitor-01",
         },
     ]
     resolved["action_debug"]["candidates"] = [
@@ -4818,7 +5807,7 @@ def test_pipeline_bounded_planner_filters_out_custom_skills_for_ssh_run_command(
             "decision": {
                 "found": True,
                 "target_kind": "ssh",
-                "target_ref": "ubnsrv-netalert",
+                "target_ref": "ops-monitor-01",
                 "action_candidate_type": "template",
                 "action_candidate_id": "ssh_run_command",
                 "capability": "ssh_command",
@@ -4850,7 +5839,7 @@ def test_pipeline_bounded_planner_filters_out_custom_skills_for_ssh_run_command(
 
     assert captured["action_ids"] == ["template/ssh_run_command"]
     assert updated["action_debug"]["decision"]["candidate_id"] == "ssh_run_command"
-    assert updated["decision"]["ref"] == "ubnsrv-netalert"
+    assert updated["decision"]["ref"] == "ops-monitor-01"
 
 
 def test_unified_routing_uses_semantic_llm_for_discord_even_when_action_llm_disabled(monkeypatch) -> None:
@@ -5174,14 +6163,14 @@ def test_unified_routing_blocks_semantic_llm_when_requested_ssh_target_does_not_
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-syncthing": {
-                        "host": "172.31.10.40",
+                    "sync-node-01": {
+                        "host": "192.0.2.16",
                         "user": "root",
                         "title": "Syncthing Server",
                         "description": "File sync and replication node",
                     },
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "title": "Management Server",
                         "aliases": ["management server"],
@@ -5215,7 +6204,7 @@ def test_unified_routing_blocks_semantic_llm_when_requested_ssh_target_does_not_
     async def _fake_semantic_llm(*_args, **_kwargs):
         return SemanticConnectionHint(
             connection_kind="ssh",
-            connection_ref="ubnsrv-syncthing",
+            connection_ref="sync-node-01",
             source="semantic_llm",
             note="semantic_llm:backup maybe syncthing",
         )
@@ -5248,8 +6237,8 @@ def test_unified_routing_blocks_semantic_llm_when_requested_ssh_target_does_not_
     payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
     assert payload.get("connection_ref") == ""
     detail_lines = list(resolved.get("detail_lines", []) or [])
-    assert any("Routing Debug: semantic_llm blocked requested_ref=backup server ref=ubnsrv-syncthing" in line for line in detail_lines)
-    assert not any("Routing: forced_connection_resolution selected `ssh/ubnsrv-syncthing`" in line for line in detail_lines)
+    assert any("Routing Debug: semantic_llm blocked requested_ref=backup server ref=sync-node-01" in line for line in detail_lines)
+    assert not any("Routing: forced_connection_resolution selected `ssh/sync-node-01`" in line for line in detail_lines)
 
 
 def test_unified_routing_keeps_semantic_llm_when_requested_ssh_target_matches(monkeypatch) -> None:
@@ -5260,14 +6249,14 @@ def test_unified_routing_keeps_semantic_llm_when_requested_ssh_target_matches(mo
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "title": "NetAlertX Monitoring",
                         "description": "Network monitoring and alerting system",
                     },
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "title": "Management Server",
                     },
@@ -5300,7 +6289,7 @@ def test_unified_routing_keeps_semantic_llm_when_requested_ssh_target_matches(mo
     async def _fake_semantic_llm(*_args, **_kwargs):
         return SemanticConnectionHint(
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             source="semantic_llm",
             note="semantic_llm:monitoring",
         )
@@ -5329,11 +6318,11 @@ def test_unified_routing_keeps_semantic_llm_when_requested_ssh_target_matches(mo
     )
 
     assert resolved is not None
-    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ubnsrv-netalert"
+    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ops-monitor-01"
     payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
-    assert payload.get("connection_ref") == "ubnsrv-netalert"
+    assert payload.get("connection_ref") == "ops-monitor-01"
     detail_lines = list(resolved.get("detail_lines", []) or [])
-    assert any("Routing: semantic_llm_resolution selected `ssh/ubnsrv-netalert` source=semantic_llm note=semantic_llm:monitoring" == line for line in detail_lines)
+    assert any("Routing: semantic_llm_resolution selected `ssh/ops-monitor-01` source=semantic_llm note=semantic_llm:monitoring" == line for line in detail_lines)
 
 
 def test_pipeline_requested_connection_guard_blocks_semantic_resolution_mismatch() -> None:
@@ -5343,8 +6332,8 @@ def test_pipeline_requested_connection_guard_blocks_semantic_resolution_mismatch
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-syncthing": {
-                        "host": "172.31.10.40",
+                    "sync-node-01": {
+                        "host": "192.0.2.16",
                         "user": "root",
                         "title": "Syncthing Server",
                         "description": "File sync and replication node",
@@ -5357,13 +6346,13 @@ def test_pipeline_requested_connection_guard_blocks_semantic_resolution_mismatch
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
 
     resolved = {
-        "decision": {"found": True, "kind": "ssh", "ref": "ubnsrv-syncthing", "source": "semantic_llm"},
+        "decision": {"found": True, "kind": "ssh", "ref": "sync-node-01", "source": "semantic_llm"},
         "payload_debug": {
             "payload": {
                 "found": True,
                 "capability": "ssh_command",
                 "connection_kind": "ssh",
-                "connection_ref": "ubnsrv-syncthing",
+                "connection_ref": "sync-node-01",
                 "content": "uptime",
                 "missing_fields": [],
             }
@@ -5428,7 +6417,7 @@ def test_pipeline_capability_router_reads_rss_feed_via_short_news_typo_phrase() 
         "Ausgeführt via RSS-Profil `heise-feed`",
     ]
     assert calls == ["heise-feed"]
-    assert llm.calls == 0
+    assert llm.calls == 1
 
 
 def test_pipeline_capability_router_sends_webhook_via_explicit_profile() -> None:
@@ -5830,8 +6819,8 @@ def test_pipeline_pending_input_can_fill_missing_connection_ref() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                     }
@@ -5856,12 +6845,12 @@ def test_pipeline_pending_input_can_fill_missing_connection_ref() -> None:
             },
             "routing_decision": {"kind": "ssh", "ref": ""},
         },
-        "ubnsrv-netalert",
+        "ops-monitor-01",
     )
 
     assert missing_input == "connection_ref"
     assert draft is not None
-    assert draft.explicit_connection_ref == "ubnsrv-netalert"
+    assert draft.explicit_connection_ref == "ops-monitor-01"
     assert draft.requested_connection_ref == ""
     assert draft.content == "uptime"
 
@@ -6129,7 +7118,7 @@ def test_pipeline_capability_detail_lines_follow_english_language() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "ubnsrv-mgmt-master": {
+                    "ops-mgmt-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "password": "secret",
@@ -6150,7 +7139,7 @@ def test_pipeline_capability_detail_lines_follow_english_language() -> None:
 
     result = asyncio.run(
         pipeline.process(
-            "Show me the contents of /etc/hosts on ubnsrv-mgmt-master",
+            "Show me the contents of /etc/hosts on ops-mgmt-01",
             user_id="u1",
             source="test",
             language="en",
@@ -6159,7 +7148,7 @@ def test_pipeline_capability_detail_lines_follow_english_language() -> None:
 
     assert result.intents == ["capability:file_read"]
     assert result.detail_lines == [
-        "Executed via SFTP profile `ubnsrv-mgmt-master`",
+        "Executed via SFTP profile `ops-mgmt-01`",
         "Path: /etc/hosts",
     ]
     assert llm.calls == 0
@@ -6291,7 +7280,7 @@ def test_pipeline_routes_direct_ssh_command_before_chat_rag() -> None:
             "memory": {"enabled": True, "backend": "qdrant"},
             "connections": {
                 "ssh": {
-                    " pihole1 ": {
+                    " dns-node-01 ": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6311,7 +7300,7 @@ def test_pipeline_routes_direct_ssh_command_before_chat_rag() -> None:
         calls.append(dict(kwargs))
         return SkillResult(
             skill_name="custom_skill_direct-ssh-command",
-            content="pihole1 uptime ok",
+            content="dns-node-01 uptime ok",
             success=True,
         )
 
@@ -6319,7 +7308,7 @@ def test_pipeline_routes_direct_ssh_command_before_chat_rag() -> None:
 
     result = asyncio.run(
         pipeline.process(
-            "Run uptime on pihole1",
+            "Run uptime on dns-node-01",
             user_id="u1",
             source="test",
             language="en",
@@ -6327,16 +7316,16 @@ def test_pipeline_routes_direct_ssh_command_before_chat_rag() -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "pihole1 uptime ok"
+    assert result.text == "dns-node-01 uptime ok"
     assert result.detail_lines == [
-        "Executed via SSH profile `pihole1`",
+        "Executed via SSH profile `dns-node-01`",
         "Command: uptime",
     ]
     assert calls == [
         {
             "skill_id": "direct-ssh-command",
             "skill_name": "SSH Command",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "command_template": "uptime",
             "message": "uptime",
             "language": "en",
@@ -6354,7 +7343,7 @@ def test_pipeline_routes_natural_dns_uptime_prompt_to_ssh_before_sftp() -> None:
             "memory": {"enabled": True, "backend": "qdrant"},
             "connections": {
                 "ssh": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6363,7 +7352,7 @@ def test_pipeline_routes_natural_dns_uptime_prompt_to_ssh_before_sftp() -> None:
                     }
                 },
                 "sftp": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6385,7 +7374,7 @@ def test_pipeline_routes_natural_dns_uptime_prompt_to_ssh_before_sftp() -> None:
         calls.append(dict(kwargs))
         return SkillResult(
             skill_name="custom_skill_direct-ssh-command",
-            content="pihole1 uptime ok",
+            content="dns-node-01 uptime ok",
             success=True,
         )
 
@@ -6400,16 +7389,16 @@ def test_pipeline_routes_natural_dns_uptime_prompt_to_ssh_before_sftp() -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "pihole1 uptime ok"
+    assert result.text == "dns-node-01 uptime ok"
     assert result.detail_lines == [
-        "Ausgeführt via SSH-Profil `pihole1`",
+        "Ausgeführt via SSH-Profil `dns-node-01`",
         "Befehl: uptime",
     ]
     assert calls == [
         {
             "skill_id": "direct-ssh-command",
             "skill_name": "SSH Command",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "command_template": "uptime",
             "message": "uptime",
             "language": "de",
@@ -6427,7 +7416,7 @@ def test_pipeline_routes_how_long_dns_server_runs_phrase_to_ssh() -> None:
             "memory": {"enabled": True, "backend": "qdrant"},
             "connections": {
                 "ssh": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6436,7 +7425,7 @@ def test_pipeline_routes_how_long_dns_server_runs_phrase_to_ssh() -> None:
                     }
                 },
                 "sftp": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6458,7 +7447,7 @@ def test_pipeline_routes_how_long_dns_server_runs_phrase_to_ssh() -> None:
         calls.append(dict(kwargs))
         return SkillResult(
             skill_name="custom_skill_direct-ssh-command",
-            content="pihole1 uptime ok",
+            content="dns-node-01 uptime ok",
             success=True,
         )
 
@@ -6473,16 +7462,16 @@ def test_pipeline_routes_how_long_dns_server_runs_phrase_to_ssh() -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "pihole1 uptime ok"
+    assert result.text == "dns-node-01 uptime ok"
     assert result.detail_lines == [
-        "Ausgeführt via SSH-Profil `pihole1`",
+        "Ausgeführt via SSH-Profil `dns-node-01`",
         "Befehl: uptime",
     ]
     assert calls == [
         {
             "skill_id": "direct-ssh-command",
             "skill_name": "SSH Command",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "command_template": "uptime",
             "message": "uptime",
             "language": "de",
@@ -6500,7 +7489,7 @@ def test_pipeline_routes_how_long_dns_server_is_online_phrase_to_ssh() -> None:
             "memory": {"enabled": True, "backend": "qdrant"},
             "connections": {
                 "ssh": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6509,7 +7498,7 @@ def test_pipeline_routes_how_long_dns_server_is_online_phrase_to_ssh() -> None:
                     }
                 },
                 "sftp": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "host": "127.0.0.1",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
@@ -6531,7 +7520,7 @@ def test_pipeline_routes_how_long_dns_server_is_online_phrase_to_ssh() -> None:
         calls.append(dict(kwargs))
         return SkillResult(
             skill_name="custom_skill_direct-ssh-command",
-            content="pihole1 uptime ok",
+            content="dns-node-01 uptime ok",
             success=True,
         )
 
@@ -6546,16 +7535,16 @@ def test_pipeline_routes_how_long_dns_server_is_online_phrase_to_ssh() -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "pihole1 uptime ok"
+    assert result.text == "dns-node-01 uptime ok"
     assert result.detail_lines == [
-        "Ausgeführt via SSH-Profil `pihole1`",
+        "Ausgeführt via SSH-Profil `dns-node-01`",
         "Befehl: uptime",
     ]
     assert calls == [
         {
             "skill_id": "direct-ssh-command",
             "skill_name": "SSH Command",
-            "connection_ref": "pihole1",
+            "connection_ref": "dns-node-01",
             "command_template": "uptime",
             "message": "uptime",
             "language": "de",
@@ -6573,15 +7562,15 @@ def test_pipeline_routes_monitoring_server_phrase_into_unified_ssh_path(monkeypa
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
                         "description": "Network monitoring and alerting system",
                     },
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management host",
@@ -6594,7 +7583,7 @@ def test_pipeline_routes_monitoring_server_phrase_into_unified_ssh_path(monkeypa
     llm = FakeLLMClient()
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
     pipeline.memory_skill = FakeMemoryAssistSkill(
-        rows=[{"text": "brauchen meine linux server updates ? ubnsrv-mgmt-master"}]
+        rows=[{"text": "brauchen meine linux server updates ? ops-mgmt-01"}]
     )  # type: ignore[assignment]
 
     async def fake_chain(*_args, **_kwargs):
@@ -6610,7 +7599,7 @@ def test_pipeline_routes_monitoring_server_phrase_into_unified_ssh_path(monkeypa
     async def fake_semantic_llm(*_args, **_kwargs):
         return SemanticConnectionHint(
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             source="semantic_llm",
             note="monitoring server",
         )
@@ -6620,7 +7609,7 @@ def test_pipeline_routes_monitoring_server_phrase_into_unified_ssh_path(monkeypa
 
     async def fake_execute(plan, *, language="de"):
         assert plan.capability == "ssh_command"
-        assert plan.connection_ref == "ubnsrv-netalert"
+        assert plan.connection_ref == "ops-monitor-01"
         assert plan.content == "uptime"
         assert language == "de"
         return "netalert uptime ok"
@@ -6642,7 +7631,7 @@ def test_pipeline_routes_monitoring_server_phrase_into_unified_ssh_path(monkeypa
     assert result.intents == ["capability:ssh_command"]
     assert result.text == "netalert uptime ok"
     assert result.detail_lines == [
-        "Ausgeführt via SSH-Profil `ubnsrv-netalert`",
+        "Ausgeführt via SSH-Profil `ops-monitor-01`",
         "Befehl: uptime",
     ]
     assert pipeline.memory_skill is not None
@@ -6656,8 +7645,8 @@ def test_pipeline_formats_uptime_result_for_chat_summary() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
@@ -6674,7 +7663,7 @@ def test_pipeline_formats_uptime_result_for_chat_summary() -> None:
             skill_name="custom_skill_direct-ssh-command",
             content=(
                 "[Stored Recipe SSH] SSH Command\n"
-                "Connection: ubnsrv-netalert (root@172.31.3.160)\n"
+                "Connection: ops-monitor-01 (root@192.0.2.15)\n"
                 "Exit Code: 0\n"
                 "Dauer: 0.6s\n"
                 "STDOUT:\n"
@@ -6699,9 +7688,9 @@ def test_pipeline_formats_uptime_result_for_chat_summary() -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "Kurzcheck für `ubnsrv-netalert`: Erreichbar. Laufzeit 53 days, 16:06. Load 1.11, 1.04, 1.01: unauffällig."
+    assert result.text == "Kurzcheck für `ops-monitor-01`: Erreichbar. Laufzeit 53 days, 16:06. Load 1.11, 1.04, 1.01: unauffällig."
     assert result.detail_lines == [
-        "Ausgeführt via SSH-Profil `ubnsrv-netalert`",
+        "Ausgeführt via SSH-Profil `ops-monitor-01`",
         "Befehl: uptime",
     ]
 
@@ -6713,8 +7702,8 @@ def test_pipeline_formats_combined_monitoring_result_for_chat_summary() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
@@ -6757,7 +7746,7 @@ def test_pipeline_formats_combined_monitoring_result_for_chat_summary() -> None:
 
     assert result.intents == ["capability:ssh_command"]
     assert result.text == (
-        "Kurzcheck für `ubnsrv-netalert`: Erreichbar. Laufzeit 55 days, 41 min. "
+        "Kurzcheck für `ops-monitor-01`: Erreichbar. Laufzeit 55 days, 41 min. "
         "Load 1.11, 1.04, 1.01: unauffällig. Root-Dateisystem /: 32% belegt, 20G frei (ok). "
         "Verfügbarer RAM: 1.5Gi (ok). Swap in Nutzung: 462Mi von 2.0Gi."
     )
@@ -6974,8 +7963,8 @@ def test_pipeline_capability_router_lists_watched_websites_without_sftp_bleed() 
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                     }
@@ -7096,8 +8085,8 @@ def test_pipeline_capability_router_keeps_heise_news_request_out_of_sftp_memory_
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                     }
@@ -7148,8 +8137,8 @@ def test_pipeline_formats_management_health_result_for_chat_summary() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -7196,7 +8185,7 @@ def test_pipeline_formats_management_health_result_for_chat_summary() -> None:
 
     assert result.intents == ["capability:ssh_command"]
     assert result.text == (
-        "Kurzcheck für `ubnsrv-mgmt-master`: Erreichbar. Laufzeit 53 days, 23:58. "
+        "Kurzcheck für `ops-mgmt-01`: Erreichbar. Laufzeit 53 days, 23:58. "
         "Load 0.00, 0.00, 0.00: unauffällig. Root-Dateisystem /: 35% belegt, 12G frei (ok). "
         "Verfügbarer RAM: 6.0Gi (ok). Docker-Container aktiv: 3."
     )
@@ -7209,8 +8198,8 @@ def test_pipeline_formats_inactive_service_probe_cautiously() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
@@ -7265,8 +8254,8 @@ def test_pipeline_reviews_overly_complex_ssh_command_candidate() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
@@ -7310,7 +8299,7 @@ def test_pipeline_reviews_overly_complex_ssh_command_candidate() -> None:
 
     review_llm = ReviewLLM()
     action_debug = {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}}
-    routing_decision = {"found": True, "kind": "ssh", "ref": "ubnsrv-netalert"}
+    routing_decision = {"found": True, "kind": "ssh", "ref": "ops-monitor-01"}
 
     updated, _, debug_line = asyncio.run(
         pipeline._apply_agentic_ssh_command_resolution(
@@ -7336,14 +8325,14 @@ def test_pipeline_requires_ssh_profile_before_agentic_command_without_target() -
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
                     },
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -7388,13 +8377,13 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "title": "Management Server",
                     },
-                    "ubnsrv-n8n": {
-                        "host": "172.31.1.2",
+                    "workflow-node-01": {
+                        "host": "192.0.2.17",
                         "user": "root",
                         "title": "n8n Server",
                     },
@@ -7412,7 +8401,7 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
     )
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
     pipeline.memory_skill = FakeMemoryAssistSkill(
-        rows=[{"text": "und jetzt nochmal den management server ubnsrv-mgmt-master"}]
+        rows=[{"text": "und jetzt nochmal den management server ops-mgmt-01"}]
     )  # type: ignore[assignment]
     recipes_dir = tmp_path / "recipes"
     recipes_dir.mkdir()
@@ -7429,7 +8418,7 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
                         "id": "s1",
                         "type": "ssh_run",
                         "params": {
-                            "connection_ref": "ubnsrv-mgmt-master",
+                            "connection_ref": "ops-mgmt-01",
                             "command": "h=$(hostname 2>/dev/null||echo host); echo \"== DISK_HOTSPOTS ==\"; df -h -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || ($5+0) >= 85'",
                         },
                     }
@@ -7493,8 +8482,8 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
     )
     assert result.pending_action is None
     assert executed == [
-        ("ubnsrv-mgmt-master", "df -h"),
-        ("ubnsrv-n8n", "df -h"),
+        ("ops-mgmt-01", "df -h"),
+        ("workflow-node-01", "df -h"),
     ]
     assert "stored_recipe" not in result.intents
     assert "feed_read" not in result.intents
@@ -7502,6 +8491,92 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
     assert not any("source=memory_hint" in line for line in result.detail_lines)
     assert not any("DISK_HOTSPOTS" in line for line in result.detail_lines)
     assert not any("rss/telepolis-aktuelle-beitr-ge" in line for line in result.detail_lines)
+
+
+def test_pipeline_prefers_concrete_ssh_draft_over_stored_recipe_candidate() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.16",
+                        "user": "demo_user",
+                        "title": "Development Server",
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+    resolved = {
+        "query": "prüf dev-node-01 kurz",
+        "decision": {"found": True, "kind": "ssh", "ref": "dev-node-01", "source": "exact_ref"},
+        "action_debug": {
+            "decision": {
+                "found": True,
+                "candidate_kind": "recipe",
+                "candidate_id": "linux-healthcheck",
+                "capability": "ssh_command",
+                "inputs": {},
+            },
+            "candidates": [
+                {
+                    "candidate_kind": "template",
+                    "candidate_id": "ssh_run_command",
+                    "capability": "ssh_command",
+                    "inputs": {"command": "uptime"},
+                },
+                {
+                    "candidate_kind": "recipe",
+                    "candidate_id": "linux-healthcheck",
+                    "capability": "ssh_command",
+                    "inputs": {},
+                    "preview": "SSH command: h=$(hostname 2>/dev/null||echo host); df -h | awk 'NR==1'",
+                },
+            ],
+        },
+        "payload_debug": {
+            "payload": {
+                "found": True,
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_ref": "dev-node-01",
+                "content": "h=$(hostname 2>/dev/null||echo host); df -h | awk 'NR==1'",
+                "missing_fields": [],
+            }
+        },
+        "detail_lines": [],
+    }
+    draft = CapabilityDraft(
+        capability="ssh_command",
+        connection_kind="ssh",
+        explicit_connection_ref="dev-node-01",
+        content="uptime",
+        plan_class="command_single",
+        behavior_profile="ssh_run_command",
+    )
+
+    updated = pipeline._force_template_action_for_capability_draft(
+        resolved,
+        capability_draft=draft,
+        message="prüf dev-node-01 kurz",
+        language="de",
+    )
+
+    action = dict((updated.get("action_debug") or {}).get("decision", {}) or {})
+    payload = dict((updated.get("payload_debug") or {}).get("payload", {}) or {})
+    safety = dict(updated.get("safety_debug") or {})
+    assert action["candidate_kind"] == "template"
+    assert action["candidate_id"] == "ssh_run_command"
+    assert action["inputs"] == {"command": "uptime"}
+    assert payload["connection_ref"] == "dev-node-01"
+    assert payload["content"] == "uptime"
+    assert dict(safety.get("decision") or {})["action"] == "allow"
+    assert any("recipe_candidate_suppressed" in line for line in updated.get("detail_lines", []))
 
 
 def test_pipeline_plural_server_disk_check_uses_agentic_command_draft_when_router_left_command_empty(
@@ -7514,8 +8589,8 @@ def test_pipeline_plural_server_disk_check_uses_agentic_command_draft_when_route
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "srv-a": {"host": "172.31.1.10", "user": "root", "title": "Server A"},
-                    "srv-b": {"host": "172.31.1.11", "user": "root", "title": "Server B"},
+                    "srv-a": {"host": "192.0.2.18", "user": "root", "title": "Server A"},
+                    "srv-b": {"host": "192.0.2.19", "user": "root", "title": "Server B"},
                 }
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -7620,8 +8695,8 @@ def test_pipeline_finalizes_plural_ssh_after_planner_left_missing_connection_ref
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "srv-a": {"host": "172.31.1.10", "user": "root", "title": "Server A"},
-                    "srv-b": {"host": "172.31.1.11", "user": "root", "title": "Server B"},
+                    "srv-a": {"host": "192.0.2.18", "user": "root", "title": "Server A"},
+                    "srv-b": {"host": "192.0.2.19", "user": "root", "title": "Server B"},
                 }
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -7698,6 +8773,889 @@ def test_pipeline_finalizes_plural_ssh_after_planner_left_missing_connection_ref
     assert any("plural_target_scope selected_multi_target kind=ssh refs=srv-a, srv-b command=df -h" in line for line in finalized.get("detail_lines", []))
 
 
+def test_pipeline_scopes_plural_ssh_disk_check_to_connection_context_aliases() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "root",
+                        "title": "code-server Entwicklungsserver",
+                        "aliases": [
+                            "entwicklung",
+                            "vscode",
+                            "browser-ide",
+                            "remote-coding",
+                            "webentwicklung",
+                            "code-server",
+                            "entwicklungsumgebung",
+                            "programmierung",
+                            "dev server",
+                        ],
+                    },
+                    "dev-node-02": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "title": "code-server 02",
+                        "aliases": [
+                            "development",
+                            "vscode",
+                            "browser",
+                            "ide",
+                            "coding",
+                            "remote",
+                            "web-based",
+                            "editor",
+                        ],
+                    },
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "title": "Primary DNS",
+                        "aliases": ["dns server", "network device"],
+                    },
+                    "home-automation-01": {
+                        "host": "192.0.2.21",
+                        "user": "root",
+                        "title": "Home Assistant Server",
+                        "aliases": ["device", "home-automation", "smart-home"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DiskLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            self.last_messages = messages
+            operation = str(kwargs.get("operation", "") or "")
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "disk space question about dev servers",
+                        }
+                    )
+                )
+            if operation == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "df -h",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "disk usage check",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Mehrere SSH-Ziele geprueft (2). Beide Dev-Server haben genug Speicher.",
+                            "confidence": "high",
+                            "reason": "Only dev server targets were checked.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = DiskLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return f"Festplattencheck fuer `{plan.connection_ref}`: Root-Dateisystem /: 35% belegt, 20G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "haben meine dev-server noch genug festplattenspeicher",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.pending_action is None
+    assert ssh_calls == [("dev-node-01", "df -h"), ("dev-node-02", "df -h")]
+    assert not any("dns-node-01" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
+    assert not any("home-automation-01" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
+    assert "Mehrere SSH-Ziele geprueft (2)." in result.text
+    assert any(
+        "plural_target_scope narrowed_by_connection_context kind=ssh refs=dev-node-01, dev-node-02"
+        in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
+        in line
+        for line in result.detail_lines
+    )
+
+    ssh_calls.clear()
+    single_result = asyncio.run(
+        pipeline.process(
+            "hat dev-node-01 noch genug festplattenspeicher",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert single_result.intents == ["capability:ssh_command"]
+    assert single_result.pending_action is None
+    assert ssh_calls == [("dev-node-01", "df -h")]
+    assert not any(
+        "plural_target_scope selected_multi_target" in line
+        for line in single_result.detail_lines
+    )
+
+
+def test_pipeline_plural_ssh_group_context_overrides_single_memory_hint(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "root",
+                        "title": "code-server Entwicklungsserver",
+                        "aliases": [
+                            "entwicklung",
+                            "vscode",
+                            "browser-ide",
+                            "remote-coding",
+                            "webentwicklung",
+                            "code-server",
+                            "entwicklungsumgebung",
+                            "programmierung",
+                            "dev server",
+                        ],
+                    },
+                    "dev-node-02": {
+                        "host": "192.0.2.22",
+                        "user": "root",
+                        "title": "code-server 02",
+                        "aliases": [
+                            "development",
+                            "vscode",
+                            "browser",
+                            "ide",
+                            "coding",
+                            "remote",
+                            "web-based",
+                            "editor",
+                        ],
+                    },
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["pihole", "dns", "primary", "network device"],
+                    },
+                    "homebridge-node": {
+                        "host": "192.0.2.23",
+                        "user": "root",
+                        "title": "Homebridge Smart Home Hub",
+                        "aliases": ["device", "home-automation", "plugins"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DiskLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            operation = str(kwargs.get("operation", "") or "")
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "disk space question about dev servers",
+                        }
+                    )
+                )
+            if operation == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "df -h",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "disk usage check",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Mehrere SSH-Ziele geprueft (2). Beide Dev-Server haben genug Speicher.",
+                            "confidence": "high",
+                            "reason": "Only dev server targets were checked.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = DiskLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_memory_resolve(*args, **kwargs):
+        return MemoryHints(
+            connection_kind="ssh",
+            connection_ref="dev-node-01",
+            source="message_match",
+        )
+
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return f"Festplattencheck fuer `{plan.connection_ref}`: Root-Dateisystem /: 35% belegt, 20G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "haben meine dev-server noch genug festplattenspeicher",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.pending_action is None
+    assert ssh_calls == [("dev-node-01", "df -h"), ("dev-node-02", "df -h")]
+    assert not any("dns-node-01" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
+    assert not any("homebridge-node" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
+    assert any(
+        "memory_hint ignored_by_plural_target_context ref=dev-node-01 refs=dev-node-01, dev-node-02"
+        in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
+        in line
+        for line in result.detail_lines
+    )
+
+
+def test_pipeline_plural_ssh_group_context_ignores_memory_hint_outside_group(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "root",
+                        "title": "code-server Entwicklungsserver",
+                        "aliases": [
+                            "dev server",
+                            "developer server",
+                            "entwicklung",
+                            "vscode",
+                            "browser-ide",
+                            "code-server",
+                        ],
+                    },
+                    "dev-node-02": {
+                        "host": "192.0.2.22",
+                        "user": "root",
+                        "title": "code-server 02",
+                        "aliases": [
+                            "dev server",
+                            "developer server",
+                            "development",
+                            "vscode",
+                            "browser-ide",
+                            "coding",
+                        ],
+                    },
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.16",
+                        "user": "root",
+                        "title": "Management Server",
+                        "aliases": ["management server", "mgmt", "admin"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DiskLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            operation = str(kwargs.get("operation", "") or "")
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "disk space question about developer servers",
+                        }
+                    )
+                )
+            if operation == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "df -h",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "disk usage check",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Mehrere SSH-Ziele geprueft (2). Beide Developer-Server haben genug Speicher.",
+                            "confidence": "high",
+                            "reason": "Only developer server targets were checked.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = DiskLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_memory_resolve(*args, **kwargs):
+        return MemoryHints(
+            connection_kind="ssh",
+            connection_ref="ops-mgmt-01",
+            source="memory_hint",
+            matched_text="und jetzt nochmal den management server",
+        )
+
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return f"Festplattencheck fuer `{plan.connection_ref}`: Root-Dateisystem /: 35% belegt, 20G frei (ok)."
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "haben meine developer server noch genug festplattenspeicher",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.pending_action is None
+    assert ssh_calls == [("dev-node-01", "df -h"), ("dev-node-02", "df -h")]
+    assert not any(
+        "agentic_runtime ref=ops-mgmt-01" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "memory_hint ignored_by_plural_target_context ref=ops-mgmt-01 refs=dev-node-01, dev-node-02"
+        in line
+        for line in result.detail_lines
+    )
+
+
+def test_pipeline_requested_developer_server_ref_can_expand_to_metadata_group(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "root",
+                        "title": "code-server Entwicklungsserver",
+                        "aliases": ["dev server", "entwicklung", "vscode", "browser-ide", "remote ide"],
+                    },
+                    "dev-node-02": {
+                        "host": "192.0.2.22",
+                        "user": "root",
+                        "title": "code-server 02",
+                        "aliases": ["development", "vscode", "browser", "ide", "coding", "remote"],
+                    },
+                    "ai-ui-01": {
+                        "host": "192.0.2.24",
+                        "user": "root",
+                        "title": "Open WebUI",
+                        "aliases": ["ai", "llm", "web-interface"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class RequestedRefLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            operation = str(kwargs.get("operation", "") or "")
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "requested_connection_ref": "developer server",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "disk space question about developer servers",
+                        }
+                    )
+                )
+            if operation == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "df -h",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "read-only disk usage check",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Beide Developer-Server haben ausreichend freien Speicher.",
+                            "confidence": "high",
+                            "reason": "Only developer server targets were checked.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=RequestedRefLLM())
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_memory_resolve(*args, **kwargs):
+        return MemoryHints(connection_kind="ssh", connection_ref="", source="")
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return f"Festplattencheck fuer `{plan.connection_ref}`: Root-Dateisystem /: 40% belegt, 20G frei (ok)."
+
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "haben meine developer server noch genug festplattenspeicher",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.pending_action is None
+    assert ssh_calls == [("dev-node-01", "df -h"), ("dev-node-02", "df -h")]
+    assert any(
+        "plural_target_scope enabled_by_requested_ref_context requested_ref=developer server refs=dev-node-01, dev-node-02"
+        in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
+        in line
+        for line in result.detail_lines
+    )
+
+
+def test_pipeline_plural_ssh_context_rebuilds_chain_complete_single_ref(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "root",
+                        "title": "code-server Entwicklungsserver",
+                        "aliases": ["dev server", "entwicklung", "vscode", "code-server"],
+                    },
+                    "dev-node-02": {
+                        "host": "192.0.2.22",
+                        "user": "root",
+                        "title": "code-server 02",
+                        "aliases": ["development", "coding", "vscode", "editor"],
+                    },
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["pihole", "dns", "network device"],
+                    },
+                    "home-automation-01": {
+                        "host": "192.0.2.21",
+                        "user": "root",
+                        "title": "Home Assistant Server",
+                        "aliases": ["device", "home-automation", "smart-home"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "",
+            "query": "haben meine dev-server noch genug festplattenspeicher",
+            "preferred_kind": "ssh",
+            "decision": {"found": True, "kind": "ssh", "ref": "dev-node-01", "source": "alias"},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": True, "operation": "run_command", "content": "df -h"}},
+            "payload_debug": {
+                "payload": {
+                    "found": True,
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "dev-node-01",
+                    "content": "df -h",
+                    "preview": "SSH command: df -h",
+                    "missing_fields": [],
+                }
+            },
+            "safety_debug": {"decision": {"action": "allow"}},
+            "execution_debug": {"decision": {"execution_state": "ready"}},
+            "detail_lines": [
+                "Routing: routing_chain selected `ssh/dev-node-01` source=alias note=dev server",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(connection_kind="ssh", connection_ref="dev-node-01", source="message_match")
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "haben meine dev-server noch genug festplattenspeicher",
+            user_id="u1",
+            language="de",
+            capability_draft=CapabilityDraft(
+                capability="ssh_command",
+                connection_kind="ssh",
+                explicit_connection_ref="dev-node-01",
+                content="df -h",
+                notes=["target_scope:multi_target"],
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_refs") == ["dev-node-01", "dev-node-02"]
+    assert payload.get("connection_ref") == ""
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "chain_complete_single_ref ignored_by_plural_target_context ref=dev-node-01 refs=dev-node-01, dev-node-02"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
+        in line
+        for line in detail_lines
+    )
+
+
+def test_pipeline_dns_health_role_context_expands_primary_and_secondary(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server", "dns", "pihole", "primary"],
+                    },
+                    "dns-node-02": {
+                        "host": "192.0.2.25",
+                        "user": "root",
+                        "title": "Pi-hole Secondary DNS Server",
+                        "aliases": ["dns", "pihole", "secondary"],
+                    },
+                    "dev-node-01": {
+                        "host": "192.0.2.11",
+                        "user": "root",
+                        "title": "code-server Entwicklungsserver",
+                        "aliases": ["dev server", "entwicklung", "vscode"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "",
+            "query": "ist mein dns server ok",
+            "preferred_kind": "ssh",
+            "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01", "source": "alias"},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": True, "operation": "run_command", "content": "dig @127.0.0.1 google.com +short"}},
+            "payload_debug": {
+                "payload": {
+                    "found": True,
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "dns-node-01",
+                    "content": "dig @127.0.0.1 google.com +short",
+                    "preview": "SSH command: dig @127.0.0.1 google.com +short",
+                    "missing_fields": [],
+                }
+            },
+            "safety_debug": {"decision": {"action": "allow"}},
+            "execution_debug": {"decision": {"execution_state": "ready"}},
+            "detail_lines": [
+                "Routing: routing_chain selected `ssh/dns-node-01` source=alias note=dns server",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(connection_kind="ssh", connection_ref="dns-node-01", source="message_match")
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "ist mein dns server ok",
+            user_id="u1",
+            language="de",
+            capability_draft=CapabilityDraft(
+                capability="ssh_command",
+                connection_kind="ssh",
+                explicit_connection_ref="dns-node-01",
+                content="dig @127.0.0.1 google.com +short",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_refs") == ["dns-node-01", "dns-node-02"]
+    assert payload.get("connection_ref") == ""
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "plural_target_scope narrowed_by_connection_context kind=ssh refs=dns-node-01, dns-node-02"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "chain_complete_single_ref ignored_by_plural_target_context ref=dns-node-01 refs=dns-node-01, dns-node-02"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "plural_target_scope selected_multi_target kind=ssh refs=dns-node-01, dns-node-02 command=dig @127.0.0.1 google.com +short"
+        in line
+        for line in detail_lines
+    )
+
+
+def test_pipeline_dns_mutating_role_context_stays_single_target(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server", "dns", "pihole", "primary"],
+                    },
+                    "dns-node-02": {
+                        "host": "192.0.2.25",
+                        "user": "root",
+                        "title": "Pi-hole Secondary DNS Server",
+                        "aliases": ["dns", "pihole", "secondary"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "",
+            "query": "starte meinen dns server neu",
+            "preferred_kind": "ssh",
+            "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01", "source": "alias"},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": True, "operation": "run_command", "content": "sudo systemctl restart pihole-FTL"}},
+            "payload_debug": {
+                "payload": {
+                    "found": True,
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "dns-node-01",
+                    "content": "sudo systemctl restart pihole-FTL",
+                    "preview": "SSH command: sudo systemctl restart pihole-FTL",
+                    "missing_fields": [],
+                }
+            },
+            "safety_debug": {"decision": {"action": "block"}},
+            "execution_debug": {"decision": {"execution_state": "blocked"}},
+            "detail_lines": [
+                "Routing: routing_chain selected `ssh/dns-node-01` source=alias note=dns server",
+            ],
+        }
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "starte meinen dns server neu",
+            user_id="u1",
+            language="de",
+            capability_draft=CapabilityDraft(
+                capability="ssh_command",
+                connection_kind="ssh",
+                explicit_connection_ref="dns-node-01",
+                content="sudo systemctl restart pihole-FTL",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_ref") == "dns-node-01"
+    assert not payload.get("connection_refs")
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert not any("refs=dns-node-01, dns-node-02" in line for line in detail_lines)
+
+
+def test_pipeline_bounded_planner_does_not_override_plural_multi_target_payload() -> None:
+    resolved = {
+        "decision": {"found": True, "kind": "ssh", "ref": ""},
+        "connection_candidates_debug": [
+            {"connection_kind": "ssh", "connection_ref": "dev-node-01"},
+            {"connection_kind": "ssh", "connection_ref": "dev-node-02"},
+        ],
+        "action_debug": {
+            "candidates": [
+                {
+                    "candidate_kind": "template",
+                    "candidate_id": "ssh_run_command",
+                    "capability": "ssh_command",
+                }
+            ]
+        },
+        "payload_debug": {
+            "payload": {
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_ref": "",
+                "connection_refs": ["dev-node-01", "dev-node-02"],
+                "content": "df -h",
+            }
+        },
+    }
+
+    assert Pipeline._should_try_bounded_planner(resolved) is False
+
+
+def test_requested_developer_server_matches_dev_server_metadata() -> None:
+    assert Pipeline._requested_connection_ref_matches_candidate(
+        "developer server",
+        connection_kind="ssh",
+        connection_ref="dev-node-01",
+        row={
+            "title": "dev-node-01",
+            "description": "VS Code im Browser - Remote-Entwicklungsumgebung fuer webbasiertes Coding und IDE-Zugriff",
+            "aliases": [
+                "dev server",
+                "entwicklungsserver",
+                "code server",
+                "vscode browser",
+                "remote ide",
+                "dev01",
+                "webide",
+                "entwicklung",
+            ],
+            "tags": ["entwicklung", "vscode", "browser-ide"],
+        },
+    )
+
+
 def test_pipeline_multi_target_ssh_preflight_skips_blocked_profiles() -> None:
     settings = Settings.model_validate(
         {
@@ -7707,13 +9665,13 @@ def test_pipeline_multi_target_ssh_preflight_skips_blocked_profiles() -> None:
             "connections": {
                 "ssh": {
                     "srv-allowed": {
-                        "host": "172.31.1.10",
+                        "host": "192.0.2.18",
                         "user": "root",
                         "title": "Allowed server",
                         "allow_commands": ["df -h"],
                     },
                     "srv-blocked": {
-                        "host": "172.31.1.11",
+                        "host": "192.0.2.19",
                         "user": "root",
                         "title": "Blocked server",
                         "allow_commands": ["uptime -p"],
@@ -7765,8 +9723,8 @@ def test_pipeline_multi_target_ssh_operator_summary_flags_attention() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "srv-ok": {"host": "172.31.1.10", "user": "root", "title": "OK server"},
-                    "srv-tight": {"host": "172.31.1.11", "user": "root", "title": "Tight server"},
+                    "srv-ok": {"host": "192.0.2.18", "user": "root", "title": "OK server"},
+                    "srv-tight": {"host": "192.0.2.19", "user": "root", "title": "Tight server"},
                 },
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -7811,8 +9769,8 @@ def test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold()
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "srv-ok": {"host": "172.31.1.10", "user": "root", "title": "OK server"},
-                    "srv-low": {"host": "172.31.1.11", "user": "root", "title": "Low disk server"},
+                    "srv-ok": {"host": "192.0.2.18", "user": "root", "title": "OK server"},
+                    "srv-low": {"host": "192.0.2.19", "user": "root", "title": "Low disk server"},
                 },
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -7856,8 +9814,8 @@ def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> No
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "srv-ok": {"host": "172.31.1.10", "user": "root", "title": "OK server"},
-                    "srv-low": {"host": "172.31.1.11", "user": "root", "title": "Low disk server"},
+                    "srv-ok": {"host": "192.0.2.18", "user": "root", "title": "OK server"},
+                    "srv-low": {"host": "192.0.2.19", "user": "root", "title": "Low disk server"},
                 },
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -7919,6 +9877,75 @@ def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> No
     assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
 
 
+def test_pipeline_multi_target_ssh_llm_summary_receives_compact_target_results() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.18", "user": "root"},
+                    "srv-b": {"host": "192.0.2.19", "user": "root"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class CompactSummaryLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if kwargs.get("operation") == "ssh_multi_target_summary":
+                payload = json.loads(messages[-1]["content"])
+                results = {row["ref"]: row["result"] for row in payload["targets"]}
+                assert len(results["srv-a"]) <= 450
+                assert len(results["srv-b"]) <= 1250
+                assert "line-000" in results["srv-a"]
+                assert "warning-line-000" in results["srv-b"]
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Kurzfassung aus kompakten Zielresultaten.",
+                            "confidence": "high",
+                            "reason": "compact target rows are enough",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = CompactSummaryLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_execute(plan, *, language="de"):
+        if plan.connection_ref == "srv-b":
+            return "\n".join(f"warning-line-{index:03d} details details details" for index in range(80))
+        return "\n".join(f"line-{index:03d} details details details" for index in range(80))
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+    original_state = pipeline._multi_target_ssh_result_state
+    pipeline._multi_target_ssh_result_state = lambda text: "attention" if "warning-line" in text else original_state(text)  # type: ignore[method-assign]
+
+    _, text, _detail_lines, errors = asyncio.run(
+        pipeline._execute_multi_target_ssh_action(
+            resolved={"query": "pruefe alle kurz"},
+            payload={
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_refs": ["srv-a", "srv-b"],
+                "content": "uptime",
+            },
+            action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert errors == []
+    assert "Kurzfassung" in text
+    assert llm.calls == 1
+
+
 def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> None:
     settings = Settings.model_validate(
         {
@@ -7927,9 +9954,9 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "pihole2": {"host": "172.31.1.11", "user": "root"},
-                    "ubnsrv-syncthing": {"host": "172.31.1.12", "user": "root"},
-                    "ubnsrv-mgmt-master": {"host": "172.31.1.13", "user": "root"},
+                    "dns-node-02": {"host": "192.0.2.19", "user": "root"},
+                    "sync-node-01": {"host": "192.0.2.26", "user": "root"},
+                    "ops-mgmt-01": {"host": "192.0.2.27", "user": "root"},
                 },
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -7948,7 +9975,7 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
                             "summary": (
                                 "Nein, nicht alle Server haben mehr als 10 GB Reserve. "
                                 "Von 3 Servern unterschreiten 3 die 10-GB-Schwelle: "
-                                "pihole2, ubnsrv-syncthing und ubnsrv-mgmt-master."
+                                "dns-node-02, sync-node-01 und ops-mgmt-01."
                             ),
                             "confidence": "high",
                             "reason": "initial flexible summary with incorrect count",
@@ -7956,11 +9983,11 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
                                 "threshold_gib": 10,
                                 "threshold_label": "10GB",
                                 "below_threshold_refs": [
-                                    "pihole2",
-                                    "ubnsrv-syncthing",
-                                    "ubnsrv-mgmt-master",
+                                    "dns-node-02",
+                                    "sync-node-01",
+                                    "ops-mgmt-01",
                                 ],
-                                "near_threshold_refs": ["ubnsrv-mgmt-master"],
+                                "near_threshold_refs": ["ops-mgmt-01"],
                                 "ok_refs": [],
                             },
                         }
@@ -7968,23 +9995,23 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
                 )
             if operation == "ssh_multi_target_summary_repair":
                 payload = json.loads(messages[-1]["content"])
-                assert "extra_below_refs=ubnsrv-mgmt-master" in payload["validation_issues"]
+                assert "extra_below_refs=ops-mgmt-01" in payload["validation_issues"]
                 return FakeLLMResponse(
                     json.dumps(
                         {
                             "summary": (
                                 "Nein, nicht ueberall: 2 von 3 Servern liegen unter 10GB Reserve: "
-                                "`pihole2` (7.1G frei) und `ubnsrv-syncthing` (9.5G frei). "
-                                "`ubnsrv-mgmt-master` liegt mit 12G knapp darueber."
+                                "`dns-node-02` (7.1G frei) und `sync-node-01` (9.5G frei). "
+                                "`ops-mgmt-01` liegt mit 12G knapp darueber."
                             ),
                             "confidence": "high",
                             "reason": "repaired against measured df output",
                             "facts": {
                                 "threshold_gib": 10,
                                 "threshold_label": "10GB",
-                                "below_threshold_refs": ["pihole2", "ubnsrv-syncthing"],
-                                "near_threshold_refs": ["ubnsrv-mgmt-master"],
-                                "ok_refs": ["ubnsrv-mgmt-master"],
+                                "below_threshold_refs": ["dns-node-02", "sync-node-01"],
+                                "near_threshold_refs": ["ops-mgmt-01"],
+                                "ok_refs": ["ops-mgmt-01"],
                             },
                         }
                     )
@@ -7994,11 +10021,11 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=RepairingSummaryLLM())
 
     async def fake_execute(plan, *, language="de"):
-        if plan.connection_ref == "pihole2":
-            return "Festplattencheck für `pihole2`: Root-Dateisystem /: 47% belegt, 7.1G frei (ok)."
-        if plan.connection_ref == "ubnsrv-syncthing":
-            return "Festplattencheck für `ubnsrv-syncthing`: Root-Dateisystem /: 45% belegt, 9.5G frei (ok)."
-        return "Festplattencheck für `ubnsrv-mgmt-master`: Root-Dateisystem /: 35% belegt, 12G frei (ok)."
+        if plan.connection_ref == "dns-node-02":
+            return "Festplattencheck für `dns-node-02`: Root-Dateisystem /: 47% belegt, 7.1G frei (ok)."
+        if plan.connection_ref == "sync-node-01":
+            return "Festplattencheck für `sync-node-01`: Root-Dateisystem /: 45% belegt, 9.5G frei (ok)."
+        return "Festplattencheck für `ops-mgmt-01`: Root-Dateisystem /: 35% belegt, 12G frei (ok)."
 
     pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
 
@@ -8008,7 +10035,7 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
             payload={
                 "capability": "ssh_command",
                 "connection_kind": "ssh",
-                "connection_refs": ["pihole2", "ubnsrv-syncthing", "ubnsrv-mgmt-master"],
+                "connection_refs": ["dns-node-02", "sync-node-01", "ops-mgmt-01"],
                 "content": "df -h",
             },
             action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
@@ -8020,7 +10047,7 @@ def test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch() -> Non
     assert errors == []
     assert "2 von 3 Servern" in text
     assert "3 die 10-GB-Schwelle" not in text
-    assert "`ubnsrv-mgmt-master` liegt mit 12G knapp darueber" in text
+    assert "`ops-mgmt-01` liegt mit 12G knapp darueber" in text
     assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
     assert any("validation=repair" in line for line in detail_lines)
 
@@ -8032,8 +10059,8 @@ def test_pipeline_agentic_ssh_policy_marks_complex_chain_for_confirmation() -> N
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Monitoring Server",
@@ -8075,7 +10102,7 @@ def test_pipeline_agentic_ssh_policy_marks_complex_chain_for_confirmation() -> N
 
     llm = ComplexLLM()
     action_debug = {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}}
-    routing_decision = {"found": True, "kind": "ssh", "ref": "ubnsrv-netalert"}
+    routing_decision = {"found": True, "kind": "ssh", "ref": "ops-monitor-01"}
 
     updated, _, debug_line = asyncio.run(
         pipeline._apply_agentic_ssh_command_resolution(
@@ -8101,8 +10128,8 @@ def test_pipeline_agentic_ssh_policy_blocks_mutating_command() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -8132,7 +10159,7 @@ def test_pipeline_agentic_ssh_policy_blocks_mutating_command() -> None:
 
     llm = MutatingLLM()
     action_debug = {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}}
-    routing_decision = {"found": True, "kind": "ssh", "ref": "ubnsrv-mgmt-master"}
+    routing_decision = {"found": True, "kind": "ssh", "ref": "ops-mgmt-01"}
 
     updated, _, debug_line = asyncio.run(
         pipeline._apply_agentic_ssh_command_resolution(
@@ -8165,8 +10192,8 @@ def test_pipeline_uses_guardrail_healthcheck_commands_when_llm_suggests_unknown_
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8203,11 +10230,21 @@ def test_pipeline_uses_guardrail_healthcheck_commands_when_llm_suggests_unknown_
                         }
                     )
                 )
+            if kwargs.get("operation") == "ssh_guardrail_intent":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "intent": "health_check",
+                            "confidence": "high",
+                            "reason": "The user asks for a DNS server healthcheck.",
+                        }
+                    )
+                )
             return await super().chat(messages, **kwargs)
 
     llm = PiholeLLM()
     action_debug = {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}}
-    routing_decision = {"found": True, "kind": "ssh", "ref": "pihole1"}
+    routing_decision = {"found": True, "kind": "ssh", "ref": "dns-node-01"}
 
     updated, _, _ = asyncio.run(
         pipeline._apply_agentic_ssh_command_resolution(
@@ -8228,7 +10265,7 @@ def test_pipeline_uses_guardrail_healthcheck_commands_when_llm_suggests_unknown_
     assert updated["decision"].get("execution_state", "") != "blocked"
 
 
-def test_pipeline_uses_full_guardrail_healthcheck_bundle_when_llm_selects_subset() -> None:
+def test_pipeline_keeps_allowed_llm_healthcheck_subset_without_bundle_expansion() -> None:
     allow_commands = [
         "uptime -p",
         "df -h",
@@ -8242,8 +10279,8 @@ def test_pipeline_uses_full_guardrail_healthcheck_bundle_when_llm_selects_subset
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8280,13 +10317,23 @@ def test_pipeline_uses_full_guardrail_healthcheck_bundle_when_llm_selects_subset
                         }
                     )
                 )
+            if kwargs.get("operation") == "ssh_guardrail_intent":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "intent": "health_check",
+                            "confidence": "high",
+                            "reason": "The selected command is a healthcheck subset.",
+                        }
+                    )
+                )
             return await super().chat(messages, **kwargs)
 
     updated, _, _ = asyncio.run(
         pipeline._apply_agentic_ssh_command_resolution(
             message="mach den server healthcheck auf meinem dns server",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=None,
             language="de",
@@ -8294,9 +10341,9 @@ def test_pipeline_uses_full_guardrail_healthcheck_bundle_when_llm_selects_subset
         )
     )
 
-    expected_command = " && ".join(allow_commands)
+    expected_command = "uptime -p && df -h && free -h && systemctl --failed --no-pager"
     assert updated["decision"]["inputs"]["command"] == expected_command
-    assert updated["decision"]["guardrail_fallback_from"] == "uptime -p && df -h && free -h && systemctl --failed --no-pager"
+    assert "guardrail_fallback_from" not in updated["decision"]
 
 
 def test_pipeline_replaces_existing_uptime_template_with_guardrail_healthcheck_bundle() -> None:
@@ -8313,8 +10360,8 @@ def test_pipeline_replaces_existing_uptime_template_with_guardrail_healthcheck_b
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8335,11 +10382,26 @@ def test_pipeline_replaces_existing_uptime_template_with_guardrail_healthcheck_b
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
         }
     )
-    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+    class GuardrailIntentLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if kwargs.get("operation") == "ssh_guardrail_intent":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "intent": "health_check",
+                            "confidence": "high",
+                            "reason": "The user asks for a server healthcheck.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=GuardrailIntentLLM())
     draft = CapabilityDraft(
         capability="ssh_command",
         connection_kind="ssh",
-        explicit_connection_ref="pihole1",
+        explicit_connection_ref="dns-node-01",
         content="uptime",
         plan_class="command_single",
         behavior_profile="ssh_run_command",
@@ -8349,11 +10411,11 @@ def test_pipeline_replaces_existing_uptime_template_with_guardrail_healthcheck_b
         pipeline._apply_agentic_ssh_command_resolution(
             message="mach den server healthcheck auf meinem dns server",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=draft,
             language="de",
-            llm_client=FakeLLMClient(),
+                llm_client=GuardrailIntentLLM(),
         )
     )
 
@@ -8378,8 +10440,8 @@ def test_pipeline_keeps_explicit_uptime_command_out_of_healthcheck_bundle() -> N
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8403,7 +10465,7 @@ def test_pipeline_keeps_explicit_uptime_command_out_of_healthcheck_bundle() -> N
     draft = CapabilityDraft(
         capability="ssh_command",
         connection_kind="ssh",
-        explicit_connection_ref="pihole1",
+        explicit_connection_ref="dns-node-01",
         content="uptime",
         plan_class="command_single",
         behavior_profile="ssh_run_command",
@@ -8413,7 +10475,7 @@ def test_pipeline_keeps_explicit_uptime_command_out_of_healthcheck_bundle() -> N
         pipeline._apply_agentic_ssh_command_resolution(
             message="führe uptime auf meinem dns server aus",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=draft,
             language="de",
@@ -8434,8 +10496,8 @@ def test_pipeline_restart_request_blocks_intended_mutating_command_instead_of_up
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8479,12 +10541,12 @@ def test_pipeline_restart_request_blocks_intended_mutating_command_instead_of_up
         pipeline._apply_agentic_ssh_command_resolution(
             message="starte meinen dns server neu",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=CapabilityDraft(
                 capability="ssh_command",
                 connection_kind="ssh",
-                explicit_connection_ref="pihole1",
+                explicit_connection_ref="dns-node-01",
                 content="uptime",
                 plan_class="command_single",
                 behavior_profile="ssh_run_command",
@@ -8508,8 +10570,8 @@ def test_pipeline_restart_request_reasks_llm_when_mutating_intent_was_replaced_b
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "guardrail_ref": "dns-health",
@@ -8569,12 +10631,12 @@ def test_pipeline_restart_request_reasks_llm_when_mutating_intent_was_replaced_b
         pipeline._apply_agentic_ssh_command_resolution(
             message="starte meinen dns server neu",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=CapabilityDraft(
                 capability="ssh_command",
                 connection_kind="ssh",
-                explicit_connection_ref="pihole1",
+                explicit_connection_ref="dns-node-01",
                 content="",
                 plan_class="command_single",
                 behavior_profile="ssh_run_command",
@@ -8597,8 +10659,8 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "aliases": ["dns server"],
@@ -8657,12 +10719,12 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
         pipeline._apply_agentic_ssh_command_resolution(
             message="starte meinen dns server neu",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=CapabilityDraft(
                 capability="ssh_command",
                 connection_kind="ssh",
-                explicit_connection_ref="pihole1",
+                explicit_connection_ref="dns-node-01",
                 content="",
                 plan_class="command_single",
                 behavior_profile="ssh_run_command",
@@ -8687,8 +10749,8 @@ def test_pipeline_refresh_rebuilds_block_preview_when_ssh_command_changes() -> N
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "guardrail_ref": "dns-health",
@@ -8731,7 +10793,7 @@ def test_pipeline_refresh_rebuilds_block_preview_when_ssh_command_changes() -> N
     refreshed, _ = asyncio.run(
         pipeline._refresh_resolved_agentic_ssh_command(
             {
-                "decision": {"found": True, "kind": "ssh", "ref": "pihole1"},
+                "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01"},
                 "action_debug": {
                     "decision": {
                         "found": True,
@@ -8746,7 +10808,7 @@ def test_pipeline_refresh_rebuilds_block_preview_when_ssh_command_changes() -> N
                         "found": True,
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "pihole1",
+                        "connection_ref": "dns-node-01",
                         "content": "uptime",
                         "preview": "SSH command: uptime",
                         "missing_fields": [],
@@ -8798,8 +10860,8 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8819,11 +10881,32 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
         }
     )
-    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+    class NaturalHealthLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            self.operations.append(str(kwargs.get("operation", "") or ""))
+            if kwargs.get("operation") == "ssh_guardrail_intent":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "intent": "health_check",
+                            "confidence": "high",
+                            "reason": "The user asks how the selected DNS server is doing.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = NaturalHealthLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
     draft = CapabilityDraft(
         capability="ssh_command",
         connection_kind="ssh",
-        explicit_connection_ref="pihole1",
+        explicit_connection_ref="dns-node-01",
         content="uptime",
         plan_class="command_single",
         behavior_profile="ssh_run_command",
@@ -8833,11 +10916,11 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
         pipeline._apply_agentic_ssh_command_resolution(
             message="wie geht es meinem dns server",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=draft,
             language="de",
-            llm_client=FakeLLMClient(),
+            llm_client=llm,
         )
     )
 
@@ -8846,7 +10929,74 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
     assert getattr(updated_draft, "content") == expected_command
     assert updated["decision"]["reason"] == "guardrail_allowed_healthcheck"
     assert updated["decision"]["guardrail_fallback_from"] == "uptime"
+    assert "ssh_guardrail_intent" in llm.operations
     assert "ssh_command_policy" not in debug_line
+
+
+def test_pipeline_keeps_llm_dns_health_command_without_deterministic_probe_override() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server", "pihole"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DNSHealthLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "systemctl is-active pihole-FTL",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "Pi-hole FTL service status answers the DNS health question.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=DNSHealthLLM())
+    draft = CapabilityDraft(
+        capability="ssh_command",
+        connection_kind="ssh",
+        explicit_connection_ref="dns-node-01",
+        content="",
+        plan_class="command_single",
+        behavior_profile="ssh_run_command",
+    )
+
+    updated, updated_draft, debug_line = asyncio.run(
+        pipeline._apply_agentic_ssh_command_resolution(
+            message="ist mein dns server ok",
+            user_id="u1",
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
+            action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+            capability_draft=draft,
+            language="de",
+        )
+    )
+
+    expected_command = "systemctl is-active pihole-FTL"
+    assert updated["decision"]["inputs"]["command"] == expected_command
+    assert getattr(updated_draft, "content") == expected_command
+    assert updated["decision"]["reason"] == "Pi-hole FTL service status answers the DNS health question."
+    assert "dns_probe_from" not in updated["decision"]
+    assert "ssh_command_dns_probe" not in debug_line
+    assert "policy_action=allow" in debug_line
 
 
 def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() -> None:
@@ -8863,8 +11013,8 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -8888,7 +11038,7 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
     draft = CapabilityDraft(
         capability="ssh_command",
         connection_kind="ssh",
-        explicit_connection_ref="pihole1",
+        explicit_connection_ref="dns-node-01",
         content="uptime",
         plan_class="command_single",
         behavior_profile="ssh_run_command",
@@ -8920,7 +11070,7 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
         pipeline._apply_agentic_ssh_command_resolution(
             message="ist mein dns server ok",
             user_id="u1",
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
             action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             capability_draft=draft,
             language="de",
@@ -8933,8 +11083,7 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
     assert getattr(updated_draft, "content") == expected_command
     assert updated["decision"]["reason"] == "guardrail_allowed_healthcheck"
     assert updated["decision"]["guardrail_fallback_from"] == "uptime"
-    assert llm.calls == 2
-    assert llm.operations == ["ssh_command_decision"]
+    assert "ssh_guardrail_intent" in llm.operations
     assert "ssh_command_policy" not in debug_line
 
 
@@ -8945,8 +11094,8 @@ def test_pipeline_records_successful_guardrail_healthcheck_as_learned_recipe(mon
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                     }
@@ -8960,7 +11109,7 @@ def test_pipeline_records_successful_guardrail_healthcheck_as_learned_recipe(mon
 
     async def _fake_ssh_executor(plan, **_kwargs):
         assert plan.content == expected_command
-        return "Server-Healthcheck fuer pihole1: ok."
+        return "Server-Healthcheck fuer dns-node-01: ok."
 
     captured: dict[str, object] = {}
     stored_experience: dict[str, object] = {}
@@ -8976,7 +11125,7 @@ def test_pipeline_records_successful_guardrail_healthcheck_as_learned_recipe(mon
 
     pipeline._executor_registry.register("ssh", "ssh_command", _fake_ssh_executor)
     pipeline.memory_skill = object()
-    monkeypatch.setattr(pipeline_mod, "record_successful_learned_recipe_execution", _recorder)
+    monkeypatch.setattr(agentic_execution_learning_mod, "record_successful_learned_recipe_execution", _recorder)
     monkeypatch.setattr(pipeline_mod, "store_recipe_experience_memory", _store_experience)
 
     result_intents, result_text, _detail_lines, errors = asyncio.run(
@@ -9000,7 +11149,7 @@ def test_pipeline_records_successful_guardrail_healthcheck_as_learned_recipe(mon
                     "payload": {
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "pihole1",
+                        "connection_ref": "dns-node-01",
                         "content": expected_command,
                         "plan_class": "command_single",
                         "behavior_profile": "ssh_run_command",
@@ -9015,18 +11164,84 @@ def test_pipeline_records_successful_guardrail_healthcheck_as_learned_recipe(mon
     )
 
     assert result_intents == ["capability:ssh_command"]
-    assert result_text == "Server-Healthcheck fuer pihole1: ok."
+    assert result_text == "Server-Healthcheck fuer dns-node-01: ok."
     assert errors == []
-    assert captured["recipe_id"] == "learned-ssh-health-check-pihole1"
+    assert captured["recipe_id"] == "learned-ssh-health-check-dns-node-01"
     assert captured["intent"] == "health_check"
     assert captured["inputs"] == {"command": expected_command, "learned_from_command": "uptime"}
     assert "wie geht es meinem dns server" in captured["router_keywords"]
     assert captured["user_message"] == "wie geht es meinem dns server"
     assert stored_experience["user_id"] == "u1"
     stored_entry = dict(stored_experience["entry"])
-    assert stored_entry["recipe_id"] == "learned-ssh-health-check-pihole1"
+    assert stored_entry["recipe_id"] == "learned-ssh-health-check-dns-node-01"
     assert stored_entry["chosen_action"] == expected_command
     assert stored_entry["recipe_scope"]["learning_origin"] == "guardrail_healthcheck_fallback"
+
+
+def test_pipeline_suppresses_auto_learning_during_chat_learn_mode(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "google_calendar": {
+                    "familie-fischer": {
+                        "calendar_id": "primary",
+                        "ical_url": "https://example.invalid/calendar.ics",
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def _fake_calendar_executor(plan, **_kwargs):
+        assert plan.capability == "calendar_read"
+        return "Keine Termine gefunden."
+
+    recorder_calls: list[dict[str, object]] = []
+    pipeline._executor_registry.register("google_calendar", "calendar_read", _fake_calendar_executor)
+    monkeypatch.setattr(
+        pipeline_mod,
+        "record_successful_learned_recipe_execution",
+        lambda **kwargs: recorder_calls.append(kwargs) or {"recipe_id": "calendar-read"},
+    )
+
+    with suppress_auto_learning():
+        result_intents, result_text, _detail_lines, errors = asyncio.run(
+            pipeline._execute_routed_action(
+                {
+                    "query": "was steht morgen in meinem kalender?",
+                    "action_debug": {
+                        "decision": {
+                            "found": True,
+                            "candidate_kind": "template",
+                            "candidate_role": "template_candidate",
+                            "candidate_id": "google_calendar_read",
+                            "router_keywords": ["calendar"],
+                        }
+                    },
+                    "payload_debug": {
+                        "payload": {
+                            "capability": "calendar_read",
+                            "connection_kind": "google_calendar",
+                            "connection_ref": "familie-fischer",
+                            "path": "tomorrow",
+                            "missing_fields": [],
+                        }
+                    },
+                },
+                user_id="u1",
+                runtime_recipes=[],
+                language="de",
+            )
+        )
+
+    assert result_intents == ["capability:calendar_read"]
+    assert result_text == "Keine Termine gefunden."
+    assert errors == []
+    assert recorder_calls == []
 
 
 def test_pipeline_builds_recipe_experience_context_for_planner(monkeypatch) -> None:
@@ -9043,13 +11258,13 @@ def test_pipeline_builds_recipe_experience_context_for_planner(monkeypatch) -> N
     async def _fake_search(_memory_skill, **kwargs):
         assert kwargs["user_id"] == "u1"
         assert kwargs["connection_kind"] == "ssh"
-        assert kwargs["connection_ref"] == "pihole1"
+        assert kwargs["connection_ref"] == "dns-node-01"
         return [
             {
-                "recipe_id": "learned-ssh-health-check-pihole1",
-                "title": "Gelernter Server-Healthcheck: pihole1",
+                "recipe_id": "learned-ssh-health-check-dns-node-01",
+                "title": "Gelernter Server-Healthcheck: dns-node-01",
                 "connection_kind": "ssh",
-                "connection_ref": "pihole1",
+                "connection_ref": "dns-node-01",
                 "user_message": "wie geht es meinem dns server",
                 "chosen_action": "uptime -p && df -h && free -h",
                 "experience_count": 2,
@@ -9064,7 +11279,7 @@ def test_pipeline_builds_recipe_experience_context_for_planner(monkeypatch) -> N
             user_id="u1",
             message="wie geht es meinem dns server",
             connection_kind="ssh",
-            connection_ref="pihole1",
+            connection_ref="dns-node-01",
         )
     )
 
@@ -9076,7 +11291,7 @@ def test_pipeline_builds_recipe_experience_context_for_planner(monkeypatch) -> N
                 user_id="u1",
                 message="wie geht es meinem dns server",
                 connection_kind="ssh",
-                connection_ref="pihole1",
+                connection_ref="dns-node-01",
             )
         )
     )
@@ -9092,8 +11307,8 @@ def test_pipeline_formats_disk_only_result_for_chat_summary() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -9133,7 +11348,7 @@ def test_pipeline_formats_disk_only_result_for_chat_summary() -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "Festplattencheck für `pihole1`: Root-Dateisystem /: 22% belegt, 23G frei (ok)."
+    assert result.text == "Festplattencheck für `dns-node-01`: Root-Dateisystem /: 22% belegt, 23G frei (ok)."
 
 
 def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> None:
@@ -9143,8 +11358,8 @@ def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> N
             "memory": {"enabled": True, "backend": "qdrant"},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -9183,7 +11398,7 @@ def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> N
     )  # type: ignore[assignment]
 
     async def fake_ssh_command(**kwargs):
-        assert kwargs["connection_ref"] == "ubnsrv-mgmt-master"
+        assert kwargs["connection_ref"] == "ops-mgmt-01"
         assert kwargs["command_template"] == "df -h"
         return SkillResult(
             skill_name="custom_skill_direct-ssh-command",
@@ -9210,7 +11425,7 @@ def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> N
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert result.text == "Festplattencheck für `ubnsrv-mgmt-master`: Root-Dateisystem /: 37% belegt, 19G frei (ok)."
+    assert result.text == "Festplattencheck für `ops-mgmt-01`: Root-Dateisystem /: 37% belegt, 19G frei (ok)."
     assert llm.calls >= 1
     assert "Arlo" not in result.text
     assert result.detail_lines[0].startswith(
@@ -9252,8 +11467,8 @@ def test_pipeline_bounded_llm_capability_draft_can_override_false_memory_store_k
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "allow_commands": ["df -h"],
@@ -9272,13 +11487,13 @@ def test_pipeline_bounded_llm_capability_draft_can_override_false_memory_store_k
 
     async def fake_ssh(plan, *, language="de"):
         calls.append((plan.connection_ref, plan.content))
-        return "Festplattencheck für `pihole1`: Root-Dateisystem /: 40% belegt, 20G frei (ok)."
+        return "Festplattencheck für `dns-node-01`: Root-Dateisystem /: 40% belegt, 20G frei (ok)."
 
     pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
 
     result = asyncio.run(
         pipeline.process(
-            "speicher pihole1 status",
+            "speicher dns-node-01 status",
             user_id="u1",
             source="test",
             language="de",
@@ -9286,7 +11501,7 @@ def test_pipeline_bounded_llm_capability_draft_can_override_false_memory_store_k
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert calls == [("pihole1", "df -h")]
+    assert calls == [("dns-node-01", "df -h")]
     assert "memory_store" not in result.intents
     assert "capability_draft_decision" in llm.operations
     assert result.detail_lines[0].startswith(
@@ -9329,8 +11544,8 @@ def test_pipeline_salvages_partial_read_only_ssh_output(monkeypatch) -> None:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -9370,14 +11585,14 @@ def test_pipeline_salvages_partial_read_only_ssh_output(monkeypatch) -> None:
 
     async def fake_chain(*_args, **_kwargs):
         return {
-            "decision": {"found": True, "kind": "ssh", "ref": "ubnsrv-mgmt-master"},
+            "decision": {"found": True, "kind": "ssh", "ref": "ops-mgmt-01"},
             "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             "payload_debug": {
                 "payload": {
                     "found": True,
                     "capability": "ssh_command",
                     "connection_kind": "ssh",
-                    "connection_ref": "ubnsrv-mgmt-master",
+                    "connection_ref": "ops-mgmt-01",
                     "content": "uptime && df -h / && free -h",
                     "preview": "SSH command: uptime && df -h / && free -h",
                     "missing_fields": [],
@@ -9399,7 +11614,7 @@ def test_pipeline_salvages_partial_read_only_ssh_output(monkeypatch) -> None:
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert "Kurzcheck für `ubnsrv-mgmt-master`: Erreichbar." in result.text
+    assert "Kurzcheck für `ops-mgmt-01`: Erreichbar." in result.text
     assert "Root-Dateisystem /: 35% belegt, 12G frei (ok)." in result.text
     assert "Verfügbarer RAM: 6.0Gi (ok)." in result.text
     assert "Hinweis: Mindestens ein Teilcheck im Befehl lieferte keinen sauberen Abschluss." in result.text
@@ -9412,8 +11627,8 @@ def test_pipeline_formats_health_check_result_for_chat_summary(monkeypatch) -> N
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
@@ -9469,21 +11684,21 @@ def test_pipeline_formats_health_check_result_for_chat_summary(monkeypatch) -> N
 
     async def fake_chain(*_args, **_kwargs):
         return {
-            "decision": {"found": True, "kind": "ssh", "ref": "ubnsrv-netalert"},
+            "decision": {"found": True, "kind": "ssh", "ref": "ops-monitor-01"},
             "action_debug": {"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
             "payload_debug": {
                 "payload": {
                     "found": True,
                     "capability": "ssh_command",
                     "connection_kind": "ssh",
-                    "connection_ref": "ubnsrv-netalert",
+                    "connection_ref": "ops-monitor-01",
                     "content": "uptime",
                     "preview": "SSH command: uptime",
                     "missing_fields": [],
                 }
             },
             "safety_debug": {"decision": {"action": "allow", "reason_label": "Keine weitere Rueckfrage noetig."}},
-            "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/ubnsrv-netalert direkt ausfuehren: SSH command: uptime"}},
+            "execution_debug": {"decision": {"next_step": "allow", "summary": "ARIA wuerde auf ssh/ops-monitor-01 direkt ausfuehren: SSH command: uptime"}},
         }
 
     monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
@@ -9500,11 +11715,11 @@ def test_pipeline_formats_health_check_result_for_chat_summary(monkeypatch) -> N
 
     assert result.intents == ["capability:ssh_command"]
     assert result.text == (
-        "Kurzcheck für `ubnsrv-netalert`: Erreichbar. Laufzeit 53 days, 16:06. "
+        "Kurzcheck für `ops-monitor-01`: Erreichbar. Laufzeit 53 days, 16:06. "
         "Load 1.11, 1.04, 1.01: unauffällig."
     )
     assert result.detail_lines == [
-        "Ausgeführt via SSH-Profil `ubnsrv-netalert`",
+        "Ausgeführt via SSH-Profil `ops-monitor-01`",
         "Befehl: uptime",
     ]
     assert calls == ["uptime"]
@@ -9515,14 +11730,14 @@ def test_payload_to_action_plan_preserves_command_single_plan_class() -> None:
         {
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "ubnsrv-netalert",
+            "connection_ref": "ops-monitor-01",
             "content": "uptime",
             "plan_class": "command_single",
         }
     )
 
     assert plan.plan_class == "command_single"
-    assert plan.connection_ref == "ubnsrv-netalert"
+    assert plan.connection_ref == "ops-monitor-01"
 
 
 def test_payload_to_action_plan_preserves_ssh_behavior_profile() -> None:
@@ -9530,7 +11745,7 @@ def test_payload_to_action_plan_preserves_ssh_behavior_profile() -> None:
         {
             "capability": "ssh_command",
             "connection_kind": "ssh",
-            "connection_ref": "ubnsrv-netalert",
+            "connection_ref": "ops-monitor-01",
             "content": "uptime",
             "behavior_profile": "ssh_run_command",
         }
@@ -9546,8 +11761,8 @@ def test_pipeline_formats_semantic_monitoring_health_request_as_command_single_e
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
@@ -9614,7 +11829,7 @@ def test_pipeline_formats_semantic_monitoring_health_request_as_command_single_e
     async def fake_semantic_llm(*_args, **_kwargs):
         return SemanticConnectionHint(
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             source="semantic_llm",
             note="monitoring server",
         )
@@ -9633,11 +11848,11 @@ def test_pipeline_formats_semantic_monitoring_health_request_as_command_single_e
 
     assert result.intents == ["capability:ssh_command"]
     assert result.text == (
-        "Kurzcheck für `ubnsrv-netalert`: Erreichbar. Laufzeit 53 days, 16:06. "
+        "Kurzcheck für `ops-monitor-01`: Erreichbar. Laufzeit 53 days, 16:06. "
         "Load 1.11, 1.04, 1.01: unauffällig."
     )
     assert result.detail_lines[-2:] == [
-        "Ausgeführt via SSH-Profil `ubnsrv-netalert`",
+        "Ausgeführt via SSH-Profil `ops-monitor-01`",
         "Befehl: uptime",
     ]
     assert calls == ["uptime"]
@@ -9650,15 +11865,15 @@ def test_pipeline_requested_monitoring_server_still_uses_semantic_llm_after_gene
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-netalert": {
-                        "host": "172.31.3.160",
+                    "ops-monitor-01": {
+                        "host": "192.0.2.15",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "NetAlert Monitoring",
                         "description": "Network monitoring and alerting system",
                     },
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management host",
@@ -9688,7 +11903,7 @@ def test_pipeline_requested_monitoring_server_still_uses_semantic_llm_after_gene
         return [
             SemanticConnectionCandidate(
                 connection_kind="ssh",
-                connection_ref="ubnsrv-mgmt-master",
+                connection_ref="ops-mgmt-01",
                 source="alias",
                 alias="server",
                 note="generic server",
@@ -9699,7 +11914,7 @@ def test_pipeline_requested_monitoring_server_still_uses_semantic_llm_after_gene
     async def fake_semantic_llm(*_args, **_kwargs):
         return SemanticConnectionHint(
             connection_kind="ssh",
-            connection_ref="ubnsrv-netalert",
+            connection_ref="ops-monitor-01",
             source="semantic_llm",
             note="monitoring server",
         )
@@ -9729,7 +11944,7 @@ def test_pipeline_requested_monitoring_server_still_uses_semantic_llm_after_gene
     )
 
     assert resolved is not None
-    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ubnsrv-netalert"
+    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ops-monitor-01"
     assert dict(resolved.get("decision", {}) or {}).get("source") == "semantic_llm"
 
 
@@ -9740,14 +11955,14 @@ def test_pipeline_plural_server_disk_request_does_not_collapse_to_semantic_llm_s
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management host",
                     },
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
@@ -9775,7 +11990,7 @@ def test_pipeline_plural_server_disk_request_does_not_collapse_to_semantic_llm_s
         semantic_llm_calls += 1
         return SemanticConnectionHint(
             connection_kind="ssh",
-            connection_ref="ubnsrv-mgmt-master",
+            connection_ref="ops-mgmt-01",
             source="semantic_llm",
             note="management server",
         )
@@ -9800,7 +12015,7 @@ def test_pipeline_plural_server_disk_request_does_not_collapse_to_semantic_llm_s
     assert resolved is not None
     assert dict(resolved.get("decision", {}) or {}).get("ref") == ""
     payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
-    assert payload.get("connection_refs") == ["pihole1", "ubnsrv-mgmt-master"]
+    assert payload.get("connection_refs") == ["dns-node-01", "ops-mgmt-01"]
     assert payload.get("missing_fields") == []
     assert semantic_llm_calls == 0
 
@@ -9812,15 +12027,15 @@ def test_pipeline_second_dns_server_reconsiders_soft_alias_with_semantic_llm(mon
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
                         "aliases": ["dns server", "dns"],
                     },
-                    "pihole2": {
-                        "host": "172.31.10.11",
+                    "dns-node-02": {
+                        "host": "192.0.2.28",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Secondary DNS",
@@ -9841,7 +12056,7 @@ def test_pipeline_second_dns_server_reconsiders_soft_alias_with_semantic_llm(mon
                     json.dumps(
                         {
                             "kind": "ssh",
-                            "ref": "pihole2",
+                            "ref": "dns-node-02",
                             "confidence": "high",
                             "reason": "second DNS server",
                         }
@@ -9872,7 +12087,7 @@ def test_pipeline_second_dns_server_reconsiders_soft_alias_with_semantic_llm(mon
             capability_draft=CapabilityDraft(
                 capability="ssh_command",
                 connection_kind="ssh",
-                explicit_connection_ref="pihole1",
+                explicit_connection_ref="dns-node-01",
                 content="uptime",
                 plan_class="command_single",
                 behavior_profile="ssh_run_command",
@@ -9882,7 +12097,7 @@ def test_pipeline_second_dns_server_reconsiders_soft_alias_with_semantic_llm(mon
     )
 
     assert resolved is not None
-    assert dict(resolved.get("decision", {}) or {}).get("ref") == "pihole2"
+    assert dict(resolved.get("decision", {}) or {}).get("ref") == "dns-node-02"
     assert llm.calls >= 1
 
 
@@ -9977,7 +12192,7 @@ def test_pipeline_does_not_fall_back_to_other_discord_profile_when_requested_ref
             "memory": {"enabled": False},
             "connections": {
                 "discord": {
-                    "fischerman-aria-messages": {
+                    "demo_user-aria-messages": {
                         "webhook_url": "https://discord.example/webhook",
                         "allow_skill_messages": True,
                     }
@@ -10005,7 +12220,7 @@ def test_pipeline_does_not_fall_back_to_other_discord_profile_when_requested_ref
 
     assert result.intents == ["capability:discord_send"]
     assert "matching Discord profile for `alerts-discord`" in result.text
-    assert "fischerman-aria-messages" in result.text
+    assert "demo_user-aria-messages" in result.text
     assert llm.calls == 0
 
 
@@ -10221,8 +12436,8 @@ def test_pipeline_capability_router_keeps_http_api_request_out_of_sftp_memory_hi
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "rasp-homebridge": {
-                        "host": "172.31.10.20",
+                    "homebridge-node": {
+                        "host": "192.0.2.25",
                         "user": "pi",
                         "key_path": "/tmp/test_ed25519",
                         "aliases": ["pi"],
@@ -10447,8 +12662,8 @@ def test_pipeline_agentic_action_result_reports_llm_usage(monkeypatch, tmp_path:
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -10546,22 +12761,22 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "172.31.10.10",
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Primary DNS",
                         "aliases": ["dns server"],
                         "guardrail_ref": "dns-health",
                     },
-                    "pihole2": {
-                        "host": "172.31.10.11",
+                    "dns-node-02": {
+                        "host": "192.0.2.28",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Secondary DNS",
                     },
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -10577,19 +12792,19 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                     }
                 },
                 "discord": {
-                    "fischerman-aria-messages": {
+                    "demo_user-aria-messages": {
                         "webhook_url": "https://discord.example/webhook",
                         "allow_skill_messages": True,
                         "aliases": ["discord"],
                     }
                 },
                 "smb": {
-                    "fischer_ronny": {
-                        "server": "SYNRS816-01",
-                        "share": "Fischer_Ronny",
-                        "username": "ronny",
+                    "example_share": {
+                        "server": "NAS-EXAMPLE-01",
+                        "share": "Example_Share",
+                        "username": "example",
                         "password": "secret",
-                        "aliases": ["Ronny Fischer", "ronny"],
+                        "aliases": ["Example Share", "example"],
                     }
                 },
             },
@@ -10866,7 +13081,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
         )
     )
     assert management_hd.intents == ["capability:ssh_command"]
-    assert ssh_calls[-1] == ("ubnsrv-mgmt-master", "df -h")
+    assert ssh_calls[-1] == ("ops-mgmt-01", "df -h")
 
     dns_health = asyncio.run(
         pipeline.process(
@@ -10877,7 +13092,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
         )
     )
     assert dns_health.intents == ["capability:ssh_command"]
-    assert ssh_calls[-1] == ("pihole1", " && ".join(health_allow_commands))
+    assert ssh_calls[-1] == ("dns-node-01", " && ".join(health_allow_commands))
 
     before_restart_calls = list(ssh_calls)
     restart = asyncio.run(
@@ -10926,18 +13141,18 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
         )
     )
     assert sent.intents == ["capability:discord_send"]
-    assert discord_calls == [("fischerman-aria-messages", "alpha246 läuft")]
+    assert discord_calls == [("demo_user-aria-messages", "alpha246 läuft")]
 
     smb = asyncio.run(
         pipeline.process(
-            "zeige mir die folder auf dem share Ronny Fischer",
+            "zeige mir die folder auf dem share Example Share",
             user_id="u1",
             source="test",
             language="de",
         )
     )
     assert smb.intents == ["capability:file_list"]
-    assert smb_calls == [("fischer_ronny", ".")]
+    assert smb_calls == [("example_share", ".")]
 
 
 def test_pipeline_explicit_http_api_status_path_stays_out_of_sftp_memory_hint() -> None:
@@ -10947,8 +13162,8 @@ def test_pipeline_explicit_http_api_status_path_stays_out_of_sftp_memory_hint() 
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "rasp-homebridge": {
-                        "host": "172.31.10.20",
+                    "homebridge-node": {
+                        "host": "192.0.2.25",
                         "user": "pi",
                         "key_path": "/tmp/test_ed25519",
                         "aliases": ["pi"],
@@ -11084,8 +13299,8 @@ def test_pipeline_delete_on_management_server_routes_to_blocked_ssh_action() -> 
             "memory": {"enabled": False},
             "connections": {
                 "ssh": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Server",
@@ -11093,8 +13308,8 @@ def test_pipeline_delete_on_management_server_routes_to_blocked_ssh_action() -> 
                     }
                 },
                 "sftp": {
-                    "ubnsrv-mgmt-master": {
-                        "host": "172.31.1.1",
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                         "title": "Management Files",
@@ -11135,7 +13350,7 @@ def test_pipeline_delete_on_management_server_routes_to_blocked_ssh_action() -> 
     )
 
     assert result.intents == ["capability:ssh_command"]
-    assert "ssh/ubnsrv-mgmt-master" in result.text
+    assert "ssh/ops-mgmt-01" in result.text
     assert "nicht ausfuehren" in result.text
 
 
@@ -11288,7 +13503,7 @@ def test_pipeline_imap_request_without_configured_profile_stays_in_capability_pa
             "connections": {
                 "ssh": {
                     "server-1": {
-                        "host": "172.31.1.10",
+                        "host": "192.0.2.18",
                         "user": "root",
                         "key_path": "/tmp/test_ed25519",
                     }

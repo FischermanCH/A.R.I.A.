@@ -153,7 +153,7 @@ Empfehlung:
 - optional spaeter Namenskonvention empfehlen, z. B.:
   - `aria_docs_manuals`
   - `aria_docs_project_x`
-  - `aria_docs_fischerman_lab`
+  - `aria_docs_example_lab`
 
 Technisch wichtig:
 - nicht blind die normalen Facts-/Preferences-/Session-Collections missbrauchen

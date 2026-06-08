@@ -110,7 +110,7 @@ def test_agentic_action_contract_prompt_makes_llm_and_policy_roles_explicit() ->
 
 def test_agentic_ssh_action_draft_is_bounded_metadata() -> None:
     draft = action_draft_from_ssh_command(
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         command="uptime -p",
         source="llm_decision",
         confidence="HIGH",
@@ -222,7 +222,7 @@ def test_agentic_policy_actions_are_canonical_across_capabilities() -> None:
 
 def test_agentic_debug_line_uses_one_format_for_capabilities() -> None:
     draft = action_draft_from_ssh_command(
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         command="uptime",
         source="llm_decision",
         confidence="low",
@@ -231,13 +231,13 @@ def test_agentic_debug_line_uses_one_format_for_capabilities() -> None:
 
     line = agentic_debug_line(
         "ssh_command_policy",
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         fields={"action": "block", "command": "uptime"},
         draft=draft,
         policy=policy,
     )
 
-    assert line.startswith("Routing Debug: ssh_command_policy ref=pihole1")
+    assert line.startswith("Routing Debug: ssh_command_policy ref=dns-node-01")
     assert "boundary=draft_policy" in line
     assert "agentic_source=llm_decision" in line
     assert "policy=ssh_readonly" in line

@@ -44,7 +44,7 @@ def test_friendly_embedding_failed_message() -> None:
 def test_discord_alert_error_lines_strip_multiline_smb_dump() -> None:
     text = _discord_alert_error_lines(
         [
-            "recipe_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file\n"
+            "recipe_smb_read_error:Failed to retrieve on Example_Share: Unable to open file\n"
             "==================== SMB Message 0 ====================\n"
             "SMB Header:\n"
             "-----------\n"
@@ -52,7 +52,7 @@ def test_discord_alert_error_lines_strip_multiline_smb_dump() -> None:
         ]
     )
 
-    assert text == "recipe_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file"
+    assert text == "recipe_smb_read_error:Failed to retrieve on Example_Share: Unable to open file"
     assert "SMB2_COM_TREE_CONNECT" not in text
 
 
@@ -69,7 +69,7 @@ def test_intent_badge_uses_capability_category() -> None:
 
 
 def test_intent_badge_keeps_capability_category_for_partial_action_errors() -> None:
-    icon, label = _intent_badge(["capability:ssh_command"], ["capability_ssh_command_blocked:pihole1:ssh_command_not_in_allow_list"])
+    icon, label = _intent_badge(["capability:ssh_command"], ["capability_ssh_command_blocked:dns-node-01:ssh_command_not_in_allow_list"])
     assert icon == "💻"
     assert label == "ssh_command"
 

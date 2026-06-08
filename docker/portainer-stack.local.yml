@@ -109,17 +109,17 @@ services:
       ARIA_UPDATE_TOKEN: "${ARIA_UPDATER_TOKEN:-CHANGE-ME-LONG-RANDOM-UPDATER-TOKEN}"
       ARIA_UPDATE_HELPER_PORT: "8094"
       ARIA_UPDATE_HEALTH_URL: "http://aria:8800/health"
-      ARIA_UPDATE_LOCAL_SCRIPT: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/update-local-aria.sh"
-      ARIA_UPDATE_LOCAL_TAR_DIR: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}"
-      ARIA_UPDATE_LOCAL_STACK_FILE: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/portainer-stack.alpha3.local.yml"
-      ARIA_UPDATE_LOCAL_ENV_FILE: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/aria-stack.env"
+      ARIA_UPDATE_LOCAL_SCRIPT: "${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}/update-local-aria.sh"
+      ARIA_UPDATE_LOCAL_TAR_DIR: "${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}"
+      ARIA_UPDATE_LOCAL_STACK_FILE: "${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}/portainer-stack.alpha3.local.yml"
+      ARIA_UPDATE_LOCAL_ENV_FILE: "${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}/aria-stack.env"
       ARIA_UPDATE_LOCAL_IMAGE_REF: "aria:alpha-local"
       ARIA_UPDATE_LOCAL_SERVICE_NAME: "aria"
       ARIA_UPDATE_LOCAL_QDRANT_SERVICE_NAME: "aria-qdrant"
       ARIA_UPDATE_LOCAL_PROJECT_NAME: "${ARIA_COMPOSE_PROJECT_NAME:-}"
-      ARIA_UPDATE_STATE_DIR: "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}/.aria-updater"
+      ARIA_UPDATE_STATE_DIR: "${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}/.aria-updater"
     volumes:
-      - "${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}:${ARIA_ARTIFACT_DIR:-/mnt/NAS/aria-images}"
+      - "${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}:${ARIA_ARTIFACT_DIR:-/var/lib/aria/images}"
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test:

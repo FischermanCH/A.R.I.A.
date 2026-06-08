@@ -236,3 +236,18 @@ def test_notes_page_resolves_folder_case_insensitively(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Area 41 Plan" in response.text
     assert 'href="/notes?folder=Area41"' in response.text
+
+
+def test_notes_store_preview_listing_does_not_load_full_large_body(tmp_path: Path) -> None:
+    store = NotesStore(tmp_path / "data" / "notes")
+    body = "A" * 40000
+    note = store.save_note("tester", title="Large Note", folder="Research", body=body)
+
+    preview_rows = store.list_notes("tester", preview_only=True)
+    full_note = store.get_note("tester", note.note_id)
+
+    assert len(preview_rows) == 1
+    assert preview_rows[0].note_id == note.note_id
+    assert len(preview_rows[0].body) < len(body)
+    assert full_note is not None
+    assert full_note.body == body

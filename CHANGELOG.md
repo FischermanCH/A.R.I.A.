@@ -6,6 +6,182 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha331] - 2026-06-08
+
+### Fixed
+- Treat explicit user requests to research/search/browse the internet as Web Search freshness candidates, even when the topic is not a current-version question. The LLM freshness arbiter still crafts the actual query, preventing prompts such as DIY cyberdeck research from falling back to stale model-only chat answers.
+
+## [0.1.0-alpha330] - 2026-06-08
+
+### Fixed
+- Hide the static ARIA header logo while the busy animation is active and render the holographic light effect on a transparent logo-emblem mask only. This prevents the old logo from showing underneath and avoids the visual impression of a full square plaque rotating.
+
+## [0.1.0-alpha329] - 2026-06-08
+
+### Fixed
+- Keep the ARIA header logo frame static during the global busy animation and animate only the inner logo layer, so the holographic effect feels cleaner and less jumpy.
+
+## [0.1.0-alpha328] - 2026-06-08
+
+### Changed
+- Replace the main ARIA header logo with the new ARIA artwork while keeping the existing `logo-aria-v01.png` runtime path for compatibility.
+- Regenerate all browser icon assets (`favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `favicon-48x48.png`, `apple-touch-icon.png`) from the new ARIA logo.
+- Replace the temporary busy-logo sprite animation with a CSS-driven holographic logo flip, glow halo and scanline effect to avoid visible sprite-frame labels and improve smoothness.
+
+## [0.1.0-alpha327] - 2026-06-08
+
+### Changed
+- Replace the subtle busy-logo ring overlay with the new `aria_rotate.png` sprite animation. Whenever ARIA enters the global busy state, the brand logo now switches to the horizontal ARIA rotation sprite.
+
+## [0.1.0-alpha326] - 2026-06-08
+
+### Fixed
+- Improve automatic freshness web-search quality for current version and latest release questions. ARIA now steers freshness queries toward official changelogs, GitHub releases, package registries and vendor docs, and ranks those sources ahead of generic news hits for version lookups.
+
+## [0.1.0-alpha325] - 2026-06-08
+
+### Changed
+- Speed up the Notes workspace folder and board navigation by loading lightweight note previews for board/sidebar rendering and reading the full Markdown body only when a note is opened, exported, saved, or deleted.
+
+## [0.1.0-alpha324] - 2026-06-08
+
+### Fixed
+- Stop passing Notes context into the Web Search skill when web search was added automatically by chat freshness arbitration. This removes visible `Notiz-Kontext` source lines from automatic current-product/version answers while keeping explicit web-search prompts able to use Notes context as search assistance.
+
+## [0.1.0-alpha323] - 2026-06-08
+
+### Changed
+- Add a trusted freshness instruction with the current date to final chat prompts when ARIA automatically adds web context for current product/version/setup questions. This keeps answers from mixing fresh web results with outdated fallback dates or training-cutoff language.
+
+### Fixed
+- Suppress local Notes/Memory context in automatic freshness web-search answers unless the user explicitly asks for local notes, documents, or memory. Explicit web searches can still use note context as search assistance.
+
+## [0.1.0-alpha322] - 2026-06-08
+
+### Added
+- Add chat freshness arbitration for current product, version, release, API, SDK, CLI and setup questions. When Web Search is configured, ARIA can now add web context before the final chat answer instead of relying on stale model knowledge for current tooling questions such as OpenAI Codex setup.
+
+### Fixed
+- Keep explicit local notes/document questions out of the automatic freshness web-search path.
+
+## [0.1.0-alpha321] - 2026-06-08
+
+### Fixed
+- Treat an explicitly named SFTP target in prompts such as `liste die dateien auf meiner sftp verbindung dev-node-01` as a hard requested profile. If that SFTP profile does not exist, ARIA now reports the missing SFTP profile instead of falling back to stale memory from another SFTP target.
+
+## [0.1.0-alpha320] - 2026-06-08
+
+### Changed
+- Keep multi-target SSH operator summaries LLM-authored while sending compact per-target result facts to the summary prompt. This reduces prompt bulk for large health checks without replacing the LLM interpretation.
+- Raise bounded multi-target SSH execution parallelism slightly so large read-only checks spend less time waiting for slow targets in serial batches.
+
+### Fixed
+- Let requested role phrases such as `developer server` expand through SSH connection metadata before single-target resolution. Prompts like `haben meine developer server noch genug festplattenspeicher` should now stay on the developer-server group instead of collapsing to the first matching host.
+- Treat multi-target payloads with `connection_refs` as already resolved in the requested-ref guard, avoiding false “missing connection ref” handling for grouped SSH actions.
+
+## [0.1.0-alpha319] - 2026-06-07
+
+### Changed
+- Parallelized allowed multi-target SSH execution with bounded concurrency. Large checks such as `wie fit sind meine server?` no longer wait for each SSH target strictly one after another; result ordering and preflight details stay stable.
+- Clear pasted-log/advice prompts can now run a bounded chat-vs-action arbitration before the expensive LLM capability-draft step. This keeps prompts such as `was mach ich damit: Message from syslogd ... soft lockup ...` in chat faster when the LLM chooses advice instead of runtime.
+
+### Fixed
+- Ignore stale Memory hints that point outside an already detected plural SSH target group. Prompts such as `haben meine developer server noch genug festplattenspeicher` should stay on the matching developer-server group instead of jumping to an unrelated recent host such as a management server.
+
+## [0.1.0-alpha318] - 2026-06-07
+
+### Fixed
+- Let LLM-generated SSH capability drafts still pass through chat-vs-action arbitration before runtime. This keeps pasted log/advice prompts such as `was mach ich damit: Message from syslogd ... soft lockup ...` in chat even if the LLM proposes a diagnostic SSH command first.
+
+## [0.1.0-alpha317] - 2026-06-07
+
+### Fixed
+- Prefer a concrete bounded SSH capability draft over Stored Recipe candidates when the draft already contains an explicit command. This prevents simple checks such as `prüf dev-node-01 kurz` from being replaced by broader, complex healthcheck recipes that may trip stricter SSH guardrails.
+- Filter weak local RAG/document context from general diagnostic-advice chat answers such as pasted `syslogd`/kernel lockup messages plus `was mach ich damit`, so unrelated manuals are not shown as sources unless local notes/documents are explicitly requested.
+
+## [0.1.0-alpha316] - 2026-06-07
+
+### Added
+- Added Runtime Health visibility for third-party sidecars when the ARIA runtime can inspect Docker containers. The card reports Qdrant, SearXNG, and Valkey image/status data without turning missing Docker-socket access into a warning.
+
+### Changed
+- Documented the deliberate full-stack sidecar update path and the required smoke checks after Qdrant/SearXNG/Valkey are updated.
+
+### Fixed
+- Added LLM arbitration before ambiguous connection routing, so known hosts/services can remain context for general advice or log/error interpretation instead of forcing an action merely because a configured connection name appears.
+- Removed the deterministic DNS/Pi-hole command override from SSH agentic resolution. DNS health semantics now stay with the bounded LLM command decision or an explicit LLM-classified Guardrail health bundle; deterministic code only validates policy and runtime safety.
+
+## [0.1.0-alpha315] - 2026-06-07
+
+### Added
+- Added an explicit chat Recipe Learn Mode in the chat toolbox. Users can start a bounded learning run, let ARIA observe following chat turns, and finish it into a review-only Learned Recipe candidate; no learned candidate becomes active automatically.
+- Added a chat toolbox action and `/chat note` command to save the current chat history as a Markdown Note. The saved note is reindexed into the Notes Qdrant collection when indexing is enabled, while normal Notes deletion removes the derived index entries again.
+
+### Changed
+- Polished the Notes workspace with consistent ARIA form styling, calmer editor typography, a wider desktop work area, mobile-friendly stacking, and collapsible folder management.
+- Extracted chat-context relevance filtering from the main pipeline into a dedicated core module, keeping the pipeline focused on orchestration while preserving the existing RAG safety behavior.
+- Moved the generic routed capability runtime fallback into an `AgenticExecutionHandler`, so normal single-target capability execution now uses the same handler registry shape as RSS and multi-target SSH.
+
+### Fixed
+- Filter weak local RAG/document context from general how-to or product-information chat answers, so unrelated manuals are not shown as sources unless the user explicitly asks for local notes/documents.
+- Apply that weak local RAG filter even when the normal chat route also carries an automatic `memory_recall` intent, preventing unrelated Arlo/Mill sources on prompts such as Claude Code version checks.
+- Filter mixed local Memory/RAG source packets for general chat as well, so a single recall result containing document, fact, and session hits cannot leak unrelated Arlo/Mill sources into normal how-to answers.
+- Make the `/help` home page start section clickable by linking Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security, and the local help-system docs to their real `/help?doc=...` pages.
+- Keep explicit local Notes/Documents/Memory questions out of connection runtime routing even when the query term matches a connection alias, and recognize natural Notes questions such as `was steht in meinen notizen zu ARIA`.
+- Keep general setup/how-to questions that mention SSH/server terms in normal chat instead of turning them into SSH runtime actions.
+- Let explicit but vague web-search follow-ups reuse the recent chat topic, so `suche im internet nach der neusten version` after a Claude Code question searches for the relevant product instead of a generic “newest version”.
+- Aligned the Notes editor height more closely with the Notes sidebar on desktop so new/edit note screens feel visually calmer.
+- Contained long Notes card titles, URLs, tags, and folder labels so the Notes board no longer overflows horizontally on desktop or mobile.
+- Format `uptime -s` SSH results as a normal chat answer (`running since ...`) instead of exposing the raw Stored Recipe SSH executor output.
+- Suppressed the normal automatic Learned Recipe update path while chat Recipe Learn Mode is active. `/lernen abbrechen` now discards the observed turn without also updating an existing learned recipe through the background auto-learning path.
+- Let singular DNS/Pi-hole health role prompts such as `ist mein dns server ok` expand from a primary alias hit to matching primary/secondary DNS SSH profiles, while keeping mutating DNS requests single-target and guardrail-bound.
+- Keep DNS resolver-probe hardening scoped to real DNS health/status prompts, so DNS-target disk or uptime questions keep their intended `df`/`uptime` commands instead of being rewritten to `dig`.
+
+## [0.1.0-alpha306] - 2026-06-05
+
+### Fixed
+- Let singular role phrases such as `developer server` match Dev/Development connection metadata like `dev server`, `development`, or `entwicklung` instead of blocking the semantic LLM-selected SSH profile as an unknown requested ref.
+
+## [0.1.0-alpha305] - 2026-06-05
+
+### Fixed
+- Prefer a real local DNS resolver probe for single-target DNS/Pi-hole health checks when the LLM only proposes a service-active check, while keeping explicit Guardrail health bundles in control when configured.
+
+## [0.1.0-alpha304] - 2026-06-04
+
+### Fixed
+- Allowed standard read-only DNS probe commands (`dig`, `host`, `nslookup`) in the SSH read-only policy so DNS health checks can run without an unnecessary confirmation prompt.
+- Added a Security Guardrails review link for built-in SSH policy blocks when no specific Guardrail profile is attached to the connection.
+
+## [0.1.0-alpha303] - 2026-06-04
+
+### Fixed
+- Prevented the bounded planner / recipe-experience step from overriding an already resolved plural SSH multi-target payload. This keeps prompts such as “haben meine dev-server noch genug festplattenspeicher” on the resolved dev-server group instead of collapsing back to the first learned single target.
+
+## [0.1.0-alpha302] - 2026-06-04
+
+### Fixed
+- Tightened plural SSH metadata grouping so the short seed `dev` no longer matches unrelated words such as `device`, and rebuilt already-complete single-target SSH plans into multi-target plans when a plural metadata group is detected.
+
+## [0.1.0-alpha301] - 2026-06-04
+
+### Fixed
+- Improved plural SSH group scoping when one matching profile is found through memory/routing but sibling profiles only match through related metadata such as `development`, `entwicklung`, `code-server`, or `vscode`. Prompts such as “dev servers” now stay on the matching server group instead of collapsing to the first matched profile.
+
+## [0.1.0-alpha300] - 2026-06-04
+
+### Fixed
+- Moved the optional SSH Service URL next to the metadata “Check with LLM” action so the URL source field is visible where it is used.
+- Scoped plural SSH checks to strongly matched connection metadata groups, so prompts such as “dev servers” do not expand to every SSH profile when matching aliases/tags identify a narrower server set.
+
+## [0.1.0-alpha299] - 2026-06-01
+
+### Changed
+- Clarified Learned Recipes wording so the overview refers to the local review/learning list instead of the ambiguous term “Store”.
+
+### Fixed
+- Let SSH connection metadata suggestions use Host/User/Port when no Service URL is configured, and clarify SSH host-key verification failures during connection tests.
+
 ## [0.1.0-alpha298] - 2026-05-21
 
 ### Added
@@ -879,7 +1055,7 @@ Public roll-up release covering the already internally tested `alpha111` to `alp
 - ARIA verwendet für Login-, CSRF- und Session-Cookies jetzt instanzspezifische Cookie-Namen, damit mehrere ARIA-Container auf demselben Host mit unterschiedlichen Ports sich nicht mehr gegenseitig die Browser-Session überschreiben
 
 ### Fixed
-- der automatische Logout nach wenigen Minuten in Multi-Instanz-Setups wurde behoben; Ursache waren kollidierende Cookie-Namen zwischen z. B. `aria.black.lan:8800` und `aria.black.lan:8810`
+- der automatische Logout nach wenigen Minuten in Multi-Instanz-Setups wurde behoben; Ursache waren kollidierende Cookie-Namen zwischen z. B. `aria.example.lan:8800` und `aria.example.lan:8810`
 - LLM-, Embeddings-, Chat- und Memory-Flows lesen jetzt konsistent die zur aktuellen Instanz gehörenden Cookies, statt versehentlich Session- oder CSRF-Werte einer anderen ARIA-Instanz zu verwenden
 
 ### Security

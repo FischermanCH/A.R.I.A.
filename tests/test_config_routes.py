@@ -337,13 +337,13 @@ def test_routing_page_redirects_legacy_testbench_queries_to_workbench(tmp_path: 
     client = _build_profile_config_app(tmp_path)
 
     response = client.get(
-        '/config/routing?routing_query=Run+uptime+on+pihole1&routing_kind=ssh&routing_llm_qdrant_only=1',
+        '/config/routing?routing_query=Run+uptime+on+dns-node-01&routing_kind=ssh&routing_llm_qdrant_only=1',
         follow_redirects=False,
     )
 
     assert response.status_code == 303
     assert response.headers['location'].startswith('/config/workbench/routing?')
-    assert 'routing_query=Run+uptime+on+pihole1' in response.headers['location']
+    assert 'routing_query=Run+uptime+on+dns-node-01' in response.headers['location']
     assert 'routing_kind=ssh' in response.headers['location']
     assert 'routing_llm_qdrant_only=1' in response.headers['location']
 
@@ -386,24 +386,24 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
         return {
             "status": "ok",
             "visual_status": "ok",
-            "message": "Deterministic routing matched ssh/pihole1 via alias.",
+            "message": "Deterministic routing matched ssh/dns-node-01 via alias.",
             "query": "pruef mal den pi-hole",
             "preferred_kind": "ssh",
             "requested_preferred_kind": "auto",
             "inferred_preferred_kind": "ssh",
             "available_counts": {"ssh": 1},
             "llm_ignore_deterministic": False,
-            "deterministic": {"found": True, "kind": "ssh", "ref": "pihole1", "source": "alias", "score": 1000.0, "reason": "pi-hole"},
+            "deterministic": {"found": True, "kind": "ssh", "ref": "dns-node-01", "source": "alias", "score": 1000.0, "reason": "pi-hole"},
             "qdrant": {"enabled": True, "message": "", "error": "", "candidate_count": 1, "accepted_count": 1, "candidates": []},
-            "decision": {"found": True, "kind": "ssh", "ref": "pihole1", "source": "alias", "score": 1000.0, "reason": "pi-hole"},
-            "llm_debug": {"available": True, "used": True, "status": "ok", "visual_status": "ok", "message": "LLM router debug selected ssh/pihole1.", "decision": {"found": True, "kind": "ssh", "ref": "pihole1", "reason": "fits"}, "confidence": "high", "ask_user": False},
+            "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01", "source": "alias", "score": 1000.0, "reason": "pi-hole"},
+            "llm_debug": {"available": True, "used": True, "status": "ok", "visual_status": "ok", "message": "LLM router debug selected ssh/dns-node-01.", "decision": {"found": True, "kind": "ssh", "ref": "dns-node-01", "reason": "fits"}, "confidence": "high", "ask_user": False},
             "action_debug": {
                 "available": True,
                 "used": True,
                 "status": "ok",
                 "visual_status": "ok",
                 "message": "LLM action planner selected template/ssh_run_command.",
-                "target_context": "ssh/pihole1",
+                "target_context": "ssh/dns-node-01",
                 "target_reason": "pi-hole",
                 "decision": {
                     "found": True,
@@ -415,7 +415,7 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
                     "intent_label": "Health check",
                     "capability": "ssh_command",
                     "capability_label": "SSH command",
-                    "summary_line": "Template: Health check via SSH command on ssh/pihole1",
+                    "summary_line": "Template: Health check via SSH command on ssh/dns-node-01",
                     "inputs": {"command": "uptime"},
                     "input_items": [{"key": "command", "key_label": "Command", "value": "uptime"}],
                     "score": 0.98,
@@ -472,7 +472,7 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
                         "clarifying_question": "Which command should ARIA run on this target?",
                         "summary": "Runs a direct command on the target host when the request names a concrete command.",
                         "preview": "SSH command from the user request",
-                        "example_prompt": 'Run "df -h" on pihole1',
+                        "example_prompt": 'Run "df -h" on dns-node-01',
                         "input_items": [],
                         "score": 0.74,
                     }
@@ -488,7 +488,7 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
                     "found": True,
                     "capability": "ssh_command",
                     "connection_kind": "ssh",
-                    "connection_ref": "pihole1",
+                    "connection_ref": "dns-node-01",
                     "path": "",
                     "content": "uptime",
                     "missing_fields": [],
@@ -515,7 +515,7 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
                 "message": "Would execute with the current dry-run plan.",
                 "decision": {
                     "next_step": "allow",
-                    "target": "ssh/pihole1",
+                    "target": "ssh/dns-node-01",
                     "capability": "ssh_command",
                     "preview": "SSH command: uptime",
                 },
@@ -531,12 +531,12 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
 
     assert response.status_code == 200
     assert 'Action / Recipe' in response.text
-    assert 'ssh/pihole1' in response.text
+    assert 'ssh/dns-node-01' in response.text
     assert 'pi-hole' in response.text
     assert 'SSH Health Check' in response.text
     assert 'ssh_run_command' in response.text
     assert 'SSH command' in response.text
-    assert 'Template: Health check via SSH command on ssh/pihole1' in response.text
+    assert 'Template: Health check via SSH command on ssh/dns-node-01' in response.text
     assert 'Template: Run command via SSH command' in response.text
     assert 'Ready' in response.text
     assert 'Command=uptime' in response.text
@@ -552,7 +552,7 @@ def test_routing_workbench_page_renders_action_planner_dry_run(monkeypatch, tmp_
     assert 'Command' in response.text
     assert 'Which command should ARIA run on this target?' in response.text
     assert 'df -h' in response.text
-    assert 'on pihole1' in response.text
+    assert 'on dns-node-01' in response.text
     assert 'Decision identifier' in response.text
     assert 'Decision score' in response.text
     assert 'Decision reason' in response.text
@@ -831,7 +831,7 @@ def test_routing_workbench_page_shows_testbench_result(monkeypatch, tmp_path: Pa
         llm_client: object | None = None,
         language: str = "",
     ) -> dict[str, object]:
-        assert query == "Run uptime on pihole1"
+        assert query == "Run uptime on dns-node-01"
         assert preferred_kind == "ssh"
         assert llm_ignore_deterministic is True
         assert llm_client is None
@@ -839,17 +839,17 @@ def test_routing_workbench_page_shows_testbench_result(monkeypatch, tmp_path: Pa
         return {
             "status": "ok",
             "visual_status": "ok",
-            "message": "Deterministic routing matched ssh/pihole1 via exact_ref.",
+            "message": "Deterministic routing matched ssh/dns-node-01 via exact_ref.",
             "query": query,
             "preferred_kind": preferred_kind,
             "available_counts": {"ssh": 1},
             "deterministic": {
                 "found": True,
                 "kind": "ssh",
-                "ref": "pihole1",
+                "ref": "dns-node-01",
                 "source": "exact_ref",
                 "score": 10007.0,
-                "reason": "pihole1",
+                "reason": "dns-node-01",
                 "capability": "",
             },
             "qdrant": {
@@ -865,14 +865,14 @@ def test_routing_workbench_page_shows_testbench_result(monkeypatch, tmp_path: Pa
                 "used": True,
                 "status": "ok",
                 "visual_status": "ok",
-                "message": "LLM router debug selected ssh/pihole1.",
+                "message": "LLM router debug selected ssh/dns-node-01.",
                 "mode": "qdrant_only",
                 "confidence": "high",
                 "ask_user": False,
                 "decision": {
                     "found": True,
                     "kind": "ssh",
-                    "ref": "pihole1",
+                    "ref": "dns-node-01",
                     "source": "router_llm_debug",
                     "score": 0.0,
                     "reason": "exact match wins",
@@ -882,10 +882,10 @@ def test_routing_workbench_page_shows_testbench_result(monkeypatch, tmp_path: Pa
             "decision": {
                 "found": True,
                 "kind": "ssh",
-                "ref": "pihole1",
+                "ref": "dns-node-01",
                 "source": "exact_ref",
                 "score": 10007.0,
-                "reason": "pihole1",
+                "reason": "dns-node-01",
                 "capability": "",
             },
             "executed": False,
@@ -895,11 +895,11 @@ def test_routing_workbench_page_shows_testbench_result(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(config_routes_mod, "test_connection_routing_query", fake_test)
     client = _build_profile_config_app(tmp_path)
 
-    response = client.get('/config/workbench/routing?routing_query=Run+uptime+on+pihole1&routing_kind=ssh&routing_llm_qdrant_only=1')
+    response = client.get('/config/workbench/routing?routing_query=Run+uptime+on+dns-node-01&routing_kind=ssh&routing_llm_qdrant_only=1')
 
     assert response.status_code == 200
     assert 'Routing Testbench' in response.text
-    assert 'ssh/pihole1' in response.text
+    assert 'ssh/dns-node-01' in response.text
     assert 'Dry-run' in response.text
     assert 'LLM router dry-run' in response.text
     assert 'exact match wins' in response.text
@@ -1160,7 +1160,9 @@ def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: 
     assert nav_response.status_code == 200
     assert 'name="service_url"' in response.text
     assert 'data-connection-meta-endpoint="/config/connections/ssh/suggest-metadata"' in response.text
-    assert 'data-connection-meta-source-fields="service_url"' in response.text
+    assert 'data-connection-meta-source-fields="host,user,port,service_url"' in response.text
+    assert 'Service-URL (optional)' in response.text
+    assert 'optional diese Service-URL' in response.text
     assert 'name="create_matching_sftp"' in response.text
     assert 'id="create-new"' in nav_response.text
     assert '<details id="create-new"' in nav_response.text
@@ -1172,9 +1174,9 @@ def test_ssh_page_profile_cards_link_to_edit_mode_and_expose_guardrail_select(tm
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     raw.setdefault("connections", {})
     raw["connections"]["ssh"] = {
-        "pihole1": {
+        "dns-node-01": {
             "title": "Pi-hole 1",
-            "host": "pihole1.local",
+            "host": "dns-node-01.local",
             "user": "admin",
             "port": 22,
             "timeout_seconds": 10,
@@ -1193,17 +1195,17 @@ def test_ssh_page_profile_cards_link_to_edit_mode_and_expose_guardrail_select(tm
     }
     _write_profile_yaml(config_path, raw)
 
-    response = client.get("/config/connections/ssh?ref=pihole1&return_to=%2Fconnections%2Ftypes")
+    response = client.get("/config/connections/ssh?ref=dns-node-01&return_to=%2Fconnections%2Ftypes")
 
     assert response.status_code == 200
     assert "connection-profile-card" in response.text
-    assert "/config/connections/ssh?ref=pihole1#manage-existing" in response.text
+    assert "/config/connections/ssh?ref=dns-node-01#manage-existing" in response.text
     assert "Editieren" in response.text
     assert "Bestehendes Profil bearbeiten" in response.text
     assert 'id="guardrail_ref_edit"' in response.text
     assert 'value="no-sudo" selected' in response.text
-    assert "/config/connections/ssh?ref=pihole1&amp;return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" not in response.text
-    assert "/config/connections/ssh?ref=pihole1&amp;return_to=%2Fconnections%2Ftypes&amp;mode=edit#manage-existing" not in response.text
+    assert "/config/connections/ssh?ref=dns-node-01&amp;return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" not in response.text
+    assert "/config/connections/ssh?ref=dns-node-01&amp;return_to=%2Fconnections%2Ftypes&amp;mode=edit#manage-existing" not in response.text
     assert "/config/connections/ssh?return_to=%2Fconnections%2Ftypes&amp;mode=create#create-new" in response.text
 
 
@@ -1483,6 +1485,27 @@ def test_ssh_suggest_metadata_route_returns_llm_payload(monkeypatch, tmp_path: P
     assert 'Output language: German (Deutsch).' in prompt_blob
     assert 'German routing and trigger terms' in prompt_blob
     assert 'Preferred language: de' in prompt_blob
+
+
+def test_ssh_suggest_metadata_route_uses_host_when_service_url_is_empty(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+
+    response = client.get(
+        '/config/connections/ssh/suggest-metadata',
+        params={
+            'connection_ref': 'dns-node-01',
+            'host': '192.0.2.11',
+            'user': 'demo_user',
+            'port': '22',
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload['ok'] is True
+    assert payload['title'] == '192.0.2.11'
+    assert 'dns-node-01' in payload['aliases']
+    assert '192.0.2.11' in payload['aliases']
 
 
 def test_sftp_suggest_metadata_route_returns_llm_payload(monkeypatch, tmp_path: Path) -> None:

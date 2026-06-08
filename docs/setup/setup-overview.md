@@ -117,7 +117,7 @@ ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
 
-`ARIA_PUBLIC_URL` is optional and may be an internal LAN URL such as `http://aria.black.lan/`; it is used for clear host/link hints, not as a requirement for an internet-facing install.
+`ARIA_PUBLIC_URL` is optional and may be an internal LAN URL such as `http://aria.example.lan/`; it is used for clear host/link hints, not as a requirement for an internet-facing install.
 
 Optional LLM / embedding environment overrides should normally stay empty when you manage saved provider profiles inside ARIA. They are only for deliberately forcing runtime values from Docker.
 
@@ -220,6 +220,8 @@ cd /opt/aria/aria
 This normal path refreshes/recreates only the `aria` service. It deliberately leaves stateful sidecars such as Qdrant and SearXNG alone.
 After ARIA is healthy again, the helper removes dangling Docker image layers and unused old ARIA Docker images so repeated updates do not slowly fill Docker storage. It does not prune containers, volumes or tagged non-ARIA images.
 
+ARIA may show a third-party sidecar inventory on `/stats#runtime-health` when the runtime can inspect Docker containers. If Docker access is not exposed to the ARIA container, this is informational and not a health problem.
+
 For a future release that changes the stack layout itself, for example a new sidecar service:
 
 ```bash
@@ -227,6 +229,14 @@ aria-setup upgrade --install-dir /opt/aria/aria
 ```
 
 Use `./aria-stack.sh update-all` or `./aria-stack.sh repair` only when release notes or recovery instructions explicitly call for full-stack work.
+
+After a deliberate full-stack sidecar update, run a short smoke check before trusting the install again:
+
+1. open `/health` and `/stats#runtime-health`
+2. verify `Memory / Qdrant` is green and learned/notes memory still works
+3. run one normal chat question that uses memory or notes
+4. run one web search so SearXNG and Valkey are exercised
+5. verify `/updates` still shows the controlled update path
 
 Managed installs also expose a browser update button on:
 

@@ -24,6 +24,19 @@ def test_validate_ssh_readonly_policy_allows_systemctl_failed_status_form() -> N
     assert decision.reason == "ssh_readonly_policy_allow"
 
 
+def test_validate_ssh_readonly_policy_allows_dns_probe_commands() -> None:
+    for command in (
+        "dig @127.0.0.1 google.com +short +time=2",
+        "host google.com 127.0.0.1",
+        "nslookup google.com 127.0.0.1",
+        "systemctl is-active pihole-FTL && dig @127.0.0.1 google.com +short +time=2",
+    ):
+        decision = validate_ssh_readonly_policy(command)
+
+        assert decision.action == "allow"
+        assert decision.reason == "ssh_readonly_policy_allow"
+
+
 def test_validate_ssh_readonly_policy_allows_exact_allowlisted_health_bundle() -> None:
     allow_commands = [
         "uptime -p",

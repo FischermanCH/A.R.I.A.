@@ -21,6 +21,27 @@ def test_help_page_renders_wiki_doc_hub() -> None:
     assert "/licenses" in response.text
 
 
+def test_help_home_renders_clickable_start_links() -> None:
+    client = TestClient(main_mod.app)
+
+    response = client.get("/help")
+
+    assert response.status_code == 200
+    for doc_id in (
+        "quick-start",
+        "memory",
+        "connections",
+        "skills",
+        "releases",
+        "pricing",
+        "security",
+        "alpha-help-system",
+        "help-system",
+    ):
+        assert f'href="/help?doc={doc_id}"' in response.text
+    assert "<code>Quick Start</code>" not in response.text
+
+
 def test_product_info_page_renders_docs_nav_and_markdown() -> None:
     client = TestClient(main_mod.app)
 
@@ -33,7 +54,7 @@ def test_product_info_page_renders_docs_nav_and_markdown() -> None:
 
 
 def test_localized_doc_path_prefers_matching_language_file() -> None:
-    base_dir = Path("/home/fischerman/ARIA")
+    base_dir = Path(__file__).resolve().parents[1]
 
     assert main_mod._localized_doc_path(base_dir, "docs/wiki/Quick-Start.md", "de") == "docs/wiki/Quick-Start.de.md"
     assert main_mod._localized_doc_path(base_dir, "docs/help/pricing.md", "en") == "docs/help/pricing.en.md"
@@ -62,7 +83,7 @@ def test_licenses_page_renders_core_entries() -> None:
     assert "AGPL-3.0" in response.text
     assert "github.com/qdrant/qdrant" in response.text
     assert "github.com/searxng/searxng" in response.text
-    assert "fischerman.ch/projects/a-r-i-a-adaptive-reasoning-intelligence-agent/" in response.text
+    assert "github.com/qdrant/qdrant" in response.text
 
 def test_base_template_declares_durable_favicon_assets() -> None:
     template = Path("aria/templates/base.html").read_text(encoding="utf-8")

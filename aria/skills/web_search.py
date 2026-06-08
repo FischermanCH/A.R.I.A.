@@ -66,6 +66,40 @@ class WebSearchSkill(BaseSkill):
         "what",
     })
 
+    _VERSION_QUERY_TERMS = (
+        "aktuelle version",
+        "aktuellste version",
+        "neuste version",
+        "neueste version",
+        "momentan aktuell",
+        "current version",
+        "latest version",
+        "latest release",
+        "newest release",
+        "changelog",
+        "release notes",
+        "version",
+    )
+
+    _REGISTRY_DOMAINS = (
+        "npmjs.com",
+        "pypi.org",
+        "crates.io",
+        "packagist.org",
+        "rubygems.org",
+        "hub.docker.com",
+        "ghcr.io",
+    )
+
+    _NEWS_DOMAINS = (
+        "computerbase.de",
+        "heise.de",
+        "it-daily.net",
+        "t3n.de",
+        "zeit.de",
+        "bernerzeitung.ch",
+    )
+
     @staticmethod
     def _profile_rows(settings: Any) -> dict[str, Any]:
         rows = getattr(getattr(settings, "connections", object()), "searxng", {})
@@ -144,6 +178,13 @@ class WebSearchSkill(BaseSkill):
             ) + WebSearchSkill._terms("recency_terms", ())
         )
 
+    @classmethod
+    def _is_current_version_query(cls, query: str) -> bool:
+        text = re.sub(r"\s+", " ", str(query or "").strip().lower())
+        if not text:
+            return False
+        return any(term in text for term in cls._VERSION_QUERY_TERMS)
+
     @staticmethod
     def _published_sort_value(published_at: str) -> float:
         clean = str(published_at or "").strip()
@@ -209,10 +250,51 @@ class WebSearchSkill(BaseSkill):
 
         return score, matches
 
+    @classmethod
+    def _source_quality_score(cls, query: str, result: Any) -> int:
+        if not cls._is_current_version_query(query):
+            return 0
+
+        title = str(getattr(result, "title", "") or "").lower()
+        snippet = str(getattr(result, "snippet", "") or "").lower()
+        engine = str(getattr(result, "engine", "") or "").lower()
+        url = str(getattr(result, "url", "") or "").lower()
+        parsed = urlparse(url)
+        domain = str(parsed.netloc or "").lower()
+        path = str(parsed.path or "").lower()
+        combined = " ".join(part for part in (title, snippet, url) if part)
+
+        score = 0
+        if "github.com" in domain and any(marker in path for marker in ("/releases", "/tags")):
+            score += 28
+        elif "github.com" in domain and any(marker in combined for marker in ("release", "changelog", "tag")):
+            score += 18
+
+        if any(registry in domain for registry in cls._REGISTRY_DOMAINS):
+            score += 24
+            if any(marker in path for marker in ("/package/", "/project/", "/packages/")):
+                score += 6
+
+        official_markers = ("docs.", "developer.", "dev.", "changelog", "release-notes", "releases", "download")
+        if any(marker in domain or marker in path for marker in official_markers):
+            score += 12
+        if any(marker in title for marker in ("release", "releases", "changelog", "version", "versions")):
+            score += 6
+
+        news_like = "news" in engine or any(news_domain in domain for news_domain in cls._NEWS_DOMAINS)
+        if news_like:
+            score -= 12
+
+        if "mozilla.org" in domain and "manifest.json/version" in path:
+            score -= 20
+
+        return score
+
     def _prepare_results(self, query: str, results: list[Any]) -> list[Any]:
         prepared = list(results)
         recency_query = self._is_recency_query(query)
-        scored: list[tuple[int, int, float, int, Any]] = []
+        current_version_query = self._is_current_version_query(query)
+        scored: list[tuple[int, int, int, float, int, Any]] = []
         has_relevant_match = False
         for item in prepared:
             score, matches = self._result_relevance_score(query, item)
@@ -220,6 +302,7 @@ class WebSearchSkill(BaseSkill):
                 has_relevant_match = True
             scored.append(
                 (
+                    self._source_quality_score(query, item),
                     score,
                     matches,
                     self._published_sort_value(getattr(item, "published_at", "")),
@@ -229,18 +312,30 @@ class WebSearchSkill(BaseSkill):
             )
 
         if has_relevant_match:
-            scored = [row for row in scored if row[1] > 0]
+            scored = [row for row in scored if row[2] > 0]
 
-        scored.sort(
-            key=lambda row: (
-                row[1],
-                row[0],
-                row[2] if recency_query else 0.0,
-                row[3] if recency_query else 0,
-            ),
-            reverse=True,
-        )
-        return [row[4] for row in scored]
+        if current_version_query:
+            scored.sort(
+                key=lambda row: (
+                    row[0],
+                    row[2],
+                    row[1],
+                    row[3] if recency_query else 0.0,
+                    -row[4],
+                ),
+                reverse=True,
+            )
+        else:
+            scored.sort(
+                key=lambda row: (
+                    row[2],
+                    row[1],
+                    row[3] if recency_query else 0.0,
+                    row[4] if recency_query else 0,
+                ),
+                reverse=True,
+            )
+        return [row[5] for row in scored]
 
     @staticmethod
     def _note_context_hits(params: dict[str, Any]) -> list[NotesContextHit]:

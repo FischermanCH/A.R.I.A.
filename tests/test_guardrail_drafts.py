@@ -12,7 +12,7 @@ from aria.core.guardrail_drafts import (
 def test_guardrail_draft_context_filters_by_guardrail_kind() -> None:
     raw = {
         "connections": {
-            "ssh": {"pihole1": {}, "srv-dev02": {}},
+            "ssh": {"dns-node-01": {}, "dev-node-02": {}},
             "smb": {"nas": {}},
         },
         "security": {
@@ -32,7 +32,7 @@ def test_guardrail_draft_context_filters_by_guardrail_kind() -> None:
 
     assert context["guardrail_kind"] == "ssh_command"
     assert context["compatible_connection_kinds"] == ["ssh"]
-    assert context["connection_rows"] == [{"kind": "ssh", "count": 2, "refs": ["pihole1", "srv-dev02"]}]
+    assert context["connection_rows"] == [{"kind": "ssh", "count": 2, "refs": ["dev-node-02", "dns-node-01"]}]
     assert [row["ref"] for row in context["existing_guardrails"]] == ["safe-ssh"]
 
 

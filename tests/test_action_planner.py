@@ -119,14 +119,14 @@ def test_build_action_planner_input_set_exposes_normalized_action_candidates() -
     planner_input = build_action_planner_input_set(
         "pruef mal den pi-hole",
         connection_kind="ssh",
-        connection_ref="pihole1",
+        connection_ref="dns-node-01",
         language="de",
         notes=["ops pilot"],
     )
 
     assert planner_input.query == "pruef mal den pi-hole"
     assert planner_input.preferred_connection_kind == "ssh"
-    assert planner_input.connection_ref == "pihole1"
+    assert planner_input.connection_ref == "dns-node-01"
     assert planner_input.notes == ["ops pilot"]
     assert any(item.candidate_type == "template" and item.candidate_id == "ssh_run_command" for item in planner_input.action_candidates)
     health = next(item for item in planner_input.action_candidates if item.candidate_id == "ssh_run_command")
@@ -290,7 +290,7 @@ def test_action_planner_dry_run_selects_builtin_template() -> None:
         debug_bounded_action_plan_decision(
             "pruef mal den pi-hole",
             llm_client=FakeLLMClient(),
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1", "reason": "secondary dns"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01", "reason": "secondary dns"},
             language="de",
         )
     )
@@ -303,7 +303,7 @@ def test_action_planner_dry_run_selects_builtin_template() -> None:
     assert result["decision"]["intent_label"] == "Gesundheitscheck"
     assert result["decision"]["capability"] == "ssh_command"
     assert result["decision"]["capability_label"] == "SSH-Befehl"
-    assert result["decision"]["summary_line"] == "Template: Gesundheitscheck via SSH-Befehl auf ssh/pihole1"
+    assert result["decision"]["summary_line"] == "Template: Gesundheitscheck via SSH-Befehl auf ssh/dns-node-01"
     assert result["decision"]["score"] >= 0
     assert result["decision"]["inputs"] == {"command": "uptime"}
     assert result["decision"]["input_items"] == [{"key": "command", "key_label": "Befehl", "value": "uptime"}]
@@ -316,7 +316,7 @@ def test_action_planner_dry_run_selects_builtin_template() -> None:
     assert result["planner_source_label"] == "LLM"
     assert result["execution_state"] == "ready"
     assert result["execution_state_label"] == "Bereit"
-    assert result["target_context"] == "ssh/pihole1"
+    assert result["target_context"] == "ssh/dns-node-01"
     assert result["target_reason"] == "secondary dns"
 
 
@@ -547,7 +547,7 @@ def test_action_planner_recovers_from_llm_candidate_id_variant() -> None:
         debug_bounded_action_plan_decision(
             "checke die healht auf meinem dns server",
             llm_client=FakeLLMClient(),
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1", "reason": "dns server"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01", "reason": "dns server"},
             language="de",
         )
     )
@@ -572,8 +572,8 @@ def test_action_planner_inherits_routing_confirmation_requirement() -> None:
             routing_decision={
                 "found": True,
                 "kind": "discord",
-                "ref": "fischerman-aria-messages",
-                "reason": "fischerman-aria-messages",
+                "ref": "demo_user-aria-messages",
+                "reason": "demo_user-aria-messages",
                 "routing_ask_user": True,
             },
             language="de",
@@ -593,7 +593,7 @@ def test_action_planner_without_llm_uses_heuristic_for_clear_single_direction() 
         debug_bounded_action_plan_decision(
             "wie lange laeuft mein dns server schon",
             llm_client=None,
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1", "reason": "dns server"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01", "reason": "dns server"},
             language="de",
         )
     )
@@ -641,7 +641,7 @@ def test_action_planner_without_llm_normalizes_natural_disk_check_to_df_h() -> N
         debug_bounded_action_plan_decision(
             "check mal die festplatte auf meinen dns server",
             llm_client=None,
-            routing_decision={"found": True, "kind": "ssh", "ref": "pihole1", "reason": "dns server"},
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01", "reason": "dns server"},
             language="de",
         )
     )

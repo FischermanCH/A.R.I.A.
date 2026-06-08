@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_TAR_DIR="/mnt/NAS/aria-images"
+DEFAULT_TAR_DIR="/var/lib/aria/images"
 if [[ ! -d "$DEFAULT_TAR_DIR" ]]; then
   if [[ -d "$REPO_ROOT/dist" ]]; then
     DEFAULT_TAR_DIR="$REPO_ROOT/dist"
@@ -56,7 +56,7 @@ What it does:
   - update: update exactly one chosen ARIA stack and only recreate the ARIA service
 
 Defaults:
-  - internal alpha-local stacks load the newest TAR from /mnt/NAS/aria-images
+  - internal alpha-local stacks load the newest TAR from /var/lib/aria/images
   - registry/public stacks run docker compose pull for the aria service
   - qdrant, searxng, valkey and data volumes stay untouched
 

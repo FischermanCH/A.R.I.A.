@@ -30,3 +30,6 @@ data/ssh_keys/
 
 project.docu/
 docs/local/
+docs/backlog/
+docs/internal/
+docs/AI_CONTEXT.md

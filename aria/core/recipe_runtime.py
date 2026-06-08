@@ -611,6 +611,7 @@ class RecipeRuntime:
         memory_collection: str | None = None,
         session_collection: str | None = None,
         auto_memory_enabled: bool = False,
+        suppress_web_search_note_context: bool = False,
     ) -> list[SkillResult]:
         results: list[SkillResult] = []
         runtime_recipes = runtime_recipes or []
@@ -675,13 +676,15 @@ class RecipeRuntime:
             web_search_skill = self.web_search_skill_getter()
             if web_search_skill is not None:
                 web_query = self.extract_web_search_query(message, routing_profile)
-                note_hits = await search_note_hits(
-                    base_dir=BASE_DIR,
-                    username=user_id,
-                    settings=self.settings,
-                    query=web_query,
-                    limit=3,
-                )
+                note_hits = []
+                if not suppress_web_search_note_context:
+                    note_hits = await search_note_hits(
+                        base_dir=BASE_DIR,
+                        username=user_id,
+                        settings=self.settings,
+                        query=web_query,
+                        limit=3,
+                    )
                 web_result = await web_search_skill.execute(
                     web_query,
                     {

@@ -15,7 +15,7 @@ def test_build_recipe_execution_summary_keeps_legacy_marker_but_adds_readable_re
         executed=["1.ssh_run", "2.discord_send(skipped)"],
         skipped=["notify"],
         result="uptime ok",
-        ssh_summary="Technischer Lauf:\n- pihole1: ok, 0.4s",
+        ssh_summary="Technischer Lauf:\n- dns-node-01: ok, 0.4s",
         language="de",
     )
 

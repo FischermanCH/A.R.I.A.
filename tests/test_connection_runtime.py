@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import ssl
 import smtplib
+from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
 from aria.core import connection_runtime
@@ -213,6 +214,40 @@ def test_cached_only_connection_status_without_cache_returns_warn_placeholder(mo
 
     assert status["status"] == "warn"
     assert status["message"] == "Noch kein Status im Cache. Nutze den Test-Button fuer eine Live-Pruefung."
+
+
+def test_ssh_connection_test_explains_unknown_host_key(monkeypatch, tmp_path) -> None:
+    key_path = tmp_path / "id_ed25519"
+    key_path.write_text("fake-key", encoding="utf-8")
+
+    def _fake_run(*_args, **_kwargs):
+        return SimpleNamespace(
+            returncode=255,
+            stdout="",
+            stderr=(
+                "No ED25519 host key is known for 192.0.2.11 and you have requested strict checking. "
+                "Host key verification failed."
+            ),
+        )
+
+    monkeypatch.setattr(connection_runtime.subprocess, "run", _fake_run)
+
+    status = connection_runtime.build_connection_status_row(
+        "ssh",
+        "dns-node-01",
+        {
+            "host": "192.0.2.11",
+            "user": "demo_user",
+            "key_path": str(key_path),
+            "strict_host_key_checking": "yes",
+        },
+        lang="de",
+    )
+
+    assert status["status"] == "error"
+    assert "Host-Key" in status["message"]
+    assert "accept-new" in status["message"]
+    assert "`yes`" in status["message"]
 
 
 def test_searxng_probe_adds_internal_ip_headers_for_internal_stack() -> None:

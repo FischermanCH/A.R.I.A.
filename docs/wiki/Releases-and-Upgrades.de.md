@@ -20,6 +20,8 @@ cd /opt/aria/aria
 Der normale `aria-stack.sh update` aktualisiert/recreatet nur den `aria` Service. Qdrant, SearXNG, Valkey und Volumes bleiben bewusst unangetastet.
 Sobald ARIA danach wieder gesund ist, entfernen managed/interne Helper dangling Docker-Image-Layer und alte ungenutzte ARIA-Docker-Images. Container, Volumes, Sidecars und getaggte fremde Images werden nicht bereinigt.
 
+ARIA kann unter `/stats#runtime-health` ein Third-party-Sidecar-Inventar anzeigen, wenn die Runtime Docker-Container-Metadaten sehen darf. Wenn die Runtime Docker nicht sieht, ist das nur informativ; normale Updates lassen Sidecars trotzdem unveraendert.
+
 Wenn ein Release das Stack-Layout selbst aendert:
 
 ```bash
@@ -27,6 +29,13 @@ aria-setup upgrade --install-dir /opt/aria/aria
 ```
 
 `update-all` oder `repair` nur verwenden, wenn Release Notes oder Recovery-Hinweise es explizit verlangen.
+
+Nach einem bewussten Sidecar-/Full-Stack-Update kurz pruefen:
+
+1. `/health` und `/stats#runtime-health`
+2. `Memory / Qdrant` plus eine Memory- oder Notes-gestuetzte Chatfrage
+3. eine Websuche, damit SearXNG und Valkey wirklich benutzt werden
+4. `/updates`, damit der kontrollierte Update-Pfad weiter erreichbar ist
 
 Managed Installs koennen auch die Browser-Update-Seite unter `/updates` anbieten.
 

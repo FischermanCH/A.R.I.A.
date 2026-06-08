@@ -21,9 +21,9 @@ def test_routing_resolver_exact_ref_wins_without_qdrant() -> None:
 
     decision = asyncio.run(
         resolver.resolve_connection(
-            "Run uptime on pihole1",
+            "Run uptime on dns-node-01",
             {
-                "ssh": {"pihole1": {"title": "Pi-hole DNS"}},
+                "ssh": {"dns-node-01": {"title": "Pi-hole DNS"}},
                 "discord": {"alerts-discord": {"title": "Alerts"}},
             },
             preferred_kind="ssh",
@@ -32,7 +32,7 @@ def test_routing_resolver_exact_ref_wins_without_qdrant() -> None:
 
     assert decision.found is True
     assert decision.kind == "ssh"
-    assert decision.ref == "pihole1"
+    assert decision.ref == "dns-node-01"
     assert decision.source == "exact_ref"
     assert provider.calls == []
 
@@ -46,7 +46,7 @@ def test_routing_resolver_alias_wins_before_qdrant() -> None:
             "Pruefe den DNS blocker",
             {
                 "ssh": {
-                    "pihole1": {
+                    "dns-node-01": {
                         "title": "Pi-hole DNS",
                         "aliases": ["DNS blocker"],
                     }
@@ -58,7 +58,7 @@ def test_routing_resolver_alias_wins_before_qdrant() -> None:
 
     assert decision.found is True
     assert decision.kind == "ssh"
-    assert decision.ref == "pihole1"
+    assert decision.ref == "dns-node-01"
     assert decision.source == "alias"
     assert provider.calls == []
 
@@ -98,7 +98,7 @@ def test_routing_resolver_uses_qdrant_candidate_after_deterministic_miss() -> No
         [
             {
                 "kind": "ssh",
-                "ref": "pihole1",
+                "ref": "dns-node-01",
                 "score": 0.84,
                 "source": "qdrant_routing",
                 "reason": "DNS blocker and DHCP helper",
@@ -110,14 +110,14 @@ def test_routing_resolver_uses_qdrant_candidate_after_deterministic_miss() -> No
     decision = asyncio.run(
         resolver.resolve_connection(
             "mach einen healthcheck auf dem DNS blocker",
-            {"ssh": {"pihole1": {"title": "Pi-hole DNS"}}},
+            {"ssh": {"dns-node-01": {"title": "Pi-hole DNS"}}},
             preferred_kind="ssh",
         )
     )
 
     assert decision.found is True
     assert decision.kind == "ssh"
-    assert decision.ref == "pihole1"
+    assert decision.ref == "dns-node-01"
     assert decision.source == "qdrant_routing"
     assert decision.score == 0.84
     assert decision.reason == "DNS blocker and DHCP helper"
@@ -137,7 +137,7 @@ def test_routing_resolver_rejects_wrong_qdrant_kind_for_preferred_kind() -> None
         resolver.resolve_connection(
             "mach einen healthcheck auf dem alarm kanal",
             {
-                "ssh": {"pihole1": {"title": "Pi-hole DNS"}},
+                "ssh": {"dns-node-01": {"title": "Pi-hole DNS"}},
                 "discord": {"alerts-discord": {"title": "Alerts"}},
             },
             preferred_kind="ssh",
@@ -153,8 +153,8 @@ def test_routing_resolver_rejects_wrong_qdrant_kind_for_preferred_kind() -> None
 def test_routing_resolver_infers_ssh_kind_before_qdrant_selection() -> None:
     provider = FakeCandidateProvider(
         [
-            {"kind": "sftp", "ref": "pihole1", "score": 0.91},
-            {"kind": "ssh", "ref": "pihole1", "score": 0.82},
+            {"kind": "sftp", "ref": "dns-node-01", "score": 0.91},
+            {"kind": "ssh", "ref": "dns-node-01", "score": 0.82},
         ]
     )
     resolver = RoutingResolver(candidate_provider=provider)
@@ -163,15 +163,15 @@ def test_routing_resolver_infers_ssh_kind_before_qdrant_selection() -> None:
         resolver.resolve_connection(
             "Zeig mir die Laufzeit vom primären DNS Server",
             {
-                "ssh": {"pihole1": {"title": "Pi-hole DNS"}},
-                "sftp": {"pihole1": {"title": "Pi-hole files"}},
+                "ssh": {"dns-node-01": {"title": "Pi-hole DNS"}},
+                "sftp": {"dns-node-01": {"title": "Pi-hole files"}},
             },
         )
     )
 
     assert decision.found is True
     assert decision.kind == "ssh"
-    assert decision.ref == "pihole1"
+    assert decision.ref == "dns-node-01"
     assert provider.calls == [{"query": "Zeig mir die Laufzeit vom primären DNS Server", "limit": 20, "score_threshold": 0.0}]
 
 
@@ -181,22 +181,22 @@ def test_infer_preferred_connection_kind_maps_common_actions() -> None:
     assert infer_preferred_connection_kind("Zeig mir die Laufzeit vom primären DNS Server", available_kinds=available) == "ssh"
     assert infer_preferred_connection_kind("Wie lange läuft mein DNS Server schon?", available_kinds=available) == "ssh"
     assert infer_preferred_connection_kind("Wie lange ist mein DNS Server schon online?", available_kinds=available) == "ssh"
-    assert infer_preferred_connection_kind("Read /etc/hostname on ubnsrv-mgmt-master", available_kinds=available) == "sftp"
+    assert infer_preferred_connection_kind("Read /etc/hostname on ops-mgmt-01", available_kinds=available) == "sftp"
     assert infer_preferred_connection_kind("Send a test message to Discord alerts", available_kinds=available) == "discord"
     assert infer_preferred_connection_kind("What's new on heise online news", available_kinds=available) == "rss"
 
 
 def test_routing_resolver_preserves_configured_ref_casing_from_qdrant() -> None:
-    provider = FakeCandidateProvider([{"kind": "ssh", "ref": "pihole1", "score": 0.91}])
+    provider = FakeCandidateProvider([{"kind": "ssh", "ref": "dnsnode01", "score": 0.91}])
     resolver = RoutingResolver(candidate_provider=provider)
 
     decision = asyncio.run(
         resolver.resolve_connection(
             "linux dns healthcheck",
-            {"ssh": {"PiHole1": {"title": "Pi-hole DNS"}}},
+            {"ssh": {"DnsNode01": {"title": "Primary DNS"}}},
             preferred_kind="ssh",
         )
     )
 
     assert decision.found is True
-    assert decision.ref == "PiHole1"
+    assert decision.ref == "DnsNode01"

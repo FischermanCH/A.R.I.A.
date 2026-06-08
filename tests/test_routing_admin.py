@@ -18,7 +18,7 @@ from aria.core.routing_index import routing_documents_fingerprint
 def _settings() -> Settings:
     return Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.black.lan:8810"},
+            "aria": {"public_url": "http://aria.example.lan:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {
@@ -28,8 +28,8 @@ def _settings() -> Settings:
             },
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "pihole1.lan",
+                    "dns-node-01": {
+                        "host": "dns-node-01.lan",
                         "user": "root",
                         "description": "Pi-hole DNS server",
                         "tags": ["dns", "pi-hole"],
@@ -231,7 +231,7 @@ def test_routing_admin_testbench_uses_qdrant_after_deterministic_miss() -> None:
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole1",
+                        "ref": "dns-node-01",
                         "title": "Pi-hole DNS",
                         "description": "DNS blocker",
                     },
@@ -258,7 +258,7 @@ def test_routing_admin_testbench_uses_qdrant_after_deterministic_miss() -> None:
     assert meta["deterministic"]["found"] is False
     assert meta["decision"]["source"] == "default_single_profile"
     assert meta["decision"]["kind"] == "ssh"
-    assert meta["decision"]["ref"] == "pihole1"
+    assert meta["decision"]["ref"] == "dns-node-01"
     assert meta["qdrant"]["accepted_count"] == 1
 
 
@@ -293,7 +293,7 @@ def test_routing_admin_testbench_keeps_exact_match_first_but_lists_qdrant_candid
     meta = asyncio.run(
         run_connection_routing_query(
             settings,
-            "Run uptime on pihole1",
+            "Run uptime on dns-node-01",
             preferred_kind="ssh",
             qdrant_client=FakeQdrant(),
             embedding_client=FakeEmbedder(),
@@ -302,7 +302,7 @@ def test_routing_admin_testbench_keeps_exact_match_first_but_lists_qdrant_candid
 
     assert meta["status"] == "ok"
     assert meta["decision"]["source"] == "exact_ref"
-    assert meta["decision"]["ref"] == "pihole1"
+    assert meta["decision"]["ref"] == "dns-node-01"
     assert meta["qdrant"]["candidate_count"] == 1
     assert meta["qdrant"]["candidates"][0]["accepted"] is False
     assert "preferred kind ssh" in meta["qdrant"]["candidates"][0]["reject_reason"]
@@ -311,13 +311,13 @@ def test_routing_admin_testbench_keeps_exact_match_first_but_lists_qdrant_candid
 def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.black.lan:8810"},
+            "aria": {"public_url": "http://aria.example.lan:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
-                "ssh": {"pihole1": {"host": "pihole1.lan", "user": "root", "description": "Pi-hole DNS"}},
-                "sftp": {"pihole1": {"host": "pihole1.lan", "user": "root", "description": "Pi-hole files"}},
+                "ssh": {"dns-node-01": {"host": "dns-node-01.lan", "user": "root", "description": "Pi-hole DNS"}},
+                "sftp": {"dns-node-01": {"host": "dns-node-01.lan", "user": "root", "description": "Pi-hole files"}},
             },
         }
     )
@@ -339,8 +339,8 @@ def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() ->
                     payload={
                         "scope": "connection",
                         "kind": "sftp",
-                        "ref": "pihole1",
-                        "title": "pihole1 files",
+                        "ref": "dns-node-01",
+                        "title": "dns-node-01 files",
                     },
                 ),
                 SimpleNamespace(
@@ -348,7 +348,7 @@ def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() ->
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole1",
+                        "ref": "dns-node-01",
                         "title": "Pi-hole Primary DNS Server",
                     },
                 ),
@@ -374,7 +374,7 @@ def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() ->
     assert meta["requested_preferred_kind"] == "auto"
     assert meta["inferred_preferred_kind"] == "ssh"
     assert meta["decision"]["kind"] == "ssh"
-    assert meta["decision"]["ref"] == "pihole1"
+    assert meta["decision"]["ref"] == "dns-node-01"
     assert meta["qdrant"]["accepted_count"] == 1
     assert meta["qdrant"]["candidate_count"] == 2
     assert meta["qdrant"]["candidates"][0]["kind"] == "sftp"
@@ -385,14 +385,14 @@ def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() ->
 def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.black.lan:8810"},
+            "aria": {"public_url": "http://aria.example.lan:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
                 "ssh": {
-                    "pihole1": {"host": "pihole1.lan", "user": "root", "description": "Primary DNS"},
-                    "pihole2": {"host": "pihole2.lan", "user": "root", "description": "Secondary DNS"},
+                    "dns-node-01": {"host": "dns-node-01.lan", "user": "root", "description": "Primary DNS"},
+                    "dns-node-02": {"host": "dns-node-02.lan", "user": "root", "description": "Secondary DNS"},
                 }
             },
         }
@@ -417,7 +417,7 @@ def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole1",
+                        "ref": "dns-node-01",
                         "title": "Primary DNS",
                         "description": "Pi-hole Primary DNS",
                         "aliases": ["primary dns"],
@@ -430,7 +430,7 @@ def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole2",
+                        "ref": "dns-node-02",
                         "title": "Secondary DNS",
                         "description": "Pi-hole Secondary DNS",
                         "aliases": ["secondary dns"],
@@ -449,7 +449,7 @@ def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
         async def chat(self, messages: list[dict[str, str]], **_kwargs: object) -> object:
             llm_messages.extend(messages)
             return SimpleNamespace(
-                content='{"kind":"ssh","ref":"pihole1","capability":"ssh_command","confidence":"high","ask_user":false,"reason":"primary dns alias matches best"}'
+                content='{"kind":"ssh","ref":"dns-node-01","capability":"ssh_command","confidence":"high","ask_user":false,"reason":"primary dns alias matches best"}'
             )
 
     meta = asyncio.run(
@@ -468,35 +468,35 @@ def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
     assert meta["llm_debug"]["used"] is True
     assert meta["llm_debug"]["status"] == "ok"
     assert meta["llm_debug"]["decision"]["kind"] == "ssh"
-    assert meta["llm_debug"]["decision"]["ref"] == "pihole1"
+    assert meta["llm_debug"]["decision"]["ref"] == "dns-node-01"
     assert meta["llm_debug"]["decision"]["capability"] == "ssh_command"
     assert meta["llm_debug"]["confidence"] == "high"
     assert "Bounded routing candidates:" in llm_messages[1]["content"]
-    assert "ssh/pihole1" in llm_messages[1]["content"]
-    assert "ssh/pihole2" in llm_messages[1]["content"]
+    assert "ssh/dns-node-01" in llm_messages[1]["content"]
+    assert "ssh/dns-node-02" in llm_messages[1]["content"]
 
 
 def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.black.lan:8810"},
+            "aria": {"public_url": "http://aria.example.lan:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "pihole1.lan",
+                    "dns-node-01": {
+                        "host": "dns-node-01.lan",
                         "user": "root",
                         "description": "Primary DNS",
-                        "aliases": ["pihole1", "primary dns"],
+                        "aliases": ["dns-node-01", "primary dns"],
                         "tags": ["dns", "primary"],
                     },
-                    "pihole2": {
-                        "host": "pihole2.lan",
+                    "dns-node-02": {
+                        "host": "dns-node-02.lan",
                         "user": "root",
                         "description": "Secondary DNS",
-                        "aliases": ["pihole2", "secondary dns"],
+                        "aliases": ["dns-node-02", "secondary dns"],
                         "tags": ["dns", "secondary"],
                     },
                 }
@@ -524,7 +524,7 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole1",
+                        "ref": "dns-node-01",
                         "title": "Primary DNS",
                         "description": "Pi-hole Primary DNS",
                         "aliases": ["primary dns"],
@@ -537,7 +537,7 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole2",
+                        "ref": "dns-node-02",
                         "title": "Secondary DNS",
                         "description": "Pi-hole Secondary DNS",
                         "aliases": ["secondary dns"],
@@ -549,20 +549,20 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
 
     class FakeEmbedder:
         async def embed(self, inputs: list[str], **_kwargs: object) -> object:
-            assert inputs == ["Run uptime on pihole1"]
+            assert inputs == ["Run uptime on dns-node-01"]
             return SimpleNamespace(vectors=[[0.1, 0.2, 0.3]], usage={}, model="openai/embed-small")
 
     class FakeLLMClient:
         async def chat(self, messages: list[dict[str, str]], **_kwargs: object) -> object:
             llm_messages.extend(messages)
             return SimpleNamespace(
-                content='{"kind":"ssh","ref":"pihole1","capability":"ssh_command","confidence":"high","ask_user":false,"reason":"qdrant candidate still matches best"}'
+                content='{"kind":"ssh","ref":"dns-node-01","capability":"ssh_command","confidence":"high","ask_user":false,"reason":"qdrant candidate still matches best"}'
             )
 
     meta = asyncio.run(
         run_connection_routing_query(
             settings,
-            "Run uptime on pihole1",
+            "Run uptime on dns-node-01",
             preferred_kind="ssh",
             llm_ignore_deterministic=True,
             qdrant_client=FakeQdrant(),
@@ -574,7 +574,7 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
 
     assert meta["deterministic"]["found"] is True
     assert meta["decision"]["kind"] == "ssh"
-    assert meta["decision"]["ref"] == "pihole1"
+    assert meta["decision"]["ref"] == "dns-node-01"
     assert meta["llm_ignore_deterministic"] is True
     assert meta["llm_debug"]["mode"] == "qdrant_only"
     assert meta["llm_debug"]["deterministic_hint_used"] is False
@@ -586,17 +586,17 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
 def test_routing_admin_includes_action_planner_dry_run() -> None:
     settings = Settings.model_validate(
         {
-            "aria": {"public_url": "http://aria.black.lan:8810"},
+            "aria": {"public_url": "http://aria.example.lan:8810"},
             "llm": {"model": "fake"},
             "embeddings": {"model": "embed-small", "api_base": "http://litellm:4000"},
             "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
             "connections": {
                 "ssh": {
-                    "pihole1": {
-                        "host": "pihole1.lan",
+                    "dns-node-01": {
+                        "host": "dns-node-01.lan",
                         "user": "root",
                         "description": "Primary DNS",
-                        "aliases": ["pihole1", "primary dns"],
+                        "aliases": ["dns-node-01", "primary dns"],
                         "tags": ["dns", "primary"],
                     }
                 }
@@ -622,7 +622,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
                     payload={
                         "scope": "connection",
                         "kind": "ssh",
-                        "ref": "pihole1",
+                        "ref": "dns-node-01",
                         "title": "Primary DNS",
                         "description": "Pi-hole Primary DNS",
                         "aliases": ["primary dns"],
@@ -642,7 +642,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
             operation = str(kwargs.get("operation", "") or "")
             if operation == "routing_debug":
                 return SimpleNamespace(
-                    content='{"kind":"ssh","ref":"pihole1","capability":"ssh_command","confidence":"high","ask_user":false,"reason":"ssh target matches best"}'
+                    content='{"kind":"ssh","ref":"dns-node-01","capability":"ssh_command","confidence":"high","ask_user":false,"reason":"ssh target matches best"}'
                 )
             if operation == "action_plan_debug":
                 return SimpleNamespace(
@@ -671,7 +671,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
     assert meta["action_debug"]["decision"]["intent_label"] == "Gesundheitscheck"
     assert meta["action_debug"]["decision"]["capability"] == "ssh_command"
     assert meta["action_debug"]["decision"]["capability_label"] == "SSH-Befehl"
-    assert meta["action_debug"]["decision"]["summary_line"] == "Template: Gesundheitscheck via SSH-Befehl auf ssh/pihole1"
+    assert meta["action_debug"]["decision"]["summary_line"] == "Template: Gesundheitscheck via SSH-Befehl auf ssh/dns-node-01"
     assert meta["action_debug"]["decision"]["inputs"] == {"command": "uptime"}
     assert meta["action_debug"]["decision"]["input_items"] == [{"key": "command", "key_label": "Befehl", "value": "uptime"}]
     assert meta["action_debug"]["decision"]["execution_state"] == "ready"
@@ -682,7 +682,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
     assert meta["action_debug"]["planner_source_label"] == "LLM"
     assert meta["action_debug"]["execution_state"] == "ready"
     assert meta["action_debug"]["execution_state_label"] == "Bereit"
-    assert meta["action_debug"]["target_context"] == "ssh/pihole1"
+    assert meta["action_debug"]["target_context"] == "ssh/dns-node-01"
     assert meta["action_debug"]["target_reason"] == "single configured profile"
     assert meta["payload_debug"]["used"] is True
     assert meta["payload_debug"]["status"] == "ok"
@@ -692,4 +692,4 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
     assert meta["safety_debug"]["decision"]["action"] == "allow"
     assert meta["execution_debug"]["used"] is True
     assert meta["execution_debug"]["decision"]["next_step"] == "allow"
-    assert meta["decision"]["ref"] == "pihole1"
+    assert meta["decision"]["ref"] == "dns-node-01"

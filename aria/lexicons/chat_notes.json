@@ -7,6 +7,7 @@
     ],
     "search_notes": [
       "^(?:suche|finde)\\s+(?:in\\s+(?:meinen\\s+)?)?notizen(?:\\s+nach|\\s+zu)?\\s+(?P<query>.+)$",
+      "^(?:was\\s+(?:steht|finde\\s+ich)\\s+in\\s+(?:meinen\\s+)?)notizen\\s+(?:zu|ueber|über)\\s+(?P<query>.+?)\\s*[?.!]*$",
       "^(?:search|find)\\s+(?:my\\s+)?notes(?:\\s+for|\\s+about)?\\s+(?P<query>.+)$"
     ],
     "list_note_folders": [

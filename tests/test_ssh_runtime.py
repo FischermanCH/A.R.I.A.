@@ -271,7 +271,7 @@ def test_execute_custom_ssh_command_allows_direct_guardrail_health_bundle(monkey
         "journalctl -p 3 -xb --no-pager -n 40",
     ]
     connection = SimpleNamespace(
-        host="172.31.10.10",
+        host="192.0.2.14",
         user="aria",
         port=22,
         timeout_seconds=10,
@@ -328,8 +328,8 @@ def test_extract_warning_hints_detects_common_update_warnings() -> None:
 
 def test_execute_custom_ssh_command_hides_known_hosts_notice_from_display(monkeypatch) -> None:
     connection = SimpleNamespace(
-        host="172.31.10.10",
-        user="fischerman",
+        host="192.0.2.14",
+        user="demo_user",
         port=22,
         timeout_seconds=10,
         strict_host_key_checking="accept-new",
@@ -345,7 +345,7 @@ def test_execute_custom_ssh_command_hides_known_hosts_notice_from_display(monkey
         async def communicate(self) -> tuple[bytes, bytes]:
             return (
                 b"08:11:09 up 43 days\n",
-                b"Warning: Permanently added '172.31.10.10' (ED25519) to the list of known hosts.\n",
+                b"Warning: Permanently added '192.0.2.14' (ED25519) to the list of known hosts.\n",
             )
 
     async def fake_create_subprocess_exec(*_args: object, **_kwargs: object) -> _Proc:
@@ -373,8 +373,8 @@ def test_execute_custom_ssh_command_hides_known_hosts_notice_from_display(monkey
 
 def test_execute_custom_ssh_command_keeps_real_stderr_after_known_hosts_filter(monkeypatch) -> None:
     connection = SimpleNamespace(
-        host="172.31.10.10",
-        user="fischerman",
+        host="192.0.2.14",
+        user="demo_user",
         port=22,
         timeout_seconds=10,
         strict_host_key_checking="accept-new",
@@ -391,7 +391,7 @@ def test_execute_custom_ssh_command_keeps_real_stderr_after_known_hosts_filter(m
             return (
                 b"",
                 (
-                    b"Warning: Permanently added '172.31.10.10' (ED25519) to the list of known hosts.\n"
+                    b"Warning: Permanently added '192.0.2.14' (ED25519) to the list of known hosts.\n"
                     b"bash: foo: command not found\n"
                 ),
             )

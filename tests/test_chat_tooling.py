@@ -187,6 +187,155 @@ def test_chat_can_show_update_helper_status(monkeypatch) -> None:
     assert "/updates/running" in response.text
 
 
+def test_chat_learn_mode_start_and_cancel_commands_are_handled_without_pipeline(monkeypatch) -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    calls: list[str] = []
+    monkeypatch.setattr(chat_execution_routes, "start_chat_learn_mode", lambda *_args, **_kwargs: calls.append("start") or {})
+    monkeypatch.setattr(chat_execution_routes, "cancel_chat_learn_mode", lambda *_args, **_kwargs: calls.append("cancel") or 2)
+
+    client = _user_client(monkeypatch)
+    start = client.post("/chat", data={"message": "/lernen start", "csrf_token": client.headers["x-csrf-token"]})
+    cancel = client.post("/chat", data={"message": "/lernen abbrechen", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert start.status_code == 200
+    assert cancel.status_code == 200
+    assert "Rezept-Lernmodus ist aktiv" in start.text
+    assert "Verworfen: 2" in cancel.text
+    assert calls == ["start", "cancel"]
+
+
+def test_chat_can_save_current_history_as_note(monkeypatch, tmp_path) -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    saved: dict[str, object] = {}
+    indexed: list[str] = []
+    history = [
+        {"role": "user", "text": "Wie geht es meinen Servern?", "timestamp": "2026-06-05T10:00:00Z"},
+        {"role": "assistant", "text": "Alle Server sind erreichbar.", "timestamp": "2026-06-05T10:00:02Z"},
+    ]
+
+    class FakeNotesStore:
+        def __init__(self, root):
+            saved["root"] = str(root)
+
+        def save_note(self, user_id, *, title, folder, tags, body):
+            saved.update({"user_id": user_id, "title": title, "folder": folder, "tags": list(tags), "body": body})
+            return SimpleNamespace(note_id="chat-note-1", title=title, folder=folder, tags=list(tags), body=body)
+
+    class FakeNotesIndex:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def reindex_note(self, note):
+            indexed.append(note.note_id)
+            return {"chunk_count": 2}
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(chat_execution_routes, "NotesStore", FakeNotesStore)
+    monkeypatch.setattr(chat_execution_routes, "NotesIndex", FakeNotesIndex)
+    monkeypatch.setattr(chat_execution_routes, "notes_index_enabled", lambda _settings: True)
+
+    state = asyncio.run(
+        chat_execution_routes._save_chat_history_as_note(
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(), embeddings=SimpleNamespace()),
+            username="neo",
+            history=history,
+            language="de",
+        )
+    )
+
+    assert "Chat als Notiz gespeichert" in state.assistant_text
+    assert saved["user_id"] == "neo"
+    assert str(saved["folder"]).startswith("Chats/")
+    assert saved["tags"] == ["chat", "archive", "aria"]
+    assert "Wie geht es meinen Servern?" in str(saved["body"])
+    assert "Alle Server sind erreichbar." in str(saved["body"])
+    assert "/chat note" not in str(saved["body"])
+    assert indexed == ["chat-note-1"]
+
+
+def test_chat_toolbox_contains_save_chat_as_note_command() -> None:
+    from aria.web.chat_catalog import build_chat_command_catalog
+
+    entries, _titles, groups = build_chat_command_catalog(
+        lang="de",
+        auth_role="user",
+        advanced_mode=False,
+        recall_templates=[],
+        store_templates=[],
+        recipe_trigger_hints=[],
+    )
+
+    matching = [entry for entry in entries if str(entry.get("insert", "")).strip() == "/chat note"]
+    assert matching
+    assert matching[0]["label"] == "Chat als Notiz speichern"
+    assert any(item.get("insert") == "/chat note " for group in groups for item in group.get("items", []))
+
+
+def test_chat_notes_flow_searches_natural_notes_question(monkeypatch, tmp_path) -> None:
+    import aria.web.chat_notes_flows as chat_notes_flows
+
+    calls: list[str] = []
+
+    async def fake_search_note_hits(*, base_dir, username, settings, query, limit):
+        calls.append(query)
+        return [
+            SimpleNamespace(
+                note_id="note-aria",
+                title="ARIA",
+                folder="ARIA",
+                snippet="ARIA ist der lokale Agent.",
+            )
+        ]
+
+    monkeypatch.setattr(chat_notes_flows, "search_note_hits", fake_search_note_hits)
+
+    outcome = asyncio.run(
+        chat_notes_flows.handle_chat_notes_flow(
+            clean_message="was steht in meinen notizen zu ARIA?",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(),
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert calls == ["ARIA"]
+    assert "ARIA ist der lokale Agent." in outcome.assistant_text
+
+
+def test_vague_web_search_followup_uses_recent_user_topic() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    history = [
+        {"role": "user", "text": "welche version von claude code ist momentan aktuell"},
+        {"role": "assistant", "text": "Ich kann nicht in Echtzeit suchen."},
+    ]
+
+    rewritten = chat_execution_routes._rewrite_vague_web_search_followup(
+        "suche im internet nach der neusten version",
+        history,
+    )
+
+    assert rewritten == "suche im internet nach claude code version der neusten version"
+
+
+def test_vague_web_search_followup_keeps_specific_query() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    rewritten = chat_execution_routes._rewrite_vague_web_search_followup(
+        "suche im internet nach claude code latest release",
+        [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
+    )
+
+    assert rewritten == "suche im internet nach claude code latest release"
+
+
 def test_chat_can_confirm_pending_routed_action(monkeypatch) -> None:
     async def fake_process(*_args, **_kwargs):
         return PipelineResult(
@@ -429,7 +578,7 @@ def test_pending_input_flow_ignores_unrelated_new_capability_request() -> None:
                     "payload": {
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
-                        "connection_ref": "ubnsrv-mgmt-master",
+                        "connection_ref": "ops-mgmt-01",
                     },
                 }
             ),
@@ -472,7 +621,7 @@ def test_pending_input_flow_ignores_discord_request_after_smb_path_prompt() -> N
                     "payload": {
                         "capability": "file_list",
                         "connection_kind": "smb",
-                        "connection_ref": "fischer_ronny",
+                        "connection_ref": "example_share",
                     },
                 }
             ),
@@ -502,7 +651,7 @@ def test_chat_handles_recipe_errors_without_crashing_and_sends_alert(monkeypatch
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             intents=["capability:feed_read"],
             skill_errors=[
-                "recipe_smb_read_error:Failed to retrieve on Fischer_Ronny: Unable to open file\n"
+                "recipe_smb_read_error:Failed to retrieve on Example_Share: Unable to open file\n"
                 "==================== SMB Message 0 ====================\n"
                 "SMB Header:\n"
                 "-----------\n"
@@ -537,7 +686,7 @@ def test_chat_does_not_offer_confirm_when_target_profile_is_still_missing(monkey
     async def fake_process(*_args, **_kwargs):
         return PipelineResult(
             request_id="r-missing-target",
-            text="Für `monitoring server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ubnsrv-mgmt-master, ubnsrv-netalert. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
+            text="Für `monitoring server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ops-mgmt-01, ops-monitor-01. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             intents=["capability:ssh_command"],
             skill_errors=[],
@@ -588,7 +737,7 @@ def test_chat_does_not_consume_new_request_as_missing_connection_ref_followup(mo
         if message == "backup server status":
             return PipelineResult(
                 request_id="r-missing-target",
-                text="Für `backup server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ubnsrv-netalert. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
+                text="Für `backup server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ops-monitor-01. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
                 usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                 intents=["capability:ssh_command"],
                 skill_errors=[],
@@ -688,13 +837,13 @@ def test_chat_suggests_manual_alias_followup_for_non_admin_connection_reply(monk
     async def fake_continue(*_args, **_kwargs):
         return PipelineResult(
             request_id="r-continued",
-            text="Kurzcheck für `ubnsrv-netalert`: Erreichbar.",
+            text="Kurzcheck für `ops-monitor-01`: Erreichbar.",
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
             intents=["capability:ssh_command"],
             skill_errors=[],
             router_level=1,
             duration_ms=12,
-            detail_lines=["Ausgeführt via SSH-Profil `ubnsrv-netalert`", "Befehl: uptime"],
+            detail_lines=["Ausgeführt via SSH-Profil `ops-monitor-01`", "Befehl: uptime"],
         )
 
     monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
@@ -702,16 +851,16 @@ def test_chat_suggests_manual_alias_followup_for_non_admin_connection_reply(monk
     monkeypatch.setattr(
         chat_pending_flows,
         "_looks_like_connection_ref_reply",
-        lambda pending_action, message, settings: str(message).strip() == "ubnsrv-netalert",
+        lambda pending_action, message, settings: str(message).strip() == "ops-monitor-01",
     )
 
     client = _user_client(monkeypatch)
     preview = client.post("/chat", data={"message": "backup server status", "csrf_token": client.headers["x-csrf-token"]})
     assert preview.status_code == 200
 
-    follow_up = client.post("/chat", data={"message": "ubnsrv-netalert", "csrf_token": client.headers["x-csrf-token"]})
+    follow_up = client.post("/chat", data={"message": "ops-monitor-01", "csrf_token": client.headers["x-csrf-token"]})
     assert follow_up.status_code == 200
-    assert "kann ein Admin später `backup server` als Alias für `ubnsrv-netalert` speichern" in follow_up.text
+    assert "kann ein Admin später `backup server` als Alias für `ops-monitor-01` speichern" in follow_up.text
 
 
 def test_chat_offers_alias_learning_after_missing_connection_ref_is_filled(monkeypatch) -> None:
@@ -719,7 +868,7 @@ def test_chat_offers_alias_learning_after_missing_connection_ref_is_filled(monke
         if message == "backup server status":
             return PipelineResult(
                 request_id="r-missing-target",
-                text="Für `backup server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ubnsrv-netalert. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
+                text="Für `backup server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ops-monitor-01. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
                 usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                 intents=["capability:ssh_command"],
                 skill_errors=[],
@@ -762,7 +911,7 @@ def test_chat_offers_alias_learning_after_missing_connection_ref_is_filled(monke
             skill_errors=[],
             router_level=1,
             duration_ms=12,
-            detail_lines=["Ausgeführt via SSH-Profil `ubnsrv-netalert`", "Befehl: uptime"],
+            detail_lines=["Ausgeführt via SSH-Profil `ops-monitor-01`", "Befehl: uptime"],
         )
 
     updates: list[tuple[str, str, dict[str, object]]] = []
@@ -777,16 +926,16 @@ def test_chat_offers_alias_learning_after_missing_connection_ref_is_filled(monke
     monkeypatch.setattr(
         chat_pending_flows,
         "_looks_like_connection_ref_reply",
-        lambda pending_action, message, settings: str(message).strip() == "ubnsrv-netalert",
+        lambda pending_action, message, settings: str(message).strip() == "ops-monitor-01",
     )
 
     client = _admin_client(monkeypatch)
     preview = client.post("/chat", data={"message": "backup server status", "csrf_token": client.headers["x-csrf-token"]})
     assert preview.status_code == 200
 
-    follow_up = client.post("/chat", data={"message": "ubnsrv-netalert", "csrf_token": client.headers["x-csrf-token"]})
+    follow_up = client.post("/chat", data={"message": "ops-monitor-01", "csrf_token": client.headers["x-csrf-token"]})
     assert follow_up.status_code == 200
-    assert "kann ich mir `backup server` als Alias für `ubnsrv-netalert` merken" in follow_up.text
+    assert "kann ich mir `backup server` als Alias für `ops-monitor-01` merken" in follow_up.text
     match = re.search(r"bestätige verbindung aktualisieren ([a-z0-9]{8})", follow_up.text, re.IGNORECASE)
     assert match
 
@@ -796,7 +945,7 @@ def test_chat_offers_alias_learning_after_missing_connection_ref_is_filled(monke
     )
     assert confirm.status_code == 200
     assert "SSH-Profil aktualisiert" in confirm.text
-    assert updates == [("ssh", "ubnsrv-netalert", {"aliases": ["backup server"]})]
+    assert updates == [("ssh", "ops-monitor-01", {"aliases": ["backup server"]})]
 
 
 def test_chat_can_confirm_pending_safe_fix(monkeypatch) -> None:
@@ -810,7 +959,7 @@ def test_chat_can_confirm_pending_safe_fix(monkeypatch) -> None:
             router_level=1,
             duration_ms=8,
             detail_lines=[],
-            safe_fix_plan=[{"connection_ref": "pihole1", "packages": ["curl"]}],
+            safe_fix_plan=[{"connection_ref": "dns-node-01", "packages": ["curl"]}],
         )
 
     async def fake_execute_safe_fix_plan(*_args, **_kwargs):

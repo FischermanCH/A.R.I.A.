@@ -386,6 +386,15 @@ def _localized_uptime_value(value: str, *, language: str | None = None) -> str:
     return clean
 
 
+def _extract_uptime_since(stdout: str) -> str:
+    first_line = str(stdout or "").strip().splitlines()[0].strip() if str(stdout or "").strip() else ""
+    if not first_line:
+        return ""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:\s+\S+)?", first_line):
+        return first_line
+    return ""
+
+
 def _healthcheck_conclusion(
     *,
     disk_state: str = "",
@@ -447,6 +456,14 @@ def summarize_ssh_result_for_chat(
     journal_summary = summarize_journal_error_metrics(journal_metrics, language=language) if journal_metrics else ""
     host_label = f"`{connection_ref}`"
     is_full_healthcheck = _is_full_server_healthcheck(command)
+    uptime_since = _extract_uptime_since(stdout) if command == "uptime -s" else ""
+    if uptime_since:
+        return " ".join(
+            [
+                _ssh_summary_text(language, "quick_check", host=host_label),
+                _ssh_summary_text(language, "uptime_since", value=uptime_since),
+            ]
+        ).strip()
     has_health_signals = bool(
         uptime_value
         or load_value

@@ -202,6 +202,14 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
         },
         {
             "group": "commands",
+            "icon": "💬",
+            "label": _toolbox_label(lang, "tool_chat_save_note", "Save chat as note"),
+            "insert": _toolbox_insert(lang, "tool_chat_save_note_insert", "/chat note"),
+            "hint": _toolbox_label(lang, "tool_chat_save_note_hint", "Saves the current chat as a Markdown note and indexes it for note search."),
+            "keywords": ["chat", "notiz", "note", "notes", "archiv", "archive", "verlauf", "history"],
+        },
+        {
+            "group": "commands",
             "icon": "✍️",
             "label": _toolbox_label(lang, "tool_notes_capture", "Capture free note"),
             "insert": _toolbox_insert(lang, "tool_notes_capture_insert", "halte fest "),
@@ -358,6 +366,7 @@ def build_chat_command_catalog(
     recipe_toolbox_rows: list[dict[str, Any]] | None = None,
     connection_catalog: dict[str, list[str]] | None = None,
     recent_messages: list[str] | None = None,
+    chat_learn_active: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, str], list[dict[str, Any]]]:
     system_entries, admin_system_entries = _build_system_chat_command_entries(lang, advanced_mode=advanced_mode)
     entries: list[dict[str, Any]] = [
@@ -472,9 +481,39 @@ def build_chat_command_catalog(
         entries.extend(admin_system_entries)
         entries.extend(_build_admin_chat_command_entries(lang, connection_catalog or {}))
 
+    learn_entries = [
+        {
+            "group": "learning",
+            "icon": "🧠",
+            "label": _toolbox_label(lang, "tool_learn_stop" if chat_learn_active else "tool_learn_start", "Finish learning" if chat_learn_active else "Learn recipe"),
+            "badge": _toolbox_label(lang, "tool_learn_active_badge" if chat_learn_active else "tool_learn_badge", "active" if chat_learn_active else "review"),
+            "insert": _toolbox_insert(lang, "tool_learn_stop_insert" if chat_learn_active else "tool_learn_start_insert", "/lernen stop" if chat_learn_active else "/lernen start"),
+            "hint": _toolbox_label(
+                lang,
+                "tool_learn_stop_hint" if chat_learn_active else "tool_learn_start_hint",
+                "Ends the chat learn run and creates a review-only recipe candidate."
+                if chat_learn_active
+                else "Starts an explicit chat learn run. ARIA records observed turns until you finish it.",
+            ),
+            "keywords": ["lernen", "learn", "recipe", "rezept", "beobachten"],
+        },
+        {
+            "group": "learning",
+            "icon": "⏹",
+            "label": _toolbox_label(lang, "tool_learn_cancel", "Cancel learning"),
+            "insert": _toolbox_insert(lang, "tool_learn_cancel_insert", "/lernen abbrechen"),
+            "hint": _toolbox_label(lang, "tool_learn_cancel_hint", "Stops learn mode without creating a recipe candidate."),
+            "keywords": ["lernen", "abbrechen", "cancel", "recipe"],
+        },
+    ]
+    if not chat_learn_active:
+        learn_entries = learn_entries[:1]
+    entries.extend(learn_entries)
+
     group_titles = {
         "suggested": _toolbox_label(lang, "slash_suggested", "Passend jetzt"),
         "commands": _toolbox_label(lang, "slash_commands", "Commands"),
+        "learning": _toolbox_label(lang, "slash_learning", "Lernmodus"),
         "read": _toolbox_label(lang, "slash_read", "Memory lesen"),
         "store": _toolbox_label(lang, "slash_store", "Memory speichern"),
         "recipes": _toolbox_label(lang, "slash_skills", "Recipes"),
@@ -483,6 +522,7 @@ def build_chat_command_catalog(
     group_icons = {
         "suggested": "✨",
         "commands": "⌨",
+        "learning": "🧠",
         "read": "📖",
         "store": "💾",
         "recipes": "🧩",
@@ -493,7 +533,7 @@ def build_chat_command_catalog(
     for row in entries:
         grouped.setdefault(str(row.get("group", "commands")), []).append(row)
 
-    order = ["commands", "read", "store", "recipes", "admin"]
+    order = ["commands", "learning", "read", "store", "recipes", "admin"]
     toolbox_groups: list[dict[str, Any]] = []
     suggested_group = _build_suggested_toolbox_group(lang, entries, recent_messages)
     if suggested_group:

@@ -394,7 +394,7 @@ def register_config_routing_routes(app: FastAPI, deps: ConfigRoutingRouteDeps) -
                     "id": skill_id,
                     "name": str(row.get("name", skill_id)).strip() or skill_id,
                     "router_keywords_text": ", ".join(row.get("router_keywords", [])) if isinstance(row.get("router_keywords", []), list) else "",
-                    "json_path": str(deps.stored_recipe_file(skill_id).relative_to(Path.cwd() / "fischerman" / "ARIA")) if False else "",
+                    "json_path": "",
                     **stored_recipe_candidate_metadata(row),
                 }
             )

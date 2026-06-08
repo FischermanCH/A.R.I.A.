@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -9,6 +11,20 @@ from aria.core.learned_recipe_store_updates import record_successful_learned_rec
 
 
 LearningScheduler = Callable[[dict[str, Any] | None, str, str, list[str], bool], None]
+_AUTO_LEARNING_SUPPRESSED: ContextVar[bool] = ContextVar("aria_auto_learning_suppressed", default=False)
+
+
+def auto_learning_suppressed() -> bool:
+    return bool(_AUTO_LEARNING_SUPPRESSED.get())
+
+
+@contextmanager
+def suppress_auto_learning():
+    token = _AUTO_LEARNING_SUPPRESSED.set(True)
+    try:
+        yield
+    finally:
+        _AUTO_LEARNING_SUPPRESSED.reset(token)
 
 
 @dataclass(slots=True)
@@ -27,6 +43,8 @@ class AgenticExecutionLearningService:
         detail_lines: list[str],
         curate: bool = True,
     ) -> None:
+        if auto_learning_suppressed():
+            return
         try:
             learned_entry = record_routed_action_success(
                 action=action,

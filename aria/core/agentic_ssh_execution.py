@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -27,8 +28,9 @@ class MultiTargetSSHExecutionHooks(AgenticExecutionHooks):
 
 
 class MultiTargetSSHExecutionHandler:
-    def __init__(self, hooks: MultiTargetSSHExecutionHooks) -> None:
+    def __init__(self, hooks: MultiTargetSSHExecutionHooks, *, max_concurrency: int = 10) -> None:
         self._hooks = hooks
+        self._max_concurrency = max(1, int(max_concurrency or 1))
 
     def can_handle(self, request: AgenticExecutionRequest) -> bool:
         payload = dict(request.payload or {})
@@ -79,7 +81,8 @@ class MultiTargetSSHExecutionHandler:
                 }
             )
 
-        for ref in allowed_refs:
+        async def _execute_allowed_ref(ref: str) -> dict[str, Any]:
+            target_detail_lines: list[str] = []
             plan = ActionPlan(
                 capability="ssh_command",
                 connection_kind="ssh",
@@ -91,18 +94,21 @@ class MultiTargetSSHExecutionHandler:
                 notes=list(payload.get("notes", []) or []),
             )
             if self._hooks.routing_debug_enabled():
-                detail_lines.append(runtime_debug_line_for_plan(plan))
-            detail_lines.extend(self._hooks.build_capability_detail_lines(plan, request.language))
+                target_detail_lines.append(runtime_debug_line_for_plan(plan))
+            target_detail_lines.extend(self._hooks.build_capability_detail_lines(plan, request.language))
             try:
                 result_text = await self._hooks.execute_plan(plan, request.language)
             except Exception as exc:
                 error_text = self._hooks.format_execution_error(plan, exc, request.language)
-                errors.append(f"capability_ssh_command_error:{ref}:{type(exc).__name__}")
-                result_records.append({"ref": ref, "state": "error", "text": error_text})
-                continue
+                return {
+                    "success": False,
+                    "errors": [f"capability_ssh_command_error:{ref}:{type(exc).__name__}"],
+                    "record": {"ref": ref, "state": "error", "text": error_text},
+                    "detail_lines": target_detail_lines,
+                }
 
-            success_count += 1
             clean_text = str(result_text or "").strip()
+            record: dict[str, str] | None = None
             if clean_text:
                 state = self._hooks.result_state(clean_text)
                 threshold_text = ""
@@ -129,14 +135,12 @@ class MultiTargetSSHExecutionHandler:
                             threshold=threshold_label,
                             free=free_label,
                         )
-                result_records.append(
-                    {
-                        "ref": ref,
-                        "state": state,
-                        "text": threshold_text or clean_text,
-                        "raw_text": clean_text,
-                    }
-                )
+                record = {
+                    "ref": ref,
+                    "state": state,
+                    "text": threshold_text or clean_text,
+                    "raw_text": clean_text,
+                }
 
             self._hooks.remember_action(request.user_id, plan)
             self._hooks.learning_service.record_capability_success(
@@ -146,9 +150,31 @@ class MultiTargetSSHExecutionHandler:
                 user_message=query,
                 user_id=request.user_id,
                 language=request.language,
-                detail_lines=detail_lines,
+                detail_lines=target_detail_lines,
                 curate=False,
             )
+            return {
+                "success": True,
+                "errors": [],
+                "record": record,
+                "detail_lines": target_detail_lines,
+            }
+
+        async def _run_allowed_ref(ref: str, semaphore: asyncio.Semaphore) -> dict[str, Any]:
+            async with semaphore:
+                return await _execute_allowed_ref(ref)
+
+        if allowed_refs:
+            semaphore = asyncio.Semaphore(min(self._max_concurrency, len(allowed_refs)))
+            target_results = await asyncio.gather(*[_run_allowed_ref(ref, semaphore) for ref in allowed_refs])
+            for target_result in target_results:
+                detail_lines.extend(list(target_result.get("detail_lines", []) or []))
+                errors.extend([str(item) for item in list(target_result.get("errors", []) or []) if str(item)])
+                record = target_result.get("record")
+                if isinstance(record, dict):
+                    result_records.append({str(key): str(value) for key, value in record.items()})
+                if bool(target_result.get("success")):
+                    success_count += 1
 
         summary = await self._build_summary(
             request=request,
