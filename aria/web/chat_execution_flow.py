@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +64,12 @@ class ChatExecutionDeps:
     read_raw_config: Callable[[], dict[str, Any]]
 
 
+@dataclass(frozen=True)
+class ChatPrePipelineAriaDecision:
+    actions: set[str]
+    arbitration: Any | None = None
+
+
 def _apply_pending_outcome(state: ChatResponseState, outcome: chat_pending_flows.ChatPendingOutcome) -> None:
     state.assistant_text = outcome.assistant_text
     state.icon = outcome.icon
@@ -101,6 +108,63 @@ def _apply_admin_outcome(state: ChatResponseState, outcome: chat_admin_flows.Cha
     state.clear_update_cookie = chat_admin_flows.COOKIE_UPDATE in outcome.clear_cookies
 
 
+async def _pre_pipeline_aria_decision(
+    *,
+    clean_message: str,
+    username: str,
+    lang: str,
+    deps: ChatExecutionDeps,
+) -> ChatPrePipelineAriaDecision:
+    message = str(clean_message or "").strip()
+    if not message:
+        return ChatPrePipelineAriaDecision(actions=set())
+    if message.startswith("/"):
+        return ChatPrePipelineAriaDecision(actions={"notes_action", "watched_website_action"})
+    return ChatPrePipelineAriaDecision(actions=set())
+
+
+async def _pre_pipeline_aria_actions(
+    *,
+    clean_message: str,
+    username: str,
+    lang: str,
+    deps: ChatExecutionDeps,
+) -> set[str]:
+    decision = await _pre_pipeline_aria_decision(
+        clean_message=clean_message,
+        username=username,
+        lang=lang,
+        deps=deps,
+    )
+    return set(decision.actions)
+
+
+def _selected_action_not_handled_outcome(actions: set[str], lang: str | None) -> ChatResponseState:
+    state = ChatResponseState()
+    state.icon = "⚠️"
+    state.intent_label = "action"
+    if "watched_website_action" in actions:
+        state.assistant_text = _chat_execution_text(
+            lang,
+            "selected_website_action_not_handled",
+            "Ich habe eine beobachtete-Webseiten-Aktion erkannt, aber keinen passenden ausfuehrbaren Webseiten-Flow gefunden. Ich fuehre nichts aus. Verfuegbare Webseiten verwaltest du unter `/config/connections/websites`.",
+        )
+        return state
+    if "notes_action" in actions:
+        state.assistant_text = _chat_execution_text(
+            lang,
+            "selected_notes_action_not_handled",
+            "I detected a notes action, but no matching executable notes flow was found. I did not run anything. You can find your notes under `/notes`.",
+        )
+        return state
+    state.assistant_text = _chat_execution_text(
+        lang,
+        "selected_action_not_handled",
+        "Ich habe eine Aktion erkannt, aber keinen passenden ausfuehrbaren Flow gefunden. Ich fuehre nichts aus.",
+    )
+    return state
+
+
 async def execute_chat_flow(
     *,
     clean_message: str,
@@ -114,6 +178,7 @@ async def execute_chat_flow(
     deps: ChatExecutionDeps,
     pipeline_message: str | None = None,
 ) -> ChatResponseState:
+    web_start = time.perf_counter()
     response_state = ChatResponseState()
 
     pending_confirm_outcome = await chat_pending_flows.handle_chat_pending_confirm_flow(
@@ -124,6 +189,7 @@ async def execute_chat_flow(
         settings=deps.settings,
         routed_action_confirm_token=route_state.routed_action_confirm_token,
         safe_fix_confirm_token=route_state.safe_fix_confirm_token,
+        auto_memory_enabled=auto_memory_enabled,
         language=lang,
         is_english=is_english,
         intent_badge=deps.intent_badge,
@@ -184,6 +250,7 @@ async def execute_chat_flow(
         _apply_admin_outcome(response_state, admin_outcome)
         return response_state
 
+    forget_outcome = None
     if "memory_forget" in route_state.forget_decision.intents and deps.pipeline.memory_skill:
         forget_outcome = await chat_pending_flows.handle_memory_forget_flow(
             clean_message=clean_message,
@@ -197,35 +264,62 @@ async def execute_chat_flow(
             sanitize_collection_name=deps.sanitize_collection_name,
             friendly_error_text=deps.friendly_error_text,
         )
-        if forget_outcome and forget_outcome.handled:
-            _apply_pending_outcome(response_state, forget_outcome)
-            return response_state
+    if forget_outcome and forget_outcome.handled:
+        _apply_pending_outcome(response_state, forget_outcome)
+        return response_state
 
-    notes_outcome = await chat_notes_flows.handle_chat_notes_flow(
+    pre_pipeline_start = time.perf_counter()
+    pre_pipeline_decision = await _pre_pipeline_aria_decision(
         clean_message=clean_message,
         username=username,
-        base_dir=deps.base_dir,
-        settings=deps.settings,
+        lang=lang,
+        deps=deps,
     )
-    if notes_outcome and notes_outcome.handled:
-        response_state.assistant_text = notes_outcome.assistant_text
-        response_state.icon = notes_outcome.icon
-        response_state.intent_label = notes_outcome.intent_label
-        return response_state
+    pre_pipeline_ms = int((time.perf_counter() - pre_pipeline_start) * 1000)
+    pre_pipeline_actions = set(pre_pipeline_decision.actions)
 
-    websites_outcome = await chat_websites_flows.handle_chat_websites_flow(
-        clean_message=clean_message,
-        base_dir=deps.base_dir,
-    )
-    if websites_outcome and websites_outcome.handled:
-        response_state.assistant_text = websites_outcome.assistant_text
-        response_state.icon = websites_outcome.icon
-        response_state.intent_label = websites_outcome.intent_label
-        return response_state
+    if "notes_action" in pre_pipeline_actions:
+        notes_outcome = await chat_notes_flows.handle_chat_notes_flow(
+            clean_message=clean_message,
+            username=username,
+            base_dir=deps.base_dir,
+            settings=deps.settings,
+            llm_client=getattr(deps.pipeline, "llm_client", None),
+        )
+        if notes_outcome and notes_outcome.handled:
+            response_state.assistant_text = notes_outcome.assistant_text
+            response_state.icon = notes_outcome.icon
+            response_state.intent_label = notes_outcome.intent_label
+            if notes_outcome.badge_duration is not None:
+                response_state.duration_s = f"{(time.perf_counter() - web_start):.1f}"
+            if notes_outcome.badge_details:
+                response_state.badge_details = list(notes_outcome.badge_details)
+            response_state.badge_details = [
+                *response_state.badge_details,
+                "Routing Debug: web_outer_timing "
+                f"pre_pipeline_ms={pre_pipeline_ms} pipeline_call_ms=0 post_pipeline_ms=0",
+                f"Routing Debug: web_request_timing total_ms={int((time.perf_counter() - web_start) * 1000)} source=web_chat",
+            ]
+            return response_state
+        if "watched_website_action" not in pre_pipeline_actions:
+            return _selected_action_not_handled_outcome(pre_pipeline_actions, lang)
+
+    if "watched_website_action" in pre_pipeline_actions:
+        websites_outcome = await chat_websites_flows.handle_chat_websites_flow(
+            clean_message=clean_message,
+            base_dir=deps.base_dir,
+        )
+        if websites_outcome and websites_outcome.handled:
+            response_state.assistant_text = websites_outcome.assistant_text
+            response_state.icon = websites_outcome.icon
+            response_state.intent_label = websites_outcome.intent_label
+            return response_state
+        return _selected_action_not_handled_outcome(pre_pipeline_actions, lang)
 
     response_state.badge_details = []
     try:
         effective_message = str(pipeline_message or clean_message or "").strip()
+        pipeline_call_start = time.perf_counter()
         result = await deps.pipeline.process(
             effective_message,
             user_id=username,
@@ -234,14 +328,24 @@ async def execute_chat_flow(
             memory_collection=memory_collection,
             session_collection=session_collection,
             auto_memory_enabled=auto_memory_enabled,
+            aria_turn_arbitration=pre_pipeline_decision.arbitration,
         )
+        pipeline_call_ms = int((time.perf_counter() - pipeline_call_start) * 1000)
+        post_pipeline_start = time.perf_counter()
         response_state.assistant_text = result.text or _chat_execution_text(lang, "empty_answer", "I did not produce an answer right now.")
         response_state.icon, response_state.intent_label = deps.intent_badge(result.intents, result.skill_errors)
         response_state.total_tokens = int(result.usage.get("total_tokens", 0) or 0)
         if result.total_cost_usd is not None:
             response_state.cost_usd = f"${result.total_cost_usd:.6f}"
-        response_state.duration_s = f"{result.duration_ms / 1000:.1f}"
-        response_state.badge_details = list(result.detail_lines)
+        post_pipeline_ms = int((time.perf_counter() - post_pipeline_start) * 1000)
+        web_total_ms = int((time.perf_counter() - web_start) * 1000)
+        response_state.duration_s = f"{web_total_ms / 1000:.1f}"
+        response_state.badge_details = [
+            *list(result.detail_lines),
+            "Routing Debug: web_outer_timing "
+            f"pre_pipeline_ms={pre_pipeline_ms} pipeline_call_ms={pipeline_call_ms} post_pipeline_ms={post_pipeline_ms}",
+            f"Routing Debug: web_request_timing total_ms={web_total_ms} pipeline_ms={int(result.duration_ms or 0)} source=web_chat",
+        ]
         warning = deps.friendly_error_text(result.skill_errors)
         if warning:
             response_state.assistant_text = f"{response_state.assistant_text}\n\n{_chat_execution_text(lang, 'warning_prefix', 'Note')}: {warning}"
@@ -276,6 +380,7 @@ async def execute_chat_flow(
         response_state.assistant_text = followup.assistant_text
         response_state.icon = followup.icon
         response_state.intent_label = followup.intent_label
+        response_state.duration_s = f"{(time.perf_counter() - web_start):.1f}"
         response_state.set_safe_fix_cookie = followup.set_cookies.get(chat_pending_flows.COOKIE_SAFE_FIX)
         response_state.set_routed_action_cookie = followup.set_cookies.get(chat_pending_flows.COOKIE_ROUTED_ACTION)
         response_state.clear_routed_action_cookie = chat_pending_flows.COOKIE_ROUTED_ACTION in followup.clear_cookies

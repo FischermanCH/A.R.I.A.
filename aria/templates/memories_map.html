@@ -19,11 +19,11 @@
     </article>
     <article class="memory-health-card">
       <div class="memory-health-head">
-        <span class="health-lamp status-{{ 'ok' if (health.type_points.fact or health.type_points.preference or health.type_points.session or health.type_points.document or health.type_points.knowledge) else 'warn' }}"></span>
+        <span class="health-lamp status-{{ 'ok' if (health.type_points.fact or health.type_points.preference or health.type_points.session or health.type_points.document or health.type_points.knowledge or health.type_points.reflection or health.type_points.learning_event or health.type_points.learning_candidate or health.type_points.learning_eval) else 'warn' }}"></span>
         <h3>{{ tr(request, 'memories.health_mix', 'Typ-Verteilung') }}</h3>
       </div>
-      <p>F {{ health.type_points.fact }} · P {{ health.type_points.preference }}</p>
-      <small>S {{ health.type_points.session }} · D {{ health.type_points.document }} · K {{ health.type_points.knowledge }}</small>
+      <p>F {{ health.type_points.fact }} · P {{ health.type_points.preference }} · L {{ health.type_points.reflection }}</p>
+      <small>E {{ health.type_points.learning_event }} · C {{ health.type_points.learning_candidate }} · V {{ health.type_points.learning_eval }} · S {{ health.type_points.session }} · D {{ health.type_points.document }} · K {{ health.type_points.knowledge }}</small>
     </article>
     <article class="memory-health-card">
       <div class="memory-health-head">
@@ -33,14 +33,19 @@
       <p>{{ health.largest_collection_points }} ({{ health.largest_collection_share_pct }}%)</p>
       <small>{{ health.largest_collection_name }}</small>
     </article>
-    <article class="memory-health-card">
+    <a
+      class="memory-health-card memory-health-card-link"
+      href="/memories/config#rollup"
+      aria-label="{{ tr(request, 'memories.health_due_action', 'Komprimierung im Memory-Setup öffnen') }}"
+      title="{{ tr(request, 'memories.health_due_action', 'Komprimierung im Memory-Setup öffnen') }}"
+    >
       <div class="memory-health-head">
         <span class="health-lamp status-{{ 'warn' if health.stale_sessions else 'ok' }}"></span>
         <h3>{{ tr(request, 'memories.health_due', 'Komprimierung fällig') }}</h3>
       </div>
       <p>{{ health.stale_sessions }}</p>
       <small>{{ tr(request, 'memories.health_days_old', 'Tages-Kontext älter als') }} {{ health.compress_after_days }} {{ tr(request, 'memories.days', 'Tage') }}</small>
-    </article>
+    </a>
     <article class="memory-health-card">
       <div class="memory-health-head">
         <span class="health-lamp status-{{ 'ok' if qdrant_overview.reachable else 'error' }}"></span>
@@ -222,7 +227,7 @@
         </div>
       </div>
     </div>
-    <div class="memory-map-frame-wrap memory-graph-wrap memory-map-showcase">
+    <div class="memory-map-frame-wrap memory-map-showcase">
       {% include "_memory_graph.html" %}
     </div>
   </section>

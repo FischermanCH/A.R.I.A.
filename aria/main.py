@@ -5,11 +5,13 @@ import json
 import logging
 import secrets
 from contextlib import asynccontextmanager, suppress
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -106,6 +108,7 @@ from aria.core.recipe_manifests import (
 )
 from aria.core.discord_alerts import runtime_host_line, send_discord_alerts
 from aria.core.i18n import I18NStore
+from aria.core.inventory_admin import rebuild_inventory_index
 from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG
 from aria.core.pipeline import Pipeline
 from aria.core.routing_admin import ensure_connection_routing_index_ready
@@ -725,11 +728,112 @@ def _build_app() -> FastAPI:
     _get_runtime_preflight_data = _main_runtime_support_helpers.get_runtime_preflight_data
     _update_finished_after_session = _main_runtime_support_helpers.update_finished_after_session
 
+    def _cron_part_matches(part: str, value: int, *, minimum: int, maximum: int) -> bool:
+        clean = str(part or "").strip()
+        if not clean:
+            return False
+        for raw_item in clean.split(","):
+            item = raw_item.strip()
+            if not item:
+                continue
+            step = 1
+            base = item
+            if "/" in item:
+                base, raw_step = item.split("/", 1)
+                try:
+                    step = max(1, int(raw_step))
+                except ValueError:
+                    continue
+            if base in {"", "*"}:
+                start, end = minimum, maximum
+            elif "-" in base:
+                raw_start, raw_end = base.split("-", 1)
+                try:
+                    start, end = int(raw_start), int(raw_end)
+                except ValueError:
+                    continue
+            else:
+                try:
+                    start = end = int(base)
+                except ValueError:
+                    continue
+            start = max(minimum, start)
+            end = min(maximum, end)
+            if start <= value <= end and (value - start) % step == 0:
+                return True
+        return False
+
+    def _cron_matches_now(cron: str, now: datetime) -> bool:
+        parts = str(cron or "").strip().split()
+        if len(parts) != 5:
+            return False
+        minute, hour, day, month, weekday = parts
+        cron_weekday = (now.weekday() + 1) % 7
+        weekday_matches = _cron_part_matches(weekday, cron_weekday, minimum=0, maximum=7)
+        if not weekday_matches and cron_weekday == 0:
+            weekday_matches = _cron_part_matches(weekday, 7, minimum=0, maximum=7)
+        return (
+            _cron_part_matches(minute, now.minute, minimum=0, maximum=59)
+            and _cron_part_matches(hour, now.hour, minimum=0, maximum=23)
+            and _cron_part_matches(day, now.day, minimum=1, maximum=31)
+            and _cron_part_matches(month, now.month, minimum=1, maximum=12)
+            and weekday_matches
+        )
+
+    async def _run_inventory_reindex_once(source: str) -> None:
+        current_settings = _get_runtime_settings()
+        cfg = getattr(current_settings, "inventory_index", None)
+        if not bool(getattr(cfg, "enabled", True)):
+            return
+        LOGGER.info("Inventory index rebuild started source=%s", source)
+        result = await rebuild_inventory_index(
+            current_settings,
+            usage_meter=getattr(pipeline, "usage_meter", None),
+        )
+        status = str(result.get("status", "unknown") or "unknown")
+        message = str(result.get("message", "") or "")
+        LOGGER.info("Inventory index rebuild finished source=%s status=%s message=%s", source, status, message)
+        detail = str(result.get("detail", "") or "")
+        if status == "error" and detail:
+            LOGGER.warning("Inventory index rebuild detail source=%s detail=%s", source, detail)
+
+    async def _run_inventory_reindex_scheduler() -> None:
+        last_run_key = ""
+        startup_checked = False
+        while True:
+            try:
+                current_settings = _get_runtime_settings()
+                cfg = getattr(current_settings, "inventory_index", None)
+                if not bool(getattr(cfg, "enabled", True)):
+                    await asyncio.sleep(60)
+                    continue
+                if not startup_checked:
+                    startup_checked = True
+                    if bool(getattr(cfg, "run_on_startup", False)):
+                        await _run_inventory_reindex_once("startup")
+                cron = str(getattr(cfg, "cron", "") or "").strip()
+                timezone_name = str(getattr(cfg, "timezone", "") or "").strip() or "Europe/Zurich"
+                try:
+                    now = datetime.now(ZoneInfo(timezone_name))
+                except ZoneInfoNotFoundError:
+                    now = datetime.now(ZoneInfo("Europe/Zurich"))
+                run_key = now.strftime("%Y%m%d%H%M")
+                if cron and run_key != last_run_key and _cron_matches_now(cron, now):
+                    last_run_key = run_key
+                    await _run_inventory_reindex_once("schedule")
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                LOGGER.warning("Inventory index scheduler failed: %s", exc)
+                await asyncio.sleep(60)
+
     startup_maintenance_task: asyncio.Task[None] | None = None
+    inventory_reindex_task: asyncio.Task[None] | None = None
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):  # noqa: ANN202
-        nonlocal startup_maintenance_task
+        nonlocal inventory_reindex_task, startup_maintenance_task
         async def _run_startup_maintenance() -> None:
             try:
                 pricing_snapshot = await _refresh_pricing_snapshot(
@@ -839,9 +943,14 @@ def _build_app() -> FastAPI:
                 LOGGER.warning("Startup maintenance failed: %s", exc)
 
         startup_maintenance_task = asyncio.create_task(_run_startup_maintenance())
+        inventory_reindex_task = asyncio.create_task(_run_inventory_reindex_scheduler())
         try:
             yield
         finally:
+            if inventory_reindex_task and not inventory_reindex_task.done():
+                inventory_reindex_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await inventory_reindex_task
             if startup_maintenance_task and not startup_maintenance_task.done():
                 startup_maintenance_task.cancel()
                 with suppress(asyncio.CancelledError):

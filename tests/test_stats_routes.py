@@ -16,6 +16,7 @@ from aria.web.stats_routes import (
     OPERATOR_GUARDRAIL_ROW_KEYS,
     _attach_connection_edit_urls,
     _build_model_gateway_meta,
+    _build_learning_worker_meta,
     _build_operator_guardrail_meta,
     _build_preflight_meta,
     _build_pricing_meta,
@@ -693,23 +694,59 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
         health_meta={"overall_status": "warn", "ok_count": 6, "warn_count": 1, "error_count": 0},
         update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha252", "update_available": True},
         recipe_experience_memory={"enabled": True, "status": "ok", "collection_count": 1, "point_count": 4},
+        learning_worker={
+            "status": "ok",
+            "running": 0,
+            "counts": {"completed": 2, "failed": 0, "rejected": 0},
+            "budget": {"rejected_count": 0, "used_tokens": 18, "max_runtime_tokens": 120000},
+        },
         language="en",
     )
 
     assert meta["overall_status"] == "warn"
-    assert meta["ok_count"] == 5
+    assert meta["ok_count"] == 6
     assert meta["warn_count"] == 3
     assert meta["error_count"] == 0
-    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "ok", "warn", "warn"]
+    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "ok", "ok", "warn", "warn"]
     assert [row["key"] for row in meta["rows"]] == list(OPERATOR_GUARDRAIL_ROW_KEYS)
     assert meta["rows"][0]["fallback"] == "Release metadata"
     assert meta["rows"][2]["summary"] == "42 model tokens are still unpriced."
     assert meta["rows"][3]["fallback"] == "Cost tracking"
     assert meta["rows"][4]["fallback"] == "Recipe Experience Memory"
     assert meta["rows"][4]["detail"] == "1 collections · 4 points"
-    assert meta["rows"][5]["url"] == "/stats#startup-preflight"
-    assert meta["rows"][6]["url"] == "/stats#runtime-health"
-    assert meta["rows"][7]["url"] == "/updates"
+    assert meta["rows"][5]["fallback"] == "Learning Worker"
+    assert meta["rows"][5]["url"] == "/stats#learning-worker"
+    assert meta["rows"][6]["url"] == "/stats#startup-preflight"
+    assert meta["rows"][7]["url"] == "/stats#runtime-health"
+    assert meta["rows"][8]["url"] == "/updates"
+
+
+def test_build_learning_worker_meta_warns_on_failed_or_budget_rejected_jobs() -> None:
+    meta = _build_learning_worker_meta(
+        {
+            "enabled": True,
+            "max_running": 32,
+            "max_attempts": 3,
+            "running": 1,
+            "counts": {"completed": 4, "failed": 1, "rejected": 0},
+            "budget": {
+                "used_tokens": 1200,
+                "max_runtime_tokens": 120000,
+                "used_cost_usd": 0.01,
+                "max_runtime_cost_usd": 2.0,
+                "rejected_count": 2,
+            },
+            "audit": {"count": 3, "by_failure_category": {"qdrant": 2, "budget": 1}},
+            "recent": [{"job_id": "job-1", "status": "failed", "source": "test"}],
+        }
+    )
+
+    assert meta["status"] == "warn"
+    assert meta["budget_state"] == "rejecting"
+    assert meta["failed"] == 1
+    assert meta["budget"]["rejected_count"] == 2
+    assert meta["audit"]["count"] == 3
+    assert meta["failure_categories"]["qdrant"] == 2
 
 
 def test_operator_guardrail_rows_are_machine_addressable_without_recipe_memory() -> None:
@@ -724,7 +761,9 @@ def test_operator_guardrail_rows_are_machine_addressable_without_recipe_memory()
         language="en",
     )
 
-    expected_without_optional_memory = [key for key in OPERATOR_GUARDRAIL_ROW_KEYS if key != "recipe_memory"]
+    expected_without_optional_memory = [
+        key for key in OPERATOR_GUARDRAIL_ROW_KEYS if key not in {"recipe_memory", "learning_worker"}
+    ]
     assert [row["key"] for row in meta["rows"]] == expected_without_optional_memory
     assert all(row["label_key"] == f"stats.operator_guardrail_{row['key']}" for row in meta["rows"])
 
@@ -1421,6 +1460,9 @@ def test_stats_pricing_admin_htmx_saves_alias_and_manual_price(monkeypatch, tmp_
 
 
 def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
+    from aria.core.learning_worker import reset_learning_worker_state
+
+    reset_learning_worker_state()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
@@ -1529,6 +1571,7 @@ def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert "Model Gateway Audit" in response.text
+    assert "Learning Worker" in response.text
     assert "Recipe Experience Memory" in response.text
     assert "aria_recipe_experience_neo" in response.text
     assert "anthropic/claude-sonnet-4-5" in response.text

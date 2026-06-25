@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html.parser import HTMLParser
+import asyncio
+import inspect
 from pathlib import Path
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urldefrag, urlparse
+from urllib.request import Request, urlopen
 
 from aria.core.i18n import I18NStore
 from aria.core.notes_context import NotesContextHit, note_context_block, note_context_detail_lines
@@ -15,14 +19,63 @@ from aria.skills.base import BaseSkill, SkillResult
 _WEB_SEARCH_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
 
+class _VisibleTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._skip_depth = 0
+        self._parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in {"script", "style", "noscript", "svg"}:
+            self._skip_depth += 1
+        if tag.lower() in {"p", "br", "li", "h1", "h2", "h3", "h4", "section", "article"}:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in {"script", "style", "noscript", "svg"} and self._skip_depth > 0:
+            self._skip_depth -= 1
+        if tag.lower() in {"p", "li", "h1", "h2", "h3", "h4", "section", "article"}:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth <= 0:
+            clean = re.sub(r"\s+", " ", str(data or "")).strip()
+            if clean:
+                self._parts.append(clean)
+
+    def text(self) -> str:
+        raw = " ".join(self._parts)
+        raw = re.sub(r"[ \t\r\f\v]+", " ", raw)
+        raw = re.sub(r"\s*\n\s*", "\n", raw)
+        raw = re.sub(r"\n{3,}", "\n\n", raw)
+        return raw.strip()
+
+
+def _default_page_fetcher(url: str, timeout_seconds: int) -> str:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "ARIA-WebResearch/1.0 (+https://github.com/FischermanCH/A.R.I.A.)",
+            "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.2",
+        },
+    )
+    with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310 - user-configured web research fetcher
+        content_type = str(response.headers.get("content-type", "") or "").lower()
+        if content_type and not any(marker in content_type for marker in ("html", "text", "xml")):
+            return ""
+        payload = response.read(750_000)
+    return payload.decode("utf-8", errors="replace")
+
+
 class WebSearchSkill(BaseSkill):
     name = "web_search"
     description = "Runs a web search via a configured SearXNG instance."
-    max_context_chars = 2200
+    max_context_chars = 6000
 
-    def __init__(self, *, settings: Any, client: SearXNGClient | None = None):
+    def __init__(self, *, settings: Any, client: SearXNGClient | None = None, page_fetcher: Any | None = None):
         self.settings = settings
         self.client = client or SearXNGClient()
+        self.page_fetcher = page_fetcher or _default_page_fetcher
 
     @staticmethod
     def _is_english(language: str | None) -> bool:
@@ -338,6 +391,147 @@ class WebSearchSkill(BaseSkill):
         return [row[5] for row in scored]
 
     @staticmethod
+    def _clean_url(value: str) -> str:
+        clean = str(value or "").strip().strip(".,;!?)\"]}'")
+        parsed = urlparse(clean)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return ""
+        return clean
+
+    @classmethod
+    def _explicit_urls(cls, query: str) -> list[str]:
+        seen: set[str] = set()
+        urls: list[str] = []
+        for match in re.finditer(r"https?://[^\s<>()\"']+", str(query or ""), flags=re.IGNORECASE):
+            url = cls._clean_url(match.group(0))
+            if url and url not in seen:
+                seen.add(url)
+                urls.append(url)
+        return urls
+
+    @classmethod
+    def _result_fetch_candidates(cls, query: str, ordered_results: list[Any]) -> list[str]:
+        seen: set[str] = set()
+        candidates: list[str] = []
+        for url in cls._explicit_urls(query):
+            base, _fragment = urldefrag(url)
+            key = url.lower()
+            seen.add(key)
+            if base:
+                seen.add(base.lower())
+            candidates.append(url)
+
+        def add_result_url(result: Any) -> None:
+            url = cls._clean_url(str(getattr(result, "url", "") or ""))
+            if not url:
+                return
+            base, _fragment = urldefrag(url)
+            key = (base or url).lower()
+            if key in seen:
+                return
+            seen.add(key)
+            candidates.append(url)
+
+        for result in ordered_results[:2]:
+            add_result_url(result)
+
+        if len(candidates) < 3:
+            terms = set(cls._query_terms(query))
+            domain_rows: list[tuple[int, Any]] = []
+            for result in ordered_results[2:]:
+                url = cls._clean_url(str(getattr(result, "url", "") or ""))
+                if not url:
+                    continue
+                parsed = urlparse(url)
+                domain = str(parsed.netloc or "").lower()
+                path = str(parsed.path or "").lower()
+                score = sum(1 for term in terms if term and (term in domain or term in path))
+                if score > 0:
+                    domain_rows.append((score, result))
+            domain_rows.sort(key=lambda item: item[0], reverse=True)
+            for _score, result in domain_rows:
+                if len(candidates) >= 3:
+                    break
+                add_result_url(result)
+        return candidates[:3]
+
+    @staticmethod
+    def _html_to_text(html: str) -> str:
+        parser = _VisibleTextParser()
+        try:
+            parser.feed(str(html or ""))
+            parser.close()
+        except Exception:
+            return re.sub(r"\s+", " ", str(html or "")).strip()
+        return parser.text()
+
+    @classmethod
+    def _anchor_html_window(cls, html: str, fragment: str) -> str:
+        clean_fragment = str(fragment or "").strip()
+        if not clean_fragment:
+            return str(html or "")
+        pattern = re.compile(
+            rf"""(?:id|name)\s*=\s*["']{re.escape(clean_fragment)}["']""",
+            flags=re.IGNORECASE,
+        )
+        match = pattern.search(str(html or ""))
+        if not match:
+            return str(html or "")
+        start = max(0, match.start() - 1200)
+        end = min(len(html), match.start() + 24_000)
+        return html[start:end]
+
+    @classmethod
+    def _relevant_page_excerpt(cls, html: str, *, query: str, url: str, max_chars: int = 1800) -> str:
+        _base, fragment = urldefrag(url)
+        scoped_html = cls._anchor_html_window(html, fragment)
+        text = cls._html_to_text(scoped_html)
+        if not text:
+            return ""
+        lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+        lines = [line for line in lines if line]
+        if not lines:
+            return ""
+
+        terms = cls._query_terms(query)
+        focus_terms = set(terms + ["speaker", "speakers", "talk", "talks", "agenda", "schedule", "topic", "topics", "vortrag", "themen"])
+        best_index = 0
+        best_score = -1
+        for idx, line in enumerate(lines):
+            lower = line.lower()
+            score = sum(1 for term in focus_terms if term and term in lower)
+            if fragment and fragment.lower() in lower:
+                score += 8
+            if score > best_score:
+                best_score = score
+                best_index = idx
+
+        start = max(0, best_index - 4)
+        selected: list[str] = []
+        total = 0
+        for line in lines[start:]:
+            if total + len(line) + 1 > max_chars:
+                break
+            selected.append(line)
+            total += len(line) + 1
+            if total >= max_chars:
+                break
+        return "\n".join(selected).strip()
+
+    async def _fetch_page_excerpt(self, url: str, *, query: str, timeout_seconds: int) -> str:
+        clean_url = self._clean_url(url)
+        if not clean_url:
+            return ""
+        try:
+            if inspect.iscoroutinefunction(self.page_fetcher):
+                html = await self.page_fetcher(clean_url, timeout_seconds)
+            else:
+                html = await asyncio.to_thread(self.page_fetcher, clean_url, timeout_seconds)
+        except Exception:
+            return ""
+        return self._relevant_page_excerpt(str(html or ""), query=query, url=clean_url)
+
+    @staticmethod
     def _note_context_hits(params: dict[str, Any]) -> list[NotesContextHit]:
         rows = params.get("note_context_hits")
         if not isinstance(rows, list):
@@ -401,6 +595,56 @@ class WebSearchSkill(BaseSkill):
 
         ordered_results = self._prepare_results(query, response.results)
 
+        explicit_urls = self._explicit_urls(query)
+        if not ordered_results and explicit_urls:
+            page_excerpts: dict[str, str] = {}
+            fetch_timeout = min(max(int(self._profile_value(profile, "timeout_seconds", 10) or 10), 2), 8)
+            for url in explicit_urls[:3]:
+                excerpt = await self._fetch_page_excerpt(url, query=query, timeout_seconds=fetch_timeout)
+                if excerpt:
+                    page_excerpts[url] = excerpt
+            if page_excerpts:
+                lines = [
+                    f"[Web Search via {display_name}]",
+                    f"{self._text(language, 'search_label', 'Search')}: {response.query}",
+                ]
+                detail_lines = []
+                source_entries = []
+                for index, (url, excerpt) in enumerate(page_excerpts.items(), start=1):
+                    lines.append(f"- [{index}] {url}\n  Page excerpt:\n{excerpt}")
+                    detail = self._detail_line(language, url, url, "page_fetch")
+                    detail_lines.append(detail)
+                    source_entries.append(
+                        {
+                            "detail": detail,
+                            "type": "web",
+                            "title": url,
+                            "url": url,
+                            "engine": "page_fetch",
+                            "published_at": "",
+                            "published_label": "",
+                            "page_excerpt": True,
+                        }
+                    )
+                content, saved = self.truncate("\n".join(lines))
+                return SkillResult(
+                    skill_name=self.name,
+                    content=content,
+                    success=True,
+                    tokens_saved=saved,
+                    metadata={
+                        "sources": source_entries,
+                        "detail_lines": detail_lines,
+                        "connection_ref": ref,
+                        "connection_title": display_name,
+                        "result_count": len(source_entries),
+                        "explicit_url_count": len(explicit_urls),
+                        "fetch_attempt_count": len(explicit_urls[:3]),
+                        "page_excerpt_count": len(page_excerpts),
+                        "source_quality_outcome": "explicit_url_page_fetch",
+                    },
+                )
+
         if not ordered_results:
             return SkillResult(
                 skill_name=self.name,
@@ -436,6 +680,20 @@ class WebSearchSkill(BaseSkill):
                 )
             )
         source_entries: list[dict[str, Any]] = []
+        page_excerpts: dict[str, str] = {}
+        fetch_attempts: set[str] = set()
+        fetch_timeout = min(max(int(self._profile_value(profile, "timeout_seconds", 10) or 10), 2), 8)
+        fetch_candidates = self._result_fetch_candidates(query, ordered_results)
+        for url in fetch_candidates:
+            fetch_attempts.add(url)
+            base_url, _fragment = urldefrag(url)
+            if base_url:
+                fetch_attempts.add(base_url)
+            excerpt = await self._fetch_page_excerpt(url, query=query, timeout_seconds=fetch_timeout)
+            if excerpt:
+                page_excerpts[url] = excerpt
+                if base_url:
+                    page_excerpts[base_url] = excerpt
         for index, result in enumerate(ordered_results, start=1):
             entry = f"- [{index}] {result.title}"
             if result.url:
@@ -446,6 +704,11 @@ class WebSearchSkill(BaseSkill):
                 entry += f"\n  {self._text(language, 'date_label', 'Date')}: {result.published_label}"
             if result.snippet:
                 entry += f"\n  Snippet: {result.snippet}"
+            excerpt = page_excerpts.get(str(result.url or "")) or page_excerpts.get(urldefrag(str(result.url or ""))[0])
+            if excerpt:
+                entry += f"\n  Page excerpt:\n{excerpt}"
+            elif str(result.url or "") in fetch_attempts or urldefrag(str(result.url or ""))[0] in fetch_attempts:
+                entry += "\n  Page fetch: no readable page excerpt extracted; do not infer concrete page details from this result alone."
             lines.append(entry)
             detail = self._detail_line(language, result.title, result.url, result.engine, result.published_label)
             detail_lines.append(detail)
@@ -458,6 +721,7 @@ class WebSearchSkill(BaseSkill):
                     "engine": result.engine,
                     "published_at": result.published_at,
                     "published_label": result.published_label,
+                    "page_excerpt": bool(excerpt),
                 }
             )
 
@@ -473,5 +737,17 @@ class WebSearchSkill(BaseSkill):
                 "connection_ref": ref,
                 "connection_title": display_name,
                 "result_count": len(ordered_results),
+                "explicit_url_count": len(explicit_urls),
+                "fetch_attempt_count": len(fetch_candidates),
+                "page_excerpt_count": len({value for value in page_excerpts.values()}),
+                "source_quality_outcome": (
+                    "explicit_url_with_page_excerpt"
+                    if explicit_urls and page_excerpts
+                    else "explicit_url_without_page_excerpt"
+                    if explicit_urls
+                    else "search_results_with_page_excerpt"
+                    if page_excerpts
+                    else "search_results_only"
+                ),
             },
         )

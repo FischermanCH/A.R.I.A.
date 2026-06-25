@@ -673,7 +673,9 @@ def register_recipe_routes(
             if not isinstance(raw["auto_memory"], dict):
                 raw["auto_memory"] = {}
             if "auto_memory_enabled" in form:
-                raw["auto_memory"]["enabled"] = str(auto_memory_enabled).strip().lower() in {"1", "true", "on", "yes"}
+                auto_memory_active = str(auto_memory_enabled).strip().lower() in {"1", "true", "on", "yes"}
+                raw["auto_memory"]["enabled"] = auto_memory_active
+                raw["auto_memory"]["agentic_extraction_enabled"] = auto_memory_active
 
             raw.setdefault("skills", {})
             if not isinstance(raw["skills"], dict):

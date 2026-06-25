@@ -71,6 +71,8 @@ _EXPLICIT_WEB_RESEARCH_PATTERNS = (
     r"\b(?:internet|web|online)\b.*\b(?:search|research|look\s+up|browse)\b",
 )
 
+_URL_PATTERN = re.compile(r"https?://[^\s<>()\"']+", flags=re.IGNORECASE)
+
 
 def explicitly_requests_web_research(message: str) -> bool:
     clean = re.sub(r"\s+", " ", str(message or "").strip().lower())
@@ -106,6 +108,8 @@ def chat_freshness_candidate(message: str, *, intents: list[str] | None = None) 
         return False
     if "web_search" in set(intents or []):
         return False
+    if _URL_PATTERN.search(str(message or "")):
+        return True
     if explicitly_requests_web_research(clean):
         return True
     if any(term in clean for term in _CURRENTNESS_TERMS):
@@ -170,14 +174,28 @@ async def decide_chat_freshness(
     user_id: str = "",
     request_id: str = "",
 ) -> ChatFreshnessDecision:
-    if not chat_freshness_candidate(message, intents=intents):
+    if "web_search" in set(intents or []):
         return ChatFreshnessDecision(
             needs_fresh_context=False,
-            reason="not a freshness candidate",
+            reason="web search already selected",
+            confidence="low",
+            source="none",
+        )
+    if explicitly_requests_local_context(message):
+        return ChatFreshnessDecision(
+            needs_fresh_context=False,
+            reason="local context explicitly requested",
             confidence="low",
             source="none",
         )
     if llm_client is None:
+        if not chat_freshness_candidate(message, intents=intents):
+            return ChatFreshnessDecision(
+                needs_fresh_context=False,
+                reason="not a freshness candidate",
+                confidence="low",
+                source="none",
+            )
         return _fallback_decision(message, reason="LLM freshness arbiter unavailable")
 
     system = (
@@ -187,7 +205,8 @@ async def decide_chat_freshness(
         "installation paths, prices, provider docs, or software packages. "
         "Also choose true when the user explicitly asks you to search, browse, look up, or research "
         "something on the internet/web, even if the topic is not time-sensitive. "
-        "Choose false for stable general knowledge, local note/document questions, or opinions. "
+        "Choose false for stable general knowledge, local note/document questions, casual chat, writing help, "
+        "or opinions that do not depend on current external facts. "
         "For current version or latest release questions, make the query source-seeking: include "
         "the product/package name plus words like official, changelog, releases, package registry, "
         "GitHub releases, npm, PyPI, or vendor docs when they fit. Avoid generic news-only queries. "

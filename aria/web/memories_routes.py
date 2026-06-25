@@ -3,6 +3,8 @@ from __future__ import annotations
 from contextlib import suppress
 from datetime import datetime
 import hmac
+import json
+import math
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 from urllib.parse import quote_plus
@@ -13,8 +15,28 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
+from aria.core.artifact_review_learning import capture_prepared_artifact_review_learning
 from aria.core.document_ingest import DocumentIngestError, prepare_uploaded_document, supported_upload_suffixes
+from aria.core.app_regression_apply_preview import build_pytest_apply_preview
+from aria.core.app_regression_apply_preview import prepare_prepared_artifact_review_payload
+from aria.core.app_regression_apply_preview import prepare_pytest_write_payload
 from aria.core.i18n import I18NStore
+from aria.core.learning_promotion import build_learning_candidate_apply_preview
+from aria.core.learning_promotion import build_learning_candidate_activation_preview
+from aria.core.learning_promotion import learning_active_hint_store_params
+from aria.core.learning_promotion import learning_candidate_gate_inputs
+from aria.core.learning_promotion import learning_candidate_apply_allowed
+from aria.core.learning_promotion import learning_candidate_apply_preview_allowed
+from aria.core.learning_promotion import learning_candidate_activation_preflight_payload
+from aria.core.learning_promotion import link_learning_candidate_regression_payload
+from aria.core.learning_promotion import learning_candidate_promotion_gate
+from aria.core.learning_promotion import prepare_learning_candidate_apply_payload
+from aria.core.learning_promotion import run_learning_candidate_regression_payload
+from aria.core.learning_promotion import verify_learning_candidate_regression_payload
+from aria.core.learning_worker import flush_learning_worker_jobs
+from aria.core.learning_worker import get_learning_worker_job
+from aria.core.learning_worker import get_learning_worker_status
+from aria.core.learning_worker import retry_learning_job
 from aria.core.pipeline import Pipeline
 from aria.core.qdrant_collection_classifier import classify_qdrant_collection
 from aria.core.qdrant_collection_classifier import is_notes_qdrant_collection
@@ -28,6 +50,13 @@ _MEMORIES_ROUTES_I18N = I18NStore(BASE_DIR / "aria" / "i18n")
 
 UsernameResolver = Callable[[Request], str]
 AuthSessionResolver = Callable[[Request], dict[str, Any] | None]
+
+APP_LEARNING_ARTIFACT_TYPES = {
+    "app_artifact_candidate",
+    "app_identity_candidate",
+    "install_plan_candidate",
+    "health_check_candidate",
+}
 RoleSanitizer = Callable[[str | None], str]
 SettingsGetter = Callable[[], Any]
 PipelineGetter = Callable[[], Pipeline]
@@ -137,12 +166,68 @@ def _sort_memory_rows(rows: list[dict[str, Any]], sort_key: str) -> None:
 
 
 def _build_memory_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
-    counts = {"fact": 0, "preference": 0, "knowledge": 0, "document": 0, "session": 0}
+    counts = {"fact": 0, "preference": 0, "knowledge": 0, "reflection": 0, "learning_event": 0, "learning_candidate": 0, "learning_active_hint": 0, "learning_eval": 0, "document": 0, "session": 0}
     for row in rows:
         key = str(row.get("type", "")).strip().lower()
         if key in counts:
             counts[key] += 1
     return counts
+
+
+def _build_learning_review_queue(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    queue = {
+        "candidate_total": 0,
+        "candidate_open": 0,
+        "candidate_reviewed": 0,
+        "candidate_blocked": 0,
+        "candidate_active": 0,
+        "eval_total": 0,
+        "active_hint_total": 0,
+        "regression_missing": 0,
+        "regression_linked": 0,
+        "regression_passed": 0,
+        "activation_ready": 0,
+        "activation_blocked": 0,
+    }
+    for row in rows:
+        row_type = str(row.get("type", "") or "").strip().lower()
+        if row_type == "learning_eval":
+            queue["eval_total"] += 1
+            continue
+        if row_type == "learning_active_hint":
+            queue["active_hint_total"] += 1
+            continue
+        if row_type != "learning_candidate":
+            continue
+        queue["candidate_total"] += 1
+        candidate_status = str(row.get("candidate_status", "") or row.get("status", "") or "").strip().lower()
+        promotion_state = str(row.get("promotion_state", "") or "").strip().lower()
+        activation_state = str(row.get("activation_state", "") or row.get("activation_preflight_state", "") or "").strip().lower()
+        regression_status = str(row.get("regression_status", "") or "").strip().lower()
+        regression_result = str(row.get("regression_verify_result", "") or "").strip().lower()
+        if activation_state in {"active_hint_stored", "passed"}:
+            queue["candidate_active"] += 1
+        elif promotion_state in {"reviewed_blocked", "blocked"} or candidate_status == "rejected":
+            queue["candidate_blocked"] += 1
+        elif candidate_status == "reviewed" or promotion_state in {"eligible", "prepared"}:
+            queue["candidate_reviewed"] += 1
+        else:
+            queue["candidate_open"] += 1
+        if regression_result == "passed":
+            queue["regression_passed"] += 1
+        elif regression_status == "linked":
+            queue["regression_linked"] += 1
+        elif row_type == "learning_candidate":
+            queue["regression_missing"] += 1
+        if activation_state == "passed":
+            queue["activation_ready"] += 1
+        if activation_state == "blocked":
+            queue["activation_blocked"] += 1
+    queue["has_learning_items"] = any(
+        int(queue[key] or 0) > 0
+        for key in ("candidate_total", "eval_total", "active_hint_total")
+    )
+    return queue
 
 
 def _memory_group_order(value: str) -> int:
@@ -157,7 +242,7 @@ def _memory_group_order(value: str) -> int:
 
 
 def _build_type_points(collection_stats: list[dict[str, Any]]) -> dict[str, int]:
-    type_points = {"fact": 0, "preference": 0, "knowledge": 0, "document": 0, "session": 0}
+    type_points = {"fact": 0, "preference": 0, "knowledge": 0, "reflection": 0, "learning_event": 0, "learning_candidate": 0, "learning_active_hint": 0, "learning_eval": 0, "document": 0, "session": 0}
     for item in collection_stats:
         kind = str(item.get("kind", "fact")).strip().lower()
         points = int(item.get("points", 0) or 0)
@@ -245,6 +330,17 @@ async def _build_memory_map_snapshot(
     rollup_entries: list[dict[str, Any]] = []
     rollup_groups: list[dict[str, Any]] = []
     memory_graph: dict[str, Any] = {"nodes": [], "edges": [], "width": 0, "height": 0, "has_graph": False}
+    qdrant_brain_graph: dict[str, Any] = {
+        "nodes": [],
+        "edges": [],
+        "width": 0,
+        "height": 0,
+        "has_graph": False,
+        "sample_count": 0,
+        "edge_count": 0,
+        "collection_count": 0,
+        "error": "",
+    }
     memory_skill = getattr(pipeline, "memory_skill", None)
 
     if memory_skill:
@@ -291,6 +387,26 @@ async def _build_memory_map_snapshot(
         except Exception:
             rollup_entries = []
             rollup_groups = []
+        if hasattr(memory_skill, "list_memory_graph_points"):
+            try:
+                graph_rows = await memory_skill.list_memory_graph_points(
+                    user_id=username,
+                    limit=96,
+                    collection_limit=18,
+                )
+                qdrant_brain_graph = _build_qdrant_brain_graph(list(graph_rows))
+            except Exception as exc:
+                qdrant_brain_graph = {
+                    "nodes": [],
+                    "edges": [],
+                    "width": 0,
+                    "height": 0,
+                    "has_graph": False,
+                    "sample_count": 0,
+                    "edge_count": 0,
+                    "collection_count": 0,
+                    "error": str(exc),
+                }
 
     user_rows.sort(key=lambda row: int(row.get("points", 0) or 0), reverse=True)
     max_points = max((int(row.get("points", 0) or 0) for row in user_rows), default=0)
@@ -301,7 +417,7 @@ async def _build_memory_map_snapshot(
         row["share_pct"] = int((points / total_points) * 100) if total_points > 0 else 0
         row["node_size"] = max(16, min(54, int(16 + (row["pct"] / 100.0) * 38)))
 
-    kind_totals = {"fact": 0, "preference": 0, "knowledge": 0, "document": 0, "session": 0}
+    kind_totals = {"fact": 0, "preference": 0, "knowledge": 0, "reflection": 0, "learning_event": 0, "learning_candidate": 0, "learning_active_hint": 0, "learning_eval": 0, "document": 0, "session": 0}
     for row in user_rows:
         kind = str(row.get("kind", "fact"))
         if kind in kind_totals:
@@ -352,6 +468,7 @@ async def _build_memory_map_snapshot(
         routing_rows=routing_rows,
         system_rows=system_rows,
     )
+    memory_graph["brain"] = qdrant_brain_graph
 
     return {
         "user_rows": user_rows,
@@ -407,6 +524,77 @@ def _memory_preview(text: str, *, limit: int = 180) -> str:
     if len(raw) <= limit:
         return raw
     return raw[: max(40, limit - 1)].rstrip() + "…"
+
+
+def _candidate_json_section(text: str, label: str) -> Any:
+    prefix = f"{label}:"
+    for line in str(text or "").splitlines():
+        if not line.startswith(prefix):
+            continue
+        raw = line[len(prefix) :].strip()
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _build_app_learning_preview(candidate_text: str) -> dict[str, Any]:
+    app_identity = _candidate_json_section(candidate_text, "App identity hypothesis")
+    plan_draft = _candidate_json_section(candidate_text, "Install/update plan draft")
+    plan_validation = _candidate_json_section(candidate_text, "Install/update plan validation")
+    health_drafts = _candidate_json_section(candidate_text, "Health check drafts")
+    regression_drafts = _candidate_json_section(candidate_text, "Regression drafts")
+    pytest_skeleton_proposal = _candidate_json_section(candidate_text, "Pytest skeleton proposal")
+    app_identity = app_identity if isinstance(app_identity, dict) else {}
+    plan_draft = plan_draft if isinstance(plan_draft, dict) else {}
+    plan_validation = plan_validation if isinstance(plan_validation, dict) else {}
+    health_drafts = health_drafts if isinstance(health_drafts, list) else []
+    regression_drafts = regression_drafts if isinstance(regression_drafts, list) else []
+    pytest_skeleton_proposal = pytest_skeleton_proposal if isinstance(pytest_skeleton_proposal, dict) else {}
+    return {
+        "available": bool(app_identity or plan_draft or plan_validation or health_drafts or regression_drafts or pytest_skeleton_proposal),
+        "app_identity": app_identity,
+        "plan_draft": plan_draft,
+        "plan_validation": plan_validation,
+        "health_drafts": health_drafts,
+        "regression_drafts": regression_drafts,
+        "pytest_skeleton_proposal": pytest_skeleton_proposal,
+        "pytest_apply_preview": build_pytest_apply_preview(pytest_skeleton_proposal, repo_root=BASE_DIR)
+        if pytest_skeleton_proposal
+        else {},
+        "runtime_kind": str(app_identity.get("runtime_kind") or plan_draft.get("runtime_kind") or "").strip(),
+        "app_root": str(app_identity.get("app_root") or plan_draft.get("app_root") or "").strip(),
+        "validation_state": str(plan_validation.get("validation_state") or "").strip(),
+        "risk_level": str(plan_validation.get("risk_level") or plan_draft.get("risk") or "").strip(),
+        "health_draft_count": len(health_drafts),
+        "regression_draft_count": len(regression_drafts),
+        "pytest_function_count": len(pytest_skeleton_proposal.get("test_functions", []) or []),
+    }
+
+
+def _build_prepared_artifact_review(
+    *,
+    pytest_write_state: str = "",
+    pytest_write_gate_result: str = "",
+    pytest_target_file: str = "",
+    pytest_code_preview_sha256: str = "",
+    pytest_write_review_state: str = "",
+    pytest_write_review_decision: str = "",
+    pytest_write_review_notes: str = "",
+) -> dict[str, Any]:
+    return {
+        "pytest_write_state": str(pytest_write_state or "").strip(),
+        "pytest_write_gate_result": str(pytest_write_gate_result or "").strip(),
+        "pytest_target_file": str(pytest_target_file or "").strip(),
+        "pytest_code_preview_sha256": str(pytest_code_preview_sha256 or "").strip(),
+        "pytest_write_review_state": str(pytest_write_review_state or "").strip(),
+        "pytest_write_review_decision": str(pytest_write_review_decision or "").strip(),
+        "pytest_write_review_notes": str(pytest_write_review_notes or "").strip(),
+        "reviewable": str(pytest_write_state or "").strip().lower() == "prepared",
+    }
 
 
 def _build_document_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -558,10 +746,15 @@ def _graph_kind_order(kind: str) -> int:
         "session": 2,
         "document": 3,
         "knowledge": 4,
-        "notes": 5,
-        "routing": 6,
-        "recipe_experience": 7,
-        "system": 8,
+        "reflection": 5,
+        "learning_event": 6,
+        "learning_candidate": 7,
+        "learning_active_hint": 8,
+        "learning_eval": 9,
+        "notes": 10,
+        "routing": 11,
+        "recipe_experience": 12,
+        "system": 13,
     }
     return order.get(str(kind or "").strip().lower(), 99)
 
@@ -574,6 +767,11 @@ def _graph_kind_label(kind: str) -> str:
         "session": _memory_routes_text("de", "graph.session", "Daily context"),
         "document": _memory_routes_text("de", "graph.document", "Documents"),
         "knowledge": _memory_routes_text("de", "graph.knowledge", "Knowledge"),
+        "reflection": _memory_routes_text("de", "graph.reflection", "Learning"),
+        "learning_event": _memory_routes_text("de", "graph.learning_event", "Learning Events"),
+        "learning_candidate": _memory_routes_text("de", "graph.learning_candidate", "Learning Candidates"),
+        "learning_active_hint": _memory_routes_text("de", "graph.learning_active_hint", "Active Learning Hints"),
+        "learning_eval": _memory_routes_text("de", "graph.learning_eval", "Learning Evals"),
         "notes": _memory_routes_text("de", "graph.notes", "Notes"),
         "routing": "Routing",
         "recipe_experience": _memory_routes_text("de", "graph.recipe_experience", "Recipe Experience"),
@@ -591,6 +789,11 @@ def _graph_kind_icon(kind: str) -> str:
         "session": "activities",
         "document": "files",
         "knowledge": "llm",
+        "reflection": "llm",
+        "learning_event": "activities",
+        "learning_candidate": "skills",
+        "learning_active_hint": "llm",
+        "learning_eval": "check",
         "notes": "notes",
         "routing": "routing",
         "recipe_experience": "skills",
@@ -614,7 +817,7 @@ def _memory_collection_link(*, kind: str = "all", collection: str = "") -> str:
     normalized_kind = str(kind or "").strip().lower() or "all"
     if normalized_kind == "notes":
         return "/notes"
-    if normalized_kind not in {"all", "fact", "preference", "knowledge", "document", "session"}:
+    if normalized_kind not in {"all", "fact", "preference", "knowledge", "reflection", "learning_event", "learning_candidate", "learning_active_hint", "learning_eval", "document", "session"}:
         normalized_kind = "all"
     return _memory_graph_link(kind=normalized_kind, collection=collection)
 
@@ -878,6 +1081,322 @@ def _build_memory_graph(
         "width": int(width),
         "height": int(height),
         "has_graph": True,
+    }
+
+
+def _brain_graph_preview(value: Any, limit: int = 180) -> str:
+    clean = " ".join(str(value or "").strip().split())
+    if len(clean) <= limit:
+        return clean
+    return clean[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _brain_graph_kind_label(kind: str) -> str:
+    return _graph_kind_label(kind)
+
+
+def _brain_graph_vector(value: Any) -> list[float]:
+    if isinstance(value, dict):
+        value = next((item for item in value.values() if isinstance(item, list)), None)
+    if not isinstance(value, list):
+        return []
+    vector: list[float] = []
+    for item in value:
+        if isinstance(item, (int, float)):
+            vector.append(float(item))
+    return vector
+
+
+def _brain_graph_cosine(left: list[float], right: list[float]) -> float:
+    if not left or not right:
+        return 0.0
+    length = min(len(left), len(right))
+    if length <= 0:
+        return 0.0
+    dot = sum(left[index] * right[index] for index in range(length))
+    left_norm = math.sqrt(sum(left[index] * left[index] for index in range(length)))
+    right_norm = math.sqrt(sum(right[index] * right[index] for index in range(length)))
+    if left_norm <= 0 or right_norm <= 0:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
+def _brain_graph_collection_label(value: str) -> str:
+    clean = str(value or "").strip()
+    if not clean:
+        return "Collection"
+    if len(clean) <= 34:
+        return clean
+    return f"{clean[:31]}..."
+
+
+def _build_qdrant_brain_graph(rows: list[dict[str, Any]], *, max_nodes: int = 96, max_edges: int = 180) -> dict[str, Any]:
+    prepared: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        collection = str(row.get("collection", "")).strip()
+        point_id = str(row.get("id", "")).strip()
+        if not collection or not point_id:
+            continue
+        key = (collection, point_id)
+        if key in seen:
+            continue
+        vector = _brain_graph_vector(row.get("vector"))
+        if not vector:
+            continue
+        seen.add(key)
+        kind = str(row.get("type", "")).strip().lower() or "unknown"
+        title = (
+            str(row.get("note_title", "")).strip()
+            or str(row.get("document_name", "")).strip()
+            or _brain_graph_preview(row.get("text"), 54)
+            or point_id
+        )
+        prepared.append(
+            {
+                "raw": row,
+                "vector": vector,
+                "kind": kind,
+                "collection": collection,
+                "id": point_id,
+                "label": title,
+            }
+        )
+        if len(prepared) >= max_nodes:
+            break
+
+    if not prepared:
+        return {
+            "has_graph": False,
+            "nodes": [],
+            "edges": [],
+            "width": 0,
+            "height": 0,
+            "sample_count": 0,
+            "edge_count": 0,
+            "collection_count": 0,
+            "error": "",
+        }
+
+    collection_indexes: dict[str, list[int]] = {}
+    for index, item in enumerate(prepared):
+        collection_indexes.setdefault(str(item["collection"]), []).append(index)
+
+    required_edges: dict[tuple[int, int], float] = {}
+    optional_edges: dict[tuple[int, int], float] = {}
+
+    def remember_edge(
+        edges: dict[tuple[int, int], float],
+        left_index: int,
+        right_index: int,
+        similarity: float,
+    ) -> None:
+        a, b = sorted((left_index, right_index))
+        if a == b:
+            return
+        # Keep very weak but still best-known links visible enough to shape the graph.
+        score = max(0.12, min(1.0, similarity))
+        edges[(a, b)] = max(edges.get((a, b), 0.0), score)
+
+    for indexes in collection_indexes.values():
+        if len(indexes) < 2:
+            continue
+        pair_scores: list[tuple[int, int, float]] = []
+        neighbor_scores: dict[int, list[tuple[int, float]]] = {index: [] for index in indexes}
+        for offset, left_index in enumerate(indexes):
+            left = prepared[left_index]
+            for right_index in indexes[offset + 1 :]:
+                right = prepared[right_index]
+                similarity = _brain_graph_cosine(left["vector"], right["vector"])
+                pair_scores.append((left_index, right_index, similarity))
+                neighbor_scores[left_index].append((right_index, similarity))
+                neighbor_scores[right_index].append((left_index, similarity))
+        pair_scores.sort(key=lambda item: item[2], reverse=True)
+
+        parent = {index: index for index in indexes}
+
+        def find(index: int) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        def union(left_index: int, right_index: int) -> bool:
+            left_root = find(left_index)
+            right_root = find(right_index)
+            if left_root == right_root:
+                return False
+            parent[right_root] = left_root
+            return True
+
+        # Qdrant's visualization feels connected because every point keeps a nearest-neighbor backbone.
+        for left_index, right_index, similarity in pair_scores:
+            if union(left_index, right_index):
+                remember_edge(required_edges, left_index, right_index, similarity)
+
+        k_neighbors = 7 if len(indexes) <= 48 else 5
+        for left_index, scores in neighbor_scores.items():
+            scores.sort(key=lambda item: item[1], reverse=True)
+            for rank, (right_index, similarity) in enumerate(scores[:k_neighbors]):
+                if rank < 2 or similarity >= 0.30:
+                    remember_edge(optional_edges, left_index, right_index, similarity)
+
+    combined_edges: dict[tuple[int, int], float] = dict(required_edges)
+    optional_ranked = sorted(optional_edges.items(), key=lambda item: item[1], reverse=True)
+    for edge_key, score in optional_ranked:
+        if len(combined_edges) >= max_edges:
+            break
+        combined_edges[edge_key] = max(combined_edges.get(edge_key, 0.0), score)
+    ranked_edges = sorted(
+        [(a, b, score) for (a, b), score in combined_edges.items()],
+        key=lambda item: item[2],
+        reverse=True,
+    )[:max_edges]
+
+    width = 1180
+    height = 760
+    center_x = width / 2
+    center_y = height / 2
+    kinds = sorted({item["kind"] for item in prepared}, key=_graph_kind_order)
+    kind_centers: dict[str, tuple[float, float]] = {}
+    cluster_radius = 230 if len(kinds) > 1 else 0
+    for index, kind in enumerate(kinds):
+        angle = -math.pi / 2 + (2 * math.pi * index / max(1, len(kinds)))
+        kind_centers[kind] = (
+            center_x + math.cos(angle) * cluster_radius,
+            center_y + math.sin(angle) * cluster_radius,
+        )
+    positions: list[list[float]] = []
+    for index, item in enumerate(prepared):
+        cluster_x, cluster_y = kind_centers.get(item["kind"], (center_x, center_y))
+        angle = 2 * math.pi * index / max(1, len(prepared))
+        positions.append([cluster_x + math.cos(angle) * 54, cluster_y + math.sin(angle) * 54])
+
+    adjacency: dict[int, list[tuple[int, float]]] = {index: [] for index in range(len(prepared))}
+    for a, b, score in ranked_edges:
+        adjacency[a].append((b, score))
+        adjacency[b].append((a, score))
+
+    for _ in range(70):
+        forces = [[0.0, 0.0] for _ in prepared]
+        for index, item in enumerate(prepared):
+            target_x, target_y = kind_centers.get(item["kind"], (center_x, center_y))
+            forces[index][0] += (target_x - positions[index][0]) * 0.008
+            forces[index][1] += (target_y - positions[index][1]) * 0.008
+        for left_index in range(len(prepared)):
+            for right_index in range(left_index + 1, len(prepared)):
+                dx = positions[left_index][0] - positions[right_index][0]
+                dy = positions[left_index][1] - positions[right_index][1]
+                dist_sq = max(120.0, dx * dx + dy * dy)
+                force = 820.0 / dist_sq
+                dist = math.sqrt(dist_sq)
+                fx = (dx / dist) * force
+                fy = (dy / dist) * force
+                forces[left_index][0] += fx
+                forces[left_index][1] += fy
+                forces[right_index][0] -= fx
+                forces[right_index][1] -= fy
+        for left_index, neighbors in adjacency.items():
+            for right_index, score in neighbors:
+                dx = positions[right_index][0] - positions[left_index][0]
+                dy = positions[right_index][1] - positions[left_index][1]
+                forces[left_index][0] += dx * 0.010 * score
+                forces[left_index][1] += dy * 0.010 * score
+        for index in range(len(prepared)):
+            positions[index][0] = max(54, min(width - 54, positions[index][0] + forces[index][0]))
+            positions[index][1] = max(54, min(height - 54, positions[index][1] + forces[index][1]))
+
+    nodes: list[dict[str, Any]] = []
+    collection_summaries: dict[str, dict[str, Any]] = {}
+    for index, item in enumerate(prepared):
+        row = item["raw"]
+        x, y = positions[index]
+        text = _brain_graph_preview(row.get("text"), 220)
+        source = str(row.get("source", "")).strip() or "n/a"
+        document_name = str(row.get("document_name", "")).strip()
+        note_title = str(row.get("note_title", "")).strip()
+        note_folder = str(row.get("note_folder", "")).strip()
+        rollup_level = str(row.get("rollup_level", "")).strip()
+        detail_parts = [item["collection"], _brain_graph_kind_label(item["kind"]), source]
+        if document_name:
+            detail_parts.append(document_name)
+        if note_title:
+            detail_parts.append(note_title)
+        if note_folder:
+            detail_parts.append(note_folder)
+        if rollup_level:
+            detail_parts.append(f"Rollup: {rollup_level}")
+        summary = collection_summaries.setdefault(
+            item["collection"],
+            {
+                "id": f"brain-collection-{len(collection_summaries)}",
+                "collection": item["collection"],
+                "label": _brain_graph_collection_label(item["collection"]),
+                "point_count": 0,
+                "kinds": {},
+                "preview": "",
+            },
+        )
+        summary["point_count"] += 1
+        summary["kinds"][item["kind"]] = int(summary["kinds"].get(item["kind"], 0) or 0) + 1
+        if not summary["preview"]:
+            summary["preview"] = text
+        nodes.append(
+            {
+                "id": f"brain-node-{index}",
+                "index": index,
+                "kind": item["kind"],
+                "label": _brain_graph_preview(item["label"], 48),
+                "meta": " · ".join(part for part in detail_parts if part),
+                "preview": text,
+                "collection": item["collection"],
+                "point_id": item["id"],
+                "x": round(x, 2),
+                "y": round(y, 2),
+                "radius": 8 if item["kind"] in {"document", "notes"} else 7,
+            }
+        )
+    collections: list[dict[str, Any]] = []
+    for summary in collection_summaries.values():
+        kinds_meta = ", ".join(
+            f"{_brain_graph_kind_label(kind)}: {count}"
+            for kind, count in sorted(summary["kinds"].items(), key=lambda item: _graph_kind_order(item[0]))
+        )
+        collections.append(
+            {
+                "id": summary["id"],
+                "collection": summary["collection"],
+                "label": summary["label"],
+                "point_count": summary["point_count"],
+                "meta": kinds_meta,
+                "preview": summary["preview"],
+            }
+        )
+    collections.sort(key=lambda item: (-int(item["point_count"]), str(item["collection"]).lower()))
+
+    edges = [
+        {
+            "source": a,
+            "target": b,
+            "score": round(score, 4),
+            "x1": round(positions[a][0], 2),
+            "y1": round(positions[a][1], 2),
+            "x2": round(positions[b][0], 2),
+            "y2": round(positions[b][1], 2),
+            "width": round(0.55 + max(0.0, min(1.0, score)) * 1.25, 2),
+        }
+        for a, b, score in ranked_edges
+    ]
+    return {
+        "has_graph": True,
+        "nodes": nodes,
+        "edges": edges,
+        "width": width,
+        "height": height,
+        "sample_count": len(nodes),
+        "edge_count": len(edges),
+        "collection_count": len({item["collection"] for item in prepared}),
+        "collections": collections,
     }
 
 
@@ -1402,6 +1921,7 @@ def register_memories_routes(
                 "overview_checks": overview_checks,
                 "next_steps": next_steps,
                 "memory_graph": map_snapshot["memory_graph"],
+                "show_qdrant_brain": False,
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "document_collections": document_collections,
                 "active_document_collection": (
@@ -1468,6 +1988,7 @@ def register_memories_routes(
                 error = error or str(exc)
 
         counts = _build_memory_counts(all_rows)
+        learning_review_queue = _build_learning_review_queue(all_rows)
         document_browser_entries: list[dict[str, Any]] = []
         active_document_entry: dict[str, Any] | None = None
         document_store_view = False
@@ -1517,6 +2038,31 @@ def register_memories_routes(
             row["display_timestamp"] = _format_display_timestamp(row.get("timestamp"))
             row["title"] = _memory_title(str(row.get("text", "")))
             row["preview"] = _memory_preview(str(row.get("text", "")))
+            if str(row.get("type", "")).strip().lower() == "learning_candidate":
+                gate_inputs = learning_candidate_gate_inputs(row)
+                row["candidate_artifact_type"] = gate_inputs["artifact_type"]
+                row["candidate_risk"] = gate_inputs["risk"]
+                row["app_learning_preview"] = _build_app_learning_preview(str(row.get("text", "")))
+                row["is_app_learning_candidate"] = gate_inputs["artifact_type"] in APP_LEARNING_ARTIFACT_TYPES
+                row["prepared_artifact_review"] = _build_prepared_artifact_review(
+                    pytest_write_state=str(row.get("pytest_write_state", "") or ""),
+                    pytest_write_gate_result=str(row.get("pytest_write_gate_result", "") or ""),
+                    pytest_target_file=str(row.get("pytest_target_file", "") or ""),
+                    pytest_code_preview_sha256=str(row.get("pytest_code_preview_sha256", "") or ""),
+                    pytest_write_review_state=str(row.get("pytest_write_review_state", "") or ""),
+                    pytest_write_review_decision=str(row.get("pytest_write_review_decision", "") or ""),
+                    pytest_write_review_notes=str(row.get("pytest_write_review_notes", "") or ""),
+                )
+                row["apply_allowed"] = learning_candidate_apply_allowed(
+                    artifact_type=gate_inputs["artifact_type"],
+                    risk=gate_inputs["risk"],
+                    promotion_state=str(row.get("promotion_state", "")).strip(),
+                )
+                row["apply_preview_allowed"] = learning_candidate_apply_preview_allowed(
+                    artifact_type=gate_inputs["artifact_type"],
+                    risk=gate_inputs["risk"],
+                    apply_state=str(row.get("apply_state", "")).strip(),
+                )
         grouped_rows = _build_memory_groups(rows)
         if document_store_view:
             total_rows = len(document_browser_entries)
@@ -1537,6 +2083,7 @@ def register_memories_routes(
             if _is_document_collection_name(active_collection)
             else _default_document_collection_for_user(username)
         )
+        learning_worker_status = get_learning_worker_status(limit=5)
         return templates.TemplateResponse(
             request=request,
             name="memories.html",
@@ -1564,6 +2111,7 @@ def register_memories_routes(
                 "prev_page": (page_number - 1) if page_number > 1 else 1,
                 "next_page": (page_number + 1) if page_number < total_pages else total_pages,
                 "counts": counts,
+                "learning_review_queue": learning_review_queue,
                 "info_message": info,
                 "error_message": error,
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
@@ -1579,7 +2127,51 @@ def register_memories_routes(
                 "default_collection": default_memory_collection_for_user(username),
                 "default_document_collection": _default_document_collection_for_user(username),
                 "supported_upload_suffixes": supported_upload_suffixes(),
+                "learning_worker_status": learning_worker_status,
             },
+        )
+
+    @app.get("/memories/learning-worker/job/{job_id}")
+    async def memories_learning_worker_job(job_id: str) -> JSONResponse:
+        job = get_learning_worker_job(job_id)
+        if not job:
+            return JSONResponse(content={"ok": False, "reason": "job_not_found"}, status_code=404)
+        return JSONResponse(content={"ok": True, "job": job})
+
+    @app.post("/memories/learning-worker/retry")
+    async def memories_learning_worker_retry(
+        request: Request,
+        job_id: str = Form(...),
+        force: str = Form("1"),
+    ) -> RedirectResponse:
+        if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
+            return RedirectResponse(url="/memories/explorer?error=learning_worker_admin_required", status_code=303)
+        result = retry_learning_job(
+            job_id=job_id,
+            force=str(force or "").strip().lower() in {"1", "true", "on", "yes"},
+        )
+        if not result.get("accepted"):
+            return RedirectResponse(
+                url=f"/memories/explorer?error=learning_worker_retry_{quote_plus(str(result.get('reason', 'failed')))}",
+                status_code=303,
+            )
+        return RedirectResponse(url="/memories/explorer?info=learning_worker_retry_queued", status_code=303)
+
+    @app.post("/memories/learning-worker/flush")
+    async def memories_learning_worker_flush(
+        request: Request,
+        scope: str = Form("finished"),
+    ) -> RedirectResponse:
+        if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
+            return RedirectResponse(url="/memories/explorer?error=learning_worker_admin_required", status_code=303)
+        result = flush_learning_worker_jobs(scope=scope)
+        return RedirectResponse(
+            url=(
+                "/memories/explorer?info="
+                f"learning_worker_flushed_{quote_plus(str(result.get('scope', 'finished')))}_"
+                f"{int(result.get('removed_count', 0) or 0)}"
+            ),
+            status_code=303,
         )
 
     @app.get("/memories/export")
@@ -1680,6 +2272,7 @@ def register_memories_routes(
                 "rollup_entries": snapshot["rollup_entries"],
                 "rollup_groups": snapshot["rollup_groups"],
                 "memory_graph": snapshot["memory_graph"],
+                "show_qdrant_brain": True,
                 "health": snapshot["health"],
                 "cleanup_status": snapshot["cleanup_status"],
                 "info_message": info,
@@ -1850,6 +2443,657 @@ def register_memories_routes(
             sort=sort,
             error="Eintrag konnte nicht aktualisiert werden",
         )
+
+    @app.post("/memories/learning-candidate/status")
+    async def memories_learning_candidate_status(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        decision: str = Form(...),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        clean_decision = str(decision or "").strip().lower()
+        status = {"review": "reviewed", "reject": "rejected"}.get(clean_decision, "")
+        if not status:
+            return _memories_redirect(
+                filter_type=type,
+                query=q,
+                collection_filter=collection_filter,
+                page=page,
+                limit=limit,
+                sort=sort,
+                error=_memory_routes_text(lang, "error.learning_candidate_status_invalid", "Invalid candidate status action"),
+            )
+        gate_payload = learning_candidate_promotion_gate(
+            artifact_type=artifact_type,
+            risk=risk,
+            decision=clean_decision,
+            reviewed_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates={
+                "candidate_status": status,
+                "review_decision": clean_decision,
+                "reviewed_at": datetime.now().isoformat(),
+                "reviewed_by": username,
+                **gate_payload,
+            },
+        )
+        if ok:
+            return _memories_redirect(
+                filter_type=type,
+                query=q,
+                collection_filter=collection_filter,
+                page=page,
+                limit=limit,
+                sort=sort,
+                info=_memory_routes_text(lang, "info.learning_candidate_status_updated", "Learning candidate updated"),
+            )
+        return _memories_redirect(
+            filter_type=type,
+            query=q,
+            collection_filter=collection_filter,
+            page=page,
+            limit=limit,
+            sort=sort,
+            error=_memory_routes_text(lang, "error.learning_candidate_status_failed", "Learning candidate could not be updated"),
+        )
+
+    @app.post("/memories/learning-candidate/apply")
+    async def memories_learning_candidate_apply(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        promotion_state: str = Form(""),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        apply_payload = prepare_learning_candidate_apply_payload(
+            artifact_type=artifact_type,
+            risk=risk,
+            promotion_state=promotion_state,
+            candidate_text=candidate_text,
+            applied_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=apply_payload,
+        )
+        if ok:
+            info_key = "info.learning_candidate_apply_prepared" if apply_payload.get("apply_state") == "prepared" else "info.learning_candidate_apply_blocked"
+            default = (
+                "Learning candidate apply prepared"
+                if apply_payload.get("apply_state") == "prepared"
+                else "Learning candidate apply blocked"
+            )
+            return _memories_redirect(
+                filter_type=type,
+                query=q,
+                collection_filter=collection_filter,
+                page=page,
+                limit=limit,
+                sort=sort,
+                info=_memory_routes_text(lang, info_key, default),
+            )
+        return _memories_redirect(
+            filter_type=type,
+            query=q,
+            collection_filter=collection_filter,
+            page=page,
+            limit=limit,
+            sort=sort,
+            error=_memory_routes_text(lang, "error.learning_candidate_apply_failed", "Learning candidate apply could not be updated"),
+        )
+
+    @app.get("/memories/learning-candidate/apply-preview", response_class=HTMLResponse)
+    async def memories_learning_candidate_apply_preview(
+        request: Request,
+        collection: str = "",
+        point_id: str = "",
+        artifact_type: str = "",
+        risk: str = "",
+        apply_state: str = "",
+        regression_status: str = "",
+        regression_ref: str = "",
+        regression_verified: str = "",
+        regression_verify_result: str = "",
+        regression_verify_reason: str = "",
+        activation_preflight_state: str = "",
+        activation_blockers: str = "",
+        pytest_write_state: str = "",
+        pytest_write_gate_result: str = "",
+        pytest_target_file: str = "",
+        pytest_code_preview_sha256: str = "",
+        pytest_write_review_state: str = "",
+        pytest_write_review_decision: str = "",
+        pytest_write_review_notes: str = "",
+        candidate_text: str = "",
+        type: str = "learning_candidate",
+        q: str = "",
+        collection_filter: str = "",
+        page: int = 1,
+        limit: int = 50,
+        sort: str = "updated_desc",
+    ) -> HTMLResponse:
+        settings = get_settings()
+        preview = build_learning_candidate_apply_preview(
+            artifact_type=artifact_type,
+            risk=risk,
+            apply_state=apply_state,
+            candidate_text=candidate_text,
+            collection=collection,
+            point_id=point_id,
+            regression_status=regression_status,
+            regression_ref=regression_ref,
+            regression_verified=regression_verified,
+            regression_verify_result=regression_verify_result,
+            regression_verify_reason=regression_verify_reason,
+        )
+        activation_preview = build_learning_candidate_activation_preview(
+            artifact_type=artifact_type,
+            risk=risk,
+            candidate_text=candidate_text,
+            collection=collection,
+            point_id=point_id,
+            regression_ref=regression_ref,
+            activation_preflight_state=activation_preflight_state,
+            activation_blockers=activation_blockers,
+            user_id=get_username_from_request(request) or "web",
+        )
+        app_learning_preview = _build_app_learning_preview(candidate_text)
+        prepared_artifact_review = _build_prepared_artifact_review(
+            pytest_write_state=pytest_write_state,
+            pytest_write_gate_result=pytest_write_gate_result,
+            pytest_target_file=pytest_target_file,
+            pytest_code_preview_sha256=pytest_code_preview_sha256,
+            pytest_write_review_state=pytest_write_review_state,
+            pytest_write_review_decision=pytest_write_review_decision,
+            pytest_write_review_notes=pytest_write_review_notes,
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="memories_learning_candidate_apply_preview.html",
+            context={
+                "title": settings.ui.title,
+                "username": get_username_from_request(request) or "web",
+                "memory_nav": "explorer",
+                "preview": preview,
+                "activation_preview": activation_preview,
+                "app_learning_preview": app_learning_preview,
+                "prepared_artifact_review": prepared_artifact_review,
+                "return_url": (
+                    f"/memories/explorer?type={quote_plus(type)}&q={quote_plus(q)}"
+                    f"&collection_filter={quote_plus(collection_filter)}&page={max(1, int(page))}"
+                    f"&limit={max(10, min(int(limit), 100))}&sort={quote_plus(sort)}"
+                ),
+            },
+        )
+
+    @app.post("/memories/learning-candidate/regression")
+    async def memories_learning_candidate_regression_link(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        regression_ref: str = Form(""),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        apply_state: str = Form("prepared"),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        payload = link_learning_candidate_regression_payload(
+            regression_ref=regression_ref,
+            linked_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=payload,
+        )
+        clean_ref = str(payload.get("regression_ref", "") or "").strip()
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state={quote_plus(apply_state)}"
+            f"&regression_status={quote_plus(str(payload.get('regression_status', '') or 'missing'))}"
+            f"&regression_ref={quote_plus(clean_ref)}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not ok:
+            return RedirectResponse(url=f"{preview_url}&error=regression_update_failed", status_code=303)
+        return RedirectResponse(url=preview_url, status_code=303)
+
+    @app.post("/memories/learning-candidate/pytest/prepare-write")
+    async def memories_learning_candidate_pytest_prepare_write(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        apply_state: str = Form("prepared"),
+        regression_status: str = Form(""),
+        regression_ref: str = Form(""),
+        regression_verified: str = Form(""),
+        regression_verify_result: str = Form(""),
+        regression_verify_reason: str = Form(""),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        app_learning_preview = _build_app_learning_preview(candidate_text)
+        payload = prepare_pytest_write_payload(
+            app_learning_preview.get("pytest_apply_preview") or {},
+            prepared_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=payload,
+        )
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state={quote_plus(apply_state)}"
+            f"&regression_status={quote_plus(regression_status)}"
+            f"&regression_ref={quote_plus(regression_ref)}"
+            f"&regression_verified={quote_plus(regression_verified)}"
+            f"&regression_verify_result={quote_plus(regression_verify_result)}"
+            f"&regression_verify_reason={quote_plus(regression_verify_reason)}"
+            f"&pytest_write_state={quote_plus(str(payload.get('pytest_write_state', '') or ''))}"
+            f"&pytest_write_gate_result={quote_plus(str(payload.get('pytest_write_gate_result', '') or ''))}"
+            f"&pytest_target_file={quote_plus(str(payload.get('pytest_target_file', '') or ''))}"
+            f"&pytest_code_preview_sha256={quote_plus(str(payload.get('pytest_code_preview_sha256', '') or ''))}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not ok:
+            return RedirectResponse(url=f"{preview_url}&error=pytest_write_prepare_failed", status_code=303)
+        return RedirectResponse(
+            url=f"{preview_url}&info=pytest_write_{quote_plus(str(payload.get('pytest_write_state', 'blocked')))}",
+            status_code=303,
+        )
+
+    @app.post("/memories/learning-candidate/artifact/review")
+    async def memories_learning_candidate_artifact_review(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        artifact_kind: str = Form("pytest_skeleton_write"),
+        decision: str = Form(...),
+        review_notes: str = Form(""),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        apply_state: str = Form("prepared"),
+        regression_status: str = Form(""),
+        regression_ref: str = Form(""),
+        regression_verified: str = Form(""),
+        regression_verify_result: str = Form(""),
+        regression_verify_reason: str = Form(""),
+        pytest_write_state: str = Form(""),
+        pytest_write_gate_result: str = Form(""),
+        pytest_target_file: str = Form(""),
+        pytest_code_preview_sha256: str = Form(""),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        payload = prepare_prepared_artifact_review_payload(
+            artifact_kind=artifact_kind,
+            decision=decision,
+            review_notes=review_notes,
+            reviewed_by=username,
+            prepared_state=pytest_write_state,
+            code_preview_sha256=pytest_code_preview_sha256,
+            target_file=pytest_target_file,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=payload,
+        )
+        review_state = str(payload.get("pytest_write_review_state", "") or "")
+        review_decision = str(payload.get("pytest_write_review_decision", "") or "")
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state={quote_plus(apply_state)}"
+            f"&regression_status={quote_plus(regression_status)}"
+            f"&regression_ref={quote_plus(regression_ref)}"
+            f"&regression_verified={quote_plus(regression_verified)}"
+            f"&regression_verify_result={quote_plus(regression_verify_result)}"
+            f"&regression_verify_reason={quote_plus(regression_verify_reason)}"
+            f"&pytest_write_state={quote_plus(pytest_write_state)}"
+            f"&pytest_write_gate_result={quote_plus(pytest_write_gate_result)}"
+            f"&pytest_target_file={quote_plus(pytest_target_file)}"
+            f"&pytest_code_preview_sha256={quote_plus(pytest_code_preview_sha256)}"
+            f"&pytest_write_review_state={quote_plus(review_state)}"
+            f"&pytest_write_review_decision={quote_plus(review_decision)}"
+            f"&pytest_write_review_notes={quote_plus(str(payload.get('pytest_write_review_notes', '') or ''))}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not ok:
+            return RedirectResponse(url=f"{preview_url}&error=artifact_review_failed", status_code=303)
+        await capture_prepared_artifact_review_learning(
+            user_id=username,
+            memory_skill=pipeline.memory_skill,
+            candidate_collection=sanitize_collection_name(collection),
+            candidate_point_id=str(point_id).strip(),
+            candidate_text=candidate_text,
+            artifact_kind=artifact_kind,
+            review_payload=payload,
+        )
+        return RedirectResponse(url=f"{preview_url}&info=artifact_review_{quote_plus(review_state)}", status_code=303)
+
+    @app.post("/memories/learning-candidate/regression/verify")
+    async def memories_learning_candidate_regression_verify(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        regression_ref: str = Form(""),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        apply_state: str = Form("prepared"),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        payload = verify_learning_candidate_regression_payload(
+            regression_ref=regression_ref,
+            repo_root=BASE_DIR,
+            verified_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=payload,
+        )
+        clean_ref = str(payload.get("regression_ref", "") or "").strip()
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state={quote_plus(apply_state)}"
+            f"&regression_status={quote_plus(str(payload.get('regression_status', '') or 'missing'))}"
+            f"&regression_ref={quote_plus(clean_ref)}"
+            f"&regression_verified={quote_plus(str(payload.get('regression_verified', False)).lower())}"
+            f"&regression_verify_result={quote_plus(str(payload.get('regression_verify_result', '') or ''))}"
+            f"&regression_verify_reason={quote_plus(str(payload.get('regression_verify_reason', '') or ''))}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not ok:
+            return RedirectResponse(url=f"{preview_url}&error=regression_verify_failed", status_code=303)
+        return RedirectResponse(url=preview_url, status_code=303)
+
+    @app.post("/memories/learning-candidate/regression/run")
+    async def memories_learning_candidate_regression_run(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        regression_ref: str = Form(""),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        apply_state: str = Form("prepared"),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        payload = run_learning_candidate_regression_payload(
+            regression_ref=regression_ref,
+            repo_root=BASE_DIR,
+            run_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=payload,
+        )
+        clean_ref = str(payload.get("regression_ref", "") or "").strip()
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state={quote_plus(apply_state)}"
+            f"&regression_status={quote_plus(str(payload.get('regression_status', '') or 'missing'))}"
+            f"&regression_ref={quote_plus(clean_ref)}"
+            f"&regression_verified={quote_plus(str(payload.get('regression_verified', False)).lower())}"
+            f"&regression_verify_result={quote_plus(str(payload.get('regression_verify_result', '') or ''))}"
+            f"&regression_verify_reason={quote_plus(str(payload.get('regression_verify_reason', '') or ''))}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not ok:
+            return RedirectResponse(url=f"{preview_url}&error=regression_run_failed", status_code=303)
+        return RedirectResponse(url=preview_url, status_code=303)
+
+    @app.post("/memories/learning-candidate/activation-preflight")
+    async def memories_learning_candidate_activation_preflight(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        promotion_state: str = Form("eligible"),
+        apply_state: str = Form("prepared"),
+        regression_status: str = Form("linked"),
+        regression_ref: str = Form(""),
+        regression_verified: str = Form(""),
+        regression_verify_result: str = Form(""),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        payload = learning_candidate_activation_preflight_payload(
+            artifact_type=artifact_type,
+            risk=risk,
+            promotion_state=promotion_state,
+            apply_state=apply_state,
+            regression_status=regression_status,
+            regression_verified=regression_verified,
+            regression_verify_result=regression_verify_result,
+            checked_by=username,
+        )
+        ok = await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates=payload,
+        )
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state={quote_plus(apply_state)}"
+            f"&regression_status={quote_plus(regression_status)}"
+            f"&regression_ref={quote_plus(regression_ref)}"
+            f"&regression_verified={quote_plus(str(regression_verified).lower())}"
+            f"&regression_verify_result={quote_plus(str(regression_verify_result or ''))}"
+            f"&activation_preflight_state={quote_plus(str(payload.get('activation_preflight_state', '') or ''))}"
+            f"&activation_blockers={quote_plus(','.join(payload.get('activation_blockers', []) or []))}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not ok:
+            return RedirectResponse(url=f"{preview_url}&error=activation_preflight_failed", status_code=303)
+        return RedirectResponse(url=preview_url, status_code=303)
+
+    @app.post("/memories/learning-candidate/activate")
+    async def memories_learning_candidate_activate(
+        request: Request,
+        collection: str = Form(...),
+        point_id: str = Form(...),
+        artifact_type: str = Form(""),
+        risk: str = Form(""),
+        regression_ref: str = Form(""),
+        activation_preflight_state: str = Form(""),
+        activation_blockers: str = Form(""),
+        candidate_text: str = Form(""),
+        type: str = Form("learning_candidate"),
+        q: str = Form(""),
+        collection_filter: str = Form(""),
+        page: int = Form(1),
+        limit: int = Form(50),
+        sort: str = Form("updated_desc"),
+    ) -> RedirectResponse:
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        if not pipeline.memory_skill:
+            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+        activation_preview = build_learning_candidate_activation_preview(
+            artifact_type=artifact_type,
+            risk=risk,
+            candidate_text=candidate_text,
+            collection=collection,
+            point_id=str(point_id).strip(),
+            regression_ref=regression_ref,
+            activation_preflight_state=activation_preflight_state,
+            activation_blockers=activation_blockers,
+            user_id=username,
+        )
+        preview_url = (
+            f"/memories/learning-candidate/apply-preview?collection={quote_plus(collection)}"
+            f"&point_id={quote_plus(str(point_id).strip())}"
+            f"&artifact_type={quote_plus(artifact_type)}&risk={quote_plus(risk)}"
+            f"&apply_state=prepared&regression_status=linked"
+            f"&regression_ref={quote_plus(regression_ref)}"
+            f"&regression_verified=true&regression_verify_result=passed"
+            f"&activation_preflight_state={quote_plus(activation_preflight_state)}"
+            f"&activation_blockers={quote_plus(activation_blockers)}"
+            f"&candidate_text={quote_plus(candidate_text)}"
+            f"&type={quote_plus(type)}&q={quote_plus(q)}"
+            f"&collection_filter={quote_plus(collection_filter)}"
+            f"&page={max(1, int(page))}&limit={max(10, min(int(limit), 100))}"
+            f"&sort={quote_plus(sort)}"
+        )
+        if not activation_preview.get("activation_allowed"):
+            return RedirectResponse(url=f"{preview_url}&error=activation_blocked", status_code=303)
+        store_result = await pipeline.memory_skill.execute(
+            query=str(activation_preview.get("summary", "") or ""),
+            params=learning_active_hint_store_params(preview=activation_preview, user_id=username),
+        )
+        if not store_result.success:
+            return RedirectResponse(url=f"{preview_url}&error=active_hint_store_failed", status_code=303)
+        await pipeline.memory_skill.update_memory_point_payload(
+            user_id=username,
+            collection=sanitize_collection_name(collection),
+            point_id=str(point_id).strip(),
+            payload_updates={
+                "activation_state": "active_hint_stored",
+                "active_hint_collection": str(activation_preview.get("active_hint_collection", "") or ""),
+                "active_hint_type": str(activation_preview.get("active_hint_type", "") or ""),
+                "active_hint_stored_at": datetime.now().isoformat(),
+                "active_hint_stored_by": username,
+                "activation_runtime_effect": str(activation_preview.get("runtime_activation", "") or ""),
+                "runtime_activation_allowed": False,
+            },
+        )
+        return RedirectResponse(url=f"{preview_url}&info=active_hint_stored", status_code=303)
 
     @app.post("/memories/create")
     async def memories_create(
@@ -2343,7 +3587,9 @@ def register_memories_routes(
             raw.setdefault("auto_memory", {})
             if not isinstance(raw["auto_memory"], dict):
                 raw["auto_memory"] = {}
-            raw["auto_memory"]["enabled"] = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
+            auto_memory_active = str(enabled).strip().lower() in {"1", "true", "on", "yes"}
+            raw["auto_memory"]["enabled"] = auto_memory_active
+            raw["auto_memory"]["agentic_extraction_enabled"] = auto_memory_active
             raw["auto_memory"]["session_recall_top_k"] = int(session_recall_top_k)
             raw["auto_memory"]["user_recall_top_k"] = int(user_recall_top_k)
             raw["auto_memory"]["max_facts_per_message"] = int(max_facts_per_message)

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import time
-from dataclasses import dataclass, field, replace
-from datetime import date
+from dataclasses import replace
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -29,11 +27,19 @@ from aria.core.agentic_execution import AgenticExecutionRequest
 from aria.core.agentic_execution_learning import AgenticExecutionLearningService
 from aria.core.agentic_execution_learning import auto_learning_suppressed
 from aria.core.agentic_execution_registry import AgenticExecutionRegistry
+from aria.core.agentic_context_runtime import AgenticContextRuntimeMixin
+from aria.core.aria_turn_arbitration import AriaTurnArbiter
+from aria.core.aria_turn_arbitration import AriaTurnArbitration
+from aria.core.aria_turn_arbitration import AriaTurnCollectionOption
+from aria.core.aria_turn_arbitration import AriaTurnPlan
+from aria.core.aria_turn_arbitration import build_aria_turn_menu
 from aria.core.agentic_rss_execution import RSSFeedExecutionHandler
 from aria.core.agentic_rss_execution import RSSFeedExecutionHooks
 from aria.core.agentic_ssh_execution import MultiTargetSSHExecutionHandler
 from aria.core.agentic_ssh_execution import MultiTargetSSHExecutionHooks
 from aria.core.blocked_action_explanation import explain_blocked_action
+from aria.core.bounded_decision import BoundedDecisionClient
+from aria.core.bounded_decision import confidence_score
 from aria.core.bounded_planner import debug_bounded_planner_decision
 from aria.core.capability_catalog import (
     capability_executor_kinds,
@@ -45,8 +51,8 @@ from aria.core.capability_router import CapabilityRouter
 from aria.core.chat_context_filter import explicitly_requests_local_context
 from aria.core.chat_context_filter import filter_chat_context_skill_results
 from aria.core.chat_context_filter import looks_like_general_diagnostic_or_advice_request
-from aria.core.chat_freshness import decide_chat_freshness
-from aria.core.chat_freshness import format_chat_freshness_debug
+from aria.core.chat_context_filter import skill_result_is_local_memory_context
+from aria.core.context_surface_adapters import build_builtin_surface_registry
 from aria.core.connection_catalog import connection_kind_label
 from aria.core.connection_catalog import connection_routing_spec
 from aria.core.connection_catalog import normalize_connection_kind
@@ -55,7 +61,6 @@ from aria.core.connection_dossiers import build_file_target_dossier
 from aria.core.connection_dossiers import build_http_api_target_dossier
 from aria.core.connection_dossiers import build_message_target_dossier
 from aria.core.connection_dossiers import build_read_target_dossier
-from aria.core.connection_dossiers import build_ssh_target_dossier
 from aria.core.connection_dossiers import with_capability_draft_updates
 from aria.core.connection_semantic_resolver import ConnectionSemanticResolver
 from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
@@ -72,6 +77,9 @@ from aria.core.connection_action_contract import connection_action_executor_bind
 from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.config import RoutingLanguageConfig, Settings
 from aria.core.context import ContextAssembler
+from aria.core.context_surfaces import ContextRequest
+from aria.core.context_surfaces import RuntimeOutcomeFrame
+from aria.core.context_surfaces import TurnFrame
 from aria.core.routing_index import RoutingIndexStore
 from aria.core.embedding_client import EmbeddingClient
 from aria.core.error_interpreter import ErrorInterpreter
@@ -81,10 +89,9 @@ from aria.core.execution_dry_run import (
     evaluate_guardrail_confirm_dry_run,
 )
 from aria.core.execution_dry_run_payloads import connection_row as payload_connection_row
-from aria.core.execution_dry_run_payloads import read_row_list
 from aria.core.execution_dry_run_payloads import read_row_value
-from aria.core.guardrails import evaluate_guardrail
-from aria.core.guardrails import resolve_guardrail_profile
+from aria.core.artifact_review_patterns import recall_artifact_review_patterns
+from aria.core.host_artifact_learning import host_artifact_discovery_outcome_events
 from aria.core.http_api_agentic_resolution import apply_agentic_http_api_resolution as core_apply_agentic_http_api_resolution
 from aria.core.http_api_policy import HTTPAPIPolicyDecision
 from aria.core.file_agentic_resolution import apply_agentic_file_operation_resolution as core_apply_agentic_file_operation_resolution
@@ -92,11 +99,23 @@ from aria.core.messaging_agentic_resolution import apply_agentic_message_operati
 from aria.core.read_agentic_resolution import apply_agentic_read_operation_resolution as core_apply_agentic_read_operation_resolution
 from aria.core.read_agentic_resolution import read_draft_is_complete
 from aria.core.i18n import I18NStore
+from aria.core.inventory_index import InventoryIndexStore
+from aria.core.inventory_index import create_inventory_qdrant_client
+from aria.core.inventory_index import inventory_collection_name
 from aria.core.executor_registry import ExecutorRegistry
 from aria.core.agentic_runtime_debug import runtime_debug_line_for_plan
 from aria.core.learned_recipe_integration import record_routed_stored_recipe_success
 from aria.core.learned_recipe_curator import curate_learned_recipe_entry
 from aria.core.learned_recipe_store_updates import record_successful_learned_recipe_execution
+from aria.core.learning_outcomes import active_learning_hint_outcome_event
+from aria.core.learning_outcomes import capture_learning_outcome
+from aria.core.learning_outcomes import capture_web_search_learning_outcome
+from aria.core.learning_outcomes import connection_action_outcome_event
+from aria.core.learning_outcomes import recipe_catalog_outcome_event
+from aria.core.learning_worker import enqueue_learning_job
+from aria.core.pipeline_learning_helpers import PipelineLearningHelpersMixin
+from aria.core.pipeline_recipe_helpers import PipelineRecipeHelpersMixin
+from aria.core.pipeline_ssh_helpers import PipelineSSHHelpersMixin
 from aria.core.pipeline_recipe_experience import format_recipe_experience_context
 from aria.core.pipeline_recipe_experience import recipe_experience_context
 from aria.core.pipeline_recipe_experience import recipe_experience_context_rows
@@ -105,6 +124,7 @@ from aria.core.recipe_experience_memory import search_recipe_experience_memory
 from aria.core.recipe_experience_memory import store_recipe_experience_memory
 from aria.core.llm_client import LLMClient
 from aria.core.memory_assist import MemoryAssistResolver
+from aria.core.stage_timing import StageTimingLedger
 from aria.core.pipeline_action_flow_helpers import append_debug_detail_lines
 from aria.core.pipeline_action_flow_helpers import build_pending_action_state
 from aria.core.pipeline_action_flow_helpers import build_routed_confirmation_text
@@ -124,6 +144,7 @@ from aria.core.pipeline_capability_messages import capability_execution_error_co
 from aria.core.pipeline_capability_messages import format_capability_execution_error
 from aria.core.pipeline_capability_messages import format_capability_missing_message
 from aria.core.pipeline_capability_messages import sanitize_capability_error
+from aria.core.pipeline_models import PipelineResult
 from aria.core.pipeline_qdrant_helpers import qdrant_ask_on_low_confidence
 from aria.core.pipeline_qdrant_helpers import qdrant_routing_enabled
 from aria.core.pipeline_qdrant_helpers import qdrant_routing_limit
@@ -135,8 +156,11 @@ from aria.core.pipeline_routing_debug_helpers import append_routing_record_to_re
 from aria.core.pipeline_routing_debug_helpers import attach_connection_candidates_debug
 from aria.core.prompt_loader import PromptLoader
 from aria.core.pipeline_routing_debug_helpers import resolved_routing_chain_has_signal
+from aria.core.pipeline_routing_debug_helpers import routing_debug_line
 from aria.core.pipeline_routing_debug_helpers import routing_candidates_from_resolved
 from aria.core.pipeline_routing_debug_helpers import serialize_connection_candidates
+from aria.core.learning_promotion import learning_active_hints_collection_for_user
+from aria.core.pipeline_turn_stages import PipelineTurnStagesMixin
 from aria.core.pricing_catalog import resolve_pricing_entry
 from aria.core.planner_candidates import build_connection_planner_input_set
 from aria.core.planner_candidates import build_planner_input_set
@@ -146,13 +170,11 @@ from aria.core.planner_candidates import planner_candidate_from_connection_paylo
 from aria.core.planner_candidates import planner_input_set_to_dict
 from aria.core.qdrant_client import create_async_qdrant_client
 from aria.core.recipe_runtime_contract import RECIPE_MANIFEST_MISSING_ERROR
-from aria.core.recipe_runtime_contract import RECIPE_STATUS_INTENT
 from aria.core.recipe_runtime_contract import build_recipe_intent
 from aria.core.recipe_runtime_contract import build_recipe_runtime_skill_name
-from aria.core.recipe_runtime_contract import is_recipe_intent
-from aria.core.recipe_runtime_contract import is_recipe_status_intent
 from aria.core.recipe_result_view import friendly_recipe_error_text
 from aria.core.router import KeywordRouter
+from aria.core.router import RouterDecision
 from aria.core.routing_admin import ensure_connection_routing_index_ready
 from aria.core.routing_admin import resolve_connection_routing_chain
 from aria.core.routing_admin import routing_connections_collection_name
@@ -163,6 +185,7 @@ from aria.core.rss_digest_options import build_rss_digest_options_note
 from aria.core.rss_digest_options import infer_rss_digest_options
 from aria.core.rss_grouping import build_rss_status_groups
 from aria.core.safe_fix import SafeFixExecutor, build_safe_fix_plan, extract_held_packages, format_held_packages_summary
+from aria.core.turn_intent_arbitration import TurnIntentArbiter
 from aria.core.recipe_runtime import (
     RecipeRuntime,
     build_recipe_status_text,
@@ -176,12 +199,10 @@ from aria.core.recipe_runtime import (
     resolve_recipe_intent_with_llm,
     resolve_stored_recipe_intent_with_llm,
     sanitize_recipe_id,
+    scored_stored_recipe_rows,
     should_skip_recipe_auto_memory_persist,
 )
 from aria.core.ssh_runtime import SSHRuntime
-from aria.core.ssh_agentic_resolution import apply_agentic_ssh_command_resolution as core_apply_agentic_ssh_command_resolution
-from aria.core.ssh_guardrail_commands import combined_ssh_allow_commands
-from aria.core.ssh_guardrail_commands import ssh_guardrail_allow_terms
 from aria.core.ssh_policy import validate_ssh_readonly_policy
 from aria.core.text_utils import extract_json_object as core_extract_json_object
 from aria.core.text_utils import is_english
@@ -223,22 +244,6 @@ def _pipeline_text(language: str | None, key: str, default: str = "", **values: 
         return template
 
 
-@dataclass
-class PipelineResult:
-    request_id: str
-    text: str
-    usage: dict[str, int]
-    intents: list[str]
-    skill_errors: list[str]
-    router_level: int
-    duration_ms: int
-    chat_cost_usd: float | None = None
-    embedding_cost_usd: float | None = None
-    total_cost_usd: float | None = None
-    safe_fix_plan: list[dict[str, Any]] | None = None
-    detail_lines: list[str] = field(default_factory=list)
-    pending_action: dict[str, Any] | None = None
-
 _RSS_GROUP_BUNDLE_PREFIX = "__rss_group_bundle__:"
 
 
@@ -254,7 +259,10 @@ def _pre_rag_usage_scope(func: Any) -> Any:
         decision: Any,
         start: float,
         runtime_recipes: list[dict[str, Any]],
+        auto_memory_enabled: bool = False,
         language: str | None = None,
+        seed_capability_draft: Any | None = None,
+        semantic_source: str = "",
     ) -> tuple[PipelineResult | None, list[str], Any | None]:
         with self.usage_meter.scope(
             request_id=request_id,
@@ -271,7 +279,10 @@ def _pre_rag_usage_scope(func: Any) -> Any:
                 decision=decision,
                 start=start,
                 runtime_recipes=runtime_recipes,
+                auto_memory_enabled=auto_memory_enabled,
                 language=language,
+                seed_capability_draft=seed_capability_draft,
+                semantic_source=semantic_source,
             )
             if result is None:
                 usage_snapshot = self._current_usage_snapshot()
@@ -301,7 +312,7 @@ def _pre_rag_usage_scope(func: Any) -> Any:
     return wrapper
 
 
-class Pipeline:
+class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, PipelineRecipeHelpersMixin, PipelineSSHHelpersMixin, PipelineTurnStagesMixin):
     """Session 2 Pipeline: Load -> Route -> Skills -> Context -> LLM -> Track."""
 
     def __init__(
@@ -386,6 +397,9 @@ class Pipeline:
             if handler is not None:
                 self._executor_registry.register(connection_kind, capability, handler)
         self._content_access_registry = AgenticContentAccessRegistry([])
+        self._aria_turn_frames: dict[str, TurnFrame] = {}
+        self._runtime_outcome_frames: dict[str, RuntimeOutcomeFrame] = {}
+        self._last_meta_catalog_fallback_debug_lines: list[str] = []
 
     @staticmethod
     def _connection_kind_label(kind: str) -> str:
@@ -447,128 +461,6 @@ class Pipeline:
         return rewritten
 
     @staticmethod
-    def _looks_like_same_ssh_target_followup(message: str) -> bool:
-        clean = re.sub(r"\s+", " ", str(message or "")).strip().lower()
-        if not clean:
-            return False
-        spec = connection_routing_spec("ssh")
-        for term in spec.follow_up_same_target_terms:
-            clean_term = str(term or "").strip().lower()
-            if not clean_term:
-                continue
-            if " " in clean_term:
-                if clean_term in clean:
-                    return True
-                continue
-            if re.search(rf"\b{re.escape(clean_term)}\b", clean):
-                return True
-        return False
-
-    def _looks_like_ssh_followup_message(self, message: str, user_id: str, *, language: str | None = None) -> bool:
-        clean = re.sub(r"\s+", " ", str(message or "")).strip()
-        if not clean:
-            return False
-        recent = self._load_recent_capability_context(user_id)
-        if str(recent.get("capability", "") or "").strip() != "ssh_command":
-            return False
-        if str(recent.get("connection_kind", "") or "").strip() != "ssh":
-            return False
-        lower = clean.lower()
-        if self._looks_like_same_ssh_target_followup(clean):
-            return True
-
-        followup_starter = any(
-            lower == term or lower.startswith(term + " ")
-            for term in connection_routing_spec("ssh").follow_up_starter_terms
-            if str(term).strip()
-        )
-
-        connection_pools = self._capability_routing_connection_pools()
-        ssh_rows = dict(connection_pools.get("ssh", {}) or {})
-        if not ssh_rows:
-            return False
-        alias_rows: dict[str, list[str]] = {}
-        for ref, row in ssh_rows.items():
-            clean_ref = str(ref).strip()
-            if clean_ref:
-                alias_rows[clean_ref] = build_connection_aliases("ssh", clean_ref, row)
-        lexicon = self.capability_router._lexicon_for_language(language)
-        explicit_kind, explicit_ref = self.capability_router._extract_explicit_connection_by_kind(
-            clean,
-            {"ssh": ssh_rows.keys()},
-            lexicon,
-            {"ssh": alias_rows} if alias_rows else None,
-        )
-        if explicit_kind == "ssh" and explicit_ref:
-            return followup_starter or bool(re.search(r"\b(?:nochmal|erneut|wieder)\b", lower)) or bool(
-                re.search(r"\bwie\s+sieht\s+es\b", lower)
-            )
-        requested_candidate = self.capability_router._extract_requested_connection_ref_hint(clean, "ssh", lexicon)
-        if requested_candidate:
-            return followup_starter or bool(re.search(r"\bwie\s+sieht\s+es\b", lower))
-        return False
-
-    def _rewrite_ssh_followup_message(self, message: str, user_id: str, *, language: str | None = None) -> str:
-        clean_message = str(message or "").strip()
-        if not clean_message:
-            return clean_message
-        if not self._looks_like_ssh_followup_message(clean_message, user_id, language=language):
-            return clean_message
-
-        recent = self._load_recent_capability_context(user_id)
-        if str(recent.get("capability", "") or "").strip() != "ssh_command":
-            return clean_message
-        if str(recent.get("connection_kind", "") or "").strip() != "ssh":
-            return clean_message
-
-        connection_pools = self._capability_routing_connection_pools()
-        ssh_rows = dict(connection_pools.get("ssh", {}) or {})
-        if not ssh_rows:
-            return clean_message
-        alias_rows: dict[str, list[str]] = {}
-        for ref, row in ssh_rows.items():
-            clean_ref = str(ref).strip()
-            if clean_ref:
-                alias_rows[clean_ref] = build_connection_aliases("ssh", clean_ref, row)
-        lexicon = self.capability_router._lexicon_for_language(language)
-        explicit_kind, explicit_ref = self.capability_router._extract_explicit_connection_by_kind(
-            clean_message,
-            {"ssh": ssh_rows.keys()},
-            lexicon,
-            {"ssh": alias_rows} if alias_rows else None,
-        )
-        requested_candidate = self.capability_router._extract_requested_connection_ref_hint(clean_message, "ssh", lexicon)
-
-        target_ref = explicit_ref if explicit_kind == "ssh" else ""
-        target_phrase = requested_candidate if not target_ref else ""
-        if not target_ref and not target_phrase and self._looks_like_same_ssh_target_followup(clean_message):
-            target_ref = str(recent.get("connection_ref", "") or "").strip()
-
-        if target_ref:
-            rewrite_prefix = connection_routing_spec("ssh").follow_up_rewrite_prefix or "ssh"
-            return f"{rewrite_prefix} {target_ref} {clean_message}"
-        if target_phrase:
-            rewrite_prefix = connection_routing_spec("ssh").follow_up_rewrite_prefix or "ssh"
-            return f"{rewrite_prefix} {target_phrase} {clean_message}"
-        return clean_message
-
-    def _build_ssh_target_dossier(self, connection_ref: str, *, user_id: str = "") -> dict[str, Any]:
-        rows = dict(self._capability_routing_connection_pools().get("ssh", {}) or {})
-        recent = self._load_recent_capability_context(user_id) if user_id else {}
-        dossier = build_ssh_target_dossier(rows, connection_ref, recent_context=recent)
-        guardrail_ref = str(dossier.get("guardrail_ref", "") or "").strip()
-        if not guardrail_ref:
-            return dossier
-        profile = resolve_guardrail_profile(self.settings, guardrail_ref)
-        profile_kind = str(profile.get("kind", "") if isinstance(profile, dict) else getattr(profile, "kind", "")).strip()
-        if profile_kind != "ssh_command":
-            return dossier
-        allow_terms = list(profile.get("allow_terms", []) or []) if isinstance(profile, dict) else list(getattr(profile, "allow_terms", []) or [])
-        deny_terms = list(profile.get("deny_terms", []) or []) if isinstance(profile, dict) else list(getattr(profile, "deny_terms", []) or [])
-        dossier["guardrail_allow_terms"] = [str(item).strip() for item in allow_terms if str(item).strip()]
-        dossier["guardrail_deny_terms"] = [str(item).strip() for item in deny_terms if str(item).strip()]
-        return dossier
-
     @staticmethod
     def _extract_json_object(text: str) -> dict[str, Any]:
         return core_extract_json_object(text) or {}
@@ -719,130 +611,6 @@ class Pipeline:
             routing_debug_enabled=self._routing_debug_enabled,
             with_capability_draft_updates=with_capability_draft_updates,
         )
-
-    async def _apply_agentic_ssh_command_resolution(
-        self,
-        *,
-        message: str,
-        user_id: str = "",
-        routing_decision: dict[str, Any] | None = None,
-        action_debug: dict[str, Any] | None = None,
-        capability_draft: Any | None = None,
-        language: str | None = None,
-        llm_client: Any | None = None,
-    ) -> tuple[dict[str, Any], Any | None, str]:
-        return await core_apply_agentic_ssh_command_resolution(
-            client=self.llm_client if llm_client is None else llm_client,
-            message=message,
-            user_id=user_id,
-            routing_decision=routing_decision,
-            action_debug=action_debug,
-            capability_draft=capability_draft,
-            language=language,
-            build_ssh_target_dossier=self._build_ssh_target_dossier,
-            extract_json_object=self._extract_json_object,
-            normalize_spaces=self._normalize_spaces,
-            routing_debug_enabled=self._routing_debug_enabled,
-            msg=self._msg,
-            with_capability_draft_updates=with_capability_draft_updates,
-        )
-
-    async def _refresh_resolved_agentic_ssh_command(
-        self,
-        resolved: dict[str, Any],
-        *,
-        message: str,
-        user_id: str = "",
-        capability_draft: Any | None = None,
-        language: str | None = None,
-    ) -> tuple[dict[str, Any], Any | None]:
-        routing_decision = dict(resolved.get("decision", {}) or {})
-        if normalize_connection_kind(str(routing_decision.get("kind", "") or "")) != "ssh":
-            return resolved, capability_draft
-        action_debug = dict(resolved.get("action_debug", {}) or {})
-        action_decision = dict(action_debug.get("decision", {}) or {})
-        if str(action_decision.get("candidate_kind", "") or "").strip().lower() != "template":
-            return resolved, capability_draft
-        if str(action_decision.get("candidate_id", "") or "").strip() != "ssh_run_command":
-            return resolved, capability_draft
-        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
-        working_draft = capability_draft
-        if working_draft is None:
-            working_draft = CapabilityDraft(
-                capability=str(payload.get("capability", "") or "ssh_command").strip() or "ssh_command",
-                connection_kind="ssh",
-                explicit_connection_ref=str(payload.get("connection_ref", "") or "").strip(),
-                requested_connection_ref=str(payload.get("requested_connection_ref", "") or "").strip(),
-                path=str(payload.get("path", "") or "").strip(),
-                content=str(payload.get("content", "") or "").strip(),
-                plan_class=str(payload.get("plan_class", "") or "").strip(),
-                behavior_profile=str(payload.get("behavior_profile", "") or "").strip(),
-            )
-        else:
-            draft_updates: dict[str, Any] = {}
-            if not str(getattr(working_draft, "content", "") or "").strip() and str(payload.get("content", "") or "").strip():
-                draft_updates["content"] = str(payload.get("content", "") or "").strip()
-            if not str(getattr(working_draft, "path", "") or "").strip() and str(payload.get("path", "") or "").strip():
-                draft_updates["path"] = str(payload.get("path", "") or "").strip()
-            if not str(getattr(working_draft, "explicit_connection_ref", "") or "").strip() and str(payload.get("connection_ref", "") or "").strip():
-                draft_updates["explicit_connection_ref"] = str(payload.get("connection_ref", "") or "").strip()
-            if not str(getattr(working_draft, "requested_connection_ref", "") or "").strip() and str(payload.get("requested_connection_ref", "") or "").strip():
-                draft_updates["requested_connection_ref"] = str(payload.get("requested_connection_ref", "") or "").strip()
-            if draft_updates:
-                working_draft = with_capability_draft_updates(working_draft, **draft_updates)
-        updated_action_debug, capability_draft, debug_line = await self._apply_agentic_ssh_command_resolution(
-            message=str(message or "").strip(),
-            user_id=user_id,
-            routing_decision=routing_decision,
-            action_debug=action_debug,
-            capability_draft=working_draft,
-            language=language,
-            llm_client=self.llm_client,
-        )
-        resolved["action_debug"] = updated_action_debug
-        original_payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
-        original_safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
-        original_execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
-        payload_debug = build_payload_dry_run(
-            str(message or "").strip(),
-            settings=self.settings,
-            routing_decision=routing_decision,
-            action_decision=dict((updated_action_debug or {}).get("decision", {}) or {}),
-        )
-        payload_debug = self._apply_capability_draft_overrides(
-            payload_debug,
-            capability_draft=capability_draft,
-        )
-        resolved["payload_debug"] = payload_debug
-        recalculated_safety = evaluate_guardrail_confirm_dry_run(
-            self.settings,
-            payload_debug=payload_debug,
-            routing_decision=routing_decision,
-            language=str(language or ""),
-        )
-        recalculated_execution = build_execution_preview_dry_run(
-            routing_decision=routing_decision,
-            action_decision=dict((updated_action_debug or {}).get("decision", {}) or {}),
-            payload_debug=payload_debug,
-            safety_debug=recalculated_safety,
-            language=str(language or ""),
-        )
-        refreshed_payload_content = str((payload_debug.get("payload") or {}).get("content", "") or "").strip()
-        original_payload_content = str(original_payload.get("content", "") or "").strip()
-        updated_decision = dict((updated_action_debug or {}).get("decision", {}) or {})
-        fallback_replaced_blocked_command = bool(updated_decision.get("guardrail_fallback_from")) or (
-            refreshed_payload_content
-            and refreshed_payload_content != original_payload_content
-        )
-        if str(original_safety.get("action", "") or "").strip().lower() == "block" and not fallback_replaced_blocked_command:
-            resolved["safety_debug"] = {"available": True, "used": True, "status": "block", "visual_status": "block", "decision": original_safety}
-            resolved["execution_debug"] = {"available": True, "used": True, "status": "block", "visual_status": "block", "decision": original_execution}
-        else:
-            resolved["safety_debug"] = recalculated_safety
-            resolved["execution_debug"] = recalculated_execution
-        if debug_line:
-            resolved = self._append_debug_detail_lines(resolved, debug_line)
-        return resolved, capability_draft
 
     async def _refresh_resolved_agentic_file_operation(
         self,
@@ -1330,49 +1098,36 @@ class Pipeline:
     def _routing_debug_line(self, text: str) -> list[str]:
         return [text] if self._routing_debug_enabled() and str(text or "").strip() else []
 
-    def _schedule_learned_recipe_followup(
-        self,
-        *,
-        entry: dict[str, Any] | None,
-        user_id: str,
-        language: str,
-        detail_lines: list[str],
-        curate: bool = True,
-    ) -> None:
-        if not entry:
-            return
-
-        async def _run() -> None:
-            learned_entry = dict(entry or {})
-            if curate:
-                learned_entry, _curation_debug = await curate_learned_recipe_entry(
-                    llm_client=self.llm_client,
-                    entry=learned_entry,
-                    language=language,
-                    user_id=user_id,
-                )
-            if learned_entry and self.memory_skill is not None:
-                await store_recipe_experience_memory(
-                    self.memory_skill,
-                    user_id=user_id,
-                    entry=learned_entry,
-                )
-
-        try:
-            task = asyncio.create_task(_run())
-        except RuntimeError:
-            return
-
-        def _consume_result(done: asyncio.Task[None]) -> None:
-            try:
-                done.result()
-            except Exception:
-                pass
-
-        task.add_done_callback(_consume_result)
-
     def _append_debug_detail_lines(self, resolved: dict[str, Any], *lines: str) -> dict[str, Any]:
         return append_debug_detail_lines(resolved, *lines, routing_debug_enabled=self._routing_debug_enabled())
+
+    @staticmethod
+    def _pipeline_text(language: str | None, key: str, default: str = "", **values: object) -> str:
+        return _pipeline_text(language, key, default, **values)
+
+    @staticmethod
+    def _skill_errors(skill_results: list[SkillResult]) -> list[str]:
+        return [str(result.error) for result in skill_results if not result.success and result.error]
+
+    @staticmethod
+    def _skill_failure_and_extraction_stats(skill_results: list[SkillResult]) -> tuple[list[str], str, dict[str, int]]:
+        errors: list[str] = []
+        extraction_model = "rule_based"
+        usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
+        for result in skill_results:
+            if not result.success and result.error:
+                errors.append(str(result.error))
+            meta = result.metadata or {}
+            extract_usage = meta.get("extraction_usage")
+            if meta.get("extraction_model"):
+                extraction_model = str(meta["extraction_model"])
+            if not isinstance(extract_usage, dict):
+                continue
+            usage["prompt_tokens"] += int(extract_usage.get("prompt_tokens", 0) or 0)
+            usage["completion_tokens"] += int(extract_usage.get("completion_tokens", 0) or 0)
+            usage["total_tokens"] += int(extract_usage.get("total_tokens", 0) or 0)
+            usage["calls"] += 1
+        return errors, extraction_model, usage
 
     def _qdrant_routing_enabled(self) -> bool:
         return qdrant_routing_enabled(self.settings)
@@ -1425,6 +1180,302 @@ class Pipeline:
                 seen.add(text)
                 lines.append(text)
         return lines
+
+    @staticmethod
+    def _external_urls(message: str) -> list[str]:
+        return [
+            match.group(0).strip(" \t\r\n.,;!?")
+            for match in re.finditer(r"https?://[^\s<>()\"']+", str(message or ""), flags=re.IGNORECASE)
+            if match.group(0).strip(" \t\r\n.,;!?")
+        ]
+
+    @staticmethod
+    def _recent_connection_refs(recent: dict[str, Any]) -> list[str]:
+        refs = [
+            str(item or "").strip()
+            for item in list(recent.get("connection_refs", []) or [])
+            if str(item or "").strip()
+        ]
+        if refs:
+            return list(dict.fromkeys(refs))
+        ref = str(recent.get("connection_ref", "") or "").strip()
+        return [ref] if ref else []
+
+    async def _llm_wants_recent_capability_context(
+        self,
+        message: str,
+        *,
+        recent: dict[str, Any],
+        language: str | None = None,
+    ) -> bool:
+        if self.llm_client is None:
+            return False
+        refs = self._recent_connection_refs(recent)
+        if not refs:
+            return False
+        prompt_payload = {
+            "message": str(message or ""),
+            "language": str(language or ""),
+            "recent_runtime_context": {
+                "capability": str(recent.get("capability", "") or ""),
+                "connection_kind": str(recent.get("connection_kind", "") or ""),
+                "connection_ref": str(recent.get("connection_ref", "") or ""),
+                "connection_refs": refs,
+                "content": str(recent.get("content", "") or ""),
+                "result_summary": str(recent.get("result_summary", "") or ""),
+            },
+            "contract": (
+                "Decide whether the user is asking about the immediately previous ARIA runtime action, "
+                "its targets, command, or result. Return false for unrelated questions or requests for local notes/documents."
+            ),
+        }
+        decision = await BoundedDecisionClient(self.llm_client).decide_json(
+            operation="recent_capability_context_relevance",
+            system=(
+                "You are a bounded relevance classifier. Return one JSON object only with "
+                "use_context, confidence, reason. Do not answer the user and do not propose actions."
+            ),
+            payload=prompt_payload,
+        )
+        if not decision.ok:
+            return False
+        payload = decision.payload
+        use_context = bool(payload.get("use_context"))
+        confidence_raw = str(payload.get("confidence", "") or "").strip().lower()
+        confidence = confidence_score(payload.get("confidence"))
+        return use_context and confidence >= 0.55
+
+    async def _recent_capability_context_skill_result(
+        self,
+        message: str,
+        user_id: str,
+        *,
+        language: str | None = None,
+    ) -> SkillResult | None:
+        if self.capability_context_store is None or not user_id:
+            return None
+        try:
+            recent = self.capability_context_store.load_recent(user_id)
+        except Exception:
+            return None
+        if not isinstance(recent, dict) or not recent:
+            return None
+        refs = self._recent_connection_refs(recent)
+        if not refs:
+            return None
+        if not await self._llm_wants_recent_capability_context(message, recent=recent, language=language):
+            return None
+        capability = str(recent.get("capability", "") or "").strip() or "unknown"
+        kind = str(recent.get("connection_kind", "") or "").strip() or "unknown"
+        command = str(recent.get("content", "") or "").strip()
+        summary = str(recent.get("result_summary", "") or "").strip()
+        runtime_effect = self._runtime_effect_for_recent_context(connection_kind=kind, command=command)
+        lines = [
+            "Recent ARIA runtime action:",
+            f"- Capability: {capability}",
+            f"- Connection kind: {kind}",
+            f"- Targets: {', '.join(refs)}",
+        ]
+        if command:
+            lines.append(f"- Command/content: {command}")
+        if summary:
+            lines.append(f"- Result summary: {summary}")
+        detail = f"Kontext: letzte {connection_kind_label(kind)}-Ziele · {', '.join(refs)}"
+        return SkillResult(
+            skill_name="recent_capability_context",
+            content="\n".join(lines),
+            success=True,
+            metadata={
+                "detail_lines": [detail],
+                "sources": [{"type": "recent_capability_context", "connection_kind": kind}],
+                "connection_kind": kind,
+                "command": command,
+                "runtime_effect": runtime_effect,
+            },
+        )
+
+    async def _message_wants_recent_runtime_context(
+        self,
+        message: str,
+        user_id: str,
+        *,
+        language: str | None = None,
+    ) -> bool:
+        if self.capability_context_store is None or not user_id:
+            return False
+        try:
+            recent = self.capability_context_store.load_recent(user_id)
+        except Exception:
+            return False
+        if not isinstance(recent, dict) or not recent:
+            return False
+        if normalize_connection_kind(str(recent.get("connection_kind", "") or "")) != "ssh":
+            return False
+        if normalize_capability(str(recent.get("capability", "") or "")) != "ssh_command":
+            return False
+        return await self._llm_wants_recent_capability_context(message, recent=recent, language=language)
+
+    @staticmethod
+    def _runtime_effect_for_recent_context(*, connection_kind: str, command: str) -> str:
+        kind = str(connection_kind or "").strip().lower()
+        content = str(command or "").strip()
+        if kind == "ssh" and content and validate_ssh_readonly_policy(content).action == "allow":
+            return "read_only"
+        return ""
+
+    @staticmethod
+    def _read_only_runtime_followup_instruction(skill_results: list[SkillResult]) -> str:
+        has_read_only_context = any(
+            result.skill_name == "recent_capability_context"
+            and str((result.metadata or {}).get("runtime_effect", "") or "").strip() == "read_only"
+            for result in skill_results
+        )
+        if not has_read_only_context:
+            return ""
+        return (
+            "Operator follow-up policy: The recent runtime context has runtime_effect=read_only. "
+            "If you offer a next step, keep it inspect-oriented and non-mutating. Prefer actions like listing affected items, "
+            "showing per-target details, comparing results, or explaining impact. Do not offer state-changing operations "
+            "such as updates, installs, restarts, deletes, writes, sends, or configuration changes unless the user explicitly asks for that operation."
+        )
+
+    @staticmethod
+    def _local_context_summary_rows(skill_results: list[SkillResult], *, limit: int = 6) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for result in skill_results:
+            if not skill_result_is_local_memory_context(result):
+                continue
+            meta = result.metadata or {}
+            sources = meta.get("sources")
+            source_parts: list[str] = []
+            if isinstance(sources, list):
+                for source in sources[:3]:
+                    if not isinstance(source, dict):
+                        continue
+                    source_type = str(source.get("type", "") or "").strip()
+                    name = str(source.get("document_name", "") or source.get("title", "") or source.get("collection", "") or "").strip()
+                    if source_type or name:
+                        source_parts.append(":".join(part for part in (source_type, name) if part))
+            preview = " ".join(str(result.content or "").strip().split())[:280]
+            rows.append(
+                {
+                    "skill_name": str(result.skill_name or "").strip(),
+                    "sources": "; ".join(source_parts)[:240],
+                    "preview": preview,
+                }
+            )
+            if len(rows) >= max(1, limit):
+                break
+        return rows
+
+    async def _llm_wants_local_chat_context(
+        self,
+        message: str,
+        *,
+        skill_results: list[SkillResult],
+        intents: list[str],
+        language: str | None = None,
+    ) -> tuple[bool | None, str]:
+        if self.llm_client is None:
+            return None, "Routing Debug: chat_local_context_relevance skipped reason=no_llm_client"
+        context_rows = self._local_context_summary_rows(skill_results)
+        if not context_rows:
+            return None, "Routing Debug: chat_local_context_relevance skipped reason=no_local_context_candidates"
+        prompt_payload = {
+            "message": str(message or ""),
+            "language": str(language or ""),
+            "intents": [str(intent or "") for intent in intents],
+            "local_context_candidates": context_rows,
+            "contract": (
+                "Decide whether these local notes/documents/memory snippets are relevant context for answering the user. "
+                "Return false for general how-to, current-version, broad diagnostic, or advice requests when the snippets are incidental. "
+                "Return true when the user explicitly asks about their notes/documents/memory or when the snippets directly answer the request."
+            ),
+        }
+        decision = await BoundedDecisionClient(self.llm_client).decide_json(
+            operation="chat_local_context_relevance",
+            system=(
+                "You are a bounded local-context relevance classifier. Return one JSON object only with "
+                "use_local_context, confidence, reason. Do not answer the user and do not propose actions."
+            ),
+            payload=prompt_payload,
+        )
+        if not decision.ok:
+            return None, f"Routing Debug: chat_local_context_relevance skipped reason={decision.error}"
+        payload = decision.payload
+        confidence_raw = str(payload.get("confidence", "") or "").strip().lower()
+        confidence = confidence_score(payload.get("confidence"))
+        if confidence < 0.55:
+            return (
+                None,
+                "Routing Debug: chat_local_context_relevance skipped "
+                f"reason=low_confidence confidence={confidence_raw or confidence}",
+            )
+        use_local_context = bool(payload.get("use_local_context", False))
+        reason = self._normalize_spaces(str(payload.get("reason", "") or ""))[:180]
+        return (
+            use_local_context,
+            "Routing Debug: chat_local_context_relevance "
+            f"agentic_source=llm_decision use_local_context={str(use_local_context).lower()} "
+            f"confidence={confidence_raw or confidence} candidates={len(context_rows)} reason={reason or '-'}",
+        )
+
+    async def _filter_chat_context_skill_results(
+        self,
+        skill_results: list[SkillResult],
+        *,
+        message: str,
+        intents: list[str],
+        allow_web_search_local_context: bool = True,
+        language: str | None = None,
+        debug_lines: list[str] | None = None,
+        force_selected_context: bool = False,
+    ) -> list[SkillResult]:
+        if not skill_results:
+            return []
+        if "web_search" in intents:
+            if allow_web_search_local_context:
+                return list(skill_results)
+            return [result for result in skill_results if not skill_result_is_local_memory_context(result)]
+        if force_selected_context:
+            if debug_lines is not None and self._routing_debug_enabled():
+                debug_lines.append("Routing Debug: chat_local_context_relevance skipped reason=turn_plan_selected_context")
+            return list(skill_results)
+        if explicitly_requests_local_context(message):
+            return list(skill_results)
+        if not any(skill_result_is_local_memory_context(result) for result in skill_results):
+            return list(skill_results)
+        has_structured_local_context = any(
+            isinstance((result.metadata or {}).get("sources"), list)
+            and bool((result.metadata or {}).get("sources"))
+            for result in skill_results
+            if skill_result_is_local_memory_context(result)
+        )
+        if not has_structured_local_context:
+            return filter_chat_context_skill_results(
+                skill_results,
+                message=message,
+                intents=intents,
+                allow_web_search_local_context=allow_web_search_local_context,
+            )
+        use_local_context, debug_line = await self._llm_wants_local_chat_context(
+            message,
+            skill_results=skill_results,
+            intents=intents,
+            language=language,
+        )
+        if debug_lines is not None and self._routing_debug_enabled() and debug_line:
+            debug_lines.append(debug_line)
+        if use_local_context is True:
+            return list(skill_results)
+        if use_local_context is False:
+            return [result for result in skill_results if not skill_result_is_local_memory_context(result)]
+        return filter_chat_context_skill_results(
+            skill_results,
+            message=message,
+            intents=intents,
+            allow_web_search_local_context=allow_web_search_local_context,
+        )
 
     @staticmethod
     def _normalize_spaces(text: str) -> str:
@@ -1496,6 +1547,9 @@ class Pipeline:
         routing_profile: RoutingLanguageConfig | None = None,
     ) -> str:
         text = self._normalize_spaces(message)
+        urls = self._external_urls(text)
+        if urls:
+            return " ".join(urls)
         lower = text.lower()
         active_routing = routing_profile or self.settings.routing.for_language(None)
 
@@ -1512,57 +1566,6 @@ class Pipeline:
         text = re.sub(r"[?!.:,;]+", " ", text)
         text = self._normalize_spaces(text)
         return text or message
-
-    @staticmethod
-    def _sanitize_skill_id(value: str) -> str:
-        return sanitize_recipe_id(value)
-
-    @staticmethod
-    def _normalize_skill_keywords(value: Any) -> list[str]:
-        return normalize_recipe_keywords(value)
-
-    @staticmethod
-    def _normalize_skill_steps(value: Any) -> list[dict[str, Any]]:
-        return normalize_recipe_steps(value)
-
-    @staticmethod
-    def _render_step_template(template: str, values: dict[str, str]) -> str:
-        return render_step_template(template, values)
-
-    def _load_recipe_toggles(self) -> dict[str, bool]:
-        return load_recipe_toggles(self._config_path)
-
-    def _load_stored_recipe_runtime(self) -> list[dict[str, Any]]:
-        rows, cache = load_stored_recipe_runtime(
-            skills_dir=self._stored_recipes_dir,
-            config_path=self._config_path,
-            cache=self._stored_recipe_cache,
-        )
-        self._stored_recipe_cache = cache
-        return rows
-
-    def _match_stored_recipe_intents(self, message: str, runtime_skills: list[dict[str, Any]]) -> list[str]:
-        return match_stored_recipe_intents(message, runtime_skills)
-
-    def _match_recipe_intents(self, message: str, runtime_skills: list[dict[str, Any]]) -> list[str]:
-        return match_recipe_intents(message, runtime_skills)
-
-    async def _resolve_stored_recipe_intent_with_llm(self, message: str, runtime_skills: list[dict[str, Any]]) -> list[str]:
-        return await resolve_stored_recipe_intent_with_llm(message, runtime_skills, self.llm_client)
-
-    async def _resolve_recipe_intent_with_llm(self, message: str, runtime_skills: list[dict[str, Any]]) -> list[str]:
-        return await resolve_recipe_intent_with_llm(message, runtime_skills, self.llm_client)
-
-    @staticmethod
-    def _should_skip_recipe_auto_memory_persist(intents: list[str]) -> bool:
-        return should_skip_recipe_auto_memory_persist(intents)
-
-    @staticmethod
-    def _should_skip_auto_memory_persist(intents: list[str]) -> bool:
-        return should_skip_recipe_auto_memory_persist(intents)
-
-    def _build_recipe_status_text(self, runtime_recipes: list[dict[str, Any]], auto_memory_enabled: bool) -> str:
-        return build_recipe_status_text(self.settings, runtime_recipes, auto_memory_enabled)
 
     @staticmethod
     def _truncate_text(text: str, limit: int = 1200) -> str:
@@ -1638,6 +1641,8 @@ class Pipeline:
         session_collection: str | None = None,
         auto_memory_enabled: bool = False,
         suppress_web_search_note_context: bool = False,
+        query_overrides: dict[str, str] | None = None,
+        context_overrides: dict[str, Any] | None = None,
     ) -> list[SkillResult]:
         return await self._skill_runtime.run_skills(
             intents=intents,
@@ -1650,6 +1655,8 @@ class Pipeline:
             session_collection=session_collection,
             auto_memory_enabled=auto_memory_enabled,
             suppress_web_search_note_context=suppress_web_search_note_context,
+            query_overrides=query_overrides,
+            context_overrides=context_overrides,
         )
 
     async def _execute_file_read(self, plan: ActionPlan, *, language: str = "de") -> str:
@@ -1837,647 +1844,6 @@ class Pipeline:
                 if str(item or "").strip()
             ],
         )
-
-    @staticmethod
-    def _payload_multi_target_refs(payload: dict[str, Any]) -> list[str]:
-        refs: list[str] = []
-        for item in list(payload.get("connection_refs", []) or []):
-            clean = str(item or "").strip()
-            if clean and clean not in refs:
-                refs.append(clean)
-        return refs
-
-    def _preflight_multi_target_ssh_refs(
-        self,
-        refs: list[str],
-        command: str,
-    ) -> tuple[list[str], list[dict[str, str]], list[str]]:
-        allowed_refs: list[str] = []
-        blocked: list[dict[str, str]] = []
-        detail_lines = [
-            "Routing Debug: multi_target_ssh_preflight "
-            f"refs={len(refs)} command={command}"
-        ]
-        for ref in refs:
-            row = payload_connection_row(self.settings, "ssh", ref)
-            if row is None:
-                reason = "connection_not_found"
-                blocked.append({"ref": ref, "reason": reason, "action": "block"})
-                detail_lines.append(
-                    "Routing Debug: multi_target_ssh_preflight_target "
-                    f"ref={ref} action=block reason={reason}"
-                )
-                continue
-
-            guardrail_ref = read_row_value(row, "guardrail_ref")
-            guardrail_profile = resolve_guardrail_profile(self.settings, guardrail_ref)
-            allow_commands = combined_ssh_allow_commands(
-                read_row_list(row, "allow_commands"),
-                ssh_guardrail_allow_terms(guardrail_profile),
-            )
-            policy = validate_ssh_readonly_policy(command, allow_commands=allow_commands)
-            guardrail_decision = evaluate_guardrail(
-                profile_ref=guardrail_ref,
-                profile=guardrail_profile,
-                kind="ssh_command",
-                text=command,
-            )
-            if policy.action != "allow":
-                blocked.append({"ref": ref, "reason": policy.reason, "action": policy.action})
-                detail_lines.append(
-                    "Routing Debug: multi_target_ssh_preflight_target "
-                    f"ref={ref} action={policy.action} reason={policy.reason}"
-                )
-                continue
-            if not guardrail_decision.allowed:
-                reason = guardrail_decision.reason or "guardrail_blocked"
-                blocked.append({"ref": ref, "reason": reason, "action": "block"})
-                detail_lines.append(
-                    "Routing Debug: multi_target_ssh_preflight_target "
-                    f"ref={ref} action=block reason={reason} guardrail={guardrail_ref or '-'}"
-                )
-                continue
-
-            allowed_refs.append(ref)
-            detail_lines.append(
-                "Routing Debug: multi_target_ssh_preflight_target "
-                f"ref={ref} action=allow reason={policy.reason} guardrail={guardrail_ref or '-'}"
-            )
-
-        detail_lines.append(
-            "Routing Debug: multi_target_ssh_preflight_result "
-            f"allowed={len(allowed_refs)} blocked={len(blocked)}"
-        )
-        return allowed_refs, blocked, detail_lines
-
-    @staticmethod
-    def _normalized_user_text(message: str) -> str:
-        text = f" {str(message or '').strip().lower()} "
-        return (
-            text.replace(chr(228), "ae")
-            .replace(chr(246), "oe")
-            .replace(chr(252), "ue")
-            .replace(chr(223), "ss")
-        )
-
-    @staticmethod
-    def _explicit_single_probe_terms() -> tuple[str, ...]:
-        return (
-            "uptime",
-            "laufzeit",
-            "betriebszeit",
-            "load average",
-            "cpu",
-            "festplatte",
-            "festplatten",
-            "harddisk",
-            "hd",
-            "speicherplatz",
-            "disk",
-            "df -h",
-            "ram",
-            "arbeitsspeicher",
-            "free -h",
-        )
-
-    @classmethod
-    def _looks_like_broad_capacity_request(cls, message: str) -> bool:
-        text = cls._normalized_user_text(message)
-        capacity_terms = (
-            "kapazitaet",
-            "capacity",
-            "ressourcen",
-            "resources",
-            "reserve",
-            "genug platz",
-            "genuegend platz",
-        )
-        return any(term in text for term in capacity_terms) and not any(term in text for term in cls._explicit_single_probe_terms())
-
-    @classmethod
-    def _looks_like_broad_health_request(cls, message: str) -> bool:
-        text = cls._normalized_user_text(message)
-        health_terms = (
-            "wie geht es",
-            "wie gehts",
-            "wie geht ",
-            "server ok",
-            "servern ok",
-            "server gesund",
-            "servern gesund",
-            "server in ordnung",
-            "servern in ordnung",
-            "server okay",
-            "servern okay",
-            "servers ok",
-            "servers okay",
-            "server healthy",
-            "servers healthy",
-            "server alright",
-            "servers alright",
-            "server all good",
-            "servers all good",
-            "healthcheck",
-            "health check",
-            "server health",
-            "status meiner server",
-            "zustand meiner server",
-            "systemzustand",
-            "alles ok",
-            "alles in ordnung",
-            "laufen meine server",
-        )
-        return any(term in text for term in health_terms) and not any(term in text for term in cls._explicit_single_probe_terms())
-
-    def _ssh_command_allowed_for_all_refs(self, refs: list[str], command: str) -> bool:
-        clean_command = str(command or "").strip()
-        if not refs or not clean_command:
-            return False
-        for ref in refs:
-            row = payload_connection_row(self.settings, "ssh", ref)
-            if row is None:
-                return False
-            guardrail_ref = read_row_value(row, "guardrail_ref")
-            guardrail_profile = resolve_guardrail_profile(self.settings, guardrail_ref)
-            allow_commands = combined_ssh_allow_commands(
-                read_row_list(row, "allow_commands"),
-                ssh_guardrail_allow_terms(guardrail_profile),
-            )
-            if validate_ssh_readonly_policy(clean_command, allow_commands=allow_commands).action != "allow":
-                return False
-            if not evaluate_guardrail(
-                profile_ref=guardrail_ref,
-                profile=guardrail_profile,
-                kind="ssh_command",
-                text=clean_command,
-            ).allowed:
-                return False
-        return True
-
-    @staticmethod
-    def _capability_draft_target_intent(capability_draft: Any | None) -> str:
-        for note in list(getattr(capability_draft, "notes", []) or []):
-            clean = str(note or "").strip().lower()
-            if clean.startswith("target_intent:"):
-                return clean.split(":", 1)[1].strip()
-        return ""
-
-    def _adapt_multi_target_ssh_operator_command(
-        self,
-        refs: list[str],
-        command: str,
-        message: str,
-        capability_draft: Any | None = None,
-    ) -> tuple[str, str]:
-        clean_command = str(command or "").strip()
-        target_intent = self._capability_draft_target_intent(capability_draft)
-        if target_intent == "capacity_check" or self._looks_like_broad_capacity_request(message):
-            reason = "capacity"
-        elif target_intent == "health_check" or self._looks_like_broad_health_request(message):
-            reason = "health"
-        else:
-            return clean_command, ""
-        if clean_command.lower() not in {"", "uptime", "uptime -p"}:
-            return clean_command, ""
-        for candidate in ("uptime -p && df -h && free -h", "uptime && df -h && free -h", "df -h && free -h", "df -h", "free -h"):
-            if self._ssh_command_allowed_for_all_refs(refs, candidate):
-                return candidate, reason
-        return clean_command, ""
-
-    @staticmethod
-    def _multi_target_ssh_result_state(text: str) -> str:
-        clean = str(text or "").strip().lower()
-        if not clean:
-            return "ok"
-        critical_tokens = (
-            "(kritisch)",
-            "(critical)",
-            "handlungsbedarf",
-            "action required",
-            "critical",
-        )
-        warning_tokens = (
-            "(eng)",
-            "(tight)",
-            "(erhoeht)",
-            "(elevated)",
-            "beobachten",
-            "watch",
-            "failed units",
-            "nicht erreichbar",
-            "unreachable",
-        )
-        if any(token in clean for token in critical_tokens):
-            return "attention"
-        if any(token in clean for token in warning_tokens):
-            return "attention"
-        return "ok"
-
-    @staticmethod
-    def _storage_size_to_gib(value: str, unit: str) -> float | None:
-        try:
-            amount = float(str(value or "").strip().replace(",", "."))
-        except ValueError:
-            return None
-        clean_unit = str(unit or "").strip().lower()
-        if not clean_unit:
-            return amount
-        clean_unit = clean_unit.rstrip("b")
-        multipliers = {
-            "k": 1 / (1024 * 1024),
-            "ki": 1 / (1024 * 1024),
-            "m": 1 / 1024,
-            "mi": 1 / 1024,
-            "g": 1,
-            "gi": 1,
-            "t": 1024,
-            "ti": 1024,
-        }
-        multiplier = multipliers.get(clean_unit)
-        if multiplier is None:
-            return None
-        return amount * multiplier
-
-    @classmethod
-    def _extract_free_disk_threshold_gib(cls, message: str) -> tuple[float, str] | None:
-        clean = str(message or "").strip().lower()
-        if not clean:
-            return None
-        has_disk_context = any(
-            token in clean
-            for token in (
-                "festplatte",
-                "festplatten",
-                "speicherplatz",
-                "disk",
-                "disks",
-                "filesystem",
-                "dateisystem",
-            )
-        )
-        has_free_context = any(token in clean for token in ("frei", "freien", "free", "available", "avail"))
-        if not has_disk_context or not has_free_context:
-            return None
-        match = re.search(r"(?:mehr\s+als|mindestens|minimum|at\s+least|more\s+than)?\s*(\d+(?:[.,]\d+)?)\s*(tib|tb|gib|gb|g|mib|mb|m)\b", clean)
-        if not match:
-            return None
-        value = match.group(1)
-        unit = match.group(2)
-        threshold = cls._storage_size_to_gib(value, unit)
-        if threshold is None or threshold <= 0:
-            return None
-        label_value = value.replace(",", ".")
-        label_unit = unit.upper()
-        if label_unit == "G":
-            label_unit = "GB"
-        elif label_unit == "M":
-            label_unit = "MB"
-        return threshold, f"{label_value}{label_unit}"
-
-    @classmethod
-    def _extract_summary_free_disk_gib(cls, text: str) -> tuple[float, str] | None:
-        clean = str(text or "").strip()
-        if not clean:
-            return None
-        patterns = (
-            r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>tib|tb|gib|gb|g|mib|mb|m)\s+frei\b",
-            r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>tib|tb|gib|gb|g|mib|mb|m)\s+free\b",
-        )
-        for pattern in patterns:
-            match = re.search(pattern, clean, flags=re.IGNORECASE)
-            if not match:
-                continue
-            gib = cls._storage_size_to_gib(match.group("value"), match.group("unit"))
-            if gib is None:
-                continue
-            return gib, f"{match.group('value')}{match.group('unit')}"
-        return None
-
-    @classmethod
-    def _multi_target_ssh_free_disk_measurements(cls, records: list[dict[str, str]]) -> list[dict[str, Any]]:
-        measurements: list[dict[str, Any]] = []
-        for row in records:
-            parsed = cls._extract_summary_free_disk_gib(str(row.get("raw_text", "") or row.get("text", "") or ""))
-            ref = str(row.get("ref", "") or "").strip()
-            if not ref or not parsed:
-                continue
-            measurements.append({"ref": ref, "free_gib": parsed[0], "free_label": parsed[1]})
-        return measurements
-
-    @staticmethod
-    def _multi_target_ssh_payload_facts(payload: dict[str, Any]) -> dict[str, Any]:
-        facts = payload.get("facts")
-        return facts if isinstance(facts, dict) else {}
-
-    @staticmethod
-    def _multi_target_ssh_summary_mentioned_below_count(summary: str) -> int | None:
-        clean = str(summary or "").strip().lower()
-        if not clean:
-            return None
-        patterns = (
-            r"\b(\d+)\s+von\s+\d+\s+(?:server|servern|ssh-ziele|ssh targets|targets|hosts)\s+(?:unterschreiten|liegen\s+unter|sind\s+unter|below)",
-            r"\b(?:von\s+\d+\s+servern\s+)?(?:unterschreiten|liegen\s+unter|sind\s+unter|below)\s+(\d+)\b",
-            r"\b(\d+)\s+(?:server|servern|ssh-ziele|ssh targets|targets|hosts)\s+(?:unterschreiten|liegen\s+unter|sind\s+unter|below)",
-            r"\b(\d+)\s+(?:die\s+)?(?:10-?gb|schwelle|threshold).{0,32}(?:unterschreiten|unter|below)",
-            r"\b(?:unterschreiten|unter|below).{0,32}\b(\d+)\s+(?:server|servern|targets|hosts)",
-        )
-        for pattern in patterns:
-            match = re.search(pattern, clean)
-            if not match:
-                continue
-            try:
-                return int(match.group(1))
-            except ValueError:
-                return None
-        return None
-
-    @staticmethod
-    def _multi_target_ssh_refs_from_fact(value: Any) -> set[str]:
-        if not isinstance(value, list):
-            return set()
-        return {str(item or "").strip() for item in value if str(item or "").strip()}
-
-    def _validate_multi_target_ssh_summary_facts(
-        self,
-        *,
-        summary: str,
-        payload: dict[str, Any],
-        records: list[dict[str, str]],
-    ) -> tuple[float | None, str, list[str], list[str], list[dict[str, Any]]]:
-        facts = self._multi_target_ssh_payload_facts(payload)
-        raw_threshold = facts.get("threshold_gib")
-        threshold_gib: float | None = None
-        try:
-            if raw_threshold is not None:
-                threshold_gib = float(raw_threshold)
-        except (TypeError, ValueError):
-            threshold_gib = None
-        threshold_label = str(facts.get("threshold_label", "") or "").strip()
-        if threshold_gib is None or threshold_gib <= 0:
-            return None, threshold_label, [], [], []
-        if not threshold_label:
-            threshold_label = f"{threshold_gib:g}GB"
-        measurements = self._multi_target_ssh_free_disk_measurements(records)
-        if not measurements:
-            return threshold_gib, threshold_label, [], [], []
-        expected_below = {row["ref"] for row in measurements if float(row["free_gib"]) < threshold_gib}
-        expected_ok = {row["ref"] for row in measurements if float(row["free_gib"]) >= threshold_gib}
-        llm_below = self._multi_target_ssh_refs_from_fact(facts.get("below_threshold_refs"))
-        issues: list[str] = []
-        if llm_below and llm_below != expected_below:
-            missing = sorted(expected_below - llm_below)
-            extra = sorted(llm_below - expected_below)
-            if missing:
-                issues.append(f"missing_below_refs={','.join(missing)}")
-            if extra:
-                issues.append(f"extra_below_refs={','.join(extra)}")
-        mentioned_below_count = self._multi_target_ssh_summary_mentioned_below_count(summary)
-        if mentioned_below_count is not None and mentioned_below_count != len(expected_below):
-            issues.append(f"below_count_mismatch=summary:{mentioned_below_count},measured:{len(expected_below)}")
-        return threshold_gib, threshold_label, sorted(expected_below), sorted(expected_ok), issues
-
-    def _build_validated_multi_target_ssh_threshold_summary(
-        self,
-        *,
-        language: str | None,
-        target_count: int,
-        threshold_label: str,
-        below_refs: list[str],
-        measurements: list[dict[str, Any]],
-    ) -> str:
-        by_ref = {str(row["ref"]): row for row in measurements}
-        free_word = "free" if str(language or "").lower().startswith("en") else "frei"
-        below_parts = [
-            f"`{ref}` ({str(by_ref.get(ref, {}).get('free_label', '?'))} {free_word})"
-            for ref in below_refs
-        ]
-        ok_count = max(0, target_count - len(below_refs))
-        if not below_refs:
-            return _pipeline_text(
-                language,
-                "multi_target_ssh_disk_threshold_all_ok",
-                "Overall: {ok_count}/{count} SSH targets have at least {threshold} free. No action required.",
-                ok_count=ok_count,
-                count=target_count,
-                threshold=threshold_label,
-            )
-        return _pipeline_text(
-            language,
-            "multi_target_ssh_disk_threshold_validated_mixed",
-            "No, not everywhere: {below_count}/{count} SSH targets are below {threshold}: {below_refs}. The other {ok_count} targets meet the threshold.",
-            below_count=len(below_refs),
-            count=target_count,
-            threshold=threshold_label,
-            below_refs=", ".join(below_parts),
-            ok_count=ok_count,
-        )
-
-    def _multi_target_ssh_operator_summary(
-        self,
-        *,
-        language: str | None,
-        target_count: int,
-        records: list[dict[str, str]],
-    ) -> str:
-        ok_count = sum(1 for row in records if row.get("state") == "ok")
-        attention_count = sum(1 for row in records if row.get("state") == "attention")
-        blocked_count = sum(1 for row in records if row.get("state") == "blocked")
-        error_count = sum(1 for row in records if row.get("state") == "error")
-        if attention_count <= 0 and blocked_count <= 0 and error_count <= 0:
-            return _pipeline_text(
-                language,
-                "multi_target_ssh_operator_ok",
-                "Overall: {ok_count}/{count} SSH targets look ok.",
-                ok_count=ok_count,
-                count=target_count,
-            )
-        return _pipeline_text(
-            language,
-            "multi_target_ssh_operator_mixed",
-            "Overall: {ok_count} ok, {attention_count} need attention, {blocked_count} blocked, {error_count} failed.",
-            ok_count=ok_count,
-            attention_count=attention_count,
-            blocked_count=blocked_count,
-            error_count=error_count,
-        )
-
-    @staticmethod
-    def _multi_target_ssh_relevant_result_texts(records: list[dict[str, str]]) -> list[str]:
-        has_attention = any(str(row.get("state", "") or "") != "ok" for row in records)
-        if not has_attention:
-            return []
-        return [
-            str(row.get("text", "") or "").strip()
-            for row in records
-            if str(row.get("state", "") or "") != "ok" and str(row.get("text", "") or "").strip()
-        ]
-
-    @staticmethod
-    def _compact_multi_target_ssh_result_text(text: str, *, state: str) -> str:
-        clean_lines = [
-            re.sub(r"\s+", " ", str(line or "").strip())
-            for line in str(text or "").splitlines()
-            if str(line or "").strip()
-        ]
-        clean = "\n".join(clean_lines).strip()
-        if not clean:
-            return ""
-        max_chars = 1200 if str(state or "").strip().lower() != "ok" else 420
-        if len(clean) <= max_chars:
-            return clean
-        return f"{clean[:max_chars].rstrip()}..."
-
-    async def _multi_target_ssh_llm_operator_summary(
-        self,
-        *,
-        message: str,
-        command: str,
-        records: list[dict[str, str]],
-        fallback_summary: str,
-        language: str | None,
-    ) -> tuple[str, str]:
-        if self.llm_client is None or not records:
-            return "", "Routing Debug: multi_target_ssh_summary skipped reason=no_llm_client_or_records"
-        result_rows: list[dict[str, str]] = []
-        for row in records:
-            state = str(row.get("state", "") or "").strip()
-            text = self._compact_multi_target_ssh_result_text(
-                str(row.get("raw_text", "") or row.get("text", "") or "").strip(),
-                state=state,
-            )
-            if not text:
-                continue
-            result_rows.append(
-                {
-                    "ref": str(row.get("ref", "") or "").strip(),
-                    "state": state,
-                    "result": text,
-                }
-            )
-        if not result_rows:
-            return "", ""
-        lang = "en" if str(language or "").lower().startswith("en") else "de"
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You summarize already executed ARIA multi-target SSH read-only results. "
-                    "Do not propose or execute commands. Do not invent data. "
-                    "Answer the user's exact question from the given results. "
-                    "If the user mentions a threshold, compare every result against that threshold. "
-                    "When a free-disk threshold is relevant, include a facts object with threshold_gib, "
-                    "threshold_label, below_threshold_refs, near_threshold_refs, and ok_refs. "
-                    "Keep the response concise and action-oriented. "
-                    'Return JSON only: {"summary":"...","confidence":"low|medium|high","reason":"...",'
-                    '"facts":{"threshold_gib":null,"threshold_label":"","below_threshold_refs":[],'
-                    '"near_threshold_refs":[],"ok_refs":[]}}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "language": lang,
-                        "user_question": str(message or "").strip(),
-                        "executed_command": str(command or "").strip(),
-                        "targets": result_rows,
-                        "deterministic_fallback_summary": str(fallback_summary or "").strip(),
-                    },
-                    ensure_ascii=False,
-                ),
-            },
-        ]
-        try:
-            response = await self.llm_client.chat(
-                messages,
-                operation="ssh_multi_target_summary",
-            )
-        except Exception:
-            return "", "Routing Debug: multi_target_ssh_summary skipped reason=llm_error"
-        payload = self._extract_json_object(getattr(response, "content", "") or "")
-        summary = str(payload.get("summary", "") or "").strip()
-        if not summary:
-            return "", "Routing Debug: multi_target_ssh_summary skipped reason=empty_or_invalid_response"
-        confidence = str(payload.get("confidence", "") or "").strip().lower()
-        if confidence not in {"high", "medium"}:
-            return "", f"Routing Debug: multi_target_ssh_summary skipped reason=low_confidence confidence={confidence or '-'}"
-        reason = str(payload.get("reason", "") or "").strip()
-        threshold_gib, threshold_label, below_refs, _ok_refs, validation_issues = (
-            self._validate_multi_target_ssh_summary_facts(summary=summary, payload=payload, records=records)
-        )
-        if validation_issues and threshold_gib:
-            measurements = self._multi_target_ssh_free_disk_measurements(records)
-            repair_messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Repair an ARIA operator summary. The previous summary contradicted measured SSH "
-                        "disk facts. Use the measured facts as authoritative. Do not propose commands. "
-                        "Return JSON only with the same schema as before."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "language": lang,
-                            "user_question": str(message or "").strip(),
-                            "executed_command": str(command or "").strip(),
-                            "previous_response": payload,
-                            "validation_issues": validation_issues,
-                            "validated_measurements": measurements,
-                            "expected_below_threshold_refs": below_refs,
-                            "threshold_gib": threshold_gib,
-                            "threshold_label": threshold_label,
-                            "deterministic_fallback_summary": str(fallback_summary or "").strip(),
-                        },
-                        ensure_ascii=False,
-                    ),
-                },
-            ]
-            try:
-                repair_response = await self.llm_client.chat(
-                    repair_messages,
-                    operation="ssh_multi_target_summary_repair",
-                )
-                repair_payload = self._extract_json_object(getattr(repair_response, "content", "") or "")
-                repair_summary = str(repair_payload.get("summary", "") or "").strip()
-                repair_confidence = str(repair_payload.get("confidence", "") or "").strip().lower()
-                _repair_threshold, _repair_label, _repair_below, _repair_ok, repair_issues = (
-                    self._validate_multi_target_ssh_summary_facts(
-                        summary=repair_summary,
-                        payload=repair_payload,
-                        records=records,
-                    )
-                )
-                if repair_summary and repair_confidence in {"high", "medium"} and not repair_issues:
-                    repair_reason = str(repair_payload.get("reason", "") or "").strip()
-                    return (
-                        repair_summary,
-                        "Routing Debug: multi_target_ssh_summary "
-                        f"agentic_source=llm_decision confidence={repair_confidence} "
-                        f"validation=repair reason={repair_reason or '-'}",
-                    )
-            except Exception:
-                pass
-            validated_summary = self._build_validated_multi_target_ssh_threshold_summary(
-                language=language,
-                target_count=len(records),
-                threshold_label=threshold_label,
-                below_refs=below_refs,
-                measurements=measurements,
-            )
-            return (
-                validated_summary,
-                "Routing Debug: multi_target_ssh_summary "
-                f"agentic_source=llm_decision confidence={confidence} validation=fallback "
-                f"reason=fact_validation_failed issues={';'.join(validation_issues)}",
-            )
-        debug_line = (
-            "Routing Debug: multi_target_ssh_summary "
-            f"agentic_source=llm_decision confidence={confidence} reason={reason or '-'}"
-        )
-        return summary, debug_line
 
     async def _prepare_ssh_plural_multi_target_command(
         self,
@@ -3371,83 +2737,6 @@ class Pipeline:
     def _routed_action_intents(action: dict[str, Any], payload: dict[str, Any]) -> list[str]:
         return routed_action_intents(action, payload)
 
-    @staticmethod
-    def _should_backfill_missing_ssh_command(
-        *,
-        resolved: dict[str, Any],
-        payload: dict[str, Any],
-    ) -> bool:
-        return (
-            Pipeline._payload_missing_fields(payload) == ["content"]
-            and str(payload.get("capability", "") or "").strip() == "ssh_command"
-            and normalize_connection_kind(str(dict(resolved.get("decision", {}) or {}).get("kind", "") or "")) == "ssh"
-            and not str(payload.get("content", "") or "").strip()
-        )
-
-    async def _refresh_missing_ssh_command_resolution(
-        self,
-        *,
-        resolved: dict[str, Any],
-        message: str,
-        user_id: str,
-        language: str | None = None,
-    ) -> dict[str, Any]:
-        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
-        ssh_draft = CapabilityDraft(
-            capability="ssh_command",
-            connection_kind="ssh",
-            explicit_connection_ref=str(payload.get("connection_ref", "") or "").strip(),
-            requested_connection_ref=str(payload.get("requested_connection_ref", "") or "").strip(),
-            path=str(payload.get("path", "") or "").strip(),
-            content="",
-            plan_class=str(payload.get("plan_class", "") or "").strip().lower(),
-            behavior_profile=str(payload.get("behavior_profile", "") or "").strip().lower(),
-            notes=[
-                str(item or "").strip()
-                for item in list(payload.get("notes", []) or [])
-                if str(item or "").strip()
-            ],
-        )
-        refreshed_action_debug, refreshed_draft, debug_line = await self._apply_agentic_ssh_command_resolution(
-            message=message,
-            user_id=user_id,
-            routing_decision=dict(resolved.get("decision", {}) or {}),
-            action_debug=dict(resolved.get("action_debug", {}) or {}),
-            capability_draft=ssh_draft,
-            language=language,
-            llm_client=self.llm_client,
-        )
-        refreshed_payload = build_payload_dry_run(
-            str(message or "").strip(),
-            settings=self.settings,
-            routing_decision=dict(resolved.get("decision", {}) or {}),
-            action_decision=dict((refreshed_action_debug or {}).get("decision", {}) or {}),
-        )
-        refreshed_payload = self._apply_capability_draft_overrides(
-            refreshed_payload,
-            capability_draft=refreshed_draft,
-        )
-        refreshed_safety = evaluate_guardrail_confirm_dry_run(
-            self.settings,
-            payload_debug=refreshed_payload,
-            routing_decision=dict(resolved.get("decision", {}) or {}),
-            language=str(language or ""),
-        )
-        refreshed_execution = build_execution_preview_dry_run(
-            routing_decision=dict(resolved.get("decision", {}) or {}),
-            action_decision=dict((refreshed_action_debug or {}).get("decision", {}) or {}),
-            payload_debug=refreshed_payload,
-            safety_debug=refreshed_safety,
-            language=str(language or ""),
-        )
-        resolved["action_debug"] = refreshed_action_debug
-        resolved["payload_debug"] = refreshed_payload
-        resolved["safety_debug"] = refreshed_safety
-        resolved["execution_debug"] = refreshed_execution
-        if debug_line:
-            resolved = self._append_debug_detail_lines(resolved, *[line for line in debug_line.splitlines() if line.strip()])
-        return resolved
-
     def _pending_input_to_draft(
         self,
         pending_action: dict[str, Any],
@@ -3973,10 +3262,23 @@ class Pipeline:
             if bool(planner_decision.get("ask_user")):
                 line += " ask_user=true"
             line += f" boundary={AGENTIC_BOUNDARY_DRAFT}"
+            reason = self._normalize_spaces(str(planner_decision.get("reason", "") or ""))[:180]
+            planner_debug_line = (
+                "Routing Debug: action_plan_debug "
+                f"agentic_source={str(planner_result.get('planner_source', '') or 'llm').strip().lower() or 'llm'} "
+                f"target={target_kind}/{target_ref} action={action_kind}/{action_id} "
+                f"confidence={confidence or '-'} ask_user={str(bool(planner_decision.get('ask_user'))).lower()} "
+                f"candidate_count={int(planner_result.get('candidate_count', 0) or 0)} "
+                f"execution_state={str(planner_result.get('execution_state', '') or '-').strip() or '-'} "
+                f"reason={reason or '-'} boundary={AGENTIC_BOUNDARY_DRAFT}"
+            )
             if debug_line and debug_line not in detail_lines:
                 detail_lines.append(debug_line)
+            if planner_debug_line not in detail_lines:
+                detail_lines.append(planner_debug_line)
             if line not in detail_lines:
-                resolved["detail_lines"] = [*detail_lines, line]
+                detail_lines.append(line)
+            resolved["detail_lines"] = detail_lines
         return resolved
 
     async def _recipe_experience_context_rows(
@@ -4349,7 +3651,99 @@ class Pipeline:
 
         explicit_ref = str(getattr(working_draft, "explicit_connection_ref", "") or "").strip()
         requested_ref_hint = str(getattr(working_draft, "requested_connection_ref", "") or "").strip()
+        contract_target_refs = [
+            ref for ref in self._capability_draft_target_refs(working_draft) if ref in candidate_connections
+        ]
         looks_like_plural_target = getattr(self._memory_assist, "_looks_like_plural_target_request", None)
+        if (
+            effective_kind == "ssh"
+            and len(contract_target_refs) >= 2
+            and self._capability_draft_has_multi_target_scope(working_draft)
+        ):
+            expand_to_fleet = self._ssh_multi_target_contract_should_expand_to_fleet(
+                message=message,
+                capability_draft=working_draft,
+                contract_target_refs=contract_target_refs,
+                candidate_connections=candidate_connections,
+            )
+            scoped_connections = (
+                dict(candidate_connections)
+                if expand_to_fleet
+                else {
+                    ref: candidate_connections[ref]
+                    for ref in contract_target_refs
+                    if ref in candidate_connections
+                }
+            )
+            if expand_to_fleet:
+                resolved = self._append_debug_detail_lines(
+                    resolved,
+                    "Routing Debug: plural_target_scope expanded_by_fleet_contract "
+                    "kind=ssh "
+                    f"selected_refs={', '.join(contract_target_refs)} "
+                    f"expanded_refs={', '.join(scoped_connections.keys())} source=meta_catalog",
+                )
+            resolved = self._append_debug_detail_lines(
+                resolved,
+                "Routing Debug: plural_target_scope bound_by_turn_contract "
+                f"kind=ssh refs={', '.join(scoped_connections.keys())} source=meta_catalog",
+            )
+            contract_resolved = await self._build_kind_only_routed_resolution(
+                message,
+                connection_kind=effective_kind,
+                language=language,
+                llm_client=None,
+                capability_draft=working_draft,
+                source="turn_contract_targets",
+                reason=", ".join(scoped_connections.keys()),
+            )
+            contract_resolved["detail_lines"] = self._resolved_routing_detail_lines(resolved)
+            contract_candidates = self._semantic_connection_resolver.collect_connection_candidates(
+                message,
+                {effective_kind: scoped_connections},
+                preferred_kind=effective_kind,
+            )
+            contract_resolved = self._append_routing_record_to_resolved(
+                contract_resolved,
+                build_routing_decision_record(
+                    stage="turn_contract_target_resolution",
+                    candidates=contract_candidates,
+                    hint=SemanticConnectionHint(
+                        connection_kind=effective_kind,
+                        connection_ref="",
+                        source="turn_contract_targets",
+                        note=", ".join(scoped_connections.keys()),
+                    ),
+                    preferred_kind=effective_kind,
+                ),
+            )
+            contract_resolved = self._attach_connection_candidates_debug(contract_resolved, contract_candidates)
+            contract_resolved, working_draft = await self._prepare_ssh_plural_multi_target_command(
+                contract_resolved,
+                message=message,
+                user_id=user_id,
+                candidate_connections=scoped_connections,
+                capability_draft=working_draft,
+                language=language,
+            )
+            contract_resolved = self._apply_ssh_plural_multi_target_resolution(
+                contract_resolved,
+                candidate_connections=scoped_connections,
+                capability_draft=working_draft,
+                language=language,
+            )
+            contract_payload = dict((contract_resolved.get("payload_debug") or {}).get("payload", {}) or {})
+            if len(self._payload_multi_target_refs(contract_payload)) >= 2:
+                return self._apply_requested_connection_guard(
+                    contract_resolved,
+                    capability_draft=working_draft,
+                    language=language,
+                )
+            resolved = self._append_debug_detail_lines(
+                resolved,
+                "Routing Debug: plural_target_scope turn_contract_multi_target_skipped "
+                "reason=policy_or_command_not_multi_target_safe",
+            )
         if explicit_ref and effective_kind == "ssh":
             narrowed_resolved, scoped_connections, _semantic_scope_candidates = (
                 self._narrow_ssh_plural_target_connections_by_context(
@@ -4467,6 +3861,18 @@ class Pipeline:
             )
 
         plural_target_scope = self._capability_draft_has_multi_target_scope(working_draft)
+        if (
+            plural_target_scope
+            and effective_kind == "ssh"
+            and requested_ref_hint
+            and self._ssh_plural_context_has_single_target_disambiguator(message)
+        ):
+            plural_target_scope = False
+            resolved = self._append_debug_detail_lines(
+                resolved,
+                "Routing Debug: plural_target_scope disabled_by_requested_single_target "
+                f"requested_ref={requested_ref_hint}",
+            )
         if callable(looks_like_plural_target) and not plural_target_scope and not explicit_ref and not requested_ref_hint:
             try:
                 plural_target_scope = bool(looks_like_plural_target(message, effective_kind))
@@ -4483,6 +3889,7 @@ class Pipeline:
             and requested_ref_hint
             and not explicit_ref
             and not plural_target_scope
+            and not self._ssh_plural_context_has_single_target_disambiguator(message)
             and len(candidate_connections) >= 2
         ):
             narrowed_resolved, scoped_connections, semantic_scope_candidates = (
@@ -4569,6 +3976,50 @@ class Pipeline:
             {effective_kind: candidate_connections},
             preferred_kind=effective_kind,
         )
+        if (
+            str(hints.connection_ref or "").strip()
+            and str(hints.source or "").strip() == "memory_hint"
+            and semantic_candidates
+        ):
+            top_candidate = semantic_candidates[0]
+            top_ref = str(top_candidate.connection_ref or "").strip()
+            top_score = int(getattr(top_candidate, "score", 0) or 0)
+            if (
+                top_ref
+                and top_ref != str(hints.connection_ref or "").strip()
+                and top_score >= 1000
+                and not requested_ref_hint
+                and not plural_target_scope
+            ):
+                old_ref = str(hints.connection_ref or "").strip()
+                resolved = self._append_debug_detail_lines(
+                    resolved,
+                    "Routing Debug: memory_hint ignored_by_explicit_target "
+                    f"ref={old_ref} explicit_ref={top_ref}",
+                )
+                resolved = self._append_debug_detail_lines(
+                    resolved,
+                    f"Routing Debug: explicit_ref selected ref={top_ref}",
+                )
+                hints = replace(
+                    hints,
+                    connection_kind=top_candidate.connection_kind or effective_kind,
+                    connection_ref=top_ref,
+                    source="explicit_ref",
+                    matched_text=top_ref,
+                    notes=list(hints.notes) + ([top_candidate.note] if top_candidate.note else []),
+                )
+                semantic_record = build_routing_decision_record(
+                    stage="explicit_connection_resolution",
+                    candidates=semantic_candidates,
+                    hint=SemanticConnectionHint(
+                        connection_kind=top_candidate.connection_kind or effective_kind,
+                        connection_ref=top_ref,
+                        source="explicit_ref",
+                        note=top_ref,
+                    ),
+                    preferred_kind=effective_kind,
+                )
         planner_connection_candidates = list(semantic_candidates)
         if not planner_connection_candidates:
             planner_connection_candidates = self._routing_candidates_from_resolved(resolved)
@@ -4656,6 +4107,43 @@ class Pipeline:
                     resolved,
                     "Routing Debug: semantic_llm blocked "
                     f"requested_ref={requested_ref_hint} ref={semantic_hint.connection_ref}",
+                )
+        if (
+            not chain_complete
+            and str(hints.connection_ref or "").strip()
+            and str(hints.source or "").strip() == "memory_hint"
+            and effective_kind == "ssh"
+            and not plural_target_scope
+            and semantic_llm_client is not None
+            and len(candidate_connections) >= 2
+        ):
+            semantic_hint = await self._semantic_connection_resolver.resolve_connection_with_llm(
+                message,
+                {effective_kind: candidate_connections},
+                preferred_kind=effective_kind,
+                force_llm=True,
+                include_all_profiles=True,
+            )
+            if semantic_hint.connection_ref and semantic_hint.connection_ref in candidate_connections:
+                old_ref = str(hints.connection_ref or "").strip()
+                if semantic_hint.connection_ref != old_ref:
+                    resolved = self._append_debug_detail_lines(
+                        resolved,
+                        "Routing Debug: memory_hint ignored_by_semantic_llm "
+                        f"ref={old_ref} selected={semantic_hint.connection_ref}",
+                    )
+                hints = replace(
+                    hints,
+                    connection_kind=semantic_hint.connection_kind or effective_kind,
+                    connection_ref=semantic_hint.connection_ref,
+                    source=semantic_hint.source or hints.source,
+                    notes=list(hints.notes) + ([semantic_hint.note] if semantic_hint.note else []),
+                )
+                semantic_record = build_routing_decision_record(
+                    stage="semantic_llm_resolution",
+                    candidates=semantic_candidates,
+                    hint=semantic_hint,
+                    preferred_kind=effective_kind,
                 )
         working_draft = self._draft_with_hint_path(working_draft, hints)
 
@@ -4829,6 +4317,34 @@ class Pipeline:
                     notes=list(hints.notes) + ([requested_hint.note] if requested_hint.note else []),
                 )
                 forced_ref = str(requested_hint.connection_ref or "").strip()
+                if forced_ref:
+                    working_draft = with_capability_draft_updates(
+                        working_draft,
+                        explicit_connection_ref=forced_ref,
+                        requested_connection_ref="",
+                    )
+                    resolved = self._append_debug_detail_lines(
+                        resolved,
+                        agentic_context_debug_line(
+                            "capability_draft",
+                            {
+                                "capability": str(getattr(working_draft, "capability", "") or "-").strip() or "-",
+                                "kind": effective_kind or "-",
+                                "explicit_ref": forced_ref,
+                                "requested_ref": "-",
+                                "path": str(getattr(working_draft, "path", "") or "").strip() or "-",
+                                "content": str(getattr(working_draft, "content", "") or "").strip() or "-",
+                            },
+                        ),
+                    )
+                    resolved = self._append_debug_detail_lines(
+                        resolved,
+                        f"Routing Debug: explicit_ref selected ref={forced_ref}",
+                    )
+                    resolved = self._append_debug_detail_lines(
+                        resolved,
+                        f"Routing: explicit_connection_resolution selected `{effective_kind}/{forced_ref}` source=explicit_ref note={forced_ref}",
+                    )
                 semantic_record = build_routing_decision_record(
                     stage="semantic_candidate_resolution",
                     candidates=semantic_candidates,
@@ -4865,6 +4381,7 @@ class Pipeline:
                     preferred_kind=effective_kind,
                 )
         if not forced_ref:
+            prior_plural_detail_lines = self._resolved_routing_detail_lines(resolved)
             kind_only = await self._build_kind_only_routed_resolution(
                 message,
                 connection_kind=effective_kind,
@@ -4874,7 +4391,7 @@ class Pipeline:
                 source="kind_inferred",
                 reason=str(hints.matched_text or effective_kind),
             )
-            kind_only["detail_lines"] = self._resolved_routing_detail_lines(resolved)
+            kind_only["detail_lines"] = prior_plural_detail_lines
             kind_only = self._append_routing_record_to_resolved(
                 kind_only,
                 build_routing_decision_record(
@@ -4947,20 +4464,48 @@ class Pipeline:
                     candidate_connections=scoped_connections,
                     capability_draft=working_draft,
                     language=language,
-                )
+            )
             return self._apply_requested_connection_guard(kind_only, capability_draft=working_draft, language=language)
 
+        if (
+            effective_kind == "ssh"
+            and forced_ref
+            and not str(getattr(working_draft, "capability", "") or "").strip()
+        ):
+            working_draft = with_capability_draft_updates(
+                working_draft,
+                capability="ssh_command",
+                connection_kind="ssh",
+                explicit_connection_ref=forced_ref,
+            )
+            resolved = self._append_debug_detail_lines(
+                resolved,
+                agentic_context_debug_line(
+                    "capability_draft",
+                    {
+                        "capability": "ssh_command",
+                        "kind": "ssh",
+                        "explicit_ref": forced_ref,
+                        "requested_ref": "-",
+                        "path": "-",
+                        "content": str(getattr(working_draft, "content", "") or "").strip() or "-",
+                    },
+                ),
+            )
         forced_resolved = await self._build_forced_routed_resolution(
             message,
             connection_kind=effective_kind,
             connection_ref=forced_ref,
             language=language,
-            llm_client=effective_llm_client,
+            llm_client=None if str(hints.source or "").strip() in {"semantic_alias", "semantic_llm", "explicit_ref"} else effective_llm_client,
             capability_draft=working_draft,
             source=str(hints.source or "memory_hint"),
             reason=str(hints.matched_text or forced_ref),
         )
-        forced_resolved["detail_lines"] = self._resolved_routing_detail_lines(resolved)
+        forced_resolved["detail_lines"] = [
+            *self._resolved_routing_detail_lines(resolved),
+            *self._resolved_routing_detail_lines(forced_resolved),
+        ]
         if semantic_record is not None:
             forced_resolved = self._append_routing_record_to_resolved(forced_resolved, semantic_record)
         forced_resolved = self._append_routing_record_to_resolved(
@@ -4979,6 +4524,42 @@ class Pipeline:
         )
         forced_resolved = self._attach_connection_candidates_debug(forced_resolved, planner_connection_candidates)
         if not self._resolved_routing_chain_complete(forced_resolved):
+            payload = dict((forced_resolved.get("payload_debug") or {}).get("payload", {}) or {})
+            missing_fields = [str(item or "").strip() for item in list(payload.get("missing_fields", []) or [])]
+            if forced_ref and missing_fields == ["connection_ref"]:
+                forced_resolved = await self._build_forced_routed_resolution(
+                    message,
+                    connection_kind=effective_kind,
+                    connection_ref=forced_ref,
+                    language=language,
+                    llm_client=None,
+                    capability_draft=working_draft,
+                    source=str(hints.source or "memory_hint"),
+                    reason=str(hints.matched_text or forced_ref),
+                )
+                forced_resolved["detail_lines"] = [
+                    *self._resolved_routing_detail_lines(resolved),
+                    *self._resolved_routing_detail_lines(forced_resolved),
+                ]
+                if semantic_record is not None:
+                    forced_resolved = self._append_routing_record_to_resolved(forced_resolved, semantic_record)
+                forced_resolved = self._append_routing_record_to_resolved(
+                    forced_resolved,
+                    build_routing_decision_record(
+                        stage="forced_connection_resolution",
+                        candidates=[],
+                        hint=SemanticConnectionHint(
+                            connection_kind=effective_kind,
+                            connection_ref=forced_ref,
+                            source=str(hints.source or "memory_hint"),
+                            note=str(hints.matched_text or forced_ref),
+                        ),
+                        preferred_kind=effective_kind,
+                    ),
+                )
+                forced_resolved = self._attach_connection_candidates_debug(forced_resolved, planner_connection_candidates)
+                if self._resolved_routing_chain_complete(forced_resolved):
+                    return self._apply_requested_connection_guard(forced_resolved, capability_draft=working_draft, language=language)
             kind_only = await self._build_kind_only_routed_resolution(
                 message,
                 connection_kind=effective_kind,
@@ -5218,6 +4799,29 @@ class Pipeline:
             except Exception:
                 pass
 
+        def _remember_multi_target_action(
+            target_user_id: str,
+            payload: dict[str, Any],
+            refs: list[str],
+            command: str,
+            summary: str,
+        ) -> None:
+            if self.capability_context_store is None:
+                return
+            try:
+                self.capability_context_store.remember_action(
+                    target_user_id,
+                    capability="ssh_command",
+                    connection_kind="ssh",
+                    connection_ref="",
+                    path="",
+                    content=command,
+                    connection_refs=refs,
+                    result_summary=summary,
+                )
+            except Exception:
+                pass
+
         async def _execute_plan(plan: ActionPlan, target_language: str) -> str:
             return await self._executor_registry.execute(plan, language=target_language)
 
@@ -5259,6 +4863,7 @@ class Pipeline:
                 preflight_refs=self._preflight_multi_target_ssh_refs,
                 execute_plan=_execute_plan,
                 remember_action=_remember_action,
+                remember_multi_target_action=_remember_multi_target_action,
                 result_state=self._multi_target_ssh_result_state,
                 extract_free_disk_threshold_gib=self._extract_free_disk_threshold_gib,
                 extract_summary_free_disk_gib=self._extract_summary_free_disk_gib,
@@ -5483,7 +5088,38 @@ class Pipeline:
             language=language,
         )
         result = await self._build_multi_target_ssh_execution_handler().execute(request)
+        self._remember_runtime_outcome_frame(
+            result.metadata.get("runtime_outcome") if isinstance(result.metadata, dict) else None,
+            user_id=user_id,
+            detail_lines=result.detail_lines,
+        )
         return result.as_pipeline_tuple()
+
+    def _remember_runtime_outcome_frame(self, payload: Any, *, user_id: str, detail_lines: list[str] | None = None) -> None:
+        if not isinstance(payload, dict):
+            return
+        frame = RuntimeOutcomeFrame(
+            surface_id=str(payload.get("surface_id", "") or ""),
+            kind=str(payload.get("kind", "") or ""),
+            capability=str(payload.get("capability", "") or ""),
+            task_intent=str(payload.get("task_intent", "") or ""),
+            command=str(payload.get("command", "") or ""),
+            targets=tuple(payload.get("targets", []) or ()),
+            records=tuple(row for row in list(payload.get("records", []) or []) if isinstance(row, dict)),
+            summary=str(payload.get("summary", "") or ""),
+            followup_affordances=tuple(payload.get("followup_affordances", []) or ()),
+            confidence=0.92,
+        )
+        if not frame.as_payload():
+            return
+        self._runtime_outcome_frames[str(user_id or "web")] = frame
+        if detail_lines is not None and self._routing_debug_enabled():
+            detail_lines.append(
+                "Routing Debug: runtime_outcome_frame stored "
+                f"surface={frame.surface_id} kind={frame.kind} capability={frame.capability} "
+                f"task_intent={frame.task_intent or '-'} targets={len(frame.targets)} "
+                f"affordances={','.join(frame.followup_affordances) or '-'}"
+            )
 
     async def _execute_routed_action(
         self,
@@ -5595,14 +5231,15 @@ class Pipeline:
             return None
 
         resolved["query"] = message
-        resolved = await self._apply_bounded_planner(
-            resolved,
-            message=message,
-            user_id=user_id,
-            capability_draft=capability_draft,
-            language=language,
-            llm_client=self.llm_client,
-        )
+        if not (capability_draft is None and self._resolved_routing_chain_complete(resolved)):
+            resolved = await self._apply_bounded_planner(
+                resolved,
+                message=message,
+                user_id=user_id,
+                capability_draft=capability_draft,
+                language=language,
+                llm_client=self.llm_client,
+            )
         resolved = self._force_template_action_for_capability_draft(
             resolved,
             capability_draft=capability_draft,
@@ -5770,6 +5407,7 @@ class Pipeline:
         *,
         user_id: str,
         source: str = "web",
+        auto_memory_enabled: bool = False,
         language: str | None = None,
     ) -> PipelineResult:
         start = time.perf_counter()
@@ -5807,6 +5445,31 @@ class Pipeline:
             runtime_recipes=runtime_recipes,
             language=str(language or "de"),
         )
+        if auto_memory_enabled:
+            payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+            self._schedule_runtime_learning_outcome(
+                event=connection_action_outcome_event(
+                    message=str(pending_action.get("query", "") or ""),
+                    user_id=user_id,
+                    request_id=request_id,
+                    candidate_kind=candidate_kind,
+                    candidate_id=candidate_id,
+                    payload=payload,
+                    safety_decision=dict((resolved.get("safety_debug") or {}).get("decision", {}) or {}),
+                    execution_decision=dict((resolved.get("execution_debug") or {}).get("decision", {}) or {}),
+                    result_intents=result_intents,
+                    skill_errors=errors,
+                ),
+                user_id=user_id,
+            )
+            if not errors:
+                await self._schedule_host_artifact_learning_outcomes(
+                    message=str(pending_action.get("query", "") or ""),
+                    user_id=user_id,
+                    request_id=request_id,
+                    result_text=result_text,
+                    payload=payload,
+                )
         duration_ms = int((time.perf_counter() - start) * 1000)
         await self.token_tracker.log(
             request_id=request_id,
@@ -6457,6 +6120,11 @@ class Pipeline:
         connection_pools = self._capability_routing_connection_pools()
         if not connection_pools:
             return None
+        classification_pools = {kind: dict(rows) for kind, rows in connection_pools.items()}
+        for kind in {"discord", "imap", "email", "mqtt", "webhook"}:
+            clean_kind = normalize_connection_kind(kind)
+            if clean_kind and clean_kind not in classification_pools:
+                classification_pools[clean_kind] = {"__aria_missing_target__": {}}
 
         connection_aliases_by_kind: dict[str, dict[str, list[str]]] = {}
         for kind, rows in connection_pools.items():
@@ -6469,18 +6137,208 @@ class Pipeline:
             if alias_rows:
                 connection_aliases_by_kind[kind] = alias_rows
 
-        return self.capability_router.classify(
+        lower = str(message or "").strip().lower()
+        lower_ascii = lower.translate(
+            {
+                ord(chr(228)): "ae",
+                ord(chr(246)): "oe",
+                ord(chr(252)): "ue",
+                ord(chr(223)): "ss",
+            }
+        )
+        ssh_runtime_question = (
+            connection_pools.get("ssh")
+            and any(term in lower for term in ("server", "host", "ssh"))
+            and any(
+                term in lower
+                for term in (
+                    "laufzeit",
+                    "uptime",
+                    "status",
+                    " ok",
+                    "ok",
+                    "okay",
+                    "ordnung",
+                    "gesund",
+                    "health",
+                    "healthy",
+                    "wie geht es",
+                    "hd",
+                    "harddisk",
+                    "festplatte",
+                    "festplatten",
+                    "speicherplatz",
+                )
+            )
+            and not any(
+                term in lower
+                for term in (
+                    "servern",
+                    "servers",
+                    "all meinen server",
+                    "meinen servern",
+                    "meine server",
+                    "developer server",
+                    "dev-server",
+                    "dev server",
+                )
+            )
+        )
+        draft = self.capability_router.classify(
             message,
             language=language,
-            available_connection_refs_by_kind={kind: rows.keys() for kind, rows in connection_pools.items()},
+            available_connection_refs_by_kind={kind: rows.keys() for kind, rows in classification_pools.items()},
             available_connection_aliases_by_kind=connection_aliases_by_kind,
         )
+        if (
+            draft is not None
+            and ssh_runtime_question
+            and normalize_capability(str(getattr(draft, "capability", "") or "")) in {"file_read", "file_list"}
+        ):
+            command = ""
+            if any(term in lower for term in ("laufzeit", "uptime")):
+                command = "uptime"
+            elif any(term in lower for term in ("hd", "harddisk", "festplatte", "festplatten", "speicherplatz")):
+                command = "df -h"
+            return CapabilityDraft(
+                capability="ssh_command",
+                connection_kind="ssh",
+                requested_connection_ref=self.capability_router._extract_requested_connection_ref_hint(
+                    str(message or ""),
+                    "ssh",
+                    self.capability_router._lexicon_for_language(language),
+                ),
+                content=command,
+                confidence=0.74,
+                notes=["capability_draft_source:local_fallback"],
+            )
+        if draft is not None:
+            return draft
+
+        if ssh_runtime_question:
+            if any(term in lower for term in ("laufzeit", "uptime")):
+                return CapabilityDraft(
+                    capability="ssh_command",
+                    connection_kind="ssh",
+                    requested_connection_ref=self.capability_router._extract_requested_connection_ref_hint(
+                        str(message or ""),
+                        "ssh",
+                        self.capability_router._lexicon_for_language(language),
+                    ),
+                    content="uptime",
+                    confidence=0.74,
+                    notes=["capability_draft_source:local_fallback"],
+                )
+            if any(term in lower for term in ("hd", "harddisk", "festplatte", "festplatten", "speicherplatz")):
+                return CapabilityDraft(
+                    capability="ssh_command",
+                    connection_kind="ssh",
+                    requested_connection_ref=self.capability_router._extract_requested_connection_ref_hint(
+                        str(message or ""),
+                        "ssh",
+                        self.capability_router._lexicon_for_language(language),
+                    ),
+                    content="df -h",
+                    confidence=0.74,
+                    notes=["capability_draft_source:local_fallback"],
+                )
+            if any(term in lower for term in ("status", " ok", "ok", "okay", "ordnung", "gesund", "health", "healthy", "wie geht es")):
+                return CapabilityDraft(
+                    capability="ssh_command",
+                    connection_kind="ssh",
+                    requested_connection_ref=self.capability_router._extract_requested_connection_ref_hint(
+                        str(message or ""),
+                        "ssh",
+                        self.capability_router._lexicon_for_language(language),
+                    ),
+                    confidence=0.72,
+                    notes=["capability_draft_source:local_fallback"],
+                )
+        file_kind = "smb" if connection_pools.get("smb") else "sftp" if connection_pools.get("sftp") else ""
+        path = self.capability_router._extract_path(str(message or ""))
+        if file_kind and path and any(term in lower_ascii for term in ("datei", "file", "oeffne", "open", "lies", "read")):
+            return CapabilityDraft(
+                capability="file_read",
+                connection_kind=file_kind,
+                path=path,
+                confidence=0.74,
+                notes=["capability_draft_source:local_fallback"],
+            )
+        if (
+            connection_pools.get("ssh")
+            and any(term in lower_ascii for term in ("loesche", "delete", "remove", "entferne"))
+            and any(term in lower for term in ("server", "host", "ssh"))
+        ):
+            return CapabilityDraft(
+                capability="ssh_command",
+                connection_kind="ssh",
+                confidence=0.72,
+                notes=["capability_draft_source:local_fallback"],
+            )
+        return None
 
     def _should_try_llm_capability_draft(self, message: str, capability_draft: Any | None) -> bool:
         if capability_draft is not None or self.llm_client is None:
             return False
         connection_pools = self._capability_routing_connection_pools()
         return bool(connection_pools)
+
+    def _should_try_capability_draft_agentic_first(self, message: str) -> bool:
+        if self.llm_client is None:
+            return False
+        connection_pools = self._capability_routing_connection_pools()
+        if not connection_pools:
+            return False
+        lower = str(message or "").strip().lower()
+        return re.search(r"^\s*(?:run|execute)\s+\S+.*\s+on\s+\S+", lower) is None
+
+    @staticmethod
+    def _local_capability_fallback_allowed(llm_state: str) -> bool:
+        clean = str(llm_state or "").strip().lower()
+        if not clean:
+            return True
+        if clean in {"unavailable", "invalid:low_confidence", "invalid:empty_or_invalid_response", "invalid:llm_error", "invalid:missing_action"}:
+            return True
+        return clean.startswith("invalid:") and clean not in {"invalid:out_of_bounds"}
+
+    def _should_try_agentic_capability_draft_first(self, message: str) -> bool:
+        if self.llm_client is None:
+            return False
+        connection_pools = self._capability_routing_connection_pools()
+        if not connection_pools:
+            return False
+        lower = str(message or "").strip().lower()
+        lower_ascii = lower.translate(
+            {
+                ord(chr(228)): "ae",
+                ord(chr(246)): "oe",
+                ord(chr(252)): "ue",
+                ord(chr(223)): "ss",
+            }
+        )
+        if re.search(r"^\s*(?:run|execute)\s+\S+.*\s+on\s+\S+", lower):
+            return False
+        if connection_pools.get("ssh") and any(term in lower for term in ("ssh", "server", "host", "node")):
+            return True
+        local_check_terms = ("pruef", "check", "kontrolliere", "health")
+        non_ssh_terms = ("api", "http", "webhook", "discord", "mqtt", "rss", "kalender", "calendar", "endpoint")
+        ssh_alias_terms: set[str] = set()
+        for ref, row in dict(connection_pools.get("ssh") or {}).items():
+            ssh_alias_terms.add(str(ref or "").strip().lower())
+            if isinstance(row, dict):
+                ssh_alias_terms.add(str(row.get("title", "") or "").strip().lower())
+                aliases = row.get("aliases", [])
+                if isinstance(aliases, list):
+                    ssh_alias_terms.update(str(alias or "").strip().lower() for alias in aliases)
+        ssh_alias_terms = {term for term in ssh_alias_terms if term and len(term) >= 3}
+        if (
+            connection_pools.get("ssh")
+            and any(term in lower_ascii for term in local_check_terms)
+            and not any(term in lower_ascii for term in non_ssh_terms)
+            and any(term in lower for term in ssh_alias_terms)
+        ):
+            return True
+        return False
 
     @staticmethod
     def _pre_rag_gate_may_classify_action(decision: Any) -> bool:
@@ -6495,7 +6353,9 @@ class Pipeline:
         *,
         language: str | None = None,
     ) -> Any | None:
+        self._last_capability_draft_llm_state = ""
         if self.llm_client is None:
+            self._last_capability_draft_llm_state = "unavailable"
             return None
         connection_pools = self._capability_routing_connection_pools()
         configured_kinds = sorted(str(kind).strip().lower() for kind, rows in connection_pools.items() if rows)
@@ -6508,6 +6368,7 @@ class Pipeline:
         )
         if not allowed_pairs:
             return None
+        allowed_pair_set = set(allowed_pairs)
         prompt_payload = {
             "message": str(message or ""),
             "language": str(language or ""),
@@ -6520,7 +6381,7 @@ class Pipeline:
                 "return_no_action_when": "The user is asking general knowledge, memory recall, document QA, or non-operational chat.",
                 "return_action_when": "The user asks ARIA to inspect/read/send/check/list/run something through a configured connection kind.",
                 "target_scope": "Use multi_target only when the user clearly refers to several/all targets.",
-                "target_intent": "Use health_check for broad server fitness/health/status phrasing, capacity_check for broad resource/capacity questions, otherwise leave empty.",
+                "target_intent": "Use health_check for broad server fitness/health/status phrasing, capacity_check for broad resource/capacity questions, package_update_check for package/update-status questions, otherwise leave empty.",
                 "content": "For ssh_command, include only a safe read-only command when obvious; otherwise leave content empty for the SSH resolver.",
             },
             "examples": [
@@ -6551,54 +6412,57 @@ class Pipeline:
                     "target_intent": "capacity_check",
                     "content": "uptime",
                 },
+                {
+                    "message": "sind meine server up to date?",
+                    "action": "action",
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "target_scope": "multi_target",
+                    "target_intent": "package_update_check",
+                    "content": "apt list --upgradable",
+                },
             ],
         }
-        try:
-            response = await self.llm_client.chat(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You classify whether a user message is a bounded ARIA connection action. "
-                            "Return one JSON object only with: action, capability, connection_kind, "
-                            "target_scope, target_intent, content, confidence, reason. Never invent connection kinds or capabilities."
-                        ),
-                    },
-                    {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
-                ],
-                operation="capability_draft_decision",
-            )
-        except Exception:
+        decision = await BoundedDecisionClient(self.llm_client).decide_json(
+            operation="capability_draft_decision",
+            system=(
+                "You classify whether a user message is a bounded ARIA connection action. "
+                "Return one JSON object only with: action, capability, connection_kind, "
+                "target_scope, target_intent, content, confidence, reason. Never invent connection kinds or capabilities."
+            ),
+            payload=prompt_payload,
+        )
+        if not decision.ok:
+            self._last_capability_draft_llm_state = f"invalid:{decision.error}"
             return None
-        payload = self._extract_json_object(getattr(response, "content", "") or "")
-        if not payload:
+        payload = decision.payload
+        action = str(payload.get("action", "") or "").strip().lower()
+        if action in {"chat", "no_action"}:
+            self._last_capability_draft_llm_state = "no_action"
             return None
-        if str(payload.get("action", "") or "").strip().lower() not in {"action", "capability_action"}:
+        if action not in {"action", "capability_action"}:
+            self._last_capability_draft_llm_state = "invalid:missing_action"
             return None
         capability = normalize_capability(str(payload.get("capability", "") or ""))
         connection_kind = normalize_connection_kind(str(payload.get("connection_kind", "") or ""))
-        if (connection_kind, capability) not in set(allowed_pairs):
+        if (connection_kind, capability) not in allowed_pair_set:
+            self._last_capability_draft_llm_state = "invalid:out_of_bounds"
             return None
-        confidence_raw = str(payload.get("confidence", "") or "").strip().lower()
-        confidence = 0.0
-        if confidence_raw in {"high", "medium"}:
-            confidence = 0.82 if confidence_raw == "high" else 0.66
-        else:
-            try:
-                confidence = float(payload.get("confidence") or 0.0)
-            except (TypeError, ValueError):
-                confidence = 0.0
+        confidence = confidence_score(payload.get("confidence"))
         if confidence < 0.55:
+            self._last_capability_draft_llm_state = "invalid:low_confidence"
             return None
+        self._last_capability_draft_llm_state = "action"
         notes = ["capability_draft_source:llm"]
         if str(payload.get("target_scope", "") or "").strip().lower() == "multi_target":
             notes.append("target_scope:multi_target")
         target_intent = str(payload.get("target_intent", "") or "").strip().lower()
-        if target_intent in {"health_check", "capacity_check"}:
+        if target_intent in {"health_check", "capacity_check", "package_update_check"}:
             notes.append(f"target_intent:{target_intent}")
         return CapabilityDraft(
             capability=capability,
             connection_kind=connection_kind,
+            requested_connection_ref=str(payload.get("requested_connection_ref", "") or "").strip(),
             content=str(payload.get("content", "") or "").strip(),
             confidence=confidence,
             notes=notes,
@@ -6650,35 +6514,21 @@ class Pipeline:
                 },
             ],
         }
-        try:
-            response = await self.llm_client.chat(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You arbitrate whether ARIA should answer in chat or execute a bounded connection action. "
-                            "Return one JSON object only with: route, confidence, reason. route must be chat or action."
-                        ),
-                    },
-                    {"role": "user", "content": json.dumps(prompt_payload, ensure_ascii=False)},
-                ],
-                operation="pre_rag_action_arbitration",
-            )
-        except Exception:
+        decision = await BoundedDecisionClient(self.llm_client).decide_json(
+            operation="pre_rag_action_arbitration",
+            system=(
+                "You arbitrate whether ARIA should answer in chat or execute a bounded connection action. "
+                "Return one JSON object only with: route, confidence, reason. route must be chat or action."
+            ),
+            payload=prompt_payload,
+        )
+        if not decision.ok:
             return False
-        payload = self._extract_json_object(getattr(response, "content", "") or "")
-        if not payload:
-            return False
+        payload = decision.payload
         route = str(payload.get("route", "") or "").strip().lower()
         if route not in {"chat", "no_action"}:
             return False
-        confidence_raw = str(payload.get("confidence", "") or "").strip().lower()
-        if confidence_raw in {"high", "medium"}:
-            return True
-        try:
-            return float(payload.get("confidence") or 0.0) >= 0.55
-        except (TypeError, ValueError):
-            return False
+        return confidence_score(payload.get("confidence")) >= 0.55
 
     def _should_try_unified_routing(
         self,
@@ -6758,9 +6608,96 @@ class Pipeline:
         return "target_scope:multi_target" in notes
 
     @staticmethod
+    def _capability_draft_target_refs(capability_draft: Any | None) -> list[str]:
+        refs: list[str] = []
+        for item in list(getattr(capability_draft, "connection_refs", []) or []):
+            clean = str(item or "").strip()
+            if clean and clean not in refs:
+                refs.append(clean)
+        if refs:
+            return refs
+        for note in list(getattr(capability_draft, "notes", []) or []):
+            clean_note = str(note or "").strip()
+            if not clean_note.lower().startswith("turn_contract_target_refs:"):
+                continue
+            raw_refs = clean_note.split(":", 1)[1]
+            for item in raw_refs.split(","):
+                clean = str(item or "").strip()
+                if clean and clean not in refs:
+                    refs.append(clean)
+        return refs
+
+    def _ssh_multi_target_contract_should_expand_to_fleet(
+        self,
+        *,
+        message: str,
+        capability_draft: Any | None,
+        contract_target_refs: list[str],
+        candidate_connections: dict[str, Any],
+    ) -> bool:
+        if len(candidate_connections) <= len(contract_target_refs):
+            return False
+        explicit_ref = str(getattr(capability_draft, "explicit_connection_ref", "") or "").strip()
+        requested_ref = str(getattr(capability_draft, "requested_connection_ref", "") or "").strip()
+        if explicit_ref or requested_ref:
+            return False
+        notes = [str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])]
+        target_intent = next((note.split(":", 1)[1] for note in notes if note.startswith("target_intent:")), "")
+        if target_intent not in {"health_check", "capacity_check", "package_update_check"}:
+            return False
+        looks_like_plural_target = getattr(self._memory_assist, "_looks_like_plural_target_request", None)
+        if not callable(looks_like_plural_target):
+            return False
+        try:
+            return bool(looks_like_plural_target(message, "ssh"))
+        except Exception:
+            return False
+
+    @staticmethod
     def _capability_draft_is_llm_sourced(capability_draft: Any | None) -> bool:
         notes = [str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])]
         return "capability_draft_source:llm" in notes
+
+    @staticmethod
+    def _capability_draft_is_local_fallback(capability_draft: Any | None) -> bool:
+        notes = [str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])]
+        return "capability_draft_source:local_fallback" in notes
+
+    async def _refine_seeded_capability_draft_objective_with_llm(
+        self,
+        capability_message: str,
+        capability_draft: Any | None,
+        *,
+        language: str | None = None,
+    ) -> Any | None:
+        if capability_draft is None:
+            return None
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or "").strip())
+        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
+        if capability != "ssh_command" or kind != "ssh":
+            return capability_draft
+        existing_notes = [str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])]
+        if any(note.startswith("target_intent:") for note in existing_notes):
+            return capability_draft
+        refined = await self._classify_capability_draft_with_llm(capability_message, language=language)
+        if refined is None:
+            return capability_draft
+        if normalize_capability(str(getattr(refined, "capability", "") or "")) != capability:
+            return capability_draft
+        if normalize_connection_kind(str(getattr(refined, "connection_kind", "") or "")) != kind:
+            return capability_draft
+        merged_notes: list[str] = []
+        for note in [*list(getattr(capability_draft, "notes", []) or []), *list(getattr(refined, "notes", []) or [])]:
+            clean = str(note or "").strip()
+            if clean and clean not in merged_notes:
+                merged_notes.append(clean)
+        content = str(getattr(refined, "content", "") or "").strip() or str(getattr(capability_draft, "content", "") or "").strip()
+        return with_capability_draft_updates(
+            capability_draft,
+            content=content,
+            confidence=max(float(getattr(capability_draft, "confidence", 0.0) or 0.0), float(getattr(refined, "confidence", 0.0) or 0.0)),
+            notes=merged_notes,
+        )
 
     def _pre_rag_gate_debug_line(
         self,
@@ -6775,21 +6712,32 @@ class Pipeline:
         requested_ref = str(getattr(capability_draft, "requested_connection_ref", "") or "").strip() or "-"
         path = str(getattr(capability_draft, "path", "") or "").strip() or "-"
         content = str(getattr(capability_draft, "content", "") or "").strip() or "-"
-        line = (
-            f"Routing Debug: pre_rag_action_gate action_path={action_path} "
-            f"capability={capability} kind={kind} explicit_ref={explicit_ref} "
-            f"requested_ref={requested_ref} path={path} content={content} "
-            f"boundary={AGENTIC_BOUNDARY_CONTEXT}"
-        )
+        fields = {
+            "action_path": action_path,
+            "capability": capability,
+            "kind": kind,
+            "explicit_ref": explicit_ref,
+            "requested_ref": requested_ref,
+            "path": path,
+            "content": content,
+            "boundary": AGENTIC_BOUNDARY_CONTEXT,
+        }
         if reason:
-            line = f"{line} reason={reason}"
-        return line
+            fields["reason"] = reason
+        return routing_debug_line("pre_rag_action_gate", fields)
 
-    def _prepend_pre_rag_gate_debug(self, result: PipelineResult, *, action_path: str, capability_draft: Any | None) -> PipelineResult:
+    def _prepend_pre_rag_gate_debug(
+        self,
+        result: PipelineResult,
+        *,
+        action_path: str,
+        capability_draft: Any | None,
+        reason: str = "",
+    ) -> PipelineResult:
         if not self._routing_debug_enabled():
             return result
         result.detail_lines = [
-            self._pre_rag_gate_debug_line(action_path=action_path, capability_draft=capability_draft),
+            self._pre_rag_gate_debug_line(action_path=action_path, capability_draft=capability_draft, reason=reason),
             *list(result.detail_lines or []),
         ]
         return result
@@ -6827,33 +6775,110 @@ class Pipeline:
         decision: Any,
         start: float,
         runtime_recipes: list[dict[str, Any]],
+        auto_memory_enabled: bool = False,
         language: str | None = None,
+        seed_capability_draft: Any | None = None,
+        semantic_source: str = "",
     ) -> tuple[PipelineResult | None, list[str], Any | None]:
-        if not self._pre_rag_gate_may_classify_action(decision):
-            return None, [], None
-
         capability_message = self._rewrite_calendar_followup_message(message, user_id)
         capability_message = self._rewrite_ssh_followup_message(
             capability_message,
             user_id,
             language=language,
         )
-        if self.capability_router.looks_like_general_instruction_request(capability_message):
+        capability_draft = seed_capability_draft
+        seeded_by_turn_contract = capability_draft is not None and str(semantic_source or "").strip() in {
+            "aria_meta_catalog_routing",
+            "aria_turn_surface_action_arbitration",
+        }
+        if not seeded_by_turn_contract and not self._pre_rag_gate_may_classify_action(decision):
             return None, [], None
-        if explicitly_requests_local_context(capability_message):
+        if seeded_by_turn_contract:
+            capability_draft = await self._refine_seeded_capability_draft_objective_with_llm(
+                capability_message,
+                capability_draft,
+                language=language,
+            )
+        if not seeded_by_turn_contract and self.capability_router.looks_like_general_instruction_request(capability_message):
             return None, [], None
-        capability_draft = self._classify_capability_draft(capability_message, language=language)
-        custom_intents = self._match_stored_recipe_intents(message, runtime_recipes)
+        if not seeded_by_turn_contract and explicitly_requests_local_context(capability_message):
+            return None, [], None
+        if not seeded_by_turn_contract and self._external_urls(capability_message):
+            return None, [], None
+        if not seeded_by_turn_contract and await self._message_wants_recent_runtime_context(capability_message, user_id, language=language):
+            return None, [], None
         if (
+            not seeded_by_turn_contract
+            and
+            looks_like_general_diagnostic_or_advice_request(capability_message)
+            and re.search(r"\bwas\s+mach(?:e)?\s+ich\s+damit\b", capability_message, flags=re.IGNORECASE)
+            and await self._llm_prefers_chat_over_connection_action(capability_message, language=language)
+        ):
+            return None, [], None
+        agentic_first_draft_attempted = False
+        local_fallback_used = False
+        llm_capability_state = ""
+        if not seeded_by_turn_contract and self._should_try_capability_draft_agentic_first(capability_message):
+            agentic_first_draft_attempted = True
+            capability_draft = await self._classify_capability_draft_with_llm(
+                capability_message,
+                language=language,
+            )
+            llm_capability_state = str(getattr(self, "_last_capability_draft_llm_state", "") or "")
+            if capability_draft is None and llm_capability_state == "no_action":
+                return None, [], None
+        if capability_draft is None and not seeded_by_turn_contract and self._local_capability_fallback_allowed(llm_capability_state):
+            capability_draft = self._classify_capability_draft(capability_message, language=language)
+            local_fallback_used = capability_draft is not None
+            if local_fallback_used and auto_memory_enabled:
+                self._schedule_capability_fallback_learning_outcome(
+                    message=capability_message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    capability_draft=capability_draft,
+                    llm_state=llm_capability_state or "not_attempted",
+                    source=source,
+                )
+        if self._should_suppress_recipe_candidates_for_capability_draft(capability_draft, capability_message):
+            custom_intents = []
+        elif not seeded_by_turn_contract and self.llm_client is not None and runtime_recipes:
+            custom_intents = await self._resolve_stored_recipe_intent_with_llm(message, runtime_recipes)
+        elif not seeded_by_turn_contract:
+            custom_intents = self._match_stored_recipe_intents(message, runtime_recipes)
+        else:
+            custom_intents = []
+        if (
+            not seeded_by_turn_contract
+            and
             capability_draft is None
             and not custom_intents
             and looks_like_general_diagnostic_or_advice_request(capability_message)
+            and not (
+                (
+                    "interpretiere" in capability_message.lower()
+                    or "interpret " in capability_message.lower()
+                    or "interpretation" in capability_message.lower()
+                )
+                and any(term in capability_message.lower() for term in ("syslog", "kernel", " log", "dmesg", "watchdog", "soft lockup"))
+            )
             and await self._llm_prefers_chat_over_connection_action(capability_message, language=language)
         ):
             return None, custom_intents, capability_draft
+        interpret_log_advice_request = (
+            (
+                "interpretiere" in capability_message.lower()
+                or "interpret " in capability_message.lower()
+                or "interpretation" in capability_message.lower()
+            )
+            and any(term in capability_message.lower() for term in ("syslog", "kernel", " log", "dmesg", "watchdog", "soft lockup"))
+        )
         if (
             not custom_intents
-            and self._should_try_llm_capability_draft(capability_message, capability_draft)
+            and not seeded_by_turn_contract
+            and (
+                (self._should_try_llm_capability_draft(capability_message, capability_draft) and not agentic_first_draft_attempted)
+                or (interpret_log_advice_request and self.llm_client is not None and not agentic_first_draft_attempted)
+            )
         ):
             llm_capability_draft = await self._classify_capability_draft_with_llm(
                 capability_message,
@@ -6863,6 +6888,64 @@ class Pipeline:
                 capability_draft = llm_capability_draft
         if self._should_suppress_recipe_candidates_for_capability_draft(capability_draft, capability_message):
             custom_intents = []
+        if not custom_intents and self._capability_draft_should_use_inventory_context(capability_draft):
+            inventory_result = await self._build_capability_inventory_context_result(
+                message=capability_message,
+                user_id=user_id,
+                request_id=request_id,
+                source=source,
+                decision=decision,
+                start=start,
+                capability_draft=capability_draft,
+                language=language,
+            )
+            if inventory_result is not None:
+                return inventory_result, custom_intents, capability_draft
+        if (
+            not custom_intents
+            and capability_draft is not None
+            and self._capability_matches_connection_kind(capability_draft)
+            and normalize_capability(str(getattr(capability_draft, "capability", "") or "")) == "ssh_command"
+            and (
+                self._capability_draft_has_multi_target_scope(capability_draft)
+                or not str(getattr(capability_draft, "content", "") or "").strip()
+            )
+        ):
+            runtime_effect = await self._classify_ssh_runtime_effect_for_gate(
+                capability_message,
+                user_id,
+                capability_draft=capability_draft,
+                language=language,
+            )
+            if (
+                str(runtime_effect.get("runtime_effect", "") or "").strip().lower() == "mutating"
+                and str(runtime_effect.get("confidence", "") or "").strip().lower() in {"high", "medium"}
+            ):
+                return await self._build_mutating_ssh_request_block_result(
+                    message=capability_message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    source=source,
+                    decision=decision,
+                    start=start,
+                    capability_draft=capability_draft,
+                    runtime_effect=runtime_effect,
+                    language=language,
+                ), custom_intents, capability_draft
+        if (
+            not custom_intents
+            and capability_draft is not None
+            and (
+                looks_like_general_diagnostic_or_advice_request(capability_message)
+                or (
+                    re.search(r"\binterpret(?:iere|ier|e|ing)?\b", capability_message, flags=re.IGNORECASE)
+                    and re.search(r"\b(?:syslog|kernel|log|dmesg|watchdog|soft\s+lockup)\b", capability_message, flags=re.IGNORECASE)
+                )
+            )
+            and not seeded_by_turn_contract
+            and await self._llm_prefers_chat_over_connection_action(capability_message, language=language)
+        ):
+            return None, custom_intents, capability_draft
 
         capability_has_no_configured_targets = False
         if capability_draft is not None:
@@ -6937,6 +7020,47 @@ class Pipeline:
                     capability_draft=capability_draft,
                 ), custom_intents, capability_draft
 
+        deterministic_direct_signal = (
+            capability_draft is not None
+            and self._capability_matches_connection_kind(capability_draft)
+            and not self._capability_draft_is_llm_sourced(capability_draft)
+            and normalize_capability(str(getattr(capability_draft, "capability", "") or "")) == "ssh_command"
+            and bool(str(getattr(capability_draft, "explicit_connection_ref", "") or "").strip())
+        )
+        if not custom_intents and deterministic_direct_signal:
+            capability_result = await self._try_capability_action(
+                capability_message,
+                user_id,
+                language=language,
+            )
+            if capability_result is not None:
+                intents, text, detail_lines, _plan, skill_errors = capability_result
+                duration_ms = int((time.perf_counter() - start) * 1000)
+                result = self._build_routed_action_result(
+                    request_id=request_id,
+                    decision=decision,
+                    duration_ms=duration_ms,
+                    intents=intents,
+                    text=text,
+                    detail_lines=detail_lines,
+                    skill_errors=skill_errors,
+                )
+                await self._log_result_usage_snapshot(
+                    request_id=request_id,
+                    user_id=user_id,
+                    intents=intents,
+                    router_level=decision.level,
+                    duration_ms=duration_ms,
+                    source=source,
+                    skill_errors=skill_errors,
+                    extraction_model="pre_rag_capability_action",
+                )
+                return self._prepend_pre_rag_gate_debug(
+                    result,
+                    action_path="capability_action",
+                    capability_draft=capability_draft,
+                ), custom_intents, capability_draft
+
         explicit_or_targeted_signal = any(
             str(getattr(capability_draft, field, "") or "").strip()
             for field in ("explicit_connection_ref", "requested_connection_ref", "path")
@@ -6951,6 +7075,7 @@ class Pipeline:
             should_try_unified
             and not strong_capability_signal
             and not custom_intents
+            and not seeded_by_turn_contract
             and await self._llm_prefers_chat_over_connection_action(capability_message, language=language)
         ):
             return None, custom_intents, capability_draft
@@ -6974,6 +7099,98 @@ class Pipeline:
                 ), custom_intents, capability_draft
 
         return None, custom_intents, capability_draft
+
+    def _capability_draft_should_use_inventory_context(self, capability_draft: Any | None) -> bool:
+        if capability_draft is None:
+            return False
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or ""))
+        if capability != "website_list":
+            return False
+        inventory_cfg = getattr(self.settings, "inventory_index", None)
+        memory_cfg = getattr(self.settings, "memory", None)
+        return bool(
+            getattr(inventory_cfg, "enabled", True)
+            and getattr(memory_cfg, "enabled", False)
+            and str(getattr(memory_cfg, "backend", "") or "").strip().lower() == "qdrant"
+        )
+
+    def _capability_inventory_arbitration(self, *, capability_draft: Any, message: str, user_id: str, request_id: str) -> AriaTurnArbitration:
+        query = str(getattr(capability_draft, "content", "") or "").strip() or str(message or "").strip()
+        request = ContextRequest(
+            surface_id="connections",
+            mode="inventory",
+            query=query,
+            depth="shallow",
+            limit=int(getattr(getattr(self.settings, "inventory_index", None), "candidate_limit", 12) or 12),
+            user_id=user_id,
+            turn_id=request_id,
+        )
+        plan = AriaTurnPlan(
+            intents=("context_inventory",),
+            surfaces=("connections",),
+            collections=(),
+            actions=(),
+            needs_context=True,
+            context_directions=("connections",),
+            context_depth="shallow",
+            queries={"connections": query},
+            context_requests=(request,),
+            priority=("connections",),
+            answer_mode="direct_answer",
+            risk="none",
+            needs_confirmation=False,
+            confidence=0.90,
+            reason="capability_list_as_context_inventory",
+        )
+        return AriaTurnArbitration(plan=plan, source="capability_inventory_contract")
+
+    async def _build_capability_inventory_context_result(
+        self,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        source: str,
+        decision: Any,
+        start: float,
+        capability_draft: Any,
+        language: str | None = None,
+    ) -> PipelineResult | None:
+        arbitration = self._capability_inventory_arbitration(
+            capability_draft=capability_draft,
+            message=message,
+            user_id=user_id,
+            request_id=request_id,
+        )
+        skill_results = await self._agentic_context_surface_loader().load_inventory(arbitration)
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or "")) or "-"
+        detail_lines = [
+            arbitration.debug_line,
+            "Routing Debug: action_to_context_inventory "
+            f"capability={capability} surface=connections authoritative=true reason=inventory_index_contract",
+        ]
+        result = await self._aria_turn_direct_context_result(
+            arbitration=arbitration,
+            skill_results=skill_results,
+            detail_lines=detail_lines,
+            intents=["context_inventory"],
+            decision=decision,
+            safe_fix_plan=[],
+            start=start,
+            request_id=request_id,
+            user_id=user_id,
+            source=source,
+            language=language,
+        )
+        if result is None:
+            return None
+        self._remember_aria_turn_frame(arbitration, user_id=user_id)
+        return self._prepend_pre_rag_gate_debug(
+            result,
+            action_path="context_inventory",
+            capability_draft=capability_draft,
+            reason="capability_list_redirected_to_inventory_index",
+        )
 
     def _force_template_action_for_capability_draft(
         self,
@@ -7052,13 +7269,233 @@ class Pipeline:
             )
         resolved = self._append_debug_detail_lines(
             resolved,
-            "Routing Debug: recipe_candidate_suppressed reason=capability_draft_preferred_over_recipe capability=ssh_command",
+            routing_debug_line(
+                "recipe_candidate_suppressed",
+                {
+                    "reason": "capability_draft_preferred_over_recipe",
+                    "capability": "ssh_command",
+                },
+            ),
         )
         return resolved
 
     def classify_routing(self, message: str, *, language: str | None = None) -> RouterDecision:
         routing_profile = self.settings.routing.for_language(language)
         return self.router.classify(message, routing=routing_profile)
+
+    def _available_turn_intents(self) -> set[str]:
+        intents = {"chat"}
+        if self.memory_skill is not None:
+            intents.update({"memory_store", "memory_recall", "memory_forget"})
+        if self.web_search_skill is not None:
+            intents.add("web_search")
+        return intents
+
+    def _available_connection_kinds_for_aria_turn(self) -> tuple[str, ...]:
+        raw = getattr(self.settings, "connections", None)
+        rows = raw.model_dump() if hasattr(raw, "model_dump") else {}
+        if not isinstance(rows, dict):
+            return ()
+        kinds: list[str] = []
+        for kind, values in rows.items():
+            if not isinstance(values, dict) or not values:
+                continue
+            clean = str(kind or "").strip().lower()
+            if clean and clean not in kinds:
+                kinds.append(clean)
+        return tuple(kinds)
+
+    async def _runtime_task_arbitration_override(
+        self,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        language: str | None,
+        meta_arbitration: AriaTurnArbitration,
+    ) -> AriaTurnArbitration | None:
+        plan = meta_arbitration.plan
+        if plan.actions or plan.needs_confirmation or plan.answer_mode == "plan_action":
+            return None
+        if "connections" not in set(plan.context_directions or ()) and "connections" not in set(plan.surfaces or ()):
+            return None
+        if not self._should_try_agentic_capability_draft_first(message):
+            return None
+        capability_draft = await self._classify_capability_draft_with_llm(message, language=language)
+        if capability_draft is None:
+            return None
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or ""))
+        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
+        if capability != "ssh_command" or kind != "ssh":
+            return None
+        notes = {str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])}
+        if "target_scope:multi_target" not in notes:
+            return None
+        ssh_rows = getattr(getattr(self.settings, "connections", object()), "ssh", {})
+        if not isinstance(ssh_rows, dict) or not ssh_rows:
+            return None
+        refs = tuple(str(ref or "").strip() for ref in sorted(ssh_rows.keys()) if str(ref or "").strip())
+        if not refs:
+            return None
+        requests = tuple(
+            ContextRequest(
+                surface_id="connections",
+                mode="action",
+                query=str(message or "").strip(),
+                depth="shallow",
+                limit=1,
+                budget={
+                    "catalog_id": f"connection|ssh|{ref}",
+                    "entity_type": "connection",
+                    "kind": "ssh",
+                    "ref": ref,
+                    "contract_source": "runtime_task_capability_draft",
+                },
+                user_id=user_id,
+                turn_id=request_id,
+            )
+            for ref in refs
+        )
+        target_intent = next((note.split(":", 1)[1] for note in notes if note.startswith("target_intent:")), "")
+        arbitration = AriaTurnArbitration(
+            source="runtime_task_contract",
+            plan=AriaTurnPlan(
+                intents=("runtime_action",),
+                surfaces=("connections",),
+                actions=("connection_action_ssh",),
+                needs_context=True,
+                context_directions=("connections",),
+                context_depth="shallow",
+                queries={"connections": str(message or "").strip()},
+                context_requests=requests,
+                priority=tuple(f"connection|ssh|{ref}" for ref in refs),
+                answer_mode="plan_action",
+                contract_mode="action",
+                evidence_policy="source_bound",
+                risk="medium",
+                needs_confirmation=True,
+                confidence=max(0.70, float(getattr(capability_draft, "confidence", 0.0) or 0.0)),
+                reason=f"runtime_task_contract:{target_intent or 'ssh_command'}",
+            ),
+            usage={},
+        )
+        if self._routing_debug_enabled():
+            self._last_meta_catalog_fallback_debug_lines = [
+                meta_arbitration.debug_line,
+                "Routing Debug: runtime_task_contract "
+                f"source=capability_draft_decision capability=ssh_command kind=ssh "
+                f"target_scope=multi_target target_intent={target_intent or '-'} "
+                "meta_answer_contract=overridden",
+            ]
+        return arbitration
+
+    def _last_runtime_outcome_frame(self, user_id: str) -> RuntimeOutcomeFrame:
+        return self._runtime_outcome_frames.get(str(user_id or "web"), RuntimeOutcomeFrame())
+
+    async def _try_runtime_outcome_followup_result(
+        self,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        source: str,
+        language: str | None,
+        start: float,
+    ) -> PipelineResult | None:
+        frame = self._last_runtime_outcome_frame(user_id)
+        payload = frame.as_payload()
+        if not payload or not frame.followup_affordances:
+            return None
+        decision = await BoundedDecisionClient(self.llm_client).decide_json(
+            operation="runtime_outcome_followup_resolution",
+            system=(
+                "You decide whether the user message is a follow-up to ARIA's last runtime outcome. "
+                "Return JSON only. Choose action=use_previous_outcome, rerun_previous_action, "
+                "new_meta_catalog_turn, or clarify. Use only the provided followup_affordances. "
+                "Use use_previous_outcome for pronouns or references such as 'davon', 'those', "
+                "'which of them', or requests to rank/explain the previous result. Do not invent data."
+            ),
+            payload={
+                "message": str(message or "").strip(),
+                "language": str(language or ""),
+                "last_runtime_outcome": payload,
+                "allowed_actions": ["use_previous_outcome", "rerun_previous_action", "new_meta_catalog_turn", "clarify"],
+                "allowed_affordances": list(frame.followup_affordances),
+            },
+            source=source,
+            user_id=user_id,
+            request_id=request_id,
+        )
+        if not decision.ok:
+            return None
+        confidence = confidence_score(decision.payload.get("confidence"))
+        action = str(decision.payload.get("action", "") or "").strip().lower()
+        affordance = str(decision.payload.get("affordance", "") or "").strip().lower()
+        if confidence < 0.62 or action != "use_previous_outcome" or affordance not in set(frame.followup_affordances):
+            return None
+        if frame.kind == "ssh" and frame.capability == "ssh_command" and frame.task_intent == "package_update_check":
+            fallback_summary = self._package_update_followup_fallback_summary(frame, language=language)
+            summary, summary_debug = await self._multi_target_ssh_llm_operator_summary(
+                message=str(message or "").strip(),
+                command=frame.command,
+                records=[dict(row) for row in frame.records],
+                fallback_summary=fallback_summary or frame.summary,
+                language=language,
+            )
+            text = summary or fallback_summary or frame.summary
+            detail_lines = [
+                "Routing Debug: runtime_outcome_followup "
+                f"action=use_previous_outcome affordance={affordance} "
+                f"surface={frame.surface_id} kind={frame.kind} capability={frame.capability} "
+                f"task_intent={frame.task_intent} targets={len(frame.targets)} confidence={confidence:.2f}",
+            ]
+            if summary_debug:
+                detail_lines.append(summary_debug)
+            return PipelineResult(
+                request_id=request_id,
+                text=text,
+                usage=dict(decision.usage or {}),
+                intents=["runtime_outcome_followup"],
+                skill_errors=[],
+                router_level=2,
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                detail_lines=detail_lines,
+            )
+        return None
+
+    @staticmethod
+    def _package_update_followup_fallback_summary(frame: RuntimeOutcomeFrame, *, language: str | None = None) -> str:
+        package_refs: dict[str, set[str]] = {}
+        for row in frame.records:
+            ref = str(row.get("ref", "") or "").strip()
+            raw_text = str(row.get("raw_text", "") or row.get("text", "") or "")
+            for line in raw_text.splitlines():
+                clean = line.strip()
+                if "/" not in clean or "upgradable" not in clean.lower():
+                    continue
+                package = clean.split("/", 1)[0].strip()
+                if not package:
+                    continue
+                package_refs.setdefault(package, set()).add(ref)
+        if not package_refs:
+            return "Ich habe den letzten Update-Check gefunden, aber darin keine auswertbaren Paketnamen erkannt."
+        priority_terms = ("linux-image", "linux-headers", "openssl", "openssh", "sudo", "libc", "systemd", "apt", "dpkg", "curl", "gnupg")
+
+        def _score(item: tuple[str, set[str]]) -> tuple[int, int, str]:
+            package, refs = item
+            securityish = 1 if any(term in package.lower() for term in priority_terms) else 0
+            return securityish, len(refs), package
+
+        ranked = sorted(package_refs.items(), key=_score, reverse=True)[:10]
+        rows = [
+            f"`{package}` ({len(refs)} Server: {', '.join(sorted(refs)[:5])}{', ...' if len(refs) > 5 else ''})"
+            for package, refs in ranked
+        ]
+        return (
+            "Aus dem letzten `apt list --upgradable`-Ergebnis wuerde ich zuerst diese Pakete anschauen: "
+            + "; ".join(rows)
+            + ". Ohne Advisory-Abgleich ist das eine technische Priorisierung nach Pakettyp und Verbreitung, keine bestaetigte CVE-Prioritaet."
+        )
 
     async def process(
         self,
@@ -7069,341 +7506,417 @@ class Pipeline:
         memory_collection: str | None = None,
         session_collection: str | None = None,
         auto_memory_enabled: bool = False,
+        aria_turn_arbitration: AriaTurnArbitration | None = None,
     ) -> PipelineResult:
         start = time.perf_counter()
+        timing = StageTimingLedger(enabled=self._routing_debug_enabled())
         request_id = str(uuid4())
+        self._last_active_learning_hints = []
 
         persona = self.prompt_loader.get_persona()
         routing_profile = self.settings.routing.for_language(language)
-        decision = self.classify_routing(message, language=language)
-        runtime_recipes = self._load_stored_recipe_runtime()
-        if any(is_recipe_status_intent(intent) for intent in decision.intents):
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            text = self._build_recipe_status_text(runtime_recipes, auto_memory_enabled)
-            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            await self.token_tracker.log(
+        decision = RouterDecision(intents=["chat"], level=1)
+        runtime_recipes: list[dict[str, Any]] | None = None
+
+        def finalize_result(result: PipelineResult) -> PipelineResult:
+            timing.add("pipeline_wall_time", int((time.perf_counter() - start) * 1000))
+            result.detail_lines = self._insert_stage_timing_detail_lines(result.detail_lines, timing)
+            return result
+
+        def load_runtime_recipes_once() -> list[dict[str, Any]]:
+            nonlocal runtime_recipes
+            with timing.measure("load_runtime_recipes"):
+                if runtime_recipes is None:
+                    runtime_recipes = self._load_stored_recipe_runtime()
+                return runtime_recipes
+
+        if aria_turn_arbitration is None:
+            with timing.measure("runtime_outcome_followup"):
+                runtime_followup_result = await self._try_runtime_outcome_followup_result(
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    source=source,
+                    language=language,
+                    start=start,
+                )
+            if runtime_followup_result is not None:
+                return finalize_result(runtime_followup_result)
+
+        if aria_turn_arbitration is None:
+            with timing.measure("aria_turn_arbiter"):
+                aria_turn_arbitration = await self._arbitrate_aria_turn(
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    language=language,
+                    runtime_recipes=[],
+                )
+        else:
+            self._remember_aria_turn_frame(aria_turn_arbitration, user_id=user_id)
+        meta_catalog_contract = self._aria_turn_uses_meta_catalog_contract(aria_turn_arbitration)
+        action_contract_selected = bool(
+            aria_turn_arbitration is not None
+            and (
+                aria_turn_arbitration.plan.actions
+                or aria_turn_arbitration.plan.needs_confirmation
+                or aria_turn_arbitration.plan.answer_mode == "plan_action"
+            )
+        )
+        confident_local_context = self._aria_turn_has_confident_local_context(aria_turn_arbitration)
+        if meta_catalog_contract:
+            timing.add("legacy_router", 0)
+            decision = replace(
+                decision,
+                intents=self._merge_aria_turn_intents(list(decision.intents or []), aria_turn_arbitration),
+                level=max(int(decision.level or 1), 2),
+            )
+            self._last_active_learning_hints = []
+        elif confident_local_context:
+            timing.add("legacy_router", 0)
+            self._last_active_learning_hints = []
+        else:
+            with timing.measure("legacy_router"):
+                decision = self.classify_routing(message, language=language)
+            with timing.measure("turn_intent_arbiter"):
+                decision = await self._classify_routing_agentic(
+                    message,
+                    keyword_decision=decision,
+                    language=language,
+                    user_id=user_id,
+                    request_id=request_id,
+                    source=source,
+                )
+        if aria_turn_arbitration is not None:
+            decision = replace(
+                decision,
+                intents=self._merge_aria_turn_intents(list(decision.intents or []), aria_turn_arbitration),
+                level=max(int(decision.level or 1), 2),
+            )
+        recipe_status_recipes = load_runtime_recipes_once() if "recipe_status" in set(decision.intents or []) else []
+        with timing.measure("recipe_status_stage"):
+            recipe_status_stage = await self._run_recipe_status_stage(
+                decision=decision,
+                runtime_recipes=recipe_status_recipes,
+                auto_memory_enabled=auto_memory_enabled,
+                start=start,
                 request_id=request_id,
                 user_id=user_id,
-                intents=[RECIPE_STATUS_INTENT],
-                router_level=decision.level,
-                usage=usage,
-                chat_model=self.settings.llm.model,
-                embedding_model=self.settings.embeddings.model,
-                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                duration_ms=duration_ms,
                 source=source,
-                skill_errors=[],
-                extraction_model="rule_based",
-                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-            )
-            return PipelineResult(
-                request_id=request_id,
-                text=text,
-                usage=usage,
-                intents=[RECIPE_STATUS_INTENT],
-                skill_errors=[],
-                router_level=decision.level,
-                duration_ms=duration_ms,
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                safe_fix_plan=None,
-            )
-
-        custom_intents: list[str] = []
-        capability_draft: Any | None = None
-        pre_rag_result, custom_intents, capability_draft = await self._try_pre_rag_action_gate(
-            message,
-            user_id,
-            request_id=request_id,
-            source=source,
-            decision=decision,
-            start=start,
-            runtime_recipes=runtime_recipes,
-            language=language,
         )
-        if pre_rag_result is not None:
-            return pre_rag_result
-        if (
-            decision.intents in (["chat"], ["memory_recall"])
-            and not custom_intents
-            and not self._should_suppress_recipe_candidates_for_capability_draft(capability_draft, message)
-        ):
-            custom_intents = await self._resolve_stored_recipe_intent_with_llm(message, runtime_recipes)
+        if recipe_status_stage.direct_result is not None:
+            return finalize_result(recipe_status_stage.direct_result)
 
-        merged_intents = list(decision.intents)
-        for intent in custom_intents:
-            if intent not in merged_intents:
-                merged_intents.append(intent)
-        freshness_debug_lines: list[str] = []
-        freshness_auto_web_search = False
-        if (
-            self.web_search_skill is not None
-            and "web_search" not in merged_intents
-            and not explicitly_requests_local_context(message)
-            and not any(is_recipe_intent(str(intent)) for intent in merged_intents)
-            and all(str(intent) in {"chat", "memory_recall"} for intent in merged_intents)
-        ):
-            freshness_decision = await decide_chat_freshness(
-                message=message,
-                intents=merged_intents,
-                llm_client=self.llm_client,
-                language=language,
-                source=source,
-                user_id=user_id,
-                request_id=request_id,
-            )
-            if freshness_decision.source != "none":
-                freshness_debug_lines.append(format_chat_freshness_debug(freshness_decision))
-            if freshness_decision.needs_fresh_context:
-                merged_intents.append("web_search")
-                freshness_auto_web_search = True
-        skill_results = await self._run_skills(
-            merged_intents,
-            message,
-            user_id,
-            routing_profile=routing_profile,
-            language=str(language or "de"),
-            runtime_recipes=runtime_recipes,
-            memory_collection=memory_collection,
-            session_collection=session_collection,
-            auto_memory_enabled=auto_memory_enabled,
-            suppress_web_search_note_context=freshness_auto_web_search,
-        )
-        safe_fix_plan = self._build_safe_fix_plan(skill_results)
-        web_search_results = [result for result in skill_results if result.skill_name == "web_search"]
-        has_web_search_context = any(result.success and bool(str(result.content or "").strip()) for result in web_search_results)
-        if "web_search" in merged_intents and web_search_results and not has_web_search_context:
-            primary_error = next(
-                (str(result.error or "").strip() for result in web_search_results if str(result.error or "").strip()),
-                _pipeline_text(language, "web_search_failed", "Web search failed."),
-            )
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            await self.token_tracker.log(
-                request_id=request_id,
-                user_id=user_id,
-                intents=merged_intents,
-                router_level=decision.level,
-                usage=usage,
-                chat_model=self.settings.llm.model,
-                embedding_model=self.settings.embeddings.model,
-                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                duration_ms=duration_ms,
-                source=source,
-                skill_errors=[primary_error],
-                extraction_model="web_search_precheck",
-                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-            )
-            return PipelineResult(
-                request_id=request_id,
-                text=primary_error,
-                usage=usage,
-                intents=merged_intents,
-                skill_errors=[primary_error],
-                router_level=decision.level,
-                duration_ms=duration_ms,
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
-                safe_fix_plan=safe_fix_plan,
-                detail_lines=self._collect_skill_detail_lines(skill_results),
-            )
-
-        direct_chat_result = next(
-            (
-                result
-                for result in skill_results
-                if bool((result.metadata or {}).get("direct_chat_response")) and bool(result.success)
-            ),
-            None,
-        )
-        if (
-            direct_chat_result is not None
-            and any(is_recipe_intent(str(intent)) for intent in merged_intents)
-            and all(str(intent) == "chat" or is_recipe_intent(str(intent)) for intent in merged_intents)
-        ):
-            filtered_direct_chat_skill_results = filter_chat_context_skill_results(
-                skill_results,
-                message=message,
-                intents=merged_intents,
-                allow_web_search_local_context=not freshness_auto_web_search,
-            )
-            skill_detail_lines = [
-                *self._pre_rag_no_action_debug_lines(
-                    capability_draft=capability_draft,
-                    custom_intents=custom_intents,
+        if confident_local_context or (meta_catalog_contract and not action_contract_selected):
+            custom_intents: list[str] = []
+            capability_draft = None
+            recipe_intent_debug_lines = [
+                *list(getattr(self, "_last_meta_catalog_fallback_debug_lines", []) or []),
+                *([aria_turn_arbitration.debug_line] if aria_turn_arbitration is not None else []),
+                *(
+                    ["Routing Debug: meta_catalog_contract phase=context legacy_semantics=skipped"]
+                    if meta_catalog_contract
+                    else []
                 ),
-                *freshness_debug_lines,
-                *self._collect_skill_detail_lines(filtered_direct_chat_skill_results),
             ]
+        elif action_contract_selected:
+            runtime_recipes_for_actions = []
+            seed_capability_draft = self._aria_turn_seed_capability_draft(aria_turn_arbitration)
+            with timing.measure("pre_rag_action_stage"):
+                pre_rag_stage = await self._run_pre_rag_action_stage(
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    source=source,
+                    decision=decision,
+                    start=start,
+                    runtime_recipes=runtime_recipes_for_actions,
+                    auto_memory_enabled=auto_memory_enabled,
+                    language=language,
+                    seed_capability_draft=seed_capability_draft,
+                    semantic_source=str(aria_turn_arbitration.source if aria_turn_arbitration is not None else ""),
+                )
+            custom_intents = pre_rag_stage.custom_intents
+            capability_draft = pre_rag_stage.capability_draft
+            action_contract_phase = "action_preflight" if meta_catalog_contract else "backup_action_preflight"
+            recipe_intent_debug_lines = [
+                *list(getattr(self, "_last_meta_catalog_fallback_debug_lines", []) or []),
+                *([aria_turn_arbitration.debug_line] if aria_turn_arbitration is not None else []),
+                (
+                    "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped"
+                    if meta_catalog_contract
+                    else "Routing Debug: legacy_backup_action_contract phase=action_preflight chat_fallback=blocked"
+                ),
+            ]
+            if pre_rag_stage.direct_result is not None:
+                pre_rag_stage.direct_result.detail_lines = [
+                    *recipe_intent_debug_lines,
+                    *list(pre_rag_stage.direct_result.detail_lines or []),
+                ]
+                return finalize_result(pre_rag_stage.direct_result)
             duration_ms = int((time.perf_counter() - start) * 1000)
-            usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            await self.token_tracker.log(
+            action_names = ",".join(aria_turn_arbitration.plan.actions) if aria_turn_arbitration is not None else "-"
+            result = self._build_routed_action_result(
                 request_id=request_id,
-                user_id=user_id,
-                intents=merged_intents,
-                router_level=decision.level,
-                usage=usage,
-                chat_model=self.settings.llm.model,
-                embedding_model=self.settings.embeddings.model,
-                embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
+                decision=decision,
                 duration_ms=duration_ms,
-                source=source,
-                skill_errors=[r.error for r in skill_results if not r.success and r.error],
-                extraction_model="rule_based",
-                extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                intents=[f"capability:{getattr(capability_draft, 'capability', '') or 'action'}"],
+                text=self._pipeline_text(
+                    language,
+                    "meta_catalog_action_preflight_not_executable",
+                    "I found a matching action in the meta catalog, but no safe executable preflight was produced yet. I did not run anything.",
+                ),
+                detail_lines=[
+                    *recipe_intent_debug_lines,
+                    "Routing Debug: meta_catalog_action_preflight "
+                    f"actions={action_names or '-'} capability={getattr(capability_draft, 'capability', '') or '-'} "
+                    f"boundary=guardrail phase={action_contract_phase} reason=no_executable_preflight",
+                ],
+                skill_errors=[],
             )
-            return PipelineResult(
+            return finalize_result(result)
+        else:
+            runtime_recipes_for_actions = load_runtime_recipes_once()
+            with timing.measure("pre_rag_action_stage"):
+                pre_rag_stage = await self._run_pre_rag_action_stage(
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    source=source,
+                    decision=decision,
+                    start=start,
+                    runtime_recipes=runtime_recipes_for_actions,
+                    auto_memory_enabled=auto_memory_enabled,
+                    language=language,
+                )
+            custom_intents = pre_rag_stage.custom_intents
+            capability_draft = pre_rag_stage.capability_draft
+            if pre_rag_stage.direct_result is not None:
+                return finalize_result(pre_rag_stage.direct_result)
+            with timing.measure("recipe_arbitration_stage"):
+                recipe_stage = await self._run_recipe_arbitration_stage(
+                    message=message,
+                    runtime_recipes=runtime_recipes_for_actions,
+                    decision=decision,
+                    custom_intents=custom_intents,
+                    capability_draft=capability_draft,
+                    start=start,
+                    request_id=request_id,
+                    user_id=user_id,
+                    source=source,
+                    auto_memory_enabled=auto_memory_enabled,
+                    language=language,
+                )
+            custom_intents = recipe_stage.custom_intents
+            recipe_intent_debug_lines = [
+                *([aria_turn_arbitration.debug_line] if aria_turn_arbitration is not None else []),
+                *recipe_stage.debug_lines,
+            ]
+            if recipe_stage.direct_result is not None:
+                return finalize_result(recipe_stage.direct_result)
+
+        merged_intents = self._merge_custom_intents(decision.intents, custom_intents)
+        if confident_local_context or meta_catalog_contract:
+            freshness_debug_lines = []
+            freshness_auto_web_search = False
+        else:
+            with timing.measure("freshness_stage"):
+                freshness_stage = await self._run_freshness_stage(
+                    message=message,
+                    intents=merged_intents,
+                    language=language,
+                    source=source,
+                    user_id=user_id,
+                    request_id=request_id,
+                )
+            merged_intents = freshness_stage.intents
+            freshness_debug_lines = freshness_stage.debug_lines
+            freshness_auto_web_search = freshness_stage.auto_web_search
+        aria_query_overrides = self._aria_turn_query_overrides(aria_turn_arbitration)
+        aria_context_overrides = self._aria_turn_context_overrides(aria_turn_arbitration, user_id=user_id)
+        force_selected_context = self._aria_turn_forces_selected_context(aria_turn_arbitration)
+        skill_auto_memory_enabled = auto_memory_enabled and not force_selected_context
+        direct_inventory_fast_path = self._aria_turn_can_direct_inventory_fast_path(aria_turn_arbitration)
+        direct_memory_exists_fast_path = self._aria_turn_can_direct_memory_exists_fast_path(aria_turn_arbitration)
+        surface_loader_runtime = self._agentic_context_surface_loader()
+        if direct_inventory_fast_path:
+            skill_results = []
+            recipe_intent_debug_lines.append("Routing Debug: direct_context_fast_path kind=inventory reason=turn_plan_inventory_request")
+        elif direct_memory_exists_fast_path and aria_turn_arbitration is not None:
+            recipe_intent_debug_lines.append("Routing Debug: direct_context_fast_path kind=memory_exists reason=turn_plan_memory_exists_request")
+            with timing.measure("memory_exists_loader"):
+                skill_results = [
+                    await surface_loader_runtime.load_memory_exists(
+                        arbitration=aria_turn_arbitration,
+                        user_id=user_id,
+                        memory_collection=memory_collection,
+                        session_collection=session_collection,
+                        context_overrides=aria_context_overrides,
+                    )
+                ]
+        else:
+            with timing.measure("skill_runtime"):
+                skill_results = await self._run_skills(
+                    merged_intents,
+                    message,
+                    user_id,
+                    routing_profile=routing_profile,
+                    language=str(language or "de"),
+                    runtime_recipes=runtime_recipes or [],
+                    memory_collection=memory_collection,
+                    session_collection=session_collection,
+                    auto_memory_enabled=skill_auto_memory_enabled,
+                    suppress_web_search_note_context=("web_search" in merged_intents and not explicitly_requests_local_context(message)),
+                    query_overrides=aria_query_overrides,
+                    context_overrides=aria_context_overrides,
+                )
+        with timing.measure("context_inventory_loader"):
+            skill_results = [*skill_results, *await surface_loader_runtime.load_inventory(aria_turn_arbitration)]
+        skill_results, context_isolation_debug_lines = self._aria_turn_filter_skill_results_for_selected_context(
+            arbitration=aria_turn_arbitration,
+            skill_results=skill_results,
+        )
+        recipe_intent_debug_lines = [
+            *recipe_intent_debug_lines,
+            *context_isolation_debug_lines,
+            *self._aria_turn_context_ledger_lines(
+                arbitration=aria_turn_arbitration,
+                query_overrides=aria_query_overrides,
+                context_overrides=aria_context_overrides,
+                skill_results=skill_results,
+            ),
+        ]
+        if auto_memory_enabled:
+            self._schedule_learning_outcome_recording(
+                skill_results=skill_results,
+                message=message,
+                user_id=user_id,
                 request_id=request_id,
-                text=str((direct_chat_result.metadata or {}).get("direct_chat_text") or direct_chat_result.content),
-                usage=usage,
+            )
+        safe_fix_plan = self._build_safe_fix_plan(skill_results)
+        with timing.measure("direct_context_answer"):
+            direct_context_result = await self._aria_turn_direct_context_result(
+                arbitration=aria_turn_arbitration,
+                skill_results=skill_results,
+                detail_lines=recipe_intent_debug_lines,
                 intents=merged_intents,
-                skill_errors=[r.error for r in skill_results if not r.success and r.error],
-                router_level=decision.level,
-                duration_ms=duration_ms,
-                chat_cost_usd=None,
-                embedding_cost_usd=None,
-                total_cost_usd=None,
+                decision=decision,
                 safe_fix_plan=safe_fix_plan,
-                detail_lines=skill_detail_lines,
-            )
-
-        chat_context_skill_results = filter_chat_context_skill_results(
-            skill_results,
-            message=message,
-            intents=merged_intents,
-            allow_web_search_local_context=not freshness_auto_web_search,
-        )
-        prompts = self.context_assembler.build(
-            persona=persona,
-            skill_results=chat_context_skill_results,
-            user_message=message,
-            language=str(language or "de"),
-        )
-        if freshness_auto_web_search:
-            prompts[0]["content"] = (
-                f"{prompts[0]['content']}\n\n"
-                f"Freshness instruction: Today is {date.today().isoformat()}. "
-                "When current web/search context is provided, prefer the freshest relevant sources. "
-                "Do not mention outdated fallback dates or older training cutoffs unless the uncertainty is directly relevant."
-            )
-
-        with self.usage_meter.scope(
-            request_id=request_id,
-            user_id=user_id,
-            source=source,
-            router_level=decision.level,
-        ) as usage_scope:
-            llm_response = await self.llm_client.chat(
-                prompts,
-                source=source,
-                operation="final_chat_response",
-                user_id=user_id,
+                start=start,
                 request_id=request_id,
-            )
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            usage_snapshot = self.usage_meter.snapshot_scope(usage_scope)
-
-        embedding_model = str(usage_snapshot.get("embedding_model", "")).strip() or self.settings.embeddings.model
-        extraction_prompt_tokens = 0
-        extraction_completion_tokens = 0
-        extraction_total_tokens = 0
-        extraction_calls = 0
-        extraction_model = "rule_based"
-        for result in skill_results:
-            meta = result.metadata or {}
-            extract_usage = meta.get("extraction_usage")
-            if isinstance(extract_usage, dict):
-                extraction_prompt_tokens += int(extract_usage.get("prompt_tokens", 0) or 0)
-                extraction_completion_tokens += int(extract_usage.get("completion_tokens", 0) or 0)
-                extraction_total_tokens += int(extract_usage.get("total_tokens", 0) or 0)
-                extraction_calls += 1
-            if meta.get("extraction_model"):
-                extraction_model = str(meta["extraction_model"])
-
-        usage_total = usage_snapshot.get("usage", {}) if isinstance(usage_snapshot, dict) else {}
-        if not bool(getattr(llm_response, "metered", False)):
-            usage_total = {
-                "prompt_tokens": int(llm_response.usage.get("prompt_tokens", 0) or 0),
-                "completion_tokens": int(llm_response.usage.get("completion_tokens", 0) or 0),
-                "total_tokens": int(llm_response.usage.get("total_tokens", 0) or 0),
-            }
-        embedding_usage = usage_snapshot.get("embedding_usage", {}) if isinstance(usage_snapshot, dict) else {}
-        if not isinstance(embedding_usage, dict):
-            embedding_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
-
-        chat_cost_usd = usage_snapshot.get("chat_cost_usd") if isinstance(usage_snapshot, dict) else None
-        embedding_cost_usd = usage_snapshot.get("embedding_cost_usd") if isinstance(usage_snapshot, dict) else None
-        total_cost_usd = usage_snapshot.get("total_cost_usd") if isinstance(usage_snapshot, dict) else None
-
-        if not bool(getattr(llm_response, "metered", False)) and self.settings.pricing.enabled:
-            chat_price_cfg = self._resolve_pricing_entry(
-                self.settings.pricing.chat_models,
-                self.settings.llm.model,
-            )
-            if chat_price_cfg:
-                prompt_tokens = int(llm_response.usage.get("prompt_tokens", 0) or 0)
-                completion_tokens = int(llm_response.usage.get("completion_tokens", 0) or 0)
-                chat_cost_usd = (
-                    (prompt_tokens * float(chat_price_cfg.input_per_million))
-                    + (completion_tokens * float(chat_price_cfg.output_per_million))
-                ) / 1_000_000
-                total_cost_usd = chat_cost_usd if embedding_cost_usd is None else float(chat_cost_usd + float(embedding_cost_usd))
-
-        await self.token_tracker.log(
-            request_id=request_id,
-            user_id=user_id,
-            intents=merged_intents,
-            router_level=decision.level,
-            usage=usage_total,
-            chat_model=str(usage_snapshot.get("chat_model", "")).strip() or self.settings.llm.model,
-            embedding_model=embedding_model,
-            embedding_usage=embedding_usage,
-            chat_cost_usd=chat_cost_usd,
-            embedding_cost_usd=embedding_cost_usd,
-            total_cost_usd=total_cost_usd,
-            duration_ms=duration_ms,
-            source=source,
-            skill_errors=[r.error for r in skill_results if not r.success and r.error],
-            extraction_model=extraction_model,
-            extraction_usage={
-                "prompt_tokens": extraction_prompt_tokens,
-                "completion_tokens": extraction_completion_tokens,
-                "total_tokens": extraction_total_tokens,
-                "calls": extraction_calls,
-            },
+                user_id=user_id,
+                source=source,
+                language=language,
         )
+        if direct_context_result is not None:
+            return finalize_result(direct_context_result)
+        with timing.measure("empty_context_guardrail"):
+            empty_local_context_result = await self._aria_turn_empty_local_context_result(
+                arbitration=aria_turn_arbitration,
+                skill_results=skill_results,
+                detail_lines=recipe_intent_debug_lines,
+                intents=merged_intents,
+                decision=decision,
+                safe_fix_plan=safe_fix_plan,
+                start=start,
+                request_id=request_id,
+                user_id=user_id,
+                source=source,
+                language=language,
+        )
+        if empty_local_context_result is not None:
+            return finalize_result(empty_local_context_result)
+        with timing.measure("web_search_precheck_stage"):
+            web_search_precheck_result = await self._run_web_search_precheck_stage(
+                skill_results=skill_results,
+                intents=merged_intents,
+                decision=decision,
+                safe_fix_plan=safe_fix_plan,
+                start=start,
+                request_id=request_id,
+                user_id=user_id,
+                source=source,
+                language=language,
+        )
+        if web_search_precheck_result is not None:
+            return finalize_result(web_search_precheck_result)
 
-        skill_detail_lines = [
-            *self._pre_rag_no_action_debug_lines(
+        if not force_selected_context:
+            with timing.measure("recent_context_stage"):
+                skill_results = await self._append_recent_context_stage(
+                    skill_results=skill_results,
+                    intents=merged_intents,
+                    message=message,
+                    user_id=user_id,
+                    language=language,
+                )
+        skill_results, late_context_isolation_debug_lines = self._aria_turn_filter_skill_results_for_selected_context(
+            arbitration=aria_turn_arbitration,
+            skill_results=skill_results,
+        )
+        if late_context_isolation_debug_lines:
+            recipe_intent_debug_lines = [*recipe_intent_debug_lines, *late_context_isolation_debug_lines]
+
+        with timing.measure("direct_chat_response_stage"):
+            direct_chat_response = await self._run_direct_chat_response_stage(
+                skill_results=skill_results,
+                intents=merged_intents,
+                decision=decision,
+                safe_fix_plan=safe_fix_plan,
                 capability_draft=capability_draft,
                 custom_intents=custom_intents,
-            ),
-            *freshness_debug_lines,
-            *self._collect_skill_detail_lines(chat_context_skill_results),
-        ]
+                recipe_debug_lines=recipe_intent_debug_lines,
+                freshness_debug_lines=freshness_debug_lines,
+                freshness_auto_web_search=freshness_auto_web_search,
+                force_selected_context=force_selected_context,
+                include_pre_rag_debug=not confident_local_context,
+                start=start,
+                request_id=request_id,
+                user_id=user_id,
+                source=source,
+                message=message,
+                language=language,
+            )
+        if direct_chat_response is not None:
+            if auto_memory_enabled:
+                self._schedule_active_learning_hint_outcome(
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    active_hints=list(getattr(self, "_last_active_learning_hints", []) or []),
+                    final_intents=list(direct_chat_response.intents or []),
+                    router_level=int(direct_chat_response.router_level or 0),
+                )
+            return finalize_result(direct_chat_response)
 
-        return PipelineResult(
-            request_id=request_id,
-            text=llm_response.content,
-            usage=usage_total,
-            intents=merged_intents,
-            skill_errors=[r.error for r in skill_results if not r.success and r.error],
-            router_level=decision.level,
-            duration_ms=duration_ms,
-            chat_cost_usd=chat_cost_usd,
-            embedding_cost_usd=embedding_cost_usd,
-            total_cost_usd=total_cost_usd,
-            safe_fix_plan=safe_fix_plan,
-            detail_lines=skill_detail_lines,
-        )
+        with timing.measure("final_chat_response_stage"):
+            final_response = await self._run_final_chat_response_stage(
+                skill_results=skill_results,
+                intents=merged_intents,
+                decision=decision,
+                safe_fix_plan=safe_fix_plan,
+                capability_draft=capability_draft,
+                custom_intents=custom_intents,
+                recipe_debug_lines=recipe_intent_debug_lines,
+                freshness_debug_lines=freshness_debug_lines,
+                freshness_auto_web_search=freshness_auto_web_search,
+                force_selected_context=force_selected_context,
+                include_pre_rag_debug=not confident_local_context,
+                persona=persona,
+                start=start,
+                request_id=request_id,
+                user_id=user_id,
+                source=source,
+                message=message,
+                language=language,
+            )
+        if auto_memory_enabled:
+            self._schedule_active_learning_hint_outcome(
+                message=message,
+                user_id=user_id,
+                request_id=request_id,
+                active_hints=list(getattr(self, "_last_active_learning_hints", []) or []),
+                final_intents=list(final_response.intents or []),
+                router_level=int(final_response.router_level or 0),
+            )
+        return finalize_result(final_response)

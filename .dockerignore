@@ -23,6 +23,14 @@ docs/AI_CONTEXT.md
 docs/backlog/
 docs/internal/
 docs/release/
+docs/product/agentic-context-performance-plan.md
+docs/product/agentic-context-routing-dev-plan.md
+docs/product/agentic-context-runtime-v2.md
+docs/product/agentic-learning-loop-v2.md
+docs/product/deterministic-meaning-audit.md
+docs/product/llm-first-local-context-routing.md
+docs/product/qdrant-collections.md
+docs/product/qdrant-meta-catalog-redesign.md
 data/chat_history/
 data/qdrant/
 data/runtime/

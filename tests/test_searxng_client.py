@@ -242,3 +242,218 @@ def test_web_search_skill_can_prepend_notes_context() -> None:
     assert "Notiz-Kontext für die Suche" in result.content
     assert "Google OAuth (Recherche): Audience, Test users und OAuth Playground" in result.content
     assert result.metadata["detail_lines"][0] == "Notiz-Kontext: Google OAuth · Recherche"
+
+
+def test_web_search_skill_fetches_page_excerpt_for_official_result() -> None:
+    class FakeClient:
+        async def search(self, **kwargs):
+            _ = kwargs
+            return type(
+                "Resp",
+                (),
+                {
+                    "query": "area41 conference 2026 speakers topics agenda",
+                    "results": [
+                        SearXNGSearchResult(
+                            title="AREA41: Switzerland's Premier Hacker and Security Conference",
+                            url="https://area41.io/index.html#speakers",
+                            snippet="Below is a selection of speakers selected for 2026.",
+                            engine="duckduckgo",
+                        )
+                    ],
+                },
+            )()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    calls: list[str] = []
+
+    def fake_page_fetcher(url: str, timeout_seconds: int) -> str:
+        calls.append(url)
+        assert timeout_seconds == 8
+        return """
+        <html>
+          <body>
+            <section id="speakers">
+              <h2>Speakers</h2>
+              <article>
+                <h3>Example Speaker</h3>
+                <p>Breaking Every Guardrail Everywhere All At Once</p>
+              </article>
+              <article>
+                <h3>Another Speaker</h3>
+                <p>Hacking Every Entra ID Tenant With Actor Tokens</p>
+              </article>
+            </section>
+          </body>
+        </html>
+        """
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient(), page_fetcher=fake_page_fetcher)
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "was sind die themen der speaker an der area41 konferenz 2026",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert calls == ["https://area41.io/index.html#speakers"]
+    assert "Page excerpt:" in result.content
+    assert "Breaking Every Guardrail Everywhere All At Once" in result.content
+    assert "Hacking Every Entra ID Tenant With Actor Tokens" in result.content
+    assert result.metadata["sources"][0]["page_excerpt"] is True
+
+
+def test_web_search_skill_fetches_strong_domain_match_beyond_top_two_results() -> None:
+    class FakeClient:
+        async def search(self, **kwargs):
+            _ = kwargs
+            return type(
+                "Resp",
+                (),
+                {
+                    "query": "area41 conference 2026 speakers topics agenda",
+                    "results": [
+                        SearXNGSearchResult(
+                            title="Events | SIGS Community Network",
+                            url="https://sig-switzerland.ch/events",
+                            snippet="AREA41 conference listing",
+                            engine="brave",
+                        ),
+                        SearXNGSearchResult(
+                            title="AREA41 CONFERENCE 2026 - SWISS CONGRESS",
+                            url="https://swiss-congress.ch/conferences/area41-conference-2026/",
+                            snippet="Date and venue",
+                            engine="duckduckgo",
+                        ),
+                        SearXNGSearchResult(
+                            title="TRANSFORM 2026 | BFH Wirtschaft",
+                            url="https://www.bfh.ch/de/aktuell/fachveranstaltungen/transform-2026/",
+                            snippet="Unrelated conference",
+                            engine="aol",
+                        ),
+                        SearXNGSearchResult(
+                            title="AREA41: Switzerland's Premier Hacker and Security Conference",
+                            url="https://area41.io/#speakers",
+                            snippet="Official conference website.",
+                            engine="duckduckgo",
+                        ),
+                    ],
+                },
+            )()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                            "max_results": 5,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    calls: list[str] = []
+
+    def fake_page_fetcher(url: str, timeout_seconds: int) -> str:
+        _ = timeout_seconds
+        calls.append(url)
+        if url == "https://area41.io/#speakers":
+            return """
+            <main>
+              <section id="speakers">
+                <h2>Speakers</h2>
+                <article><h3>Area Speaker</h3><p>Browser Isolation Breakouts in the Wild</p></article>
+              </section>
+            </main>
+            """
+        return "<html><body>No speaker details here.</body></html>"
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient(), page_fetcher=fake_page_fetcher)
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "was sind die themen der speaker an der area41 konferenz 2026",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert "https://area41.io/#speakers" in calls
+    assert "Browser Isolation Breakouts in the Wild" in result.content
+
+
+def test_web_search_skill_fetches_explicit_url_when_search_has_no_results() -> None:
+    class FakeClient:
+        async def search(self, **kwargs):
+            _ = kwargs
+            return type("Resp", (), {"query": "https://area41.io/index.html#speakers", "results": []})()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 5,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    def fake_page_fetcher(url: str, timeout_seconds: int) -> str:
+        _ = timeout_seconds
+        assert url == "https://area41.io/index.html#speakers"
+        return "<main><h2 id='speakers'>Speakers</h2><p>Mask off: analyzing a secure SD card</p></main>"
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient(), page_fetcher=fake_page_fetcher)
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "https://area41.io/index.html#speakers",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert "Mask off: analyzing a secure SD card" in result.content
+    assert result.metadata["result_count"] == 1
+    assert result.metadata["sources"][0]["engine"] == "page_fetch"

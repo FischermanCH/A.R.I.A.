@@ -30,10 +30,61 @@ def append_routing_record_to_resolved(
         for item in list(resolved.get("detail_lines", []) or [])
         if str(item or "").strip()
     ]
-    additions = [line for line in format_routing_decision_record(record) if line and line not in existing]
+    additions = [
+        line
+        for line in [*format_routing_decision_record(record), *_format_routing_debug_decision_record(record)]
+        if line and line not in existing
+    ]
     if additions:
         resolved["detail_lines"] = [*existing, *additions]
     return resolved
+
+
+def _routing_debug_value(value: Any) -> str:
+    if value == 0:
+        return "0"
+    text = " ".join(str(value or "").strip().split())
+    return text or "-"
+
+
+def routing_debug_line(label: str, fields: dict[str, Any] | None = None) -> str:
+    clean_label = str(label or "").strip() or "routing"
+    parts = [f"Routing Debug: {clean_label}"]
+    for key, value in dict(fields or {}).items():
+        clean_key = str(key or "").strip()
+        if not clean_key:
+            continue
+        parts.append(f"{clean_key}={_routing_debug_value(value)}")
+    return " ".join(parts)
+
+
+def _format_routing_debug_decision_record(record: Any) -> list[str]:
+    chosen_kind = _routing_debug_value(getattr(record, "chosen_kind", ""))
+    chosen_ref = _routing_debug_value(getattr(record, "chosen_ref", ""))
+    if chosen_kind == "-" and chosen_ref == "-":
+        return []
+    stage = _routing_debug_value(getattr(record, "stage", "")) if getattr(record, "stage", "") else "candidate_resolver"
+    preferred = _routing_debug_value(getattr(record, "preferred_kind", ""))
+    source = _routing_debug_value(getattr(record, "chosen_source", ""))
+    note = _routing_debug_value(getattr(record, "chosen_note", ""))
+    try:
+        candidate_count = int(getattr(record, "candidate_count", 0) or 0)
+    except (TypeError, ValueError):
+        candidate_count = 0
+    target = f"{chosen_kind}/{chosen_ref}" if chosen_ref != "-" else f"{chosen_kind}/-"
+    return [
+        routing_debug_line(
+            "connection_target_selection",
+            {
+                "stage": stage,
+                "preferred": preferred,
+                "selected": target,
+                "source": source,
+                "candidate_count": candidate_count,
+                "note": note,
+            },
+        )
+    ]
 
 
 def routing_candidates_from_resolved(resolved: dict[str, Any]) -> list[SemanticConnectionCandidate]:

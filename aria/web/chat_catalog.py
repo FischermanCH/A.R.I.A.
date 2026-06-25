@@ -193,6 +193,14 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
             "keywords": ["notizen", "notes", "markdown", "wissen", "memo"],
         },
         {
+            "group": "documents",
+            "icon": "📄",
+            "label": _toolbox_label(lang, "tool_document_import", "Import document"),
+            "href": "/memories/overview#document-import",
+            "hint": _toolbox_label(lang, "tool_document_import_hint", "Opens document import with collection selection."),
+            "keywords": ["dokument", "document", "upload", "import", "pdf", "rag", "qdrant", "collection"],
+        },
+        {
             "group": "commands",
             "icon": "🗒️",
             "label": _toolbox_label(lang, "tool_notes_create", "Create note"),
@@ -513,6 +521,7 @@ def build_chat_command_catalog(
     group_titles = {
         "suggested": _toolbox_label(lang, "slash_suggested", "Passend jetzt"),
         "commands": _toolbox_label(lang, "slash_commands", "Commands"),
+        "documents": _toolbox_label(lang, "slash_documents", "Dokumente"),
         "learning": _toolbox_label(lang, "slash_learning", "Lernmodus"),
         "read": _toolbox_label(lang, "slash_read", "Memory lesen"),
         "store": _toolbox_label(lang, "slash_store", "Memory speichern"),
@@ -522,6 +531,7 @@ def build_chat_command_catalog(
     group_icons = {
         "suggested": "✨",
         "commands": "⌨",
+        "documents": "📄",
         "learning": "🧠",
         "read": "📖",
         "store": "💾",
@@ -533,7 +543,7 @@ def build_chat_command_catalog(
     for row in entries:
         grouped.setdefault(str(row.get("group", "commands")), []).append(row)
 
-    order = ["commands", "learning", "read", "store", "recipes", "admin"]
+    order = ["commands", "documents", "learning", "read", "store", "recipes", "admin"]
     toolbox_groups: list[dict[str, Any]] = []
     suggested_group = _build_suggested_toolbox_group(lang, entries, recent_messages)
     if suggested_group:
@@ -543,7 +553,7 @@ def build_chat_command_catalog(
         rows = grouped.get(group_key, [])
         if not rows:
             continue
-        limit = 6 if group_key in {"recipes", "read", "store"} else 12
+        limit = 16 if group_key == "commands" else 6 if group_key in {"recipes", "read", "store"} else 12
         toolbox_groups.append(
             {
                 "key": group_key,

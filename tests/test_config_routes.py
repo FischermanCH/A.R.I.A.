@@ -44,6 +44,7 @@ from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
 import aria.web.config_routes as config_routes_mod
+import aria.web.config_operations_detail_routes as config_ops_detail_routes
 from aria.core.config import Settings
 from aria.web.config_routes import ConfigRouteDeps, register_config_routes
 
@@ -1870,6 +1871,10 @@ def test_settings_page_groups_system_areas_without_connections_block(tmp_path: P
 def test_settings_subpages_link_to_existing_specialist_pages(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
+    hub = client.get('/config')
+    assert hub.status_code == 200
+    assert '/config/operations/reindex?return_to=%2Fconfig' not in hub.text
+
     intelligence = client.get('/config/intelligence')
     assert intelligence.status_code == 200
     assert '/config/llm?return_to=/config/intelligence' in intelligence.text
@@ -1891,6 +1896,7 @@ def test_settings_subpages_link_to_existing_specialist_pages(tmp_path: Path) -> 
     assert '/updates?return_to=/config/operations' in operations.text
     assert '/config/logs?return_to=/config/operations' in operations.text
     assert '/config/backup?return_to=/config/operations' in operations.text
+    assert '/config/operations/reindex?return_to=/config/operations' not in operations.text
 
     workbench = client.get('/config/workbench')
     assert workbench.status_code == 200
@@ -1945,6 +1951,66 @@ def test_config_operations_service_restart_triggers_helper(monkeypatch, tmp_path
     assert response.status_code == 303
     assert called["service"] == "qdrant"
     assert response.headers["location"].startswith("/config/operations?saved=1&info=")
+
+
+def test_memory_reindex_page_and_save(monkeypatch, tmp_path: Path) -> None:
+    async def fake_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "message": "Inventory index ready: 2/2 items indexed.",
+            "collection_name": "aria_inventory_test",
+            "backup_collection_name": "aria_inventory_test__backup",
+            "document_count": 2,
+            "indexed_count": 2,
+            "backup_count": 2,
+            "indexed_config_hash": "abcdef1234567890",
+            "detail": "",
+        }
+
+    monkeypatch.setattr(config_ops_detail_routes, "build_inventory_index_status", fake_status)
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get("/memories/reindex")
+
+    assert response.status_code == 200
+    assert "Memory Reindex" in response.text
+    assert "/memories/reindex" in response.text
+    assert "aria_inventory_test" in response.text
+    assert 'action="/memories/reindex/run" class="config-actions-row" data-busy-immediate="true"' in response.text
+    assert 'action="/memories/reindex/save" class="config-form" data-busy-immediate="true"' in response.text
+
+    save_response = client.post(
+        "/memories/reindex/save",
+        data={
+            "enabled": "1",
+            "cron": "5 */4 * * *",
+            "timezone": "Europe/Zurich",
+            "run_on_startup": "1",
+            "keep_backup": "1",
+            "score_threshold": "0.42",
+            "candidate_limit": "17",
+            "csrf_token": "test-csrf",
+        },
+        follow_redirects=False,
+    )
+
+    assert save_response.status_code == 303
+    raw = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["inventory_index"]["enabled"] is True
+    assert raw["inventory_index"]["cron"] == "5 */4 * * *"
+    assert raw["inventory_index"]["run_on_startup"] is True
+    assert raw["inventory_index"]["keep_backup"] is True
+    assert raw["inventory_index"]["score_threshold"] == 0.42
+    assert raw["inventory_index"]["candidate_limit"] == 17
+
+
+def test_legacy_config_operations_reindex_redirects_to_memory_reindex(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get("/config/operations/reindex", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories/reindex"
 
 
 def test_google_calendar_connection_page_renders(tmp_path: Path) -> None:

@@ -6,6 +6,325 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha394] - 2026-06-26
+
+### Changed
+
+- Added a presentation-stability contract slice after `alpha391`. Broad SSH fleet prompts with a confirmed multi-target objective can expand Meta-Catalog sample targets to the full configured SSH fleet, connection inventory questions such as "what security feeds do I have?" are normalized away from feed-read actions into `connections:inventory`, and simple Notes overview questions can return a source-bound note list without the extra answer-composer LLM hop.
+- Adjusted the Chat viewport UI after `alpha393`. The scroll-to-latest arrow is now anchored inside the message pane instead of the full chat shell, and small iPhone layouts keep a usable minimum message history area instead of collapsing the prompt/answer list when Safari reports a tight visual viewport.
+- Tightened the Notes inventory fast path after the `alpha392` live smoke. Notes evidence now uses the shared topic-term extraction, and the fast source-bound note list filters loaded hits by the real topic so similar ARIA/A.R.I.A. notes are not listed for an AREA41 query.
+- Fixed Meta-Catalog action preflight for seeded action contracts whose merged intents include `context_inventory`. A valid Meta/Turn action seed now bypasses the free pre-RAG chat-intent filter, so mixed connection contracts such as disk-capacity checks can produce an executable SSH preflight instead of failing closed with `capability=-`.
+- Hardened Meta-Catalog target propagation for SSH server-update action contracts. Meta-selected SSH targets are now carried as structured `CapabilityDraft.connection_refs` and bound before free alias/context single-target resolution, preventing a selected multi-target server update check from being narrowed to an unrelated SSH profile.
+- Hardened mixed Meta-Catalog action contracts for server update checks. If a Meta-Catalog action contract includes RSS advisory sources and SSH server targets, but the action IDs are missing or mixed, ARIA now seeds the SSH multi-target action from the selected SSH targets instead of executing the first RSS feed as the terminal action.
+- Added a runtime task/outcome contract for server update checks. Meta-Catalog answer routes over connection context can now be overridden by a bounded runtime task decision when the user is asking for an operational SSH package-update check, and multi-target SSH executions store a structured runtime outcome frame so follow-ups such as "which packages from those are most important?" answer from the previous `apt list --upgradable` results instead of falling into connection inventory.
+- Fixed the `alpha388` docs-only contract propagation gap in the normal SkillRuntime path. `RecipeRuntime.run_skills()` now forwards `docs_only=true` to MemorySkill recall, so `docs:search` cannot silently fall back to fact/preference/knowledge/learning recall after the Meta-Catalog selected the Docs surface; a focused regression test covers this path.
+- Fixed the post-`alpha386` docs-source isolation gap: `docs:search` now runs MemorySkill in docs-only mode, excludes normal fact/preference/knowledge/learning recall targets, and accepts direct docs answers only when the evidence source is an actual document collection/source.
+- Hardened the Meta-Catalog inventory/source contract for `alpha386`. Broad inventory questions now stay on surface-level `connections:inventory` with catalog IDs carried only as hints unless an exact ref is explicitly bound, source-bound evidence is forced whenever local/catalog context is loaded, inventory SkillResults are merged before the LLM-first answer composer, explicit document/note/memory source requests force the matching surface, and Inventory Reindex moved into the Memory menu as Memory Reindex.
+- Switched the Strict Meta-Catalog Contract gate to soft mode by default for `alpha385`. The contract instrumentation (`contract_mode`, `evidence_policy`, richer follow-up state, and evidence packets) remains active, but invalid strict contracts no longer block the route unless `routing.meta_catalog_strict_contract_enabled=true` is explicitly enabled for internal comparison testing.
+- Added the Strict Meta-Catalog Contract slice for `alpha384`. `aria_meta_catalog_routing` now asks the LLM for an explicit `contract` (`mode=answer|action|clarify|empty`, `evidence_policy=source_bound|allow_general`), validates that contract before accepting the route, carries `contract_mode` and `evidence_policy` through `AriaTurnPlan`, debug output, follow-up `TurnFrame`, and the LLM-first answer-composer evidence packet, and keeps a temporary rollback switch via `routing.meta_catalog_strict_contract_enabled=false` for internal testing only.
+- Added the first Qdrant Meta-Catalog migration slice after the `alpha379` architecture review. ARIA can now build a separate `aria_meta_catalog_*` collection with surface and connection capability documents containing safe semantic fields such as what an object knows, what context it can load, candidate actions, loader/executor contracts, risk hints, and confirmation policy. The existing Inventory index remains intact during migration, and the operations reindex flow now rebuilds both indexes side by side.
+- Activated the Qdrant Meta-Catalog as the first bounded chat routing step. ARIA now queries `aria_meta_catalog_*`, sends the compact candidate catalog plus the user prompt to `aria_meta_catalog_routing`, validates selected ContextRequests/actions against registered surfaces and catalog candidates, and falls back to the old turn arbiter only when the meta-catalog path is empty or uncertain.
+- Moved the legacy keyword router behind the Meta-Catalog contract for normal pipeline turns. Successful `aria_meta_catalog_routing` now skips the old turn-intent, pre-RAG semantic action classification, recipe arbitration, and freshness gates; selected inventory requests can bind to exact `catalog_id/kind/ref`, and selected actions seed the existing executor/guardrail path from the Meta-Catalog instead of re-detecting capability intent from free text.
+- Expanded the Meta-Catalog contract beyond coarse surfaces. It now indexes local context families such as facts, preferences, knowledge, context memory, sessions, learning artifacts, notes, and docs, binds selected local families to exact user collections for recall, and maps generic connection actions such as SSH, RSS, websites, SFTP/SMB, HTTP API, mail, webhook, Discord, calendar, and MQTT into existing capability/preflight paths.
+- Hardened the Meta-Catalog/backup action contract for `alpha381`. Any validated turn plan with selected actions, `needs_confirmation`, or `plan_action` now enters action preflight or fails closed; it can no longer fall through into direct context answers or final chat. Backup arbiter actions seed the same capability draft path as Meta-Catalog actions, selected multi-SSH targets stay multi-target, and debug now exposes when legacy semantics are used only as a backup fallback.
+- Hardened the Meta-Catalog context contract for `alpha382`. A successful Meta-Catalog route with `needs_context=true` and a selected surface but no explicit `context_requests` now synthesizes a validated loader request, e.g. `connections:inventory`, instead of accepting an empty load plan. This keeps source-bound inventory questions on the Inventory loader/direct-answer path and prevents unrelated memory/session context plus final chat from claiming ARIA has no access to configured data.
+- Added the LLM-first Answer-Composer contract for `alpha383`. Selected local context and inventory outcomes are now normalized into evidence packets, sent to a bounded `aria_answer_composer` operation for free wording, and then checked by deterministic claim guardrails so source-bound answers cannot claim missing access, invent matches, or use unrelated local context.
+- Hardened the remaining Meta-Catalog contracts for `alpha383`: selected non-chat surfaces now force a validated loader request even when the LLM incorrectly sets `needs_context=false`; local memory/search results with `matched=false` stay source-bound empty instead of falling into final chat; and seeded Meta SSH actions can be refined through the existing LLM capability-draft objective contract so package-update checks use the read-only update probe instead of defaulting to uptime.
+- Shifted the ARIA turn arbiter toward the Agentic Context Routing directive. The arbitration payload now exposes `routing_meta_context`, and the plan can carry `needs_context`, `context_directions`, and `context_depth` so the LLM decides whether ARIA should deepen context and in which direction instead of only selecting a surface/action menu.
+- Let high-confidence local context arbitration run before the legacy turn-intent arbiter and skip the old active-hint/turn-intent/freshness gates for direct local recall. This keeps direct Memory/Learning/Notes questions on the new context-routing path and avoids avoidable LLM/recall hops.
+- Added real arbiter-driven local recall limits. Selected Memory/Learning/Docs collections are passed down to `MemorySkill` as `target_collections`, Notes-only routes skip broad memory recall, and document guide lookup can be disabled unless the selected direction needs documents.
+- Added first Context Ledger debug lines for ARIA context routing. Details now show selected context directions, depth, collections/actions, query overrides, memory targets, loaded skill contexts, source counts, detail-line counts, embedding tokens, and arbiter tokens.
+- Tightened the local-context fast path after the first `alpha363` live test. High-confidence local context turns now skip the pre-RAG action and recipe arbitration stages completely, and Notes-only routes no longer emit a fake `memory_recall` skill result when Memory was intentionally disabled by the arbiter.
+- Added a no-context guardrail for agentic local retrieval. When the LLM correctly selects a local context direction such as Notes, Docs, Memory, or combined local sources but ARIA loads zero usable sources, the pipeline now returns a source-bound empty-result answer instead of sending the turn to the final LLM where it could claim ARIA has no access or invent unrelated context.
+- Added the same fail-closed contract for selected web side actions. If the ARIA action gate selects a Notes or watched-website side action but the concrete side-flow cannot execute it, the web chat now returns a clear non-execution answer instead of falling through into generic chat.
+- Added the Agentic Context Runtime v2 foundation. ARIA now has generic `ContextSurface`, `SurfaceRegistry`, `ContextRequest`, `ContextPacket`, and builtin Surface adapters for Memory, Notes, Docs, Connections, and Web so future data/function surfaces can register metadata instead of requiring central router phrase logic.
+- Extended the ARIA turn arbiter with registry-backed `context_requests`. The LLM can now choose registered surfaces such as `connections` with a mode like `inventory`, and ARIA validates that choice against the SurfaceRegistry before any loader or executor is used.
+- Added a safe Connection Inventory context path. Questions about configured/observed websites or connections can now load non-secret inventory context instead of being mistaken for watched-website actions; Stage-1 metadata intentionally excludes hosts, URLs, tokens, keys, passwords, and similar sensitive fields.
+- Changed final answer context filtering so a later `chat_local_context_relevance` decision can no longer discard context that the explicit ARIA TurnPlan already selected. It now skips with a debug line when the TurnPlan is the semantic authority.
+- Tightened the Agentic Context Runtime after live tests. Stage-1 SurfaceRegistry payloads now expose compact `routing_metadata` only, remove the duplicate full menu payload, and keep deep inventory metadata for the selected loader step instead of sending it to the arbiter.
+- Generalized inventory loading behind registered ContextSurfaces. `context_inventory` no longer depends on a Connections-only helper; selected surfaces can expose safe inventory metadata through the registry and the answer context stays source-bound.
+- Added a Context Isolation contract for selected turns. Answer-context skill results are filtered against the selected `ContextRequest`, and selected Notes/Inventory turns do not run pre-answer Auto-Memory/session/user recall context that could contaminate the answer.
+- Added a lightweight `TurnFrame` for follow-up routing. ARIA now passes the previous selected surface/mode/topic to the next arbiter call as weak context, so short follow-ups such as "und was ist mit IT-Security?" can continue an inventory frame without hard-coded phrases.
+- Changed the web pre-pipeline side-flow gate to become terminal only for genuine action intents. A stray watched-website action name inside an inventory/context turn no longer blocks the normal pipeline with a non-execution action message.
+- Added a content-existence context mode. Topic-specific questions such as "do I have information about X in memory?" are steered toward `exists`/search-style local retrieval instead of being satisfied by shallow inventory metadata alone.
+- Hardened generic inventory matching. Configured-item inventory now matches against individual safe item metadata, keeps many selected safe summaries for the deep loader, reports matched-vs-configured counts, avoids generic surface-word matches such as "websites" pulling unrelated items, and does not expose secret URLs/hosts/tokens.
+- Removed the extra web pre-pipeline LLM arbitration for normal free-text turns. Slash/UI shortcuts still enter the legacy side flows, but ordinary prompts now go straight to the single pipeline arbiter, which reduces latency and avoids pre-pipeline action misclassification for knowledge/inventory questions.
+- Changed chat badge timing to report end-to-end web request time and added `Routing Debug: web_request_timing` with total and pipeline milliseconds, making UI latency visible instead of only showing a partial pipeline/model duration.
+- Added tightly scoped direct context answers for already-selected inventory and memory-existence turns. When the TurnPlan selects registered inventory context or a source-bound memory `exists` check, ARIA can answer from the loaded context without a second final-answer LLM call.
+- Made memory-existence retrieval more selective by keeping session collections out of `memory_target_collections` unless the TurnPlan explicitly requests sessions.
+- Documented ARIA's Qdrant collection contracts in `docs/product/qdrant-collections.md` and made `aria_inventory_*` authoritative for inventory questions. Legacy `website_list` capability drafts now route into `connections:inventory` when the Qdrant inventory index is active, empty inventory results no longer fall back to broad action lists, inventory debug lines expose `authoritative=true`, and evidence-term selection keeps the actual topic in natural-language inventory questions.
+- Improved mobile chat viewport handling for iPhone Safari. The chat shell now uses a visual-viewport height variable, keeps the composer above the safe-area inset, and scrolls the message pane to the latest message after layout changes instead of relying on a single immediate `scrollTop` write.
+- Hardened source-bound follow-up context. Direct capability inventory answers now store a `TurnFrame`, follow-up plans preserve the previous registered surface/mode unless the user switches surface or requests an action, and empty registered local context returns a source-bound empty result instead of falling through to generic chat.
+- Reduced Direct-Context pipeline work for selected local context. High-confidence source-bound Notes/Memory/Docs turns now skip the legacy `turn_intent_arbiter` even when the ARIA turn plan's intent is still `chat`, and Notes-only hits can return a source-bound direct answer instead of paying for a final chat LLM pass.
+- Added a fast positive-only ContextSurface selector before the full ARIA turn arbiter. It uses only compact registered-surface metadata, can select one local/source-bound context request, and falls back to the full arbiter for actions, web/freshness, recipes, admin, pending confirmations, learning capture, uncertainty, or invalid surface/mode choices.
+- Slimmed the full ARIA turn arbiter payload in registry-backed mode by dropping duplicate legacy surface rows while keeping validated collections/actions. Selected TurnPlan context now skips late recent-context enrichment, direct Memory/Docs search requests can answer source-bound without a final chat LLM when evidence matches, and stage timing now includes `pipeline_wall_time`.
+- Tightened the generic evidence contract after the `alpha376` live test. Inventory and memory-existence answers now derive evidence from topic terms instead of raw user-query words, ignore Surface/Mode/request/scope wording such as RSS, websites, feeds, sources, list, inventory, and question filler, allow soft scope words such as monitoring to become the topic only when no stronger topic remains, and preserve the previous TurnFrame surface/mode for short underspecified follow-ups unless the user explicitly switches surface or requests an action.
+- Added a Chat scroll-to-latest overlay button. When the user scrolls upward in the chat history, ARIA now shows a compact floating down-arrow that jumps back to the newest message without shifting the composer.
+- Hardened the post-`alpha377` semantic evidence contract. Multilingual filler terms such as `and`, `the`, `für`, and `fuer` no longer count as topic evidence, unrelated inventory neighbors are rejected for unmatched topics such as beef grilling, and the fast memory-existence path is rejected when a resource/inventory question does not explicitly target Memory.
+- Re-centered the ARIA turn architecture on the full agentic TurnPlan after `alpha378` live regressions. The compact fast context selector and follow-up frame arbiter no longer run before the full turn arbiter, and local frame-preservation helpers no longer override the LLM's selected surface/mode after arbitration. Direct context loading remains an execution optimization after a validated TurnPlan, not an independent semantic router.
+
+## [0.1.0-alpha362] - 2026-06-16
+
+### Added
+
+- Added the ARIA Turn / Surface / Action Arbiter path. The new bounded arbitration module accepts a deterministic menu of allowed surfaces, Qdrant collections, and runtime actions, validates LLM choices against that menu, rejects invented entries, forces confirmation for risky actions, emits a unified routing debug line, and is now integrated into the pipeline before retrieval/action execution.
+- Documented the `Agentic Learning Loop v2` product direction: ARIA should turn real usage into controlled learning artifacts such as reflections, routing hints, procedure/recipe/skill candidates, eval candidates, and recipe improvements, with deterministic schemas, policy, guardrails, review, promotion gates, and tests controlling what becomes active.
+- Added the first Learning Event Ledger implementation. ARIA can now persist redacted JSONL audit events, load/filter recent events, record successful Auto-Memory `LERNEN` reflections as `memory_reflection` artifacts, and mirror those events into Qdrant as visible `learning_event` memory chunks for the future reflection/review loop.
+- Added the first bounded Learning Classifier. Successful Auto-Memory learning events can now be classified into review-only learning candidates such as `source_rule_candidate`, `procedure_candidate`, `recipe_candidate`, or `eval_candidate`, then stored visibly in Qdrant under `aria_learning_candidates_<user>` without activating runtime behavior.
+- Added a first Learning Candidate review surface in the Memory Explorer. `learning_candidate` chunks can now be filtered, inspected, marked as reviewed, or rejected in Qdrant payload metadata while promotion remains blocked until validator/eval gates exist.
+- Added the first Learning Candidate Validator/Eval dry-run. Review-only candidates now produce visible `learning_eval` chunks in Qdrant under `aria_learning_evals_<user>` with blockers, expected path, expected behavior, negative examples, and `promotion_allowed=false`.
+- Added a bounded User Feedback Learning detector in the chat flow. When Auto-Memory is enabled, durable feedback about ARIA's answer quality, source handling, routing, memory, UI, or workflow can create visible Qdrant `learning_event`, `learning_candidate`, and `learning_eval` chunks without activating runtime behavior.
+- Added the first runtime Outcome Learning recorder. Explicit URL/source WebSearch outcomes now carry source-quality metadata and, when Auto-Memory is enabled, can create review-only Qdrant `learning_event`, `learning_candidate`, and `learning_eval` chunks for page-excerpt/source-handling behavior.
+- Added a Deterministic Meaning Audit document that identifies where free user semantics are still decided by keyword/regex/list logic and sets the next refactor priority toward bounded `turn_intent_arbitration`.
+- Added bounded Turn Intent Arbitration around the normal pipeline router. The legacy `KeywordRouter` now acts as a signal source for top-level chat/memory/web intents, and a bounded LLM arbiter can override misleading keyword signals with sufficient confidence while falling back to the deterministic router when unavailable or uncertain.
+- Added a Capability Draft Fallback Boundary. The pre-RAG action gate now tries bounded LLM capability drafting before local heuristic drafts, treats LLM `no_action` as authoritative, allows local fallback only for unavailable/uncertain draft states, and records local fallback usage as a review-only learning outcome when Auto-Memory is enabled.
+- Added bounded Notes Action Arbitration for chat Notes flows. Natural-language Notes requests can now be classified into canonical Notes commands or `no_action` before the legacy regex handlers run, while slash/UI-style commands and low-confidence cases still fall back to the existing deterministic handlers.
+- Added bounded Follow-up Resolution for vague chat rewrites. ARIA now asks a constrained LLM resolver whether follow-up turns should be rewritten for web search or local context, treats high-confidence `no_rewrite` as authoritative, and keeps the old deterministic rewrite helpers only as low-confidence/no-LLM fallback.
+- Broadened runtime Outcome Learning beyond WebSearch and local capability fallback. Stored-recipe catalog misses and confirmed routed connection actions can now create review-only Qdrant learning events/candidates/evals when Auto-Memory is enabled.
+- Added the first low-risk Learning Candidate Promotion Gate. Reviewing a Qdrant learning candidate now writes a deterministic gate result back into the candidate payload: low-risk `source_rule_candidate` and `routing_hint` candidates become `eligible`, while higher-risk procedures/recipes remain `reviewed_blocked` and runtime activation stays disabled.
+- Added a guarded Apply preparation step for eligible low-risk Learning Candidates. The Memory Explorer can now mark eligible `source_rule_candidate`/`routing_hint` candidates as `apply_state=prepared` with `apply_requires_regression=true`, while still keeping `runtime_activation_allowed=false`.
+- Added a read-only Apply Preview for prepared low-risk Learning Candidates. Admins can inspect the proposed source-rule/routing-hint structure, provenance, regression requirement, and disabled runtime status before any future activation path exists.
+- Added Regression Gate status to Learning Candidate apply preparation and preview. Prepared candidates now default to `regression_status=missing`, the preview shows missing/linked regression state and references, and runtime activation remains disabled.
+- Added a Regression Link route in the Learning Candidate Apply Preview. Admins can link concrete pytest refs such as `tests/test_pipeline.py::test_name`, which updates the Qdrant candidate payload to `regression_status=linked`; invalid refs keep the candidate at `missing`.
+- Added Regression Ref verification for Learning Candidate Apply Preview. Linked pytest refs can now be checked against the workspace for file and test-function existence, writing `regression_verified`, `regression_test_exists`, and `regression_verify_result` back to Qdrant without running or activating runtime behavior.
+- Added focused Regression Test execution for verified Learning Candidate refs. The Apply Preview can now run the linked pytest ref and store `regression_verify_result=passed|failed`, return code, timestamp, and sanitized output in Qdrant while keeping runtime activation disabled.
+- Added the first Active Learning Hint activation path. Reviewed/prepared low-risk candidates now require an activation preflight with a passed regression run before they can be stored as visible Qdrant `learning_active_hint` chunks under `aria_learning_active_hints_<user>`.
+- Added weak runtime use of active learning hints. Turn intent arbitration can now receive reviewed Qdrant active hints as bounded weak signals, while policy, guardrails, and runtime activation remain deterministic gates.
+- Added Active Learning Hint outcome tracking. When Auto-Memory is enabled and a Qdrant active hint is available during turn intent arbitration, ARIA now records a review-only learning outcome so active hints can later be evaluated, refined, or withdrawn.
+- Added Universal Host/App Artifact Learning. Confirmed connection-action results can now surface observed paths, Compose files, Dockerfiles, systemd units, ports, packages, and health terms as review-only `app_artifact_candidate`, `install_plan_candidate`, and `health_check_candidate` learning artifacts in Qdrant.
+- Added App Identity Hypotheses for host artifact learning. Observed artifacts can now be condensed into review-only `app_identity_candidate` data with runtime kind, app root, entry artifacts, health surfaces, install/update surfaces, and rollback surfaces.
+- Added review-only Install/Update Plan Drafts from app identity hypotheses. Drafts include preflight checks, backup targets, proposed steps, health checks, rollback steps, blockers, required confirmation, and disabled runtime activation.
+- Added Install/Update Plan Validation gates. Drafts are now assessed for missing gates, mutating steps, required confirmations, regression suggestions, and risk while keeping promotion and runtime activation disabled.
+- Added structured Health Check and Regression Drafts from validated install/update plans. Drafts remain non-mutating and review-only, making future checks and tests derive from observed app artifacts instead of ad hoc rules.
+- Added Memory Explorer visibility for app-learning candidates. App identity, plan drafts, validation gates, health drafts, and regression drafts now render as structured chips and preview sections for Qdrant learning candidates.
+- Added review-only Pytest Skeleton Proposals from regression drafts. Proposals include target file, test function sketches, fixtures, safety notes, and disabled write/runtime activation flags.
+- Added read-only Pytest Apply Preview gates for app-learning proposals. The preview renders proposed test code, checks that targets stay under `tests/`, flags existing files and duplicate test functions, and still never writes files automatically.
+- Added a manual Pytest Write preparation gate for app-learning proposals. A ready preview can now store a `prepared` Qdrant payload with target file, test names, code preview, and SHA-256 hash while keeping `pytest_write_allowed=false` and writing no files.
+- Added prepared artifact review feedback for app-learning proposals. Operators can mark prepared Pytest write artifacts as accepted, needing changes, or rejected; ARIA stores that outcome back into the Qdrant candidate payload as learning feedback while keeping file writes and runtime activation disabled.
+- Added Review Outcome Learning for prepared artifacts. Accepted reviews create review-only `artifact_pattern_candidate` chunks, needs-change reviews create `artifact_improvement_candidate` chunks, and rejected reviews create `negative_pattern_candidate` chunks, each with a matching learning event and eval dry-run in Qdrant.
+- Added Learning Pattern Recall for app-learning proposals. New Pytest skeleton proposals can now recall prior accepted, needs-change, and rejected artifact review candidates from Qdrant as weak guidance and carry them visibly in the proposal payload without granting write or runtime permission.
+- Added the first Recipe Candidate Generator. Successful connection workflow outcomes can now create an additional review-only `recipe_candidate` plus eval dry-run in Qdrant, with similar existing recipe candidates recalled as weak duplicate/improvement guidance and no runtime promotion.
+- Added the first Recipe Improvement Loop behavior. When similar `recipe_candidate` or `recipe_improvement` chunks already exist in Qdrant, new successful workflow outcomes now create review-only `recipe_improvement` candidates instead of another duplicate recipe candidate.
+- Added Procedure/Skill Memory with gating. Successful connection workflow outcomes now create review-only `procedure_candidate` chunks and eval dry-runs in Qdrant; when similar procedure/skill memories already exist, ARIA can also propose a high-risk review-only `skill_candidate` without implementation, promotion, or runtime activation.
+- Added an Async Learning Worker status path. Runtime learning captures now go through a shared background job registry, and the Memory Explorer shows running, completed, failed, and latest learning jobs while Qdrant remains the durable learning store.
+- Added Learning Worker job detail, retry, and flush controls. Admins can inspect a job snapshot, force-retry failed/rejected runtime learning jobs with backoff metadata, and clear finished worker history without touching Qdrant learning artifacts.
+- Added first Learning Worker budget gates. Runtime learning jobs now carry estimated tokens, consumed token/cost metadata when available, max-attempt limits, in-process budget totals, and budget rejection status in the Memory Explorer.
+- Added Learning Worker observability to Stats and Operator Guardrail. `/stats` now surfaces worker running/completed/failed/rejected counts, budget state, latest job links, and a guardrail row that warns on failures, rejections, or exhausted learning budgets.
+- Added Learning Worker runtime audit and failure categories. Finished/rejected/maintenance worker events are recorded as a compact JSONL operations audit, summarized in the worker snapshot, and grouped into operational categories such as budget, Qdrant, provider, validator, worker, route, and unknown.
+- Added a Learning Review Queue summary to the Memory Explorer. Qdrant learning artifacts now show candidate, eval, active-hint, regression, and activation counts before the normal Memory type filters.
+
+### Fixed
+
+- Removed the rejected direct recall phrase fix and its tests. Questions like "what did I tell you..." are no longer solved through special phrase rules; they must flow through the common ARIA turn/surface/action arbitration path.
+- Moved web chat Notes/Websites side flows behind the common ARIA action gate. Free user turns can no longer be terminally answered by those side flows before the shared arbiter has a chance to choose the surface/action plan.
+- Let the pipeline use ARIA arbiter-selected collection queries for local recall, web research, and Notes retrieval, including Notes snippets as normal context instead of a pre-pipeline terminal route.
+- Avoid spending Active Learning Hint recall on explicit web-search or clear connection-action contexts while keeping active hints available as weak signals for normal free turns.
+- Added missing Learning Worker Stats i18n keys so the full release hygiene suite covers the new stats surface cleanly.
+- Keep explicit external `http(s)` URLs out of the agentic pre-RAG connection action gate, even when the bounded capability draft would classify them as watched-website reads. Direct URL/anchor questions now stay on the chat freshness/WebSearch path and preserve the literal URL as the search/fetch query.
+- Treat recalled `[LERNEN]` memory reflections as durable behavior guidance in the final chat prompt, so questions such as "was hast du aus meinem AREA41 feedback gelernt?" answer from the learning memory instead of claiming nothing was learned while a `LERNEN` source is present.
+- Give fetched web page excerpts higher final-answer priority than search snippets and raise the final context budget so official page excerpts are not truncated behind aggregator snippets before the final LLM answer.
+
+## [0.1.0-alpha360] - 2026-06-15
+
+### Fixed
+
+- Keep arbitrary `http(s)` URLs out of watched-website routing so direct page/anchor questions can use web research instead of asking for a configured Website profile.
+- Fetch one additional strong domain/path match beyond the first two web-search results, so official pages such as `area41.io/#speakers` can provide page excerpts even when a search engine ranks aggregator pages higher.
+- Let agentic Auto-Memory extract durable feedback reflections into per-user `aria_learning_*` collections. These `LERNEN` memories are visible in Memory/Qdrant and are searched during recall as context-only self-improvement guidance.
+
+## [0.1.0-alpha359] - 2026-06-14
+
+### Fixed
+
+- Move document import into its own chat Toolbox group so it is visible as a first-level document entry instead of being hidden inside Commands.
+- Fetch and inject page excerpts for concrete web-search result URLs, including explicit `#anchor` URLs, so official pages can provide answer context beyond search snippets.
+
+## [0.1.0-alpha358] - 2026-06-14
+
+### Fixed
+
+- Keep the ARIA working-logo emblem stable while ARIA is busy. The busy indicator now uses a slow rotating light aura and soft glow instead of rotating or flipping the logo itself, avoiding upside-down frames.
+
+## [0.1.0-alpha357] - 2026-06-14
+
+### Fixed
+
+- Restore the ARIA working-logo animation to a vertical emblem turn so the logo no longer rotates upside down while keeping the smoother light pulse from the previous pass.
+
+## [0.1.0-alpha356] - 2026-06-14
+
+### Changed
+
+- Surface document import from the main chat toolbox. The toolbox item opens the Memory document import panel directly and focuses the file picker so RAG document ingestion is no longer hidden in configuration.
+
+## [0.1.0-alpha355] - 2026-06-14
+
+### Fixed
+
+- Smooth the ARIA working-logo animation by replacing the hard 3D flip/scanline loop with a continuous rotation, synchronized energy sweep, and softer light pulse.
+
+## [0.1.0-alpha354] - 2026-06-14
+
+### Fixed
+
+- Link the main-screen Auto-Memory status indicator directly to the Auto-Memory settings section, following the app rule that option indicators should lead to their option settings.
+
+## [0.1.0-alpha353] - 2026-06-14
+
+### Fixed
+
+- Move the Stats cost-card disclaimer below the cost metrics so the card leads with the actual numbers and keeps the explanatory text near the pricing actions.
+- Keep the main Auto-Memory indicator aligned with agentic Auto-Memory extraction. Existing configs with Auto-Memory enabled now get `agentic_extraction_enabled=true` filled in at load time when missing, and the UI/Core toggles update both flags together.
+
+## [0.1.0-alpha352] - 2026-06-14
+
+### Fixed
+
+- Keep explicit recipe-catalog questions catalog-bound even when no recipe candidate matches. Questions such as "gibt es ein rezept fuer dns health" now answer from the stored catalog instead of drifting into a generic checklist.
+- Carry recent web-search topic context into vague local Notes/Documents follow-ups in the web chat flow. A follow-up like "und was steht dazu in meinen notizen?" now searches local notes for the prior topic instead of using only the pronoun-like phrase.
+- Give bounded capability drafting an earlier chance for local system check prompts before freshness/web-search arbitration. Local checks such as Pi-hole inspection no longer fall through to unrelated web results when configured connections can handle the request.
+- Let Auto-Memory use a bounded agentic extraction pass when enabled. ARIA can now persist durable user-specific behavior conventions, aliases, preferences, and infrastructure facts from chat messages, while deterministic extraction remains the fallback and persistence stays limited to facts, preferences, and session context.
+- Capture action-sensitive memory boundaries through the same agentic Auto-Memory pass. Durable approval requirements, expiry/trust constraints, and "do not act until..." notes are stored as visible memory facts prefixed with `Action boundary:` so future turns can recall them as context without bypassing runtime policy.
+
+## [0.1.0-alpha351] - 2026-06-14
+
+### Fixed
+
+- Keep general advice and chat questions out of the stored-recipe no-match path. Recipe catalog misses now produce a direct no-recipe answer only when the user explicitly asks about a recipe; normal diagnostic and explanation questions continue through chat.
+- Block mutating SSH requests before multi-target read-only fallbacks. Install, upgrade, restart, delete, and similar side-effect requests no longer get silently replaced by status probes such as `uptime`.
+- Give recent SSH runtime context the first chance for immediate follow-up questions before drafting a fresh SSH action. Follow-ups such as asking for per-server package details can reuse the previous multi-target result instead of losing the target group.
+- Stop passing local Notes/RAG context into normal web-search turns unless the user explicitly asks for local context, reducing unrelated note bleed in follow-up searches.
+
+## [0.1.0-alpha350] - 2026-06-14
+
+### Fixed
+
+- Keep the chat window height stable while long conversations grow. On the main chat page, the outer app frame stays fixed to the viewport and only the message history scrolls upward.
+- Keep stored-recipe explanation questions catalog-bound. When `recipe_execution_intent` rejects execution, ARIA now uses a bounded LLM explanation step over the matching recipe manifest, or says that no matching recipe exists instead of inventing a generic server-update runbook.
+- Keep automatic freshness/web-search routing LLM-first. When an LLM is available, ARIA now asks `chat_freshness_arbitration` for normal chat questions instead of letting currentness/product keyword filters decide whether the LLM may arbitrate; deterministic freshness terms remain only for no-LLM fallback and explicit/local-context gates.
+- Consolidate repeated bounded LLM call handling. Recent-runtime context relevance, local chat-context relevance, and stored-recipe catalog explanations now share `BoundedDecisionClient` for LLM calls, JSON parsing, usage extraction, confidence coercion, and error handling.
+- Split the chat turn pipeline into clearer internal stages. Recipe arbitration, freshness/web-search arbitration, and recent-runtime-context enrichment now live in dedicated stage helpers instead of being embedded directly in `Pipeline.process()`.
+- Continue untangling the chat turn pipeline. Web-search failure prechecks, direct stored-recipe chat responses, and final chat response/usage accounting now run through dedicated stage helpers.
+- Move the chat turn stage helpers into `pipeline_turn_stages.py`, including recipe-status and pre-RAG action exits. `Pipeline.process()` now mostly orchestrates stage calls, capability-draft and pre-RAG chat/action arbitration use `BoundedDecisionClient`, and routing-debug line formatting is shared for the touched debug paths.
+- Keep free capability drafts agentic-first before local SSH fallbacks. Bounded `capability_draft_decision` now gets the first semantic pass for non-explicit SSH-like prompts, and an explicit LLM `chat/no_action` decision blocks local SSH fallback.
+
+## [0.1.0-alpha349] - 2026-06-13
+
+### Fixed
+
+- Keep follow-up suggestions after read-only runtime context inspect-oriented. When ARIA answers from a recent read-only runtime result, it should offer read-only next steps such as listing affected items per target instead of suggesting state-changing operations.
+- Keep free-language SSH intent LLM-first. The deterministic capability router no longer turns natural health, uptime, status, disk, or free-space phrasing into SSH commands such as `uptime` or `df -h`; those prompts are left to the bounded LLM capability draft while deterministic code keeps only explicit commands, executor availability checks, and policy validation.
+- Adapt broad multi-target SSH bundles only from bounded LLM `target_intent` values such as `health_check`, `capacity_check`, or `package_update_check`, instead of falling back to health/capacity wordlists in the pipeline.
+- Classify SSH requested runtime effect with a bounded LLM step instead of mutating-request wordlists. ARIA now uses `ssh_requested_runtime_effect` to distinguish read-only, mutating, and unknown user intent, while SSH policy still blocks mutating commands and prevents guardrail healthcheck fallbacks from masking state-changing requests.
+- Select SSH guardrail healthcheck fallback commands with a bounded LLM step from the explicit allowlist instead of deterministically concatenating every allowed command. ARIA rejects invented or edited selections and still validates the final command through SSH policy before use.
+- Decide stored recipe execution intent with a bounded LLM step. Deterministic recipe scoring now only builds a candidate shortlist; `recipe_execution_intent` must explicitly return `execute=true` for ARIA to run a stored recipe, so explanatory or comparison questions about a recipe topic do not execute it.
+- Keep action planner scores as ranking hints instead of final semantics. When multiple bounded action candidates match and no LLM decision is available, ARIA now asks for confirmation instead of selecting an action from keyword or score gaps alone.
+- Decide local chat context relevance with a bounded LLM step. Local notes, documents, and memory snippets are now filtered through `chat_local_context_relevance` before the final chat prompt; the old regex-based how-to/diagnostic filter remains only as a fallback.
+- Link the Memory Map "Compression due" health card directly to the rollup/compression section in Memory setup so the warning has an immediate repair path.
+- Keep loose connection target matches LLM-first. Exact alias/ref matches may still resolve deterministically, but a single soft score candidate no longer bypasses semantic LLM resolution when multiple profiles are available.
+- Re-check Learned Recipe promotion blockers when loading runtime candidates. Promoted records with multi-target or side-effect blockers are now ignored even if stale or manually edited store data contains a stored recipe id.
+- Expose bounded local chat-context relevance decisions in routing debug details. When `chat_local_context_relevance` keeps or filters local notes, documents, or memory context, debug mode now shows the LLM decision, confidence, candidate count, and reason.
+- Expose bounded stored-recipe execution intent decisions in routing debug details. When `recipe_execution_intent` accepts or rejects a stored recipe candidate, debug mode now shows execute true/false, confidence, candidate count, selected id when applicable, and reason.
+- Expose action-planner and connection-target decisions in routing debug details. Debug mode now shows `action_plan_debug` for bounded planner choices and `connection_target_selection` for semantic/forced/explicit target resolution while keeping the existing human-readable routing lines.
+
+## [0.1.0-alpha348] - 2026-06-13
+
+### Fixed
+
+- Keep recent multi-target SSH runtime context available for immediate follow-up questions. After a multi-target check, ARIA can now answer which SSH targets the previous result referred to instead of falling back to unrelated local RAG context.
+
+## [0.1.0-alpha347] - 2026-06-13
+
+### Fixed
+
+- Route multi-target SSH package/update-status questions such as "sind meine server up to date" to a read-only package update listing instead of reusing the broad health check command. `apt list --upgradable` is now allowed as a safe SSH read-only probe while mutating apt operations remain blocked.
+
+## [0.1.0-alpha346] - 2026-06-11
+
+### Fixed
+
+- Separate Qdrant Brain graph scrolling from the Payload Preview and the classic Memory Graph. The Brain viewport and the regular Memory Graph now own their horizontal scroll areas independently instead of sharing the outer Memory Map frame scroll.
+
+## [0.1.0-alpha345] - 2026-06-10
+
+### Fixed
+
+- Make Qdrant Brain usable on mobile/touch devices by adding a deliberate touch movement mode. Touch users can now scroll and tap the page by default, then enable graph movement when they want to pan or drag nodes, avoiding the previous conflict between browser scroll, graph pan, and node drag.
+
+## [0.1.0-alpha344] - 2026-06-10
+
+### Changed
+
+- Make Qdrant Brain point dragging behave like a real layout edit: connected neighbors are directly nudged while dragging, and the whole moved graph segment stores its current position as the new layout base on release instead of returning to the original coordinates.
+
+## [0.1.0-alpha343] - 2026-06-10
+
+### Changed
+
+- Make Qdrant Brain point dragging feel stickier and closer to Qdrant: moved points keep their dropped position as their new local home, spring pullback is softer, and motion damping is heavier so the graph does not snap back toward its original layout as strongly.
+
+## [0.1.0-alpha342] - 2026-06-09
+
+### Fixed
+
+- Make the Qdrant Brain collection start map readable by replacing the radial collection layout with a lane-based overview and wrapped collection labels. Long collection names now keep reserved text space instead of overlapping neighboring labels.
+
+## [0.1.0-alpha341] - 2026-06-09
+
+### Fixed
+
+- Center Qdrant Brain collection and point views against the actual visible browser viewport instead of only the internal SVG viewBox. Collection labels are included in centering bounds and right-side collection labels flip left, preventing the start view and Center action from landing visibly right-heavy or clipping labels.
+
+## [0.1.0-alpha340] - 2026-06-09
+
+### Changed
+
+- Make Qdrant Brain point drilldowns feel more like a live graph explorer: point nodes can be dragged directly, connected edges act like damped springs, and the graph settles with a short elastic bounce after interaction. Point edges now also render subtle arrowheads for a closer Qdrant-style visual language.
+
+## [0.1.0-alpha339] - 2026-06-09
+
+### Changed
+
+- Make Qdrant Brain point drilldowns more graph-like by building a connected nearest-neighbor backbone per collection and then adding additional semantic neighbor edges. This makes point collections look closer to Qdrant's own visualization instead of appearing as loose dots that merely share a collection.
+- Thin Qdrant Brain point edges to keep denser semantic neighborhoods readable.
+
+## [0.1.0-alpha338] - 2026-06-09
+
+### Changed
+
+- Improve Qdrant Brain viewport interaction so graph drag/zoom behaves more like a dedicated graph canvas: pointer dragging no longer selects labels, wheel zoom keeps the cursor anchor stable, toolbar zoom keeps the graph centered, and pan deltas are calculated in SVG coordinates instead of raw CSS pixels.
+
+## [0.1.0-alpha337] - 2026-06-09
+
+### Changed
+- Add sparse landmark labels to Qdrant Brain point drilldowns: highly connected points and the active/focused point show short labels directly in the map without returning to a fully labelled dense graph.
+- Add a Qdrant Brain center control that recenters the currently visible collection or point graph while preserving the current zoom level.
+
+## [0.1.0-alpha336] - 2026-06-09
+
+### Fixed
+- Fix Qdrant Brain drilldown node activation by preventing viewport pan handling from swallowing node pointer events. The payload detail panel now sits below the graph, giving the graph more horizontal room.
+
+## [0.1.0-alpha335] - 2026-06-09
+
+### Changed
+- Change the Qdrant Brain on `/memories/map` from a fully labelled all-node graph to a drilldown view. The graph now starts at Collection level, opens a Collection into unlabeled Qdrant-style point nodes, and keeps payload details in the side panel so dense memories stay readable.
+
+## [0.1.0-alpha334] - 2026-06-09
+
+### Fixed
+- Fix the Qdrant Brain sampler runtime error caused by a stale `_normalize_user_id` helper reference. `/memories/map` can now sample Qdrant points through the existing user-filter path instead of falling back to the empty-state error.
+
+## [0.1.0-alpha333] - 2026-06-09
+
+### Fixed
+- Make the Qdrant Brain visible on `/memories/map` even when the first sampled collections do not produce graphable points. ARIA now samples additional ARIA Qdrant collections beyond the narrow recall/document target set and renders a clear empty-state diagnostic instead of silently showing no Brain section.
+
+## [0.1.0-alpha332] - 2026-06-09
+
+### Added
+- Add a Qdrant Brain visualization into `/memories/map`. The existing Memory Map now includes a zoomable, pannable similarity graph built from a bounded Qdrant point sample. ARIA computes semantic edges server-side and exposes only safe labels, previews, collection names, and point IDs to the browser; raw vectors are never rendered.
+
 ## [0.1.0-alpha331] - 2026-06-08
 
 ### Fixed

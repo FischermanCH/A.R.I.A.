@@ -116,6 +116,78 @@
     </div>
   </section>
 
+  <section class="stat-card stats-diagnostic-card" id="learning-worker">
+    <div class="stats-health-head">
+      <div>
+        <h2>{{ tr(request, 'stats.learning_worker_title', 'Learning Worker') }}</h2>
+        <p class="stat-sub">{{ tr(request, 'stats.learning_worker_subtitle', 'Runtime status for background learning captures, retries and budget gates.') }}</p>
+      </div>
+      <span class="health-meter status-{{ learning_worker.status }}">
+        <span class="health-lamp status-{{ learning_worker.status }}"></span>
+        <span>
+          {% if learning_worker.status == 'ok' %}
+            {{ tr(request, 'stats.health_ok', 'OK') }}
+          {% elif learning_worker.status == 'warn' %}
+            {{ tr(request, 'stats.health_warn', 'Warn') }}
+          {% else %}
+            {{ tr(request, 'stats.health_error', 'Error') }}
+          {% endif %}
+        </span>
+      </span>
+    </div>
+    <div class="stats-health-grid stats-activity-kpi-grid">
+      <article class="stats-health-card status-{{ 'warn' if learning_worker.running else 'ok' }}">
+        <div class="stats-health-title">
+          <span class="health-lamp status-{{ 'warn' if learning_worker.running else 'ok' }}"></span>
+          <strong>{{ tr(request, 'stats.learning_worker_running', 'Laufend') }}</strong>
+        </div>
+        <p class="stats-health-summary">{{ learning_worker.running }}</p>
+        <small class="stats-health-detail">max {{ learning_worker.max_running }}</small>
+      </article>
+      <article class="stats-health-card status-ok">
+        <div class="stats-health-title">
+          <span class="health-lamp status-ok"></span>
+          <strong>{{ tr(request, 'stats.learning_worker_done', 'Fertig') }}</strong>
+        </div>
+        <p class="stats-health-summary">{{ learning_worker.completed }}</p>
+        <small class="stats-health-detail">max attempts {{ learning_worker.max_attempts }}</small>
+      </article>
+      <article class="stats-health-card status-{{ 'warn' if learning_worker.failed or learning_worker.rejected else 'ok' }}">
+        <div class="stats-health-title">
+          <span class="health-lamp status-{{ 'warn' if learning_worker.failed or learning_worker.rejected else 'ok' }}"></span>
+          <strong>{{ tr(request, 'stats.learning_worker_errors', 'Fehler') }}</strong>
+        </div>
+        <p class="stats-health-summary">{{ learning_worker.failed }} / {{ learning_worker.rejected }}</p>
+        <small class="stats-health-detail">failed / rejected</small>
+      </article>
+      <article class="stats-health-card status-{{ 'warn' if learning_worker.budget_state != 'ok' else 'ok' }}">
+        <div class="stats-health-title">
+          <span class="health-lamp status-{{ 'warn' if learning_worker.budget_state != 'ok' else 'ok' }}"></span>
+          <strong>{{ tr(request, 'stats.learning_worker_budget', 'Budget') }}</strong>
+        </div>
+        <p class="stats-health-summary">{{ learning_worker.budget.used_tokens }} / {{ learning_worker.budget.max_runtime_tokens }}</p>
+        <small class="stats-health-detail">${{ '%.6f'|format(learning_worker.budget.used_cost_usd) }} / ${{ '%.2f'|format(learning_worker.budget.max_runtime_cost_usd) }}</small>
+      </article>
+    </div>
+    {% if learning_worker.recent %}
+    {% set latest_learning_job = learning_worker.recent[0] %}
+    <p class="stats-health-summary">
+      {{ tr(request, 'stats.learning_worker_latest', 'Letzter Job') }}:
+      <a href="/memories/learning-worker/job/{{ latest_learning_job.job_id|urlencode }}">{{ latest_learning_job.status }} · {{ latest_learning_job.source }}</a>
+      {% if latest_learning_job.artifact_type %} · {{ latest_learning_job.artifact_type }}{% endif %}
+    </p>
+    {% endif %}
+    {% if learning_worker.audit.count %}
+    <p class="stats-health-summary">
+      {{ tr(request, 'stats.learning_worker_audit', 'Audit') }}:
+      {{ learning_worker.audit.count }} records ·
+      {% for category, count in learning_worker.failure_categories.items() %}
+        {{ category }} {{ count }}{% if not loop.last %} · {% endif %}
+      {% endfor %}
+    </p>
+    {% endif %}
+  </section>
+
   {% if reset_done is not none %}
   <div class="alert ok">
     {{ tr(request, 'stats.reset_done', 'Statistiken und Aktivitäten wurden zurückgesetzt. Eine neue Abrechnungsperiode wurde gestartet.') }}
@@ -163,9 +235,6 @@
 
     <article class="stat-card stats-cluster stats-cost-card">
       <h2>{{ tr(request, 'stats.costs_title', 'Costs') }}</h2>
-      <p class="stat-sub stats-cost-disclaimer">
-        {{ tr(request, 'stats.cost_estimate_disclaimer', 'Kosten sind Usage-Schaetzwerte fuer Orientierung und koennen von Provider-Rechnungen abweichen. Reset startet nur eine neue lokale Abrechnungsperiode.') }}
-      </p>
       {% if pricing_meta.has_unpriced_usage %}
       <div class="stats-price-warning">
         <div>
@@ -193,6 +262,9 @@
           <dd>{{ stats.priced_requests_count }}</dd>
         </div>
       </dl>
+      <p class="stat-sub stats-cost-disclaimer">
+        {{ tr(request, 'stats.cost_estimate_disclaimer', 'Kosten sind Usage-Schaetzwerte fuer Orientierung und koennen von Provider-Rechnungen abweichen. Reset startet nur eine neue lokale Abrechnungsperiode.') }}
+      </p>
       <p class="stat-sub stats-cost-footnote">
         {% if pricing_meta.has_estimated_cost_gap %}
           {{ tr(request, 'stats.estimated_cost_gap_hint_short', 'Estimated includes repriced older token rows.') }}

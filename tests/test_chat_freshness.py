@@ -14,3 +14,9 @@ def test_explicit_local_context_does_not_become_web_research() -> None:
 
     assert not explicitly_requests_web_research(message)
     assert not chat_freshness_candidate(message, intents=["chat"])
+
+
+def test_explicit_url_is_freshness_candidate() -> None:
+    message = "lies diese Seite wirklich aus: https://area41.io/#speakers"
+
+    assert chat_freshness_candidate(message, intents=["chat"])

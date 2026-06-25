@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from types import SimpleNamespace
 
@@ -276,6 +277,27 @@ def test_chat_toolbox_contains_save_chat_as_note_command() -> None:
     assert any(item.get("insert") == "/chat note " for group in groups for item in group.get("items", []))
 
 
+def test_chat_toolbox_links_to_document_import() -> None:
+    from aria.web.chat_catalog import build_chat_command_catalog
+
+    entries, _titles, groups = build_chat_command_catalog(
+        lang="de",
+        auth_role="user",
+        advanced_mode=False,
+        recall_templates=[],
+        store_templates=[],
+        recipe_trigger_hints=[],
+    )
+
+    matching = [entry for entry in entries if entry.get("href") == "/memories/overview#document-import"]
+    assert matching
+    assert matching[0]["label"] == "Dokument importieren"
+    document_groups = [group for group in groups if group.get("key") == "documents"]
+    assert document_groups
+    assert document_groups[0]["title"] == "Dokumente"
+    assert any(item.get("href") == "/memories/overview#document-import" for item in document_groups[0].get("items", []))
+
+
 def test_chat_notes_flow_searches_natural_notes_question(monkeypatch, tmp_path) -> None:
     import aria.web.chat_notes_flows as chat_notes_flows
 
@@ -334,6 +356,110 @@ def test_vague_web_search_followup_keeps_specific_query() -> None:
     )
 
     assert rewritten == "suche im internet nach claude code latest release"
+
+
+def test_vague_local_notes_followup_uses_recent_user_topic() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    history = [
+        {"role": "user", "text": "welche version von claude code ist momentan aktuell"},
+        {"role": "assistant", "text": "Ich habe Webquellen zu Claude Code gefunden."},
+    ]
+
+    rewritten = chat_execution_routes._rewrite_vague_local_context_followup(
+        "und was steht dazu in meinen notizen?",
+        history,
+    )
+
+    assert rewritten == "was steht in meinen notizen zu claude code version"
+
+
+class _FollowupLLM:
+    def __init__(self, payload: dict[str, object]):
+        self.payload = payload
+        self.operations: list[str] = []
+
+    async def chat(self, _messages, **kwargs):
+        self.operations.append(str(kwargs.get("operation") or ""))
+        return SimpleNamespace(
+            content=json.dumps(self.payload),
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+
+def test_pipeline_followup_resolution_rewrites_before_regex_fallback() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    llm = _FollowupLLM(
+        {
+            "action": "rewrite",
+            "target_space": "web_search",
+            "rewritten_message": "suche im internet nach claude code latest release",
+            "confidence": "high",
+            "reason": "recent topic",
+        }
+    )
+
+    rewritten = asyncio.run(
+        chat_execution_routes._resolve_pipeline_followup_message(
+            "suche im internet nach der neusten version",
+            [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
+            llm_client=llm,
+        )
+    )
+
+    assert rewritten == "suche im internet nach claude code latest release"
+    assert llm.operations == ["followup_resolution"]
+
+
+def test_pipeline_followup_resolution_no_rewrite_blocks_regex_fallback() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    llm = _FollowupLLM(
+        {
+            "action": "no_rewrite",
+            "target_space": "chat",
+            "rewritten_message": "",
+            "confidence": "high",
+            "reason": "standalone enough",
+        }
+    )
+
+    rewritten = asyncio.run(
+        chat_execution_routes._resolve_pipeline_followup_message(
+            "suche im internet nach der neusten version",
+            [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
+            llm_client=llm,
+        )
+    )
+
+    assert rewritten == "suche im internet nach der neusten version"
+    assert llm.operations == ["followup_resolution"]
+
+
+def test_pipeline_followup_resolution_low_confidence_uses_regex_fallback() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    llm = _FollowupLLM(
+        {
+            "action": "rewrite",
+            "target_space": "web_search",
+            "rewritten_message": "suche im internet nach guessed latest release",
+            "confidence": "low",
+            "reason": "not sure",
+        }
+    )
+
+    rewritten = asyncio.run(
+        chat_execution_routes._resolve_pipeline_followup_message(
+            "suche im internet nach der neusten version",
+            [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
+            llm_client=llm,
+        )
+    )
+
+    assert rewritten == "suche im internet nach claude code version der neusten version"
+    assert llm.operations == ["followup_resolution"]
 
 
 def test_chat_can_confirm_pending_routed_action(monkeypatch) -> None:
@@ -980,6 +1106,31 @@ def test_chat_can_confirm_pending_safe_fix(monkeypatch) -> None:
 
     assert confirm.status_code == 200
     assert "Safe-Fix ausgeführt." in confirm.text
+
+
+def test_chat_badge_details_include_web_request_timing(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-web-timing",
+            text="ok",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["chat"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=7,
+            detail_lines=["Routing Debug: fake_pipeline"],
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    client = _admin_client(monkeypatch)
+
+    response = client.post("/chat", data={"message": "hallo", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert response.status_code == 200
+    assert "Routing Debug: fake_pipeline" in response.text
+    assert "Routing Debug: web_request_timing" in response.text
+    assert "Routing Debug: web_total_wall_time" in response.text
+    assert "pipeline_ms=7" in response.text
 
 
 def test_chat_can_confirm_memory_forget(monkeypatch) -> None:

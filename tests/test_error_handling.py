@@ -68,6 +68,12 @@ def test_intent_badge_uses_capability_category() -> None:
     assert label == "file_read"
 
 
+def test_intent_badge_uses_notes_search_before_memory_recall() -> None:
+    icon, label = _intent_badge(["notes_search"], [])
+    assert icon == "📝"
+    assert label == "notes_search"
+
+
 def test_intent_badge_keeps_capability_category_for_partial_action_errors() -> None:
     icon, label = _intent_badge(["capability:ssh_command"], ["capability_ssh_command_blocked:dns-node-01:ssh_command_not_in_allow_list"])
     assert icon == "💻"

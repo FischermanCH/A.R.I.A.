@@ -344,13 +344,7 @@ class CapabilityRouter:
 
     @classmethod
     def _extract_natural_ssh_command_with_lexicon(cls, message: str, lexicon: CapabilityRoutingLexicon) -> str:
-        lower = str(message or "").strip().lower()
-        if cls._contains_any(lower, lexicon.ssh_natural_disk_terms):
-            return "df -h"
-        if cls._contains_any(lower, lexicon.ssh_natural_uptime_terms) or cls._contains_any(lower, lexicon.ssh_natural_online_terms):
-            return "uptime"
-        if cls._looks_like_ssh_health_status_request(lower, lexicon):
-            return "uptime"
+        _ = (message, lexicon)
         return cls._extract_natural_ssh_command(message)
 
     @classmethod
@@ -801,6 +795,7 @@ class CapabilityRouter:
             return None
 
         lower = raw.lower()
+        contains_external_url = bool(re.search(r"https?://[^\s<>()\"']+", raw, flags=re.IGNORECASE))
         if self.looks_like_general_instruction_request(lower):
             return None
         lexicon = self._lexicon_for_language(language)
@@ -834,11 +829,9 @@ class CapabilityRouter:
             if "ssh" in available_kinds
             else ""
         )
-        natural_ssh_command = self._extract_natural_ssh_command_with_lexicon(raw, lexicon)
         explicit_ssh_command = self._extract_ssh_command(raw, explicit_ref)
         ssh_command = explicit_ssh_command
-        ssh_intent = bool(ssh_command) or self._contains_any(lower, lexicon.ssh_command_terms)
-        ssh_intent = ssh_intent or bool(natural_ssh_command)
+        ssh_intent = bool(ssh_command)
         ssh_target_signal = explicit_kind == "ssh" or has_ssh_hint or bool(requested_ssh_target)
         has_remote_hint = self._has_remote_signal(
             lower=lower,
@@ -881,9 +874,13 @@ class CapabilityRouter:
         )
         if not capability:
             return None
+        if capability == "website_read" and contains_external_url and not explicit_ref:
+            return None
 
         executor_kinds = [kind for kind in capability_executor_kinds(capability) if kind]
         allowed_kinds = [kind for kind in executor_kinds if kind in available_kinds]
+        if capability and executor_kinds and not allowed_kinds:
+            return None
         allowed_kind_set = set(allowed_kinds or executor_kinds)
         if capability and not allowed_kind_set:
             return None

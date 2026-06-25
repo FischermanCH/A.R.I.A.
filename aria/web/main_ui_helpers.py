@@ -168,6 +168,8 @@ def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> 
                     return badge
             return "⚠", "capability_error"
         return "⚠", "memory_error"
+    if "notes_search" in intents:
+        return "📝", "notes_search"
     if "memory_recall" in intents:
         return "🧠", "memory_recall"
     if "memory_store" in intents:

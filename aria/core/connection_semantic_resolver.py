@@ -423,6 +423,10 @@ class ConnectionSemanticResolver:
             priority += 2
         return priority
 
+    @staticmethod
+    def _candidate_is_exact_alias_match(candidate: SemanticConnectionCandidate) -> bool:
+        return int(getattr(candidate, "score", 0) or 0) >= 1000
+
     def resolve_connection(
         self,
         message: str,
@@ -511,7 +515,7 @@ class ConnectionSemanticResolver:
             available_connection_pools,
             preferred_kind=preferred_kind,
         )
-        if not force_llm and len(candidates) == 1 and candidates[0].score >= 40:
+        if not force_llm and len(candidates) == 1 and self._candidate_is_exact_alias_match(candidates[0]):
             winner = candidates[0]
             return SemanticConnectionHint(
                 connection_kind=winner.connection_kind,
@@ -519,7 +523,10 @@ class ConnectionSemanticResolver:
                 source=winner.source or "semantic_alias",
                 note=winner.note or (f"alias:{winner.alias}" if winner.alias else ""),
             )
-        if candidates and not include_all_profiles:
+        prompt_all_profiles = include_all_profiles or (
+            len(candidates) == 1 and not self._candidate_is_exact_alias_match(candidates[0])
+        )
+        if candidates and not prompt_all_profiles:
             for candidate in candidates:
                 kind = candidate.connection_kind
                 ref = candidate.connection_ref

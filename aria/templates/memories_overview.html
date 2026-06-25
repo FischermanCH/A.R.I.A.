@@ -89,7 +89,7 @@
       </div>
     </details>
 
-    <details class="memory-create-card memory-create-panel">
+    <details id="document-import" class="memory-create-card memory-create-panel">
       <summary class="memory-group-summary memory-create-summary">
         <span class="memory-create-summary-icon">{{ icon('upload', 'submenu-icon') }}</span>
         <div class="memory-create-summary-copy">
@@ -161,9 +161,27 @@
     True,
     'memories-graph'
   ) %}
-    <div class="memory-map-frame-wrap memory-graph-wrap memory-map-showcase">
+    <div class="memory-map-frame-wrap memory-map-showcase">
       {% include "_memory_graph.html" %}
     </div>
   {% endcall %}
 </main>
+<script>
+  (function () {
+    function openDocumentImportFromHash() {
+      if (window.location.hash !== "#document-import") return;
+      const panel = document.getElementById("document-import");
+      if (!panel) return;
+      panel.open = true;
+      window.requestAnimationFrame(function () {
+        panel.scrollIntoView({ block: "start", behavior: "smooth" });
+        const fileInput = document.getElementById("overview_document_file");
+        if (fileInput) fileInput.focus({ preventScroll: true });
+      });
+    }
+
+    openDocumentImportFromHash();
+    window.addEventListener("hashchange", openDocumentImportFromHash);
+  })();
+</script>
 {% endblock %}

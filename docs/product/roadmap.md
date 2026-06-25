@@ -81,6 +81,16 @@ Zweck:
 - Routing-Erklärbarkeit im UI verbessern
 - Alias-/Beschreibung-/Tag-Qualität noch stärker ausnutzen
 
+### Agentic Learning Loop v2
+- Nutzungserfahrung nicht nur als Memory-Kontext speichern, sondern in kontrollierte Artefakte übersetzen
+- Learning Event Ledger für Turns, Runtime-Ergebnisse, Quellenfehler und User-Feedback
+- Reflection/Klassifikation für Fakten, Präferenzen, `LERNEN`, Action Boundaries, Routing-Hints, Procedures und Eval-Kandidaten
+- automatische Recipe-/Procedure-/Skill-Kandidaten aus erfolgreichen oder wiederkehrenden Workflows
+- Recipe-Improvement-Loop statt Duplikat-Flut
+- Eval-first Learning: relevante Ausreißer werden Regressionen
+- deterministische Kontrolle über Schemas, Capability-Contracts, Policy, Guardrails, Review, Promotion und Tests
+- Details: `docs/product/agentic-learning-loop-v2.md`
+
 ### Security / Sharing
 - echtes Ownership-/Sharing-Modell für Rezepte, Connections und Memories
 - RBAC-Ausbau über den aktuellen Admin/User-Schalter hinaus

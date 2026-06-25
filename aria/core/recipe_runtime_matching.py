@@ -137,30 +137,105 @@ def match_stored_recipe_intents(
     return [build_recipe_intent(recipe_id) for _, recipe_id in scored[:3]]
 
 
+def candidate_stored_recipe_rows(
+    message: str,
+    runtime_recipes: list[dict[str, Any]],
+    *,
+    stopwords: set[str],
+    action_hints: set[str],
+    execution_phrases: tuple[str, ...] = (),
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    text = str(message or "").strip()
+    if not text:
+        return []
+    scored: list[tuple[int, str, dict[str, Any]]] = []
+    for row in runtime_recipes:
+        if not row.get("enabled", False):
+            continue
+        recipe_id = str(row.get("id", "")).strip()
+        if not recipe_id:
+            continue
+        score = recipe_match_score(text, row, stopwords=stopwords, action_hints=action_hints)
+        if score >= 30:
+            scored.append((score, recipe_id, row))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    if scored:
+        return [row for _score, _recipe_id, row in scored[: max(1, limit)]]
+    if not looks_like_recipe_execution_request(text, action_hints=action_hints, execution_phrases=execution_phrases):
+        return []
+    broad_rows: list[tuple[str, dict[str, Any]]] = []
+    for row in runtime_recipes:
+        if not row.get("enabled", False):
+            continue
+        recipe_id = str(row.get("id", "")).strip()
+        if recipe_id:
+            broad_rows.append((recipe_id, row))
+    broad_rows.sort(key=lambda item: item[0])
+    return [row for _recipe_id, row in broad_rows[: max(1, limit)]]
+
+
+def scored_stored_recipe_rows(
+    message: str,
+    runtime_recipes: list[dict[str, Any]],
+    *,
+    stopwords: set[str],
+    action_hints: set[str],
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    text = str(message or "").strip()
+    if not text:
+        return []
+    scored: list[tuple[int, str, dict[str, Any]]] = []
+    for row in runtime_recipes:
+        if not row.get("enabled", False):
+            continue
+        recipe_id = str(row.get("id", "")).strip()
+        if not recipe_id:
+            continue
+        score = recipe_match_score(text, row, stopwords=stopwords, action_hints=action_hints)
+        if score <= 0:
+            continue
+        scored.append((score, recipe_id, {**row, "_match_score": score}))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [row for _score, _recipe_id, row in scored[: max(1, limit)]]
+
+
 async def resolve_stored_recipe_intent_with_llm(
     message: str,
     runtime_recipes: list[dict[str, Any]],
     llm_client: Any | None,
     *,
+    stopwords: set[str],
     action_hints: set[str],
     execution_phrases: tuple[str, ...],
     recipe_text: RecipeText,
+    debug_lines: list[str] | None = None,
 ) -> list[str]:
     if llm_client is None:
+        if debug_lines is not None:
+            debug_lines.append("Routing Debug: recipe_execution_intent skipped reason=no_llm_client")
         return []
     clean_message = str(message or "").strip()
     if not clean_message:
-        return []
-    if not looks_like_recipe_execution_request(
-        clean_message,
-        action_hints=action_hints,
-        execution_phrases=execution_phrases,
-    ):
+        if debug_lines is not None:
+            debug_lines.append("Routing Debug: recipe_execution_intent skipped reason=empty_message")
         return []
 
     rows_for_prompt: list[str] = []
     valid_ids: set[str] = set()
-    for row in runtime_recipes:
+    candidate_rows = candidate_stored_recipe_rows(
+        clean_message,
+        runtime_recipes,
+        stopwords=stopwords,
+        action_hints=action_hints,
+        execution_phrases=execution_phrases,
+    )
+    if not candidate_rows:
+        if debug_lines is not None:
+            debug_lines.append("Routing Debug: recipe_execution_intent skipped reason=no_candidates")
+        return []
+    for row in candidate_rows:
         if not bool(row.get("enabled", False)):
             continue
         recipe_id = str(row.get("id", "")).strip()
@@ -185,6 +260,8 @@ async def resolve_stored_recipe_intent_with_llm(
             )
         )
     if not valid_ids:
+        if debug_lines is not None:
+            debug_lines.append("Routing Debug: recipe_execution_intent skipped reason=no_enabled_candidates")
         return []
 
     system_prompt = recipe_text(
@@ -193,8 +270,9 @@ async def resolve_stored_recipe_intent_with_llm(
         (
             "Select exactly one suitable stored recipe for a user request. "
             "Answer only as JSON in the format "
-            '{"id":"<skill-id or empty>","confidence":"high|medium|low","reason":"short"}. '
+            '{"execute":true|false,"id":"<skill-id or empty>","confidence":"high|medium|low","reason":"short"}. '
             "Only choose a recipe from the list. If nothing really matches, return an empty id. "
+            "Set execute=false when the user is asking about, explaining, comparing, documenting, or recalling a topic rather than asking ARIA to run the recipe. "
             "Prefer medium or high only when the request clearly asks for execution or action."
         ),
     )
@@ -211,16 +289,45 @@ async def resolve_stored_recipe_intent_with_llm(
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
+            operation="recipe_execution_intent",
         )
     except Exception:
+        if debug_lines is not None:
+            debug_lines.append("Routing Debug: recipe_execution_intent skipped reason=llm_error")
         return []
 
     payload = core_extract_json_object(getattr(response, "content", "") or "") or {}
+    execute = bool(payload.get("execute", False))
     recipe_id = str(payload.get("id", "")).strip()
     confidence = str(payload.get("confidence", "")).strip().lower()
+    reason = re.sub(r"\s+", " ", str(payload.get("reason", "") or "")).strip()[:180]
+    if not execute:
+        if debug_lines is not None:
+            debug_lines.append(
+                "Routing Debug: recipe_execution_intent "
+                f"agentic_source=llm_decision execute=false confidence={confidence or '-'} "
+                f"candidates={len(valid_ids)} reason={reason or '-'}"
+            )
+        return []
     if confidence not in {"high", "medium"}:
+        if debug_lines is not None:
+            debug_lines.append(
+                "Routing Debug: recipe_execution_intent skipped "
+                f"reason=low_confidence confidence={confidence or '-'} candidates={len(valid_ids)}"
+            )
         return []
     if recipe_id not in valid_ids:
+        if debug_lines is not None:
+            debug_lines.append(
+                "Routing Debug: recipe_execution_intent skipped "
+                f"reason=out_of_bounds_recipe id={recipe_id or '-'} candidates={len(valid_ids)}"
+            )
         return []
+    if debug_lines is not None:
+        debug_lines.append(
+            "Routing Debug: recipe_execution_intent "
+            f"agentic_source=llm_decision execute=true id={recipe_id} "
+            f"confidence={confidence} candidates={len(valid_ids)} reason={reason or '-'}"
+        )
     return [build_recipe_intent(recipe_id)]

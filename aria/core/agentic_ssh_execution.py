@@ -19,6 +19,7 @@ class MultiTargetSSHExecutionHooks(AgenticExecutionHooks):
     preflight_refs: Callable[[list[str], str], tuple[list[str], list[dict[str, str]], list[str]]]
     execute_plan: Callable[[ActionPlan, str], Awaitable[str]]
     remember_action: Callable[[str, ActionPlan], None]
+    remember_multi_target_action: Callable[[str, dict[str, Any], list[str], str, str], None]
     result_state: Callable[[str], str]
     extract_free_disk_threshold_gib: Callable[[str], tuple[float, str] | None]
     extract_summary_free_disk_gib: Callable[[str], tuple[float, str] | None]
@@ -184,6 +185,13 @@ class MultiTargetSSHExecutionHandler:
             free_disk_threshold=free_disk_threshold,
             detail_lines=detail_lines,
         )
+        self._hooks.remember_multi_target_action(
+            request.user_id,
+            payload,
+            refs,
+            command,
+            summary,
+        )
         if errors:
             text = self._hooks.text(
                 request.language,
@@ -202,7 +210,38 @@ class MultiTargetSSHExecutionHandler:
                 count=original_count,
                 summary=summary,
             )
-        return AgenticExecutionResult(intents=intents, text=text, detail_lines=detail_lines, errors=errors)
+        metadata = {
+            "runtime_outcome": {
+                "surface_id": "connections",
+                "kind": "ssh",
+                "capability": "ssh_command",
+                "task_intent": self._task_intent_from_payload(payload),
+                "command": command,
+                "targets": refs,
+                "records": result_records,
+                "summary": summary,
+                "followup_affordances": self._followup_affordances_for_command(command, payload),
+            }
+        }
+        return AgenticExecutionResult(intents=intents, text=text, detail_lines=detail_lines, errors=errors, metadata=metadata)
+
+    @staticmethod
+    def _task_intent_from_payload(payload: dict[str, Any]) -> str:
+        for note in list(payload.get("notes", []) or []):
+            clean = str(note or "").strip().lower()
+            if clean.startswith("target_intent:"):
+                return clean.split(":", 1)[1].strip()
+        command = str(payload.get("content", "") or "").strip().lower()
+        if "apt list --upgradable" in command:
+            return "package_update_check"
+        return ""
+
+    @staticmethod
+    def _followup_affordances_for_command(command: str, payload: dict[str, Any]) -> list[str]:
+        task_intent = MultiTargetSSHExecutionHandler._task_intent_from_payload(payload)
+        if task_intent == "package_update_check" or "apt list --upgradable" in str(command or "").strip().lower():
+            return ["rank_updates", "list_packages_by_server", "explain_update_relevance", "rerun_update_check"]
+        return ["summarize_targets", "explain_result", "rerun_check"]
 
     async def _build_summary(
         self,

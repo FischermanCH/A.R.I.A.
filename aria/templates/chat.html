@@ -8,47 +8,61 @@
     <div class="chat-status-cluster">
       <span class="chat-status">🗓 {{ tr(request, 'chat.debug_day_context', 'Tages-Kontext') }} <code>{{ active_session_collection }}</code></span>
       <span class="chat-status">🧷 {{ tr(request, 'chat.debug_login_session', 'Login-Session') }} <code>{{ active_session_id }}</code></span>
-      <span
+      <a
+        href="/memories/config#auto-memory"
         class="chat-status auto-memory-indicator {% if auto_memory_enabled %}is-on{% else %}is-off{% endif %}"
         title="{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }} {% if auto_memory_enabled %}{{ tr(request, 'chat.debug_active', 'aktiv') }}{% else %}{{ tr(request, 'chat.debug_inactive', 'deaktiviert') }}{% endif %}"
+        aria-label="{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }} {{ tr(request, 'nav.settings', 'Einstellungen') }}"
       >
         <span class="status-lamp" aria-hidden="true"></span>
         <span>{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }}</span>
-      </span>
+      </a>
     </div>
     <small class="hint-text">{{ tr(request, 'chat.debug_day', 'Tag') }}: <code>{{ active_memory_day }}</code> · {{ tr(request, 'chat.debug_role', 'Rolle') }}: <code>{{ auth_role }}</code></small>
   </div>
   {% endif %}
-  <section class="chat-box" id="messages">
-    {% if chat_history %}
-      {% for item in chat_history %}
-      <article class="msg msg-{{ item.role }}">
-        {% if item.role == "assistant" %}
-        <div class="msg-text">{{ render_assistant_message_html(item.text) }}</div>
-        {% else %}
-        <p>{{ item.text }}</p>
-        {% endif %}
-        {% if item.role == "assistant" %}
-        <details class="msg-details">
-          <summary>Details</summary>
-          <div class="meta-badge">{{ item.badge_icon }} {{ item.badge_intent }} · {{ item.badge_tokens }} tokens · {{ item.badge_cost_usd }} · {{ item.badge_duration }}s</div>
-          {% if item.badge_details %}
-          <div class="meta-row">
-            {% for row in item.badge_details %}
-            <div>{{ row }}</div>
-            {% endfor %}
-          </div>
+  <div class="chat-box-wrap">
+    <section class="chat-box" id="messages">
+      {% if chat_history %}
+        {% for item in chat_history %}
+        <article class="msg msg-{{ item.role }}">
+          {% if item.role == "assistant" %}
+          <div class="msg-text">{{ render_assistant_message_html(item.text) }}</div>
+          {% else %}
+          <p>{{ item.text }}</p>
           {% endif %}
-        </details>
-        {% endif %}
+          {% if item.role == "assistant" %}
+          <details class="msg-details">
+            <summary>Details</summary>
+            <div class="meta-badge">{{ item.badge_icon }} {{ item.badge_intent }} · {{ item.badge_tokens }} tokens · {{ item.badge_cost_usd }} · {{ item.badge_duration }}s</div>
+            {% if item.badge_details %}
+            <div class="meta-row">
+              {% for row in item.badge_details %}
+              <div>{{ row }}</div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </details>
+          {% endif %}
+        </article>
+        {% endfor %}
+      {% else %}
+      <article class="msg msg-assistant">
+        <p>{{ tr(request, 'chat.ready', 'ARIA ist bereit. Schreib deine erste Nachricht.') }}</p>
       </article>
-      {% endfor %}
-    {% else %}
-    <article class="msg msg-assistant">
-      <p>{{ tr(request, 'chat.ready', 'ARIA ist bereit. Schreib deine erste Nachricht.') }}</p>
-    </article>
-    {% endif %}
-  </section>
+      {% endif %}
+    </section>
+    <button
+      id="jump-to-latest"
+      class="chat-jump-latest"
+      type="button"
+      aria-label="{{ tr(request, 'chat.jump_to_latest', 'Zur neuesten Nachricht springen') }}"
+      title="{{ tr(request, 'chat.jump_to_latest', 'Zur neuesten Nachricht springen') }}"
+      hidden
+    >
+      <span aria-hidden="true">↓</span>
+    </button>
+  </div>
 
   <div id="typing-indicator" class="typing-indicator" aria-live="polite" hidden>
     <div class="thinking-rings" aria-hidden="true">
@@ -88,8 +102,21 @@
             {% for group in chat_toolbox_groups %}
             <details class="toolbox-group" {% if group["key"] == "suggested" %}open{% endif %}>
               <summary class="toolbox-group-title"><span class="toolbox-group-title-main"><span class="toolbox-group-icon">{{ group.get("icon", "•") }}</span>{{ group["title"] }}</span></summary>
-              <div class="toolbox-items">
+                <div class="toolbox-items">
                 {% for item in group["items"] %}
+                {% if item.get('href') %}
+                <a
+                  class="toolbox-item toolbox-link"
+                  href="{{ item['href'] }}"
+                  title="{{ item['hint'] }}"
+                >
+                  <span class="toolbox-item-title">
+                    <span class="toolbox-item-title-main"><span class="toolbox-item-icon">{{ item['icon'] }}</span>{{ item['label'] }}</span>
+                    {% if item.get('badge') %}<span class="toolbox-item-badge">{{ item['badge'] }}</span>{% endif %}
+                  </span>
+                  <span class="toolbox-item-hint">{{ item['hint'] }}</span>
+                </a>
+                {% else %}
                 <button
                   type="button"
                   class="toolbox-item js-toolbox-insert"
@@ -102,6 +129,7 @@
                   </span>
                   <span class="toolbox-item-hint">{{ item['hint'] }}</span>
                 </button>
+                {% endif %}
                 {% endfor %}
               </div>
             </details>
@@ -170,6 +198,7 @@
     const sendBtn = document.getElementById("send-btn");
     const cancelBtn = document.getElementById("cancel-btn");
     const messages = document.getElementById("messages");
+    const jumpToLatestBtn = document.getElementById("jump-to-latest");
     const chatLayout = document.querySelector(".chat-layout");
     const indicator = document.getElementById("typing-indicator");
     const thinkingText = document.getElementById("thinking-text");
@@ -184,6 +213,44 @@
     let currentRequestController = null;
 
     const draftStorageKey = "aria_chat_draft_v1";
+
+    function updateVisualViewportHeight() {
+      const root = document.documentElement;
+      if (!root) return;
+      const viewport = window.visualViewport;
+      const height = viewport && viewport.height ? viewport.height : window.innerHeight;
+      if (!height) return;
+      root.style.setProperty("--aria-visual-viewport-height", Math.round(height) + "px");
+    }
+
+    function scrollMessagesToLatest() {
+      if (!messages) return;
+      window.requestAnimationFrame(function () {
+        messages.scrollTop = messages.scrollHeight;
+        window.requestAnimationFrame(function () {
+          messages.scrollTop = messages.scrollHeight;
+          updateJumpToLatestButton();
+        });
+      });
+    }
+
+    function messagesAtLatest() {
+      if (!messages) return true;
+      return messages.scrollHeight - messages.scrollTop - messages.clientHeight <= 12;
+    }
+
+    function updateJumpToLatestButton() {
+      if (!jumpToLatestBtn || !messages) return;
+      const show = !messagesAtLatest();
+      jumpToLatestBtn.hidden = !show;
+      jumpToLatestBtn.setAttribute("aria-hidden", show ? "false" : "true");
+    }
+
+    function jumpToLatest() {
+      if (!messages) return;
+      messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
+      window.setTimeout(updateJumpToLatestButton, 180);
+    }
 
     function readCookie(name) {
       const key = name + "=";
@@ -500,7 +567,7 @@
         "</article>",
       ].join("");
       updateChatState();
-      messages.scrollTop = messages.scrollHeight;
+      scrollMessagesToLatest();
     }
 
     function restoreDraft() {
@@ -535,7 +602,7 @@
       article.appendChild(p);
       messages.appendChild(article);
       updateChatState();
-      messages.scrollTop = messages.scrollHeight;
+      scrollMessagesToLatest();
       return article;
     }
 
@@ -547,7 +614,7 @@
       article.appendChild(p);
       messages.appendChild(article);
       updateChatState();
-      messages.scrollTop = messages.scrollHeight;
+      scrollMessagesToLatest();
     }
 
     function appendPendingAssistant(text) {
@@ -558,7 +625,7 @@
       article.appendChild(p);
       messages.appendChild(article);
       updateChatState();
-      messages.scrollTop = messages.scrollHeight;
+      scrollMessagesToLatest();
       return article;
     }
 
@@ -607,8 +674,43 @@
       return assistants[assistants.length - 1].outerHTML;
     }
 
+    function appendClientWallTime(startedAt) {
+      const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
+      const assistantMessages = messages.querySelectorAll(".msg-assistant");
+      if (!assistantMessages.length) return;
+      const latest = assistantMessages[assistantMessages.length - 1];
+      const details = latest.querySelector(".msg-details");
+      if (!details) return;
+      let rows = details.querySelector(".meta-row");
+      if (!rows) {
+        rows = document.createElement("div");
+        rows.className = "meta-row";
+        details.appendChild(rows);
+      }
+      const row = document.createElement("div");
+      row.textContent = "Routing Debug: browser_wall_time total_ms=" + elapsedMs + " source=browser boundary=submit_to_dom";
+      rows.appendChild(row);
+    }
+
+    updateVisualViewportHeight();
+    window.addEventListener("resize", updateVisualViewportHeight);
+    window.addEventListener("orientationchange", updateVisualViewportHeight);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", updateVisualViewportHeight);
+      window.visualViewport.addEventListener("scroll", updateVisualViewportHeight);
+    }
+
     restoreDraft();
     updateChatState();
+    scrollMessagesToLatest();
+    updateJumpToLatestButton();
+
+    if (messages) {
+      messages.addEventListener("scroll", updateJumpToLatestButton, { passive: true });
+    }
+    if (jumpToLatestBtn) {
+      jumpToLatestBtn.addEventListener("click", jumpToLatest);
+    }
 
     textarea.addEventListener("input", function () {
       persistDraft();
@@ -680,6 +782,7 @@
       let shouldRefreshToolbox = false;
 
       const pendingUserNode = appendUserMessage(displayMessage || message);
+      const requestStartedAt = performance.now();
       if (clearComposer) {
         textarea.value = "";
         localStorage.removeItem(draftStorageKey);
@@ -741,6 +844,7 @@
         pendingAssistantNode.remove();
         if (assistantHtml) {
           messages.insertAdjacentHTML("beforeend", assistantHtml);
+          appendClientWallTime(requestStartedAt);
         } else {
           appendErrorMessage(uiText.parseError);
         }
@@ -759,7 +863,7 @@
         clearPendingStatusTimers();
         updateChatState();
         setBusy(false);
-        messages.scrollTop = messages.scrollHeight;
+        scrollMessagesToLatest();
         textarea.focus();
         hideSlashMenu();
         if (shouldRefreshToolbox) {

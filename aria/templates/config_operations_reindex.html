@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout memory-config-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+  {% if request.state.can_access_advanced_config %}
+  {% set index_cfg = inventory_index %}
+  {% set index_status = inventory_index_status or {} %}
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('qdrant', 'page-title-icon') }}</span><h3>{{ tr(request, 'config.reindex_title', 'Memory Reindex') }}</h3></div>
+    <p class="config-muted">{{ tr(request, 'config.reindex_intro', 'ARIA baut aus sicheren Metadaten einen aktuellen semantischen Qdrant-Index. Der Chat kann dadurch Memory-, Inventory- und Meta-Katalog-Fragen schneller und passender finden.') }}</p>
+    <div class="alert info">
+      <strong>{{ tr(request, 'config.reindex_policy_title', 'Index-Policy') }}</strong>
+      <div>{{ tr(request, 'config.reindex_policy_body', 'Der aktive Index soll immer den aktuellen Stand abbilden. Beim Reindex wird der vorherige aktive Index als Rollback-Backup behalten; alte Stände werden nicht endlos gesammelt. Secrets, Hosts, URLs, Tokens, Keys und Passwörter werden nicht indexiert.') }}</div>
+    </div>
+    <div class="stats-list">
+      <li><span>{{ tr(request, 'config.reindex_status', 'Status') }}</span><strong>{{ index_status.message or '-' }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_collection', 'Aktive Collection') }}</span><strong>{{ index_status.collection_name or '-' }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_backup_collection', 'Rollback-Backup') }}</span><strong>{{ index_status.backup_collection_name or '-' }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_documents', 'Inventar-Dokumente') }}</span><strong>{{ index_status.indexed_count or 0 }}/{{ index_status.document_count or 0 }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_meta_collection', 'Meta-Katalog') }}</span><strong>{{ index_status.meta_collection_name or '-' }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_meta_documents', 'Meta-Dokumente') }}</span><strong>{{ index_status.meta_indexed_count or 0 }}/{{ index_status.meta_document_count or 0 }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_backup_count', 'Backup-Punkte') }}</span><strong>{{ index_status.backup_count or 0 }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_hash', 'Index-Hash') }}</span><strong>{{ (index_status.indexed_config_hash or '-')[:16] }}</strong></li>
+      <li><span>{{ tr(request, 'config.reindex_meta_hash', 'Meta-Hash') }}</span><strong>{{ (index_status.indexed_meta_catalog_hash or '-')[:16] }}</strong></li>
+    </div>
+    {% if index_status.detail %}
+    <div class="alert warn"><strong>{{ tr(request, 'config.reindex_detail', 'Detail') }}</strong><div>{{ index_status.detail }}</div></div>
+    {% endif %}
+    <form method="post" action="/memories/reindex/run" class="config-actions-row" data-busy-immediate="true">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="primary-action">{{ icon('refresh', 'btn-icon') }} {{ tr(request, 'config.reindex_run_now', 'Jetzt re-indexieren') }}</button>
+    </form>
+  </section>
+
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('updates', 'page-title-icon') }}</span><h3>{{ tr(request, 'config.reindex_scheduler_title', 'Scheduler') }}</h3></div>
+    <form method="post" action="/memories/reindex/save" class="config-form" data-busy-immediate="true">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <label class="checkbox-row"><input type="checkbox" name="enabled" value="1" {% if index_cfg and index_cfg.enabled %}checked{% endif %}> <span>{{ tr(request, 'config.reindex_enabled', 'Automatischen Reindex aktivieren') }}</span></label>
+      <label class="checkbox-row"><input type="checkbox" name="run_on_startup" value="1" {% if index_cfg and index_cfg.run_on_startup %}checked{% endif %}> <span>{{ tr(request, 'config.reindex_startup', 'Beim Start prüfen/ausführen') }}</span></label>
+      <label class="checkbox-row"><input type="checkbox" name="keep_backup" value="1" {% if not index_cfg or index_cfg.keep_backup %}checked{% endif %}> <span>{{ tr(request, 'config.reindex_keep_backup', 'Rollback-Backup behalten') }}</span></label>
+      <label>{{ tr(request, 'config.reindex_cron', 'Cron') }}<input type="text" name="cron" value="{{ index_cfg.cron if index_cfg else '17 */6 * * *' }}"></label>
+      <label>{{ tr(request, 'config.reindex_timezone', 'Zeitzone') }}<input type="text" name="timezone" value="{{ index_cfg.timezone if index_cfg else 'Europe/Zurich' }}"></label>
+      <label>{{ tr(request, 'config.reindex_threshold', 'Score-Schwelle') }}<input type="number" name="score_threshold" min="0" max="1" step="0.01" value="{{ index_cfg.score_threshold if index_cfg else 0.35 }}"></label>
+      <label>{{ tr(request, 'config.reindex_limit', 'Kandidatenlimit') }}<input type="number" name="candidate_limit" min="1" max="50" step="1" value="{{ index_cfg.candidate_limit if index_cfg else 12 }}"></label>
+      <div class="config-actions-row">
+        <button type="submit" class="secondary-action">{{ icon('check', 'btn-icon') }} {{ tr(request, 'config.save', 'Speichern') }}</button>
+      </div>
+    </form>
+  </section>
+  {% else %}
+  {% include '_config_admin_notice.html' %}
+  {% endif %}
+</main>
+{% endblock %}

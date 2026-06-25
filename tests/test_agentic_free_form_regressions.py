@@ -147,13 +147,44 @@ def test_free_form_file_list_defaults_to_share_root_without_llm() -> None:
 
 def test_ssh_health_status_replaces_blocked_uptime_with_allowed_guardrail_bundle() -> None:
     draft = SimpleNamespace(capability="ssh_command", connection_kind="ssh", content="uptime", path="", notes=[])
-    llm = _JSONLLM(
-        {
-            "intent": "health_check",
-            "confidence": "high",
-            "reason": "The user asks whether the DNS server is ok.",
-        }
-    )
+    class SSHHealthLLM(_JSONLLM):
+        async def chat(self, messages, **kwargs):  # noqa: ANN001
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            self.messages.append(list(messages))
+            if operation == "ssh_requested_runtime_effect":
+                return _LLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "read_only",
+                            "confidence": "high",
+                            "reason": "The user asks for inspection/status.",
+                        }
+                    )
+                )
+            if operation == "ssh_guardrail_intent":
+                return _LLMResponse(
+                    json.dumps(
+                        {
+                            "intent": "health_check",
+                            "confidence": "high",
+                            "reason": "The user asks whether the DNS server is ok.",
+                        }
+                    )
+                )
+            if operation == "ssh_guardrail_command_selection":
+                return _LLMResponse(
+                    json.dumps(
+                        {
+                            "commands": allow_terms,
+                            "confidence": "high",
+                            "reason": "Use the allowed guardrail healthcheck bundle.",
+                        }
+                    )
+                )
+            return _LLMResponse(json.dumps({}))
+
+    llm = SSHHealthLLM({})
     allow_terms = [
         "uptime -p",
         "df -h",
@@ -189,8 +220,13 @@ def test_ssh_health_status_replaces_blocked_uptime_with_allowed_guardrail_bundle
     )
 
     command = action_debug["decision"]["inputs"]["command"]
-    assert llm.operations == ["ssh_command_decision", "ssh_guardrail_intent"]
-    assert "Agentic action contract for ssh_command" in llm.messages[0][0]["content"]
+    assert llm.operations == [
+        "ssh_requested_runtime_effect",
+        "ssh_command_decision",
+        "ssh_guardrail_intent",
+        "ssh_guardrail_command_selection",
+    ]
+    assert "requested runtime effect" in llm.messages[0][0]["content"]
     assert command == " && ".join(allow_terms)
     assert updated_draft.content == command
     assert action_debug["decision"]["guardrail_fallback_from"] == "uptime"

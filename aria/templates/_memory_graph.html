@@ -1,37 +1,773 @@
 {% from "_icons.html" import icon %}
-{% if memory_graph.has_graph %}
-<div class="memory-graph-stage" style="--graph-width: {{ memory_graph.width }}px; --graph-height: {{ memory_graph.height }}px;">
-  <svg class="memory-graph-lines" viewBox="0 0 {{ memory_graph.width }} {{ memory_graph.height }}" aria-hidden="true" focusable="false">
-    {% for edge in memory_graph.edges %}
-    <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}"></line>
-    {% endfor %}
-  </svg>
-  {% for node in memory_graph.nodes %}
-    {% if node.href %}
-    <a class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}{% if node.icon %} has-icon{% endif %}" href="{{ node.href }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
-      {% if node.icon %}
-      <span class="memory-graph-node-icon" aria-hidden="true">{{ icon(node.icon, 'memory-graph-node-icon-svg') }}</span>
-      {% endif %}
-      <span class="memory-graph-node-copy">
-        <strong>{{ node.label }}</strong>
-        <span>{{ node.meta }}</span>
-      </span>
-    </a>
-    {% else %}
-    <article class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}{% if node.icon %} has-icon{% endif %}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
-      {% if node.icon %}
-      <span class="memory-graph-node-icon" aria-hidden="true">{{ icon(node.icon, 'memory-graph-node-icon-svg') }}</span>
-      {% endif %}
-      <span class="memory-graph-node-copy">
-        <strong>{{ node.label }}</strong>
-        <span>{{ node.meta }}</span>
-      </span>
-    </article>
+{% set brain = memory_graph.get('brain') if memory_graph else none %}
+{% if show_qdrant_brain|default(false) and brain %}
+<section class="memory-brain-panel" data-memory-brain>
+  <header class="memory-brain-head">
+    <div>
+      <p class="memory-card-kicker">{{ tr(request, 'memories_map.brain_kicker', 'Qdrant Brain') }}</p>
+      <h3>{{ tr(request, 'memories_map.brain_title', 'Semantische Nähe im Memory') }}</h3>
+      <p>{{ tr(request, 'memories_map.brain_subtitle', 'Punkte aus Qdrant als lesbare Knoten; Kanten zeigen berechnete Embedding-Nähe. Vektoren werden nicht an den Browser ausgeliefert.') }}</p>
+    </div>
+    <div class="memory-brain-stats" aria-label="{{ tr(request, 'memories_map.brain_stats', 'Graph-Statistik') }}">
+      <span>{{ brain.sample_count }} {{ tr(request, 'memories_map.brain_nodes', 'Knoten') }}</span>
+      <span>{{ brain.edge_count }} {{ tr(request, 'memories_map.brain_edges', 'Kanten') }}</span>
+      <span>{{ brain.collection_count }} {{ tr(request, 'memories_map.brain_collections', 'Collections') }}</span>
+    </div>
+  </header>
+  {% if brain.has_graph %}
+  <div class="memory-brain-toolbar" aria-label="{{ tr(request, 'memories_map.brain_controls', 'Graph-Steuerung') }}">
+    <button type="button" data-brain-back disabled>{{ tr(request, 'common.back', 'Zurück') }}</button>
+    <button type="button" data-brain-zoom="out">−</button>
+    <button type="button" data-brain-center>{{ tr(request, 'memories_map.brain_center', 'Zentrieren') }}</button>
+    <button type="button" data-brain-reset>{{ tr(request, 'common.reset', 'Reset') }}</button>
+    <button type="button" class="memory-brain-touch-toggle" data-brain-touch-toggle aria-pressed="false" data-label-off="{{ tr(request, 'memories_map.brain_touch_move', 'Graph bewegen') }}" data-label-on="{{ tr(request, 'memories_map.brain_touch_browse', 'Scrollen') }}">{{ tr(request, 'memories_map.brain_touch_move', 'Graph bewegen') }}</button>
+    <button type="button" data-brain-zoom="in">+</button>
+  </div>
+  <div class="memory-brain-shell">
+    <div class="memory-brain-viewport" data-brain-viewport>
+      <svg class="memory-brain-svg" viewBox="0 0 {{ brain.width }} {{ brain.height }}" style="--brain-width: {{ brain.width }}px; --brain-height: {{ brain.height }}px;" role="img" aria-label="{{ tr(request, 'memories_map.brain_graph_label', 'Qdrant Memory Graph') }}">
+        <g data-brain-transform></g>
+      </svg>
+    </div>
+    <aside class="memory-brain-detail" data-brain-detail>
+      <p class="memory-card-kicker">{{ tr(request, 'memories_map.brain_detail_kicker', 'Payload Preview') }}</p>
+      <h4>{{ tr(request, 'memories_map.brain_detail_empty_title', 'Collection auswählen') }}</h4>
+      <p>{{ tr(request, 'memories_map.brain_detail_empty', 'Klicke eine Collection an, um in die enthaltenen Qdrant-Punkte zu wechseln. Punkte zeigen Details erst im Panel.') }}</p>
+    </aside>
+  </div>
+  <script type="application/json" data-brain-payload>{{ {"nodes": brain.nodes, "edges": brain.edges, "collections": brain.collections, "width": brain.width, "height": brain.height}|tojson }}</script>
+  {% else %}
+  <article class="memory-card memory-brain-empty">
+    <p>{{ tr(request, 'memories_map.brain_empty', 'Noch keine visualisierbaren Qdrant-Punkte gefunden. ARIA braucht Punkte mit Payload-Text und gespeicherten Vektoren; sobald Memory-, Notiz-, Dokument- oder Rezeptpunkte mit Embeddings vorhanden sind, erscheint hier der Graph.') }}</p>
+    {% if brain.error %}
+    <small>{{ brain.error }}</small>
     {% endif %}
-  {% endfor %}
+  </article>
+  {% endif %}
+</section>
+{% endif %}
+{% if memory_graph.has_graph %}
+<div class="memory-graph-divider" aria-hidden="true"></div>
+<div class="memory-graph-wrap memory-legacy-graph-scroll">
+  <div class="memory-graph-stage" style="--graph-width: {{ memory_graph.width }}px; --graph-height: {{ memory_graph.height }}px;">
+    <svg class="memory-graph-lines" viewBox="0 0 {{ memory_graph.width }} {{ memory_graph.height }}" aria-hidden="true" focusable="false">
+      {% for edge in memory_graph.edges %}
+      <line x1="{{ edge.x1 }}" y1="{{ edge.y1 }}" x2="{{ edge.x2 }}" y2="{{ edge.y2 }}"></line>
+      {% endfor %}
+    </svg>
+    {% for node in memory_graph.nodes %}
+      {% if node.href %}
+      <a class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}{% if node.icon %} has-icon{% endif %}" href="{{ node.href }}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
+        {% if node.icon %}
+        <span class="memory-graph-node-icon" aria-hidden="true">{{ icon(node.icon, 'memory-graph-node-icon-svg') }}</span>
+        {% endif %}
+        <span class="memory-graph-node-copy">
+          <strong>{{ node.label }}</strong>
+          <span>{{ node.meta }}</span>
+        </span>
+      </a>
+      {% else %}
+      <article class="memory-graph-node kind-{{ node.kind }} variant-{{ node.variant }}{% if node.icon %} has-icon{% endif %}" style="left: {{ node.left }}px; top: {{ node.top }}px; width: {{ node.width }}px;">
+        {% if node.icon %}
+        <span class="memory-graph-node-icon" aria-hidden="true">{{ icon(node.icon, 'memory-graph-node-icon-svg') }}</span>
+        {% endif %}
+        <span class="memory-graph-node-copy">
+          <strong>{{ node.label }}</strong>
+          <span>{{ node.meta }}</span>
+        </span>
+      </article>
+      {% endif %}
+    {% endfor %}
+  </div>
 </div>
 {% else %}
 <article class="memory-card">
   <p>{{ tr(request, 'memories_map.none_for_user', 'Für diesen Nutzer sind aktuell keine Collections vorhanden.') }}</p>
 </article>
+{% endif %}
+{% if show_qdrant_brain|default(false) and brain and brain.has_graph %}
+<script>
+(() => {
+  const root = document.querySelector('[data-memory-brain]');
+  if (!root || root.dataset.ready === '1') return;
+  root.dataset.ready = '1';
+  const viewport = root.querySelector('[data-brain-viewport]');
+  const transform = root.querySelector('[data-brain-transform]');
+  const detail = root.querySelector('[data-brain-detail]');
+  const payload = root.querySelector('[data-brain-payload]');
+  const backButton = root.querySelector('[data-brain-back]');
+  let graph = { nodes: [], edges: [], collections: [], width: 1180, height: 760 };
+  try {
+    graph = JSON.parse(payload?.textContent || '{}');
+  } catch (_error) {
+    graph = { nodes: [], edges: [], collections: [], width: 1180, height: 760 };
+  }
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  let mode = 'collections';
+  let activeCollection = '';
+  let pointerMoved = false;
+  let currentBoundsItems = [];
+  let simulationFrame = 0;
+  let simulation = null;
+  let draggedNode = null;
+  let touchPanMode = false;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const touchToggle = root.querySelector('[data-brain-touch-toggle]');
+  const isTouchPointer = event => event.pointerType === 'touch' || event.pointerType === 'pen';
+  const graphTouchEnabled = event => !isTouchPointer(event) || touchPanMode;
+  const updateTouchMode = enabled => {
+    touchPanMode = Boolean(enabled);
+    root.dataset.touchPan = touchPanMode ? 'active' : 'browse';
+    if (touchToggle) {
+      touchToggle.setAttribute('aria-pressed', touchPanMode ? 'true' : 'false');
+      touchToggle.textContent = touchPanMode
+        ? (touchToggle.dataset.labelOn || 'Scrollen')
+        : (touchToggle.dataset.labelOff || 'Graph bewegen');
+    }
+  };
+  const clientToSvgPoint = (clientX, clientY) => {
+    const svg = viewport.querySelector('svg');
+    if (svg.createSVGPoint && svg.getScreenCTM()) {
+      const point = svg.createSVGPoint();
+      point.x = clientX;
+      point.y = clientY;
+      const mapped = point.matrixTransform(svg.getScreenCTM().inverse());
+      return { x: mapped.x, y: mapped.y };
+    }
+    const box = svg.getBoundingClientRect();
+    const width = Number(graph.width || 1180);
+    const height = Number(graph.height || 760);
+    return {
+      x: ((clientX - box.left) / Math.max(1, box.width)) * width,
+      y: ((clientY - box.top) / Math.max(1, box.height)) * height,
+    };
+  };
+  const cssDeltaToSvgDelta = (dx, dy) => {
+    const svg = viewport.querySelector('svg');
+    if (svg.createSVGPoint && svg.getScreenCTM()) {
+      const origin = clientToSvgPoint(0, 0);
+      const target = clientToSvgPoint(dx, dy);
+      return {
+        x: target.x - origin.x,
+        y: target.y - origin.y,
+      };
+    }
+    const box = svg.getBoundingClientRect();
+    return {
+      x: dx * (Number(graph.width || 1180) / Math.max(1, box.width)),
+      y: dy * (Number(graph.height || 760) / Math.max(1, box.height)),
+    };
+  };
+  const render = () => {
+    transform.setAttribute('transform', `translate(${tx} ${ty}) scale(${scale})`);
+  };
+  const resetView = () => {
+    scale = 1;
+    tx = 0;
+    ty = 0;
+    render();
+  };
+  const nodeBounds = items => {
+    const points = (items || [])
+      .filter(item => Number.isFinite(Number(item.x)) && Number.isFinite(Number(item.y)))
+      .map(item => {
+        const x = Number(item.x);
+        const y = Number(item.y);
+        const radius = Number(item.radius || 16) + 46;
+        const labelWidth = Number(item.labelWidth || 0);
+        const labelHeight = Number(item.labelHeight || 0);
+        const labelSide = item.labelSide || 'right';
+        const labelLeft = labelWidth ? (labelSide === 'left' ? x - labelWidth - 22 : x + 18) : x - radius;
+        const labelRight = labelWidth ? (labelSide === 'left' ? x - 18 : x + labelWidth + 22) : x + radius;
+        return {
+          minX: Math.min(x - radius, labelLeft),
+          minY: Math.min(y - radius, y - labelHeight / 2 - 18),
+          maxX: Math.max(x + radius, labelRight),
+          maxY: Math.max(y + radius, y + labelHeight / 2 + 18),
+        };
+      });
+    if (!points.length) return null;
+    return points.reduce((bounds, point) => ({
+      minX: Math.min(bounds.minX, point.minX),
+      minY: Math.min(bounds.minY, point.minY),
+      maxX: Math.max(bounds.maxX, point.maxX),
+      maxY: Math.max(bounds.maxY, point.maxY),
+    }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+  };
+  const visibleCenter = () => {
+    const box = viewport.getBoundingClientRect();
+    return clientToSvgPoint(box.left + box.width / 2, box.top + box.height / 2);
+  };
+  const centerView = (items = currentBoundsItems) => {
+    if (simulation?.nodes?.length && items === currentBoundsItems) {
+      items = simulation.nodes;
+    }
+    const bounds = nodeBounds(items);
+    if (!bounds || !viewport) return;
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    const target = visibleCenter();
+    tx = target.x - (centerX * scale);
+    ty = target.y - (centerY * scale);
+    render();
+  };
+  const zoomAt = (newScale, point) => {
+    const nextScale = clampScale(newScale);
+    const anchor = point || visibleCenter();
+    const graphX = (anchor.x - tx) / scale;
+    const graphY = (anchor.y - ty) / scale;
+    scale = nextScale;
+    tx = anchor.x - graphX * scale;
+    ty = anchor.y - graphY * scale;
+    render();
+  };
+  const clientToGraphPoint = (clientX, clientY) => {
+    const point = clientToSvgPoint(clientX, clientY);
+    return {
+      x: (point.x - tx) / Math.max(0.01, scale),
+      y: (point.y - ty) / Math.max(0.01, scale),
+    };
+  };
+  const updateSimulationFrame = () => {
+    if (!simulation) return;
+    simulation.edges.forEach(edge => {
+      const source = simulation.byIndex.get(Number(edge.source));
+      const target = simulation.byIndex.get(Number(edge.target));
+      if (!source || !target) return;
+      edge.el.setAttribute('x1', source.x.toFixed(2));
+      edge.el.setAttribute('y1', source.y.toFixed(2));
+      edge.el.setAttribute('x2', target.x.toFixed(2));
+      edge.el.setAttribute('y2', target.y.toFixed(2));
+    });
+    simulation.nodes.forEach(node => {
+      node.el.setAttribute('transform', `translate(${node.x.toFixed(2)} ${node.y.toFixed(2)})`);
+    });
+  };
+  const settleSimulationLayout = () => {
+    if (!simulation) return;
+    simulation.nodes.forEach(node => {
+      node.homeX = node.x;
+      node.homeY = node.y;
+      node.settled = true;
+      node.vx *= 0.32;
+      node.vy *= 0.32;
+    });
+  };
+  const nudgeDraggedNeighbors = (node, dx, dy) => {
+    if (!simulation || (!dx && !dy)) return;
+    simulation.edges.forEach(edge => {
+      const source = simulation.byIndex.get(Number(edge.source));
+      const target = simulation.byIndex.get(Number(edge.target));
+      if (!source || !target) return;
+      const neighbor = source === node ? target : (target === node ? source : null);
+      if (!neighbor || neighbor.pinned) return;
+      const follow = 0.16 + Math.min(0.9, Number(edge.score || 0)) * 0.12;
+      neighbor.x += dx * follow;
+      neighbor.y += dy * follow;
+      neighbor.vx += dx * follow * 0.08;
+      neighbor.vy += dy * follow * 0.08;
+    });
+  };
+  const releaseDraggedNode = (button, pointerId) => {
+    if (!draggedNode) return;
+    draggedNode.pinned = false;
+    draggedNode.vx *= 0.42;
+    draggedNode.vy *= 0.42;
+    settleSimulationLayout();
+    draggedNode = null;
+    button.classList.remove('is-dragging');
+    if (pointerId !== undefined && button.hasPointerCapture?.(pointerId)) {
+      button.releasePointerCapture(pointerId);
+    }
+    warmSimulation(0.48);
+  };
+  const simulationStep = () => {
+    if (!simulation) return;
+    const nodes = simulation.nodes;
+    const width = Number(graph.width || 1180);
+    const height = Number(graph.height || 760);
+    const forces = new Map(nodes.map(node => [node.index, { x: 0, y: 0 }]));
+    simulation.edges.forEach(edge => {
+      const source = simulation.byIndex.get(Number(edge.source));
+      const target = simulation.byIndex.get(Number(edge.target));
+      if (!source || !target) return;
+      const dx = target.x - source.x;
+      const dy = target.y - source.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const desired = 86 - Math.min(0.9, Number(edge.score || 0)) * 24;
+      const pull = (distance - desired) * 0.016;
+      const fx = (dx / distance) * pull;
+      const fy = (dy / distance) * pull;
+      forces.get(source.index).x += fx;
+      forces.get(source.index).y += fy;
+      forces.get(target.index).x -= fx;
+      forces.get(target.index).y -= fy;
+    });
+    for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
+      const left = nodes[leftIndex];
+      for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
+        const right = nodes[rightIndex];
+        const dx = left.x - right.x;
+        const dy = left.y - right.y;
+        const distanceSq = Math.max(160, dx * dx + dy * dy);
+        if (distanceSq > 19000) continue;
+        const distance = Math.sqrt(distanceSq);
+        const push = 34 / distanceSq;
+        const fx = (dx / distance) * push;
+        const fy = (dy / distance) * push;
+        forces.get(left.index).x += fx;
+        forces.get(left.index).y += fy;
+        forces.get(right.index).x -= fx;
+        forces.get(right.index).y -= fy;
+      }
+    }
+    let movement = 0;
+    nodes.forEach(node => {
+      const force = forces.get(node.index) || { x: 0, y: 0 };
+      const homePull = node.pinned ? 0 : (node.settled ? 0.0035 : 0.0015);
+      node.vx = (node.vx + force.x + (node.homeX - node.x) * homePull) * 0.78;
+      node.vy = (node.vy + force.y + (node.homeY - node.y) * homePull) * 0.78;
+      if (!node.pinned) {
+        node.x = Math.max(42, Math.min(width - 42, node.x + node.vx));
+        node.y = Math.max(42, Math.min(height - 42, node.y + node.vy));
+      }
+      movement += Math.abs(node.vx) + Math.abs(node.vy);
+    });
+    simulation.energy *= 0.985;
+    updateSimulationFrame();
+    if (draggedNode || movement > 0.12 || simulation.energy > 0.05) {
+      simulationFrame = window.requestAnimationFrame(simulationStep);
+    } else {
+      simulationFrame = 0;
+    }
+  };
+  const warmSimulation = (energy = 1) => {
+    if (!simulation) return;
+    simulation.energy = Math.max(simulation.energy || 0, energy);
+    if (!simulationFrame) simulationFrame = window.requestAnimationFrame(simulationStep);
+  };
+  const escapeText = value => String(value || '');
+  const shortLabel = (value, limit = 32) => {
+    const text = escapeText(value).trim();
+    return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
+  };
+  const clearGraph = () => {
+    stopSimulation();
+    while (transform.firstChild) transform.removeChild(transform.firstChild);
+  };
+  function stopSimulation() {
+    if (simulationFrame) {
+      window.cancelAnimationFrame(simulationFrame);
+      simulationFrame = 0;
+    }
+    simulation = null;
+    draggedNode = null;
+  }
+  const setDetail = item => {
+    const isCollection = item.kind === 'collection';
+    detail.innerHTML = `
+      <p class="memory-card-kicker">${isCollection ? 'Collection' : 'Payload Preview'}</p>
+      <h4></h4>
+      <p class="memory-brain-detail-meta"></p>
+      <p class="memory-brain-detail-preview"></p>
+      <dl>
+        <div><dt>Collection</dt><dd></dd></div>
+        <div><dt>${isCollection ? 'Punkte' : 'Point-ID'}</dt><dd></dd></div>
+      </dl>
+    `;
+    detail.querySelector('h4').textContent = item.label || item.collection || '';
+    detail.querySelector('.memory-brain-detail-meta').textContent = item.meta || '';
+    detail.querySelector('.memory-brain-detail-preview').textContent = item.preview || '';
+    const values = detail.querySelectorAll('dd');
+    values[0].textContent = item.collection || '';
+    values[1].textContent = isCollection ? String(item.point_count || 0) : (item.point_id || '');
+  };
+  const showEmptyDetail = () => {
+    detail.innerHTML = `
+      <p class="memory-card-kicker">Payload Preview</p>
+      <h4>${mode === 'collections' ? 'Collection auswählen' : 'Punkt auswählen'}</h4>
+      <p>${mode === 'collections'
+        ? 'Klicke eine Collection an, um in die enthaltenen Qdrant-Punkte zu wechseln.'
+        : 'Klicke einen Punkt an, um Textauszug, Collection und Point-ID zu sehen.'}</p>
+    `;
+  };
+  const appendText = (parent, text, x, y, className = '') => {
+    const el = document.createElementNS(svgNS, 'text');
+    el.setAttribute('x', String(x));
+    el.setAttribute('y', String(y));
+    if (className) el.setAttribute('class', className);
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+  };
+  const wrapTextLines = (text, maxChars = 34) => {
+    const value = String(text || '').trim();
+    if (!value) return [];
+    const safeMax = Math.max(10, Number(maxChars) || 34);
+    const tokens = [];
+    value.split(/\s+/).forEach((word, wordIndex) => {
+      if (wordIndex) tokens.push(' ');
+      const parts = word.split('_');
+      parts.forEach((part, index) => {
+        const token = index < parts.length - 1 ? `${part}_` : part;
+        if (token) tokens.push(token);
+      });
+    });
+    const lines = [];
+    let line = '';
+    tokens.forEach(token => {
+      if (!line && !token.trim()) return;
+      const next = line ? `${line}${token}` : token;
+      if (next.length <= safeMax) {
+        line = next;
+        return;
+      }
+      if (line) lines.push(line);
+      if (token.length <= safeMax) {
+        line = token;
+        return;
+      }
+      for (let index = 0; index < token.length; index += safeMax) {
+        const chunk = token.slice(index, index + safeMax);
+        if (index + safeMax >= token.length) {
+          line = chunk;
+        } else {
+          lines.push(chunk);
+        }
+      }
+    });
+    if (line) lines.push(line);
+    return lines;
+  };
+  const appendWrappedText = (parent, lines, x, y, className = '', lineHeight = 15) => {
+    const el = document.createElementNS(svgNS, 'text');
+    el.setAttribute('x', String(x));
+    el.setAttribute('y', String(y));
+    if (className) el.setAttribute('class', className);
+    (lines.length ? lines : ['']).forEach((line, index) => {
+      const span = document.createElementNS(svgNS, 'tspan');
+      span.setAttribute('x', String(x));
+      if (index) span.setAttribute('dy', String(lineHeight));
+      span.textContent = line;
+      el.appendChild(span);
+    });
+    parent.appendChild(el);
+    return el;
+  };
+  const appendEdgeMarker = () => {
+    const defs = document.createElementNS(svgNS, 'defs');
+    const marker = document.createElementNS(svgNS, 'marker');
+    marker.setAttribute('id', 'memory-brain-arrow');
+    marker.setAttribute('viewBox', '0 0 10 10');
+    marker.setAttribute('refX', '8');
+    marker.setAttribute('refY', '5');
+    marker.setAttribute('markerWidth', '4');
+    marker.setAttribute('markerHeight', '4');
+    marker.setAttribute('orient', 'auto-start-reverse');
+    const arrow = document.createElementNS(svgNS, 'path');
+    arrow.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+    arrow.setAttribute('class', 'memory-brain-edge-arrow');
+    marker.appendChild(arrow);
+    defs.appendChild(marker);
+    transform.appendChild(defs);
+  };
+  const appendNode = ({ x, y, radius, className, label, meta, item, showLabel, labelMode = 'always', labelSide = 'right', maxLabelChars = 34, landmark = false, draggable = false, onActivate }) => {
+    const wrap = document.createElementNS(svgNS, 'g');
+    wrap.setAttribute('class', className);
+    wrap.setAttribute('transform', `translate(${x} ${y})`);
+    const button = document.createElementNS(svgNS, 'g');
+    button.setAttribute('data-brain-node', '');
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', label || item.collection || 'Qdrant node');
+    if (landmark) button.classList.add('is-landmark');
+    const circle = document.createElementNS(svgNS, 'circle');
+    circle.setAttribute('r', String(radius));
+    button.appendChild(circle);
+    if (showLabel) {
+      const labelClass = labelMode === 'context' ? 'memory-brain-node-label memory-brain-context-label' : 'memory-brain-node-label';
+      const labelX = labelSide === 'left' ? -16 : 16;
+      const textAnchor = labelSide === 'left' ? 'end' : 'start';
+      const wrappedLines = labelMode === 'collection' ? wrapTextLines(label, maxLabelChars) : [];
+      const labelEl = wrappedLines.length
+        ? appendWrappedText(button, wrappedLines, labelX, -9, labelClass, 15)
+        : appendText(button, shortLabel(label, labelMode === 'context' ? 24 : 34), labelX, -2, labelClass);
+      labelEl.setAttribute('text-anchor', textAnchor);
+      if (meta && labelMode !== 'context') {
+        const metaY = wrappedLines.length ? -9 + (wrappedLines.length * 15) + 2 : 15;
+        const metaEl = appendText(button, labelMode === 'collection' ? meta : shortLabel(meta, 42), labelX, metaY, 'memory-brain-node-meta');
+        metaEl.setAttribute('text-anchor', textAnchor);
+      }
+    }
+    const activate = event => {
+      event.stopPropagation();
+      if (pointerMoved) return;
+      root.querySelectorAll('[data-brain-node].is-active').forEach(node => node.classList.remove('is-active'));
+      button.classList.add('is-active');
+      setDetail(item);
+      if (onActivate) onActivate(item);
+    };
+    button.addEventListener('pointerdown', event => {
+      event.stopPropagation();
+      pointerMoved = false;
+      if (!draggable || !simulation) return;
+      if (!graphTouchEnabled(event)) return;
+      event.preventDefault();
+      const point = clientToGraphPoint(event.clientX, event.clientY);
+      draggedNode = item;
+      item.dragOffsetX = item.x - point.x;
+      item.dragOffsetY = item.y - point.y;
+      item.pinned = true;
+      button.classList.add('is-dragging');
+      button.setPointerCapture(event.pointerId);
+    });
+    button.addEventListener('pointerup', event => {
+      if (draggedNode === item) releaseDraggedNode(button, event.pointerId);
+      activate(event);
+    });
+    button.addEventListener('pointermove', event => {
+      if (!draggedNode || draggedNode !== item) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = clientToGraphPoint(event.clientX, event.clientY);
+      const nextX = point.x + (item.dragOffsetX || 0);
+      const nextY = point.y + (item.dragOffsetY || 0);
+      if (Math.abs(nextX - item.x) + Math.abs(nextY - item.y) > 2) pointerMoved = true;
+      const moveX = nextX - item.x;
+      const moveY = nextY - item.y;
+      nudgeDraggedNeighbors(item, moveX, moveY);
+      item.vx += moveX * 0.22;
+      item.vy += moveY * 0.22;
+      item.x = nextX;
+      item.y = nextY;
+      updateSimulationFrame();
+      warmSimulation();
+    });
+    button.addEventListener('pointercancel', event => {
+      if (draggedNode === item) releaseDraggedNode(button, event.pointerId);
+    });
+    button.addEventListener('lostpointercapture', () => {
+      if (draggedNode === item) releaseDraggedNode(button);
+    });
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+    });
+    button.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        pointerMoved = false;
+        activate(event);
+      }
+    });
+    wrap.appendChild(button);
+    transform.appendChild(wrap);
+    return { wrap, button };
+  };
+  const renderCollections = () => {
+    mode = 'collections';
+    activeCollection = '';
+    clearGraph();
+    showEmptyDetail();
+    if (backButton) backButton.disabled = true;
+    const collections = Array.isArray(graph.collections) && graph.collections.length
+      ? graph.collections
+      : Array.from(new Set((graph.nodes || []).map(node => node.collection))).map(collection => ({
+          collection,
+          label: collection,
+          point_count: (graph.nodes || []).filter(node => node.collection === collection).length,
+          meta: '',
+          preview: '',
+        }));
+    const width = Number(graph.width || 1180);
+    const height = Number(graph.height || 760);
+    const columns = collections.length > 5 ? 2 : 1;
+    const rows = Math.ceil(collections.length / columns);
+    const laneWidth = width / columns;
+    const rowHeight = Math.min(118, Math.max(86, (height - 128) / Math.max(1, rows)));
+    const top = Math.max(76, (height - ((rows - 1) * rowHeight)) / 2);
+    currentBoundsItems = collections.map((collection, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const laneLeft = column * laneWidth;
+      const x = Math.round(laneLeft + 72);
+      const y = Math.round(top + row * rowHeight);
+      const label = collection.label || collection.collection || '';
+      const meta = `${collection.point_count || 0} Punkte${collection.meta ? ` · ${collection.meta}` : ''}`;
+      const labelWidth = Math.max(220, laneWidth - 124);
+      const maxLabelChars = Math.max(18, Math.floor(labelWidth / 8.5));
+      const labelLines = wrapTextLines(label, maxLabelChars);
+      return {
+        ...collection,
+        x,
+        y,
+        radius: 15,
+        labelSide: 'right',
+        labelWidth,
+        labelHeight: Math.max(30, (Math.max(1, labelLines.length) * 15) + 18),
+        maxLabelChars,
+      };
+    });
+    currentBoundsItems.forEach(collection => {
+      appendNode({
+        x: collection.x,
+        y: collection.y,
+        radius: 15,
+        className: 'memory-brain-node kind-collection',
+        label: collection.label || collection.collection,
+        meta: `${collection.point_count || 0} Punkte${collection.meta ? ` · ${collection.meta}` : ''}`,
+        item: { ...collection, kind: 'collection' },
+        showLabel: true,
+        labelMode: 'collection',
+        labelSide: collection.labelSide,
+        maxLabelChars: collection.maxLabelChars,
+        onActivate: item => {
+          activeCollection = item.collection || '';
+          renderPoints(activeCollection);
+        },
+      });
+    });
+    scale = 1;
+    centerView(currentBoundsItems);
+  };
+  const renderPoints = collection => {
+    mode = 'points';
+    activeCollection = collection;
+    clearGraph();
+    showEmptyDetail();
+    if (backButton) backButton.disabled = false;
+    const nodes = (graph.nodes || []).filter(node => node.collection === collection);
+    const indexes = new Set(nodes.map(node => Number(node.index)));
+    const degree = new Map(nodes.map(node => [Number(node.index), 0]));
+    const pointEdges = [];
+    appendEdgeMarker();
+    (graph.edges || []).forEach(edge => {
+      if (!indexes.has(Number(edge.source)) || !indexes.has(Number(edge.target))) return;
+      degree.set(Number(edge.source), (degree.get(Number(edge.source)) || 0) + 1);
+      degree.set(Number(edge.target), (degree.get(Number(edge.target)) || 0) + 1);
+      const line = document.createElementNS(svgNS, 'line');
+      line.setAttribute('class', 'memory-brain-edge');
+      line.setAttribute('x1', String(edge.x1));
+      line.setAttribute('y1', String(edge.y1));
+      line.setAttribute('x2', String(edge.x2));
+      line.setAttribute('y2', String(edge.y2));
+      line.setAttribute('stroke-width', String(edge.width || 1.4));
+      line.setAttribute('marker-end', 'url(#memory-brain-arrow)');
+      transform.appendChild(line);
+      pointEdges.push({ ...edge, el: line });
+    });
+    const landmarkIndexes = new Set(
+      [...nodes]
+        .sort((left, right) => (degree.get(Number(right.index)) || 0) - (degree.get(Number(left.index)) || 0))
+        .slice(0, Math.min(6, Math.ceil(nodes.length / 5)))
+        .map(node => Number(node.index))
+    );
+    currentBoundsItems = nodes;
+    const simulationNodes = [];
+    nodes.forEach(node => {
+      const isLandmark = landmarkIndexes.has(Number(node.index));
+      const simNode = {
+        ...node,
+        index: Number(node.index),
+        x: Number(node.x || 0),
+        y: Number(node.y || 0),
+        homeX: Number(node.x || 0),
+        homeY: Number(node.y || 0),
+        vx: 0,
+        vy: 0,
+        pinned: false,
+        settled: false,
+      };
+      const elements = appendNode({
+        x: simNode.x,
+        y: simNode.y,
+        radius: Number(simNode.radius || 8) + 1,
+        className: `memory-brain-node kind-${node.kind || 'unknown'} point-mode`,
+        label: node.label,
+        meta: node.meta,
+        item: simNode,
+        showLabel: true,
+        labelMode: 'context',
+        landmark: isLandmark,
+        draggable: true,
+      });
+      simNode.el = elements.wrap;
+      simulationNodes.push(simNode);
+    });
+    simulation = {
+      nodes: simulationNodes,
+      edges: pointEdges,
+      byIndex: new Map(simulationNodes.map(node => [node.index, node])),
+      energy: 1,
+    };
+    scale = 1;
+    centerView(currentBoundsItems);
+    warmSimulation(0.9);
+  };
+  const clampScale = value => Math.max(0.45, Math.min(2.4, value));
+  root.querySelectorAll('[data-brain-zoom]').forEach(button => {
+    button.addEventListener('click', () => {
+      zoomAt(scale + (button.dataset.brainZoom === 'in' ? 0.18 : -0.18));
+    });
+  });
+  const reset = root.querySelector('[data-brain-reset]');
+  if (reset) {
+    reset.addEventListener('click', resetView);
+  }
+  const center = root.querySelector('[data-brain-center]');
+  if (center) {
+    center.addEventListener('click', () => centerView());
+  }
+  if (backButton) backButton.addEventListener('click', renderCollections);
+  root.addEventListener('selectstart', event => event.preventDefault());
+  root.addEventListener('dragstart', event => event.preventDefault());
+  updateTouchMode(false);
+  if (touchToggle) {
+    touchToggle.addEventListener('click', () => updateTouchMode(!touchPanMode));
+  }
+  viewport.addEventListener('wheel', event => {
+    event.preventDefault();
+    zoomAt(scale + (event.deltaY < 0 ? 0.08 : -0.08), clientToSvgPoint(event.clientX, event.clientY));
+  }, { passive: false });
+  viewport.addEventListener('pointerdown', event => {
+    if (event.target.closest && event.target.closest('[data-brain-node]')) return;
+    if (!graphTouchEnabled(event)) return;
+    event.preventDefault();
+    dragging = true;
+    pointerMoved = false;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    viewport.setPointerCapture(event.pointerId);
+  });
+  viewport.addEventListener('pointermove', event => {
+    if (!dragging) return;
+    const dx = event.clientX - lastX;
+    const dy = event.clientY - lastY;
+    if (Math.abs(dx) + Math.abs(dy) > 3) pointerMoved = true;
+    const delta = cssDeltaToSvgDelta(dx, dy);
+    tx += delta.x;
+    ty += delta.y;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    render();
+  });
+  viewport.addEventListener('pointerup', event => {
+    dragging = false;
+    if (viewport.hasPointerCapture(event.pointerId)) {
+      viewport.releasePointerCapture(event.pointerId);
+    }
+  });
+  viewport.addEventListener('pointercancel', event => {
+    dragging = false;
+    if (viewport.hasPointerCapture(event.pointerId)) {
+      viewport.releasePointerCapture(event.pointerId);
+    }
+  });
+  renderCollections();
+})();
+</script>
 {% endif %}

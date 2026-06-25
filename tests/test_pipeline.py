@@ -11,6 +11,7 @@ from unittest.mock import patch
 import aria.core.pipeline as pipeline_mod
 import aria.core.agentic_execution_learning as agentic_execution_learning_mod
 import aria.core.recipe_runtime as skill_runtime_mod
+from aria.core.aria_turn_arbitration import ARIA_TURN_ARBITRATION_OPERATION
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints
 from aria.core.agentic_execution_learning import suppress_auto_learning
@@ -47,8 +48,108 @@ class FakeLLMClient:
         self.last_messages = []
 
     async def chat(self, messages, **kwargs):
+        if kwargs.get("operation") == "turn_intent_arbitration":
+            self.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "intents": [],
+                        "confidence": "low",
+                        "reason": "test fallback keeps keyword router decision",
+                    }
+                )
+            )
+        if kwargs.get("operation") == ARIA_TURN_ARBITRATION_OPERATION:
+            self.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "intents": ["chat"],
+                        "confidence": "low",
+                        "reason": "test fallback keeps existing pipeline expectations",
+                    }
+                )
+            )
+        if kwargs.get("operation") == "capability_draft_decision":
+            self.last_messages = messages
+            return FakeLLMResponse("ok")
+        if kwargs.get("operation") == "pre_rag_action_arbitration":
+            self.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "route": "action",
+                        "confidence": "low",
+                        "reason": "base test LLM leaves existing routing unchanged",
+                    }
+                )
+            )
         self.calls += 1
         self.last_messages = messages
+        if kwargs.get("operation") == "recipe_execution_intent":
+            user_prompt = str(messages[1]["content"] if len(messages) > 1 else "")
+            message = ""
+            for line in user_prompt.splitlines():
+                if line.lower().startswith("nutzeranfrage:"):
+                    message = line.split(":", 1)[1].strip().lower()
+                    break
+            if any(
+                term in message
+                for term in (
+                    "erkläre",
+                    "erklaere",
+                    "unterschied",
+                    "without running",
+                    "ohne etwas auszufuehren",
+                    "festplatte",
+                    "festplatten",
+                    "speicherplatz",
+                    "disk",
+                )
+            ):
+                return FakeLLMResponse(
+                    json.dumps({"execute": False, "id": "", "confidence": "high", "reason": "informational request"})
+                )
+            recipe_id = ""
+            keywords: list[str] = []
+            for line in user_prompt.splitlines():
+                clean = line.strip()
+                if clean.startswith("- id:") and not recipe_id:
+                    recipe_id = clean.split(":", 1)[1].strip()
+                if clean.startswith("keywords:"):
+                    keywords.extend(item.strip().lower() for item in clean.split(":", 1)[1].split(",") if item.strip())
+            message_tokens = {token for token in re.split(r"[^a-z0-9]+", message) if len(token) >= 4}
+            should_execute = False
+            for keyword in keywords:
+                keyword_tokens = {token for token in re.split(r"[^a-z0-9]+", keyword) if len(token) >= 4}
+                if keyword and keyword in message:
+                    should_execute = True
+                    break
+                if keyword_tokens and len(keyword_tokens & message_tokens) >= min(2, len(keyword_tokens)):
+                    should_execute = True
+                    break
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "execute": bool(should_execute),
+                        "id": recipe_id if should_execute else "",
+                        "confidence": "high" if should_execute else "medium",
+                        "reason": "test recipe intent",
+                    }
+                )
+            )
+        if kwargs.get("operation") == "recipe_catalog_explanation":
+            payload = json.loads(str(messages[1]["content"] if len(messages) > 1 else "{}"))
+            recipe = payload.get("matching_recipe", {})
+            steps = recipe.get("steps", [])
+            step_text = ""
+            if steps:
+                params = steps[0].get("params", {})
+                step_text = str(params.get("chat_message", "") or params.get("command", "") or "")
+            return FakeLLMResponse(
+                f"Ich fuehre nichts aus. Das gespeicherte Rezept `{recipe.get('name')}` (`{recipe.get('id')}`) "
+                f"enthaelt als gespeicherten Schritt: {step_text}"
+            )
         if kwargs.get("operation") == "ssh_command_decision":
             return FakeLLMResponse(
                 json.dumps(
@@ -160,12 +261,47 @@ class CapabilityDraftThenChatArbitrationLLMClient(FakeLLMClient):
         return await super().chat(messages, **kwargs)
 
 
+class CapabilityDraftNoActionLLMClient(FakeLLMClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.operations: list[str] = []
+
+    async def chat(self, messages, **kwargs):
+        operation = str(kwargs.get("operation") or "")
+        if operation:
+            self.operations.append(operation)
+        if operation == "capability_draft_decision":
+            self.calls += 1
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "action": "chat",
+                        "capability": "",
+                        "connection_kind": "",
+                        "target_scope": "",
+                        "target_intent": "",
+                        "content": "",
+                        "confidence": "high",
+                        "reason": "The user is asking for explanation, not runtime execution.",
+                    }
+                )
+            )
+        return await super().chat(messages, **kwargs)
+
+
 class FeedResolverLLMClient(FakeLLMClient):
     def __init__(self, ref: str):
         super().__init__()
         self.ref = ref
 
     async def chat(self, messages, **kwargs):
+        if kwargs.get("operation") in {
+            "turn_intent_arbitration",
+            ARIA_TURN_ARBITRATION_OPERATION,
+            "capability_draft_decision",
+            "pre_rag_action_arbitration",
+        }:
+            return await super().chat(messages, **kwargs)
         self.calls += 1
         self.last_messages = messages
         _ = kwargs
@@ -452,6 +588,51 @@ def test_pipeline_uses_chat_arbitration_before_capability_draft_for_clear_pasted
     assert not any("ssh_command_shell_injection" in line for line in result.detail_lines)
 
 
+def test_pipeline_agentic_capability_no_action_blocks_local_ssh_fallback() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Primary DNS",
+                        "aliases": ["dns server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = CapabilityDraftNoActionLLMClient()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "unexpected"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "ist mein dns server ok",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert "capability_draft_decision" in llm.operations
+    assert ssh_calls == []
+    assert not any("agentic_runtime" in line for line in result.detail_lines)
+
+
 def test_pipeline_filters_weak_local_rag_context_for_general_howto() -> None:
     settings = Settings.model_validate(
         {
@@ -695,6 +876,204 @@ def test_pipeline_keeps_local_rag_context_when_user_requests_documents() -> None
     assert result.detail_lines == [
         "Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user · Chunk 85/108"
     ]
+    assert "Arlo Ultra" in llm.last_messages[1]["content"]
+
+
+def test_pipeline_uses_llm_to_filter_incidental_local_rag_context() -> None:
+    class LocalContextLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "chat_local_context_relevance":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "use_local_context": False,
+                            "confidence": "high",
+                            "reason": "The local camera manual is incidental to this general runtime question.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = LocalContextLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [DOKUMENT: Arlo Ultra Manual] camera wifi setup",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "type": "document",
+                            "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                            "collection": "aria_docs_demo_user",
+                        }
+                    ],
+                    "detail_lines": ["Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user"],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "erzaehl mir kurz etwas ueber container runtimes",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert "chat_local_context_relevance" in llm.operations
+    assert result.detail_lines == []
+    assert "Arlo Ultra" not in llm.last_messages[1]["content"]
+
+
+def test_pipeline_debug_shows_llm_local_context_filter_decision() -> None:
+    class LocalContextLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if str(kwargs.get("operation", "") or "") == "chat_local_context_relevance":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "use_local_context": False,
+                            "confidence": "high",
+                            "reason": "The manual is incidental to a general runtime question.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=LocalContextLLM())
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [DOKUMENT: Arlo Ultra Manual] camera wifi setup",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "type": "document",
+                            "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                            "collection": "aria_docs_demo_user",
+                        }
+                    ],
+                    "detail_lines": ["Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user"],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "erzaehl mir kurz etwas ueber container runtimes",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert (
+        "Routing Debug: chat_local_context_relevance "
+        "agentic_source=llm_decision use_local_context=false confidence=high candidates=1 "
+        "reason=The manual is incidental to a general runtime question."
+        in result.detail_lines
+    )
+
+
+def test_pipeline_uses_llm_to_keep_relevant_local_rag_context_without_explicit_marker() -> None:
+    class LocalContextLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "chat_local_context_relevance":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "use_local_context": True,
+                            "confidence": "high",
+                            "reason": "The local document directly matches the user's camera wifi question.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = LocalContextLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_run_skills(*args, **kwargs):
+        _ = args, kwargs
+        return [
+            SkillResult(
+                skill_name="memory_recall",
+                content="- [DOKUMENT: Arlo Ultra Manual] connect the camera to wifi",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "type": "document",
+                            "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                            "collection": "aria_docs_demo_user",
+                        }
+                    ],
+                    "detail_lines": ["Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user"],
+                },
+            )
+        ]
+
+    pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "hilft die arlo ultra anleitung beim wlan setup?",
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert "chat_local_context_relevance" in llm.operations
+    assert result.detail_lines == ["Quelle: Arlo Ultra_User_Manual_en.pdf · aria_docs_demo_user"]
     assert "Arlo Ultra" in llm.last_messages[1]["content"]
 
 
@@ -2024,6 +2403,259 @@ def test_pipeline_auto_adds_web_search_for_fresh_product_howto() -> None:
     asyncio.run(_run())
 
 
+def test_pipeline_direct_url_bypasses_website_connection_routing_and_preserves_url_query() -> None:
+    class UrlLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "website_read",
+                            "connection_kind": "website",
+                            "target_scope": "single_target",
+                            "target_intent": "",
+                            "content": "https://area41.io/#speakers",
+                            "confidence": "high",
+                            "reason": "would be wrong for arbitrary external URL",
+                        }
+                    )
+                )
+            if operation == "chat_freshness_arbitration":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "https://area41.io/#speakers",
+                            "confidence": "high",
+                            "reason": "explicit URL must be fetched as external page context",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "website": {
+                        "aria-docs": {
+                            "url": "https://example.test/docs",
+                            "title": "ARIA Docs",
+                        }
+                    },
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    },
+                },
+            }
+        )
+        llm = UrlLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _UrlWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert query == "https://area41.io/#speakers"
+                return SkillResult(
+                    skill_name="web_search",
+                    content="Page excerpt: Speakers\nMask off: analyzing a secure SD card",
+                    success=True,
+                    metadata={"detail_lines": ["Quelle: AREA41 · https://area41.io/#speakers · page_fetch"]},
+                )
+
+        pipeline.web_search_skill = _UrlWebSearchSkill()
+
+        result = await pipeline.process(
+            "lies diese Seite wirklich aus: https://area41.io/#speakers",
+            user_id="u1",
+            source="test",
+        )
+
+        assert result.intents == ["chat", "web_search"]
+        assert "capability_draft_decision" not in llm.operations
+        assert any("chat_freshness action=web_search" in line for line in result.detail_lines)
+        assert not any("website_read" in line for line in result.detail_lines)
+        assert "Page excerpt" in str(llm.last_messages[1]["content"])
+        assert "Web source hierarchy" in str(llm.last_messages[1]["content"])
+
+    asyncio.run(_run())
+
+
+def test_pipeline_keeps_official_page_excerpt_visible_after_aggregator_snippets() -> None:
+    class Area41FreshnessLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "area41 conference 2026 speakers topics agenda",
+                            "confidence": "high",
+                            "reason": "conference speaker topics require current official source context",
+                        }
+                    )
+                )
+            if kwargs.get("operation") == "final_chat_response":
+                prompt = str(messages[1]["content"])
+                assert "InfoSecMap summary" in prompt
+                assert "Page excerpt:" in prompt
+                assert "Building Secure Systems From Broken Assumptions" in prompt
+                assert "Web source hierarchy" in prompt
+                assert "fetched page excerpts as primary source content" in prompt
+                return FakeLLMResponse("Die offiziellen Speaker-Themen enthalten Building Secure Systems From Broken Assumptions.")
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = Area41FreshnessLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _Area41WebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "area41" in query.lower()
+                long_aggregator_text = " ".join(["InfoSecMap summary"] * 180)
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "- [1] Area41 Conference 2026 - InfoSecMap\n"
+                        "  URL: https://infosecmap.com/event/area41-conference-2026/\n"
+                        f"  Snippet: {long_aggregator_text}\n"
+                        "- [2] AREA41: Switzerland's Premier Hacker and Security Conference\n"
+                        "  URL: https://area41.io/#speakers\n"
+                        "  Page excerpt:\n"
+                        "Speakers\n"
+                        "Example Speaker\n"
+                        "Building Secure Systems From Broken Assumptions\n"
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: InfoSecMap · https://infosecmap.com/event/area41-conference-2026/ · duckduckgo",
+                            "Quelle: AREA41 · https://area41.io/#speakers · page_fetch",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _Area41WebSearchSkill()
+
+        result = await pipeline.process(
+            "was sind die themen der speaker an der area41 konferenz 2026",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+
+        assert result.text.startswith("Die offiziellen Speaker-Themen")
+        assert result.intents == ["chat", "web_search"]
+        assert any("Quelle: AREA41" in line for line in result.detail_lines)
+
+    asyncio.run(_run())
+
+
+def test_pipeline_freshness_arbitration_runs_without_keyword_candidate() -> None:
+    class FreshnessLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                self.calls += 1
+                self.last_messages = messages
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "Qdrant scrolling API changes official docs",
+                            "confidence": "high",
+                            "reason": "The question asks about a possibly changed product API.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    }
+                },
+            }
+        )
+        llm = FreshnessLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        class _FreshWebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "qdrant" in query.lower()
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "Suche: Qdrant scrolling API changes official docs\n"
+                        "- [1] Qdrant API docs\n"
+                        "  URL: https://qdrant.tech/documentation/\n"
+                        "  Engine: duckduckgo\n"
+                        "  Snippet: Qdrant API documentation."
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: Qdrant API docs · https://qdrant.tech/documentation/ · duckduckgo",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _FreshWebSearchSkill()
+
+        result = await pipeline.process(
+            "hat sich bei qdrant am scroll api was geaendert",
+            user_id="u1",
+            source="test",
+        )
+
+        assert result.text == "ok"
+        assert result.intents == ["chat", "web_search"]
+        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
+        assert "Qdrant API docs" in str(llm.last_messages[1]["content"])
+        assert llm.calls == 2
+
+    asyncio.run(_run())
+
+
 def test_pipeline_auto_adds_web_search_for_explicit_research_request() -> None:
     class ResearchLLM(FakeLLMClient):
         async def chat(self, messages, **kwargs):
@@ -2388,7 +3020,7 @@ def test_pipeline_explicit_web_search_skips_auto_memory_recall() -> None:
     asyncio.run(_run())
 
 
-def test_pipeline_passes_notes_context_into_regular_web_search() -> None:
+def test_pipeline_suppresses_notes_context_for_regular_web_search_without_local_context_request() -> None:
     async def _run() -> None:
         settings = Settings.model_validate(
             {
@@ -2412,8 +3044,6 @@ def test_pipeline_passes_notes_context_into_regular_web_search() -> None:
             async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
                 assert "Google Calendar OAuth" in query
                 note_rows = list(params.get("note_context_hits", []) or [])
-                assert len(note_rows) == 1
-                assert note_rows[0]["title"] == "Google OAuth"
                 captured["note_context_hits"] = note_rows
                 return SkillResult(
                     skill_name="web_search",
@@ -2445,20 +3075,7 @@ def test_pipeline_passes_notes_context_into_regular_web_search() -> None:
         assert result.text == "ok"
         assert result.intents == ["web_search"]
         assert result.detail_lines == ["Quelle: Example · https://example.org · duckduckgo"]
-        assert captured["note_context_hits"] == [
-            {
-                "note_id": "n1",
-                "title": "Google OAuth",
-                "folder": "Recherche",
-                "relative_path": "Recherche/google-oauth.md",
-                "updated_at": "2026-04-23T12:00:00+00:00",
-                "score": 0.91,
-                "snippet": "Audience, Test users und OAuth Playground",
-                "chunk_index": 0,
-                "chunk_total": 0,
-                "source": "markdown",
-            }
-        ]
+        assert captured["note_context_hits"] == []
 
     asyncio.run(_run())
 
@@ -2600,7 +3217,7 @@ def test_pipeline_custom_skill_runtime_llm_task() -> None:
 
         result = asyncio.run(pipeline.process("Bitte netzcheck für den host", user_id="u1", source="test"))
         assert "recipe:net-check" in result.intents
-        assert llm.calls == 2
+        assert llm.calls == 3
         assert llm.last_messages
         user_prompt = str(llm.last_messages[1]["content"])
         assert "Stored Recipe Steps" in user_prompt
@@ -2658,7 +3275,7 @@ def test_pipeline_custom_skill_runtime_ssh_missing_connection_reports_error() ->
 
         result = asyncio.run(pipeline.process("please update server", user_id="u1", source="test"))
         assert "recipe:sys-update" in result.intents
-        assert llm.calls == 1
+        assert llm.calls == 2
         assert any(err.startswith("recipe_ssh_connection_not_found") for err in result.skill_errors)
 
 
@@ -2721,7 +3338,7 @@ def test_pipeline_custom_skill_runtime_discord_respects_profile_toggle() -> None
 
         result = asyncio.run(pipeline.process("please discord report", user_id="u1", source="test"))
         assert "recipe:discord-report" in result.intents
-        assert llm.calls == 1
+        assert llm.calls == 2
         assert any(err.startswith("recipe_discord_messages_disabled") for err in result.skill_errors)
 
 
@@ -3210,7 +3827,7 @@ def test_pipeline_custom_skill_chat_send_direct_response() -> None:
         assert "recipe:echo-chat" in result.intents
         assert result.text == "Direkt: echochat test 123"
         assert result.usage["total_tokens"] == 0
-        assert llm.calls == 0
+        assert llm.calls == 1
 
 
 def test_pipeline_custom_skill_does_not_persist_auto_memory_session_context() -> None:
@@ -3350,12 +3967,358 @@ def test_pipeline_auto_memory_persists_declarative_user_context_to_session_and_f
     assert "aria_sessions_u1_260403" in stored_collections
 
 
+def test_pipeline_agentic_auto_memory_persists_user_behavior_convention() -> None:
+    class _AgenticAutoMemoryLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "auto_memory_extraction_decision":
+                self.calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "recall_query": "pi-hole pruefen dns-node-01 dns health",
+                            "facts": [
+                                "User phrase 'Pi-hole pruefen' means DNS health check on dns-node-01"
+                            ],
+                            "preferences": [],
+                            "action_boundaries": [],
+                            "should_persist_session": True,
+                            "confidence": "high",
+                            "reason": "durable user-specific operational convention",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True},
+            "auto_memory": {"enabled": True, "agentic_extraction_enabled": True},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = _AgenticAutoMemoryLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    fake_memory = FakeMemorySkill()
+    pipeline.memory_skill = fake_memory
+
+    result = asyncio.run(
+        pipeline.process(
+            "Wenn ich Pi-hole pruefen schreibe, meine ich den DNS Health Check auf dns-node-01.",
+            user_id="u1",
+            source="test",
+            auto_memory_enabled=True,
+            memory_collection="aria_facts_u1",
+            session_collection="aria_sessions_u1_260614",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert "auto_memory_extraction_decision" in llm.operations
+    persisted_calls = [
+        call
+        for call in fake_memory.calls
+        if str(call["params"].get("action", "")).strip() == "store"
+    ]
+    stored_texts = [str(call["params"].get("text", "")) for call in persisted_calls]
+    stored_collections = [str(call["params"].get("collection", "")) for call in persisted_calls]
+    assert any("Pi-hole pruefen" in text and "dns-node-01" in text for text in stored_texts)
+    assert "aria_facts_u1" in stored_collections
+    assert "aria_sessions_u1_260614" in stored_collections
+
+
+def test_pipeline_agentic_auto_memory_persists_action_boundary_as_fact() -> None:
+    class _ActionBoundaryLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "auto_memory_extraction_decision":
+                self.calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "recall_query": "public release push approval boundary",
+                            "facts": [],
+                            "preferences": [],
+                            "action_boundaries": [
+                                "Do not push public releases until the user explicitly approves the release."
+                            ],
+                            "should_persist_session": True,
+                            "confidence": "high",
+                            "reason": "durable approval constraint",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True},
+            "auto_memory": {"enabled": True, "agentic_extraction_enabled": True},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = _ActionBoundaryLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    fake_memory = FakeMemorySkill()
+    pipeline.memory_skill = fake_memory
+
+    result = asyncio.run(
+        pipeline.process(
+            "Public push bitte erst machen, wenn ich den Release explizit freigebe.",
+            user_id="u1",
+            source="test",
+            auto_memory_enabled=True,
+            memory_collection="aria_facts_u1",
+            session_collection="aria_sessions_u1_260614",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert "auto_memory_extraction_decision" in llm.operations
+    persisted_calls = [
+        call
+        for call in fake_memory.calls
+        if str(call["params"].get("action", "")).strip() == "store"
+    ]
+    stored_texts = [str(call["params"].get("text", "")) for call in persisted_calls]
+    assert any(text.startswith("Action boundary:") and "public releases" in text for text in stored_texts)
+
+
+def test_pipeline_agentic_auto_memory_persists_user_feedback_as_learning_reflection(monkeypatch) -> None:
+    class _FeedbackLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "auto_memory_extraction_decision":
+                self.calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "recall_query": "AREA41 official page source quality",
+                            "facts": [],
+                            "preferences": [],
+                            "reflections": [
+                                "For concrete conference URL or anchor questions, prefer official page excerpts over search snippets."
+                            ],
+                            "action_boundaries": [],
+                            "should_persist_session": True,
+                            "confidence": "high",
+                            "reason": "durable feedback about source quality",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True},
+            "auto_memory": {"enabled": True, "agentic_extraction_enabled": True},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = _FeedbackLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    fake_memory = FakeMemorySkill()
+    pipeline.memory_skill = fake_memory
+    learning_events: list[dict] = []
+
+    def fake_record_learning_event(event):
+        learning_events.append(dict(event))
+        return dict(event)
+
+    monkeypatch.setattr("aria.core.recipe_runtime.record_learning_event", fake_record_learning_event)
+
+    result = asyncio.run(
+        pipeline.process(
+            "Das AREA41 war meh: bei konkreten URLs bitte offizielle Page-Excerpts statt Such-Snippets nutzen.",
+            user_id="u1",
+            source="test",
+            auto_memory_enabled=True,
+            memory_collection="aria_facts_u1",
+            session_collection="aria_sessions_u1_260614",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert "auto_memory_extraction_decision" in llm.operations
+    persisted_calls = [
+        call
+        for call in fake_memory.calls
+        if str(call["params"].get("action", "")).strip() == "store"
+    ]
+    learning_calls = [
+        call
+        for call in persisted_calls
+        if str(call["params"].get("collection", "")) == "aria_learning_u1"
+    ]
+    learning_event_calls = [
+        call
+        for call in persisted_calls
+        if str(call["params"].get("collection", "")) == "aria_learning_events_u1"
+    ]
+    learning_candidate_calls = [
+        call
+        for call in persisted_calls
+        if str(call["params"].get("collection", "")) == "aria_learning_candidates_u1"
+    ]
+    learning_eval_calls = [
+        call
+        for call in persisted_calls
+        if str(call["params"].get("collection", "")) == "aria_learning_evals_u1"
+    ]
+    assert len(learning_calls) == 1
+    assert learning_calls[0]["params"]["memory_type"] == "reflection"
+    assert learning_calls[0]["params"]["source"] == "auto_reflection"
+    assert "official page excerpts" in str(learning_calls[0]["params"]["text"])
+    assert len(learning_event_calls) == 1
+    assert learning_event_calls[0]["params"]["memory_type"] == "learning_event"
+    assert learning_event_calls[0]["params"]["source"] == "learning_event_ledger"
+    assert "memory_reflection" in str(learning_event_calls[0]["params"]["text"])
+    assert len(learning_candidate_calls) == 1
+    assert learning_candidate_calls[0]["params"]["memory_type"] == "learning_candidate"
+    assert learning_candidate_calls[0]["params"]["source"] == "learning_classifier"
+    assert "source_rule_candidate" in str(learning_candidate_calls[0]["params"]["text"])
+    assert len(learning_eval_calls) == 1
+    assert learning_eval_calls[0]["params"]["memory_type"] == "learning_eval"
+    assert learning_eval_calls[0]["params"]["source"] == "learning_validator"
+    assert "Promotion allowed: no" in str(learning_eval_calls[0]["params"]["text"])
+    assert len(learning_events) == 1
+    assert learning_events[0]["event_type"] == "reflection"
+    assert learning_events[0]["artifact_type"] == "memory_reflection"
+    assert learning_events[0]["metadata"]["collection"] == "aria_learning_u1"
+
+
+def test_pipeline_learning_reflection_context_guides_what_was_learned_answer() -> None:
+    class LearningRecallLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "chat_freshness_arbitration":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": False,
+                            "query": "",
+                            "confidence": "high",
+                            "reason": "asks about local learned feedback",
+                        }
+                    )
+                )
+            if operation == "chat_local_context_relevance":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "use_local_context": True,
+                            "confidence": 0.95,
+                            "reason": "the user asks what was learned from AREA41 feedback",
+                        }
+                    )
+                )
+            if operation == "final_chat_response":
+                prompt = str(messages[1]["content"])
+                assert "[LERNEN]" in prompt
+                assert "Learning memory handling" in prompt
+                assert "Do not claim that no learning exists" in prompt
+                return FakeLLMResponse(
+                    "Ich habe gelernt: Bei konkreten URLs offizielle Page-Excerpts nutzen und nicht aus Snippets raten."
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": True},
+                "auto_memory": {"enabled": True, "agentic_extraction_enabled": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = LearningRecallLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def fake_run_skills(*args, **kwargs):
+            _ = args, kwargs
+            return [
+                SkillResult(
+                    skill_name="memory_recall",
+                    content=(
+                        "- [LERNEN] For concrete conference URL or anchor questions, "
+                        "prefer official page excerpts over search snippets."
+                    ),
+                    success=True,
+                    metadata={
+                        "sources": [{"type": "reflection", "collection": "aria_learning_u1"}],
+                        "detail_lines": ["Quelle: LERNEN · aria_learning_u1"],
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+
+        result = await pipeline.process(
+            "was hast du aus meinem AREA41 feedback gelernt?",
+            user_id="u1",
+            source="test",
+            auto_memory_enabled=True,
+            memory_collection="aria_facts_u1",
+            session_collection="aria_sessions_u1_260614",
+        )
+
+        assert "offizielle Page-Excerpts" in result.text
+        assert "final_chat_response" in llm.operations
+        assert "Quelle: LERNEN · aria_learning_u1" in result.detail_lines
+
+    asyncio.run(_run())
+
+
 def test_pipeline_uses_llm_custom_skill_fallback_after_no_capability_match() -> None:
     class SkillPickerLLMClient(FakeLLMClient):
         async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") in {
+                "turn_intent_arbitration",
+                ARIA_TURN_ARBITRATION_OPERATION,
+                "capability_draft_decision",
+                "pre_rag_action_arbitration",
+            }:
+                return await super().chat(messages, **kwargs)
             self.calls += 1
             self.last_messages = messages
-            _ = kwargs
+            if kwargs.get("operation") == "recipe_execution_intent":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "execute": True,
+                            "id": "server-update",
+                            "confidence": "high",
+                            "reason": "natuerlicher update-wunsch",
+                        }
+                    )
+                )
             assert messages[0]["role"] == "system"
             return FakeLLMResponse(
                 json.dumps(
@@ -3424,6 +4387,543 @@ def test_pipeline_uses_llm_custom_skill_fallback_after_no_capability_match() -> 
         assert result.text == "Update wird vorbereitet."
         assert result.usage["total_tokens"] == 0
         assert llm.calls == 1
+
+
+def test_pipeline_debug_shows_recipe_execution_intent_rejection() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        skills_dir = root / "data" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "server-update.json").write_text(
+            json.dumps(
+                {
+                    "id": "server-update",
+                    "name": "Server Update",
+                    "description": "Fuehrt Server Updates aus.",
+                    "router_keywords": ["server update", "system update"],
+                    "steps": [
+                        {
+                            "id": "s1",
+                            "type": "chat_send",
+                            "params": {"chat_message": "Update wird vorbereitet."},
+                        }
+                    ],
+                    "enabled_default": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_dir = root / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            "skills:\n  custom:\n    server-update:\n      enabled: true\n",
+            encoding="utf-8",
+        )
+
+        pipeline._stored_recipes_dir = skills_dir
+        pipeline._config_path = config_dir / "config.yaml"
+        pipeline._stored_recipe_cache = {"sign": None, "rows": []}
+
+        result = asyncio.run(
+            pipeline.process(
+                "erklaere mir das server update rezept",
+                user_id="u1",
+                source="test",
+            )
+    )
+
+    assert result.intents == ["chat"]
+    assert "gespeicherte Rezept `Server Update` (`server-update`)" in result.text
+    assert "Update wird vorbereitet." in result.text
+    assert result.usage["total_tokens"] == 15
+    assert "apt upgrade" not in result.text.lower()
+    assert "reboot" not in result.text.lower()
+    assert (
+        "Routing Debug: recipe_execution_intent "
+        "agentic_source=llm_decision execute=false confidence=high candidates=1 reason=informational request"
+        in result.detail_lines
+    )
+    assert (
+        "Routing Debug: recipe_catalog_explanation "
+        "source=stored_recipe_catalog matches=1 strong_matches=1 boundary=bounded_llm"
+        in result.detail_lines
+    )
+
+
+def test_pipeline_recipe_explanation_rejects_generic_runbook_when_catalog_has_no_match() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        skills_dir = root / "data" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "disk-check.json").write_text(
+            json.dumps(
+                {
+                    "id": "disk-check",
+                    "name": "Festplattencheck",
+                    "description": "Prueft Dateisystem-Auslastung.",
+                    "router_keywords": ["festplattencheck"],
+                    "steps": [
+                        {
+                            "id": "s1",
+                            "type": "chat_send",
+                            "params": {"chat_message": "Festplattencheck wird vorbereitet."},
+                        }
+                    ],
+                    "enabled_default": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_dir = root / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text(
+            "skills:\n  custom:\n    disk-check:\n      enabled: true\n",
+            encoding="utf-8",
+        )
+
+        pipeline._stored_recipes_dir = skills_dir
+        pipeline._config_path = config_dir / "config.yaml"
+        pipeline._stored_recipe_cache = {"sign": None, "rows": []}
+
+        result = asyncio.run(
+            pipeline.process(
+                "erklaere mir das server update rezept",
+                user_id="u1",
+                source="test",
+            )
+        )
+
+    assert result.intents == ["chat"]
+    assert "kein gespeichertes Rezept" in result.text
+    assert "generisches Runbook" in result.text
+    assert "apt upgrade" not in result.text.lower()
+    assert "reboot" not in result.text.lower()
+    assert (
+        "Routing Debug: recipe_catalog_explanation "
+        "source=stored_recipe_catalog matches=0 strong_matches=0 boundary=direct_response"
+        in result.detail_lines
+    )
+
+
+def test_pipeline_recipe_miss_does_not_hijack_general_advice_question() -> None:
+    class AdviceLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "final_chat_response":
+                return FakeLLMResponse("Soft lockup ist ein Kernel-/CPU-Stall. Pruefe Logs, Last und Hardwarehinweise.")
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=AdviceLLM())
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        skills_dir = root / "data" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "disk-check.json").write_text(
+            json.dumps(
+                {
+                    "id": "disk-check",
+                    "name": "Festplattencheck",
+                    "description": "Prueft Dateisystem-Auslastung.",
+                    "router_keywords": ["festplattencheck"],
+                    "steps": [{"id": "s1", "type": "chat_send", "params": {"chat_message": "Disk check"}}],
+                    "enabled_default": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_dir = root / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text("skills:\n  custom:\n    disk-check:\n      enabled: true\n", encoding="utf-8")
+        pipeline._stored_recipes_dir = skills_dir
+        pipeline._config_path = config_dir / "config.yaml"
+        pipeline._stored_recipe_cache = {"sign": None, "rows": []}
+
+        result = asyncio.run(
+            pipeline.process(
+                "ich habe einen soft lockup im syslog, was mach ich damit?",
+                user_id="u1",
+                source="test",
+                language="de",
+            )
+        )
+
+    assert result.intents == ["chat"]
+    assert "Soft lockup" in result.text
+    assert "kein gespeichertes Rezept" not in result.text
+    assert any("recipe_catalog_explanation" in line and "strong_matches=0" in line for line in result.detail_lines)
+
+
+def test_pipeline_explicit_recipe_catalog_question_with_no_candidates_stays_catalog_bound() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        skills_dir = root / "data" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        (skills_dir / "disk-check.json").write_text(
+            json.dumps(
+                {
+                    "id": "disk-check",
+                    "name": "Festplattencheck",
+                    "description": "Prueft Dateisystem-Auslastung.",
+                    "router_keywords": ["festplattencheck"],
+                    "steps": [{"id": "s1", "type": "chat_send", "params": {"chat_message": "Disk check"}}],
+                    "enabled_default": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        config_dir = root / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.yaml").write_text("skills:\n  custom:\n    disk-check:\n      enabled: true\n", encoding="utf-8")
+        pipeline._stored_recipes_dir = skills_dir
+        pipeline._config_path = config_dir / "config.yaml"
+        pipeline._stored_recipe_cache = {"sign": None, "rows": []}
+
+        result = asyncio.run(
+            pipeline.process(
+                "gibt es ein rezept fuer dns health",
+                user_id="u1",
+                source="test",
+                language="de",
+            )
+        )
+
+    assert result.intents == ["chat"]
+    assert "kein gespeichertes Rezept" in result.text
+    assert "DNS Health Checkliste" not in result.text
+    assert "A/AAAA" not in result.text
+    assert any("recipe_execution_intent skipped reason=no_candidates" in line for line in result.detail_lines)
+    assert any("recipe_catalog_explanation" in line and "strong_matches=0" in line for line in result.detail_lines)
+
+
+def test_pipeline_records_learning_outcome_for_explicit_recipe_catalog_miss(monkeypatch) -> None:
+    async def fake_capture_learning_outcome(**kwargs):
+        captured.append(dict(kwargs))
+        return {"captured": True}
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": True},
+                "auto_memory": {"enabled": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "ui": {"debug_mode": True},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+        pipeline.memory_skill = object()  # type: ignore[assignment]
+        monkeypatch.setattr(pipeline_mod, "capture_learning_outcome", fake_capture_learning_outcome)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            skills_dir = root / "data" / "skills"
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            (skills_dir / "disk-check.json").write_text(
+                json.dumps(
+                    {
+                        "id": "disk-check",
+                        "name": "Festplattencheck",
+                        "description": "Prueft Dateisystem-Auslastung.",
+                        "router_keywords": ["festplattencheck"],
+                        "steps": [{"id": "s1", "type": "chat_send", "params": {"chat_message": "Disk check"}}],
+                        "enabled_default": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config_dir = root / "config"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            (config_dir / "config.yaml").write_text("skills:\n  custom:\n    disk-check:\n      enabled: true\n", encoding="utf-8")
+            pipeline._stored_recipes_dir = skills_dir
+            pipeline._config_path = config_dir / "config.yaml"
+            pipeline._stored_recipe_cache = {"sign": None, "rows": []}
+
+            result = await pipeline.process(
+                "gibt es ein rezept fuer dns health",
+                user_id="u1",
+                source="test",
+                language="de",
+                auto_memory_enabled=True,
+            )
+            await asyncio.sleep(0)
+
+        assert result.intents == ["chat"]
+
+    captured: list[dict[str, object]] = []
+    asyncio.run(_run())
+
+    assert captured
+    event = captured[0]["event"]
+    assert isinstance(event, dict)
+    assert event["source"] == "recipe_catalog_outcome"
+    assert event["artifact_type"] == "recipe_candidate"
+    assert event["evidence"]["outcome"] == "explicit_recipe_catalog_miss"
+
+
+def test_pipeline_mutating_multi_target_ssh_request_does_not_run_readonly_fallback() -> None:
+    class MutatingInstallLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "",
+                            "content": "",
+                            "confidence": "high",
+                            "reason": "install nginx on all servers",
+                        }
+                    )
+                )
+            if operation == "ssh_requested_runtime_effect":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "mutating",
+                            "confidence": "high",
+                            "reason": "installing nginx changes package state",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/key"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/key"},
+                }
+            },
+        }
+    )
+    llm = MutatingInstallLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "should not run"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "installiere nginx auf allen servern",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert ssh_calls == []
+    assert "Ich habe nichts ausgefuehrt" in result.text
+    assert "read-only Statuscheck" in result.text
+    assert "uptime" not in result.text
+    assert "ssh_requested_runtime_effect" in llm.operations
+    assert any("mutating_ssh_request_block" in line for line in result.detail_lines)
+
+
+def test_pipeline_local_named_system_check_gets_capability_gate_before_web_freshness(monkeypatch) -> None:
+    class PiholeActionLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "requested_connection_ref": "pihole",
+                            "target_scope": "single_target",
+                            "target_intent": "health_check",
+                            "content": "systemctl is-active pihole-FTL",
+                            "confidence": "high",
+                            "reason": "The user asks ARIA to check a locally configured Pi-hole system.",
+                        }
+                    )
+                )
+            if operation == "chat_freshness_arbitration":
+                raise AssertionError("local Pi-hole check must not fall through into web freshness arbitration")
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "title": "Pi-hole Primary DNS Server",
+                        "aliases": ["dns server", "pihole", "primary"],
+                    }
+                },
+                "searxng": {"web-search": {"timeout_seconds": 10}},
+            },
+        }
+    )
+    llm = PiholeActionLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_memory_resolve(*args, **kwargs):
+        return MemoryHints(connection_kind="ssh", connection_ref="dns-node-01", source="message_match")
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "Pi-hole status: active"
+
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "pruef die pihole's",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert ssh_calls == [("dns-node-01", "systemctl is-active pihole-FTL")]
+    assert "capability_draft_decision" in llm.operations
+    assert "chat_freshness_arbitration" not in llm.operations
+    assert not any("Quelle:" in line for line in result.detail_lines)
+
+
+def test_pipeline_recent_runtime_followup_keeps_previous_multi_target_context_before_new_ssh_draft() -> None:
+    class RecentContextLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "recent_capability_context_relevance":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "use_context": True,
+                            "confidence": "high",
+                            "reason": "asks for per-server package details from previous apt list result",
+                        }
+                    )
+                )
+            if operation == "capability_draft_decision":
+                raise AssertionError("follow-up should not request a fresh SSH draft before recent context")
+            if operation == "final_chat_response":
+                return FakeLLMResponse("Aus dem letzten Update-Scan: srv-a: openssl, curl, bash; srv-b: nginx, libc6, sudo.")
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            "ui": {"debug_mode": True},
+        }
+    )
+    with tempfile.TemporaryDirectory() as td:
+        store = CapabilityContextStore(Path(td) / "capability_context.json")
+        store.remember_action(
+            "u1",
+            capability="ssh_command",
+            connection_kind="ssh",
+            connection_ref="",
+            content="apt list --upgradable",
+            connection_refs=["srv-a", "srv-b"],
+            result_summary="srv-a: openssl, curl, bash. srv-b: nginx, libc6, sudo.",
+        )
+        llm = RecentContextLLM()
+        pipeline = Pipeline(
+            settings=settings,
+            prompt_loader=FakePromptLoader(),
+            llm_client=llm,
+            capability_context_store=store,
+        )
+
+        result = asyncio.run(
+            pipeline.process(
+                "gib mir pro server die ersten 3 pakete",
+                user_id="u1",
+                source="test",
+                language="de",
+            )
+        )
+
+    assert result.intents == ["chat"]
+    assert "srv-a" in result.text
+    assert "srv-b" in result.text
+    assert "recent_capability_context_relevance" in llm.operations
+    assert "capability_draft_decision" not in llm.operations
+    assert any("Kontext: letzte SSH-Ziele" in line for line in result.detail_lines)
 
 
 def test_extract_held_packages_from_apt_output() -> None:
@@ -3912,7 +5412,7 @@ def test_pipeline_capability_router_uses_recent_context_for_same_path_phrase() -
             "Pfad: /tmp",
         ]
         assert list_calls == [("server-main", "/tmp")]
-        assert llm.calls == 1
+        assert llm.calls == 0
 
 
 def test_pipeline_capability_router_keeps_recent_list_directory_for_same_folder_phrase() -> None:
@@ -3970,7 +5470,134 @@ def test_pipeline_capability_router_keeps_recent_list_directory_for_same_folder_
             "Pfad: /tmp",
         ]
         assert list_calls == [("server-main", "/tmp")]
-        assert llm.calls == 1
+        assert llm.calls == 0
+
+
+def test_pipeline_uses_recent_multi_target_context_for_target_list_followup() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        context_store = CapabilityContextStore(root / "capability_context.json")
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "connections": {
+                    "ssh": {
+                        "srv-a": {"host": "192.0.2.10", "user": "ops"},
+                        "srv-b": {"host": "192.0.2.11", "user": "ops"},
+                    }
+                },
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+
+        class RecentContextLLM(FakeLLMClient):
+            def __init__(self) -> None:
+                super().__init__()
+                self.operations: list[str] = []
+
+            async def chat(self, messages, **kwargs):
+                operation = str(kwargs.get("operation", "") or "")
+                self.operations.append(operation)
+                self.last_messages = messages
+                user_text = "\n".join(str((row or {}).get("content", "")) for row in messages if (row or {}).get("role") == "user")
+                if operation == "capability_draft_decision":
+                    try:
+                        message = str(json.loads(user_text).get("message", "") or "").lower()
+                    except Exception:
+                        message = user_text.lower()
+                    if "up to date" in message:
+                        return FakeLLMResponse(
+                            json.dumps(
+                                {
+                                    "action": "action",
+                                    "capability": "ssh_command",
+                                    "connection_kind": "ssh",
+                                    "target_scope": "multi_target",
+                                    "target_intent": "package_update_check",
+                                    "content": "apt list --upgradable",
+                                    "confidence": "high",
+                                    "reason": "package update status question about all servers",
+                                }
+                            )
+                        )
+                if operation == "ssh_multi_target_summary":
+                    return FakeLLMResponse(
+                        json.dumps(
+                            {
+                                "summary": "Beide Server zeigen verfuegbare Paketupdates.",
+                                "confidence": "high",
+                                "reason": "Both apt outputs list upgradable packages.",
+                            }
+                        )
+                    )
+                if operation == "recent_capability_context_relevance":
+                    return FakeLLMResponse(
+                        json.dumps(
+                            {
+                                "use_context": True,
+                                "confidence": "high",
+                                "reason": "The user asks which servers the previous runtime result referred to.",
+                            }
+                        )
+                    )
+                if operation == "final_chat_response":
+                    system_prompt = str(messages[0]["content"])
+                    prompt = str(messages[1]["content"])
+                    assert "Operator follow-up policy" in system_prompt
+                    assert "runtime_effect=read_only" in system_prompt
+                    assert "inspect-oriented and non-mutating" in system_prompt
+                    assert "Do not offer state-changing operations" in system_prompt
+                    assert "recent_capability_context" in prompt
+                    assert "srv-a, srv-b" in prompt
+                    return FakeLLMResponse(
+                        "Es handelt sich um `srv-a` und `srv-b`. Soll ich dir die betroffenen Pakete je Server auflisten?"
+                    )
+                return await super().chat(messages, **kwargs)
+
+        llm = RecentContextLLM()
+        pipeline = Pipeline(
+            settings=settings,
+            prompt_loader=FakePromptLoader(),
+            llm_client=llm,
+            capability_context_store=context_store,
+        )
+        ssh_calls: list[tuple[str, str]] = []
+
+        async def fake_ssh(plan, *, language="de"):
+            ssh_calls.append((plan.connection_ref, plan.content))
+            return "Listing... paket/example [upgradable from: 1.0]"
+
+        pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+        first = asyncio.run(
+            pipeline.process(
+                "sind meine server up to date",
+                user_id="u1",
+                source="test",
+                language="de",
+            )
+        )
+        recent = context_store.load_recent("u1")
+        second = asyncio.run(
+            pipeline.process(
+                "teilst du mir bitte mit um welche server es sich handelt",
+                user_id="u1",
+                source="test",
+                language="de",
+            )
+        )
+
+        assert first.intents == ["capability:ssh_command"]
+        assert ssh_calls == [("srv-a", "apt list --upgradable"), ("srv-b", "apt list --upgradable")]
+        assert recent["connection_refs"] == ["srv-a", "srv-b"]
+        assert recent["content"] == "apt list --upgradable"
+        assert second.intents == ["chat"]
+        assert second.text == "Es handelt sich um `srv-a` und `srv-b`. Soll ich dir die betroffenen Pakete je Server auflisten?"
+        assert "Updates durchführen" not in second.text
+        assert "recent_capability_context_relevance" in llm.operations
+        assert any("Kontext: letzte SSH-Ziele" in line and "srv-a, srv-b" in line for line in second.detail_lines)
 
 
 def test_pipeline_rewrites_short_calendar_followup_with_recent_filter(monkeypatch) -> None:
@@ -4848,7 +6475,7 @@ def test_pipeline_capability_router_resolves_rss_feed_via_llm_semantics() -> Non
         "Ausgeführt via RSS-Profil `tech-news-1`",
     ]
     assert calls == ["tech-news-1"]
-    assert llm.calls == 1
+    assert llm.calls == 0
 
 
 def test_pipeline_rss_llm_refiner_can_override_weak_alias_choice(monkeypatch) -> None:
@@ -5701,6 +7328,15 @@ def test_pipeline_bounded_planner_can_override_ssh_target_and_action() -> None:
     assert updated["action_debug"]["decision"]["candidate_id"] == "ssh_run_command"
     assert updated["planner_debug"]["decision"]["target_ref"] == "backup-host"
     assert any("Planner: agentic_prompt_flow phases=context_enrichment>llm_action_proposal>policy_guardrail_decision>runtime_execution" in line for line in updated.get("detail_lines", []))
+    assert any(
+        line
+        == (
+            "Routing Debug: action_plan_debug agentic_source=llm target=ssh/backup-host "
+            "action=template/ssh_run_command confidence=high ask_user=false candidate_count=0 "
+            "execution_state=- reason=backup host passt besser boundary=draft"
+        )
+        for line in updated.get("detail_lines", [])
+    )
     assert any("Planner: bounded_planner selected `ssh/backup-host` + `template/ssh_run_command` confidence=high" in line for line in updated.get("detail_lines", []))
     assert any("Planner: bounded_planner selected" in line and "boundary=draft" in line for line in updated.get("detail_lines", []))
 
@@ -5922,6 +7558,15 @@ def test_unified_routing_uses_semantic_llm_for_discord_even_when_action_llm_disa
     assert payload.get("connection_ref") == "alerts-main"
     detail_lines = list(resolved.get("detail_lines", []) or [])
     assert any("Routing: semantic_llm_resolution selected `discord/alerts-main` source=semantic_llm note=semantic_llm:ops channel" == line for line in detail_lines)
+    assert any(
+        line
+        == (
+            "Routing Debug: connection_target_selection stage=semantic_llm_resolution "
+            "preferred=discord selected=discord/alerts-main source=semantic_llm "
+            "candidate_count=0 note=semantic_llm:ops channel"
+        )
+        for line in detail_lines
+    )
 
 
 def test_unified_routing_uses_semantic_llm_for_calendar_even_when_action_llm_disabled(monkeypatch) -> None:
@@ -6417,7 +8062,7 @@ def test_pipeline_capability_router_reads_rss_feed_via_short_news_typo_phrase() 
         "Ausgeführt via RSS-Profil `heise-feed`",
     ]
     assert calls == ["heise-feed"]
-    assert llm.calls == 1
+    assert llm.calls == 0
 
 
 def test_pipeline_capability_router_sends_webhook_via_explicit_profile() -> None:
@@ -7270,7 +8915,7 @@ def test_pipeline_explicit_capability_beats_custom_skill_when_profile_is_explici
         assert result.pending_action["candidate_id"] == "discord_send_message"
         assert result.pending_action["payload"]["capability"] == "discord_send"
         assert result.detail_lines == []
-        assert llm.calls == 0
+        assert llm.calls == 1
 
 
 def test_pipeline_routes_direct_ssh_command_before_chat_rag() -> None:
@@ -8388,18 +10033,30 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
                         "title": "n8n Server",
                     },
                 },
-                "rss": {
-                    "telepolis-aktuelle-beitr-ge": {
-                        "feed_url": "https://example.invalid/telepolis.xml",
-                        "title": "Telepolis",
-                        "aliases": ["tp"],
-                    }
-                },
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
         }
     )
-    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+    class DiskCheckLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "disk check across the available servers",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=DiskCheckLLM())
     pipeline.memory_skill = FakeMemoryAssistSkill(
         rows=[{"text": "und jetzt nochmal den management server ops-mgmt-01"}]
     )  # type: ignore[assignment]
@@ -8435,9 +10092,10 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
         action_debug = dict(resolved.get("action_debug", {}) or {})
         action_debug["decision"] = {
             "found": True,
-            "candidate_kind": "recipe",
-            "candidate_id": "linux-fleet-healthcheck-to-discord-template",
+            "candidate_kind": "template",
+            "candidate_id": "ssh_run_command",
             "capability": "ssh_command",
+            "inputs": {"command": "df -h"},
         }
         action_debug["candidates"] = [
             {
@@ -8486,11 +10144,9 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
         ("workflow-node-01", "df -h"),
     ]
     assert "stored_recipe" not in result.intents
-    assert "feed_read" not in result.intents
     assert "DISK_HOTSPOTS" not in result.text
     assert not any("source=memory_hint" in line for line in result.detail_lines)
     assert not any("DISK_HOTSPOTS" in line for line in result.detail_lines)
-    assert not any("rss/telepolis-aktuelle-beitr-ge" in line for line in result.detail_lines)
 
 
 def test_pipeline_prefers_concrete_ssh_draft_over_stored_recipe_candidate() -> None:
@@ -9877,6 +11533,106 @@ def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> No
     assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
 
 
+def test_pipeline_runtime_outcome_followup_ranks_previous_package_updates() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "title": "Server A"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "title": "Server B"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class FollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            self.last_messages = messages
+            if operation == "runtime_outcome_followup_resolution":
+                payload = json.loads(messages[-1]["content"])
+                assert payload["last_runtime_outcome"]["task_intent"] == "package_update_check"
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "use_previous_outcome",
+                            "affordance": "rank_updates",
+                            "confidence": "high",
+                            "reason": "davon refers to previous package update results",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                payload = json.loads(messages[-1]["content"])
+                assert payload["executed_command"] == "apt list --upgradable"
+                assert {row["ref"] for row in payload["targets"]} == {"srv-a", "srv-b"}
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Am wichtigsten wirken `openssl` auf beiden Servern und danach `linux-image` auf `srv-b`.",
+                            "confidence": "high",
+                            "reason": "ranked from previous apt output",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    llm = FollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    async def fake_execute(plan, *, language="de"):
+        if plan.connection_ref == "srv-b":
+            return "Listing...\nopenssl/stable 3.0 [upgradable from: 2.0]\nlinux-image-amd64/stable 6.1 [upgradable from: 6.0]"
+        return "Listing...\nopenssl/stable 3.0 [upgradable from: 2.0]\ncurl/stable 8.0 [upgradable from: 7.0]"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    _, _text, detail_lines, errors = asyncio.run(
+        pipeline._execute_multi_target_ssh_action(
+            resolved={"query": "brauchen meine server updates?"},
+            payload={
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_refs": ["srv-a", "srv-b"],
+                "content": "apt list --upgradable",
+                "notes": ["target_intent:package_update_check"],
+            },
+            action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert errors == []
+    assert any("runtime_outcome_frame stored" in line for line in detail_lines)
+
+    result = asyncio.run(
+        pipeline.process(
+            "und welche pakete davon sind die wichtigsten",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["runtime_outcome_followup"]
+    assert "openssl" in result.text
+    assert "linux-image" in result.text
+    assert "runtime_outcome_followup_resolution" in llm.operations
+    assert "ssh_multi_target_summary" in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("runtime_outcome_followup action=use_previous_outcome affordance=rank_updates" in line for line in result.detail_lines)
+
+
 def test_pipeline_multi_target_ssh_llm_summary_receives_compact_target_results() -> None:
     settings = Settings.model_validate(
         {
@@ -10240,6 +11996,16 @@ def test_pipeline_uses_guardrail_healthcheck_commands_when_llm_suggests_unknown_
                         }
                     )
                 )
+            if kwargs.get("operation") == "ssh_guardrail_command_selection":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "commands": allow_commands,
+                            "confidence": "high",
+                            "reason": "Use the allowed guardrail healthcheck bundle.",
+                        }
+                    )
+                )
             return await super().chat(messages, **kwargs)
 
     llm = PiholeLLM()
@@ -10263,6 +12029,91 @@ def test_pipeline_uses_guardrail_healthcheck_commands_when_llm_suggests_unknown_
     assert updated["decision"]["reason"] == "guardrail_allowed_healthcheck"
     assert updated["decision"]["guardrail_fallback_from"] == "pihole status"
     assert updated["decision"].get("execution_state", "") != "blocked"
+
+
+def test_pipeline_rejects_guardrail_healthcheck_selection_outside_allowlist() -> None:
+    allow_commands = ["uptime -p", "df -h"]
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Primary DNS",
+                        "aliases": ["dns server"],
+                        "guardrail_ref": "dns-health",
+                    }
+                }
+            },
+            "security": {
+                "guardrails": {
+                    "dns-health": {
+                        "kind": "ssh_command",
+                        "allow_terms": allow_commands,
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class InventingGuardrailLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if kwargs.get("operation") == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "pihole status",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "native health command",
+                        }
+                    )
+                )
+            if kwargs.get("operation") == "ssh_guardrail_intent":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "intent": "health_check",
+                            "confidence": "high",
+                            "reason": "The user asks for health.",
+                        }
+                    )
+                )
+            if kwargs.get("operation") == "ssh_guardrail_command_selection":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "commands": ["pihole status", "rm -rf /"],
+                            "confidence": "high",
+                            "reason": "Invented commands should be rejected.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=InventingGuardrailLLM())
+
+    updated, _, debug_line = asyncio.run(
+        pipeline._apply_agentic_ssh_command_resolution(
+            message="ist mein dns server ok",
+            user_id="u1",
+            routing_decision={"found": True, "kind": "ssh", "ref": "dns-node-01"},
+            action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+            capability_draft=None,
+            language="de",
+        )
+    )
+
+    assert updated["decision"]["execution_state"] == "blocked"
+    assert updated["decision"]["inputs"]["command"] == "pihole status"
+    assert "guardrail_fallback_from" not in updated["decision"]
+    assert "ssh_command_guardrail_fallback" not in debug_line
 
 
 def test_pipeline_keeps_allowed_llm_healthcheck_subset_without_bundle_expansion() -> None:
@@ -10392,6 +12243,16 @@ def test_pipeline_replaces_existing_uptime_template_with_guardrail_healthcheck_b
                             "intent": "health_check",
                             "confidence": "high",
                             "reason": "The user asks for a server healthcheck.",
+                        }
+                    )
+                )
+            if kwargs.get("operation") == "ssh_guardrail_command_selection":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "commands": allow_commands,
+                            "confidence": "high",
+                            "reason": "Use the allowed guardrail healthcheck bundle.",
                         }
                     )
                 )
@@ -10613,6 +12474,16 @@ def test_pipeline_restart_request_reasks_llm_when_mutating_intent_was_replaced_b
                         }
                     )
                 )
+            if operation == "ssh_requested_runtime_effect":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "mutating",
+                            "confidence": "high",
+                            "reason": "The user asks to change service state, not inspect it.",
+                        }
+                    )
+                )
             if operation == "ssh_command_mutating_intent":
                 return FakeLLMResponse(
                     json.dumps(
@@ -10646,7 +12517,7 @@ def test_pipeline_restart_request_reasks_llm_when_mutating_intent_was_replaced_b
         )
     )
 
-    assert llm.operations[:2] == ["ssh_command_decision", "ssh_command_mutating_intent"]
+    assert llm.operations[:3] == ["ssh_command_decision", "ssh_requested_runtime_effect", "ssh_command_mutating_intent"]
     assert updated["decision"]["inputs"]["command"] == "systemctl restart pihole-FTL"
     assert getattr(updated_draft, "content") == "systemctl restart pihole-FTL"
     assert updated["decision"]["execution_state"] == "blocked"
@@ -10709,6 +12580,16 @@ def test_pipeline_restart_request_never_uses_healthcheck_fallback_even_when_guar
                             "intent": "health_check",
                             "confidence": "high",
                             "reason": "wrongly treated as health",
+                        }
+                    )
+                )
+            if kwargs.get("operation") == "ssh_guardrail_command_selection":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "commands": allow_commands,
+                            "confidence": "high",
+                            "reason": "Use the allowed guardrail healthcheck bundle.",
                         }
                     )
                 )
@@ -10899,6 +12780,16 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
                         }
                     )
                 )
+            if kwargs.get("operation") == "ssh_guardrail_command_selection":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "commands": allow_commands,
+                            "confidence": "high",
+                            "reason": "Use the allowed guardrail healthcheck bundle.",
+                        }
+                    )
+                )
             return await super().chat(messages, **kwargs)
 
     llm = NaturalHealthLLM()
@@ -11059,6 +12950,16 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
                             "intent": "health_check",
                             "confidence": "high",
                             "reason": "The user asks whether the selected DNS server is okay.",
+                        }
+                    )
+                )
+            if kwargs.get("operation") == "ssh_guardrail_command_selection":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "commands": allow_commands,
+                            "confidence": "high",
+                            "reason": "Use the allowed guardrail healthcheck bundle.",
                         }
                     )
                 )
@@ -11432,6 +13333,210 @@ def test_pipeline_routes_hd_question_on_management_server_before_rag_chat() -> N
         "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh"
     )
     assert "boundary=context_enrichment" in result.detail_lines[0]
+
+
+def test_pipeline_capability_draft_no_action_blocks_local_disk_fallback() -> None:
+    class NoActionLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "no_action",
+                            "confidence": "high",
+                            "reason": "The user is asking for explanation, not runtime inspection.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Management Server",
+                        "aliases": ["management server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = NoActionLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "should not run"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "erklaere mir disk checks auf dem management server",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert result.text == "ok"
+    assert ssh_calls == []
+    assert "capability_draft_decision" in llm.operations
+
+
+def test_pipeline_capability_draft_low_confidence_allows_local_disk_fallback() -> None:
+    class LowConfidenceLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "content": "df -h",
+                            "confidence": "low",
+                            "reason": "uncertain action draft",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Management Server",
+                        "aliases": ["management server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = LowConfidenceLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        calls.append((plan.connection_ref, plan.content))
+        return "disk ok"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "wie sieht die hd auf meinem management server aus",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert calls == [("ops-mgmt-01", "df -h")]
+    assert "capability_draft_decision" in llm.operations
+
+
+def test_pipeline_records_learning_outcome_when_local_capability_fallback_is_used(monkeypatch) -> None:
+    class LowConfidenceLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "content": "df -h",
+                            "confidence": "low",
+                            "reason": "uncertain action draft",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": True},
+                "auto_memory": {"enabled": True},
+                "connections": {
+                    "ssh": {
+                        "ops-mgmt-01": {
+                            "host": "192.0.2.10",
+                            "user": "root",
+                            "key_path": "/tmp/test_ed25519",
+                            "title": "Management Server",
+                            "aliases": ["management server"],
+                        }
+                    }
+                },
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=LowConfidenceLLM())
+        pipeline.memory_skill = object()  # type: ignore[assignment]
+        captured: list[dict[str, object]] = []
+
+        async def fake_capture_learning_outcome(**kwargs):
+            captured.append(dict(kwargs))
+            return {"captured": True}
+
+        async def fake_ssh(plan, *, language="de"):
+            return "disk ok"
+
+        monkeypatch.setattr(pipeline_mod, "capture_learning_outcome", fake_capture_learning_outcome)
+        pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+        result = await pipeline.process(
+            "wie sieht die hd auf meinem management server aus",
+            user_id="u1",
+            source="test",
+            language="de",
+            auto_memory_enabled=True,
+        )
+        await asyncio.sleep(0)
+
+        assert result.intents == ["capability:ssh_command"]
+        assert captured
+        event = captured[0]["event"]
+        assert isinstance(event, dict)
+        assert event["source"] == "capability_draft_local_fallback"
+        assert event["artifact_type"] == "routing_hint"
+        assert event["evidence"]["llm_state"] == "invalid:low_confidence"
+
+    asyncio.run(_run())
 
 
 def test_pipeline_bounded_llm_capability_draft_can_override_false_memory_store_keyword() -> None:
@@ -12244,9 +14349,56 @@ def test_pipeline_custom_skill_skips_discord_step_when_condition_is_not_met() ->
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
 
     async def fake_chat(messages, **kwargs):
+        operation = str(kwargs.get("operation") or "")
+        if operation == "turn_intent_arbitration":
+            llm.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "intents": [],
+                        "confidence": "low",
+                        "reason": "test fallback keeps keyword router decision",
+                    }
+                )
+            )
+        if operation == ARIA_TURN_ARBITRATION_OPERATION:
+            llm.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "intents": ["chat"],
+                        "confidence": "low",
+                        "reason": "test fallback keeps existing pipeline expectations",
+                    }
+                )
+            )
+        if operation == "capability_draft_decision":
+            llm.last_messages = messages
+            return FakeLLMResponse("ok")
+        if operation == "pre_rag_action_arbitration":
+            llm.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "route": "action",
+                        "confidence": "low",
+                        "reason": "base test LLM leaves existing routing unchanged",
+                    }
+                )
+            )
         llm.calls += 1
         llm.last_messages = messages
-        _ = kwargs
+        if kwargs.get("operation") == "recipe_execution_intent":
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "execute": True,
+                        "id": "linux-health",
+                        "confidence": "high",
+                        "reason": "run linux health recipe",
+                    }
+                )
+            )
         return FakeLLMResponse("NO_ALERT")
 
     llm.chat = fake_chat  # type: ignore[method-assign]
@@ -12332,7 +14484,7 @@ def test_pipeline_custom_skill_skips_discord_step_when_condition_is_not_met() ->
 
     assert "recipe:linux-health" in result.intents
     assert result.text == "Decision: NO_ALERT"
-    assert llm.calls == 1
+    assert llm.calls == 2
 
 
 def test_pipeline_capability_router_calls_http_api_via_explicit_profile() -> None:
@@ -12753,6 +14905,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
         "free -h",
         "systemctl --failed --no-pager",
         "journalctl -p 3 -xb --no-pager -n 40",
+        "apt list --upgradable",
     ]
     settings = Settings.model_validate(
         {
@@ -12833,7 +14986,33 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
             self.operations.append(operation)
             user_text = "\n".join(str((row or {}).get("content", "")) for row in messages if (row or {}).get("role") == "user")
             lower = user_text.lower()
-            if operation == "capability_draft_decision" and "kapazität" in lower:
+            if operation == "capability_draft_decision":
+                try:
+                    lower = str(json.loads(user_text).get("message", "") or "").lower()
+                except Exception:
+                    lower = user_text.lower()
+            if operation == "capability_draft_decision" and (
+                "freien speicherplatz" in lower
+                or "harddisk" in lower
+                or "speicher frei" in lower
+            ):
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "specific disk free-space question about all servers",
+                        }
+                    )
+                )
+            if operation == "capability_draft_decision" and (
+                "kapazität" in lower
+            ):
                 return FakeLLMResponse(
                     json.dumps(
                         {
@@ -12848,7 +15027,29 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                         }
                     )
                 )
-            if operation == "capability_draft_decision" and ("fit" in lower or "stabil" in lower):
+            if operation == "capability_draft_decision" and "up to date" in lower:
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "package_update_check",
+                            "content": "uptime",
+                            "confidence": "high",
+                            "reason": "package update status question about all servers",
+                        }
+                    )
+                )
+            if operation == "capability_draft_decision" and (
+                "fit" in lower
+                or "stabil" in lower
+                or "wie geht es" in lower
+                or "server ok" in lower
+                or "server in ordnung" in lower
+                or "healthy" in lower
+            ):
                 return FakeLLMResponse(
                     json.dumps(
                         {
@@ -13072,6 +15273,24 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
     assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in english_health_prompt.detail_lines)
     assert any(f"plural_target_scope health_command_adapted command={capacity_command}" in line for line in english_health_prompt.detail_lines)
 
+    update_status_prompt = asyncio.run(
+        pipeline.process(
+            "sind meine server up to date",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    package_update_command = "apt list --upgradable"
+    assert update_status_prompt.intents == ["capability:ssh_command"]
+    assert update_status_prompt.pending_action is None
+    assert len([call for call in ssh_calls if call[1] == package_update_command]) == 3
+    assert len([call for call in ssh_calls if call[1] == capacity_command]) == 18
+    assert "Mehrere SSH-Ziele geprueft (3)." in update_status_prompt.text
+    assert "capability_draft_decision" in llm.operations
+    assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in update_status_prompt.detail_lines)
+    assert any(f"plural_target_scope package_update_command_adapted command={package_update_command}" in line for line in update_status_prompt.detail_lines)
+
     management_hd = asyncio.run(
         pipeline.process(
             "wie sieht die hd auf meinem management server aus",
@@ -13153,6 +15372,60 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
     )
     assert smb.intents == ["capability:file_list"]
     assert smb_calls == [("example_share", ".")]
+
+
+def test_pipeline_records_learning_outcome_for_confirmed_connection_action(monkeypatch) -> None:
+    async def fake_capture_learning_outcome(**kwargs):
+        captured.append(dict(kwargs))
+        return {"captured": True}
+
+    async def _run():
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": True},
+                "auto_memory": {"enabled": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+        pipeline.memory_skill = object()  # type: ignore[assignment]
+        monkeypatch.setattr(pipeline_mod, "capture_learning_outcome", fake_capture_learning_outcome)
+
+        async def fake_execute_routed_action(*_args, **_kwargs):
+            return ["capability:discord_send"], "Discord gesendet.", ["detail"], []
+
+        monkeypatch.setattr(pipeline, "_execute_routed_action", fake_execute_routed_action)
+        result = await pipeline.execute_pending_routed_action(
+            {
+                "query": "schick eine testnachricht an discord",
+                "candidate_kind": "template",
+                "candidate_id": "discord_send_message",
+                "routing_decision": {"kind": "discord", "ref": "alerts"},
+                "action_decision": {"candidate_kind": "template", "candidate_id": "discord_send_message"},
+                "payload": {"capability": "discord_send", "connection_kind": "discord", "connection_ref": "alerts"},
+                "safety_decision": {"action": "ask_user", "reason": "confirm outgoing message"},
+                "execution_decision": {"next_step": "execute"},
+            },
+            user_id="u1",
+            source="test",
+            auto_memory_enabled=True,
+            language="de",
+        )
+        await asyncio.sleep(0)
+        return result
+
+    captured: list[dict[str, object]] = []
+    result = asyncio.run(_run())
+
+    assert result.intents == ["capability:discord_send"]
+    assert captured
+    event = captured[0]["event"]
+    assert isinstance(event, dict)
+    assert event["source"] == "connection_action_outcome"
+    assert event["artifact_type"] == "procedure_candidate"
+    assert event["evidence"]["outcome"] == "confirmed_connection_action_executed"
+    assert event["evidence"]["connection_ref"] == "alerts"
 
 
 def test_pipeline_explicit_http_api_status_path_stays_out_of_sftp_memory_hint() -> None:

@@ -20,6 +20,7 @@ from aria.core.config_backup import (
     summarize_config_backup_payload,
 )
 from aria.core.i18n import I18NStore
+from aria.core.inventory_admin import build_inventory_index_status, rebuild_inventory_index
 
 
 SettingsGetter = Callable[[], Any]
@@ -77,6 +78,102 @@ class ConfigOperationsDetailRouteDeps:
 
 
 def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperationsDetailRouteDeps) -> None:
+    @app.get("/config/operations/reindex")
+    async def config_operations_reindex_legacy_page() -> RedirectResponse:
+        return RedirectResponse(url="/memories/reindex", status_code=303)
+
+    @app.get("/memories/reindex", response_class=HTMLResponse)
+    async def memories_reindex_page(
+        request: Request,
+        saved: int = 0,
+        rebuilt: int = 0,
+        error: str = "",
+        info: str = "",
+    ) -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        settings = deps.get_settings()
+        status = await build_inventory_index_status(settings)
+        context = deps.build_config_page_context(
+            request,
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/memories",
+            page_return_to="/memories/reindex",
+            page_heading=deps.msg(lang, "Memory Reindex", "Memory reindex"),
+        )
+        context.update(
+            {
+                "inventory_index": getattr(settings, "inventory_index", None),
+                "inventory_index_status": status,
+                "memory_nav": "reindex",
+                "rebuilt": bool(rebuilt),
+            }
+        )
+        return deps.templates.TemplateResponse(request=request, name="config_operations_reindex.html", context=context)
+
+    @app.post("/config/operations/reindex/run")
+    async def config_operations_reindex_legacy_run() -> RedirectResponse:
+        return RedirectResponse(url="/memories/reindex", status_code=303)
+
+    @app.post("/memories/reindex/run")
+    async def memories_reindex_run(request: Request) -> RedirectResponse:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/memories/reindex?error=no_admin", status_code=303)
+        pipeline = deps.get_pipeline()
+        result = await rebuild_inventory_index(
+            deps.get_settings(),
+            usage_meter=getattr(pipeline, "usage_meter", None),
+        )
+        status = str(result.get("status", "") or "").strip().lower()
+        if status == "error":
+            message = str(result.get("detail", "") or result.get("message", "") or "Inventory reindex failed.")
+            return RedirectResponse(url=f"/memories/reindex?error={quote_plus(message)}", status_code=303)
+        info = str(result.get("message", "") or "Inventory index rebuilt.")
+        return RedirectResponse(url=f"/memories/reindex?rebuilt=1&info={quote_plus(info)}", status_code=303)
+
+    @app.post("/config/operations/reindex/save")
+    async def config_operations_reindex_legacy_save() -> RedirectResponse:
+        return RedirectResponse(url="/memories/reindex", status_code=303)
+
+    @app.post("/memories/reindex/save")
+    async def memories_reindex_save(
+        request: Request,
+        enabled: str = Form("0"),
+        cron: str = Form(""),
+        timezone: str = Form("Europe/Zurich"),
+        run_on_startup: str = Form("0"),
+        keep_backup: str = Form("0"),
+        score_threshold: float = Form(0.35),
+        candidate_limit: int = Form(12),
+    ) -> RedirectResponse:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/memories/reindex?error=no_admin", status_code=303)
+        try:
+            clean_cron = str(cron or "").strip()
+            if len(clean_cron.split()) != 5:
+                raise ValueError(_ops_text(str(getattr(request.state, "lang", "de") or "de"), "reindex_cron_invalid", "Cron expression must have five fields."))
+            raw = deps.read_raw_config()
+            raw.setdefault("inventory_index", {})
+            if not isinstance(raw["inventory_index"], dict):
+                raw["inventory_index"] = {}
+            raw["inventory_index"].update(
+                {
+                    "enabled": str(enabled).strip().lower() in {"1", "true", "on", "yes"},
+                    "cron": clean_cron,
+                    "timezone": str(timezone or "Europe/Zurich").strip() or "Europe/Zurich",
+                    "run_on_startup": str(run_on_startup).strip().lower() in {"1", "true", "on", "yes"},
+                    "keep_backup": str(keep_backup).strip().lower() in {"1", "true", "on", "yes"},
+                    "score_threshold": max(0.0, min(1.0, float(score_threshold))),
+                    "candidate_limit": max(1, min(50, int(candidate_limit))),
+                }
+            )
+            deps.write_raw_config(raw)
+            deps.reload_runtime()
+            return RedirectResponse(url="/memories/reindex?saved=1", status_code=303)
+        except (OSError, ValueError) as exc:
+            return RedirectResponse(url=f"/memories/reindex?error={quote_plus(str(exc))}", status_code=303)
+
     @app.get("/config/backup", response_class=HTMLResponse)
     async def config_backup_page(
         request: Request,

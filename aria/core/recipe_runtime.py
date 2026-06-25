@@ -13,12 +13,20 @@ from aria.core.config import RoutingLanguageConfig
 from aria.core.connection_action_contract import guardrail_kind_for_capability
 from aria.core.guardrails import evaluate_guardrail, resolve_guardrail_profile
 from aria.core.i18n import I18NStore
+from aria.core.learning_classifier import LearningClassifier
+from aria.core.learning_classifier import store_learning_candidate
+from aria.core.learning_events import record_learning_event
+from aria.core.learning_validator import LearningCandidateValidator
+from aria.core.learning_validator import store_learning_eval
+from aria.core.notes_context import note_context_block
+from aria.core.notes_context import note_context_detail_lines
 from aria.core.notes_context import search_note_hits
 from aria.core.recipe_runtime_matching import looks_like_recipe_execution_request as _matching_looks_like_recipe_execution_request
 from aria.core.recipe_runtime_matching import match_stored_recipe_intents as _matching_match_stored_recipe_intents
 from aria.core.recipe_runtime_matching import recipe_match_score as _matching_recipe_match_score
 from aria.core.recipe_runtime_matching import recipe_tokens as _matching_recipe_tokens
 from aria.core.recipe_runtime_matching import resolve_stored_recipe_intent_with_llm as _matching_resolve_stored_recipe_intent_with_llm
+from aria.core.recipe_runtime_matching import scored_stored_recipe_rows as _matching_scored_stored_recipe_rows
 from aria.core.recipe_runtime_matching import significant_recipe_tokens as _matching_significant_recipe_tokens
 from aria.core.recipe_runtime_contract import RECIPE_STATUS_INTENT
 from aria.core.recipe_runtime_file_adapters import RecipeFileRuntime
@@ -274,18 +282,37 @@ def match_recipe_intents(message: str, runtime_recipes: list[dict[str, Any]]) ->
     return match_stored_recipe_intents(message, runtime_recipes)
 
 
+def scored_stored_recipe_rows(
+    message: str,
+    runtime_recipes: list[dict[str, Any]],
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    return _matching_scored_stored_recipe_rows(
+        message,
+        runtime_recipes,
+        stopwords=_RECIPE_MATCH_STOPWORDS,
+        action_hints=_RECIPE_ACTION_HINTS,
+        limit=limit,
+    )
+
+
 async def resolve_stored_recipe_intent_with_llm(
     message: str,
     runtime_recipes: list[dict[str, Any]],
     llm_client: Any | None,
+    *,
+    debug_lines: list[str] | None = None,
 ) -> list[str]:
     return await _matching_resolve_stored_recipe_intent_with_llm(
         message,
         runtime_recipes,
         llm_client,
+        stopwords=_RECIPE_MATCH_STOPWORDS,
         action_hints=_RECIPE_ACTION_HINTS,
         execution_phrases=_RECIPE_EXECUTION_PHRASES,
         recipe_text=_recipe_text,
+        debug_lines=debug_lines,
     )
 
 
@@ -314,6 +341,18 @@ def should_skip_recipe_auto_memory_persist(intents: list[str]) -> bool:
 
 def should_skip_auto_memory_persist(intents: list[str]) -> bool:
     return should_skip_recipe_auto_memory_persist(intents)
+
+
+def learning_collection_for_user(user_id: str) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "_", str(user_id or "").strip().lower())
+    clean = re.sub(r"_+", "_", clean).strip("_")
+    return f"aria_learning_{clean or 'web'}"
+
+
+def learning_events_collection_for_user(user_id: str) -> str:
+    clean = re.sub(r"[^a-zA-Z0-9_-]", "_", str(user_id or "").strip().lower())
+    clean = re.sub(r"_+", "_", clean).strip("_")
+    return f"aria_learning_events_{clean or 'web'}"
 
 
 class RecipeRuntime:
@@ -612,10 +651,14 @@ class RecipeRuntime:
         session_collection: str | None = None,
         auto_memory_enabled: bool = False,
         suppress_web_search_note_context: bool = False,
+        query_overrides: dict[str, str] | None = None,
+        context_overrides: dict[str, Any] | None = None,
     ) -> list[SkillResult]:
         results: list[SkillResult] = []
         runtime_recipes = runtime_recipes or []
         recipes_by_id = {str(row.get("id", "")): row for row in runtime_recipes}
+        query_overrides = query_overrides or {}
+        context_overrides = context_overrides or {}
 
         for intent in intents:
             if not is_recipe_intent(str(intent)):
@@ -637,6 +680,8 @@ class RecipeRuntime:
         skip_auto_persist = should_skip_auto_memory_persist(intents)
         facts_collection = self.facts_collection_for_user(user_id)
         preferences_collection = self.preferences_collection_for_user(user_id)
+        learning_collection = learning_collection_for_user(user_id)
+        learning_events_collection = learning_events_collection_for_user(user_id)
 
         if "memory_store" in intents and memory_skill:
             store_text = self.extract_memory_store_text(message, routing_profile)
@@ -654,28 +699,68 @@ class RecipeRuntime:
             results.append(store_result)
 
         if "memory_recall" in intents and memory_skill:
-            recall_query = self.extract_memory_recall_query(message, routing_profile)
-            family_base = (facts_collection or memory_collection or session_collection or "").strip()
-            merged_top_k = max(
-                int(self.settings.memory.top_k),
-                int(self.settings.auto_memory.session_recall_top_k) + int(self.settings.auto_memory.user_recall_top_k),
+            memory_recall_enabled = bool(context_overrides.get("memory_recall_enabled", True))
+            if not memory_recall_enabled:
+                pass
+            else:
+                recall_query = str(query_overrides.get("memory_recall") or "").strip() or self.extract_memory_recall_query(message, routing_profile)
+                family_base = (facts_collection or memory_collection or session_collection or "").strip()
+                merged_top_k = max(
+                    int(self.settings.memory.top_k),
+                    int(self.settings.auto_memory.session_recall_top_k) + int(self.settings.auto_memory.user_recall_top_k),
+                )
+                recall_result = await memory_skill.execute(
+                    query=recall_query,
+                    params={
+                        "action": "recall",
+                        "top_k": int(context_overrides.get("memory_top_k") or merged_top_k),
+                        "user_id": user_id,
+                        "collection": family_base,
+                        "target_collections": list(context_overrides.get("memory_target_collections") or []),
+                        "include_documents": bool(context_overrides.get("include_documents", True)),
+                        "docs_only": bool(context_overrides.get("docs_only", False)),
+                    },
+                )
+                recall_result.skill_name = "memory_recall"
+                results.append(recall_result)
+
+        notes_query = str(query_overrides.get("notes_search") or "").strip()
+        if notes_query:
+            note_hits = await search_note_hits(
+                base_dir=BASE_DIR,
+                username=user_id,
+                settings=self.settings,
+                query=notes_query,
+                limit=5,
             )
-            recall_result = await memory_skill.execute(
-                query=recall_query,
-                params={
-                    "action": "recall",
-                    "top_k": merged_top_k,
-                    "user_id": user_id,
-                    "collection": family_base,
-                },
-            )
-            recall_result.skill_name = "memory_recall"
-            results.append(recall_result)
+            if note_hits:
+                results.append(
+                    SkillResult(
+                        skill_name="notes_search",
+                        success=True,
+                        content=note_context_block(note_hits, language=language),
+                        metadata={
+                            "detail_lines": [
+                                f"Routing Debug: notes_retrieval query={notes_query}",
+                                *note_context_detail_lines(note_hits, language=language),
+                            ],
+                            "sources": [
+                                {
+                                    "type": "note",
+                                    "title": hit.title,
+                                    "folder": hit.folder,
+                                    "note_id": hit.note_id,
+                                }
+                                for hit in note_hits
+                            ],
+                        },
+                    )
+                )
 
         if "web_search" in intents:
             web_search_skill = self.web_search_skill_getter()
             if web_search_skill is not None:
-                web_query = self.extract_web_search_query(message, routing_profile)
+                web_query = str(query_overrides.get("web_search") or "").strip() or self.extract_web_search_query(message, routing_profile)
                 note_hits = []
                 if not suppress_web_search_note_context:
                     note_hits = await search_note_hits(
@@ -698,9 +783,11 @@ class RecipeRuntime:
                 results.append(web_result)
 
         if auto_memory_enabled and not explicit_recall and not explicit_web_search and memory_skill:
-            auto = AutoMemoryExtractor.decide(
+            auto = await AutoMemoryExtractor.decide_agentic(
                 message,
+                llm_client=self.llm_client,
                 max_facts=self.settings.auto_memory.max_facts_per_message,
+                enabled=bool(getattr(self.settings.auto_memory, "agentic_extraction_enabled", False)),
             )
             if auto.recall_query:
                 session_recall = await memory_skill.execute(
@@ -763,6 +850,101 @@ class RecipeRuntime:
                     if not pref_result.success:
                         results.append(pref_result)
 
+            if not explicit_store and not skip_auto_persist and auto.reflections:
+                for reflection in auto.reflections:
+                    reflection_result = await memory_skill.execute(
+                        query=reflection,
+                        params={
+                            "action": "store",
+                            "text": reflection,
+                            "user_id": user_id,
+                            "collection": learning_collection,
+                            "memory_type": "reflection",
+                            "source": "auto_reflection",
+                        },
+                    )
+                    if not reflection_result.success:
+                        results.append(reflection_result)
+                        continue
+                    try:
+                        learning_event = record_learning_event(
+                            {
+                                "event_type": "reflection",
+                                "artifact_type": "memory_reflection",
+                                "status": "observed",
+                                "risk": "low",
+                                "user_id": user_id,
+                                "source": "auto_memory",
+                                "summary": reflection,
+                                "evidence": {
+                                    "user_message": message,
+                                    "reflection": reflection,
+                                },
+                                "metadata": {
+                                    "collection": learning_collection,
+                                    "memory_type": "reflection",
+                                    "extraction_model": auto.extraction_model,
+                                },
+                            }
+                        )
+                    except OSError:
+                        learning_event = {}
+                    event_id = str(learning_event.get("event_id", "") if isinstance(learning_event, dict) else "").strip()
+                    event_text = "\n".join(
+                        part
+                        for part in (
+                            f"Learning Event: {event_id}" if event_id else "Learning Event",
+                            "Type: reflection / memory_reflection",
+                            f"Status: {str(learning_event.get('status', 'observed') if isinstance(learning_event, dict) else 'observed')}",
+                            f"Source: auto_memory",
+                            f"Reflection: {reflection}",
+                            f"Collection: {learning_collection}",
+                        )
+                        if part
+                    )
+                    event_store_result = await memory_skill.execute(
+                        query=event_text,
+                        params={
+                            "action": "store",
+                            "text": event_text,
+                            "user_id": user_id,
+                            "collection": learning_events_collection,
+                            "memory_type": "learning_event",
+                            "source": "learning_event_ledger",
+                        },
+                    )
+                    if not event_store_result.success:
+                        results.append(event_store_result)
+                    if isinstance(learning_event, dict) and learning_event:
+                        try:
+                            candidate = await LearningClassifier(self.llm_client).classify(
+                                learning_event,
+                                user_id=user_id,
+                                source="auto_memory",
+                            )
+                            if str(candidate.get("artifact_type", "")).strip().lower() != "ignore":
+                                candidate_store_result = await store_learning_candidate(
+                                    memory_skill=memory_skill,
+                                    candidate=candidate,
+                                    user_id=user_id,
+                                )
+                                if not candidate_store_result.success:
+                                    results.append(candidate_store_result)
+                                eval_spec = await LearningCandidateValidator(self.llm_client).validate(
+                                    candidate,
+                                    user_id=user_id,
+                                    source="auto_memory",
+                                )
+                                eval_store_result = await store_learning_eval(
+                                    memory_skill=memory_skill,
+                                    eval_spec=eval_spec,
+                                    user_id=user_id,
+                                )
+                                if not eval_store_result.success:
+                                    results.append(eval_store_result)
+                        except Exception:
+                            pass
+
             if session_collection and not skip_auto_persist and auto.should_persist_session:
                 session_note = self.normalize_spaces(message)
                 if session_note:
@@ -786,8 +968,9 @@ class RecipeRuntime:
                     content="",
                     success=True,
                     metadata={
-                        "extraction_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                        "extraction_model": "rule_based",
+                        "extraction_usage": auto.extraction_usage
+                        or {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "extraction_model": auto.extraction_model,
                     },
                 )
             )

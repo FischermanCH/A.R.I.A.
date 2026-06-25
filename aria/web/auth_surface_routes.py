@@ -331,6 +331,7 @@ def register_auth_surface_routes(app: FastAPI, deps: AuthSurfaceRouteDeps) -> No
             if not isinstance(raw["auto_memory"], dict):
                 raw["auto_memory"] = {}
             raw["auto_memory"]["enabled"] = active
+            raw["auto_memory"]["agentic_extraction_enabled"] = active
             deps.write_raw_config(raw)
             deps.reload_runtime()
             response = RedirectResponse(url=target, status_code=303)

@@ -81,6 +81,12 @@ Zweck:
   - Ziel-Collection
   - Vorschau
   - ganzes Dokument aus Qdrant entfernen
+- `Memory Map` integriert den `Qdrant Brain` als zoombare Drilldown-Graph-Ansicht:
+  - begrenzte Stichprobe echter Qdrant-Punkte
+  - semantische Kanten aus serverseitig berechneter Embedding-Naehe innerhalb der ausgewaehlten Collection
+  - Detailpanel fuer sichere Payload-Previews, Collection und Point-ID
+  - keine rohen Embedding-Vektoren im Browser
+  - Touch-Browse-Modus fuer Mobile: normales Scrollen/Tappen bleibt frei, `Graph bewegen` aktiviert gezielt Pan und Node-Drag
 - Session-Rollups werden jetzt mit expliziten Metadaten fuer `week` und `month` erzeugt
 - `Memory Map` zeigt diese Rollups als eigene Wochen-/Monats-Sicht mit Zeitraum und Quellenanzahl
 - leere Qdrant-Collections werden nach UI-Löschung und Chat-Forget aufgeräumt

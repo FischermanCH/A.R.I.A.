@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="memories-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+
+  <section class="floating-card memory-explorer-hero">
+    <div class="page-title-row"><span>{{ icon('product', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories.learning_candidate_apply_preview_title', 'Apply-Vorschau') }}</h2></div>
+    <p>{{ tr(request, 'memories.learning_candidate_apply_preview_intro', 'Prüfbarer Vorschlag aus einem vorbereiteten Qdrant-Lernkandidaten. Es wird keine Runtime-Regel aktiviert.') }}</p>
+    <div class="memory-explorer-summary">
+      <article class="memory-explorer-card">
+        <h3>{{ tr(request, 'memories.learning_candidate_type', 'Typ') }}</h3>
+        <p>{{ preview.candidate_type or '-' }}</p>
+        <small>{{ preview.proposed_kind }} · {{ preview.proposed_scope }}</small>
+      </article>
+      <article class="memory-explorer-card">
+        <h3>{{ tr(request, 'memories.learning_candidate_regression', 'Regression') }}</h3>
+        <p>{{ preview.regression_status }}</p>
+        <small>{% if preview.regression_ref %}{{ preview.regression_ref }}{% else %}{{ tr(request, 'memories.learning_candidate_regression_missing', 'Regression missing') }}{% endif %} · {{ tr(request, 'memories.learning_candidate_regression_required', 'Pflicht vor jeder Aktivierung') }} · {{ preview.regression_verify_result }}</small>
+      </article>
+      <article class="memory-explorer-card">
+        <h3>{{ tr(request, 'memories.learning_candidate_runtime', 'Runtime') }}</h3>
+        <p>{{ activation_preview.runtime_activation }}</p>
+        <small>{{ tr(request, 'memories.learning_candidate_runtime_weak_signal', 'Nur schwacher Agentic-Hinweis, keine harte Regel') }}</small>
+      </article>
+    </div>
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.learning_candidate_activation_title', 'Aktivierung') }}</h3>
+    <div class="memory-candidate-review">
+      <span class="chat-status">preflight: {{ activation_preview.activation_preflight_state }}</span>
+      <span class="chat-status">{{ activation_preview.active_hint_type }}</span>
+      <span class="chat-status">{{ activation_preview.active_hint_collection }}</span>
+      <span class="chat-status">runtime: {{ activation_preview.runtime_activation }}</span>
+    </div>
+    {% if activation_preview.activation_blockers %}
+    <ul>
+      {% for blocker in activation_preview.activation_blockers %}
+      <li>{{ blocker }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if preview.regression_verify_result == 'passed' %}
+    <form method="post" action="/memories/learning-candidate/activation-preflight" class="editor-form">
+      <input type="hidden" name="collection" value="{{ preview.collection }}">
+      <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+      <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+      <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+      <input type="hidden" name="promotion_state" value="eligible">
+      <input type="hidden" name="apply_state" value="prepared">
+      <input type="hidden" name="regression_status" value="{{ preview.regression_status }}">
+      <input type="hidden" name="regression_ref" value="{{ preview.regression_ref }}">
+      <input type="hidden" name="regression_verified" value="{{ preview.regression_verified }}">
+      <input type="hidden" name="regression_verify_result" value="{{ preview.regression_verify_result }}">
+      <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+      <input type="hidden" name="type" value="learning_candidate">
+      <button type="submit" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_activation_preflight', 'Aktivierungs-Preflight') }}</button>
+    </form>
+    {% endif %}
+    {% if activation_preview.activation_allowed %}
+    <form method="post" action="/memories/learning-candidate/activate" class="editor-form">
+      <input type="hidden" name="collection" value="{{ preview.collection }}">
+      <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+      <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+      <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+      <input type="hidden" name="regression_ref" value="{{ preview.regression_ref }}">
+      <input type="hidden" name="activation_preflight_state" value="{{ activation_preview.activation_preflight_state }}">
+      <input type="hidden" name="activation_blockers" value="">
+      <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+      <input type="hidden" name="type" value="learning_candidate">
+      <button type="submit" class="ui-action-button">{{ icon('save', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_activate', 'Als aktiven Lern-Hinweis speichern') }}</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.learning_candidate_preview_status', 'Gate-Status') }}</h3>
+    <div class="memory-candidate-review">
+      <span class="chat-status">{{ preview.proposed_state }}</span>
+      <span class="chat-status">{{ preview.candidate_risk }}</span>
+      <span class="chat-status">regression: {{ preview.regression_status }}</span>
+      <span class="chat-status">verified: {{ preview.regression_verified }}</span>
+      <span class="chat-status">{{ preview.collection }}</span>
+      <span class="chat-status">{{ preview.point_id }}</span>
+    </div>
+    {% if preview.blockers %}
+    <ul>
+      {% for blocker in preview.blockers %}
+      <li>{{ blocker }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  {% if app_learning_preview.available %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.app_learning_identity_title', 'App Identity') }}</h3>
+    <div class="memory-candidate-review">
+      {% if app_learning_preview.runtime_kind %}<span class="chat-status">{{ app_learning_preview.runtime_kind }}</span>{% endif %}
+      {% if app_learning_preview.app_root %}<span class="chat-status">{{ app_learning_preview.app_root }}</span>{% endif %}
+      {% if app_learning_preview.app_identity.confidence %}<span class="chat-status">confidence: {{ app_learning_preview.app_identity.confidence }}</span>{% endif %}
+    </div>
+    {% if app_learning_preview.app_identity.entry_artifacts %}
+    <details class="skill-details" open>
+      <summary>{{ tr(request, 'memories.app_learning_entry_artifacts', 'Entry-Artefakte') }}</summary>
+      <ul>
+        {% for item in app_learning_preview.app_identity.entry_artifacts %}
+        <li><code>{{ item }}</code></li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.app_learning_plan_title', 'Plan Draft') }}</h3>
+    <div class="memory-candidate-review">
+      <span class="chat-status">{{ app_learning_preview.plan_draft.plan_kind or 'plan_draft' }}</span>
+      <span class="chat-status">confirmation: {{ app_learning_preview.plan_draft.requires_confirmation }}</span>
+      <span class="chat-status">runtime: {{ app_learning_preview.plan_draft.runtime_activation_allowed }}</span>
+    </div>
+    {% if app_learning_preview.plan_draft.preflight_checks %}
+    <h4>{{ tr(request, 'memories.app_learning_preflight', 'Preflight') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_draft.preflight_checks %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.plan_draft.backup_targets %}
+    <h4>{{ tr(request, 'memories.app_learning_backup_targets', 'Backup-Ziele') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_draft.backup_targets %}<li><code>{{ item }}</code></li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.plan_draft.proposed_steps %}
+    <h4>{{ tr(request, 'memories.app_learning_proposed_steps', 'Vorgeschlagene Schritte') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_draft.proposed_steps %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.plan_draft.rollback_steps %}
+    <h4>{{ tr(request, 'memories.app_learning_rollback', 'Rollback') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_draft.rollback_steps %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.app_learning_validation_title', 'Validation / Gates') }}</h3>
+    <div class="memory-candidate-review">
+      <span class="chat-status">{{ app_learning_preview.validation_state or 'unknown' }}</span>
+      <span class="chat-status">risk: {{ app_learning_preview.risk_level or 'n/a' }}</span>
+      <span class="chat-status">runtime: {{ app_learning_preview.plan_validation.runtime_activation_allowed }}</span>
+      <span class="chat-status">promotion: {{ app_learning_preview.plan_validation.promotion_allowed }}</span>
+    </div>
+    {% if app_learning_preview.plan_validation.missing_gates %}
+    <h4>{{ tr(request, 'memories.app_learning_missing_gates', 'Missing Gates') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_validation.missing_gates %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.plan_validation.mutating_steps %}
+    <h4>{{ tr(request, 'memories.app_learning_mutating_steps', 'Mutierende Schritte') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_validation.mutating_steps %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.plan_validation.required_confirmations %}
+    <h4>{{ tr(request, 'memories.app_learning_confirmations', 'Bestätigungen') }}</h4>
+    <ul>{% for item in app_learning_preview.plan_validation.required_confirmations %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.app_learning_health_drafts_title', 'Health Drafts') }}</h3>
+    {% if app_learning_preview.health_drafts %}
+    <ul>
+      {% for draft in app_learning_preview.health_drafts %}
+      <li><strong>{{ draft.check_kind }}</strong> · <code>{{ draft.target }}</code> · <code>{{ draft.command_preview }}</code></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>{{ tr(request, 'memories.app_learning_no_health_drafts', 'Keine Health-Drafts vorhanden.') }}</p>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.app_learning_regression_drafts_title', 'Regression Drafts') }}</h3>
+    {% if app_learning_preview.regression_drafts %}
+    <ul>
+      {% for draft in app_learning_preview.regression_drafts %}
+      <li><strong>{{ draft.name }}</strong> · {{ draft.expected }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>{{ tr(request, 'memories.app_learning_no_regression_drafts', 'Keine Regression-Drafts vorhanden.') }}</p>
+    {% endif %}
+  </section>
+
+  {% if app_learning_preview.pytest_skeleton_proposal %}
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.app_learning_pytest_proposal_title', 'Pytest Skeleton Proposal') }}</h3>
+    <div class="memory-candidate-review">
+      <span class="chat-status">{{ app_learning_preview.pytest_skeleton_proposal.proposal_kind }}</span>
+      <span class="chat-status">{{ app_learning_preview.pytest_skeleton_proposal.target_file }}</span>
+      <span class="chat-status">write: {{ app_learning_preview.pytest_skeleton_proposal.write_allowed }}</span>
+      <span class="chat-status">runtime: {{ app_learning_preview.pytest_skeleton_proposal.runtime_activation_allowed }}</span>
+      {% if app_learning_preview.pytest_apply_preview.preview_state %}<span class="chat-status">{{ app_learning_preview.pytest_apply_preview.preview_state }}</span>{% endif %}
+    </div>
+    {% if app_learning_preview.pytest_apply_preview %}
+    <div class="memory-candidate-review">
+      <span class="chat-status">target exists: {{ app_learning_preview.pytest_apply_preview.target_exists }}</span>
+      <span class="chat-status">write preview: {{ app_learning_preview.pytest_apply_preview.write_allowed }}</span>
+      <span class="chat-status">runtime: {{ app_learning_preview.pytest_apply_preview.runtime_activation_allowed }}</span>
+    </div>
+    {% if app_learning_preview.pytest_apply_preview.blockers %}
+    <h4>{{ tr(request, 'memories.app_learning_pytest_blockers', 'Blocker') }}</h4>
+    <ul>{% for item in app_learning_preview.pytest_apply_preview.blockers %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.pytest_apply_preview.warnings %}
+    <h4>{{ tr(request, 'memories.app_learning_pytest_warnings', 'Hinweise') }}</h4>
+    <ul>{% for item in app_learning_preview.pytest_apply_preview.warnings %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if app_learning_preview.pytest_apply_preview.preview_state == 'preview_ready' %}
+    <form method="post" action="/memories/learning-candidate/pytest/prepare-write" class="editor-form">
+      <input type="hidden" name="collection" value="{{ preview.collection }}">
+      <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+      <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+      <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+      <input type="hidden" name="apply_state" value="{{ preview.proposed_state }}">
+      <input type="hidden" name="regression_status" value="{{ preview.regression_status }}">
+      <input type="hidden" name="regression_ref" value="{{ preview.regression_ref }}">
+      <input type="hidden" name="regression_verified" value="{{ preview.regression_verified }}">
+      <input type="hidden" name="regression_verify_result" value="{{ preview.regression_verify_result }}">
+      <input type="hidden" name="regression_verify_reason" value="{{ preview.regression_verify_reason }}">
+      <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+      <input type="hidden" name="type" value="learning_candidate">
+      <button type="submit" class="ui-action-button">{{ icon('save', 'ui-action-icon') }}{{ tr(request, 'memories.app_learning_pytest_prepare_write', 'Write vorbereiten') }}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% if app_learning_preview.pytest_skeleton_proposal.test_functions %}
+    <ul>
+      {% for test in app_learning_preview.pytest_skeleton_proposal.test_functions %}
+      <li><strong>{{ test.name }}</strong> · {{ test.test_kind }} · {{ test.act }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if app_learning_preview.pytest_apply_preview.code_preview %}
+    <details class="skill-details" open>
+      <summary>{{ tr(request, 'memories.app_learning_pytest_code_preview', 'Code Preview') }}</summary>
+      <pre class="key-preview"><code>{{ app_learning_preview.pytest_apply_preview.code_preview }}</code></pre>
+    </details>
+    {% endif %}
+    {% if prepared_artifact_review.pytest_write_state or prepared_artifact_review.reviewable %}
+    <section class="memory-review-panel">
+      <h4>{{ tr(request, 'memories.app_learning_artifact_review_title', 'Prepared Artifact Review') }}</h4>
+      <div class="memory-candidate-review">
+        {% if prepared_artifact_review.pytest_write_state %}<span class="chat-status">write: {{ prepared_artifact_review.pytest_write_state }}</span>{% endif %}
+        {% if prepared_artifact_review.pytest_write_gate_result %}<span class="chat-status">gate: {{ prepared_artifact_review.pytest_write_gate_result }}</span>{% endif %}
+        {% if prepared_artifact_review.pytest_target_file %}<span class="chat-status">{{ prepared_artifact_review.pytest_target_file }}</span>{% endif %}
+        {% if prepared_artifact_review.pytest_code_preview_sha256 %}<span class="chat-status">sha256: {{ prepared_artifact_review.pytest_code_preview_sha256[:12] }}</span>{% endif %}
+        {% if prepared_artifact_review.pytest_write_review_state %}<span class="chat-status">review: {{ prepared_artifact_review.pytest_write_review_decision }}</span>{% endif %}
+      </div>
+      {% if prepared_artifact_review.pytest_write_review_notes %}
+      <p>{{ prepared_artifact_review.pytest_write_review_notes }}</p>
+      {% endif %}
+      {% if prepared_artifact_review.reviewable %}
+      <form method="post" action="/memories/learning-candidate/artifact/review" class="editor-form">
+        <input type="hidden" name="collection" value="{{ preview.collection }}">
+        <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+        <input type="hidden" name="artifact_kind" value="pytest_skeleton_write">
+        <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+        <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+        <input type="hidden" name="apply_state" value="{{ preview.proposed_state }}">
+        <input type="hidden" name="regression_status" value="{{ preview.regression_status }}">
+        <input type="hidden" name="regression_ref" value="{{ preview.regression_ref }}">
+        <input type="hidden" name="regression_verified" value="{{ preview.regression_verified }}">
+        <input type="hidden" name="regression_verify_result" value="{{ preview.regression_verify_result }}">
+        <input type="hidden" name="regression_verify_reason" value="{{ preview.regression_verify_reason }}">
+        <input type="hidden" name="pytest_write_state" value="{{ prepared_artifact_review.pytest_write_state }}">
+        <input type="hidden" name="pytest_write_gate_result" value="{{ prepared_artifact_review.pytest_write_gate_result }}">
+        <input type="hidden" name="pytest_target_file" value="{{ prepared_artifact_review.pytest_target_file }}">
+        <input type="hidden" name="pytest_code_preview_sha256" value="{{ prepared_artifact_review.pytest_code_preview_sha256 }}">
+        <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+        <input type="hidden" name="type" value="learning_candidate">
+        <label for="artifact-review-notes">{{ tr(request, 'memories.app_learning_artifact_review_notes', 'Review-Notiz') }}</label>
+        <textarea id="artifact-review-notes" name="review_notes" class="editor-textarea short">{{ prepared_artifact_review.pytest_write_review_notes }}</textarea>
+        <div class="inline-actions">
+          <button type="submit" name="decision" value="accepted" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ tr(request, 'memories.app_learning_artifact_review_accept', 'Akzeptieren') }}</button>
+          <button type="submit" name="decision" value="needs_changes" class="ui-action-button">{{ icon('edit', 'ui-action-icon') }}{{ tr(request, 'memories.app_learning_artifact_review_needs_changes', 'Änderungen nötig') }}</button>
+          <button type="submit" name="decision" value="rejected" class="danger-btn">{{ tr(request, 'memories.app_learning_artifact_review_reject', 'Verwerfen') }}</button>
+        </div>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+    {% if app_learning_preview.pytest_skeleton_proposal.safety_notes %}
+    <h4>{{ tr(request, 'memories.app_learning_pytest_safety', 'Safety') }}</h4>
+    <ul>{% for item in app_learning_preview.pytest_skeleton_proposal.safety_notes %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+  {% endif %}
+  {% endif %}
+
+  <section class="floating-card">
+    <h3>{{ tr(request, 'memories.learning_candidate_regression_link_title', 'Regressionstest verlinken') }}</h3>
+    <form method="post" action="/memories/learning-candidate/regression" class="editor-form">
+      <input type="hidden" name="collection" value="{{ preview.collection }}">
+      <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+      <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+      <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+      <input type="hidden" name="apply_state" value="prepared">
+      <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+      <input type="hidden" name="type" value="learning_candidate">
+      <label for="regression_ref">{{ tr(request, 'memories.learning_candidate_regression_ref', 'Regression Ref') }}</label>
+      <input id="regression_ref" name="regression_ref" type="text" value="{{ preview.regression_ref }}" placeholder="tests/test_pipeline.py::test_name" required>
+      <button type="submit" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_regression_link', 'Regression verlinken') }}</button>
+    </form>
+    {% if preview.regression_ref %}
+    <form method="post" action="/memories/learning-candidate/regression/verify" class="editor-form">
+      <input type="hidden" name="collection" value="{{ preview.collection }}">
+      <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+      <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+      <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+      <input type="hidden" name="apply_state" value="prepared">
+      <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+      <input type="hidden" name="type" value="learning_candidate">
+      <input type="hidden" name="regression_ref" value="{{ preview.regression_ref }}">
+      <button type="submit" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_regression_verify', 'Regression prüfen') }}</button>
+    </form>
+    {% endif %}
+    {% if preview.regression_run_allowed %}
+    <form method="post" action="/memories/learning-candidate/regression/run" class="editor-form">
+      <input type="hidden" name="collection" value="{{ preview.collection }}">
+      <input type="hidden" name="point_id" value="{{ preview.point_id }}">
+      <input type="hidden" name="artifact_type" value="{{ preview.candidate_type }}">
+      <input type="hidden" name="risk" value="{{ preview.candidate_risk }}">
+      <input type="hidden" name="apply_state" value="prepared">
+      <input type="hidden" name="candidate_text" value="{{ preview.candidate_text }}">
+      <input type="hidden" name="type" value="learning_candidate">
+      <input type="hidden" name="regression_ref" value="{{ preview.regression_ref }}">
+      <button type="submit" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_regression_run', 'Regression ausführen') }}</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="floating-card">
+    <h3>{{ preview.title or tr(request, 'memories.learning_candidate_apply_preview_candidate', 'Learning Candidate') }}</h3>
+    <p>{{ preview.summary }}</p>
+    {% if preview.expected_behavior %}
+    <h4>{{ tr(request, 'memories.learning_candidate_expected_behavior', 'Expected Behavior') }}</h4>
+    <p>{{ preview.expected_behavior }}</p>
+    {% endif %}
+    <details class="skill-details">
+      <summary>{{ tr(request, 'memories.learning_candidate_raw_text', 'Qdrant-Kandidat') }}</summary>
+      <pre class="key-preview">{{ preview.candidate_text }}</pre>
+    </details>
+  </section>
+
+  <section class="memories-meta">
+    <a class="button-like ui-action-link memories-link" href="{{ return_url }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'memories.back_to_explorer', 'Zurück zum Explorer') }}</a>
+  </section>
+</main>
+{% endblock %}

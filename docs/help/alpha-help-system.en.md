@@ -95,7 +95,7 @@ Important:
 - **Experience Memory** stores successful safe action patterns as planner context, not as blind executor automation
 - transient SSH/RSS/SMB snapshots are not written into Memory by default
 
-On `/memories`, you can inspect, search, edit, delete, and export memories. `/memories/map` shows collections, document groups, rollups, and memory structure.
+On `/memories`, you can inspect, search, edit, delete, and export memories. `/memories/map` shows collections, document groups, rollups, memory structure, and the Qdrant Brain graph.
 
 ## Notes
 

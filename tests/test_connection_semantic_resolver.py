@@ -131,6 +131,47 @@ def test_connection_semantic_resolver_prefers_single_plausible_candidate_without
     assert hint.source == "semantic_alias"
 
 
+def test_connection_semantic_resolver_uses_llm_for_single_loose_candidate() -> None:
+    class FakeLLMResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class FakeLLMClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            _ = kwargs
+            prompt = "\n".join(str(message.get("content", "")) for message in messages)
+            assert "ops-monitor-01" in prompt
+            assert "ops-mgmt-01" in prompt
+            return FakeLLMResponse(
+                '{"kind":"ssh","ref":"ops-monitor-01","confidence":"high","reason":"monitoring server fits the request"}'
+            )
+
+    llm = FakeLLMClient()
+    resolver = ConnectionSemanticResolver(llm_client=llm)
+
+    hint = asyncio.run(
+        resolver.resolve_connection_with_llm(
+            "server monitoring status",
+            {
+                "ssh": {
+                    "ops-monitor-01": {"title": "Monitoring Server"},
+                    "ops-mgmt-01": {"title": "Management Host"},
+                }
+            },
+            preferred_kind="ssh",
+        )
+    )
+
+    assert llm.calls == 1
+    assert hint.connection_kind == "ssh"
+    assert hint.connection_ref == "ops-monitor-01"
+    assert hint.source == "semantic_llm"
+
+
 def test_connection_semantic_resolver_builds_rss_aliases_from_metadata() -> None:
     aliases = ConnectionSemanticResolver._build_rss_aliases(
         "heise-feed",

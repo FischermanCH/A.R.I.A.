@@ -22,6 +22,7 @@ class AgenticExecutionResult:
     text: str
     detail_lines: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_pipeline_tuple(self) -> tuple[list[str], str, list[str], list[str]]:
         return self.intents, self.text, self.detail_lines, self.errors

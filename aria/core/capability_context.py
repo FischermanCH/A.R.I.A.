@@ -41,14 +41,23 @@ class CapabilityContextStore:
         connection_ref: str,
         path: str = "",
         content: str = "",
+        connection_refs: list[str] | tuple[str, ...] | None = None,
+        result_summary: str = "",
     ) -> None:
+        refs = [
+            str(item or "").strip()
+            for item in list(connection_refs or [])
+            if str(item or "").strip()
+        ]
         payload = self._load_payload()
         payload[self._safe_user_id(user_id)] = {
             "capability": str(capability or "").strip(),
             "connection_kind": str(connection_kind or "").strip(),
             "connection_ref": str(connection_ref or "").strip(),
+            "connection_refs": refs,
             "path": str(path or "").strip(),
             "content": str(content or "").strip(),
+            "result_summary": str(result_summary or "").strip(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self._write_payload(payload)

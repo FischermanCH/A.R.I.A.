@@ -35,7 +35,6 @@ from aria.core.action_planner_result_state import sort_serialized_candidates
 from aria.core.action_planner_result_state import target_context as _target_context
 from aria.core.action_planner_recipe_candidates import build_learned_recipe_action_candidates
 from aria.core.action_planner_recipe_candidates import build_stored_recipe_action_candidates
-from aria.core.action_planner_scoring import intent_is_explicit
 from aria.core.action_planner_scoring import intent_score
 from aria.core.action_planner_scoring import routing_preference_bonus
 from aria.core.action_planner_scoring import template_router_keywords
@@ -48,6 +47,7 @@ from aria.core.capability_catalog import normalize_capability
 from aria.core.connection_catalog import connection_routing_spec, normalize_connection_kind
 from aria.core.i18n import I18NStore
 from aria.core.recipe_manifests import load_stored_recipe_manifests
+from aria.core.recipe_promotion_contract import learned_recipe_promotion_blockers
 from aria.core.learned_recipe_store import load_learned_recipe_store_entries
 from aria.core.learned_recipe_store_contract import normalize_learned_recipe_store_entry
 from aria.core.planner_candidates import PlannerCandidate, PlannerInputSet, build_planner_input_set, planner_candidate_from_action
@@ -267,11 +267,9 @@ def _heuristic_reason_text(reason: str, language: str = "") -> str:
     mapping = {
         "single_candidate": _planner_text(language, "reason_single_candidate", "Only one suitable action candidate is available."),
         "no_signal": _planner_text(language, "reason_no_signal", "The request is still too vague for action selection."),
-        "same_intent_clear_lead": _planner_text(language, "reason_same_intent_clear_lead", "One candidate has a clear lead within the same intent."),
         "same_intent_role_priority": _planner_text(language, "reason_same_intent_role_priority", "For the same intent, the better-bounded candidate was preferred."),
-        "explicit_intent_clear_lead": _planner_text(language, "reason_explicit_intent_clear_lead", "The request states the intent clearly enough."),
-        "score_gap": _planner_text(language, "reason_score_gap", "One candidate has a clear lead."),
         "ambiguous": _planner_text(language, "reason_ambiguous", "The request remains ambiguous for action selection."),
+        "ranking_hint_needs_llm": _planner_text(language, "reason_ranking_hint_needs_llm", "Candidate scores are ranking hints only; ARIA should ask before selecting an action without an LLM decision."),
     }
     return mapping.get(str(reason or "").strip(), str(reason or "").strip())
 
@@ -338,11 +336,14 @@ def _load_learned_recipe_records() -> list[dict[str, Any]]:
     for row in load_learned_recipe_store_entries():
         if not isinstance(row, dict):
             continue
-        promotion_state = str(row.get("promotion_state", "") or "").strip().lower()
-        stored_recipe_id = str(row.get("stored_recipe_id", "") or "").strip()
+        normalized = normalize_learned_recipe_store_entry(dict(row or {}))
+        promotion_state = str(normalized.get("promotion_state", "") or "").strip().lower()
+        stored_recipe_id = str(normalized.get("stored_recipe_id", "") or "").strip()
         if promotion_state != "promoted" or not stored_recipe_id:
             continue
-        rows.append(dict(row))
+        if learned_recipe_promotion_blockers(normalized):
+            continue
+        rows.append(normalized)
     return rows
 
 
@@ -424,21 +425,10 @@ def _heuristic_action_decision(query: str, candidates: list[ActionPlanCandidate]
     second = ordered[1]
     top_score = float(top.score or 0.0)
     second_score = float(second.score or 0.0)
-    gap = top_score - second_score
-    explicit_intent = intent_is_explicit(query, top.intent)
-    same_intent = bool(top.intent and top.intent == second.intent)
 
     if top_score <= 0 and second_score <= 0:
         return top, "low", True, "no_signal"
-    if same_intent and top_score == second_score and _candidate_role_priority(top) < _candidate_role_priority(second):
-        return top, "medium", False, "same_intent_role_priority"
-    if same_intent and gap >= 1.0:
-        return top, "medium", False, "same_intent_clear_lead"
-    if explicit_intent and gap >= 1.0:
-        return top, "medium", False, "explicit_intent_clear_lead"
-    if gap >= 2.0:
-        return top, "medium", False, "score_gap"
-    return top, "low", True, "ambiguous"
+    return top, "low", True, "ranking_hint_needs_llm"
 
 
 def _recover_llm_candidate_selection(

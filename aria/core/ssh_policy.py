@@ -19,6 +19,7 @@ _FILTER_COMMANDS = {
 }
 
 _READONLY_COMMANDS = {
+    "apt",
     "cat",
     "date",
     "df",
@@ -54,7 +55,6 @@ _READONLY_COMMANDS = {
 }
 
 _BLOCKED_HEADS = {
-    "apt",
     "apt-get",
     "bash",
     "chmod",
@@ -130,6 +130,7 @@ _ALLOW_DOCKER_SUBCOMMANDS = {
 }
 
 _ALLOW_SERVICE_SUBCOMMANDS = {"status"}
+_ALLOW_APT_SUBCOMMANDS = {"list"}
 _ALLOW_LAUNCHCTL_SUBCOMMANDS = {"list", "print", "print-disabled", "blame"}
 _ALLOW_IP_SUBCOMMANDS = {"a", "addr", "address", "link", "route", "r", "neigh", "neighbor", "rule"}
 _BLOCKED_IP_VERBS = {"add", "del", "delete", "set", "replace", "change", "flush"}
@@ -328,6 +329,8 @@ def _validate_readonly_command_form(
         if unknown_options:
             return SSHPolicyDecision("ask_user", "ssh_command_unknown_readonly", clean_command, segments)
         return None
+    if head == "apt" and not _segment_allows_apt_readonly_form(segment):
+        return SSHPolicyDecision("block", "ssh_command_mutating_operation", clean_command, segments)
     if head == "launchctl" and not _segment_allows_subcommand(segment, _ALLOW_LAUNCHCTL_SUBCOMMANDS):
         return SSHPolicyDecision("ask_user", "ssh_command_unknown_readonly", clean_command, segments)
     return None
@@ -342,3 +345,15 @@ def _first_non_option_token(parts: list[str]) -> str:
             continue
         return clean
     return ""
+
+
+def _segment_allows_apt_readonly_form(segment: str) -> bool:
+    parts = normalize_ssh_command(segment).split()
+    if len(parts) < 2 or parts[1].lower() not in _ALLOW_APT_SUBCOMMANDS:
+        return False
+    allowed_options = {"--upgradable", "--installed"}
+    for part in parts[2:]:
+        lowered = part.lower()
+        if lowered.startswith("-") and lowered not in allowed_options:
+            return False
+    return True

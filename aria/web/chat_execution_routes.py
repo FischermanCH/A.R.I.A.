@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import re
+import time
 from typing import Any
 
 from fastapi import FastAPI, Form, Request
@@ -19,11 +20,13 @@ from aria.core.chat_learn_mode import cancel_chat_learn_mode
 from aria.core.chat_learn_mode import finish_chat_learn_mode
 from aria.core.chat_learn_mode import parse_chat_learn_command
 from aria.core.chat_learn_mode import start_chat_learn_mode
+from aria.core.followup_resolution import FollowupResolver
 from aria.core.i18n import I18NStore
 from aria.core.notes_context import notes_index_enabled
 from aria.core.notes_index import NotesIndex
 from aria.core.notes_store import NotesStore
 from aria.core.notes_store import NotesStoreError
+from aria.core.user_feedback_learning import capture_user_feedback_learning
 from aria.web.chat_execution_flow import ChatExecutionDeps, execute_chat_flow
 from aria.web.chat_route_helpers import ChatResponseState
 from aria.web.chat_route_helpers import (
@@ -175,6 +178,53 @@ def _rewrite_vague_web_search_followup(message: str, history: list[dict[str, Any
     if topic.lower() in query_lower:
         return clean
     return f"suche im internet nach {topic} {query}"
+
+
+def _rewrite_vague_local_context_followup(message: str, history: list[dict[str, Any]]) -> str:
+    clean = re.sub(r"\s+", " ", str(message or "").strip())
+    if not clean:
+        return clean
+    lower = clean.lower()
+    if not any(marker in lower for marker in ("meinen notizen", "meinen dokumenten", "meine notizen", "meine dokumente")):
+        return clean
+    vague_markers = ("dazu", f"dar{chr(117)}eber", f"dar{chr(252)}ber", "davon", "hierzu", "darin")
+    if not any(marker in lower for marker in vague_markers):
+        return clean
+    topic = _extract_recent_user_topic_for_web_search(history)
+    if not topic:
+        return clean
+    if topic.lower() in lower:
+        return clean
+    if "notiz" in lower:
+        return f"was steht in meinen notizen zu {topic}"
+    if "dokument" in lower:
+        return f"was steht in meinen dokumenten zu {topic}"
+    return clean
+
+
+async def _resolve_pipeline_followup_message(
+    message: str,
+    history: list[dict[str, Any]],
+    *,
+    llm_client: Any | None,
+    user_id: str = "",
+    request_id: str = "",
+) -> str:
+    clean = re.sub(r"\s+", " ", str(message or "").strip())
+    if not clean:
+        return clean
+    decision = await FollowupResolver(llm_client).resolve(
+        clean,
+        history=history,
+        user_id=user_id,
+        request_id=request_id,
+    )
+    if decision.source == "followup_resolution":
+        if decision.action == "rewrite":
+            return decision.rewritten_message or clean
+        return clean
+    pipeline_message = _rewrite_vague_web_search_followup(clean, history)
+    return _rewrite_vague_local_context_followup(pipeline_message, history)
 
 
 def _format_chat_history_markdown(history: list[dict[str, Any]], *, saved_at: str, language: str) -> str:
@@ -333,6 +383,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         message: str = Form(...),
         routed_action_pending: str = Form(""),
     ) -> HTMLResponse:
+        route_start = time.perf_counter()
         settings = deps.get_settings()
         secure_cookie = deps.cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
         clean_message = message.strip()
@@ -356,6 +407,16 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 session_id=session_id,
                 secure_cookie=secure_cookie,
             )
+
+        def _stamp_route_wall_time(state: ChatResponseState) -> None:
+            route_wall_ms = int((time.perf_counter() - route_start) * 1000)
+            state.duration_s = f"{route_wall_ms / 1000:.1f}"
+            details = list(state.badge_details or [])
+            details.append(
+                "Routing Debug: web_total_wall_time "
+                f"total_ms={route_wall_ms} source=web_chat_route boundary=prompt_in_to_html_ready"
+            )
+            state.badge_details = details
 
         learn_command = parse_chat_learn_command(clean_message)
         if learn_command == "start":
@@ -383,6 +444,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 f"Recipe learn mode: event_count={event_count}",
                 f"Recipe learn mode: result={reason}",
             ]
+            _stamp_route_wall_time(response_state)
             response = deps.templates.TemplateResponse(
                 request=request,
                 name="_chat_messages.html",
@@ -442,6 +504,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             )
 
         if response_state is not None:
+            _stamp_route_wall_time(response_state)
             response = deps.templates.TemplateResponse(
                 request=request,
                 name="_chat_messages.html",
@@ -513,7 +576,24 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         )
 
         learn_active = chat_learn_mode_active(deps.execution_deps.base_dir, username=username, session_id=session_id)
-        pipeline_message = _rewrite_vague_web_search_followup(clean_message, deps.load_chat_history(username))
+        chat_history = deps.load_chat_history(username)
+        if not learn_active and auto_memory_enabled:
+            try:
+                await capture_user_feedback_learning(
+                    message=clean_message,
+                    user_id=username,
+                    history=chat_history,
+                    memory_skill=getattr(deps.execution_deps.pipeline, "memory_skill", None),
+                    llm_client=getattr(deps.execution_deps.pipeline, "llm_client", None),
+                )
+            except Exception:
+                pass
+        pipeline_message = await _resolve_pipeline_followup_message(
+            clean_message,
+            chat_history,
+            llm_client=getattr(deps.execution_deps.pipeline, "llm_client", None),
+            user_id=username,
+        )
         learning_context = suppress_auto_learning() if learn_active else nullcontext()
         with learning_context:
             response_state = await execute_chat_flow(
@@ -528,6 +608,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 auto_memory_enabled=auto_memory_enabled,
                 deps=deps.execution_deps,
             )
+        _stamp_route_wall_time(response_state)
 
         response = deps.templates.TemplateResponse(
             request=request,

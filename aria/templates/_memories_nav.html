@@ -13,6 +13,10 @@
     <span>{{ tr(request, 'memories.map', 'Memory Map') }}</span>
   </a>
   {% if request.state.can_access_advanced_config %}
+  <a class="memory-subnav-item{% if memory_nav == 'reindex' %} active{% endif %}" href="/memories/reindex">
+    {{ icon('qdrant', 'memory-subnav-icon') }}
+    <span>{{ tr(request, 'config.reindex_title', 'Memory Reindex') }}</span>
+  </a>
   <a class="memory-subnav-item{% if memory_nav == 'setup' %} active{% endif %}" href="/memories/config">
     {{ icon('settings', 'memory-subnav-icon') }}
     <span>{{ tr(request, 'memories.setup', 'Memory-Setup') }}</span>

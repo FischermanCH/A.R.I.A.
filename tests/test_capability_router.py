@@ -238,15 +238,13 @@ def test_capability_router_keeps_ssh_howto_as_general_chat() -> None:
     assert draft is None
 
 
-def test_capability_router_still_detects_ssh_health_request() -> None:
+def test_capability_router_does_not_turn_free_health_language_into_ssh_action() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "sind meine server gesund?",
         available_connection_refs_by_kind={"ssh": ["dev-node-01", "dev-node-02"]},
     )
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
+    assert draft is None
 
 
 def test_capability_router_detects_watched_website_read() -> None:
@@ -259,6 +257,16 @@ def test_capability_router_detects_watched_website_read() -> None:
     assert draft is not None
     assert draft.capability == "website_read"
     assert draft.connection_kind == "website"
+
+
+def test_capability_router_does_not_route_arbitrary_url_to_watched_website_read() -> None:
+    router = CapabilityRouter()
+    draft = router.classify(
+        "lies diese Seite wirklich aus: https://area41.io/#speakers",
+        available_connection_refs_by_kind={"website": ["aria-docs"]},
+        available_connection_aliases_by_kind={"website": {"aria-docs": ["aria docs", "docs"]}},
+    )
+    assert draft is None
 
 
 def test_capability_router_keeps_unknown_watched_website_target_as_requested_ref() -> None:
@@ -522,17 +530,13 @@ def test_capability_router_detects_imap_read() -> None:
     assert draft.explicit_connection_ref == "ops-inbox"
 
 
-def test_capability_router_detects_imap_read_without_configured_mailbox() -> None:
+def test_capability_router_does_not_emit_imap_read_without_configured_mailbox() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "Was liegt im Postfach ops-inbox",
         available_connection_refs_by_kind={"ssh": ["server-1"]},
     )
-    assert draft is not None
-    assert draft.capability == "mail_read"
-    assert draft.connection_kind == "imap"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == "ops-inbox"
+    assert draft is None
 
 
 def test_capability_router_keeps_unknown_multiword_imap_target_as_requested_ref() -> None:
@@ -635,7 +639,7 @@ def test_capability_router_detects_ssh_command_with_trimmed_profile_ref() -> Non
     assert draft.content == "uptime"
 
 
-def test_capability_router_detects_natural_ssh_uptime_request_via_alias() -> None:
+def test_capability_router_leaves_natural_ssh_uptime_request_via_alias_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "Zeig mir die Laufzeit vom primären DNS Server",
@@ -646,14 +650,10 @@ def test_capability_router_detects_natural_ssh_uptime_request_via_alias() -> Non
             }
         },
     )
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "dns-node-01"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_detects_how_long_server_runs_phrase_via_alias() -> None:
+def test_capability_router_leaves_how_long_server_runs_phrase_via_alias_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "Wie lange läuft mein DNS Server schon?",
@@ -664,14 +664,10 @@ def test_capability_router_detects_how_long_server_runs_phrase_via_alias() -> No
             }
         },
     )
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "dns-node-01"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_detects_how_long_server_is_online_phrase_via_alias() -> None:
+def test_capability_router_leaves_how_long_server_is_online_phrase_via_alias_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "Wie lange ist mein DNS Server schon online?",
@@ -682,57 +678,39 @@ def test_capability_router_detects_how_long_server_is_online_phrase_via_alias() 
             }
         },
     )
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "dns-node-01"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_detects_natural_ssh_uptime_request_without_target_for_qdrant() -> None:
+def test_capability_router_leaves_natural_ssh_uptime_request_without_target_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "Zeig mir die Laufzeit vom primären DNS Server",
         available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_detects_status_phrase_for_backup_server() -> None:
+def test_capability_router_leaves_status_phrase_for_backup_server_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "prüfe den status vom backup server",
         available_connection_refs_by_kind={"ssh": ["ops-monitor-01", "ops-mgmt-01"]},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == "backup server"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_detects_how_is_monitoring_server_phrase() -> None:
+def test_capability_router_leaves_how_is_monitoring_server_phrase_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "wie geht es dem monitoring server",
         available_connection_refs_by_kind={"ssh": ["ops-monitor-01", "ops-mgmt-01"]},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == "monitoring server"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_backup_server() -> None:
+def test_capability_router_leaves_requested_backup_server_status_phrase_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "prüfe den status vom backup server",
@@ -747,15 +725,10 @@ def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_backup
         },
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == "backup server"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_monitoring_server() -> None:
+def test_capability_router_leaves_requested_monitoring_server_health_phrase_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "wie geht es dem monitoring server",
@@ -770,15 +743,10 @@ def test_capability_router_does_not_keep_generic_ssh_alias_over_requested_monito
         },
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == "monitoring server"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_keeps_matching_explicit_ssh_alias_for_management_server() -> None:
+def test_capability_router_leaves_health_alias_phrase_for_management_server_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "check health auf management server",
@@ -793,15 +761,10 @@ def test_capability_router_keeps_matching_explicit_ssh_alias_for_management_serv
         },
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "ops-mgmt-01"
-    assert draft.requested_connection_ref == ""
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_normalizes_natural_disk_check_to_df_h() -> None:
+def test_capability_router_leaves_natural_disk_check_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "check mal die festplatte auf meinen dns server",
@@ -809,28 +772,20 @@ def test_capability_router_normalizes_natural_disk_check_to_df_h() -> None:
         available_connection_aliases_by_kind={"ssh": {"dns-node-01": ["dns server"]}},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "dns-node-01"
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_does_not_keep_article_fragment_as_requested_ref() -> None:
+def test_capability_router_leaves_plural_disk_check_to_llm_without_article_ref_guess() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "check mal die festplatten von meinen server und melde mir falls handlungsbedarf besteht",
         available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.requested_connection_ref == ""
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
+def test_capability_router_leaves_free_space_follow_up_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "check mit dem befehl df wieviel festplatte noch frei ist auf meinen dns server",
@@ -838,42 +793,28 @@ def test_capability_router_normalizes_free_space_follow_up_to_df_h() -> None:
         available_connection_aliases_by_kind={"ssh": {"dns-node-01": ["dns server"]}},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "dns-node-01"
-    assert draft.content == ""
+    assert draft is None
 
 
 
-def test_capability_router_detects_plural_speicherplatz_server_question() -> None:
+def test_capability_router_leaves_plural_speicherplatz_server_question_to_llm() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "hab ich noch genug speicherplatz auf meinen servern ?",
         available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == ""
-    assert draft.content == ""
+    assert draft is None
 
 
-def test_capability_router_detects_mixed_harddisk_free_space_server_question() -> None:
+def test_capability_router_leaves_free_disk_language_to_llm_capability_draft() -> None:
     router = CapabilityRouter()
     draft = router.classify(
         "hab ich auf all meinen server mehr als 10gb harddisk speicher frei ?",
         available_connection_refs_by_kind={"ssh": ["dns-node-01", "dns-node-02"]},
     )
 
-    assert draft is not None
-    assert draft.capability == "ssh_command"
-    assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == ""
-    assert draft.requested_connection_ref == ""
-    assert draft.content == ""
+    assert draft is None
 
 
 def test_capability_router_detects_english_file_read_phrase() -> None:

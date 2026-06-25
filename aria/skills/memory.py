@@ -52,6 +52,7 @@ class MemorySkill(BaseSkill):
     max_context_chars = 1500
     CONTEXT_MEM_PREFIX = "aria_context-mem"
     DOCUMENT_GUIDE_PREFIX = "aria_doc_guides"
+    LEARNING_PREFIX = "aria_learning"
     ROLLUP_LEVEL_WEEK = "week"
     ROLLUP_LEVEL_MONTH = "month"
 
@@ -183,6 +184,11 @@ class MemorySkill(BaseSkill):
             "fact": "FAKT",
             "preference": "PRAEFERENZ",
             "knowledge": "WISSEN",
+            "reflection": "LERNEN",
+            "learning_event": "LERN-EVENT",
+            "learning_candidate": "LERN-KANDIDAT",
+            "learning_active_hint": "AKTIVER LERN-HINWEIS",
+            "learning_eval": "LERN-EVAL",
             "document": "DOKUMENT",
             "session": "KONTEXT",
         }
@@ -337,6 +343,7 @@ class MemorySkill(BaseSkill):
             "fact": cfg.facts,
             "preference": cfg.preferences,
             "knowledge": cfg.knowledge,
+            "reflection": cfg.knowledge,
             "document": cfg.knowledge,
             "session": cfg.sessions,
         }.get(memory_type, cfg.sessions)
@@ -371,9 +378,21 @@ class MemorySkill(BaseSkill):
     @staticmethod
     def _normalize_memory_type(collection: str, payload_type: str | None) -> str:
         raw = str(payload_type or "").strip().lower()
-        if raw in {"fact", "preference", "knowledge", "session"}:
+        if raw in {"fact", "preference", "knowledge", "session", "learning_event", "learning_candidate", "learning_active_hint", "learning_eval"}:
             return raw
+        if raw in {"reflection", "learning"}:
+            return "reflection"
         name = str(collection or "").lower()
+        if "learning_evals" in name:
+            return "learning_eval"
+        if "learning_candidates" in name:
+            return "learning_candidate"
+        if "learning_active_hints" in name:
+            return "learning_active_hint"
+        if "learning_events" in name:
+            return "learning_event"
+        if "learning" in name:
+            return "reflection"
         if "session" in name:
             return "session"
         if "preference" in name:
@@ -396,6 +415,11 @@ class MemorySkill(BaseSkill):
         preference_collection = f"{cfg.preferences.prefix}_{slug}"
         knowledge_collection = f"{cfg.knowledge.prefix}_{slug}"
         context_mem_collection = f"{self.CONTEXT_MEM_PREFIX}_{slug}"
+        learning_collection = f"{self.LEARNING_PREFIX}_{slug}"
+        learning_events_collection = f"{self.LEARNING_PREFIX}_events_{slug}"
+        learning_candidates_collection = f"{self.LEARNING_PREFIX}_candidates_{slug}"
+        learning_active_hints_collection = f"{self.LEARNING_PREFIX}_active_hints_{slug}"
+        learning_evals_collection = f"{self.LEARNING_PREFIX}_evals_{slug}"
         session_prefix = f"{cfg.sessions.prefix}_{slug}_"
         current_session_collection = f"{session_prefix}{datetime.now().strftime('%y%m%d')}"
         legacy_collection = f"{self.memory.collection}_{slug}"
@@ -428,6 +452,36 @@ class MemorySkill(BaseSkill):
                 "type": "knowledge",
                 "label": self._type_label("knowledge"),
                 "collection": context_mem_collection,
+                "top_k": int(cfg.knowledge.top_k),
+            },
+            {
+                "type": "reflection",
+                "label": self._type_label("reflection"),
+                "collection": learning_collection,
+                "top_k": int(cfg.knowledge.top_k),
+            },
+            {
+                "type": "learning_event",
+                "label": self._type_label("learning_event"),
+                "collection": learning_events_collection,
+                "top_k": int(cfg.knowledge.top_k),
+            },
+            {
+                "type": "learning_candidate",
+                "label": self._type_label("learning_candidate"),
+                "collection": learning_candidates_collection,
+                "top_k": int(cfg.knowledge.top_k),
+            },
+            {
+                "type": "learning_active_hint",
+                "label": self._type_label("learning_active_hint"),
+                "collection": learning_active_hints_collection,
+                "top_k": int(cfg.knowledge.top_k),
+            },
+            {
+                "type": "learning_eval",
+                "label": self._type_label("learning_eval"),
+                "collection": learning_evals_collection,
                 "top_k": int(cfg.knowledge.top_k),
             },
             {
@@ -1280,7 +1334,15 @@ class MemorySkill(BaseSkill):
         user_id: str,
         top_k: int,
         base_collection: str | None = None,
+        target_collections: list[str] | tuple[str, ...] | None = None,
+        include_documents: bool = True,
+        docs_only: bool = False,
     ) -> SkillResult:
+        allowed_targets = {
+            str(item or "").strip()
+            for item in list(target_collections or [])
+            if str(item or "").strip()
+        }
         try:
             vector, usage = await self._embed(
                 query,
@@ -1288,16 +1350,44 @@ class MemorySkill(BaseSkill):
                 operation="recall_query",
                 user_id=user_id,
             )
-            recall_targets = await self._build_recall_targets(user_id=user_id, base_collection=base_collection)
-            guide_hits = await self._query_document_guides(
-                vector=vector,
-                query=query,
-                user_id=user_id,
-                max_hits=min(max(2, top_k), 4),
-            )
-            document_targets = self._build_document_targets_from_guides(guide_hits)
-            recall_targets = recall_targets + document_targets
+            recall_targets = []
+            if not docs_only:
+                recall_targets = await self._build_recall_targets(user_id=user_id, base_collection=base_collection)
+                if allowed_targets:
+                    recall_targets = [
+                        target
+                        for target in recall_targets
+                        if str(target.get("collection", "") or "").strip() in allowed_targets
+                    ]
+            if include_documents:
+                guide_hits = await self._query_document_guides(
+                    vector=vector,
+                    query=query,
+                    user_id=user_id,
+                    max_hits=min(max(2, top_k), 4),
+                )
+                document_targets = self._build_document_targets_from_guides(guide_hits)
+                if allowed_targets:
+                    document_targets = [
+                        target
+                        for target in document_targets
+                        if str(target.get("collection", "") or "").strip() in allowed_targets
+                    ]
+                recall_targets = recall_targets + document_targets
             target_collections = [str(t["collection"]) for t in recall_targets]
+            if not recall_targets:
+                metadata = {
+                    "embedding_usage": usage,
+                    "embedding_model": self._resolve_embedding_model(),
+                    "detail_lines": ["Routing Debug: memory_recall_targets selected=0 reason=arbiter_restricted_context"],
+                    "sources": [],
+                }
+                return SkillResult(
+                    skill_name=self.name,
+                    content="Keine passende Erinnerung gefunden.",
+                    success=True,
+                    metadata=metadata,
+                )
             tasks = [
                 self._query_weighted_hits(vector=vector, user_id=user_id, target=target)
                 for target in recall_targets
@@ -1364,6 +1454,14 @@ class MemorySkill(BaseSkill):
                 for entry in source_entries
                 if str(entry.get("detail", "")).strip()
             ]
+        detail_lines = list(metadata.get("detail_lines") or [])
+        detail_lines.insert(
+            0,
+            "Routing Debug: memory_recall_targets "
+            f"selected={len(target_collections)} collections={','.join(target_collections[:8]) or '-'} "
+            f"include_documents={str(include_documents).lower()} docs_only={str(docs_only).lower()}",
+        )
+        metadata["detail_lines"] = detail_lines
         return SkillResult(
             skill_name=self.name,
             content=truncated,
@@ -1665,6 +1763,17 @@ class MemorySkill(BaseSkill):
                                 "document_name": str(payload.get("document_name", "")).strip(),
                                 "chunk_index": int(payload.get("chunk_index", 0) or 0),
                                 "chunk_total": int(payload.get("chunk_total", 0) or 0),
+                                "candidate_status": str(payload.get("candidate_status", "")).strip(),
+                                "promotion_state": str(payload.get("promotion_state", "")).strip(),
+                                "promotion_gate_result": str(payload.get("promotion_gate_result", "")).strip(),
+                                "apply_state": str(payload.get("apply_state", "")).strip(),
+                                "apply_gate_result": str(payload.get("apply_gate_result", "")).strip(),
+                                "regression_required": bool(payload.get("regression_required") is True),
+                                "regression_status": str(payload.get("regression_status", "")).strip(),
+                                "regression_ref": str(payload.get("regression_ref", "")).strip(),
+                                "regression_verified": bool(payload.get("regression_verified") is True),
+                                "regression_verify_result": str(payload.get("regression_verify_result", "")).strip(),
+                                "regression_verify_reason": str(payload.get("regression_verify_reason", "")).strip(),
                             }
                         )
                     if next_offset is None:
@@ -1681,6 +1790,113 @@ class MemorySkill(BaseSkill):
 
         rows.sort(key=_sort_key, reverse=True)
         return rows[:limit]
+
+    async def list_memory_graph_points(
+        self,
+        user_id: str,
+        limit: int = 96,
+        collection_limit: int = 16,
+    ) -> list[dict[str, Any]]:
+        clean_user = str(user_id or "").strip() or "web"
+        max_points = max(12, min(int(limit or 96), 160))
+        max_collections = max(1, min(int(collection_limit or 16), 32))
+        rows: list[dict[str, Any]] = []
+        targets = await self._build_recall_targets(user_id=clean_user)
+        document_targets = await self._build_document_targets(user_id=clean_user)
+        seen_collections: set[str] = set()
+        collection_names: list[str] = []
+        for target in [*targets, *document_targets]:
+            collection = str(target.get("collection", "")).strip()
+            if collection and collection not in seen_collections:
+                seen_collections.add(collection)
+                collection_names.append(collection)
+        try:
+            resp = await self.qdrant.get_collections()
+            for item in getattr(resp, "collections", []):
+                collection = str(getattr(item, "name", "")).strip()
+                if not collection or collection in seen_collections:
+                    continue
+                if not collection.lower().startswith("aria_"):
+                    continue
+                if self._is_document_guide_collection_name(collection):
+                    continue
+                seen_collections.add(collection)
+                collection_names.append(collection)
+                if len(collection_names) >= max_collections:
+                    break
+        except Exception:
+            pass
+        for collection in collection_names:
+            if len(rows) >= max_points:
+                break
+            if self._is_document_guide_collection_name(collection):
+                continue
+            try:
+                exists = await self.qdrant.collection_exists(collection_name=collection)
+                if not exists:
+                    continue
+                points, _next_offset = await self.qdrant.scroll(
+                    collection_name=collection,
+                    scroll_filter=self._user_filter(clean_user),
+                    limit=max(6, min(32, max_points - len(rows))),
+                    with_payload=True,
+                    with_vectors=True,
+                )
+                if not points:
+                    points, _next_offset = await self.qdrant.scroll(
+                        collection_name=collection,
+                        limit=max(6, min(32, max_points - len(rows))),
+                        with_payload=True,
+                        with_vectors=True,
+                    )
+            except Exception:
+                continue
+            for point in points:
+                payload = point.payload or {}
+                text = self._clean_fact_text(str(payload.get("text", "")).strip())
+                if not text:
+                    continue
+                vector = getattr(point, "vector", None)
+                if isinstance(vector, dict):
+                    vector = next((value for value in vector.values() if isinstance(value, list)), None)
+                if not isinstance(vector, list) or not vector:
+                    continue
+                memory_type = self._display_memory_type(collection, payload)
+                timestamp = (
+                    str(payload.get("updated_at", "")).strip()
+                    or str(payload.get("created_at", "")).strip()
+                    or str(payload.get("timestamp", "")).strip()
+                )
+                rows.append(
+                    {
+                        "id": str(getattr(point, "id", "")),
+                        "collection": collection,
+                        "type": memory_type,
+                        "label": self._type_label(memory_type),
+                        "text": text,
+                        "timestamp": timestamp,
+                        "source": str(payload.get("source", "")).strip() or "n/a",
+                        "document_name": str(payload.get("document_name", "")).strip(),
+                        "note_title": str(payload.get("note_title", "")).strip(),
+                        "note_folder": str(payload.get("note_folder", "")).strip(),
+                        "rollup_level": str(payload.get("rollup_level", "")).strip(),
+                        "vector": [float(value) for value in vector if isinstance(value, (int, float))],
+                    }
+                )
+                if len(rows) >= max_points:
+                    break
+            max_collections -= 1
+            if max_collections <= 0:
+                break
+
+        def _sort_key(item: dict[str, Any]) -> float:
+            parsed = self._parse_timestamp(item.get("timestamp"))
+            if not parsed:
+                return 0.0
+            return parsed.astimezone(timezone.utc).timestamp()
+
+        rows.sort(key=_sort_key, reverse=True)
+        return rows[:max_points]
 
     async def get_user_collection_stats(self, user_id: str) -> list[dict[str, Any]]:
         names = await self._list_collection_names()
@@ -2095,6 +2311,55 @@ class MemorySkill(BaseSkill):
         except Exception:
             return False
 
+    async def update_memory_point_payload(
+        self,
+        user_id: str,
+        collection: str,
+        point_id: str,
+        payload_updates: dict[str, Any],
+    ) -> bool:
+        clean_collection = str(collection).strip()
+        clean_id = str(point_id).strip()
+        if not clean_collection or not clean_id or not isinstance(payload_updates, dict):
+            return False
+        safe_updates: dict[str, Any] = {}
+        for key, value in payload_updates.items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                safe_updates[clean_key] = value
+            else:
+                safe_updates[clean_key] = str(value)
+        if not safe_updates:
+            return False
+        try:
+            exists = await self.qdrant.collection_exists(collection_name=clean_collection)
+            if not exists:
+                return False
+            points = await self.qdrant.retrieve(
+                collection_name=clean_collection,
+                ids=[self._coerce_point_id(clean_id)],
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                return False
+            payload = getattr(points[0], "payload", {}) or {}
+            stored_user = str(payload.get("user_id", "")).strip()
+            if stored_user != str(user_id).strip():
+                return False
+            safe_updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await self.qdrant.set_payload(
+                collection_name=clean_collection,
+                payload=safe_updates,
+                points=[self._coerce_point_id(clean_id)],
+                wait=True,
+            )
+            return True
+        except Exception:
+            return False
+
     def _load_compression_prompt_template(self) -> str:
         configured = str(self.memory.compression_summary_prompt or "").strip()
         path = Path(configured)
@@ -2375,7 +2640,22 @@ class MemorySkill(BaseSkill):
 
             if action == "recall":
                 top_k = int(params.get("top_k", self.memory.top_k))
-                return await self._recall(query=query, user_id=user_id, top_k=top_k, base_collection=collection)
+                raw_targets = params.get("target_collections")
+                if isinstance(raw_targets, str):
+                    target_collections = [item.strip() for item in raw_targets.split(",") if item.strip()]
+                elif isinstance(raw_targets, list | tuple | set):
+                    target_collections = [str(item or "").strip() for item in raw_targets if str(item or "").strip()]
+                else:
+                    target_collections = None
+                return await self._recall(
+                    query=query,
+                    user_id=user_id,
+                    top_k=top_k,
+                    base_collection=collection,
+                    target_collections=target_collections,
+                    include_documents=bool(params.get("include_documents", True)),
+                    docs_only=bool(params.get("docs_only", False)),
+                )
 
             if action == "forget_preview":
                 threshold = float(params.get("threshold", 0.75))

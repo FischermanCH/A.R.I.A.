@@ -140,6 +140,7 @@ Not the current target:
 - Chat toolbox includes direct phrases for web search, stats, activities, controlled updates, config-backup helpers, and explicit Recipe Learn Mode; the same actions can now also be triggered from chat instead of only through the respective pages
 - Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
 - `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
+- `Memory Map` includes a bounded Qdrant Brain drilldown graph with zoom, pan, Collection-first navigation, semantic similarity edges, and safe payload previews without exposing raw vectors
 - Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, SearXNG, Webhook, SMTP, IMAP, and MQTT
 - Recipes as JSON manifests with a browser wizard, import/export, learned recipe review, chat-driven review-only learn mode, and bundled sample recipes
 - `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset

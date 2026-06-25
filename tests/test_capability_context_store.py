@@ -60,3 +60,25 @@ def test_capability_context_load_recent_returns_copy(tmp_path: Path) -> None:
 
     fresh = store.load_recent("demo")
     assert fresh["capability"] == "search"
+
+
+def test_capability_context_remembers_multi_target_refs(tmp_path: Path) -> None:
+    store = CapabilityContextStore(tmp_path / "capability_context.json")
+    store.remember_action(
+        "demo",
+        capability="ssh_command",
+        connection_kind="ssh",
+        connection_ref="",
+        content="apt list --upgradable",
+        connection_refs=["srv-a", "srv-b", "srv-a"],
+        result_summary="Updates available on both targets.",
+    )
+
+    payload = store.load_recent("demo")
+
+    assert payload["capability"] == "ssh_command"
+    assert payload["connection_kind"] == "ssh"
+    assert payload["connection_ref"] == ""
+    assert payload["connection_refs"] == ["srv-a", "srv-b", "srv-a"]
+    assert payload["content"] == "apt list --upgradable"
+    assert payload["result_summary"] == "Updates available on both targets."

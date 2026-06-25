@@ -33,3 +33,14 @@ docs/local/
 docs/backlog/
 docs/internal/
 docs/AI_CONTEXT.md
+
+# Local/internal architecture and Codex handoff docs.
+# These are working directives, not public release documentation.
+docs/product/agentic-context-performance-plan.md
+docs/product/agentic-context-routing-dev-plan.md
+docs/product/agentic-context-runtime-v2.md
+docs/product/agentic-learning-loop-v2.md
+docs/product/deterministic-meaning-audit.md
+docs/product/llm-first-local-context-routing.md
+docs/product/qdrant-collections.md
+docs/product/qdrant-meta-catalog-redesign.md

@@ -35,6 +35,7 @@ from aria.core.connection_catalog import (
 from aria.core.connection_runtime import build_settings_connection_status_rows
 from aria.core.config import get_master_key
 from aria.core.i18n import I18NStore
+from aria.core.learning_worker import get_learning_worker_status
 from aria.core.pipeline import Pipeline
 from aria.core.pricing_catalog import build_pricing_catalog_snapshot
 from aria.core.pricing_catalog import resolve_pricing_entry as resolve_catalog_pricing_entry
@@ -880,6 +881,7 @@ OPERATOR_GUARDRAIL_ROW_KEYS = (
     "pricing",
     "cost_tracking",
     "recipe_memory",
+    "learning_worker",
     "preflight",
     "health",
     "updates",
@@ -910,6 +912,47 @@ def _guardrail_row(
     }
 
 
+def _build_learning_worker_meta(status: dict[str, Any] | None = None) -> dict[str, Any]:
+    snapshot = dict(status or get_learning_worker_status(limit=6))
+    counts = dict(snapshot.get("counts", {}) or {})
+    budget = dict(snapshot.get("budget", {}) or {})
+    audit = dict(snapshot.get("audit", {}) or {})
+    failed = int(counts.get("failed", 0) or 0)
+    rejected = int(counts.get("rejected", 0) or 0)
+    running = int(snapshot.get("running", 0) or 0)
+    completed = int(counts.get("completed", 0) or 0)
+    budget_rejected = int(budget.get("rejected_count", 0) or 0)
+    tokens_exhausted = bool(budget.get("tokens_exhausted"))
+    cost_exhausted = bool(budget.get("cost_exhausted"))
+    status_value = "warn" if failed or rejected or budget_rejected or tokens_exhausted or cost_exhausted else "ok"
+    if tokens_exhausted or cost_exhausted:
+        budget_state = "blocked"
+    elif budget_rejected:
+        budget_state = "rejecting"
+    else:
+        budget_state = "ok"
+    return {
+        "status": status_value,
+        "enabled": bool(snapshot.get("enabled", True)),
+        "max_running": int(snapshot.get("max_running", 0) or 0),
+        "max_attempts": int(snapshot.get("max_attempts", 0) or 0),
+        "running": running,
+        "completed": completed,
+        "failed": failed,
+        "rejected": rejected,
+        "budget_state": budget_state,
+        "budget": budget,
+        "audit": audit,
+        "failure_categories": dict(audit.get("by_failure_category", {}) or {}),
+        "counts": counts,
+        "recent": list(snapshot.get("recent", []) or []),
+        "detail": (
+            f"{running} running · {completed} done · {failed} failed · {rejected} rejected"
+            f" · {int(budget.get('used_tokens', 0) or 0)}/{int(budget.get('max_runtime_tokens', 0) or 0)} tokens"
+        ),
+    }
+
+
 def _build_operator_guardrail_meta(
     *,
     release_meta: dict[str, Any],
@@ -919,6 +962,7 @@ def _build_operator_guardrail_meta(
     health_meta: dict[str, Any],
     update_status: dict[str, Any],
     recipe_experience_memory: dict[str, Any] | None = None,
+    learning_worker: dict[str, Any] | None = None,
     language: str = "de",
 ) -> dict[str, Any]:
     pricing_status = "warn" if bool(pricing_meta.get("has_unpriced_usage")) else "ok"
@@ -1000,6 +1044,35 @@ def _build_operator_guardrail_meta(
             url="/stats#recipe-experience-memory",
         )
 
+    learning_worker_row: dict[str, str] | None = None
+    if learning_worker is not None:
+        worker_status = str(learning_worker.get("status", "ok") or "ok").strip().lower()
+        counts = dict(learning_worker.get("counts", {}) or {})
+        budget = dict(learning_worker.get("budget", {}) or {})
+        failed = int(counts.get("failed", 0) or 0)
+        rejected = int(counts.get("rejected", 0) or 0)
+        running = int(learning_worker.get("running", 0) or 0)
+        completed = int(counts.get("completed", 0) or 0)
+        budget_rejected = int(budget.get("rejected_count", 0) or 0)
+        if worker_status not in {"ok", "warn", "error"}:
+            worker_status = "warn"
+        summary = _stats_route_text(language, "operator_guardrail_learning_worker_ok", "Learning worker is within budget.")
+        if worker_status == "warn":
+            summary = _stats_route_text(language, "operator_guardrail_learning_worker_warn", "Learning worker needs review.")
+        elif worker_status == "error":
+            summary = _stats_route_text(language, "operator_guardrail_learning_worker_error", "Learning worker currently fails.")
+        learning_worker_row = _guardrail_row(
+            key="learning_worker",
+            fallback="Learning Worker",
+            status=worker_status,
+            summary=summary,
+            detail=(
+                f"{running} running · {completed} done · {failed} failed · {rejected} rejected"
+                f" · budget rejects {budget_rejected}"
+            ),
+            url="/stats#learning-worker",
+        )
+
     rows = [
         _guardrail_row(
             key="release",
@@ -1037,6 +1110,7 @@ def _build_operator_guardrail_meta(
             url="/stats#model-gateway-audit",
         ),
         *([memory_row] if memory_row is not None else []),
+        *([learning_worker_row] if learning_worker_row is not None else []),
         _guardrail_row(
             key="preflight",
             fallback="Startup preflight",
@@ -2061,6 +2135,7 @@ def register_stats_routes(
         pricing_meta = _build_pricing_meta(stats, settings, resolve_pricing_entry)
         model_gateway = _build_model_gateway_meta(stats, settings, pipeline, pricing_meta)
         recipe_experience_memory = await _build_recipe_experience_memory_meta(settings)
+        learning_worker = _build_learning_worker_meta()
         language = str(getattr(getattr(request, "state", object()), "lang", "") or settings.ui.language or "de")
         health_meta = await _build_health_meta(settings, pipeline, language, request, get_secure_store=get_secure_store)
         preflight_payload = get_runtime_preflight() or {}
@@ -2085,6 +2160,7 @@ def register_stats_routes(
             health_meta=health_meta,
             update_status=update_status,
             recipe_experience_memory=recipe_experience_memory,
+            learning_worker=learning_worker,
             language=language,
         )
         source_usage_rows = _build_source_usage_rows(stats)
@@ -2127,6 +2203,7 @@ def register_stats_routes(
                 'pricing_meta': pricing_meta,
                 'model_gateway': model_gateway,
                 'recipe_experience_memory': recipe_experience_memory,
+                'learning_worker': learning_worker,
                 'health_meta': health_meta,
                 'preflight_meta': preflight_meta,
                 'runtime_memory': runtime_memory,

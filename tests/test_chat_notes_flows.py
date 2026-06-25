@@ -8,6 +8,28 @@ import aria.web.chat_notes_flows as chat_notes_flows
 from aria.web.chat_notes_flows import handle_chat_notes_flow
 
 
+class _Response:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.usage = {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
+
+
+class _NotesLLM:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.operations: list[str] = []
+
+    async def chat(self, messages, **kwargs):
+        import json
+
+        _ = messages
+        operation = str(kwargs.get("operation") or "")
+        self.operations.append(operation)
+        if operation == "notes_action_arbitration":
+            return _Response(json.dumps(self.payload))
+        return _Response("{}")
+
+
 async def _run_open(base_dir: Path):
     return await handle_chat_notes_flow(
         clean_message="öffne notizen",
@@ -96,6 +118,64 @@ def test_chat_notes_flow_can_search_notes(tmp_path: Path):
     assert outcome.handled is True
     assert "Qdrant Plan" in outcome.assistant_text
     assert "/notes?note=" in outcome.assistant_text
+    assert outcome.badge_duration is not None
+    assert any("notes_flow handled=true" in row for row in outcome.badge_details)
+
+
+def test_chat_notes_flow_agentic_arbiter_rewrites_natural_search(tmp_path: Path) -> None:
+    import asyncio
+
+    store = chat_notes_flows._store(tmp_path)
+    store.save_note("neo", title="ARIA Agentic Plan", folder="Projekte/ARIA", body="Agentic-first statt Regex-first")
+    llm = _NotesLLM(
+        {
+            "action": "search_notes",
+            "canonical_command": "suche in notizen nach agentic",
+            "confidence": "high",
+            "reason": "The user asks to search notes.",
+        }
+    )
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="kannst du in meinen notizen nach dem agentic plan schauen?",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+            llm_client=llm,
+        )
+    )
+
+    assert outcome is not None
+    assert outcome.handled is True
+    assert "ARIA Agentic Plan" in outcome.assistant_text
+    assert llm.operations == ["notes_action_arbitration"]
+
+
+def test_chat_notes_flow_agentic_no_action_blocks_regex_fallback(tmp_path: Path) -> None:
+    import asyncio
+
+    llm = _NotesLLM(
+        {
+            "action": "no_action",
+            "canonical_command": "",
+            "confidence": "high",
+            "reason": "The user asks for an explanation about notes, not a notes action.",
+        }
+    )
+
+    outcome = asyncio.run(
+        handle_chat_notes_flow(
+            clean_message="öffne notizen",
+            username="neo",
+            base_dir=tmp_path,
+            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
+            llm_client=llm,
+        )
+    )
+
+    assert outcome is None
+    assert llm.operations == ["notes_action_arbitration"]
 
 
 def test_chat_notes_flow_can_list_note_folders(tmp_path: Path):

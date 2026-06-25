@@ -17,9 +17,54 @@ def test_gitignore_blocks_generated_packaging_outputs() -> None:
         assert pattern in gitignore
 
 
-def test_release_label_matches_current_alpha_backlog_build() -> None:
+def test_gitignore_blocks_internal_working_docs() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    internal_docs = {
+        "docs/AI_CONTEXT.md",
+        "docs/local/",
+        "docs/backlog/",
+        "docs/internal/",
+        "docs/product/agentic-context-performance-plan.md",
+        "docs/product/agentic-context-routing-dev-plan.md",
+        "docs/product/agentic-context-runtime-v2.md",
+        "docs/product/agentic-learning-loop-v2.md",
+        "docs/product/deterministic-meaning-audit.md",
+        "docs/product/llm-first-local-context-routing.md",
+        "docs/product/qdrant-collections.md",
+        "docs/product/qdrant-meta-catalog-redesign.md",
+    }
+
+    for pattern in internal_docs:
+        assert pattern in gitignore
+
+
+def test_dockerignore_blocks_internal_working_docs() -> None:
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+
+    internal_docs = {
+        "docs/AI_CONTEXT.md",
+        "docs/local/",
+        "docs/backlog/",
+        "docs/internal/",
+        "docs/release/",
+        "docs/product/agentic-context-performance-plan.md",
+        "docs/product/agentic-context-routing-dev-plan.md",
+        "docs/product/agentic-context-runtime-v2.md",
+        "docs/product/agentic-learning-loop-v2.md",
+        "docs/product/deterministic-meaning-audit.md",
+        "docs/product/llm-first-local-context-routing.md",
+        "docs/product/qdrant-collections.md",
+        "docs/product/qdrant-meta-catalog-redesign.md",
+    }
+
+    for pattern in internal_docs:
+        assert pattern in dockerignore
+
+
+def test_release_label_matches_current_alpha_backlog_version() -> None:
     backlog = (ROOT / "docs" / "backlog" / "alpha-backlog.md").read_text(encoding="utf-8")
-    match = re.search(r"aktuell gebaut: `([^`]+)`", backlog)
+    match = re.search(r"aktuell (?:gebaut|versioniert): `([^`]+)`", backlog)
 
     assert match is not None
     assert DEFAULT_RELEASE_LABEL == match.group(1)
@@ -60,12 +105,45 @@ def test_static_css_has_balanced_blocks() -> None:
     assert depth == 0
 
 
+def test_chat_layout_keeps_window_fixed_and_history_scrollable() -> None:
+    css = (ROOT / "aria" / "static" / "style.css").read_text(encoding="utf-8")
+    template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert ".app-shell:has(.chat-layout-fill)" in css
+    assert "--aria-visual-viewport-height: 100dvh;" in css
+    assert "height: calc(var(--aria-visual-viewport-height, 100dvh) - 4rem);" in css
+    assert "overflow: hidden;" in css
+    assert '<div class="chat-box-wrap">' in template
+    assert ".chat-layout-fill .chat-box-wrap" in css
+    assert ".chat-box-wrap .chat-box" in css
+    assert ".chat-layout-fill .chat-box" in css
+    assert "flex: 1 1 auto;" in css
+    assert "max-height: none;" in css
+    assert "overflow-y: auto;" in css
+    assert "min-height: clamp(10rem, 40svh, 18rem);" in css
+    assert "window.visualViewport" in template
+    assert "scrollMessagesToLatest" in template
+
+
+def test_auto_memory_indicator_links_to_settings() -> None:
+    template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert 'href="/memories/config#auto-memory"' in template
+    assert "auto-memory-indicator" in template
+
+
 def test_mobile_viewport_uses_ios_safe_area() -> None:
     template = (ROOT / "aria" / "templates" / "base.html").read_text(encoding="utf-8")
     reconnect_shell = (ROOT / "aria" / "static" / "update-reconnect-sw.js").read_text(encoding="utf-8")
 
     assert "viewport-fit=cover" in template
     assert "viewport-fit=cover" in reconnect_shell
+
+
+def test_stats_navigation_uses_immediate_busy_indicator() -> None:
+    template = (ROOT / "aria" / "templates" / "base.html").read_text(encoding="utf-8")
+
+    assert 'href="/stats" data-busy-immediate="true"' in template
 
 
 def test_dockerfile_uses_runtime_constraints_for_reproducible_installs() -> None:

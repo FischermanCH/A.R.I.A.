@@ -215,6 +215,7 @@ async def handle_chat_pending_confirm_flow(
     intent_badge: IntentBadge,
     friendly_error_text: FriendlyErrorText,
     alert_sender: AlertSender,
+    auto_memory_enabled: bool = False,
 ) -> ChatPendingOutcome | None:
     routed_pending = state.routed_action_pending or {}
     routed_token = str(routed_action_confirm_token or "").strip().lower()
@@ -226,6 +227,7 @@ async def handle_chat_pending_confirm_flow(
                 routed_pending,
                 user_id=username,
                 source="web",
+                auto_memory_enabled=auto_memory_enabled,
                 language=language,
             )
             assistant_text = routed_result.text or _pending_text(language, "action_executed", "Action executed.")

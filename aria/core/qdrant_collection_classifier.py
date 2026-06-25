@@ -14,6 +14,11 @@ PREFERENCES_PREFIX = "aria_preferences"
 PREFERENCES_LEGACY_PREFIX = "aria_prefs"
 SESSIONS_PREFIX = "aria_sessions"
 CONTEXT_PREFIX = "aria_context-mem"
+LEARNING_PREFIX = "aria_learning"
+LEARNING_EVENTS_PREFIX = "aria_learning_events"
+LEARNING_CANDIDATES_PREFIX = "aria_learning_candidates"
+LEARNING_ACTIVE_HINTS_PREFIX = "aria_learning_active_hints"
+LEARNING_EVALS_PREFIX = "aria_learning_evals"
 MEMORY_LEGACY_PREFIX = "aria_memory"
 
 
@@ -56,6 +61,16 @@ def classify_qdrant_collection(name: str, *, username: str = "") -> QdrantCollec
             is_system=False,
         )
 
+    if _matches_prefix(clean, LEARNING_CANDIDATES_PREFIX):
+        return QdrantCollectionClassification(clean, "learning_candidate", "user_memory", True, True, False)
+    if _matches_prefix(clean, LEARNING_ACTIVE_HINTS_PREFIX):
+        return QdrantCollectionClassification(clean, "learning_active_hint", "user_memory", True, True, False)
+    if _matches_prefix(clean, LEARNING_EVALS_PREFIX):
+        return QdrantCollectionClassification(clean, "learning_eval", "user_memory", True, True, False)
+    if _matches_prefix(clean, LEARNING_EVENTS_PREFIX):
+        return QdrantCollectionClassification(clean, "learning_event", "user_memory", True, True, False)
+    if _matches_prefix(clean, LEARNING_PREFIX):
+        return QdrantCollectionClassification(clean, "reflection", "user_memory", True, True, False)
     if _matches_prefix(clean, RECIPE_EXPERIENCE_PREFIX):
         return QdrantCollectionClassification(clean, "recipe_experience", "system", True, False, True)
     if _matches_prefix(clean, ROUTING_PREFIX):

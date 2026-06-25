@@ -74,9 +74,20 @@ class MemoryConfig(BaseModel):
 
 class AutoMemoryConfig(BaseModel):
     enabled: bool = True
+    agentic_extraction_enabled: bool = False
     session_recall_top_k: int = 4
     user_recall_top_k: int = 3
     max_facts_per_message: int = 3
+
+
+class InventoryIndexConfig(BaseModel):
+    enabled: bool = True
+    cron: str = "17 */6 * * *"
+    timezone: str = "Europe/Zurich"
+    run_on_startup: bool = False
+    keep_backup: bool = True
+    score_threshold: float = 0.35
+    candidate_limit: int = 12
 
 
 class RoutingLanguageConfig(BaseModel):
@@ -99,6 +110,7 @@ class RoutingConfig(BaseModel):
     qdrant_score_threshold: float = 0.72
     qdrant_candidate_limit: int = 5
     qdrant_ask_on_low_confidence: bool = True
+    meta_catalog_strict_contract_enabled: bool = False
     memory_store_keywords: list[str] = Field(
         default_factory=lambda: get_default_routing_profile()["memory_store_keywords"]
     )
@@ -619,6 +631,7 @@ class Settings(BaseModel):
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     auto_memory: AutoMemoryConfig = Field(default_factory=AutoMemoryConfig)
+    inventory_index: InventoryIndexConfig = Field(default_factory=InventoryIndexConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
     token_tracking: TokenTrackingConfig = Field(default_factory=TokenTrackingConfig)
@@ -1010,6 +1023,11 @@ def load_settings(config_path: str | Path = "config/config.yaml") -> Settings:
         if isinstance(nested_auto_memory, dict) and "auto_memory" not in raw:
             # Backward/forward compatibility for docs that place auto_memory under memory.
             raw["auto_memory"] = nested_auto_memory
+    auto_memory_section = raw.get("auto_memory")
+    if isinstance(auto_memory_section, dict):
+        auto_enabled = bool(auto_memory_section.get("enabled", True))
+        if auto_enabled and "agentic_extraction_enabled" not in auto_memory_section:
+            auto_memory_section["agentic_extraction_enabled"] = True
     pricing_section = raw.get("pricing")
     if isinstance(pricing_section, dict):
         if pricing_section.get("model_aliases") is None:

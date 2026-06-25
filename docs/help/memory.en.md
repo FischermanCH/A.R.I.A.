@@ -1,6 +1,6 @@
 # ARIA Help: Memory and Stores
 
-Updated: 2026-05-12
+Updated: 2026-06-09
 
 ## Purpose
 
@@ -61,8 +61,19 @@ Chat details show sources, collection, and chunk references when document recall
 ## UI
 
 - `/memories` for entries, search, editing, deletion, and JSON export
-- `/memories/map` for collections, document groups, rollups, and structure
+- `/memories/map` for collections, document groups, rollups, structure, and the Qdrant Brain graph
 - `/config/embeddings` for embedding model and safety confirmation when memory already exists
+
+### Memory Map and Qdrant Brain
+
+The Memory Map first shows the logical structure: user, memory types, collections, document groups, rollups, notes, routing, and system collections.
+
+When Qdrant is reachable and enough embedded points exist, the same page also shows the **Qdrant Brain**. This graph starts with Collections and lets you drill into a Collection to inspect its Qdrant points:
+
+- nodes are memory, document, notes, and rollup points
+- edges show computed semantic similarity between embeddings
+- zoom, pan, and node details help inspect clusters and relevance
+- raw vectors are never sent to the browser; only safe metadata, text previews, collection names, and point IDs are shown
 
 ## Embedding fingerprint
 

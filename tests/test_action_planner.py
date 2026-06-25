@@ -500,10 +500,57 @@ def test_load_learned_recipe_records_only_allows_promoted_entries_with_stored_re
 
     rows = action_planner_mod._load_learned_recipe_records()
 
-    assert rows == [{"recipe_id": "learned-d", "promotion_state": "promoted", "stored_recipe_id": "stored-d"}]
+    assert len(rows) == 1
+    assert rows[0]["recipe_id"] == "learned-d"
+    assert rows[0]["promotion_state"] == "promoted"
+    assert rows[0]["stored_recipe_id"] == "stored-d"
 
 
-def test_heuristic_action_decision_prefers_template_candidate_over_stored_recipe_candidate_on_equal_intent_and_score() -> None:
+def test_load_learned_recipe_records_skips_promoted_entries_with_promotion_blockers(monkeypatch) -> None:
+    monkeypatch.setenv("ARIA_ENABLE_LEARNED_RECIPE_CANDIDATES", "1")
+    monkeypatch.setattr(
+        action_planner_mod,
+        "load_learned_recipe_store_entries",
+        lambda: [
+            {
+                "recipe_id": "learned-fleet-health",
+                "promotion_state": "promoted",
+                "stored_recipe_id": "fleet-health",
+                "connection_kind": "ssh",
+                "capability": "ssh_command",
+                "chosen_action": "uptime",
+                "recipe_scope": {
+                    "connection_kinds": ["ssh"],
+                    "target_scope": "multi_target",
+                },
+            },
+            {
+                "recipe_id": "learned-send-message",
+                "promotion_state": "promoted",
+                "stored_recipe_id": "send-message",
+                "connection_kind": "discord",
+                "capability": "discord_send",
+                "chosen_action": "hello",
+                "recipe_scope": {"connection_kinds": ["discord"]},
+            },
+            {
+                "recipe_id": "learned-single-health",
+                "promotion_state": "promoted",
+                "stored_recipe_id": "single-health",
+                "connection_kind": "ssh",
+                "capability": "ssh_command",
+                "chosen_action": "uptime",
+                "recipe_scope": {"connection_kinds": ["ssh"]},
+            },
+        ],
+    )
+
+    rows = action_planner_mod._load_learned_recipe_records()
+
+    assert [row["recipe_id"] for row in rows] == ["learned-single-health"]
+
+
+def test_heuristic_action_decision_keeps_scores_as_ranking_hint_when_multiple_candidates_match() -> None:
     template_candidate = ActionPlanCandidate(
         candidate_kind="template",
         candidate_id="ssh_run_command",
@@ -531,9 +578,9 @@ def test_heuristic_action_decision_prefers_template_candidate_over_stored_recipe
     )
 
     assert candidate is template_candidate
-    assert confidence == "medium"
-    assert ask_user is False
-    assert reason == "same_intent_role_priority"
+    assert confidence == "low"
+    assert ask_user is True
+    assert reason == "ranking_hint_needs_llm"
 
 
 def test_action_planner_recovers_from_llm_candidate_id_variant() -> None:
@@ -616,7 +663,7 @@ def test_action_planner_without_llm_derives_hosts_file_preview() -> None:
         )
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["decision"]["candidate_kind"] == "template"
     assert result["decision"]["candidate_id"] == "sftp_read_file"
     assert result["decision"]["capability"] == "file_read"
@@ -625,14 +672,14 @@ def test_action_planner_without_llm_derives_hosts_file_preview() -> None:
     assert result["decision"]["summary_line"] == "Template: Datei lesen auf sftp/mgmt"
     assert result["decision"]["inputs"] == {"remote_path": "/etc/hosts"}
     assert result["decision"]["input_items"] == [{"key": "remote_path", "key_label": "Remote-Pfad", "value": "/etc/hosts"}]
-    assert result["decision"]["execution_state"] == "ready"
-    assert result["decision"]["execution_state_label"] == "Bereit"
+    assert result["decision"]["execution_state"] == "needs_confirmation"
+    assert result["decision"]["execution_state_label"] == "Braucht Bestaetigung"
     assert result["decision"]["preview"] == "Remote-Pfad lesen: /etc/hosts"
-    assert result["ask_user"] is False
+    assert result["ask_user"] is True
     assert result["planner_source"] == "heuristic"
     assert result["planner_source_label"] == "Heuristik"
-    assert result["confidence_label"] == "Mittel"
-    assert result["execution_state"] == "ready"
+    assert result["confidence_label"] == "Niedrig"
+    assert result["execution_state"] == "needs_confirmation"
     assert result["target_context"] == "sftp/mgmt"
 
 
@@ -714,13 +761,14 @@ def test_action_planner_without_llm_derives_mailbox_search_preview() -> None:
         )
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
+    assert result["ask_user"] is True
     assert result["decision"]["candidate_id"] == "imap_search_mailbox"
     assert result["decision"]["capability"] == "mail_search"
     assert result["decision"]["capability_label"] == "Postfach durchsuchen"
     assert result["decision"]["inputs"] == {"search_query": "Rechnung"}
     assert result["decision"]["preview"] == "Mailbox-Suche: Rechnung"
-    assert result["decision"]["execution_state"] == "ready"
+    assert result["decision"]["execution_state"] == "needs_confirmation"
 
 
 def test_action_planner_without_llm_derives_mqtt_publish_preview() -> None:

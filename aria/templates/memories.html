@@ -22,6 +22,43 @@
         <p>{{ collection_filter or active_collection }}</p>
         <small>{% if active_document_entry %}{{ active_document_entry.document_name }}{% elif query %}{{ tr(request, 'memories.search', 'Suche') }}: {{ query }}{% else %}{{ tr(request, 'memories.explorer_focus_hint', 'Aktueller Fokus des Explorers') }}{% endif %}</small>
       </article>
+      <article class="memory-explorer-card memory-learning-worker-card">
+        <h3>{{ tr(request, 'memories.learning_worker_title', 'Learning Worker') }}</h3>
+        <p>{{ learning_worker_status.running }}</p>
+        <small>
+          {{ tr(request, 'memories.learning_worker_running', 'laufend') }} ·
+          {{ tr(request, 'memories.learning_worker_done', 'fertig') }} {{ learning_worker_status.counts.completed }} ·
+          {{ tr(request, 'memories.learning_worker_failed', 'fehler') }} {{ learning_worker_status.counts.failed }}
+        </small>
+        <small class="memory-learning-worker-budget">
+          {{ tr(request, 'memories.learning_worker_budget', 'Budget') }}:
+          {{ learning_worker_status.budget.used_tokens }}/{{ learning_worker_status.budget.max_runtime_tokens }} tokens ·
+          {{ tr(request, 'memories.learning_worker_budget_left', 'frei') }} {{ learning_worker_status.budget.remaining_tokens }}
+          {% if learning_worker_status.budget.rejected_count %} · rejected {{ learning_worker_status.budget.rejected_count }}{% endif %}
+        </small>
+        {% if learning_worker_status.recent %}
+        {% set latest_learning_job = learning_worker_status.recent[0] %}
+        <small class="memory-learning-worker-latest">
+          {{ latest_learning_job.status }} · {{ latest_learning_job.source }}{% if latest_learning_job.artifact_type %} · {{ latest_learning_job.artifact_type }}{% endif %}
+        </small>
+        <div class="memory-learning-worker-actions">
+          <a class="chat-status memories-link" href="/memories/learning-worker/job/{{ latest_learning_job.job_id|urlencode }}">{{ tr(request, 'memories.learning_worker_details', 'Details') }}</a>
+          {% if request.state.can_access_advanced_config and latest_learning_job.status in ['failed', 'rejected'] %}
+          <form method="post" action="/memories/learning-worker/retry">
+            <input type="hidden" name="job_id" value="{{ latest_learning_job.job_id }}">
+            <input type="hidden" name="force" value="1">
+            <button type="submit" class="chat-status memories-inline-button">{{ tr(request, 'memories.learning_worker_retry', 'Retry') }}</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if request.state.can_access_advanced_config %}
+        <form method="post" action="/memories/learning-worker/flush" class="memory-learning-worker-flush">
+          <input type="hidden" name="scope" value="finished">
+          <button type="submit" class="chat-status memories-inline-button">{{ tr(request, 'memories.learning_worker_flush', 'History leeren') }}</button>
+        </form>
+        {% endif %}
+      </article>
     </div>
   </section>
   <section class="memories-toolbar">
@@ -34,6 +71,10 @@
         <option value="session" {% if filter_type == "session" %}selected{% endif %}>{{ tr(request, 'memories.type_session', 'Tages-Kontext') }}</option>
         <option value="document" {% if filter_type == "document" %}selected{% endif %}>{{ tr(request, 'memories.type_document', 'Dokumente') }}</option>
         <option value="knowledge" {% if filter_type == "knowledge" %}selected{% endif %}>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
+        <option value="reflection" {% if filter_type == "reflection" %}selected{% endif %}>{{ tr(request, 'memories.type_reflection', 'Lernen') }}</option>
+        <option value="learning_event" {% if filter_type == "learning_event" %}selected{% endif %}>{{ tr(request, 'memories.type_learning_event', 'Lern-Events') }}</option>
+        <option value="learning_candidate" {% if filter_type == "learning_candidate" %}selected{% endif %}>{{ tr(request, 'memories.type_learning_candidate', 'Lern-Kandidaten') }}</option>
+        <option value="learning_eval" {% if filter_type == "learning_eval" %}selected{% endif %}>{{ tr(request, 'memories.type_learning_eval', 'Lern-Evals') }}</option>
       </select>
       <label for="sort">{{ tr(request, 'memories.sort', 'Sortierung') }}</label>
       <select id="sort" name="sort">
@@ -115,6 +156,41 @@
     {% include "_context_help.html" %}
   {% endwith %}
 
+  {% if learning_review_queue.has_learning_items %}
+  <section class="memory-section-head">
+    <div>
+      <h3>{{ tr(request, 'memories.learning_review_queue_title', 'Learning Review Queue') }}</h3>
+      <p>{{ tr(request, 'memories.learning_review_queue_desc', 'Review, Regression und Aktivierung der sichtbaren Qdrant-Lernartefakte.') }}</p>
+    </div>
+  </section>
+  <section class="memory-type-grid memory-learning-queue-grid">
+    <a class="memory-type-card" href="/memories/explorer?type=learning_candidate&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.learning_queue_candidates', 'Kandidaten') }}</strong>
+      <span><code>{{ learning_review_queue.candidate_total }}</code> · open {{ learning_review_queue.candidate_open }} · reviewed {{ learning_review_queue.candidate_reviewed }}</span>
+    </a>
+    <a class="memory-type-card" href="/memories/explorer?type=learning_candidate&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.learning_queue_blocked', 'Blocked') }}</strong>
+      <span><code>{{ learning_review_queue.candidate_blocked }}</code> · active {{ learning_review_queue.candidate_active }}</span>
+    </a>
+    <a class="memory-type-card" href="/memories/explorer?type=learning_eval&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.learning_queue_evals', 'Evals') }}</strong>
+      <span><code>{{ learning_review_queue.eval_total }}</code> dry-runs</span>
+    </a>
+    <a class="memory-type-card" href="/memories/explorer?type=learning_active_hint&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.learning_queue_active_hints', 'Active Hints') }}</strong>
+      <span><code>{{ learning_review_queue.active_hint_total }}</code> weak signals</span>
+    </a>
+    <a class="memory-type-card" href="/memories/explorer?type=learning_candidate&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.learning_queue_regression', 'Regression') }}</strong>
+      <span>missing {{ learning_review_queue.regression_missing }} · linked {{ learning_review_queue.regression_linked }} · passed {{ learning_review_queue.regression_passed }}</span>
+    </a>
+    <a class="memory-type-card" href="/memories/explorer?type=learning_candidate&q={{ query|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.learning_queue_activation', 'Activation') }}</strong>
+      <span>ready {{ learning_review_queue.activation_ready }} · blocked {{ learning_review_queue.activation_blocked }}</span>
+    </a>
+  </section>
+  {% endif %}
+
   <section class="memory-section-head">
     <div>
       <h3>{{ tr(request, 'memories.explorer_filter_title', 'Nach Typ filtern') }}</h3>
@@ -133,6 +209,22 @@
     <a class="memory-type-card {% if filter_type == 'knowledge' %}active{% endif %}" href="/memories/explorer?type=knowledge&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</strong>
       <span><code>{{ counts.knowledge }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'reflection' %}active{% endif %}" href="/memories/explorer?type=reflection&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_reflection', 'Lernen') }}</strong>
+      <span><code>{{ counts.reflection }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'learning_event' %}active{% endif %}" href="/memories/explorer?type=learning_event&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_learning_event', 'Lern-Events') }}</strong>
+      <span><code>{{ counts.learning_event }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'learning_candidate' %}active{% endif %}" href="/memories/explorer?type=learning_candidate&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_learning_candidate', 'Lern-Kandidaten') }}</strong>
+      <span><code>{{ counts.learning_candidate }}</code></span>
+    </a>
+    <a class="memory-type-card {% if filter_type == 'learning_eval' %}active{% endif %}" href="/memories/explorer?type=learning_eval&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
+      <strong>{{ tr(request, 'memories.type_learning_eval', 'Lern-Evals') }}</strong>
+      <span><code>{{ counts.learning_eval }}</code></span>
     </a>
     <a class="memory-type-card {% if filter_type == 'fact' %}active{% endif %}" href="/memories/explorer?type=fact&q={{ query|urlencode }}&collection_filter={{ collection_filter|urlencode }}&sort={{ sort|urlencode }}&limit={{ limit }}&page=1">
       <strong>{{ tr(request, 'memories.type_fact', 'Fakten') }}</strong>
@@ -204,6 +296,48 @@
             <small>{{ row.collection }}</small>
           </header>
           <p>{{ row.text }}</p>
+          {% if row.type == "learning_candidate" %}
+          <div class="memory-candidate-review">
+            <span class="chat-status">{{ tr(request, 'memories.learning_candidate_review_only', 'Review-only') }}</span>
+            <span class="chat-status">{{ tr(request, 'memories.learning_candidate_qdrant', 'Qdrant Candidate') }}</span>
+            <span class="chat-status">{{ row.candidate_artifact_type or 'candidate' }} · {{ row.candidate_risk or 'medium' }}</span>
+            {% if row.promotion_state %}
+            <span class="chat-status">{{ row.promotion_state }}</span>
+            {% endif %}
+            {% if row.apply_state %}
+            <span class="chat-status">{{ row.apply_state }}</span>
+            {% endif %}
+            {% if row.regression_status %}
+            <span class="chat-status">regression: {{ row.regression_status }}</span>
+            {% endif %}
+            {% if row.is_app_learning_candidate %}
+            <span class="chat-status">app-learning</span>
+            {% if row.app_learning_preview.runtime_kind %}<span class="chat-status">{{ row.app_learning_preview.runtime_kind }}</span>{% endif %}
+            {% if row.app_learning_preview.validation_state %}<span class="chat-status">{{ row.app_learning_preview.validation_state }}</span>{% endif %}
+            {% if row.app_learning_preview.risk_level %}<span class="chat-status">risk: {{ row.app_learning_preview.risk_level }}</span>{% endif %}
+            <span class="chat-status">health drafts: {{ row.app_learning_preview.health_draft_count }}</span>
+            <span class="chat-status">regression drafts: {{ row.app_learning_preview.regression_draft_count }}</span>
+            <span class="chat-status">pytest proposal: {{ row.app_learning_preview.pytest_function_count }}</span>
+            {% endif %}
+            {% if row.prepared_artifact_review and row.prepared_artifact_review.pytest_write_state %}
+            <span class="chat-status">pytest write: {{ row.prepared_artifact_review.pytest_write_state }}</span>
+            {% endif %}
+            {% if row.prepared_artifact_review and row.prepared_artifact_review.pytest_write_review_state %}
+            <span class="chat-status">artifact review: {{ row.prepared_artifact_review.pytest_write_review_decision }}</span>
+            {% endif %}
+          </div>
+          {% if row.app_learning_preview and row.app_learning_preview.available %}
+          <div class="memory-candidate-review">
+            {% if row.app_learning_preview.app_root %}<span class="chat-status">{{ row.app_learning_preview.app_root }}</span>{% endif %}
+            {% if row.app_learning_preview.plan_validation.missing_gates %}
+            <span class="chat-status">missing: {{ row.app_learning_preview.plan_validation.missing_gates|join(', ') }}</span>
+            {% endif %}
+            {% if row.app_learning_preview.plan_validation.mutating_steps %}
+            <span class="chat-status">mutating: {{ row.app_learning_preview.plan_validation.mutating_steps|length }}</span>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% endif %}
           <footer class="memory-card-foot">
             <small>
               {{ row.display_timestamp or "n/a" }} · {{ tr(request, 'memories.source', 'Quelle') }}: {{ row.source }}
@@ -229,6 +363,79 @@
                   <button type="submit">{{ tr(request, 'memories.save', 'Speichern') }}</button>
                 </form>
               </details>
+              {% endif %}
+              {% if row.type == "learning_candidate" %}
+              <form method="post" action="/memories/learning-candidate/status">
+                <input type="hidden" name="collection" value="{{ row.collection }}">
+                <input type="hidden" name="point_id" value="{{ row.id }}">
+                <input type="hidden" name="decision" value="review">
+                <input type="hidden" name="artifact_type" value="{{ row.candidate_artifact_type }}">
+                <input type="hidden" name="risk" value="{{ row.candidate_risk }}">
+                <input type="hidden" name="type" value="{{ filter_type }}">
+                <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <button type="submit" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_reviewed', 'Geprüft') }}</button>
+              </form>
+              {% if row.apply_allowed %}
+              <form method="post" action="/memories/learning-candidate/apply">
+                <input type="hidden" name="collection" value="{{ row.collection }}">
+                <input type="hidden" name="point_id" value="{{ row.id }}">
+                <input type="hidden" name="artifact_type" value="{{ row.candidate_artifact_type }}">
+                <input type="hidden" name="risk" value="{{ row.candidate_risk }}">
+                <input type="hidden" name="promotion_state" value="{{ row.promotion_state }}">
+                <input type="hidden" name="candidate_text" value="{{ row.text }}">
+                <input type="hidden" name="type" value="{{ filter_type }}">
+                <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <button type="submit" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_apply_prepare', 'Apply vorbereiten') }}</button>
+              </form>
+              {% endif %}
+              {% if row.apply_preview_allowed %}
+              <form method="get" action="/memories/learning-candidate/apply-preview">
+                <input type="hidden" name="collection" value="{{ row.collection }}">
+                <input type="hidden" name="point_id" value="{{ row.id }}">
+                <input type="hidden" name="artifact_type" value="{{ row.candidate_artifact_type }}">
+                <input type="hidden" name="risk" value="{{ row.candidate_risk }}">
+                <input type="hidden" name="apply_state" value="{{ row.apply_state }}">
+                <input type="hidden" name="regression_status" value="{{ row.regression_status }}">
+                <input type="hidden" name="regression_ref" value="{{ row.regression_ref }}">
+                <input type="hidden" name="pytest_write_state" value="{{ row.prepared_artifact_review.pytest_write_state }}">
+                <input type="hidden" name="pytest_write_gate_result" value="{{ row.prepared_artifact_review.pytest_write_gate_result }}">
+                <input type="hidden" name="pytest_target_file" value="{{ row.prepared_artifact_review.pytest_target_file }}">
+                <input type="hidden" name="pytest_code_preview_sha256" value="{{ row.prepared_artifact_review.pytest_code_preview_sha256 }}">
+                <input type="hidden" name="pytest_write_review_state" value="{{ row.prepared_artifact_review.pytest_write_review_state }}">
+                <input type="hidden" name="pytest_write_review_decision" value="{{ row.prepared_artifact_review.pytest_write_review_decision }}">
+                <input type="hidden" name="pytest_write_review_notes" value="{{ row.prepared_artifact_review.pytest_write_review_notes }}">
+                <input type="hidden" name="candidate_text" value="{{ row.text }}">
+                <input type="hidden" name="type" value="{{ filter_type }}">
+                <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <button type="submit" class="ui-action-button">{{ icon('product', 'ui-action-icon') }}{{ tr(request, 'memories.learning_candidate_apply_preview', 'Apply-Vorschau') }}</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/memories/learning-candidate/status">
+                <input type="hidden" name="collection" value="{{ row.collection }}">
+                <input type="hidden" name="point_id" value="{{ row.id }}">
+                <input type="hidden" name="decision" value="reject">
+                <input type="hidden" name="artifact_type" value="{{ row.candidate_artifact_type }}">
+                <input type="hidden" name="risk" value="{{ row.candidate_risk }}">
+                <input type="hidden" name="type" value="{{ filter_type }}">
+                <input type="hidden" name="q" value="{{ query }}">
+                <input type="hidden" name="collection_filter" value="{{ collection_filter }}">
+                <input type="hidden" name="page" value="{{ page }}">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <input type="hidden" name="sort" value="{{ sort }}">
+                <button type="submit" class="danger-btn">{{ tr(request, 'memories.learning_candidate_rejected', 'Verwerfen') }}</button>
+              </form>
               {% endif %}
               <form method="post" action="/memories/delete">
                 <input type="hidden" name="collection" value="{{ row.collection }}">

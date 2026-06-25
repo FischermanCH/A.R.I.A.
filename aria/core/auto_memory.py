@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 import re
 from dataclasses import dataclass
+from typing import Any
+
+from aria.core.bounded_decision import BoundedDecisionClient
 
 
 @dataclass
@@ -11,11 +14,15 @@ class AutoMemoryDecision:
     recall_query: str
     facts: list[str]
     preferences: list[str]
+    reflections: list[str] | None = None
+    action_boundaries: list[str] | None = None
     should_persist_session: bool = False
+    extraction_model: str = "rule_based"
+    extraction_usage: dict[str, int] | None = None
 
 
 class AutoMemoryExtractor:
-    """Rule-based fact extraction to keep auto-memory deterministic and cheap."""
+    """Bounded auto-memory extraction with a deterministic fallback."""
 
     _lexicon_path = Path(__file__).resolve().parents[1] / "lexicons" / "auto_memory.json"
     try:
@@ -149,4 +156,116 @@ class AutoMemoryExtractor:
             facts=deduped,
             preferences=preferences,
             should_persist_session=cls._should_persist_session(clean, deduped, preferences),
+        )
+
+    @classmethod
+    def _clean_list(cls, values: Any, *, limit: int, max_len: int = 220) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            text = cls._clean_spaces(str(value or "")).strip(" .")
+            if len(text) < 3 or len(text) > max_len:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(text)
+            if len(cleaned) >= max(0, limit):
+                break
+        return cleaned
+
+    @classmethod
+    async def decide_agentic(
+        cls,
+        message: str,
+        *,
+        llm_client: Any | None,
+        max_facts: int = 3,
+        enabled: bool = True,
+    ) -> AutoMemoryDecision:
+        fallback = cls.decide(message, max_facts=max_facts)
+        if not enabled or llm_client is None:
+            return fallback
+        clean = cls._clean_spaces(message)
+        if not clean:
+            return fallback
+        decision = await BoundedDecisionClient(llm_client).decide_json(
+            operation="auto_memory_extraction_decision",
+            system=(
+                "You extract durable user memory from one ARIA chat message. "
+                "Return one JSON object only with: recall_query, facts, preferences, "
+                "reflections, action_boundaries, should_persist_session, confidence, reason. Store durable behavior, "
+                "preferences, names, aliases, infrastructure facts, and user-specific conventions. "
+                "Use reflections for durable lessons from user feedback about ARIA behavior, answer quality, routing, latency, "
+                "source use, or UI/UX expectations. "
+                "Use action_boundaries for durable constraints that affect future safe behavior, "
+                "such as approval requirements, expiry, trust/source limits, or actions to avoid. "
+                "Do not store transient questions, commands to execute, public trivia, secrets, or credentials."
+            ),
+            payload={
+                "message": clean,
+                "max_facts": max(1, int(max_facts or 1)),
+                "fallback_rule_based": {
+                    "recall_query": fallback.recall_query,
+                    "facts": fallback.facts,
+                    "preferences": fallback.preferences,
+                    "reflections": fallback.reflections or [],
+                    "action_boundaries": fallback.action_boundaries or [],
+                    "should_persist_session": fallback.should_persist_session,
+                },
+                "contract": {
+                    "facts": "Durable user-specific facts or behavior conventions only.",
+                    "preferences": "Stable user preference statements only.",
+                    "reflections": (
+                        "Durable improvement lessons from user feedback about ARIA behavior, routing, latency, "
+                        "source use, UI/UX, or failed answers. Phrase them as future behavior guidance, not as code."
+                    ),
+                    "action_boundaries": "Durable action-sensitive constraints. They are memory hints, not policy enforcement.",
+                    "session": "true only when the message itself is useful future context for this user.",
+                    "recall_query": "Short semantic query for finding related memories.",
+                },
+            },
+        )
+        if not decision.ok:
+            return fallback
+        payload = decision.payload
+        facts = cls._clean_list(payload.get("facts"), limit=max(1, int(max_facts or 1)))
+        preferences = cls._clean_list(payload.get("preferences"), limit=3)
+        reflections = cls._clean_list(payload.get("reflections"), limit=3, max_len=280)
+        action_boundaries = cls._clean_list(payload.get("action_boundaries"), limit=2)
+        boundary_facts = [f"Action boundary: {boundary}" for boundary in action_boundaries]
+        if boundary_facts:
+            facts = cls._clean_list(
+                [*boundary_facts, *facts],
+                limit=max(1, int(max_facts or 1)),
+            )
+        recall_query = cls._clean_spaces(str(payload.get("recall_query", "") or ""))
+        if len(recall_query) > 240:
+            recall_query = recall_query[:240].rsplit(" ", 1)[0].strip()
+        should_persist_session = bool(payload.get("should_persist_session", False))
+        if not recall_query:
+            recall_query = fallback.recall_query
+        if not facts and not preferences and not reflections and not should_persist_session:
+            return AutoMemoryDecision(
+                recall_query=recall_query,
+                facts=[],
+                preferences=[],
+                reflections=[],
+                action_boundaries=[],
+                should_persist_session=False,
+                extraction_model="agentic",
+                extraction_usage=decision.usage,
+            )
+        return AutoMemoryDecision(
+            recall_query=recall_query,
+            facts=facts,
+            preferences=preferences,
+            reflections=reflections,
+            action_boundaries=action_boundaries,
+            should_persist_session=should_persist_session,
+            extraction_model="agentic",
+            extraction_usage=decision.usage,
         )

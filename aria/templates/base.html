@@ -91,7 +91,7 @@
               <span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>
             </a>
             {% endif %}
-            <a href="/stats" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
+            <a href="/stats" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
             <a href="/help" class="user-menu-link user-menu-link-icon{% if nav_help_active %} is-active{% endif %}">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
             <div class="user-menu-divider" aria-hidden="true"></div>
             <form action="/logout" method="post" class="inline-form">

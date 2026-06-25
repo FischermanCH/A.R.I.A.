@@ -14,6 +14,7 @@ class CapabilityDraft:
     plan_class: str = ""
     behavior_profile: str = ""
     confidence: float = 0.0
+    connection_refs: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
 

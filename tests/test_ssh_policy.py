@@ -37,6 +37,20 @@ def test_validate_ssh_readonly_policy_allows_dns_probe_commands() -> None:
         assert decision.reason == "ssh_readonly_policy_allow"
 
 
+def test_validate_ssh_readonly_policy_allows_apt_upgradable_list() -> None:
+    decision = validate_ssh_readonly_policy("apt list --upgradable")
+
+    assert decision.action == "allow"
+    assert decision.reason == "ssh_readonly_policy_allow"
+
+
+def test_validate_ssh_readonly_policy_blocks_mutating_apt_operation() -> None:
+    decision = validate_ssh_readonly_policy("apt upgrade")
+
+    assert decision.action == "block"
+    assert decision.reason == "ssh_command_mutating_operation"
+
+
 def test_validate_ssh_readonly_policy_allows_exact_allowlisted_health_bundle() -> None:
     allow_commands = [
         "uptime -p",

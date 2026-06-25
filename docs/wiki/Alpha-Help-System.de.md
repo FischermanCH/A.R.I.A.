@@ -95,7 +95,7 @@ Wichtig:
 - **Experience Memory** speichert erfolgreiche sichere Aktionsmuster als Planner-Kontext, nicht als blinde Executor-Automatik
 - fluechtige Momentaufnahmen aus SSH/RSS/SMB werden nicht pauschal in Memory geschrieben
 
-Auf `/memories` kannst du Erinnerungen ansehen, suchen, bearbeiten, loeschen und exportieren. `/memories/map` zeigt Collections, Dokumentgruppen, Rollups und Memory-Struktur.
+Auf `/memories` kannst du Erinnerungen ansehen, suchen, bearbeiten, loeschen und exportieren. `/memories/map` zeigt Collections, Dokumentgruppen, Rollups, Memory-Struktur und den Qdrant-Brain-Graph.
 
 ## Notizen
 

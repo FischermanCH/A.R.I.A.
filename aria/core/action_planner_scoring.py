@@ -168,8 +168,3 @@ def routing_preference_bonus(candidate_id: str, query: str, connection_kind: str
                 continue
             bonus = max(bonus, 0.9 - (profile_index * 0.1) - (candidate_index * 0.05))
     return max(0.0, bonus)
-
-
-def intent_is_explicit(query: str, intent: str) -> bool:
-    lowered = str(query or "").strip().lower()
-    return any(token in lowered for token in INTENT_HINTS.get(intent, ()))

@@ -4,9 +4,11 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+import time
 from urllib.parse import quote_plus
 
 from aria.core.i18n import I18NStore
+from aria.core.notes_action_arbitration import NotesActionArbiter
 from aria.core.notes_magic import (
     fetch_web_note_source,
     infer_note_folder,
@@ -29,6 +31,8 @@ class ChatNotesOutcome:
     assistant_text: str
     icon: str = "📝"
     intent_label: str = "notes"
+    badge_duration: str | None = None
+    badge_details: tuple[str, ...] = ()
 
 
 _CHAT_NOTES_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "chat_notes.json"
@@ -164,19 +168,56 @@ async def handle_chat_notes_flow(
     username: str,
     base_dir: Path,
     settings: object,
+    llm_client: object | None = None,
+    request_id: str = "",
 ) -> ChatNotesOutcome | None:
+    started_at = time.perf_counter()
+
+    def outcome(
+        assistant_text: str,
+        *,
+        icon: str = "📝",
+        intent_label: str = "notes",
+        details: tuple[str, ...] = (),
+    ) -> ChatNotesOutcome:
+        elapsed_s = max(0.0, time.perf_counter() - started_at)
+        return ChatNotesOutcome(
+            handled=True,
+            assistant_text=assistant_text,
+            icon=icon,
+            intent_label=intent_label,
+            badge_duration=f"{elapsed_s:.1f}",
+            badge_details=(
+                f"Routing Debug: notes_flow handled=true duration_ms={int(elapsed_s * 1000)}",
+                *details,
+            ),
+        )
+
     text = str(clean_message or "").strip()
     if not text:
         return None
+    if llm_client is not None and not text.startswith("/"):
+        decision = await NotesActionArbiter(llm_client).decide(
+            text,
+            user_id=username,
+            request_id=request_id,
+        )
+        if decision.source == "notes_action_arbitration":
+            if decision.action == "no_action":
+                return None
+            if decision.canonical_command:
+                text = decision.canonical_command
 
     for pattern in _OPEN_NOTES_PATTERNS:
         if pattern.match(text):
             notes = _store(base_dir).list_notes(username)
-            return ChatNotesOutcome(
-                handled=True,
-                assistant_text=(
-                    _text("chat_notes.open_notes", "Your notes are here: `{link}`\n\nCurrently available: {count}", link=_notes_link(), count=len(notes))
-                ),
+            return outcome(
+                _text(
+                    "chat_notes.open_notes",
+                    "Your notes are here: `{link}`\n\nCurrently available: {count}",
+                    link=_notes_link(),
+                    count=len(notes),
+                )
             )
 
     for pattern in _LIST_NOTE_FOLDERS_PATTERNS:
@@ -184,9 +225,8 @@ async def handle_chat_notes_flow(
             continue
         folders = _store(base_dir).list_folders(username)
         if not folders:
-            return ChatNotesOutcome(
-                handled=True,
-                assistant_text=_text(
+            return outcome(
+                _text(
                     "chat_notes.no_folders",
                     "You do not have note folders yet. Start here: `{link}?new=1`",
                     link=_notes_link(),
@@ -195,7 +235,7 @@ async def handle_chat_notes_flow(
         lines = [_text("chat_notes.folder_list_heading", "Your note folders:")]
         for folder in folders[:12]:
             lines.append(f"- {folder}\n  `{_notes_link()}?folder={folder}`")
-        return ChatNotesOutcome(handled=True, assistant_text="\n\n".join(lines))
+        return outcome("\n\n".join(lines))
 
     for pattern in _LIST_NOTES_IN_FOLDER_PATTERNS:
         match = pattern.match(text)
@@ -207,9 +247,8 @@ async def handle_chat_notes_flow(
         resolved_folder = store.resolve_folder_name(username, folder)
         notes = [note for note in store.list_notes(username) if _folder_matches(note.folder, resolved_folder)]
         if not notes:
-            return ChatNotesOutcome(
-                handled=True,
-                assistant_text=_text(
+            return outcome(
+                _text(
                     "chat_notes.no_notes_in_folder",
                     "I found no notes in `{folder}` right now. Open: `{link}`",
                     folder=resolved_folder or folder,
@@ -229,11 +268,11 @@ async def handle_chat_notes_flow(
             ]
             for note in notes[:8]:
                 lines.append(f"- {note.title}")
-            return ChatNotesOutcome(handled=True, assistant_text="\n".join(lines))
+            return outcome("\n".join(lines))
         lines = [_text("chat_notes.notes_in_folder_heading", "Notes in `{folder}`:", folder=resolved_folder)]
         for note in notes[:8]:
             lines.append(f"- {note.title}\n  `{_notes_link(note.note_id)}`")
-        return ChatNotesOutcome(handled=True, assistant_text="\n\n".join(lines))
+        return outcome("\n\n".join(lines))
 
     for pattern in _OPEN_NOTE_PATTERNS:
         match = pattern.match(text)
@@ -243,9 +282,8 @@ async def handle_chat_notes_flow(
         hits = await search_note_hits(base_dir=base_dir, username=username, settings=settings, query=query, limit=3)
         if hits:
             top = hits[0]
-            return ChatNotesOutcome(
-                handled=True,
-                assistant_text=_text(
+            return outcome(
+                _text(
                     "chat_notes.open_matching_note",
                     "Open matching note: **{title}**\n\n`{link}`",
                     title=top.title or _text("chat_notes.note_fallback", "Note"),
@@ -256,18 +294,16 @@ async def handle_chat_notes_flow(
         lowered = query.lower()
         fallback = next((note for note in notes if lowered in note.title.lower()), None)
         if fallback is not None:
-            return ChatNotesOutcome(
-                handled=True,
-                assistant_text=_text(
+            return outcome(
+                _text(
                     "chat_notes.open_matching_note",
                     "Open matching note: **{title}**\n\n`{link}`",
                     title=fallback.title,
                     link=_notes_link(fallback.note_id),
                 ),
             )
-        return ChatNotesOutcome(
-            handled=True,
-            assistant_text=_text(
+        return outcome(
+            _text(
                 "chat_notes.note_not_found",
                 "I found no note for `{query}`. Search: `{link}?q={query}`",
                 query=query,
@@ -282,9 +318,8 @@ async def handle_chat_notes_flow(
         query = str(match.group("query") or "").strip()
         hits = await search_note_hits(base_dir=base_dir, username=username, settings=settings, query=query, limit=5)
         if not hits:
-            return ChatNotesOutcome(
-                handled=True,
-                assistant_text=_text(
+            return outcome(
+                _text(
                     "chat_notes.no_search_results",
                     "I found nothing matching `{query}` in your notes right now. Open: `{link}`",
                     query=query,
@@ -298,7 +333,7 @@ async def handle_chat_notes_flow(
                 f"- [{index}] {hit.title or _text('chat_notes.note_fallback', 'Note')} · {folder}\n"
                 f"  `{_notes_link(str(hit.note_id or '').strip())}`\n  {hit.snippet}"
             )
-        return ChatNotesOutcome(handled=True, assistant_text="\n\n".join(lines))
+        return outcome("\n\n".join(lines), details=(f"Routing Debug: notes_search query={query}",))
 
     for pattern in _WEB_SEARCH_WITH_NOTES_PATTERNS:
         match = pattern.match(text)
@@ -322,7 +357,7 @@ async def handle_chat_notes_flow(
             assistant_text = f"{note_context}\n\n{assistant_text}".strip()
         if not assistant_text:
             assistant_text = _text("chat_notes.web_search_empty", "The web research could not produce an answer right now.")
-        return ChatNotesOutcome(handled=True, assistant_text=assistant_text, icon="🌐", intent_label="web+notes")
+        return outcome(assistant_text, icon="🌐", intent_label="web+notes")
 
     for pattern in _SAVE_WEB_SOURCE_PATTERNS:
         match = pattern.match(text)

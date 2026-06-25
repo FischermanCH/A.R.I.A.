@@ -1,7 +1,7 @@
 # ARIA - Technische Architektur
 
-Stand: 2026-04-03  
-Release-Basis: `0.1.0-alpha21`
+Stand: 2026-06-18
+Release-Basis: `0.1.0-alpha370 intern`
 
 Zweck:
 - zentrale Architektur-Erklärung für README, Release-Doku und spätere Public Docs
@@ -10,12 +10,13 @@ Zweck:
 
 ## Überblick
 
-ARIA ist ein self-hosted AI Assistant mit browser-first UI, deterministischer Pipeline, Memory via Qdrant und modularen Connections/Rezepten für echte Systeme.
+ARIA ist ein self-hosted AI Assistant mit browser-first UI, agentic-first Bedeutungsentscheidung, Memory via Qdrant und modularen Connections/Rezepten für echte Systeme.
 
-Der zentrale Architekturgedanke ist: **strukturierte Pfade zuerst, LLM erst wenn nötig**.
+Der zentrale Architekturgedanke ist: **LLM/Agentik für freie Bedeutung, deterministische Kontrolle für Sicherheit und Ausführung**.
 
 Das bedeutet:
-- gespeicherte Rezepte und Capability-Routing werden vor dem generischen Chat-LLM geprüft
+- freie User-Semantik wie Chat-vs-Action, Kontextrelevanz, Quellenbedarf und Aktionswirkung wird bevorzugt über bounded LLM-/Agentic-Entscheidungen geklärt
+- gespeicherte Rezepte, Capability-Routing und Runtime-Module bleiben durch Schemas, Contracts, Policy und Guardrails begrenzt
 - Memory-Operationen laufen über explizite Intents
 - das LLM bleibt für freie Sprache, Transformation und Zusammenfassung zuständig
 - technische Aktionen selbst bleiben in kontrollierten Runtime-Modulen
@@ -61,22 +62,26 @@ Wichtige Module:
 - `aria/templates/*`
 - `aria/static/style.css`
 
-### 2. Pipeline / Orchestration Layer
+### 2. Agentic Context / Pipeline Layer
 
-Das Herzstück ist `aria/core/pipeline.py`. Dort wird jede Anfrage in einer festen Reihenfolge verarbeitet.
+Das Herzstück ist die Agentic-Context-Pipeline. Freie User-Bedeutung wird nicht per Wortliste entschieden. ARIA gibt der LLM zuerst registrierten Routing-Meta-Meta-Kontext und den User-Prompt. Die LLM erzeugt einen `TurnPlan`: ob Kontext gebraucht wird, welche registrierten Surfaces tiefer geladen werden sollen, ob eine Aktion moeglich ist, welches Risiko besteht und ob bestaetigt werden muss.
 
 Aufgaben dieser Schicht:
-- Routing-Entscheid
-- Rezept-Ausführung
-- Capability-Ausführung
-- Memory Store / Recall / Forget
-- Context Assembly
-- LLM-Aufruf
+- TurnPlan-Erzeugung ueber bounded LLM
+- Validierung gegen Registry, Policy, Budget und Guardrails
+- gezieltes Laden von Memory, Learning, Notes, Docs, Connections, Web und spaeteren Surfaces
+- Evidence-/Empty-/DirectAnswer-Contracts fuer quellengebundene Antworten
+- Rezept-/Capability-Ausführung nur hinter Plan, Policy und Guardrails
+- Context Assembly und LLM-Aufruf nur wenn noetig
 - Token-, Kosten- und Activity-Logging
 - optional Auto-Memory nach dem LLM-Call
 
 Wichtige Module:
 - `aria/core/pipeline.py`
+- `aria/core/aria_turn_arbitration.py`
+- `aria/core/context_surfaces.py`
+- `aria/core/context_surface_adapters.py`
+- `aria/core/inventory_index.py`
 - `aria/core/capability_router.py`
 - `aria/core/capability_catalog.py`
 - `aria/core/context.py`
@@ -127,6 +132,7 @@ Persistenz liegt bewusst außerhalb des ersetzbaren ARIA-App-Codes und verteilt 
 - User-bezogene Memory-Trennung
 - Recall via Similarity Search
 - Forget + Cleanup leerer Collections
+- primaerer Store fuer semantisches Memory und Learning: Fakten, Praeferenzen, Reflections, Learning Events, Dokument-Chunks, Notes-Indizes und spaetere Lernartefakte muessen hier sichtbar, suchbar, loeschbar und reviewbar sein
 
 **SQLite / Secure Store**
 - Auth-/Session-Daten
@@ -139,6 +145,7 @@ Persistenz liegt bewusst außerhalb des ersetzbaren ARIA-App-Codes und verteilt 
 - `data/recipes/*.json` für gespeicherte Rezept-Manifeste
 - `data/logs/*.jsonl` für Token-/Activity-Logs
 - `data/runtime/*.json` für Caches und Runtime-State
+- JSON/JSONL fuer Learning nur als Export/Import, Audit, Replay, Manifest, Cache oder technisches Log; nicht als primaerer Wissens-/Learning-Store an Qdrant vorbei
 
 Wichtige Module:
 - `aria/skills/memory.py`
@@ -155,13 +162,32 @@ Wichtige Module:
 
 ![ARIA Intelligentes Routing](./aria_intelligentes_routing.svg)
 
-Das Routing ist deterministisch priorisiert und bewusst nicht als blindes LLM-Klassifikationsproblem gebaut.
+Das Routing ist bounded-agentisch statt blind LLM-gesteuert. LLMs duerfen Bedeutung, Kontextbedarf, Relevanz, Kandidaten und Antwortmodus vorschlagen; deterministische Schichten validieren danach harte Grenzen, erlaubte Surfaces, Capabilities, Policy, Guardrails, Runtime und Fallbacks.
+
+Die aktuelle Zielarchitektur ist `Agentic Context Routing`:
+
+```text
+User Prompt
+  -> Routing-Meta-Meta-Kontext aus registrierten ContextSurfaces
+  -> LLM TurnPlan
+  -> validierte ContextRequests
+  -> gezielter Loader-Kontext
+  -> Antwort, Rueckfrage, Plan oder Guardrail-Block
+```
+
+Neue ARIA-Faehigkeiten sollen als `ContextSurface` mit Meta-Kontext, Loader-/Executor-Contract, Risiko/Kosten/Latenz und Datenpersistenz registriert werden. Sie sollen keinen zentralen Wortlistenrouter erweitern muessen.
+
+Nach `alpha370` ist die naechste Arbeitskante Performance: einfache lokale Direct-Context-Turns sollen nach gutem TurnPlan nicht mehr durch unnoetige Legacy-Gates laufen. Details stehen in `docs/product/agentic-context-performance-plan.md`.
 
 ## Routing-Reihenfolge
 
+Historische Routing-Reihenfolge
+
+Die folgenden Pfade existieren weiter, werden aber schrittweise hinter den Agentic-Context-TurnPlan verschoben oder als Fallbacks behandelt.
+
 ### 1. Gespeicherte Rezepte
 
-Zuerst prüft ARIA aktive Rezept-Manifeste aus `data/recipes/`.
+ARIA kann aktive Rezept-Manifeste aus `data/recipes/` nutzen.
 
 Ein klar passendes Rezept hat Vorrang vor generischem Capability-Routing. Das ist wichtig, damit explizit gebaute Workflows nicht von allgemeineren Connection-Aktionen überfahren werden.
 
@@ -205,15 +231,21 @@ Wenn kein Rezept, keine Capability und kein Memory-Intent greift, geht die Anfra
 
 `aria/core/llm_client.py` nutzt LiteLLM als Provider-Abstraktion für OpenAI-, Anthropic-, OpenRouter- und Ollama-kompatible Modelle. Der Prompt-Kontext wird in `aria/core/context.py` aus Persona, Chat-History und optionalem Memory-Kontext zusammengesetzt.
 
-## Warum deterministisch vor LLM?
+## Warum agentisch, aber kontrolliert?
 
-Das Design vermeidet vier typische Probleme eines LLM-First-Routers:
-- unnötige Latenz durch Routing-LLM-Calls
-- unnötige Kosten pro Routing-Entscheid
-- nicht-deterministisches Verhalten bei Systemaktionen
-- schlechtere Nachvollziehbarkeit bei Fehlrouting
+Das Design vermeidet zwei Extreme:
 
-ARIAs Ansatz ist deshalb: **strukturierte Signale für Routing, LLM für Sprache und Transformation**.
+- starres Bedeutungsrouting per Wörterbuch, Regex oder Score-Gap
+- unkontrollierte LLM-Agenten, die Aktionen ohne harte Grenzen ausführen
+
+ARIAs Ansatz ist deshalb: **Agentik für Semantik, Deterministik für Kontrolle**.
+
+Konkret:
+- bounded LLM-Entscheidungen liefern JSON-Entscheide mit Confidence und Reason
+- Debug-Zeilen zeigen, warum Chat, Web, Memory, Recipe oder Capability gewählt wurde
+- deterministische Validatoren prüfen Schemas, erlaubte Connection-Kinds, Policy und Guardrails
+- Runtime-Module führen nur validierte Aktionen aus
+- Learning-Artefakte bleiben review-/promotion-gesteuert, siehe `docs/product/agentic-learning-loop-v2.md`
 
 ---
 
@@ -339,6 +371,7 @@ Aktuell gilt:
 - Auto-Memory für normale Chat-Pfade ist konfigurierbar
 - Auto-Memory filtert flüchtige Einmalfragen und reine Tool-/Action-Prompts beim automatischen Persistieren stärker heraus, damit nicht jede Chat-Zeile als neue Erinnerung in Qdrant landet
 - Memory-Export ist als JSON-Download aus der Memory-Ansicht verfügbar
+- `/memories/map` zeigt neben Collections, Dokumentgruppen und Rollups einen begrenzten Qdrant-Brain-Graphen mit serverseitig berechneten Aehnlichkeitskanten; rohe Vektoren bleiben im Backend
 - Qdrant-Status und DB-Größe erscheinen in `Statistiken`
 
 Wichtig:
@@ -348,7 +381,7 @@ Wichtig:
 
 ## Geplanter Memory-Ausbau
 
-Ohne Memory Map / Graph-Visualisierung, aber mit weiterem Ausbau rund um Datenlebenszyklus und Migration:
+Nach Memory Map / Qdrant-Brain-Visualisierung liegt der naechste Ausbau eher bei Datenlebenszyklus, Portabilitaet und Migration:
 - typisierte Auto-Memory-Extraktion für Facts / Preferences / Sessions
 - Session-Rollups Tag -> Woche -> Monat
 - Memory Import / Portabilität
