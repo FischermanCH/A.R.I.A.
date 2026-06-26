@@ -261,6 +261,7 @@ def test_get_update_status_falls_back_to_changelog_when_github_tags_rate_limited
 ### Fixed
 - older thing
 """.strip(),
+        update_check.GITHUB_RELEASES_ATOM: "",
     }
 
     class FakeResponse:
@@ -291,3 +292,54 @@ def test_get_update_status_falls_back_to_changelog_when_github_tags_rate_limited
     assert status["error"] == ""
     assert "memory map docs" in status["release_notes"]
     assert [entry["label"] for entry in status["recent_releases"]] == ["0.1.0-alpha39"]
+
+
+def test_get_update_status_uses_release_feed_when_tags_are_rate_limited_and_changelog_is_stale(
+    monkeypatch, tmp_path
+) -> None:
+    responses = {
+        update_check.GITHUB_CHANGELOG_RAW: """
+## [Unreleased]
+
+## [0.1.0-alpha.44] - 2026-04-05
+
+### Fixed
+- stale raw cache
+""".strip(),
+        update_check.GITHUB_RELEASES_ATOM: """
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>tag:github.com,2008:Repository/123/v0.1.0-alpha.45</id>
+    <title>v0.1.0-alpha.45</title>
+  </entry>
+</feed>
+""".strip(),
+    }
+
+    class FakeResponse:
+        def __init__(self, text: str) -> None:
+            self._data = text.encode("utf-8")
+
+        def read(self) -> bytes:
+            return self._data
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    def fake_urlopen(request, timeout=0):  # type: ignore[no-untyped-def]
+        if str(request.full_url) == update_check.GITHUB_TAGS_API:
+            raise HTTPError(str(request.full_url), 403, "rate limit exceeded", hdrs=None, fp=None)
+        return FakeResponse(responses[str(request.full_url)])
+
+    monkeypatch.setattr(update_check, "urlopen", fake_urlopen)
+
+    status = get_update_status(tmp_path, current_label="0.1.0-alpha44", ttl_seconds=1)
+
+    assert status["latest_label"] == "0.1.0-alpha45"
+    assert status["latest_tag"] == "v0.1.0-alpha.45"
+    assert status["update_available"] is True
+    assert status["source"] == "github-releases-atom"

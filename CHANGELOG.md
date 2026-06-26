@@ -6,6 +6,12 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha398] - 2026-06-26
+
+### Fixed
+
+- Hardened the public update checker after the `alpha397` corrective release. When the GitHub Tags API is rate-limited and the raw `main` changelog is still cached, ARIA now falls back to GitHub's releases Atom feed before using the changelog-only fallback, so future update checks can still discover the newest public prerelease.
+
 ## [0.1.0-alpha397] - 2026-06-26
 
 ### Added

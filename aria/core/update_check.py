@@ -14,6 +14,7 @@ from urllib.request import urlopen
 GITHUB_REPO = "FischermanCH/A.R.I.A."
 GITHUB_TAGS_API = f"https://api.github.com/repos/{GITHUB_REPO}/tags?per_page=20"
 GITHUB_CHANGELOG_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/CHANGELOG.md"
+GITHUB_RELEASES_ATOM = f"https://github.com/{GITHUB_REPO}/releases.atom"
 UPDATE_CHECK_CACHE = Path("data/runtime/update_status.json")
 NO_UPDATE_CACHE_TTL_SECONDS = 60
 
@@ -86,6 +87,20 @@ def _extract_release_labels_from_changelog(changelog_text: str) -> list[str]:
         if release_sort_key(normalized) == (0, 0, 0, -1, -1):
             continue
         labels.append(normalized)
+    return labels
+
+
+def _extract_release_labels_from_atom(feed_text: str) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"v?\d+\.\d+\.\d+(?:-[a-z]+\.?\d+)?", str(feed_text or ""), flags=re.IGNORECASE):
+        normalized = normalize_release_label(match.group(0))
+        if not normalized or normalized in seen:
+            continue
+        if release_sort_key(normalized) == (0, 0, 0, -1, -1):
+            continue
+        labels.append(normalized)
+        seen.add(normalized)
     return labels
 
 
@@ -226,12 +241,20 @@ def refresh_update_status(base_dir: Path, *, current_label: str) -> dict[str, An
             raise ValueError("No usable GitHub tags found.")
         _, latest_tag, latest_label = max(candidates, key=lambda item: item[0])
     except (OSError, URLError, ValueError, TimeoutError):
-        fallback_labels = _extract_release_labels_from_changelog(changelog_text)
+        fallback_labels: list[str] = []
+        try:
+            release_feed_text = _fetch_text(GITHUB_RELEASES_ATOM)
+            fallback_labels = _extract_release_labels_from_atom(release_feed_text)
+            source = "github-releases-atom"
+        except (OSError, URLError, ValueError, TimeoutError):
+            fallback_labels = []
+        if not fallback_labels:
+            fallback_labels = _extract_release_labels_from_changelog(changelog_text)
+            source = "github-changelog-fallback"
         if not fallback_labels:
             raise
         latest_label = max(fallback_labels, key=release_sort_key)
         latest_tag = f"v{latest_label.replace('-alpha', '-alpha.')}" if "-alpha" in latest_label else f"v{latest_label}"
-        source = "github-changelog-fallback"
     status["source"] = source
     status["latest_tag"] = latest_tag
     status["latest_label"] = latest_label
