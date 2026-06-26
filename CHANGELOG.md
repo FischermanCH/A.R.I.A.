@@ -6,6 +6,12 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha399] - 2026-06-26
+
+### Fixed
+
+- Fixed the Docs Meta-Catalog bootstrap for legacy document collections such as `aria_docs_<user>`. Rebuilds now infer the user from the collection name, accept legacy chunks without a `user_id` inside that user-scoped collection, and derive document identity from alternate filename/path/title fields. This lets existing uploaded manuals enter the Docs Meta-Catalog without re-uploading.
+
 ## [0.1.0-alpha398] - 2026-06-26
 
 ### Fixed

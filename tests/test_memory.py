@@ -284,6 +284,52 @@ def test_document_meta_rebuild_can_bootstrap_from_legacy_chunks() -> None:
     asyncio.run(_run_document_meta_rebuild_from_legacy_chunks())
 
 
+async def _run_document_meta_rebuild_discovers_legacy_docs_collection_user() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    fake.collections["aria_docs_fischerman"] = [
+        SimpleNamespace(
+            id="chunk-1",
+            payload={
+                "text": "Mill heater WLAN setup: press WiFi and pair the heater with the wireless network.",
+                "source": "legacy_import",
+                "filename": "mill-heizung-wireless.pdf",
+            },
+        )
+    ]
+    skill.qdrant = fake
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.rebuild_document_meta_catalogs_for_known_users()
+
+    assert result["rebuilt_users"] == 1
+    assert result["documents"] == 1
+    meta_points = fake.collections.get(document_meta_collection_for_user("fischerman"), [])
+    document_meta = [
+        point
+        for point in meta_points
+        if (getattr(point, "payload", {}) or {}).get("kind") == "document_meta"
+    ]
+    assert document_meta
+    payload = document_meta[-1].payload or {}
+    assert payload["document_name"] == "mill-heizung-wireless.pdf"
+    assert payload["target_collection"] == "aria_docs_fischerman"
+    assert "wireless" in payload["knows"]
+
+
+def test_document_meta_rebuild_discovers_legacy_docs_collection_user() -> None:
+    asyncio.run(_run_document_meta_rebuild_discovers_legacy_docs_collection_user())
+
+
 async def _run_embedding_fingerprint_switch_hides_old_memory() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),

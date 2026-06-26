@@ -199,9 +199,46 @@ class MemorySkill(BaseSkill):
     def _is_document_payload(payload: dict[str, Any] | None) -> bool:
         data = payload or {}
         source = str(data.get("source", "")).strip().lower()
-        document_name = str(data.get("document_name", "")).strip()
-        document_id = str(data.get("document_id", "")).strip()
-        return source == "rag_upload" or bool(document_name) or bool(document_id)
+        document_name = MemorySkill._document_payload_name(data)
+        document_id = MemorySkill._document_payload_id(data)
+        return (
+            source in {"rag_upload", "document_upload", "document", "uploaded_document"}
+            or source.startswith("rag_")
+            or bool(document_name)
+            or bool(document_id)
+        )
+
+    @staticmethod
+    def _document_payload_name(payload: dict[str, Any] | None) -> str:
+        data = payload or {}
+        for key in (
+            "document_name",
+            "filename",
+            "file_name",
+            "original_filename",
+            "source_name",
+            "title",
+            "name",
+            "source_path",
+            "path",
+        ):
+            value = str(data.get(key, "") or "").strip()
+            if not value:
+                continue
+            if key in {"source_path", "path"}:
+                value = Path(value).name or value
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _document_payload_id(payload: dict[str, Any] | None) -> str:
+        data = payload or {}
+        for key in ("document_id", "doc_id", "file_id", "upload_id", "source_id"):
+            value = str(data.get(key, "") or "").strip()
+            if value:
+                return value
+        return ""
 
     @staticmethod
     def _is_document_collection_name(collection: str) -> bool:
@@ -784,12 +821,16 @@ class MemorySkill(BaseSkill):
             exists = await self.qdrant.collection_exists(collection_name=guide_collection)
             if not exists:
                 return []
+            scroll_filter = self._user_filter(user_id)
+            collection_marker = f"{self.DOCUMENT_GUIDE_PREFIX}_"
+            if guide_collection.startswith(collection_marker) and self._slug_user_id(user_id) == guide_collection[len(collection_marker):]:
+                scroll_filter = None
             rows: list[dict[str, Any]] = []
             offset = None
             while True:
                 points, next_offset = await self.qdrant.scroll(
                     collection_name=guide_collection,
-                    scroll_filter=self._user_filter(user_id),
+                    scroll_filter=scroll_filter,
                     limit=200,
                     offset=offset,
                     with_payload=True,
@@ -814,6 +855,13 @@ class MemorySkill(BaseSkill):
         for collection in names:
             if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
                 continue
+            is_document_collection = self._is_document_collection_name(collection)
+            scroll_filter = self._user_filter(clean_user)
+            collection_marker = "aria_docs_"
+            if is_document_collection and collection.startswith(collection_marker):
+                collection_user = self._slug_user_id(collection[len(collection_marker):])
+                if collection_user == self._slug_user_id(clean_user):
+                    scroll_filter = None
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
                 if not exists:
@@ -822,7 +870,7 @@ class MemorySkill(BaseSkill):
                 while True:
                     points, next_offset = await self.qdrant.scroll(
                         collection_name=collection,
-                        scroll_filter=self._user_filter(clean_user),
+                        scroll_filter=scroll_filter,
                         limit=200,
                         offset=offset,
                         with_payload=True,
@@ -832,10 +880,13 @@ class MemorySkill(BaseSkill):
                         payload = dict(getattr(point, "payload", {}) or {})
                         if str(payload.get("source", "")).strip() == "rag_document_guide":
                             continue
-                        if not self._is_document_payload(payload):
+                        if not (self._is_document_payload(payload) or is_document_collection):
                             continue
-                        document_id = str(payload.get("document_id", "")).strip()
-                        document_name = str(payload.get("document_name", "")).strip()
+                        document_id = self._document_payload_id(payload)
+                        document_name = self._document_payload_name(payload)
+                        if not document_id and not document_name and is_document_collection:
+                            document_id = f"{collection}:legacy-document"
+                            document_name = collection
                         if not document_id and not document_name:
                             continue
                         key = (collection, document_id or document_name)
@@ -2779,6 +2830,13 @@ class MemorySkill(BaseSkill):
                 if prefix == self.memory.collections.sessions.prefix.strip():
                     if "_" in rest:
                         rest = rest.rsplit("_", 1)[0]
+                slug = self._slug_user_id(rest)
+                if slug:
+                    users.add(slug)
+            for marker in ("aria_docs_", f"{self.DOCUMENT_GUIDE_PREFIX}_", f"{DOC_META_PREFIX}_"):
+                if not name.startswith(marker):
+                    continue
+                rest = name[len(marker):]
                 slug = self._slug_user_id(rest)
                 if slug:
                     users.add(slug)
