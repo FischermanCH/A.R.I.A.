@@ -54,6 +54,7 @@ async def run_memory_maintenance(config_path: str | Path = "config/config.yaml")
         "compressed_week": 0,
         "compressed_month": 0,
         "collections_removed": 0,
+        "document_meta_documents": 0,
         "session_noise_removed": 0,
         "token_log_removed": 0,
         "llm_audit_removed": 0,
@@ -78,10 +79,12 @@ async def run_memory_maintenance(config_path: str | Path = "config/config.yaml")
         compress_after_days=compress_after_days,
         monthly_after_days=monthly_after_days,
     )
+    doc_meta_stats = await skill.rebuild_document_meta_catalogs_for_known_users()
     cleanup = await skill.cleanup_operational_session_entries(
         _load_operational_trigger_phrases(Path(config_path).resolve().parent.parent)
     )
     stats.update(memory_stats)
+    stats["document_meta_documents"] = int(doc_meta_stats.get("documents", 0) or 0)
     stats["session_noise_removed"] = int(cleanup.get("removed_points", 0) or 0)
     return stats
 
@@ -94,6 +97,7 @@ def main() -> int:
         f"week={stats.get('compressed_week', 0)} "
         f"month={stats.get('compressed_month', 0)} "
         f"removed={stats.get('collections_removed', 0)} "
+        f"doc_meta={stats.get('document_meta_documents', 0)} "
         f"noise={stats.get('session_noise_removed', 0)} "
         f"token_logs={stats.get('token_log_removed', 0)} "
         f"llm_audit={stats.get('llm_audit_removed', 0)}"

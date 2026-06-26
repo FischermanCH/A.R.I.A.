@@ -18,6 +18,7 @@ from qdrant_client.models import (
 )
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
+from aria.core.doc_meta_catalog import DOC_META_PREFIX, DocumentMetaCatalogStore, document_meta_collection_for_user
 from aria.core.document_ingest import PreparedDocument
 from aria.core.embedding_client import EmbeddingClient
 from aria.core.i18n import I18NStore
@@ -209,6 +210,10 @@ class MemorySkill(BaseSkill):
     @classmethod
     def _is_document_guide_collection_name(cls, collection: str) -> bool:
         return str(collection or "").strip().lower().startswith(cls.DOCUMENT_GUIDE_PREFIX)
+
+    @staticmethod
+    def _is_document_meta_collection_name(collection: str) -> bool:
+        return str(collection or "").strip().lower().startswith(DOC_META_PREFIX)
 
     def _document_guide_collection_for_user(self, user_id: str) -> str:
         return f"{self.DOCUMENT_GUIDE_PREFIX}_{self._slug_user_id(user_id)}"
@@ -773,6 +778,190 @@ class MemorySkill(BaseSkill):
             )
         return targets
 
+    async def _document_guide_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+        guide_collection = self._document_guide_collection_for_user(user_id)
+        try:
+            exists = await self.qdrant.collection_exists(collection_name=guide_collection)
+            if not exists:
+                return []
+            rows: list[dict[str, Any]] = []
+            offset = None
+            while True:
+                points, next_offset = await self.qdrant.scroll(
+                    collection_name=guide_collection,
+                    scroll_filter=self._user_filter(user_id),
+                    limit=200,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in points or []:
+                    payload = dict(getattr(point, "payload", {}) or {})
+                    if str(payload.get("source", "")).strip() != "rag_document_guide":
+                        continue
+                    rows.append(payload)
+                if next_offset is None:
+                    break
+                offset = next_offset
+            return rows
+        except Exception:
+            return []
+
+    async def _document_chunk_catalog_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+        clean_user = str(user_id or "").strip()
+        names = await self._list_collection_names()
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for collection in names:
+            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
+                continue
+            try:
+                exists = await self.qdrant.collection_exists(collection_name=collection)
+                if not exists:
+                    continue
+                offset = None
+                while True:
+                    points, next_offset = await self.qdrant.scroll(
+                        collection_name=collection,
+                        scroll_filter=self._user_filter(clean_user),
+                        limit=200,
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    for point in points or []:
+                        payload = dict(getattr(point, "payload", {}) or {})
+                        if str(payload.get("source", "")).strip() == "rag_document_guide":
+                            continue
+                        if not self._is_document_payload(payload):
+                            continue
+                        document_id = str(payload.get("document_id", "")).strip()
+                        document_name = str(payload.get("document_name", "")).strip()
+                        if not document_id and not document_name:
+                            continue
+                        key = (collection, document_id or document_name)
+                        row = grouped.setdefault(
+                            key,
+                            {
+                                "source": "rag_document_chunk_catalog",
+                                "user_id": clean_user,
+                                "document_id": document_id,
+                                "document_name": document_name,
+                                "target_collection": collection,
+                                "mime_type": str(payload.get("mime_type", "") or "").strip(),
+                                "source_type": str(payload.get("source_type", "") or "document").strip(),
+                                "texts": [],
+                                "keywords": set(),
+                            },
+                        )
+                        if document_id and not str(row.get("document_id", "")).strip():
+                            row["document_id"] = document_id
+                        if document_name and not str(row.get("document_name", "")).strip():
+                            row["document_name"] = document_name
+                        text = self._clean_fact_text(str(payload.get("text", "") or "").strip())
+                        if text and len(row["texts"]) < 6:
+                            row["texts"].append(text[:360])
+                        row["keywords"].update(self._tokenize_for_match(document_name))
+                        row["keywords"].update(self._tokenize_for_match(text[:900]))
+                    if next_offset is None:
+                        break
+                    offset = next_offset
+            except Exception:
+                continue
+        rows: list[dict[str, Any]] = []
+        for row in grouped.values():
+            snippets = [str(item).strip() for item in row.pop("texts", []) if str(item).strip()]
+            keywords = sorted(str(item) for item in row.pop("keywords", set()) if str(item).strip())[:18]
+            name = str(row.get("document_name", "") or "").strip()
+            row["guide_summary"] = " ".join(snippets)[:900]
+            row["guide_keywords"] = keywords
+            row["text"] = "\n".join(
+                part
+                for part in (
+                    f"Document: {name}" if name else "",
+                    f"Collection: {row.get('target_collection', '')}",
+                    f"Keywords: {', '.join(keywords[:10])}" if keywords else "",
+                    f"Excerpt: {row['guide_summary']}" if row["guide_summary"] else "",
+                )
+                if part
+            )
+            rows.append(row)
+        return rows
+
+    async def _document_catalog_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
+        guides = await self._document_guide_payloads(user_id=user_id)
+        chunks = await self._document_chunk_catalog_payloads(user_id=user_id)
+        by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in chunks:
+            key = (str(row.get("target_collection", "") or ""), str(row.get("document_id", "") or row.get("document_name", "") or ""))
+            if key[0] and key[1]:
+                by_key[key] = row
+        for row in guides:
+            key = (str(row.get("target_collection", "") or ""), str(row.get("document_id", "") or row.get("document_name", "") or ""))
+            if key[0] and key[1]:
+                by_key[key] = row
+        return list(by_key.values())
+
+    async def rebuild_document_meta_catalog(self, *, user_id: str) -> dict[str, Any]:
+        guides = await self._document_catalog_payloads(user_id=user_id)
+
+        class _SkillEmbeddingAdapter:
+            def __init__(self, skill: MemorySkill) -> None:
+                self.skill = skill
+
+            async def embed(self, inputs: list[str], **kwargs: Any) -> Any:
+                usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                vectors: list[list[float]] = []
+                operation = str(kwargs.get("operation", "doc_meta_catalog") or "doc_meta_catalog")
+                source = str(kwargs.get("source", "doc_meta_catalog") or "doc_meta_catalog")
+                adapter_user_id = str(kwargs.get("user_id", "") or "")
+                for text in inputs:
+                    vector, usage = await self.skill._embed(
+                        str(text or ""),
+                        source=source,
+                        operation=operation,
+                        user_id=adapter_user_id,
+                    )
+                    vectors.append(vector)
+                    for key in usage_total:
+                        usage_total[key] += int(usage.get(key, 0) or 0)
+                return type(
+                    "EmbeddingResponse",
+                    (),
+                    {
+                        "vectors": vectors,
+                        "usage": usage_total,
+                        "model": self.skill._resolve_embedding_model(),
+                    },
+                )()
+
+        store = DocumentMetaCatalogStore(
+            qdrant=self.qdrant,
+            embedding_client=_SkillEmbeddingAdapter(self),
+            collection_name=document_meta_collection_for_user(user_id),
+        )
+        return await store.rebuild_from_guides(user_id=user_id, guides=guides)
+
+    async def rebuild_document_meta_catalogs_for_known_users(self) -> dict[str, Any]:
+        users = await self._discover_users_from_collections()
+        rebuilt: list[dict[str, Any]] = []
+        for user_id in users:
+            guides = await self._document_catalog_payloads(user_id=user_id)
+            if not guides:
+                continue
+            try:
+                result = await self.rebuild_document_meta_catalog(user_id=user_id)
+            except Exception as exc:
+                result = {"user_id": user_id, "status": "error", "error": str(exc)}
+            else:
+                result = {"user_id": user_id, **dict(result)}
+            rebuilt.append(result)
+        return {
+            "users": len(users),
+            "rebuilt_users": len(rebuilt),
+            "documents": sum(int(row.get("documents", 0) or 0) for row in rebuilt),
+            "results": rebuilt,
+        }
+
     @staticmethod
     def _format_recall_source_detail(row: dict[str, Any]) -> str:
         collection = str(row.get("collection", "")).strip()
@@ -1290,6 +1479,7 @@ class MemorySkill(BaseSkill):
 
         guide_collection = ""
         guide_point: PointStruct | None = None
+        doc_meta_catalog: dict[str, Any] = {}
         if target_collection:
             guide_collection, guide_point, guide_usage = await self._build_document_guide_point(
                 user_id=user_id,
@@ -1304,6 +1494,10 @@ class MemorySkill(BaseSkill):
             if guide_point is not None and guide_collection:
                 try:
                     await self.qdrant.upsert(collection_name=guide_collection, points=[guide_point])
+                    try:
+                        doc_meta_catalog = await self.rebuild_document_meta_catalog(user_id=user_id)
+                    except Exception as exc:
+                        doc_meta_catalog = {"status": "error", "error": str(exc)}
                 except Exception:
                     await self.qdrant.delete(
                         collection_name=target_collection,
@@ -1323,6 +1517,7 @@ class MemorySkill(BaseSkill):
                 "chunk_count": len(points),
                 "collection": target_collection,
                 "guide_collection": guide_collection,
+                "doc_meta_catalog": doc_meta_catalog,
                 "document_name": document.filename,
                 "document_id": document.document_id,
             },
@@ -1710,7 +1905,7 @@ class MemorySkill(BaseSkill):
         rows: list[dict[str, Any]] = []
         names = await self._list_collection_names()
         for collection in names:
-            if self._is_document_guide_collection_name(collection):
+            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
                 continue
             if collection_key and collection != collection_key:
                 continue
@@ -1818,7 +2013,7 @@ class MemorySkill(BaseSkill):
                     continue
                 if not collection.lower().startswith("aria_"):
                     continue
-                if self._is_document_guide_collection_name(collection):
+                if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
                     continue
                 seen_collections.add(collection)
                 collection_names.append(collection)
@@ -1829,7 +2024,7 @@ class MemorySkill(BaseSkill):
         for collection in collection_names:
             if len(rows) >= max_points:
                 break
-            if self._is_document_guide_collection_name(collection):
+            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
                 continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
@@ -1902,7 +2097,7 @@ class MemorySkill(BaseSkill):
         names = await self._list_collection_names()
         stats: list[dict[str, Any]] = []
         for collection in names:
-            if self._is_document_guide_collection_name(collection):
+            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
                 continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
@@ -2268,6 +2463,11 @@ class MemorySkill(BaseSkill):
                 document_name=clean_document_name,
             )
             if clean_user:
+                try:
+                    await self.rebuild_document_meta_catalog(user_id=clean_user)
+                except Exception:
+                    pass
+            if clean_user:
                 await self.cleanup_empty_collections_for_user(clean_user)
             return len(point_ids)
         except Exception:
@@ -2582,6 +2782,35 @@ class MemorySkill(BaseSkill):
                 slug = self._slug_user_id(rest)
                 if slug:
                     users.add(slug)
+            if not (
+                self._is_document_collection_name(name)
+                or self._is_document_guide_collection_name(name)
+                or self._is_document_meta_collection_name(name)
+            ):
+                continue
+            try:
+                exists = await self.qdrant.collection_exists(collection_name=name)
+                if not exists:
+                    continue
+                offset = None
+                while True:
+                    points, next_offset = await self.qdrant.scroll(
+                        collection_name=name,
+                        limit=100,
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    for point in points or []:
+                        payload = dict(getattr(point, "payload", {}) or {})
+                        raw_user_id = str(payload.get("user_id", "") or "").strip()
+                        if raw_user_id:
+                            users.add(self._slug_user_id(raw_user_id))
+                    if next_offset is None:
+                        break
+                    offset = next_offset
+            except Exception:
+                continue
         return sorted(users)
 
     async def compress_all_users(

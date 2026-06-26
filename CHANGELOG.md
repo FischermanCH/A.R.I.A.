@@ -6,6 +6,13 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha397] - 2026-06-26
+
+### Added
+
+- Added a versioned Docs Meta-Catalog backed by `aria_doc_meta_<user>` collections. Document uploads now rebuild a per-user catalog from existing document guides, keep the active and previous build in the same collection, leave the old active build intact on rebuild failure, and feed active document-meta hits into the Meta-Catalog router so prompts such as wireless heating can select `docs:search` without the user explicitly saying "documents".
+- Hardened the Docs Meta-Catalog migration path for existing document stores. Rebuilds now synthesize catalog entries from legacy document chunks when no document guide exists, discover users from document collections/payloads, and run during startup maintenance so upgraded installs can route old manuals into `docs:search` without a re-upload.
+
 ## [0.1.0-alpha394] - 2026-06-26
 
 ### Changed

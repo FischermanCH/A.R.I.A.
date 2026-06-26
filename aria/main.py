@@ -882,10 +882,12 @@ def _build_app() -> FastAPI:
                         compress_after_days=compress_after,
                         monthly_after_days=monthly_after,
                     )
+                    doc_meta_stats = await pipeline.memory_skill.rebuild_document_meta_catalogs_for_known_users()
                     removed_empty = await pipeline.memory_skill.cleanup_empty_collections_global()
                     memory_ops = (
                         int(stats.get("compressed_week", 0))
                         + int(stats.get("compressed_month", 0))
+                        + int(doc_meta_stats.get("documents", 0) or 0)
                         + len(removed_empty)
                     )
 

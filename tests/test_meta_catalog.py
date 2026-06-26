@@ -9,6 +9,7 @@ from aria.core.aria_turn_arbitration import AriaTurnArbitration, AriaTurnPlan
 from aria.core.agentic_context_runtime import AgenticContextRuntimeMixin
 from aria.core.context_surface_adapters import build_builtin_surface_registry
 from aria.core.context_surfaces import ContextRequest
+from aria.core.doc_meta_catalog import DocumentMetaCatalogStore, document_meta_collection_for_user
 from aria.core.inventory_admin import rebuild_inventory_index
 from aria.core.inventory_index import inventory_collection_name
 from aria.core.meta_catalog import MetaCatalogStore, build_meta_catalog_documents, meta_catalog_collection_name, meta_catalog_documents_fingerprint
@@ -32,7 +33,8 @@ class FakeEmbeddingClient:
             lower = str(text or "").lower()
             server = 1.0 if any(token in lower for token in ("server", "ssh", "health", "updates")) else 0.0
             source = 1.0 if any(token in lower for token in ("rss", "source", "security")) else 0.0
-            vectors.append([server, source])
+            docs = 1.0 if any(token in lower for token in ("wireless", "heizung", "heizungen", "mill", "dokument", "document")) else 0.0
+            vectors.append([server, source, docs])
         return FakeEmbeddingResponse(vectors)
 
 
@@ -63,14 +65,35 @@ class FakeQdrant:
         next_offset = start + limit if start + limit < len(rows) else None
         return batch, next_offset
 
-    async def query_points(self, collection_name: str, query: list[float], limit: int = 5):  # noqa: ANN001
+    @staticmethod
+    def _matches_filter(payload: dict[str, object], query_filter: object | None) -> bool:
+        if not query_filter or not getattr(query_filter, "must", None):
+            return True
+        for condition in getattr(query_filter, "must", []) or []:
+            key = str(getattr(condition, "key", "") or "")
+            match = getattr(condition, "match", None)
+            if key and match is not None and payload.get(key) != getattr(match, "value", None):
+                return False
+        return True
+
+    async def query_points(self, collection_name: str, query: list[float], limit: int = 5, query_filter=None):  # noqa: ANN001
         rows = []
         for point in list(self.collections.get(collection_name, {}).get("points", []) or []):
+            payload = getattr(point, "payload", {}) or {}
+            if not self._matches_filter(payload, query_filter):
+                continue
             vector = list(getattr(point, "vector", []) or [])
             score = sum(float(a) * float(b) for a, b in zip(vector, query, strict=False))
-            rows.append(SimpleNamespace(id=getattr(point, "id", ""), payload=getattr(point, "payload", {}) or {}, score=score))
+            rows.append(SimpleNamespace(id=getattr(point, "id", ""), payload=payload, score=score))
         rows.sort(key=lambda item: item.score, reverse=True)
         return SimpleNamespace(points=rows[:limit])
+
+    async def delete(self, collection_name: str, points_selector=None, wait: bool = True):  # noqa: ANN001, ARG002
+        ids = {str(point_id) for point_id in getattr(points_selector, "points", []) or []}
+        current = list(self.collections.get(collection_name, {}).get("points", []) or [])
+        self.collections.setdefault(collection_name, {"size": 0, "points": []})["points"] = [
+            point for point in current if str(getattr(point, "id", "")) not in ids
+        ]
 
 
 class FakeChatResponse:
@@ -181,6 +204,116 @@ def test_meta_catalog_store_can_query_catalog_hits() -> None:
     assert hits[0]["payload"]["catalog_id"]
 
 
+def test_document_meta_catalog_rebuild_keeps_active_and_previous_only() -> None:
+    qdrant = FakeQdrant()
+    store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("fischerman"),
+    )
+    first = asyncio.run(
+        store.rebuild_from_guides(
+            user_id="fischerman",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "fischerman",
+                    "document_id": "doc-1",
+                    "document_name": "mill-heizung-handbuch.pdf",
+                    "guide_summary": "Mill Heizung Wireless verbinden und WLAN einrichten.",
+                    "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
+                    "target_collection": "aria_docs_fischerman",
+                    "source_type": "pdf",
+                }
+            ],
+        )
+    )
+    second = asyncio.run(
+        store.rebuild_from_guides(
+            user_id="fischerman",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "fischerman",
+                    "document_id": "doc-1",
+                    "document_name": "mill-heizung-handbuch.pdf",
+                    "guide_summary": "Mill Heizung Wireless verbinden und WLAN einrichten.",
+                    "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
+                    "target_collection": "aria_docs_fischerman",
+                    "source_type": "pdf",
+                }
+            ],
+        )
+    )
+    third = asyncio.run(
+        store.rebuild_from_guides(
+            user_id="fischerman",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "fischerman",
+                    "document_id": "doc-1",
+                    "document_name": "mill-heizung-handbuch.pdf",
+                    "guide_summary": "Mill Heizung Wireless verbinden und WLAN einrichten.",
+                    "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
+                    "target_collection": "aria_docs_fischerman",
+                    "source_type": "pdf",
+                }
+            ],
+        )
+    )
+
+    assert first["status"] == "active"
+    assert second["previous_build_id"] == first["active_build_id"]
+    assert third["previous_build_id"] == second["active_build_id"]
+    points = qdrant.collections[document_meta_collection_for_user("fischerman")]["points"]
+    build_ids = {
+        str((getattr(point, "payload", {}) or {}).get("catalog_build_id", ""))
+        for point in points
+        if (getattr(point, "payload", {}) or {}).get("kind") == "document_meta"
+    }
+    assert build_ids == {second["active_build_id"], third["active_build_id"]}
+
+
+def test_document_meta_catalog_query_returns_active_docs_only() -> None:
+    qdrant = FakeQdrant()
+    store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("fischerman"),
+    )
+    asyncio.run(
+        store.rebuild_from_guides(
+            user_id="fischerman",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "fischerman",
+                    "document_id": "doc-1",
+                    "document_name": "mill-heizung-handbuch.pdf",
+                    "guide_summary": "Mill Heizung Wireless verbinden.",
+                    "guide_keywords": ["Mill", "Heizung", "Wireless"],
+                    "target_collection": "aria_docs_fischerman",
+                }
+            ],
+        )
+    )
+
+    hits = asyncio.run(store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="fischerman", limit=3))
+
+    assert hits
+    assert hits[0]["source"] == "qdrant_doc_meta_catalog"
+    assert hits[0]["surface_id"] == "docs"
+    assert hits[0]["payload"]["document_name"] == "mill-heizung-handbuch.pdf"
+
+    empty = asyncio.run(store.rebuild_from_guides(user_id="fischerman", guides=[]))
+    empty_hits = asyncio.run(store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="fischerman", limit=3))
+
+    assert empty["status"] == "active"
+    assert empty["documents"] == 0
+    assert empty_hits == []
+
+
 def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch) -> None:
     settings = _settings()
     docs = build_meta_catalog_documents(settings)
@@ -235,6 +368,77 @@ def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch
     assert "contract_mode=action" in arbitration.debug_line
     assert arbitration.plan.needs_confirmation is True
     assert llm.calls[0]["kwargs"]["operation"] == META_CATALOG_ROUTING_OPERATION
+
+
+def test_meta_catalog_router_includes_user_document_meta_without_explicit_docs(monkeypatch) -> None:
+    settings = _settings()
+    docs = build_meta_catalog_documents(settings)
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(qdrant=qdrant, embedding_client=FakeEmbeddingClient(), collection_name=meta_catalog_collection_name(settings))
+    asyncio.run(store.rebuild_documents(docs, catalog_hash=meta_catalog_documents_fingerprint(docs)))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("fischerman"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="fischerman",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "fischerman",
+                    "document_id": "mill-manual",
+                    "document_name": "mill-heizung-handbuch.pdf",
+                    "guide_summary": "Bedienungsanleitung: Mill Heizung mit Wireless/WLAN verbinden.",
+                    "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
+                    "target_collection": "aria_docs_fischerman",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        """
+        {
+          "needs_context": true,
+          "catalog_ids": ["local|docs|document|mill-manual"],
+          "context_requests": [{"catalog_id": "local|docs|document|mill-manual", "surface_id": "docs", "mode": "search", "query": "wie kriege ich meine heizungen ans wireless"}],
+          "intents": ["local_retrieval"],
+          "surfaces": ["docs"],
+          "actions": [],
+          "answer_mode": "direct_answer",
+          "context_depth": "shallow",
+          "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+          "risk": "low",
+          "needs_confirmation": false,
+          "confidence": 0.92,
+          "reason": "user document meta matches wireless heating"
+        }
+        """
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="wie kriege ich meine heizungen ans wireless",
+                menu=build_aria_turn_menu(),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="fischerman",
+                request_id="test",
+            )
+        )
+    )
+
+    payload = llm.calls[0]["messages"][1]["content"]
+    assert "mill-heizung-handbuch.pdf" in str(payload)
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.context_requests[0].surface_id == "docs"
+    assert arbitration.plan.priority == ("local|docs|document|mill-manual",)
 
 
 def test_meta_catalog_router_rejects_invalid_strict_action_contract(monkeypatch) -> None:

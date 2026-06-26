@@ -19,6 +19,7 @@ from aria.core.bounded_decision import BoundedDecisionClient
 from aria.core.bounded_decision import confidence_score
 from aria.core.context_surfaces import ContextRequest
 from aria.core.context_surfaces import SurfaceRegistry
+from aria.core.doc_meta_catalog import DocumentMetaCatalogStore, document_meta_collection_for_user
 from aria.core.meta_catalog import MetaCatalogStore
 from aria.core.meta_catalog import create_meta_catalog_qdrant_client
 from aria.core.meta_catalog import meta_catalog_collection_name
@@ -149,7 +150,7 @@ class MetaCatalogRouter:
         if clean_message.startswith("/"):
             return AriaTurnArbitration(plan=_fallback_plan(clean_message, reason="slash_command"), source="fallback")
 
-        hits, query_error = await self._query_meta_catalog(clean_message)
+        hits, query_error = await self._query_meta_catalog(clean_message, user_id=routing_input.user_id)
         if query_error:
             return AriaTurnArbitration(
                 plan=_fallback_plan(clean_message, reason="meta_catalog_unavailable"),
@@ -536,7 +537,7 @@ class MetaCatalogRouter:
             collapsed.append(request)
         return collapsed
 
-    async def _query_meta_catalog(self, query: str) -> tuple[list[dict[str, Any]], str]:
+    async def _query_meta_catalog(self, query: str, *, user_id: str = "") -> tuple[list[dict[str, Any]], str]:
         qdrant = None
         try:
             qdrant = await create_meta_catalog_qdrant_client(self.settings, timeout=5)
@@ -550,6 +551,25 @@ class MetaCatalogRouter:
                 limit=max(1, int(self.config.candidate_limit or 1)),
                 score_threshold=float(self.config.score_threshold or 0.0),
             )
+            if str(user_id or "").strip():
+                try:
+                    doc_store = DocumentMetaCatalogStore(
+                        qdrant=qdrant,
+                        embedding_client=self.embedding_client,
+                        collection_name=document_meta_collection_for_user(user_id),
+                    )
+                    doc_hits = await doc_store.query_catalog(
+                        query,
+                        user_id=user_id,
+                        limit=min(6, max(1, int(self.config.candidate_limit or 1))),
+                        score_threshold=float(self.config.score_threshold or 0.0),
+                    )
+                except Exception:
+                    doc_hits = []
+                if doc_hits:
+                    hits = [*doc_hits, *hits]
+                    hits.sort(key=lambda item: float(item.get("score", 0.0) or 0.0), reverse=True)
+                    hits = hits[: max(1, int(self.config.candidate_limit or 1))]
             return hits, ""
         except Exception as exc:
             return [], str(exc).strip() or "query_failed"

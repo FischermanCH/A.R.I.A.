@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
+from aria.core.doc_meta_catalog import document_meta_collection_for_user
 from aria.core.embedding_client import EmbeddingClient
 from aria.skills.memory import MemorySkill
 
@@ -165,9 +166,20 @@ async def _run_document_ingest_store() -> None:
     assert any((p.payload or {}).get("source") == "rag_upload" for p in skill.qdrant.points)
     assert any((p.payload or {}).get("source") == "rag_document_guide" for p in skill.qdrant.points)
     assert any((p.payload or {}).get("document_name") == "netzwerk-notizen.md" for p in skill.qdrant.points)
-    assert all((p.payload or {}).get("type") == "knowledge" for p in skill.qdrant.points)
-    assert all((p.payload or {}).get("embedding_fingerprint") for p in skill.qdrant.points)
-    assert all((p.payload or {}).get("embedding_model") == "openai/fake-embeddings" for p in skill.qdrant.points)
+    memory_points = [
+        p
+        for p in skill.qdrant.points
+        if str((p.payload or {}).get("source", "")).startswith("rag_")
+    ]
+    assert all((p.payload or {}).get("type") == "knowledge" for p in memory_points)
+    assert all((p.payload or {}).get("embedding_fingerprint") for p in memory_points)
+    assert all((p.payload or {}).get("embedding_model") == "openai/fake-embeddings" for p in memory_points)
+    doc_meta = result.metadata.get("doc_meta_catalog") or {}
+    assert doc_meta.get("status") == "active"
+    assert doc_meta.get("collection") == document_meta_collection_for_user("u1")
+    meta_points = skill.qdrant.collections.get(document_meta_collection_for_user("u1"), [])
+    assert any((p.payload or {}).get("kind") == "document_meta" for p in meta_points)
+    assert any((p.payload or {}).get("kind") == "catalog_manifest" for p in meta_points)
 
     listed_documents = await skill.list_memories_global(user_id="u1", type_filter="document", limit=20)
     assert listed_documents
@@ -214,6 +226,62 @@ async def _run_document_ingest_store() -> None:
 
 def test_store_document_chunks_with_metadata() -> None:
     asyncio.run(_run_document_ingest_store())
+
+
+async def _run_document_meta_rebuild_from_legacy_chunks() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    fake.collections["aria_docs_u1"] = [
+        SimpleNamespace(
+            id="chunk-1",
+            payload={
+                "text": "Mill heater wireless setup: hold the WiFi button and connect the heater to WLAN.",
+                "user_id": "u1",
+                "type": "knowledge",
+                "source": "rag_upload",
+                "document_id": "mill-manual",
+                "document_name": "mill-heizung-handbuch.pdf",
+                "chunk_index": 0,
+                "chunk_total": 1,
+                "mime_type": "application/pdf",
+                "source_type": "pdf",
+            },
+        )
+    ]
+    skill.qdrant = fake
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.rebuild_document_meta_catalog(user_id="u1")
+    all_result = await skill.rebuild_document_meta_catalogs_for_known_users()
+
+    assert result["status"] == "active"
+    assert result["documents"] == 1
+    assert all_result["rebuilt_users"] == 1
+    assert all_result["documents"] == 1
+    meta_points = fake.collections.get(document_meta_collection_for_user("u1"), [])
+    document_meta = [
+        point
+        for point in meta_points
+        if (getattr(point, "payload", {}) or {}).get("kind") == "document_meta"
+    ]
+    assert document_meta
+    payload = document_meta[-1].payload or {}
+    assert payload["document_name"] == "mill-heizung-handbuch.pdf"
+    assert payload["target_collection"] == "aria_docs_u1"
+    assert "wireless" in payload["knows"]
+
+
+def test_document_meta_rebuild_can_bootstrap_from_legacy_chunks() -> None:
+    asyncio.run(_run_document_meta_rebuild_from_legacy_chunks())
 
 
 async def _run_embedding_fingerprint_switch_hides_old_memory() -> None:

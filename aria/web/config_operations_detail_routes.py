@@ -125,11 +125,20 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             deps.get_settings(),
             usage_meter=getattr(pipeline, "usage_meter", None),
         )
+        doc_meta_result = {}
+        if getattr(pipeline, "memory_skill", None) is not None:
+            try:
+                doc_meta_result = await pipeline.memory_skill.rebuild_document_meta_catalogs_for_known_users()
+            except Exception as exc:
+                doc_meta_result = {"status": "error", "error": str(exc)}
         status = str(result.get("status", "") or "").strip().lower()
         if status == "error":
             message = str(result.get("detail", "") or result.get("message", "") or "Inventory reindex failed.")
             return RedirectResponse(url=f"/memories/reindex?error={quote_plus(message)}", status_code=303)
         info = str(result.get("message", "") or "Inventory index rebuilt.")
+        rebuilt_docs = int(doc_meta_result.get("documents", 0) or 0) if isinstance(doc_meta_result, dict) else 0
+        if rebuilt_docs:
+            info = f"{info} Document meta catalog rebuilt: {rebuilt_docs} documents."
         return RedirectResponse(url=f"/memories/reindex?rebuilt=1&info={quote_plus(info)}", status_code=303)
 
     @app.post("/config/operations/reindex/save")
