@@ -657,6 +657,117 @@ def test_document_inventory_recall_uses_document_metadata() -> None:
     asyncio.run(_run_document_inventory_recall_uses_document_metadata())
 
 
+async def _run_docs_only_recall_scans_all_document_chunks_for_missing_literal() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    skill.qdrant = fake
+    fake.collections["aria_docs_example_user"] = [
+        SimpleNamespace(
+            id="doc-a-1",
+            payload={
+                "source": "document",
+                "user_id": "example_user",
+                "document_id": "doc-a",
+                "document_name": "Alpha Leaflet.pdf",
+                "chunk_index": 1,
+                "chunk_total": 2,
+                "text": "Alpha contains lactose and sodium chloride.",
+            },
+        ),
+        SimpleNamespace(
+            id="doc-b-1",
+            payload={
+                "source": "document",
+                "user_id": "example_user",
+                "document_id": "doc-b",
+                "document_name": "Beta Leaflet.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Beta contains water for injections.",
+            },
+        ),
+    ]
+
+    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.execute(
+        "Ist Glucosamin Bestandteil eines der Dokumente?",
+        {"action": "recall", "user_id": "example_user", "include_documents": True, "docs_only": True},
+    )
+
+    assert result.success is True
+    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
+    assert "glucosamin: 0 Treffer-Chunks" in result.content
+    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
+    assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
+    assert {source["document_id"] for source in result.metadata["sources"]} == {"doc-a", "doc-b"}
+
+
+def test_docs_only_recall_scans_all_document_chunks_for_missing_literal() -> None:
+    asyncio.run(_run_docs_only_recall_scans_all_document_chunks_for_missing_literal())
+
+
+async def _run_docs_only_recall_finds_literal_in_non_semantic_document() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    skill.qdrant = fake
+    fake.collections["aria_docs_example_user"] = [
+        SimpleNamespace(
+            id="doc-a-1",
+            payload={
+                "source": "document",
+                "user_id": "example_user",
+                "document_id": "doc-a",
+                "document_name": "Alpha Leaflet.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Alpha contains lactose and sodium chloride.",
+            },
+        ),
+        SimpleNamespace(
+            id="doc-b-1",
+            payload={
+                "source": "document",
+                "user_id": "example_user",
+                "document_id": "doc-b",
+                "document_name": "Beta Leaflet.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Beta lists Glucosamin as an excipient in this example leaflet.",
+            },
+        ),
+    ]
+
+    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.execute(
+        "Ist Glucosamin Bestandteil eines der Dokumente?",
+        {"action": "recall", "user_id": "example_user", "include_documents": True, "docs_only": True},
+    )
+
+    assert result.success is True
+    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
+    assert "glucosamin: 1 Treffer-Chunks in 1 Dokumenten" in result.content
+    assert "Beta Leaflet.pdf" in result.content
+    assert result.metadata["document_corpus_scan"]["match_chunks"] >= 1
+
+
+def test_docs_only_recall_finds_literal_in_non_semantic_document() -> None:
+    asyncio.run(_run_docs_only_recall_finds_literal_in_non_semantic_document())
+
+
 async def _run_session_vs_user_recall() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),

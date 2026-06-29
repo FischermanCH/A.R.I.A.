@@ -10,6 +10,13 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha429] - 2026-06-30
+
+### Fixed
+
+- Fixed source-bound negative document-search answers. When a docs-only recall does not retrieve chunks that actually contain the query evidence, ARIA now performs an exhaustive literal scan across the selected uploaded document chunks and records how many documents/chunks were scanned before allowing a negative answer.
+- Document corpus scans now report per-term coverage and source details for every scanned document, so answers such as "not found in the uploaded documents" are backed by explicit scan coverage instead of only a semantic top-k miss.
+
 ## [0.1.0-alpha428] - 2026-06-29
 
 ### Fixed

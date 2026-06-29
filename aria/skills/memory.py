@@ -840,6 +840,224 @@ class MemorySkill(BaseSkill):
         }
         return SkillResult(skill_name=self.name, content=truncated, success=True, tokens_saved=saved, metadata=metadata)
 
+    @staticmethod
+    def _document_corpus_scan_terms(query: str) -> list[str]:
+        tokens = MemorySkill._tokenize_for_match(query)
+        rows: list[str] = []
+        for token in tokens:
+            clean = str(token or "").strip().lower()
+            if len(clean) < 4:
+                continue
+            if clean not in rows:
+                rows.append(clean)
+        return rows[:12]
+
+    @staticmethod
+    def _document_scan_snippet(text: str, term: str, *, radius: int = 160) -> str:
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        lower = raw.lower()
+        index = lower.find(str(term or "").lower())
+        if index < 0:
+            return raw[: max(40, radius)]
+        start = max(0, index - radius)
+        end = min(len(raw), index + len(term) + radius)
+        prefix = "..." if start else ""
+        suffix = "..." if end < len(raw) else ""
+        return f"{prefix}{raw[start:end].strip()}{suffix}"
+
+    async def _recall_document_corpus_scan(
+        self,
+        *,
+        query: str,
+        user_id: str,
+        target_collections: list[str] | tuple[str, ...] | None = None,
+        limit: int = 8,
+    ) -> SkillResult | None:
+        terms = self._document_corpus_scan_terms(query)
+        if not terms:
+            return None
+        requested_collections = {str(item or "").strip() for item in list(target_collections or []) if str(item or "").strip()}
+        clean_user = str(user_id or "").strip()
+        requested_slug = self._slug_user_id(clean_user)
+        names = await self._list_collection_names()
+        term_stats: dict[str, dict[str, Any]] = {
+            term: {"chunks": 0, "documents": set(), "matches": []}
+            for term in terms
+        }
+        documents: dict[tuple[str, str], dict[str, Any]] = {}
+        scanned_chunks = 0
+        for collection in names:
+            if requested_collections and collection not in requested_collections:
+                continue
+            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
+                continue
+            is_document_collection = self._is_document_collection_name(collection)
+            collection_user_slug = self._document_collection_user_slug(collection, "aria_docs")
+            if collection_user_slug and collection_user_slug != requested_slug:
+                continue
+            try:
+                exists = await self.qdrant.collection_exists(collection_name=collection)
+                if not exists:
+                    continue
+                offset = None
+                while True:
+                    points, next_offset = await self.qdrant.scroll(
+                        collection_name=collection,
+                        scroll_filter=None if is_document_collection else self._user_filter(clean_user),
+                        limit=200,
+                        offset=offset,
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                    for point in points or []:
+                        payload = dict(getattr(point, "payload", {}) or {})
+                        if str(payload.get("source", "")).strip() == "rag_document_guide":
+                            continue
+                        if not self._is_document_payload(payload):
+                            continue
+                        payload_user = str(payload.get("user_id", "") or "").strip()
+                        if payload_user:
+                            if not self._payload_user_matches(payload_user, requested_slug):
+                                continue
+                        elif is_document_collection and collection_user_slug != requested_slug:
+                            continue
+                        text = str(payload.get("text", "") or "").strip()
+                        if not text:
+                            continue
+                        scanned_chunks += 1
+                        document_id = self._document_payload_id(payload)
+                        document_name = self._document_payload_name(payload)
+                        if not document_id and not document_name:
+                            document_id = f"{collection}:legacy-document"
+                            document_name = collection
+                        doc_key = (collection, document_id or document_name)
+                        doc_row = documents.setdefault(
+                            doc_key,
+                            {
+                                "collection": collection,
+                                "document_id": document_id,
+                                "document_name": document_name,
+                                "chunks": 0,
+                            },
+                        )
+                        doc_row["chunks"] = int(doc_row.get("chunks", 0) or 0) + 1
+                        hay = text.lower()
+                        for term in terms:
+                            if term not in hay:
+                                continue
+                            stats = term_stats[term]
+                            stats["chunks"] = int(stats.get("chunks", 0) or 0) + 1
+                            stats["documents"].add(doc_key)
+                            matches = stats["matches"]
+                            if isinstance(matches, list) and len(matches) < max(1, int(limit or 1)):
+                                matches.append(
+                                    {
+                                        "term": term,
+                                        "collection": collection,
+                                        "document_id": document_id,
+                                        "document_name": document_name,
+                                        "chunk_index": int(payload.get("chunk_index", 0) or 0),
+                                        "chunk_total": int(payload.get("chunk_total", 0) or 0),
+                                        "text": self._clean_fact_text(self._document_scan_snippet(text, term)),
+                                    }
+                                )
+                    if next_offset is None:
+                        break
+                    offset = next_offset
+            except Exception:
+                continue
+        if not documents:
+            return None
+
+        total_matches = sum(int(stats.get("chunks", 0) or 0) for stats in term_stats.values())
+        doc_count = len(documents)
+        lines = [
+            "[Dokument-Corpus-Scan]",
+            _memory_skill_text(
+                "document_corpus_scan_coverage",
+                "Fully scanned: {documents} documents, {chunks} chunks.",
+                documents=doc_count,
+                chunks=scanned_chunks,
+            ),
+            "Suchbegriff-Abdeckung:",
+        ]
+        for term in terms:
+            stats = term_stats[term]
+            lines.append(
+                f"- {term}: {int(stats.get('chunks', 0) or 0)} Treffer-Chunks in {len(stats.get('documents', set()) or set())} Dokumenten"
+            )
+        match_rows: list[dict[str, Any]] = []
+        for term in terms:
+            matches = term_stats[term].get("matches")
+            if isinstance(matches, list):
+                match_rows.extend(dict(match) for match in matches if isinstance(match, dict))
+        if match_rows:
+            lines.append(_memory_skill_text("document_corpus_scan_match_excerpts", "Match excerpts:"))
+            for match in match_rows[: max(1, int(limit or 1))]:
+                chunk = int(match.get("chunk_index", 0) or 0)
+                total = int(match.get("chunk_total", 0) or 0)
+                chunk_label = f" · Chunk {chunk}/{total}" if chunk and total else ""
+                lines.append(
+                    f"- [{match.get('term')}: {match.get('document_name') or match.get('document_id') or match.get('collection')}{chunk_label}] "
+                    f"{match.get('text') or ''}"
+                )
+        else:
+            lines.append(
+                _memory_skill_text(
+                    "document_corpus_scan_no_exact_matches",
+                    "No exact matches for the search terms in the scanned document corpus.",
+                )
+            )
+        content = "\n".join(lines)
+        truncated, saved = self.truncate(content)
+        sources = [
+            {
+                "type": "document",
+                "source_type": "document_corpus_scan",
+                "document_id": str(row.get("document_id", "") or ""),
+                "document_name": str(row.get("document_name", "") or ""),
+                "collection": str(row.get("collection", "") or ""),
+                "chunks_scanned": int(row.get("chunks", 0) or 0),
+                "detail": _memory_skill_text(
+                    "document_corpus_scan_source_detail",
+                    "Source: {source} · {collection} · fully scanned",
+                    source=row.get("document_name") or row.get("document_id") or row.get("collection"),
+                    collection=row.get("collection"),
+                ),
+            }
+            for row in sorted(
+                documents.values(),
+                key=lambda item: (str(item.get("collection", "") or ""), str(item.get("document_name", "") or "").lower()),
+            )
+        ]
+        metadata: dict[str, Any] = {
+            "document_corpus_scan": {
+                "exhaustive": True,
+                "terms": terms,
+                "documents_scanned": doc_count,
+                "chunks_scanned": scanned_chunks,
+                "match_chunks": total_matches,
+            },
+            "sources": sources,
+            "detail_lines": [
+                "Routing Debug: document_corpus_scan "
+                f"exhaustive=true documents={doc_count} chunks={scanned_chunks} "
+                f"terms={','.join(terms) or '-'} matches={total_matches}",
+                *[str(entry.get("detail", "")).strip() for entry in sources if str(entry.get("detail", "")).strip()],
+            ],
+        }
+        return SkillResult(skill_name=self.name, content=truncated, success=True, tokens_saved=saved, metadata=metadata)
+
+    @staticmethod
+    def _document_rows_match_query_terms(query: str, rows: list[dict[str, Any]]) -> bool:
+        terms = MemorySkill._document_corpus_scan_terms(query)
+        if not terms:
+            return bool(rows)
+        haystack = "\n".join(str(row.get("text", "") or "") for row in rows).lower()
+        return any(term in haystack for term in terms)
+
     async def rebuild_document_meta_catalog(self, *, user_id: str) -> dict[str, Any]:
         guides = await self._document_catalog_payloads(user_id=user_id)
 
@@ -1406,6 +1624,17 @@ class MemorySkill(BaseSkill):
                 recall_targets = recall_targets + document_targets
             target_collections = [str(t["collection"]) for t in recall_targets]
             if not recall_targets:
+                if docs_only and include_documents:
+                    corpus_scan = await self._recall_document_corpus_scan(
+                        query=query,
+                        user_id=user_id,
+                        target_collections=allowed_targets,
+                        limit=max(top_k, 8),
+                    )
+                    if corpus_scan is not None:
+                        corpus_scan.metadata["embedding_usage"] = usage
+                        corpus_scan.metadata["embedding_model"] = self._resolve_embedding_model()
+                        return corpus_scan
                 metadata = {
                     "embedding_usage": usage,
                     "embedding_model": self._resolve_embedding_model(),
@@ -1429,6 +1658,15 @@ class MemorySkill(BaseSkill):
                     continue
                 weighted_hits.extend(item)
         except Exception:
+            if docs_only and include_documents:
+                corpus_scan = await self._recall_document_corpus_scan(
+                    query=query,
+                    user_id=user_id,
+                    target_collections=allowed_targets,
+                    limit=max(top_k, 8),
+                )
+                if corpus_scan is not None:
+                    return corpus_scan
             return await self._recall_keyword_fallback(
                 query=query,
                 user_id=user_id,
@@ -1438,6 +1676,17 @@ class MemorySkill(BaseSkill):
             )
 
         if not weighted_hits:
+            if docs_only and include_documents:
+                corpus_scan = await self._recall_document_corpus_scan(
+                    query=query,
+                    user_id=user_id,
+                    target_collections=target_collections or allowed_targets,
+                    limit=max(top_k, 8),
+                )
+                if corpus_scan is not None:
+                    corpus_scan.metadata["embedding_usage"] = usage
+                    corpus_scan.metadata["embedding_model"] = self._resolve_embedding_model()
+                    return corpus_scan
             fallback = await self._recall_keyword_fallback(
                 query=query,
                 user_id=user_id,
@@ -1469,6 +1718,18 @@ class MemorySkill(BaseSkill):
                     lines.append(f"- [{item['label']}] {cleaned}")
             if len(lines) >= output_count:
                 break
+
+        if docs_only and include_documents and not self._document_rows_match_query_terms(query, selected_rows):
+            corpus_scan = await self._recall_document_corpus_scan(
+                query=query,
+                user_id=user_id,
+                target_collections=target_collections or allowed_targets,
+                limit=max(top_k, 8),
+            )
+            if corpus_scan is not None:
+                corpus_scan.metadata["embedding_usage"] = usage
+                corpus_scan.metadata["embedding_model"] = self._resolve_embedding_model()
+                return corpus_scan
 
         content = "\n".join(lines) if lines else "Keine passende Erinnerung gefunden."
         truncated, saved = self.truncate(content)
