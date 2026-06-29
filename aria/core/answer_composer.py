@@ -57,6 +57,7 @@ class AnswerComposer:
                     "local_store_checked": "If true, never say you have no access to the user's data.",
                     "empty_or_no_match": "If status is empty/no_match, say that no matching entry was found in the checked source.",
                     "found": "If status is found, mention only provided source/target rows.",
+                    "inventory_list_format": "For answer_mode=inventory_list, keep source rows as separate markdown bullet lines.",
                 },
             },
             source=payload.source,
@@ -82,7 +83,7 @@ class AnswerComposer:
     def _valid_answer_text(self, result: BoundedDecisionResult, payload: AnswerComposerInput) -> str:
         if not result.ok:
             return ""
-        text = " ".join(str(result.payload.get("answer", "") or "").strip().split())
+        text = self._normalize_answer_text(str(result.payload.get("answer", "") or ""))
         if not text:
             return ""
         lowered = text.lower()
@@ -119,3 +120,8 @@ class AnswerComposer:
                 "ja,",
             )
         )
+
+    @staticmethod
+    def _normalize_answer_text(value: str) -> str:
+        lines = [" ".join(line.strip().split()) for line in str(value or "").strip().splitlines()]
+        return "\n".join(line for line in lines if line).strip()

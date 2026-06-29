@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from aria.core.config import EmbeddingsConfig, MemoryConfig
 from aria.core.doc_meta_catalog import document_meta_collection_for_user
 from aria.core.embedding_client import EmbeddingClient
+from aria.core.memory_recall_helpers import build_recall_source_entries
 from aria.skills.memory import MemorySkill
 
 
@@ -284,6 +285,65 @@ def test_document_meta_rebuild_can_bootstrap_from_legacy_chunks() -> None:
     asyncio.run(_run_document_meta_rebuild_from_legacy_chunks())
 
 
+async def _run_document_meta_rebuild_accepts_scoped_collection_case_mismatch() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    fake.collections["aria_docs_example_user"] = [
+        SimpleNamespace(
+            id="chunk-30",
+            payload={
+                "text": "Mill Gentle Air WiFi oil filled heater wireless setup and app pairing.",
+                "user_id": "Example_User",
+                "timestamp": "2026-04-07T13:08:15.407803+00:00",
+                "type": "knowledge",
+                "source": "rag_upload",
+                "document_id": "83aa10229b78947317d15169",
+                "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                "chunk_index": 30,
+                "chunk_total": 99,
+                "mime_type": "application/pdf",
+                "source_type": "pdf",
+            },
+        )
+    ]
+    skill.qdrant = fake
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.rebuild_document_meta_catalog(user_id="example_user")
+    all_result = await skill.rebuild_document_meta_catalogs_for_known_users()
+
+    assert result["status"] == "active"
+    assert result["documents"] == 1
+    assert all_result["rebuilt_users"] == 1
+    assert all_result["documents"] == 1
+    meta_points = fake.collections.get(document_meta_collection_for_user("example_user"), [])
+    document_meta = [
+        point
+        for point in meta_points
+        if (getattr(point, "payload", {}) or {}).get("kind") == "document_meta"
+    ]
+    assert document_meta
+    payload = document_meta[-1].payload or {}
+    assert payload["document_id"] == "83aa10229b78947317d15169"
+    assert payload["document_name"] == "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf"
+    assert payload["target_collection"] == "aria_docs_example_user"
+    assert "mill" in payload["knows"]
+    assert "wifi" in payload["knows"]
+
+
+def test_document_meta_rebuild_accepts_scoped_collection_case_mismatch() -> None:
+    asyncio.run(_run_document_meta_rebuild_accepts_scoped_collection_case_mismatch())
+
+
 async def _run_embedding_fingerprint_switch_hides_old_memory() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
@@ -368,6 +428,113 @@ def test_recall_source_entries_are_sorted_for_humans() -> None:
         "session",
     ]
     assert str(entries[0].get("detail", "")) == "Quelle: demo.pdf · aria_docs_demo_manuals · Chunk 3/12"
+
+
+def test_recall_source_entry_helper_is_facade_compatible() -> None:
+    rows = [
+        {
+            "type": "session",
+            "label": "KONTEXT",
+            "collection": "aria_sessions_demo_260406",
+            "document_name": "",
+        },
+        {
+            "type": "document",
+            "label": "DOKUMENT",
+            "collection": "aria_docs_demo_manuals",
+            "document_name": "demo.pdf",
+            "chunk_index": 3,
+            "chunk_total": 12,
+        },
+    ]
+
+    entries = build_recall_source_entries(rows, max_items=2)
+
+    assert [str(entry.get("type", "")) for entry in entries] == ["document", "session"]
+    assert str(entries[0].get("detail", "")) == "Quelle: demo.pdf · aria_docs_demo_manuals · Chunk 3/12"
+
+
+async def _run_admin_query_facade_lists_and_stats() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    skill.qdrant = FakeQdrant()
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    old = await skill.execute("merk", {"action": "store", "text": "Alte Info", "user_id": "u1"})
+    new = await skill.execute("merk", {"action": "store", "text": "Neue Info", "user_id": "u1"})
+    assert old.success is True
+    assert new.success is True
+
+    collection_name, points = next(
+        (name, rows)
+        for name, rows in skill.qdrant.collections.items()
+        if len(rows) >= 2
+    )
+    first_point = points[0]
+    first_point.payload["timestamp"] = "2026-01-01T00:00:00+00:00"
+    second_point = points[1]
+    second_point.payload["timestamp"] = "2026-01-02T00:00:00+00:00"
+
+    async def fake_targets(user_id: str):
+        assert user_id == "u1"
+        return [
+            {
+                "type": "fact",
+                "label": "FAKT",
+                "collection": collection_name,
+                "top_k": 3,
+            }
+        ]
+
+    skill._build_recall_targets = fake_targets  # type: ignore[assignment]
+
+    listed = await skill.list_memories(user_id="u1", type_filter="fact", limit=10)
+    stats = await skill.get_user_collection_stats("u1")
+
+    assert [row["text"] for row in listed[:2]] == ["Neue Info", "Alte Info"]
+    assert stats == [{"name": collection_name, "points": 2, "kind": "fact"}]
+
+
+def test_admin_query_service_keeps_memory_skill_facade() -> None:
+    asyncio.run(_run_admin_query_facade_lists_and_stats())
+
+
+async def _run_memory_keyword_fallback_reports_debug_line() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    skill.qdrant = FakeQdrant()
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 10.0.0.1", "user_id": "u1"})
+    assert stored.success is True
+
+    result = await skill._recall_keyword_fallback("Gateway", "u1", 3, collections=list(skill.qdrant.collections.keys()))
+
+    assert result.success is True
+    assert "Gateway 10.0.0.1" in result.content
+    detail_lines = list((result.metadata or {}).get("detail_lines") or [])
+    assert any("Routing Debug: memory_keyword_fallback" in str(line) for line in detail_lines)
+    assert any("reason=keyword_match" in str(line) for line in detail_lines)
+
+
+def test_memory_keyword_fallback_reports_debug_line() -> None:
+    asyncio.run(_run_memory_keyword_fallback_reports_debug_line())
 
 
 def test_document_guide_targets_prefer_keyword_matched_document() -> None:

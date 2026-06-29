@@ -15,7 +15,7 @@ DOC_META_MANIFEST_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def _slug_user_id(user_id: str) -> str:
-    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(user_id or "").strip()).strip("_")
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(user_id or "").strip().lower()).strip("_")
     return slug or "default"
 
 
@@ -56,6 +56,19 @@ def _compact_terms(*values: Any, limit: int = 24) -> list[str]:
     return _dedupe(terms)[:limit]
 
 
+def _semantic_document_aliases(*values: Any) -> list[str]:
+    text = " ".join(
+        " ".join(str(item) for item in value) if isinstance(value, list | tuple | set) else str(value or "")
+        for value in values
+    ).lower()
+    aliases: list[str] = []
+    if re.search(r"\b(heater|heaters|radiator|thermostat|heating)\b", text):
+        aliases.extend(["heizung", "heizungen", "heizgeraet", "heizgeraete", "heater"])
+    if re.search(r"\b(wifi|wi-fi|wireless|wlan)\b", text):
+        aliases.extend(["wifi", "wi-fi", "wireless", "wlan"])
+    return _dedupe(aliases)
+
+
 def _render_document_meta_text(payload: dict[str, Any]) -> str:
     rows = [
         "Catalog type: document_meta",
@@ -72,6 +85,9 @@ def _render_document_meta_text(payload: dict[str, Any]) -> str:
     topics = [str(item) for item in payload.get("knows", []) or [] if str(item).strip()]
     if topics:
         rows.append("Knows: " + ", ".join(topics))
+    aliases = [str(item) for item in payload.get("aliases", []) or [] if str(item).strip()]
+    if aliases:
+        rows.append("Aliases: " + ", ".join(aliases))
     rows.append("Can load: source-bound document chunks, document guide, document collection target")
     rows.append("Risk: low")
     return "\n".join(row for row in rows if _normalize_ws(row)).strip()
@@ -167,6 +183,13 @@ class DocumentMetaCatalogStore:
             summary,
             guide_payload.get("text", ""),
         )
+        semantic_aliases = _semantic_document_aliases(
+            guide_payload.get("guide_keywords", []),
+            title,
+            document_name,
+            summary,
+            guide_payload.get("text", ""),
+        )
         catalog_id = f"local|docs|document|{document_id or uuid5(NAMESPACE_URL, document_name)}"
         payload = {
             "doc_meta_catalog_version": DOC_META_CATALOG_VERSION,
@@ -178,9 +201,9 @@ class DocumentMetaCatalogStore:
             "title": title,
             "description": summary,
             "group_name": "Imported Documents",
-            "aliases": _dedupe([document_name, title, *[str(item) for item in guide_payload.get("guide_keywords", []) or []]])[:16],
-            "tags": ["documents", "docs", "uploaded_document", str(guide_payload.get("source_type", "") or "").strip()],
-            "knows": keywords,
+            "aliases": _dedupe([document_name, title, *[str(item) for item in guide_payload.get("guide_keywords", []) or []], *semantic_aliases])[:24],
+            "tags": ["documents", "docs", "uploaded_document", str(guide_payload.get("source_type", "") or "").strip(), *semantic_aliases[:6]],
+            "knows": _dedupe([*keywords, *semantic_aliases])[:32],
             "can_load": ["source-bound document chunks", "document guide", "document collection target"],
             "can_do": [],
             "action_candidates": [],
@@ -262,7 +285,7 @@ class DocumentMetaCatalogStore:
         }
 
     async def rebuild_from_guides(self, *, user_id: str, guides: list[dict[str, Any]]) -> dict[str, Any]:
-        clean_user = str(user_id or "").strip() or "default"
+        clean_user = _slug_user_id(str(user_id or "").strip() or "default")
         active = await self._active_manifest()
         previous_build_id = str(active.get("active_build_id", "") or "").strip()
         build_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S") + "-" + uuid4().hex[:8]
@@ -275,7 +298,15 @@ class DocumentMetaCatalogStore:
                     "title": Path(str(row.get("document_name", ""))).stem,
                     "target_collection": row.get("target_collection", ""),
                     "description": row.get("guide_summary", ""),
-                    "knows": _compact_terms(row.get("guide_keywords", []), row.get("text", "")),
+                    "knows": _dedupe([
+                        *_compact_terms(row.get("guide_keywords", []), row.get("text", "")),
+                        *_semantic_document_aliases(
+                            row.get("guide_keywords", []),
+                            row.get("document_name", ""),
+                            row.get("guide_summary", ""),
+                            row.get("text", ""),
+                        ),
+                    ])[:32],
                 }
             )
             for row in guide_rows
@@ -351,6 +382,7 @@ class DocumentMetaCatalogStore:
         clean_query = _normalize_ws(query)
         if not clean_query:
             return []
+        clean_user = _slug_user_id(str(user_id or "").strip() or "default")
         active = await self._active_manifest()
         active_build_id = str(active.get("active_build_id", "") or "").strip()
         if not active_build_id:
@@ -359,43 +391,50 @@ class DocumentMetaCatalogStore:
         vector = vectors[0] if vectors else []
         if not vector:
             return []
-        query_filter = Filter(
-            must=[
-                FieldCondition(key="kind", match=MatchValue(value="document_meta")),
-                FieldCondition(key="user_id", match=MatchValue(value=str(user_id or "").strip() or "default")),
-                FieldCondition(key="catalog_build_id", match=MatchValue(value=active_build_id)),
-            ]
-        )
-        try:
-            result = await self.qdrant.query_points(
-                collection_name=self.collection_name,
-                query=vector,
-                query_filter=query_filter,
-                limit=max(1, int(limit)),
-            )
-        except TypeError:
-            result = await self.qdrant.query_points(collection_name=self.collection_name, query=vector, limit=max(1, int(limit)))
+        user_values = []
+        for raw_user in (clean_user, str(user_id or "").strip() or "default"):
+            if raw_user and raw_user not in user_values:
+                user_values.append(raw_user)
         rows: list[dict[str, Any]] = []
-        for hit in self._extract_hits(result):
-            payload = dict(getattr(hit, "payload", {}) or {})
-            if not self._matches_filter(payload, query_filter):
-                continue
-            score = float(getattr(hit, "score", 0.0) or 0.0)
-            if score < score_threshold:
-                continue
-            catalog_id = str(payload.get("catalog_id", "") or "").strip()
-            if not catalog_id:
-                continue
-            rows.append(
-                {
-                    "catalog_id": catalog_id,
-                    "surface_id": "docs",
-                    "kind": "document_meta",
-                    "ref": str(payload.get("ref", "") or "").strip(),
-                    "score": score,
-                    "source": "qdrant_doc_meta_catalog",
-                    "payload": payload,
-                }
+        seen_catalog_ids: set[str] = set()
+        for user_value in user_values:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(key="kind", match=MatchValue(value="document_meta")),
+                    FieldCondition(key="user_id", match=MatchValue(value=user_value)),
+                    FieldCondition(key="catalog_build_id", match=MatchValue(value=active_build_id)),
+                ]
             )
+            try:
+                result = await self.qdrant.query_points(
+                    collection_name=self.collection_name,
+                    query=vector,
+                    query_filter=query_filter,
+                    limit=max(1, int(limit)),
+                )
+            except TypeError:
+                result = await self.qdrant.query_points(collection_name=self.collection_name, query=vector, limit=max(1, int(limit)))
+            for hit in self._extract_hits(result):
+                payload = dict(getattr(hit, "payload", {}) or {})
+                if not self._matches_filter(payload, query_filter):
+                    continue
+                score = float(getattr(hit, "score", 0.0) or 0.0)
+                if score < score_threshold:
+                    continue
+                catalog_id = str(payload.get("catalog_id", "") or "").strip()
+                if not catalog_id or catalog_id in seen_catalog_ids:
+                    continue
+                seen_catalog_ids.add(catalog_id)
+                rows.append(
+                    {
+                        "catalog_id": catalog_id,
+                        "surface_id": "docs",
+                        "kind": "document_meta",
+                        "ref": str(payload.get("ref", "") or "").strip(),
+                        "score": score,
+                        "source": "qdrant_doc_meta_catalog",
+                        "payload": payload,
+                    }
+                )
         rows.sort(key=lambda item: float(item.get("score", 0.0) or 0.0), reverse=True)
         return rows

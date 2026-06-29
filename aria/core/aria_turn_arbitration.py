@@ -7,6 +7,7 @@ from typing import Any
 
 from aria.core.bounded_decision import BoundedDecisionClient
 from aria.core.bounded_decision import confidence_score
+from aria.core.chat_turn_context import visible_chat_context_from_turn_context
 from aria.core.context_surfaces import ContextRequest
 from aria.core.context_surfaces import SurfaceRegistry
 
@@ -179,6 +180,7 @@ class AriaTurnArbitration:
     plan: AriaTurnPlan
     source: str = "fallback"
     usage: dict[str, int] = field(default_factory=dict)
+    diagnostics: dict[str, int] = field(default_factory=dict)
     error: str = ""
     rejected: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
@@ -204,6 +206,14 @@ class AriaTurnArbitration:
         ]
         if plan.priority:
             parts.append(f"priority={','.join(plan.priority)[:180]}")
+        if self.diagnostics:
+            payload_bytes = int(self.diagnostics.get("payload_bytes", 0) or 0)
+            system_chars = int(self.diagnostics.get("system_chars", 0) or 0)
+            payload_keys = int(self.diagnostics.get("payload_keys", 0) or 0)
+            if payload_bytes or system_chars or payload_keys:
+                parts.append(
+                    f"routing_payload_bytes={payload_bytes} routing_system_chars={system_chars} routing_payload_keys={payload_keys}"
+                )
         if self.error:
             parts.append(f"error={self.error}")
         if plan.reason:
@@ -511,6 +521,7 @@ class AriaTurnArbiter:
             "Select whether this turn needs context, action, recipe, learning, web, or plain chat. "
             "Use registered ContextSurfaces only. Do not answer. No word lists or trigger-phrase logic. "
             "Treat last_turn_frame only as context, not as a command: continue it only when it truly fits the new user message. "
+            "Use recent_visible_chat_context as conversation evidence for elliptic follow-ups; if the user refers to the last visible action/output, route according to that referenced output before unrelated catalog topics. "
             "Do not route operational/resource health, status, update, or execution requests to memory exists; choose an action-capable surface or ask for clarification. "
             "Side effects require needs_confirmation=true. "
             "Modes: inventory=list configured/stored objects; exists=check whether selected local content contains topic; search=load relevant context. "
@@ -526,6 +537,7 @@ class AriaTurnArbiter:
                 "routing_meta_context": menu.as_compact_payload(include_legacy_surfaces=surface_registry is None),
                 "surface_meta_context": surface_meta_context,
                 "last_turn_frame": _compact_last_turn_frame(turn_context),
+                "recent_visible_chat_context": visible_chat_context_from_turn_context(turn_context),
             },
             source=source,
             user_id=user_id,
@@ -536,6 +548,7 @@ class AriaTurnArbiter:
                 plan=_fallback_plan(clean_message, reason=result.error or "arbiter_unavailable"),
                 source="fallback",
                 usage=result.usage,
+                diagnostics=result.diagnostics,
                 error=result.error,
             )
         result_payload = result.payload
@@ -547,6 +560,7 @@ class AriaTurnArbiter:
                 plan=_fallback_plan(clean_message, reason="arbiter_low_confidence"),
                 source="fallback",
                 usage=result_usage,
+                diagnostics=result.diagnostics,
             )
 
         intents = _unique_clean(result_payload.get("intents") or result_payload.get("intent"), allowed=ARIA_TURN_INTENTS, fallback=("chat",))
@@ -671,4 +685,4 @@ class AriaTurnArbiter:
             confidence=confidence,
             reason=" ".join(str(result_payload.get("reason") or "").strip().split())[:160],
         )
-        return AriaTurnArbitration(plan=plan, source=result_source, usage=result_usage, rejected=rejected)
+        return AriaTurnArbitration(plan=plan, source=result_source, usage=result_usage, diagnostics=result.diagnostics, rejected=rejected)

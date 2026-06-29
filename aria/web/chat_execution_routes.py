@@ -20,6 +20,7 @@ from aria.core.chat_learn_mode import cancel_chat_learn_mode
 from aria.core.chat_learn_mode import finish_chat_learn_mode
 from aria.core.chat_learn_mode import parse_chat_learn_command
 from aria.core.chat_learn_mode import start_chat_learn_mode
+from aria.core.chat_freshness import explicitly_requests_web_research
 from aria.core.followup_resolution import FollowupResolver
 from aria.core.i18n import I18NStore
 from aria.core.notes_context import notes_index_enabled
@@ -213,6 +214,10 @@ async def _resolve_pipeline_followup_message(
     clean = re.sub(r"\s+", " ", str(message or "").strip())
     if not clean:
         return clean
+    if explicitly_requests_web_research(clean):
+        pipeline_message = _rewrite_vague_web_search_followup(clean, history)
+        if pipeline_message == clean:
+            return clean
     decision = await FollowupResolver(llm_client).resolve(
         clean,
         history=history,
@@ -552,6 +557,7 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             )
             return response
 
+        route_prepare_start = time.perf_counter()
         route_state = prepare_chat_route_state(
             request=request,
             clean_message=clean_message,
@@ -574,10 +580,15 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             routed_action_pending_cookie=deps.routed_action_pending_cookie,
             routed_action_pending_override=routed_action_pending,
         )
+        route_prepare_ms = int((time.perf_counter() - route_prepare_start) * 1000)
 
         learn_active = chat_learn_mode_active(deps.execution_deps.base_dir, username=username, session_id=session_id)
+        history_load_start = time.perf_counter()
         chat_history = deps.load_chat_history(username)
+        history_load_ms = int((time.perf_counter() - history_load_start) * 1000)
+        feedback_ms = 0
         if not learn_active and auto_memory_enabled:
+            feedback_start = time.perf_counter()
             try:
                 await capture_user_feedback_learning(
                     message=clean_message,
@@ -586,15 +597,20 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                     memory_skill=getattr(deps.execution_deps.pipeline, "memory_skill", None),
                     llm_client=getattr(deps.execution_deps.pipeline, "llm_client", None),
                 )
+                feedback_ms = int((time.perf_counter() - feedback_start) * 1000)
             except Exception:
+                feedback_ms = int((time.perf_counter() - feedback_start) * 1000)
                 pass
+        followup_rewrite_start = time.perf_counter()
         pipeline_message = await _resolve_pipeline_followup_message(
             clean_message,
             chat_history,
             llm_client=getattr(deps.execution_deps.pipeline, "llm_client", None),
             user_id=username,
         )
+        followup_rewrite_ms = int((time.perf_counter() - followup_rewrite_start) * 1000)
         learning_context = suppress_auto_learning() if learn_active else nullcontext()
+        execute_flow_start = time.perf_counter()
         with learning_context:
             response_state = await execute_chat_flow(
                 clean_message=clean_message,
@@ -607,26 +623,16 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 session_collection=session_collection,
                 auto_memory_enabled=auto_memory_enabled,
                 deps=deps.execution_deps,
+                chat_history=chat_history,
             )
+        execute_flow_ms = int((time.perf_counter() - execute_flow_start) * 1000)
+        stamp_start = time.perf_counter()
         _stamp_route_wall_time(response_state)
+        stamp_ms = int((time.perf_counter() - stamp_start) * 1000)
 
-        response = deps.templates.TemplateResponse(
-            request=request,
-            name="_chat_messages.html",
-            context={
-                "user_message": clean_message,
-                "assistant_message": response_state.assistant_text,
-                "badge_icon": response_state.icon,
-                "badge_intent": response_state.intent_label,
-                "badge_tokens": response_state.total_tokens,
-                "badge_cost_usd": response_state.cost_usd,
-                "badge_duration": response_state.duration_s,
-                "badge_details": response_state.badge_details,
-                "routed_action_confirm_command": response_state.routed_action_confirm_command,
-                "routed_action_confirm_payload": response_state.routed_action_confirm_payload,
-            },
-        )
+        history_append_ms = 0
         if username and response_state.assistant_text:
+            history_append_start = time.perf_counter()
             append_chat_learn_observation(
                 deps.execution_deps.base_dir,
                 username=username,
@@ -647,6 +653,33 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
                 badge_duration=response_state.duration_s,
                 badge_details=response_state.badge_details,
             )
+            history_append_ms = int((time.perf_counter() - history_append_start) * 1000)
+        response_state.badge_details.append(
+            "Routing Debug: web_route_timing "
+            f"prepare_ms={route_prepare_ms} history_load_ms={history_load_ms} feedback_ms={feedback_ms} "
+            f"followup_rewrite_ms={followup_rewrite_ms} execute_flow_ms={execute_flow_ms} "
+            f"stamp_ms={stamp_ms} history_append_ms={history_append_ms} "
+            f"pre_template_total_ms={int((time.perf_counter() - route_start) * 1000)}"
+        )
+        template_start = time.perf_counter()
+        response = deps.templates.TemplateResponse(
+            request=request,
+            name="_chat_messages.html",
+            context={
+                "user_message": clean_message,
+                "assistant_message": response_state.assistant_text,
+                "badge_icon": response_state.icon,
+                "badge_intent": response_state.intent_label,
+                "badge_tokens": response_state.total_tokens,
+                "badge_cost_usd": response_state.cost_usd,
+                "badge_duration": response_state.duration_s,
+                "badge_details": response_state.badge_details,
+                "routed_action_confirm_command": response_state.routed_action_confirm_command,
+                "routed_action_confirm_payload": response_state.routed_action_confirm_payload,
+            },
+        )
+        template_ms = int((time.perf_counter() - template_start) * 1000)
+        cookies_start = time.perf_counter()
         apply_chat_response_cookies(
             response=response,
             request=request,
@@ -665,6 +698,9 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
             routed_action_pending_cookie=deps.routed_action_pending_cookie,
             secure_cookie=secure_cookie,
         )
+        cookies_ms = int((time.perf_counter() - cookies_start) * 1000)
+        response.headers["x-aria-web-template-ms"] = str(template_ms)
+        response.headers["x-aria-web-cookies-ms"] = str(cookies_ms)
         return response
 
     @app.post("/chat/history/clear")

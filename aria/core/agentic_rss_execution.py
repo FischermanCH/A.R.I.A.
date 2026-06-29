@@ -11,6 +11,7 @@ from aria.core.agentic_execution import AgenticExecutionResult
 from aria.core.agentic_runtime_debug import runtime_debug_line_for_plan
 from aria.core.capability_catalog import normalize_capability
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.rss_execution_policy import rss_exact_feed_ref_requested
 
 
 @dataclass(slots=True)
@@ -66,18 +67,27 @@ class RSSFeedExecutionHandler:
     async def _enrich_plan_with_rss_notes(self, request: AgenticExecutionRequest, plan: ActionPlan) -> ActionPlan:
         query = str(request.resolved.get("query", "") or "")
         notes = list(plan.notes or [])
-        rss_bundle = await self._hooks.rss_group_bundle_for_query(query, plan.connection_ref)
-        if rss_bundle is None:
-            rss_bundle = self._hooks.rss_group_bundle_from_candidate_aliases(
-                query,
-                plan.connection_ref,
-                list(request.resolved.get("connection_candidates_debug", []) or []),
-            )
-        if rss_bundle is not None:
-            notes.append(self._hooks.build_rss_group_bundle_note(*rss_bundle))
+        if not self._exact_feed_ref_requested(query, plan):
+            rss_bundle = await self._hooks.rss_group_bundle_for_query(query, plan.connection_ref)
+            if rss_bundle is None:
+                rss_bundle = self._hooks.rss_group_bundle_from_candidate_aliases(
+                    query,
+                    plan.connection_ref,
+                    list(request.resolved.get("connection_candidates_debug", []) or []),
+                )
+            if rss_bundle is not None:
+                notes.append(self._hooks.build_rss_group_bundle_note(*rss_bundle))
         digest_options_note = await self._hooks.rss_digest_options_note_for_query(query, request.language)
         if digest_options_note:
             notes.append(digest_options_note)
         if notes == list(plan.notes or []):
             return plan
         return replace(plan, notes=notes)
+
+    @staticmethod
+    def _exact_feed_ref_requested(query: str, plan: ActionPlan) -> bool:
+        return rss_exact_feed_ref_requested(
+            query,
+            connection_ref=str(plan.connection_ref or ""),
+            requested_connection_ref=str(plan.requested_connection_ref or ""),
+        )

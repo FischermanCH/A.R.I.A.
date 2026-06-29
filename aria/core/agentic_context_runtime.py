@@ -1,254 +1,71 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
 import re
-import sys
 import time
 from typing import Any
 
+from aria.core.active_learning_hint_runtime import recall_active_learning_hints
+from aria.core.active_learning_hint_runtime import should_skip_active_learning_hints_for_turn
 from aria.core.aria_turn_arbitration import AriaTurnArbiter
 from aria.core.aria_turn_arbitration import AriaTurnArbitration
 from aria.core.aria_turn_arbitration import AriaTurnCollectionOption
 from aria.core.aria_turn_arbitration import build_aria_turn_menu
 from aria.core.action_plan import CapabilityDraft
-from aria.core.answer_composer import AnswerComposer
-from aria.core.answer_composer import AnswerComposerInput
+from aria.core.context_answer_runtime import compose_aria_context_answer
+from aria.core.context_answer_runtime import docs_search_fallback_answer
+from aria.core.context_answer_runtime import fast_docs_search_answer
+from aria.core.context_answer_runtime import fast_inventory_list_answer
+from aria.core.context_answer_runtime import fast_notes_inventory_answer
 from aria.core.connection_catalog import connection_kind_label
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.chat_turn_context import compact_recent_visible_chat_context
+from aria.core.chat_freshness import explicitly_requests_web_research
+from aria.core.context_evidence import common_request_terms
+from aria.core.context_evidence import evidence_terms
+from aria.core.context_evidence import inventory_matches
+from aria.core.context_evidence import inventory_query_terms
+from aria.core.context_evidence import inventory_soft_scope_terms
+from aria.core.context_evidence import normalized_evidence_text
+from aria.core.context_evidence import request_scope_terms
+from aria.core.context_evidence import text_matches_evidence
 from aria.core.context_surface_adapters import build_builtin_surface_registry
 from aria.core.context_surfaces import ContextRequest
-from aria.core.context_surfaces import TurnFrame
-from aria.core.inventory_index import InventoryIndexStore
-from aria.core.inventory_index import create_inventory_qdrant_client
-from aria.core.inventory_index import inventory_collection_name
-from aria.core.learning_promotion import learning_active_hints_collection_for_user
+from aria.core.context_runtime_state import ContextRuntimeState
+from aria.core.context_runtime_state import turn_frame_from_arbitration
+from aria.core.i18n import I18NStore
 from aria.core.meta_catalog_routing import MetaCatalogRouter
 from aria.core.meta_catalog_routing import MetaCatalogRoutingConfig
 from aria.core.meta_catalog_routing import META_CATALOG_ROUTING_OPERATION
 from aria.core.meta_catalog_routing import MetaCatalogRoutingInput
 from aria.core.pipeline_models import PipelineResult
-from aria.core.routing_resolver import infer_preferred_connection_kind
 from aria.core.stage_timing import StageTimingLedger
+from aria.core.stage_timing import insert_stage_timing_detail_lines
+from aria.core.surface_loader_runtime import SurfaceLoaderRuntime
 from aria.core.turn_intent_arbitration import TurnIntentArbiter
 from aria.skills.base import SkillResult
 
 
-class SurfaceLoaderRuntime:
-    """Loader boundary from TurnPlan context requests to loaded SkillResults."""
-
-    def __init__(self, owner: Any) -> None:
-        self.owner = owner
-
-    async def load_inventory(self, arbitration: AriaTurnArbitration | None) -> list[SkillResult]:
-        if arbitration is None:
-            return []
-        results: list[SkillResult] = []
-        requests = [request for request in arbitration.plan.context_requests if request.mode == "inventory"]
-        requests = [
-            request
-            for request in requests
-            if not (request.surface_id in {"memory", "notes", "docs"} and str(request.query or "").strip())
-        ]
-        if not requests and "context_inventory" in arbitration.plan.intents:
-            requests = [
-                ContextRequest(surface_id=direction, mode="inventory", query=arbitration.plan.queries.get(direction, ""))
-                for direction in arbitration.plan.context_directions
-                if build_builtin_surface_registry(self.owner.settings).get(direction) is not None
-            ]
-        for request in requests:
-            inventory = await self._load_inventory_request(arbitration, request)
-            if inventory is not None:
-                results.append(inventory)
-        return results
-
-    async def load_memory_exists(
-        self,
-        *,
-        arbitration: AriaTurnArbitration,
-        user_id: str,
-        memory_collection: str | None,
-        session_collection: str | None,
-        context_overrides: dict[str, Any],
-    ) -> SkillResult:
-        if self.owner.memory_skill is None:
-            return SkillResult(
-                skill_name="memory_recall",
-                success=True,
-                content="",
-                metadata={"detail_lines": ["Routing Debug: memory_recall skipped reason=no_memory_skill"]},
-            )
-        query = self.owner._aria_turn_memory_exists_evidence_query(arbitration)
-        family_base = str(memory_collection or session_collection or "").strip()
-        if not family_base:
-            family_base = f"{self.owner.settings.memory.collections.facts.prefix}_{user_id}"
-        top_k = int(context_overrides.get("memory_top_k") or max(2, int(self.owner.settings.memory.top_k or 2)))
-        result = await self.owner.memory_skill.execute(
-            query=query,
-            params={
-                "action": "recall",
-                "top_k": top_k,
-                "user_id": user_id,
-                "collection": family_base,
-                "target_collections": list(context_overrides.get("memory_target_collections") or []),
-                "include_documents": bool(context_overrides.get("include_documents", False)),
-                "docs_only": bool(context_overrides.get("docs_only", False)),
-            },
-        )
-        result.skill_name = "memory_recall"
-        return result
-
-    async def _load_inventory_request(self, arbitration: AriaTurnArbitration, request: ContextRequest) -> SkillResult | None:
-        registry = build_builtin_surface_registry(self.owner.settings)
-        surface = registry.get(request.surface_id)
-        if surface is None:
-            return None
-        query = str(request.query or self.owner._aria_turn_context_request_query(arbitration, request.surface_id)).strip()
-        indexed_result = await self._load_inventory_index_result(request, query)
-        if indexed_result is not None:
-            return indexed_result
-        message, sources = self.owner._aria_turn_format_inventory_metadata(request.surface_id, dict(surface.metadata or {}), query, limit=request.limit)
-        detail_lines = []
-        if indexed_result is not None:
-            detail_lines.extend(list((indexed_result.metadata or {}).get("detail_lines", []) or []))
-        return SkillResult(
-            skill_name="context_inventory",
-            success=True,
-            content=message,
-            metadata={
-                "sources": sources,
-                "detail_lines": [
-                    *detail_lines,
-                    "Routing Debug: context_inventory "
-                    f"surface={request.surface_id} mode=inventory matches={len(sources)} query={query or '-'}"
-                ],
-            },
-        )
-
-    async def _load_inventory_index_result(self, request: ContextRequest, query: str) -> SkillResult | None:
-        if not request.surface_id or not str(query or "").strip():
-            return None
-        inventory_cfg = getattr(self.owner.settings, "inventory_index", None)
-        if not bool(getattr(inventory_cfg, "enabled", True)):
-            return None
-        memory_cfg = getattr(self.owner.settings, "memory", None)
-        if not bool(getattr(memory_cfg, "enabled", False)) or str(getattr(memory_cfg, "backend", "") or "").strip().lower() != "qdrant":
-            return None
-        qdrant = None
-        try:
-            pipeline_module = sys.modules.get("aria.core.pipeline")
-            qdrant_factory = getattr(pipeline_module, "create_inventory_qdrant_client", create_inventory_qdrant_client)
-            qdrant = await qdrant_factory(self.owner.settings, timeout=5)
-            store = InventoryIndexStore(
-                qdrant=qdrant,
-                embedding_client=self.owner.embedding_client,
-                collection_name=inventory_collection_name(self.owner.settings),
-            )
-            hits = await store.query_inventory(
-                query,
-                surface_id=request.surface_id,
-                limit=min(80, max(12, int(getattr(inventory_cfg, "candidate_limit", 12) or 12) * 5)),
-                score_threshold=float(getattr(inventory_cfg, "score_threshold", 0.35) or 0.0),
-            )
-        except Exception as exc:
-            return SkillResult(
-                skill_name="context_inventory",
-                success=True,
-                content="No matching inventory metadata was found for the selected query.",
-                metadata={
-                    "sources": [],
-                    "detail_lines": [
-                        "Routing Debug: inventory_index skipped "
-                        f"surface={request.surface_id} authoritative=true reason={str(exc).strip() or 'query_failed'}"
-                    ],
-                },
-            )
-        finally:
-            close = getattr(qdrant, "close", None) or getattr(qdrant, "aclose", None)
-            if callable(close):
-                result = close()
-                if hasattr(result, "__await__"):
-                    await result
-        budget = dict(request.budget or {})
-        bound_ref = str(budget.get("ref", "") or "").strip()
-        bound_kind = str(budget.get("kind", "") or "").strip()
-        bound_catalog_id = str(budget.get("catalog_id", "") or "").strip()
-        bind_ref = bool(budget.get("bind_ref") or budget.get("exact_ref"))
-        evidence_debug: list[str]
-        if bound_ref and bind_ref:
-            pre_bound_count = len(hits)
-            hits = [
-                hit
-                for hit in hits
-                if str(dict(hit.get("payload", {}) or {}).get("ref", "") or "").strip() == bound_ref
-                and (not bound_kind or str(dict(hit.get("payload", {}) or {}).get("kind", "") or "").strip() == bound_kind)
-            ][: max(1, int(getattr(inventory_cfg, "candidate_limit", 12) or 12))]
-            evidence_debug = [
-                "Routing Debug: inventory_index_bound "
-                f"surface={request.surface_id} catalog_id={bound_catalog_id or '-'} kind={bound_kind or '-'} "
-                f"ref={bound_ref} kept={len(hits)} candidates={pre_bound_count}"
-            ]
-        else:
-            hits, evidence_debug = self.owner._aria_turn_inventory_evidence_hits(
-                hits,
-                request=request,
-                query=query,
-                limit=int(getattr(inventory_cfg, "candidate_limit", 12) or 12),
-            )
-        if not hits:
-            return SkillResult(
-                skill_name="context_inventory",
-                success=True,
-                content="No matching inventory metadata was found for the selected query.",
-                metadata={
-                    "sources": [],
-                    "detail_lines": [
-                        "Routing Debug: inventory_index "
-                        f"surface={request.surface_id} matches=0 query={query or '-'} authoritative=true",
-                        *evidence_debug,
-                    ],
-                },
-            )
-        rows = ["Beobachtete Quellen:"]
-        sources: list[dict[str, Any]] = []
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for hit in hits[: max(1, int(request.limit or 50))]:
-            grouped.setdefault(str(hit.get("kind", "") or "-"), []).append(hit)
-        for kind, kind_hits in sorted(grouped.items()):
-            refs = [str(hit.get("ref", "") or "").strip() for hit in kind_hits if str(hit.get("ref", "") or "").strip()]
-            rows.append(f"{connection_kind_label(kind)} ({kind}): {len(refs)} Treffer")
-            for hit in kind_hits:
-                payload = dict(hit.get("payload", {}) or {})
-                ref = str(payload.get("ref", "") or hit.get("ref", "") or "").strip()
-                tags = list(payload.get("tags", []) or [])
-                details = ", ".join(
-                    part
-                    for part in (
-                        str(payload.get("title", "") or "").strip(),
-                        str(payload.get("description", "") or "").strip(),
-                        f"group={str(payload.get('group_name', '') or '').strip()}" if str(payload.get("group_name", "") or "").strip() else "",
-                        f"tags={','.join(str(tag) for tag in tags[:6])}" if tags else "",
-                    )
-                    if part
-                )
-                rows.append(f"- {ref}: {details}" if details else f"- {ref}")
-            sources.append({"surface": request.surface_id, "kind": kind, "refs": refs})
-        return SkillResult(
-            skill_name="context_inventory",
-            success=True,
-            content="\n".join(rows[:80]),
-            metadata={
-                "sources": sources,
-                "detail_lines": [
-                    "Routing Debug: inventory_index "
-                    f"surface={request.surface_id} matches={len(hits)} query={query or '-'} authoritative=true",
-                    *evidence_debug,
-                ],
-            },
-        )
+_AGENTIC_CONTEXT_RUNTIME_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
 
 class AgenticContextRuntimeMixin:
+    @staticmethod
+    def _pipeline_text(language: str | None, key: str, default: str = "", **values: object) -> str:
+        template = _AGENTIC_CONTEXT_RUNTIME_I18N.t(language or "de", f"pipeline.{key}", default or key)
+        if not values:
+            return template
+        try:
+            return template.format(**values)
+        except Exception:
+            return template
+
     def _agentic_context_surface_loader(self) -> SurfaceLoaderRuntime:
         return SurfaceLoaderRuntime(self)
+
+    def _agentic_context_runtime_state(self) -> ContextRuntimeState:
+        return ContextRuntimeState(self._aria_turn_frames)
 
     async def _aria_turn_collection_options(self, *, user_id: str) -> tuple[AriaTurnCollectionOption, ...]:
         raw_targets: list[dict[str, Any]] = []
@@ -314,6 +131,60 @@ class AgenticContextRuntimeMixin:
             policy_notes=("Side effects require confirmation and policy/guardrail validation.",),
             budget={"max_collections": 6, "default_timeout_ms": 2500},
         )
+
+    def _normalize_explicit_web_research_contract(
+        self,
+        arbitration: AriaTurnArbitration | None,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+    ) -> AriaTurnArbitration | None:
+        if arbitration is None:
+            return None
+        if self.web_search_skill is None:
+            return arbitration
+        if not explicitly_requests_web_research(message):
+            return arbitration
+        plan = arbitration.plan
+        if "web_research" in plan.intents or any(request.surface_id == "web" for request in plan.context_requests):
+            return arbitration
+        action_names = {str(action or "").strip().lower() for action in plan.actions if str(action or "").strip()}
+        rss_read_actions = {"rss_read_feed", "feed_read", "connection_action_rss"}
+        rss_read_only_action = bool(action_names) and action_names.issubset(rss_read_actions) and not plan.needs_confirmation
+        if (plan.actions or plan.needs_confirmation or plan.answer_mode == "plan_action") and not rss_read_only_action:
+            return arbitration
+        query = str(message or "").strip()
+        request = ContextRequest(
+            surface_id="web",
+            mode="search",
+            query=query,
+            depth="shallow",
+            limit=8,
+            budget={"explicit_web_research_contract": True},
+            user_id=user_id,
+            turn_id=request_id,
+        )
+        intents = tuple(dict.fromkeys([intent for intent in plan.intents if intent != "chat"] + ["web_research"]))
+        normalized_plan = replace(
+            plan,
+            intents=intents,
+            surfaces=("web",),
+            actions=(),
+            needs_context=True,
+            context_directions=("web",),
+            context_depth="shallow" if plan.context_depth == "none" else plan.context_depth,
+            queries={**dict(plan.queries or {}), "web": query},
+            context_requests=(request,),
+            priority=("web",),
+            answer_mode="direct_answer",
+            contract_mode="answer",
+            evidence_policy="source_bound",
+            risk="low" if plan.risk == "none" else plan.risk,
+            needs_confirmation=False,
+            reason=(plan.reason or "explicit_web_research_contract")[:140],
+        )
+        return replace(arbitration, plan=normalized_plan)
 
     @staticmethod
     def _aria_turn_is_notes_only_context(arbitration: AriaTurnArbitration | None) -> bool:
@@ -564,6 +435,12 @@ class AgenticContextRuntimeMixin:
                 embedding_tokens += int(usage.get("total_tokens", 0) or 0)
         query_keys = ",".join(sorted(query_overrides)) or "-"
         memory_targets = ",".join(str(item or "").strip() for item in list(context_overrides.get("memory_target_collections") or []) if str(item or "").strip()) or "-"
+        arbiter_prompt_tokens = int(arbitration.usage.get("prompt_tokens", 0) or 0)
+        arbiter_completion_tokens = int(arbitration.usage.get("completion_tokens", 0) or 0)
+        arbiter_total_tokens = int(arbitration.usage.get("total_tokens", 0) or 0)
+        routing_payload_bytes = int(arbitration.diagnostics.get("payload_bytes", 0) or 0)
+        routing_system_chars = int(arbitration.diagnostics.get("system_chars", 0) or 0)
+        routing_payload_keys = int(arbitration.diagnostics.get("payload_keys", 0) or 0)
         return [
             "Routing Debug: context_ledger "
             f"phase=selection needs_context={str(plan.needs_context).lower()} directions={selected_directions} "
@@ -573,7 +450,10 @@ class AgenticContextRuntimeMixin:
             f"include_documents={str(bool(context_overrides.get('include_documents', True))).lower()}",
             "Routing Debug: context_ledger "
             f"phase=loaded skills={loaded_skills} sources={context_sources} detail_lines={detail_count} "
-            f"embedding_tokens={embedding_tokens} arbiter_tokens={int(arbitration.usage.get('total_tokens', 0) or 0)}",
+            f"embedding_tokens={embedding_tokens} arbiter_tokens={arbiter_total_tokens} "
+            f"arbiter_prompt_tokens={arbiter_prompt_tokens} arbiter_completion_tokens={arbiter_completion_tokens} "
+            f"routing_payload_bytes={routing_payload_bytes} routing_system_chars={routing_system_chars} "
+            f"routing_payload_keys={routing_payload_keys}",
         ]
 
     @staticmethod
@@ -629,92 +509,15 @@ class AgenticContextRuntimeMixin:
 
     @staticmethod
     def _aria_turn_evidence_terms(query: str, *, ignored_terms: set[str] | None = None) -> list[str]:
-        ignored = {str(term or "").strip().lower() for term in (ignored_terms or set()) if str(term or "").strip()}
-        normalized = re.sub(r"[^\w-]+", " ", str(query or "").lower(), flags=re.UNICODE)
-        terms: list[str] = []
-        for raw in normalized.split():
-            clean = raw.strip("-_")
-            if len(clean) < 3 or clean in ignored:
-                continue
-            parts = [part for part in clean.split("-") if len(part) >= 3]
-            candidates = [clean, *parts] if parts else [clean]
-            for candidate in candidates:
-                if candidate and candidate not in ignored and candidate not in terms:
-                    terms.append(candidate)
-        terms.sort(key=lambda term: ("-" in term or any(char.isdigit() for char in term), len(term), term), reverse=True)
-        return terms[:12]
+        return evidence_terms(query, ignored_terms=ignored_terms)
 
     @staticmethod
     def _aria_turn_common_request_terms() -> set[str]:
-        return {
-            "about",
-            "all",
-            "alle",
-            "alles",
-            "and",
-            "auf",
-            "aus",
-            "bei",
-            "bitte",
-            "configured",
-            "dazu",
-            "deine",
-            "deinen",
-            "deiner",
-            "der",
-            "die",
-            "dies",
-            "diese",
-            "diesem",
-            "diesen",
-            "dieser",
-            "for",
-            "f" + "uer",
-            "f" + chr(252) + "r",
-            "frage",
-            "gibt",
-            "habe",
-            "haben",
-            "has",
-            "have",
-            "hast",
-            "ich",
-            "information",
-            "informationen",
-            "info",
-            "infos",
-            "ist",
-            "liste",
-            "list",
-            "meine",
-            "meinen",
-            "meiner",
-            "mit",
-            "nach",
-            "of",
-            "show",
-            "that",
-            "the",
-            "thema",
-            "topic",
-            "ue" + "ber",
-            "und",
-            "unter",
-            "was",
-            "welche",
-            "welchen",
-            "welcher",
-            "what",
-            "which",
-            "zu",
-            "zum",
-            "zur",
-            chr(252) + "ber",
-        }
+        return set(common_request_terms())
 
     @staticmethod
     def _aria_turn_inventory_soft_scope_terms() -> set[str]:
-        return {"beobachtet", "beobachten", "beobachtung", "monitor", "monitored", "monitoring", "observed", "watch", "watched"}
+        return set(inventory_soft_scope_terms())
 
     def _aria_turn_request_scope_terms(
         self,
@@ -723,21 +526,16 @@ class AgenticContextRuntimeMixin:
         *,
         include_soft_scope: bool = True,
     ) -> set[str]:
-        ignored = {surface_id, str(mode or "").strip().lower(), *self._aria_turn_common_request_terms()}
-        ignored.update({"context", "inventory", "inventar", "search", "suche", "find", "lookup", "quelle", "quellen", "source", "sources"})
-        if surface_id == "connections":
-            ignored.update({"connection", "connections", "feed", "feeds", "rss", "webseite", "webseiten", "website", "websites"})
-            for kind in self._available_connection_kinds_for_aria_turn():
-                label = connection_kind_label(kind)
-                for value in (kind, label, f"{kind}s", f"{label}s"):
-                    clean = str(value or "").strip().lower()
-                    if clean:
-                        ignored.add(clean)
-        if surface_id == "notes":
-            ignored.update({"note", "notes", "notiz", "notizen"})
-        if include_soft_scope:
-            ignored.update(self._aria_turn_inventory_soft_scope_terms())
-        return {term for term in ignored if term}
+        connection_kinds = tuple(
+            (kind, connection_kind_label(kind))
+            for kind in self._available_connection_kinds_for_aria_turn()
+        ) if surface_id == "connections" else ()
+        return request_scope_terms(
+            surface_id,
+            mode,
+            connection_kinds=connection_kinds,
+            include_soft_scope=include_soft_scope,
+        )
 
     def _aria_turn_topic_terms_for_request(self, query: str, request: ContextRequest) -> tuple[list[str], set[str]]:
         ignored = self._aria_turn_request_scope_terms(request.surface_id, request.mode, include_soft_scope=True)
@@ -749,32 +547,18 @@ class AgenticContextRuntimeMixin:
 
     @staticmethod
     def _aria_turn_text_matches_evidence(query: str, text: str, *, ignored_terms: set[str] | None = None, require_all: bool = False) -> bool:
-        terms = AgenticContextRuntimeMixin._aria_turn_evidence_terms(query, ignored_terms=ignored_terms)
-        if not terms:
-            return True
-        haystack = re.sub(r"[^\w-]+", " ", str(text or "").lower(), flags=re.UNICODE)
-        if require_all:
-            return all(term in haystack for term in terms)
-        return any(term in haystack for term in terms)
+        return text_matches_evidence(query, text, ignored_terms=ignored_terms, require_all=require_all)
 
     def _aria_turn_inventory_ignored_terms(self, surface_id: str, request: ContextRequest, *, include_scope_terms: bool = True) -> set[str]:
         return self._aria_turn_request_scope_terms(surface_id, request.mode, include_soft_scope=include_scope_terms)
 
     @staticmethod
     def _aria_turn_inventory_matches(query: str, text: str) -> bool:
-        clean_query = " ".join(str(query or "").lower().replace('"', " ").split())
-        if not clean_query:
-            return True
-        haystack = str(text or "").lower()
-        if clean_query in haystack:
-            return True
-        terms = [term for term in clean_query.split() if len(term) >= 3]
-        return bool(terms and any(term in haystack for term in terms))
+        return inventory_matches(query, text)
 
     @staticmethod
     def _aria_turn_inventory_query_terms(query: str) -> list[str]:
-        clean_query = " ".join(str(query or "").lower().replace('"', " ").replace("'", " ").split())
-        return [term for term in clean_query.split() if len(term) >= 3]
+        return inventory_query_terms(query)
 
     def _aria_turn_inventory_evidence_hits(
         self,
@@ -995,7 +779,7 @@ class AgenticContextRuntimeMixin:
         request = ContextRequest(surface_id="notes", mode="search", query=query)
         terms, ignored_terms = self._aria_turn_topic_terms_for_request(query, request)
         if terms:
-            haystack = re.sub(r"[^\w-]+", " ", content.lower(), flags=re.UNICODE)
+            haystack = normalized_evidence_text(content)
             matched = any(term in haystack for term in terms)
         else:
             matched = bool(content)
@@ -1103,62 +887,19 @@ class AgenticContextRuntimeMixin:
         source: str,
         language: str | None,
     ) -> tuple[str, dict[str, int], str]:
-        query = ""
-        for request in arbitration.plan.context_requests:
-            if str(request.query or "").strip():
-                query = str(request.query or "").strip()
-                break
-        content = str(getattr(skill_result, "content", "") or "").strip() if skill_result is not None else ""
-        sources = self._aria_turn_skill_result_sources(skill_result)
-        context_requests = [
-            {
-                "surface_id": request.surface_id,
-                "mode": request.mode,
-                "query": request.query,
-                "catalog_id": str(dict(request.budget or {}).get("catalog_id", "") or ""),
-                "kind": str(dict(request.budget or {}).get("kind", "") or ""),
-                "ref": str(dict(request.budget or {}).get("ref", "") or ""),
-            }
-            for request in arbitration.plan.context_requests
-        ]
-        source_bound = str(arbitration.plan.evidence_policy or "").strip() == "source_bound" or bool(context_requests)
-        composer = AnswerComposer(self.llm_client)
-        composed = await composer.compose(
-            AnswerComposerInput(
-                answer_mode=answer_mode,
-                user_prompt=query or next(iter(arbitration.plan.queries.values()), ""),
-                language=str(language or "de"),
-                fallback_text=fallback_text,
-                source=source,
-                user_id=user_id,
-                request_id=request_id,
-                outcome={
-                    "kind": answer_mode,
-                    "status": status,
-                    "surface_directions": list(arbitration.plan.context_directions),
-                    "content": content,
-                    "sources": sources,
-                    "source_count": len(sources),
-                },
-                evidence={
-                    "local_store_checked": True,
-                    "evidence_policy": arbitration.plan.evidence_policy or ("source_bound" if source_bound else "allow_general"),
-                    "contract_mode": arbitration.plan.contract_mode or "",
-                    "selected_catalog_ids": list(arbitration.plan.priority),
-                    "context_requests": context_requests,
-                    "plan_source": arbitration.source,
-                    "allowed_claims": [
-                        "Only mention sources, targets, counts, content, and empty status present in this packet.",
-                        "If evidence_policy is source_bound, do not answer from general knowledge.",
-                    ],
-                    "forbidden_claims": [
-                        "Do not say ARIA lacks access when local_store_checked is true.",
-                        "Do not invent configured sources, memory entries, servers, commands, or counts.",
-                    ],
-                },
-            )
+        return await compose_aria_context_answer(
+            llm_client=self.llm_client,
+            answer_mode=answer_mode,
+            fallback_text=fallback_text,
+            arbitration=arbitration,
+            skill_result=skill_result,
+            status=status,
+            request_id=request_id,
+            user_id=user_id,
+            source=source,
+            language=language,
+            skill_result_sources=self._aria_turn_skill_result_sources,
         )
-        return composed.text or fallback_text, dict(composed.usage or {}), composed.debug_line
 
     def _aria_turn_fast_notes_inventory_answer(
         self,
@@ -1167,70 +908,45 @@ class AgenticContextRuntimeMixin:
         *,
         language: str | None = None,
     ) -> str:
-        plan = arbitration.plan
-        query = " ".join(str(request.query or "") for request in plan.context_requests if request.surface_id == "notes")
-        prompt_text = f"{query} {' '.join(plan.queries.values())}".strip().lower()
-        looks_like_inventory_question = bool(
-            re.search(r"\b(?:was|welche|welchen|welches|which|what)\b.+\b(?:notes|notizen|notiz)\b", prompt_text)
+        return fast_notes_inventory_answer(
+            arbitration,
+            notes_result,
+            language=language,
+            pipeline_text=self._pipeline_text,
+            topic_terms_for_request=self._aria_turn_topic_terms_for_request,
         )
-        if not looks_like_inventory_question and plan.answer_mode != "direct_answer":
-            return ""
-        if re.search(r"\b(?:steht|stehts|inhalt|content|sagt|steht\s+in)\b", prompt_text):
-            return ""
-        content = str(notes_result.content or "").strip()
-        if not content:
-            return ""
-        topic_request = ContextRequest(surface_id="notes", mode="search", query=query)
-        topic_terms, _ignored_terms = self._aria_turn_topic_terms_for_request(query, topic_request)
-        content_lines = [line.strip() for line in content.splitlines() if line.strip()]
-        sources = list((notes_result.metadata or {}).get("sources") or [])
-        entries: list[str] = []
-        rejected = 0
-        for source in sources[:5]:
-            if not isinstance(source, dict):
-                continue
-            title = str(source.get("title", "") or "").strip()
-            folder = str(source.get("folder", "") or "").strip()
-            if not title:
-                continue
-            label = f"{title} ({folder})" if folder else title
-            source_line = next((line for line in content_lines if line.startswith(f"- {label}")), "")
-            evidence_text = "\n".join([title, folder, source_line])
-            if topic_terms:
-                haystack = re.sub(r"[^\w-]+", " ", evidence_text.lower(), flags=re.UNICODE)
-                if not any(term in haystack for term in topic_terms):
-                    rejected += 1
-                    continue
-            if label not in entries:
-                entries.append(label)
-        if not entries:
-            for line in content.splitlines():
-                clean = line.strip()
-                if clean.startswith("- "):
-                    if topic_terms:
-                        haystack = re.sub(r"[^\w-]+", " ", clean.lower(), flags=re.UNICODE)
-                        if not any(term in haystack for term in topic_terms):
-                            rejected += 1
-                            continue
-                    entries.append(clean[2:])
-                if len(entries) >= 5:
-                    break
-        if not entries:
-            return ""
-        meta = notes_result.metadata or {}
-        lines = list(meta.get("detail_lines", []) or [])
-        lines.append(
-            "Routing Debug: fast_notes_inventory_filter "
-            f"kept={len(entries)} rejected={rejected} terms={','.join(topic_terms) or '-'}"
+
+    def _aria_turn_fast_docs_search_answer(
+        self,
+        arbitration: AriaTurnArbitration,
+        docs_result: SkillResult,
+        *,
+        language: str | None = None,
+    ) -> str:
+        return fast_docs_search_answer(
+            arbitration,
+            docs_result,
+            language=language,
+            pipeline_text=self._pipeline_text,
+            single_local_search_request=self._aria_turn_single_local_search_request,
+            skill_result_sources=self._aria_turn_skill_result_sources,
         )
-        meta["detail_lines"] = lines
-        notes_result.metadata = meta
-        heading = self._pipeline_text(
-            language,
-            "direct_context.notes_inventory_found",
-            "I found {count} matching notes:",
-        ).replace("{count}", str(len(entries)))
-        return "\n".join([heading, *(f"- {entry}" for entry in entries)]).strip()
+
+    def _aria_turn_docs_search_fallback_answer(
+        self,
+        arbitration: AriaTurnArbitration,
+        docs_result: SkillResult,
+        *,
+        language: str | None = None,
+    ) -> str:
+        return docs_search_fallback_answer(
+            arbitration,
+            docs_result,
+            language=language,
+            pipeline_text=self._pipeline_text,
+            single_local_search_request=self._aria_turn_single_local_search_request,
+            skill_result_sources=self._aria_turn_skill_result_sources,
+        )
 
     async def _aria_turn_direct_context_result(
         self,
@@ -1265,17 +981,23 @@ class AgenticContextRuntimeMixin:
                 text = f"I found matching configured sources:\n{content}"
             else:
                 text = f"Ich habe passende konfigurierte Quellen gefunden:\n{content}"
-            text, composer_usage, composer_debug = await self._compose_aria_context_answer(
-                answer_mode="inventory_list" if has_sources else "inventory_empty",
-                fallback_text=text,
-                arbitration=arbitration,
-                skill_result=inventory_result,
-                status="found" if has_sources else "empty",
-                request_id=request_id,
-                user_id=user_id,
-                source=source,
-                language=language,
-            )
+            fast_inventory_text = fast_inventory_list_answer(inventory_result, language=language) if has_sources else ""
+            if fast_inventory_text:
+                text = fast_inventory_text
+                composer_usage = {}
+                composer_debug = "Routing Debug: answer_composer skipped reason=fast_inventory_list_answer"
+            else:
+                text, composer_usage, composer_debug = await self._compose_aria_context_answer(
+                    answer_mode="inventory_list" if has_sources else "inventory_empty",
+                    fallback_text=text,
+                    arbitration=arbitration,
+                    skill_result=inventory_result,
+                    status="found" if has_sources else "empty",
+                    request_id=request_id,
+                    user_id=user_id,
+                    source=source,
+                    language=language,
+                )
         elif self._aria_turn_is_notes_only_context(arbitration) and "web_research" not in plan.intents:
             notes_result = next((result for result in skill_results if result.skill_name == "notes_search" and result.success), None)
             if notes_result is None:
@@ -1347,17 +1069,32 @@ class AgenticContextRuntimeMixin:
                         text = f"In deinen Dokumenten habe ich dazu gefunden:\n{content}"
                     else:
                         text = f"In deinem Memory habe ich dazu gefunden:\n{content}"
-                    text, composer_usage, composer_debug = await self._compose_aria_context_answer(
-                        answer_mode=f"{local_search_request.surface_id}_search",
-                        fallback_text=text,
-                        arbitration=arbitration,
-                        skill_result=memory_result,
-                        status="found",
-                        request_id=request_id,
-                        user_id=user_id,
-                        source=source,
-                        language=language,
+                    fast_docs_text = (
+                        self._aria_turn_fast_docs_search_answer(arbitration, memory_result, language=language)
+                        if local_search_request.surface_id == "docs"
+                        else ""
                     )
+                    if fast_docs_text:
+                        text = fast_docs_text
+                        composer_usage = {}
+                        composer_debug = "Routing Debug: answer_composer skipped reason=fast_docs_search_answer"
+                    else:
+                        docs_fallback_text = (
+                            self._aria_turn_docs_search_fallback_answer(arbitration, memory_result, language=language)
+                            if local_search_request.surface_id == "docs"
+                            else text
+                        )
+                        text, composer_usage, composer_debug = await self._compose_aria_context_answer(
+                            answer_mode=f"{local_search_request.surface_id}_search",
+                            fallback_text=docs_fallback_text or text,
+                            arbitration=arbitration,
+                            skill_result=memory_result,
+                            status="found",
+                            request_id=request_id,
+                            user_id=user_id,
+                            source=source,
+                            language=language,
+                        )
         if not direct_kind:
             return None
 
@@ -1627,7 +1364,13 @@ class AgenticContextRuntimeMixin:
         if arbitration is None:
             return None
         plan = arbitration.plan
-        if not (plan.actions or plan.answer_mode == "plan_action" or plan.needs_confirmation):
+        if not (
+            plan.actions
+            or plan.answer_mode == "plan_action"
+            or plan.needs_confirmation
+            or plan.contract_mode == "action"
+            or any(request.mode == "action" for request in plan.context_requests)
+        ):
             return None
         selected_connections = self._aria_turn_selected_connections_from_catalog(arbitration)
         selected_by_kind: dict[str, list[str]] = {}
@@ -1651,6 +1394,13 @@ class AgenticContextRuntimeMixin:
             selected_connections = tuple(("ssh", item_ref) for item_ref in selected_by_kind["ssh"])
         elif any(action_item.lower() in rss_actions for action_item in clean_actions) and selected_by_kind.get("rss"):
             action = next(action_item for action_item in clean_actions if action_item.lower() in rss_actions)
+            kind = "rss"
+            ref = selected_by_kind["rss"][0]
+            selected_connections = tuple(("rss", item_ref) for item_ref in selected_by_kind["rss"])
+        elif not clean_actions and selected_by_kind.get("rss") and (
+            plan.contract_mode == "action" or any(request.mode == "action" for request in plan.context_requests)
+        ):
+            action = "rss_read_feed"
             kind = "rss"
             ref = selected_by_kind["rss"][0]
             selected_connections = tuple(("rss", item_ref) for item_ref in selected_by_kind["rss"])
@@ -1714,25 +1464,7 @@ class AgenticContextRuntimeMixin:
 
     @staticmethod
     def _insert_stage_timing_detail_lines(detail_lines: list[str] | None, timing: StageTimingLedger) -> list[str]:
-        lines = list(detail_lines or [])
-        timing_lines = timing.debug_lines()
-        if not timing_lines:
-            return lines
-        tail_start = len(lines)
-        while tail_start > 0:
-            line = str(lines[tail_start - 1] or "").strip()
-            if (
-                line.startswith("Routing")
-                or line.startswith("Quelle:")
-                or ("-Kontext:" in line and line.split(":", 1)[0].endswith("Kontext"))
-            ):
-                break
-            tail_start -= 1
-        if tail_start == len(lines):
-            return [*lines, *timing_lines]
-        if tail_start <= 0:
-            return [*timing_lines, *lines]
-        return [*lines[:tail_start], *timing_lines, *lines[tail_start:]]
+        return insert_stage_timing_detail_lines(detail_lines, timing)
 
     @staticmethod
     def _aria_turn_can_direct_inventory_fast_path(arbitration: AriaTurnArbitration | None) -> bool:
@@ -1779,33 +1511,11 @@ class AgenticContextRuntimeMixin:
         )
 
     @staticmethod
-    def _aria_turn_frame_from_arbitration(arbitration: AriaTurnArbitration | None) -> TurnFrame:
-        if arbitration is None or not arbitration.plan.needs_context:
-            return TurnFrame()
-        plan = arbitration.plan
-        request = next(iter(plan.context_requests), None)
-        surface_id = request.surface_id if request is not None else (next(iter(plan.context_directions), "") or next(iter(plan.surfaces), ""))
-        mode = request.mode if request is not None else ("inventory" if "context_inventory" in plan.intents else "search")
-        topic = request.query if request is not None else ""
-        if not topic:
-            topic = next((str(value or "").strip() for value in plan.queries.values() if str(value or "").strip()), "")
-        if not topic:
-            topic = plan.reason
-        return TurnFrame(
-            surface_id=surface_id,
-            mode=mode,
-            topic=topic,
-            catalog_ids=plan.priority,
-            evidence_policy=plan.evidence_policy or ("source_bound" if plan.needs_context else ""),
-            answer_mode=plan.answer_mode,
-            source_scope="registered_context_surface",
-            answer_contract="answer_only_from_selected_loaded_context",
-            confidence=plan.confidence,
-        )
+    def _aria_turn_frame_from_arbitration(arbitration: AriaTurnArbitration | None):
+        return turn_frame_from_arbitration(arbitration)
 
     def _aria_turn_last_frame_payload(self, user_id: str) -> dict[str, Any]:
-        frame = self._aria_turn_frames.get(str(user_id or "web"))
-        return frame.as_payload() if frame is not None else {}
+        return self._agentic_context_runtime_state().last_frame_payload(user_id)
 
     async def _arbitrate_aria_turn(
         self,
@@ -1815,12 +1525,14 @@ class AgenticContextRuntimeMixin:
         request_id: str,
         language: str | None,
         runtime_recipes: list[dict[str, Any]],
+        recent_history: list[dict[str, Any]] | None = None,
     ) -> AriaTurnArbitration | None:
         menu = await self._build_aria_turn_menu(user_id=user_id, runtime_recipes=runtime_recipes)
         surface_registry = build_builtin_surface_registry(self.settings)
         turn_context = {
             "semantic_contract": "qdrant_meta_catalog_first_with_legacy_fallback",
             "last_turn_frame": self._aria_turn_last_frame_payload(user_id),
+            "recent_visible_chat_context": compact_recent_visible_chat_context(recent_history),
         }
         meta_arbitration = await MetaCatalogRouter(
             settings=self.settings,
@@ -1855,13 +1567,9 @@ class AgenticContextRuntimeMixin:
                     meta_arbitration=meta_arbitration,
                 )
                 if override is not None:
-                    frame = self._aria_turn_frame_from_arbitration(override)
-                    if frame.as_payload():
-                        self._aria_turn_frames[str(user_id or "web")] = frame
+                    self._remember_aria_turn_frame(override, user_id=user_id)
                     return override
-            frame = self._aria_turn_frame_from_arbitration(meta_arbitration)
-            if frame.as_payload():
-                self._aria_turn_frames[str(user_id or "web")] = frame
+            self._remember_aria_turn_frame(meta_arbitration, user_id=user_id)
             return meta_arbitration
         self._last_meta_catalog_fallback_debug_lines = [
             "Routing Debug: meta_catalog_contract phase=backup_fallback "
@@ -1880,15 +1588,11 @@ class AgenticContextRuntimeMixin:
         )
         if arbitration.source == "fallback":
             return None
-        frame = self._aria_turn_frame_from_arbitration(arbitration)
-        if frame.as_payload():
-            self._aria_turn_frames[str(user_id or "web")] = frame
+        self._remember_aria_turn_frame(arbitration, user_id=user_id)
         return arbitration
 
     def _remember_aria_turn_frame(self, arbitration: AriaTurnArbitration | None, *, user_id: str) -> None:
-        frame = self._aria_turn_frame_from_arbitration(arbitration)
-        if frame.as_payload():
-            self._aria_turn_frames[str(user_id or "web")] = frame
+        self._agentic_context_runtime_state().remember_frame(arbitration, user_id=user_id)
 
     async def _recall_active_learning_hints(
         self,
@@ -1896,53 +1600,13 @@ class AgenticContextRuntimeMixin:
         *,
         user_id: str,
     ) -> list[dict[str, str]]:
-        if self.memory_skill is None:
-            return []
-        clean_message = str(message or "").strip()
-        if not clean_message:
-            return []
-        collection = learning_active_hints_collection_for_user(user_id or "web")
-        try:
-            result = await self.memory_skill.execute(
-                clean_message,
-                {
-                    "action": "recall",
-                    "user_id": user_id or "web",
-                    "collection": collection,
-                    "top_k": 2,
-                },
-            )
-        except Exception:
-            return []
-        if not result.success:
-            return []
-        content = str(result.content or "").strip()
-        if not content or "Keine passende Erinnerung gefunden" in content:
-            return []
-        lines = [line.strip() for line in content.splitlines() if line.strip()]
-        hints: list[dict[str, str]] = []
-        for line in lines[:2]:
-            if "AKTIVER LERN-HINWEIS" not in line and "Active Learning Hint" not in line:
-                continue
-            hints.append(
-                {
-                    "source": "qdrant_learning_active_hint",
-                    "collection": collection,
-                    "text": line[:700],
-                    "runtime_effect": "weak_signal_only",
-                }
-            )
-        return hints
+        return await recall_active_learning_hints(self.memory_skill, message, user_id=user_id)
 
     def _should_skip_active_learning_hints_for_turn(self, message: str) -> bool:
-        connection_pools = self._capability_routing_connection_pools()
-        if not connection_pools:
-            return False
-        preferred_kind = infer_preferred_connection_kind(
+        return should_skip_active_learning_hints_for_turn(
             message,
-            available_kinds={str(kind or "").strip().lower() for kind in connection_pools if str(kind or "").strip()},
+            available_connection_kinds=self._capability_routing_connection_pools(),
         )
-        return bool(preferred_kind)
 
     async def _classify_routing_agentic(
         self,

@@ -38,6 +38,15 @@ class FakeEmbeddingClient:
         return FakeEmbeddingResponse(vectors)
 
 
+class TrackingEmbeddingClient(FakeEmbeddingClient):
+    def __init__(self) -> None:
+        self.inputs: list[str] = []
+
+    async def embed(self, inputs, **kwargs):  # noqa: ANN001
+        self.inputs.extend(str(text or "") for text in inputs)
+        return await super().embed(inputs, **kwargs)
+
+
 class FakeQdrant:
     def __init__(self) -> None:
         self.collections: dict[str, dict[str, object]] = {}
@@ -209,20 +218,20 @@ def test_document_meta_catalog_rebuild_keeps_active_and_previous_only() -> None:
     store = DocumentMetaCatalogStore(
         qdrant=qdrant,
         embedding_client=FakeEmbeddingClient(),
-        collection_name=document_meta_collection_for_user("fischerman"),
+        collection_name=document_meta_collection_for_user("example_user"),
     )
     first = asyncio.run(
         store.rebuild_from_guides(
-            user_id="fischerman",
+            user_id="example_user",
             guides=[
                 {
                     "source": "rag_document_guide",
-                    "user_id": "fischerman",
+                    "user_id": "example_user",
                     "document_id": "doc-1",
                     "document_name": "mill-heizung-handbuch.pdf",
                     "guide_summary": "Mill Heizung Wireless verbinden und WLAN einrichten.",
                     "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
-                    "target_collection": "aria_docs_fischerman",
+                    "target_collection": "aria_docs_example_user",
                     "source_type": "pdf",
                 }
             ],
@@ -230,16 +239,16 @@ def test_document_meta_catalog_rebuild_keeps_active_and_previous_only() -> None:
     )
     second = asyncio.run(
         store.rebuild_from_guides(
-            user_id="fischerman",
+            user_id="example_user",
             guides=[
                 {
                     "source": "rag_document_guide",
-                    "user_id": "fischerman",
+                    "user_id": "example_user",
                     "document_id": "doc-1",
                     "document_name": "mill-heizung-handbuch.pdf",
                     "guide_summary": "Mill Heizung Wireless verbinden und WLAN einrichten.",
                     "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
-                    "target_collection": "aria_docs_fischerman",
+                    "target_collection": "aria_docs_example_user",
                     "source_type": "pdf",
                 }
             ],
@@ -247,16 +256,16 @@ def test_document_meta_catalog_rebuild_keeps_active_and_previous_only() -> None:
     )
     third = asyncio.run(
         store.rebuild_from_guides(
-            user_id="fischerman",
+            user_id="example_user",
             guides=[
                 {
                     "source": "rag_document_guide",
-                    "user_id": "fischerman",
+                    "user_id": "example_user",
                     "document_id": "doc-1",
                     "document_name": "mill-heizung-handbuch.pdf",
                     "guide_summary": "Mill Heizung Wireless verbinden und WLAN einrichten.",
                     "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
-                    "target_collection": "aria_docs_fischerman",
+                    "target_collection": "aria_docs_example_user",
                     "source_type": "pdf",
                 }
             ],
@@ -266,7 +275,7 @@ def test_document_meta_catalog_rebuild_keeps_active_and_previous_only() -> None:
     assert first["status"] == "active"
     assert second["previous_build_id"] == first["active_build_id"]
     assert third["previous_build_id"] == second["active_build_id"]
-    points = qdrant.collections[document_meta_collection_for_user("fischerman")]["points"]
+    points = qdrant.collections[document_meta_collection_for_user("example_user")]["points"]
     build_ids = {
         str((getattr(point, "payload", {}) or {}).get("catalog_build_id", ""))
         for point in points
@@ -280,38 +289,115 @@ def test_document_meta_catalog_query_returns_active_docs_only() -> None:
     store = DocumentMetaCatalogStore(
         qdrant=qdrant,
         embedding_client=FakeEmbeddingClient(),
-        collection_name=document_meta_collection_for_user("fischerman"),
+        collection_name=document_meta_collection_for_user("example_user"),
     )
     asyncio.run(
         store.rebuild_from_guides(
-            user_id="fischerman",
+            user_id="example_user",
             guides=[
                 {
                     "source": "rag_document_guide",
-                    "user_id": "fischerman",
+                    "user_id": "example_user",
                     "document_id": "doc-1",
                     "document_name": "mill-heizung-handbuch.pdf",
                     "guide_summary": "Mill Heizung Wireless verbinden.",
                     "guide_keywords": ["Mill", "Heizung", "Wireless"],
-                    "target_collection": "aria_docs_fischerman",
+                    "target_collection": "aria_docs_example_user",
                 }
             ],
         )
     )
 
-    hits = asyncio.run(store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="fischerman", limit=3))
+    hits = asyncio.run(store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="example_user", limit=3))
 
     assert hits
     assert hits[0]["source"] == "qdrant_doc_meta_catalog"
     assert hits[0]["surface_id"] == "docs"
     assert hits[0]["payload"]["document_name"] == "mill-heizung-handbuch.pdf"
 
-    empty = asyncio.run(store.rebuild_from_guides(user_id="fischerman", guides=[]))
-    empty_hits = asyncio.run(store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="fischerman", limit=3))
+    empty = asyncio.run(store.rebuild_from_guides(user_id="example_user", guides=[]))
+    empty_hits = asyncio.run(store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="example_user", limit=3))
 
     assert empty["status"] == "active"
     assert empty["documents"] == 0
     assert empty_hits == []
+
+
+def test_document_meta_catalog_normalizes_user_id_for_collection_and_filter() -> None:
+    qdrant = FakeQdrant()
+    assert document_meta_collection_for_user("Example_User") == document_meta_collection_for_user("example_user")
+    store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("Example_User"),
+    )
+    asyncio.run(
+        store.rebuild_from_guides(
+            user_id="Example_User",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "Example_User",
+                    "document_id": "mill-manual",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                    "guide_summary": "Mill heater WiFi setup instructions.",
+                    "guide_keywords": ["Mill", "WiFi", "heater"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    hits = asyncio.run(
+        store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="example_user", limit=3)
+    )
+    reverse_hits = asyncio.run(
+        store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="Example_User", limit=3)
+    )
+
+    assert hits
+    assert reverse_hits
+    assert hits[0]["payload"]["user_id"] == "example_user"
+    assert reverse_hits[0]["payload"]["document_id"] == "mill-manual"
+    assert "heizung" in reverse_hits[0]["payload"]["knows"]
+    assert "wlan" in reverse_hits[0]["payload"]["knows"]
+
+
+def test_document_meta_catalog_query_keeps_legacy_cased_payload_user() -> None:
+    qdrant = FakeQdrant()
+    store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        store.rebuild_from_guides(
+            user_id="Example_User",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "Example_User",
+                    "document_id": "mill-manual",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                    "guide_summary": "Mill heater WiFi setup instructions.",
+                    "guide_keywords": ["Mill", "WiFi", "heater"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+    points = qdrant.collections[document_meta_collection_for_user("example_user")]["points"]
+    for point in points:
+        payload = getattr(point, "payload", {}) or {}
+        if payload.get("kind") == "document_meta":
+            payload["user_id"] = "Example_User"
+
+    hits = asyncio.run(
+        store.query_catalog("wie kriege ich meine heizungen ans wireless", user_id="Example_User", limit=3)
+    )
+
+    assert hits
+    assert hits[0]["payload"]["document_id"] == "mill-manual"
 
 
 def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch) -> None:
@@ -352,7 +438,7 @@ def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch
                 message="wie geht es meinem management server",
                 menu=menu,
                 surface_registry=build_builtin_surface_registry(settings),
-                user_id="fischerman",
+                user_id="example_user",
                 request_id="test",
             )
         )
@@ -366,8 +452,82 @@ def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch
     assert arbitration.plan.contract_mode == "action"
     assert arbitration.plan.evidence_policy == "source_bound"
     assert "contract_mode=action" in arbitration.debug_line
+    assert arbitration.diagnostics["payload_bytes"] > 0
+    assert "routing_payload_bytes=" in arbitration.debug_line
     assert arbitration.plan.needs_confirmation is True
     assert llm.calls[0]["kwargs"]["operation"] == META_CATALOG_ROUTING_OPERATION
+
+
+def test_meta_catalog_router_uses_visible_chat_context_for_elliptic_action_followup(monkeypatch) -> None:
+    settings = _settings()
+    docs = build_meta_catalog_documents(settings)
+    qdrant = FakeQdrant()
+    embedding = TrackingEmbeddingClient()
+    store = MetaCatalogStore(qdrant=qdrant, embedding_client=embedding, collection_name=meta_catalog_collection_name(settings))
+    asyncio.run(store.rebuild_documents(docs, catalog_hash=meta_catalog_documents_fingerprint(docs)))
+    embedding.inputs.clear()
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        """
+        {
+          "needs_context": true,
+          "catalog_ids": ["connection|ssh|mgmt-ssh"],
+          "context_requests": [{"catalog_id": "connection|ssh|mgmt-ssh", "surface_id": "connections", "mode": "action", "query": "inspect /tmp on mgmt-ssh"}],
+          "intents": ["runtime_action"],
+          "surfaces": ["connections"],
+          "actions": ["ssh_run_command"],
+          "answer_mode": "plan_action",
+          "context_depth": "shallow",
+          "contract": {"mode": "action", "evidence_policy": "source_bound"},
+          "risk": "medium",
+          "needs_confirmation": true,
+          "confidence": 0.94,
+          "reason": "follow-up to visible ssh output"
+        }
+        """
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(
+            settings=settings,
+            embedding_client=embedding,
+            llm_client=llm,
+            config=MetaCatalogRoutingConfig(candidate_limit=1),
+        ).route(
+            MetaCatalogRoutingInput(
+                message="3.6G /tmp was liegt da alles rum",
+                menu=build_aria_turn_menu(connection_kinds=("ssh",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+                turn_context={
+                    "recent_visible_chat_context": {
+                        "messages": [
+                            {
+                                "role": "assistant",
+                                "text": "[Stored Recipe SSH] SSH Command\nConnection: mgmt-ssh\nSTDOUT:\n15G\t/\n3.6G\t/tmp",
+                                "badge_intent": "ssh_command",
+                            }
+                        ]
+                    }
+                },
+            )
+        )
+    )
+
+    payload = str(llm.calls[0]["messages"][1]["content"])
+    assert any("Connection: mgmt-ssh" in text for text in embedding.inputs)
+    assert "recent_visible_chat_context" in payload
+    assert "3.6G" in payload
+    assert "connection|ssh|mgmt-ssh" in payload
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.priority == ("connection|ssh|mgmt-ssh",)
+    assert arbitration.plan.actions == ("ssh_run_command",)
+    assert arbitration.plan.contract_mode == "action"
 
 
 def test_meta_catalog_router_includes_user_document_meta_without_explicit_docs(monkeypatch) -> None:
@@ -379,20 +539,20 @@ def test_meta_catalog_router_includes_user_document_meta_without_explicit_docs(m
     doc_store = DocumentMetaCatalogStore(
         qdrant=qdrant,
         embedding_client=FakeEmbeddingClient(),
-        collection_name=document_meta_collection_for_user("fischerman"),
+        collection_name=document_meta_collection_for_user("example_user"),
     )
     asyncio.run(
         doc_store.rebuild_from_guides(
-            user_id="fischerman",
+            user_id="example_user",
             guides=[
                 {
                     "source": "rag_document_guide",
-                    "user_id": "fischerman",
+                    "user_id": "example_user",
                     "document_id": "mill-manual",
                     "document_name": "mill-heizung-handbuch.pdf",
                     "guide_summary": "Bedienungsanleitung: Mill Heizung mit Wireless/WLAN verbinden.",
                     "guide_keywords": ["Mill", "Heizung", "Wireless", "WLAN"],
-                    "target_collection": "aria_docs_fischerman",
+                    "target_collection": "aria_docs_example_user",
                 }
             ],
         )
@@ -428,7 +588,7 @@ def test_meta_catalog_router_includes_user_document_meta_without_explicit_docs(m
                 message="wie kriege ich meine heizungen ans wireless",
                 menu=build_aria_turn_menu(),
                 surface_registry=build_builtin_surface_registry(settings),
-                user_id="fischerman",
+                user_id="example_user",
                 request_id="test",
             )
         )
@@ -439,6 +599,208 @@ def test_meta_catalog_router_includes_user_document_meta_without_explicit_docs(m
     assert arbitration.source == META_CATALOG_ROUTING_OPERATION
     assert arbitration.plan.context_requests[0].surface_id == "docs"
     assert arbitration.plan.priority == ("local|docs|document|mill-manual",)
+
+
+def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_answer(monkeypatch) -> None:
+    settings = _settings()
+    docs = build_meta_catalog_documents(settings)
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(qdrant=qdrant, embedding_client=FakeEmbeddingClient(), collection_name=meta_catalog_collection_name(settings))
+    asyncio.run(store.rebuild_documents(docs, catalog_hash=meta_catalog_documents_fingerprint(docs)))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "mill-manual",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                    "guide_summary": "The Mill heater has Wireless WiFi setup instructions and app pairing.",
+                    "guide_keywords": ["Mill", "Wireless", "WiFi", "heater"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        """
+        {
+          "needs_context": true,
+          "catalog_ids": ["connection|ssh|mgmt-ssh"],
+          "context_requests": [{"catalog_id": "connection|ssh|mgmt-ssh", "surface_id": "connections", "mode": "answer", "query": "wie kriege ich meine heizungen ans wireless"}],
+          "intents": ["chat"],
+          "surfaces": ["connections"],
+          "actions": [],
+          "answer_mode": "direct_answer",
+          "context_depth": "shallow",
+          "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+          "risk": "low",
+          "needs_confirmation": false,
+          "confidence": 0.92,
+          "reason": "wrongly chose homebridge connections"
+        }
+        """
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="wie kriege ich meine heizungen ans wireless",
+                menu=build_aria_turn_menu(connection_kinds=("ssh", "sftp")),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="Example_User",
+                request_id="test",
+            )
+        )
+    )
+
+    payload = llm.calls[0]["messages"][1]["content"]
+    assert "local|docs|document|mill-manual" in str(payload)
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("docs",)
+    assert arbitration.plan.context_directions == ("docs",)
+    assert arbitration.plan.priority == ("local|docs|document|mill-manual",)
+    assert arbitration.plan.context_requests[0].surface_id == "docs"
+    assert arbitration.plan.context_requests[0].budget["meta_contract_normalized"] == "document_meta_candidate_preferred"
+
+
+def test_meta_catalog_router_prefers_rss_inventory_over_wrong_docs_choice(monkeypatch) -> None:
+    settings = _settings()
+    docs = build_meta_catalog_documents(settings)
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(qdrant=qdrant, embedding_client=FakeEmbeddingClient(), collection_name=meta_catalog_collection_name(settings))
+    asyncio.run(store.rebuild_documents(docs, catalog_hash=meta_catalog_documents_fingerprint(docs)))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "arlo-manual",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "guide_summary": "Security camera manual with camera feed settings.",
+                    "guide_keywords": ["security", "camera", "feed"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        """
+        {
+          "needs_context": true,
+          "catalog_ids": ["local|docs|document|arlo-manual"],
+          "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "was habe ich für news feed für it security?"}],
+          "intents": ["chat", "local_retrieval"],
+          "surfaces": ["docs"],
+          "actions": [],
+          "answer_mode": "direct_answer",
+          "context_depth": "shallow",
+          "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+          "risk": "none",
+          "needs_confirmation": false,
+          "confidence": 0.92,
+          "reason": "wrongly chose document mentioning security feed"
+        }
+        """
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="was habe ich für news feed für it security?",
+                menu=build_aria_turn_menu(connection_kinds=("rss",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    payload = llm.calls[0]["messages"][1]["content"]
+    assert "connection|rss|security-feed" in str(payload)
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("connections",)
+    assert arbitration.plan.context_directions == ("connections",)
+    assert arbitration.plan.context_requests[0].surface_id == "connections"
+    assert arbitration.plan.context_requests[0].mode == "inventory"
+    assert arbitration.plan.priority == ("connection|rss|security-feed",)
+    assert arbitration.plan.context_requests[0].budget["catalog_hint_ids"] == ["connection|rss|security-feed"]
+
+
+def test_meta_catalog_router_normalizes_explicit_rss_read_to_action(monkeypatch) -> None:
+    settings = _settings()
+    docs = build_meta_catalog_documents(settings)
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(qdrant=qdrant, embedding_client=FakeEmbeddingClient(), collection_name=meta_catalog_collection_name(settings))
+    asyncio.run(store.rebuild_documents(docs, catalog_hash=meta_catalog_documents_fingerprint(docs)))
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        """
+        {
+          "needs_context": true,
+          "catalog_ids": ["connection|rss|security-feed"],
+          "context_requests": [{"catalog_id": "connection|rss|security-feed", "surface_id": "connections", "mode": "action", "query": "lies den feed security-feed"}],
+          "intents": ["chat"],
+          "surfaces": ["connections"],
+          "actions": [],
+          "answer_mode": "direct_answer",
+          "context_depth": "shallow",
+          "contract": {"mode": "action", "evidence_policy": "source_bound"},
+          "risk": "low",
+          "needs_confirmation": false,
+          "confidence": 0.95,
+          "reason": "explicit read-only rss feed request"
+        }
+        """
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="lies den feed security-feed",
+                menu=build_aria_turn_menu(connection_kinds=("rss",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.actions == ("rss_read_feed",)
+    assert arbitration.plan.contract_mode == "action"
+    assert arbitration.plan.needs_confirmation is False
+    assert arbitration.plan.context_requests[0].surface_id == "connections"
+    assert arbitration.plan.context_requests[0].mode == "action"
+    assert arbitration.plan.context_requests[0].budget["kind"] == "rss"
+    assert arbitration.plan.context_requests[0].budget["ref"] == "security-feed"
 
 
 def test_meta_catalog_router_rejects_invalid_strict_action_contract(monkeypatch) -> None:
@@ -848,6 +1210,48 @@ def test_meta_catalog_mixed_rss_ssh_action_seed_prefers_ssh_targets() -> None:
     assert "turn_contract_target_refs:srv-a,srv-b" in draft.notes
 
 
+def test_meta_catalog_rss_action_contract_without_action_array_seeds_feed_read() -> None:
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("runtime_action",),
+            surfaces=("connections",),
+            actions=(),
+            needs_context=True,
+            context_directions=("connections",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="lies den feed heise-security-alerts",
+                    budget={
+                        "catalog_id": "connection|rss|heise-security-alerts",
+                        "entity_type": "connection",
+                        "kind": "rss",
+                        "ref": "heise-security-alerts",
+                    },
+                ),
+            ),
+            priority=("connection|rss|heise-security-alerts",),
+            answer_mode="direct_answer",
+            contract_mode="action",
+            evidence_policy="source_bound",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.95,
+        ),
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "feed_read"
+    assert draft.connection_kind == "rss"
+    assert draft.explicit_connection_ref == "heise-security-alerts"
+    assert draft.content == "lies den feed heise-security-alerts"
+
+
 def test_meta_catalog_connection_actions_map_to_existing_capabilities() -> None:
     runtime = AgenticContextRuntimeMixin()
     cases = [
@@ -917,10 +1321,10 @@ def test_meta_catalog_local_family_binds_memory_targets() -> None:
         ),
     )
 
-    overrides = runtime._aria_turn_context_overrides(arbitration, user_id="fischerman")
+    overrides = runtime._aria_turn_context_overrides(arbitration, user_id="example_user")
 
     assert overrides["memory_recall_enabled"] is True
-    assert overrides["memory_target_collections"] == ["aria_preferences_fischerman"]
+    assert overrides["memory_target_collections"] == ["aria_preferences_example_user"]
     assert overrides["include_documents"] is False
 
 
@@ -940,7 +1344,7 @@ def test_meta_catalog_docs_search_sets_docs_only_context_override() -> None:
         ),
     )
 
-    overrides = runtime._aria_turn_context_overrides(arbitration, user_id="fischerman")
+    overrides = runtime._aria_turn_context_overrides(arbitration, user_id="example_user")
 
     assert overrides["memory_recall_enabled"] is True
     assert overrides["include_documents"] is True
@@ -959,8 +1363,8 @@ def test_docs_search_evidence_rejects_non_document_memory_sources() -> None:
                 {
                     "type": "fact",
                     "label": "FAKT",
-                    "collection": "aria_facts_fischerman",
-                    "detail": "Quelle: FAKT · aria_facts_fischerman",
+                    "collection": "aria_facts_example_user",
+                    "detail": "Quelle: FAKT · aria_facts_example_user",
                 }
             ],
             "detail_lines": [],
@@ -987,9 +1391,9 @@ def test_docs_search_evidence_accepts_matching_document_sources() -> None:
                 {
                     "type": "document",
                     "label": "DOKUMENT",
-                    "collection": "aria_docs_fischerman",
+                    "collection": "aria_docs_example_user",
                     "document_name": "ui-rules.md",
-                    "detail": "Quelle: ui-rules.md · aria_docs_fischerman",
+                    "detail": "Quelle: ui-rules.md · aria_docs_example_user",
                 }
             ],
             "detail_lines": [],
@@ -1002,6 +1406,202 @@ def test_docs_search_evidence_accepts_matching_document_sources() -> None:
     )
 
     assert matched is True
+
+
+def test_docs_fast_answer_accepts_compact_source_bound_document_content() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_requests=(ContextRequest(surface_id="docs", mode="search", query="UI-Regel"),),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content="- [DOKUMENT: ui-rules.md] UI-Regel: sichtbarer Status führt per Klick zu Einstellungen.",
+        metadata={
+            "sources": [
+                {
+                    "type": "document",
+                    "collection": "aria_docs_example_user",
+                    "document_name": "ui-rules.md",
+                }
+            ]
+        },
+    )
+
+    text = runtime._aria_turn_fast_docs_search_answer(arbitration, result, language="de")
+
+    assert text.startswith("Aus ui-rules.md:")
+    assert "UI-Regel" in text
+
+
+def test_docs_fast_answer_rejects_large_document_content_for_composer_fallback() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_requests=(ContextRequest(surface_id="docs", mode="search", query="UI-Regel"),),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content="\n".join(f"Zeile {index}" for index in range(20)),
+        metadata={"sources": [{"type": "document", "collection": "aria_docs_example_user", "document_name": "ui-rules.md"}]},
+    )
+
+    assert runtime._aria_turn_fast_docs_search_answer(arbitration, result, language="de") == ""
+
+
+def test_docs_composer_fallback_does_not_return_raw_multilingual_chunks() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_requests=(ContextRequest(surface_id="docs", mode="search", query="wie kriege ich meine heizungen ans wireless?"),),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content=(
+            "- [DOKUMENT: Mill Manual] Varmeapparatet har problemer med at forbinde til wi-fi.\n"
+            "Tryk på «Tilføj varmeapparat» på startskærmen i Mill-appen.\n"
+            "The heater has a problem connecting to or finding the WiFi signal.\n"
+            "Please turn the heater OFF and ON. Restart the WiFi router. Check that 2.4 GHz is enabled.\n"
+            "Delete WiFi settings: press the WiFi button and hold it for 5 seconds."
+        ),
+        metadata={
+            "sources": [
+                {
+                    "type": "document",
+                    "collection": "aria_docs_example_user",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                }
+            ]
+        },
+    )
+
+    text = runtime._aria_turn_docs_search_fallback_answer(arbitration, result, language="de")
+
+    assert "Öffne die Mill-App" in text
+    assert "2,4 GHz" in text
+    assert "WiFi-Taste 5 Sekunden" in text
+    assert "Varmeapparatet" not in text
+    assert "The heater has a problem" not in text
+
+
+def test_docs_fallback_uses_source_bound_mill_metadata_for_compact_instruction() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_requests=(
+                ContextRequest(surface_id="docs", mode="search", query="wie kriege ich meine heizungen ans wireless?"),
+            ),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content=(
+            "- [DOKUMENT: Mill Manual] App pairing instructions.\n"
+            "If it cannot connect, restart the router and make sure 2.4 GHz is enabled.\n"
+            "Delete WiFi settings: press the WiFi button and hold it for 5 seconds."
+        ),
+        metadata={
+            "sources": [
+                {
+                    "type": "document",
+                    "collection": "aria_docs_example_user",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                    "guide_summary": "Mill heater WiFi setup instructions.",
+                    "guide_keywords": ["Mill", "WiFi", "heater"],
+                }
+            ]
+        },
+    )
+
+    text = runtime._aria_turn_docs_search_fallback_answer(arbitration, result, language="de")
+
+    assert text.startswith("Um die WLAN-Verbindung deiner Mill-Heizung einzurichten:")
+    assert "Öffne die Mill-App" in text
+    assert "2,4 GHz" in text
+    assert "WiFi-Taste 5 Sekunden" in text
+    assert "konnte sie aber nicht sicher genug" not in text
+
+
+def test_docs_fast_answer_uses_bounded_mill_wifi_instruction_summary() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_requests=(ContextRequest(surface_id="docs", mode="search", query="wie kriege ich meine heizungen ans wireless?"),),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content=(
+            "- [DOKUMENT: Mill Manual] Varmeapparatet har problemer med at forbinde til wi-fi.\n"
+            "Tryk på «Tilføj varmeapparat» på startskærmen i Mill-appen.\n"
+            "The heater has a problem connecting to or finding the WiFi signal.\n"
+            "Please turn the heater OFF and ON. Restart the WiFi router. Check that 2.4 GHz is enabled.\n"
+            "Delete WiFi settings: press the WiFi button and hold it for 5 seconds."
+        ),
+        metadata={
+            "sources": [
+                {
+                    "type": "document",
+                    "collection": "aria_docs_example_user",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                }
+            ]
+        },
+    )
+
+    text = runtime._aria_turn_fast_docs_search_answer(arbitration, result, language="de")
+
+    assert text.startswith("Um die WLAN-Verbindung deiner Mill-Heizung einzurichten:")
+    assert "Öffne die Mill-App" in text
+    assert "Varmeapparatet" not in text
 
 
 def test_rebuild_inventory_index_also_rebuilds_meta_catalog() -> None:

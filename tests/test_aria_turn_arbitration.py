@@ -17,6 +17,8 @@ from aria.core.aria_turn_arbitration import AriaTurnPlan
 from aria.core.aria_turn_arbitration import AriaTurnSurfaceOption
 from aria.core.aria_turn_arbitration import build_aria_turn_menu
 from aria.core.action_plan import CapabilityDraft
+from aria.core.answer_composer import AnswerComposer
+from aria.core.answer_composer import AnswerComposerInput
 from aria.core.config import Settings
 from aria.core.context_surface_adapters import build_builtin_surface_registry
 from aria.core.inventory_index import InventoryIndexStore
@@ -422,6 +424,48 @@ def test_build_aria_turn_menu_unifies_surfaces_and_actions() -> None:
     assert menu.actions[-1].requires_confirmation is False
     assert menu.policy_notes == ("side effects require confirmation",)
     assert menu.budget == {"timeout_ms": 2500}
+
+
+def test_explicit_internet_search_normalizes_meta_chat_contract_to_web_research() -> None:
+    pipeline = Pipeline.__new__(Pipeline)
+    pipeline.web_search_skill = object()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("chat",),
+            surfaces=(),
+            actions=(),
+            needs_context=False,
+            context_directions=(),
+            context_depth="none",
+            answer_mode="direct_answer",
+            contract_mode="answer",
+            evidence_policy="allow_general",
+            risk="none",
+            confidence=0.95,
+            reason="User requests internet search",
+        ),
+    )
+
+    normalized = pipeline._normalize_explicit_web_research_contract(
+        arbitration,
+        message="suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+        user_id="u1",
+        request_id="r1",
+    )
+
+    assert normalized is not None
+    assert normalized.source == META_CATALOG_ROUTING_OPERATION
+    assert "web_research" in normalized.plan.intents
+    assert normalized.plan.surfaces == ("web",)
+    assert normalized.plan.needs_context is True
+    assert normalized.plan.context_directions == ("web",)
+    assert normalized.plan.context_requests
+    assert normalized.plan.context_requests[0].surface_id == "web"
+    assert normalized.plan.context_requests[0].mode == "search"
+    assert normalized.plan.contract_mode == "answer"
+    assert normalized.plan.evidence_policy == "source_bound"
+    assert pipeline._merge_aria_turn_intents(["chat"], normalized) == ["web_search"]
 
 
 def test_aria_turn_arbiter_sends_compact_stage_one_payload() -> None:
@@ -835,6 +879,10 @@ def test_aria_turn_arbiter_accepts_combined_local_retrieval_plan() -> None:
     assert "aria_turn_surface_action_arbitration" in result.debug_line
     assert "needs_context=true" in result.debug_line
     assert "context_directions=memory,learning,notes" in result.debug_line
+    assert result.diagnostics["payload_bytes"] > 0
+    assert result.diagnostics["system_chars"] > 0
+    assert "routing_payload_bytes=" in result.debug_line
+    assert "routing_system_chars=" in result.debug_line
     assert llm.operations == [ARIA_TURN_ARBITRATION_OPERATION]
     assert llm.last_payload is not None
     assert llm.last_payload["routing_meta_context"]["collections"][0]["name"] == "aria_facts_u1"
@@ -1186,6 +1234,48 @@ def test_pipeline_aria_turn_arbiter_can_drive_local_retrieval_query() -> None:
     assert "chat_freshness" not in llm.operations
 
 
+def test_pipeline_meta_catalog_unavailable_backup_chat_stays_local_retrieval(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    async def fail_meta_qdrant(_settings, *, timeout: int = 10):  # noqa: ANN001, ARG001
+        raise RuntimeError("qdrant unavailable")
+
+    monkeypatch.setattr(meta_catalog_routing_mod, "create_meta_catalog_qdrant_client", fail_meta_qdrant)
+    llm = _PipelineArbiterLLM()
+    memory = _PipelineMemory()
+    pipeline = Pipeline(settings=settings, prompt_loader=_PipelinePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = memory  # type: ignore[assignment]
+
+    result = asyncio.run(
+        pipeline.process(
+            "was erinnert ARIA zur UI-Regel?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert "memory_recall" in result.intents
+    assert memory.calls
+    assert META_CATALOG_ROUTING_OPERATION not in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION in llm.operations
+    assert "pre_rag_action_arbitration" not in llm.operations
+    assert not any("agentic_runtime" in line for line in result.detail_lines)
+    assert any(
+        "meta_catalog_contract phase=backup_fallback" in line and "meta_catalog_unavailable" in line
+        for line in result.detail_lines
+    )
+
+
 def test_pipeline_memory_inventory_with_topic_uses_recall_context_not_inventory_only() -> None:
     settings = Settings.model_validate(
         {
@@ -1504,7 +1594,7 @@ def test_pipeline_notes_inventory_question_skips_answer_composer(monkeypatch) ->
             ),
             SimpleNamespace(
                 title="Aktive Projekt-Übersicht",
-                folder="Fischerman Projekte",
+                folder="Example Projects",
                 note_id="n2",
                 snippet="AREA41 Wear-Aufgaben und Links.",
             ),
@@ -1558,7 +1648,7 @@ def test_pipeline_notes_inventory_question_skips_answer_composer(monkeypatch) ->
 
     assert result.text.startswith("Ich habe 2 passende Notizen gefunden:")
     assert "AREA41/DC4131 (Area41)" in result.text
-    assert "Aktive Projekt-Übersicht (Fischerman Projekte)" in result.text
+    assert "Aktive Projekt-Übersicht (Example Projects)" in result.text
     assert "ARIA - Technische Architektur" not in result.text
     assert "Audima Sway" not in result.text
     assert "aria_answer_composer" not in llm.operations
@@ -2233,12 +2323,18 @@ def test_pipeline_meta_catalog_feed_inventory_question_overrides_feed_read_actio
     )
 
     assert result.intents == ["context_inventory"]
+    assert result.text.startswith("Ich habe 2 passende RSS-Profile gefunden:")
+    assert "\n- **alle-security-news**" in result.text
+    assert "\n- **heise-security-alerts**" in result.text
+    assert " • " not in result.text
     assert "Alle Security News" in result.text
     assert "Heise Security Alerts" in result.text
     assert "Sports Watch" not in result.text
     assert "capability:feed_read" not in result.intents
+    assert "aria_answer_composer" not in llm.operations
     assert not any("agentic_runtime" in line and "capability=feed_read" in line for line in result.detail_lines)
     assert any("requests=connections:inventory" in line for line in result.detail_lines)
+    assert any("Routing Debug: answer_composer skipped reason=fast_inventory_list_answer" in line for line in result.detail_lines)
     assert any("Routing Debug: direct_context_answer kind=inventory" in line for line in result.detail_lines)
 
 
@@ -2394,6 +2490,35 @@ def test_pipeline_answer_composer_rewords_inventory_without_losing_evidence(monk
     assert any("Routing Debug: answer_composer source=llm" in line for line in result.detail_lines)
 
 
+def test_answer_composer_preserves_multiline_inventory_rows() -> None:
+    class ComposerLLM:
+        async def chat(self, messages, **kwargs):  # noqa: ANN001, ARG002
+            assert kwargs.get("operation") == "aria_answer_composer"
+            return _Response(
+                json.dumps(
+                    {
+                        "answer": "Du hast 2 Feeds:\n- feed-a\n- feed-b",
+                        "confidence": "high",
+                        "reason": "list answer",
+                    }
+                )
+            )
+
+    result = asyncio.run(
+        AnswerComposer(ComposerLLM()).compose(
+            AnswerComposerInput(
+                answer_mode="inventory_list",
+                user_prompt="feeds",
+                fallback_text="fallback",
+                outcome={"status": "found"},
+                evidence={"local_store_checked": True},
+            )
+        )
+    )
+
+    assert result.text == "Du hast 2 Feeds:\n- feed-a\n- feed-b"
+
+
 def test_pipeline_backup_action_contract_cannot_fall_back_to_chat(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
@@ -2460,6 +2585,99 @@ def test_pipeline_backup_action_contract_cannot_fall_back_to_chat(monkeypatch) -
     assert any("meta_catalog_contract phase=backup_fallback" in line for line in result.detail_lines)
     assert any("legacy_backup_action_contract phase=action_preflight chat_fallback=blocked" in line for line in result.detail_lines)
     assert any("pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh" in line for line in result.detail_lines)
+    assert any("multi_target_ssh_preflight" in line for line in result.detail_lines)
+
+
+def test_pipeline_meta_catalog_low_confidence_backup_action_contract_stays_preflight(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root"},
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = _InventoryQdrant()
+    embedder = _InventoryEmbeddingClient()
+    meta_docs = build_meta_catalog_documents(settings)
+    asyncio.run(
+        MetaCatalogStore(
+            qdrant=qdrant,
+            embedding_client=embedder,
+            collection_name=meta_catalog_collection_name(settings),
+        ).rebuild_documents(meta_docs, catalog_hash=meta_catalog_documents_fingerprint(meta_docs))
+    )
+
+    async def fake_qdrant_client(_settings, *, timeout: int = 10):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr(meta_catalog_routing_mod, "create_meta_catalog_qdrant_client", fake_qdrant_client)
+    llm = _PipelineMetaCatalogLLM(
+        {
+            "needs_context": True,
+            "catalog_ids": ["connection|ssh|srv-a", "connection|ssh|srv-b"],
+            "context_requests": [],
+            "intents": ["runtime_action"],
+            "surfaces": ["connections"],
+            "actions": ["connection_action_ssh"],
+            "answer_mode": "plan_action",
+            "context_depth": "shallow",
+            "risk": "medium",
+            "needs_confirmation": True,
+            "confidence": 0.3,
+            "reason": "uncertain meta routing must fall back visibly",
+        }
+    )
+    llm.aria_payload = {
+        "intents": ["runtime_action"],
+        "needs_context": True,
+        "context_directions": ["connections"],
+        "surfaces": ["connections"],
+        "actions": ["connection_action_ssh"],
+        "context_requests": [
+            {
+                "surface_id": "connections",
+                "mode": "action",
+                "query": "sind alle server up2date",
+                "budget": {"entity_type": "connection", "kind": "ssh", "ref": "srv-a"},
+            },
+            {
+                "surface_id": "connections",
+                "mode": "action",
+                "query": "sind alle server up2date",
+                "budget": {"entity_type": "connection", "kind": "ssh", "ref": "srv-b"},
+            },
+        ],
+        "answer_mode": "plan_action",
+        "risk": "medium",
+        "needs_confirmation": True,
+        "confidence": "high",
+        "reason": "Backup arbiter keeps the action in preflight.",
+    }
+    pipeline = Pipeline(settings=settings, prompt_loader=_PipelinePromptLoader(), llm_client=llm, embedding_client=embedder)
+
+    result = asyncio.run(
+        pipeline.process(
+            "sind alle server up2date ?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert META_CATALOG_ROUTING_OPERATION in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION in llm.operations
+    assert "final_chat_response" not in llm.operations
+    assert "direct_chat_response" not in llm.operations
+    assert any("meta_catalog_contract phase=backup_fallback" in line and "meta_catalog_low_confidence" in line for line in result.detail_lines)
+    assert any("legacy_backup_action_contract phase=action_preflight chat_fallback=blocked" in line for line in result.detail_lines)
     assert any("multi_target_ssh_preflight" in line for line in result.detail_lines)
 
 
@@ -2763,6 +2981,123 @@ def test_pipeline_mixed_rss_ssh_update_action_contract_executes_ssh_not_feed(mon
     assert not any("agentic_runtime ref=debian-security-advisories kind=rss capability=feed_read" in line for line in result.detail_lines)
 
 
+def test_pipeline_rss_only_meta_action_with_ssh_targets_uses_agentic_ssh_update_contract(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "tags": ["server"]},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "tags": ["server"]},
+                },
+                "rss": {
+                    "debian-security-advisories": {
+                        "feed_url": "https://example.invalid/debian-security.xml",
+                        "title": "Debian Security Advisories",
+                        "description": "Security advisories and critical update news",
+                        "tags": ["security", "updates"],
+                    },
+                    "heise-security-alerts": {
+                        "feed_url": "https://example.invalid/heise-security.xml",
+                        "title": "Heise Security Alerts",
+                        "description": "Security alerts and vulnerabilities",
+                        "tags": ["security", "updates"],
+                    },
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = _InventoryQdrant()
+    embedder = _InventoryEmbeddingClient()
+    meta_docs = build_meta_catalog_documents(settings)
+    asyncio.run(
+        MetaCatalogStore(
+            qdrant=qdrant,
+            embedding_client=embedder,
+            collection_name=meta_catalog_collection_name(settings),
+        ).rebuild_documents(meta_docs, catalog_hash=meta_catalog_documents_fingerprint(meta_docs))
+    )
+
+    async def fake_qdrant_client(_settings, *, timeout: int = 10):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr(meta_catalog_routing_mod, "create_meta_catalog_qdrant_client", fake_qdrant_client)
+    llm = _PipelineMetaCatalogSshObjectiveLLM(
+        {
+            "needs_context": True,
+            "catalog_ids": [
+                "connection|rss|debian-security-advisories",
+                "connection|rss|heise-security-alerts",
+                "connection|ssh|srv-a",
+                "connection|ssh|srv-b",
+            ],
+            "context_requests": [
+                {
+                    "surface_id": "connections",
+                    "mode": "action",
+                    "query": "server update security advisories",
+                    "budget": {"entity_type": "connection", "kind": "rss", "ref": "debian-security-advisories"},
+                },
+                {
+                    "surface_id": "connections",
+                    "mode": "action",
+                    "query": "server update security alerts",
+                    "budget": {"entity_type": "connection", "kind": "rss", "ref": "heise-security-alerts"},
+                },
+                {
+                    "surface_id": "connections",
+                    "mode": "action",
+                    "query": "server update status",
+                    "budget": {"entity_type": "connection", "kind": "ssh", "ref": "srv-a"},
+                },
+                {
+                    "surface_id": "connections",
+                    "mode": "action",
+                    "query": "server update status",
+                    "budget": {"entity_type": "connection", "kind": "ssh", "ref": "srv-b"},
+                },
+            ],
+            "intents": ["chat", "runtime_action"],
+            "surfaces": ["connections"],
+            "actions": ["rss_read_feed"],
+            "answer_mode": "direct_answer",
+            "contract": {"mode": "action", "evidence_policy": "source_bound"},
+            "context_depth": "shallow",
+            "risk": "low",
+            "needs_confirmation": False,
+            "confidence": 0.92,
+            "reason": "wrongly narrowed to RSS even though selected catalog targets include SSH servers",
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=_PipelinePromptLoader(), llm_client=llm, embedding_client=embedder)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):  # noqa: ANN001, ARG001
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "Listing... openssl/stable-security 3.0 [upgradable from: 2.0]"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "brauchen meine server updates und falls ja, welches sind die wichtigsten?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert ssh_calls == [("srv-a", "apt list --upgradable"), ("srv-b", "apt list --upgradable")]
+    assert "capability_draft_decision" in llm.operations
+    assert any("runtime_task_contract source=capability_draft_decision" in line for line in result.detail_lines)
+    assert any("plural_target_scope selected_multi_target kind=ssh refs=srv-a, srv-b command=apt list --upgradable" in line for line in result.detail_lines)
+    assert not any("agentic_runtime ref=debian-security-advisories kind=rss capability=feed_read" in line for line in result.detail_lines)
+
+
 def test_pipeline_meta_contract_ssh_targets_survive_plural_context_resolution(monkeypatch) -> None:
     _ = monkeypatch
     settings = Settings.model_validate(
@@ -2772,7 +3107,7 @@ def test_pipeline_meta_contract_ssh_targets_survive_plural_context_resolution(mo
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "debdev-srv01": {
+                    "dev-server-01": {
                         "host": "192.0.2.20",
                         "user": "root",
                         "title": "Development server",
@@ -2859,7 +3194,7 @@ def test_pipeline_meta_contract_broad_server_health_expands_sampled_targets_to_s
             "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
-                    "debdev-srv01": {
+                    "dev-server-01": {
                         "host": "192.0.2.20",
                         "user": "root",
                         "title": "Development server",
@@ -2915,12 +3250,12 @@ def test_pipeline_meta_contract_broad_server_health_expands_sampled_targets_to_s
     assert resolved is not None
     payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
     assert payload["connection_ref"] == ""
-    assert payload["connection_refs"] == ["debdev-srv01", "srv-dev02", "ubnsrv-gaming", "ubnsrv-netalert"]
+    assert payload["connection_refs"] == ["dev-server-01", "srv-dev02", "ubnsrv-gaming", "ubnsrv-netalert"]
     assert payload["content"] == "uptime -p && df -h && free -h"
     detail_lines = list(resolved.get("detail_lines") or [])
     assert any("plural_target_scope expanded_by_fleet_contract kind=ssh" in line for line in detail_lines)
     assert any(
-        "plural_target_scope selected_multi_target kind=ssh refs=debdev-srv01, srv-dev02, ubnsrv-gaming, ubnsrv-netalert"
+        "plural_target_scope selected_multi_target kind=ssh refs=dev-server-01, srv-dev02, ubnsrv-gaming, ubnsrv-netalert"
         in line
         for line in detail_lines
     )
@@ -3010,6 +3345,85 @@ def test_pre_rag_action_seed_bypasses_context_inventory_intent_filter_for_meta_c
         "pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh explicit_ref=ubnsrv-gaming"
         in line
         for line in result.direct_result.detail_lines
+    )
+
+
+def test_pre_rag_seeded_runtime_task_contract_skips_local_capability_fallback(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True},
+            "auto_memory": {"enabled": True},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "title": "Management Server",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=_PipelinePromptLoader(), llm_client=None)
+    draft = CapabilityDraft(
+        capability="ssh_command",
+        connection_kind="ssh",
+        explicit_connection_ref="ops-mgmt-01",
+        content="df -h",
+        confidence=0.95,
+        notes=[
+            "capability_draft_source:runtime_task_contract",
+            "turn_contract_source:runtime_task_contract",
+        ],
+    )
+    learning_calls: list[dict[str, object]] = []
+
+    def unexpected_local_classification(*_args, **_kwargs):  # noqa: ANN001
+        raise AssertionError("seeded runtime task contract must not use local capability fallback")
+
+    def fake_schedule_learning(**kwargs):  # noqa: ANN001
+        learning_calls.append(dict(kwargs))
+
+    async def fake_unified_action(message, user_id, **kwargs):  # noqa: ANN001
+        return pipeline._build_routed_action_result(
+            request_id=str(kwargs["request_id"]),
+            decision=kwargs["decision"],
+            duration_ms=0,
+            intents=["capability:ssh_command"],
+            text="ok",
+            detail_lines=["Routing Debug: fake_unified_action"],
+            skill_errors=[],
+        )
+
+    monkeypatch.setattr(pipeline, "_classify_capability_draft", unexpected_local_classification)
+    monkeypatch.setattr(pipeline, "_schedule_capability_fallback_learning_outcome", fake_schedule_learning)
+    monkeypatch.setattr(pipeline, "_try_unified_routed_action", fake_unified_action)
+
+    result = asyncio.run(
+        pipeline._run_pre_rag_action_stage(
+            message="brauchen meine server updates und falls ja, welches sind die wichtigsten?",
+            user_id="u1",
+            request_id="r1",
+            source="test",
+            decision=SimpleNamespace(intents=["runtime_action"], level=2),
+            start=0.0,
+            runtime_recipes=[],
+            auto_memory_enabled=True,
+            language="de",
+            seed_capability_draft=draft,
+            semantic_source="runtime_task_contract",
+        )
+    )
+
+    assert result.direct_result is not None
+    assert result.direct_result.intents == ["capability:ssh_command"]
+    assert result.capability_draft is draft
+    assert learning_calls == []
+    assert result.direct_result.detail_lines[0].startswith(
+        "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh"
     )
 
 
@@ -3893,6 +4307,7 @@ def test_pipeline_reuses_precomputed_aria_turn_arbitration_for_empty_notes(monke
     arbitration = AriaTurnArbitration(
         source=ARIA_TURN_ARBITRATION_OPERATION,
         usage={"prompt_tokens": 7, "completion_tokens": 2, "total_tokens": 9},
+        diagnostics={"payload_bytes": 1234, "system_chars": 567, "payload_keys": 5},
         plan=AriaTurnPlan(
             intents=("local_retrieval",),
             needs_context=True,
@@ -3924,3 +4339,6 @@ def test_pipeline_reuses_precomputed_aria_turn_arbitration_for_empty_notes(monke
     assert "notes_search" in result.intents
     assert "memory_recall" not in result.intents
     assert any("arbiter_tokens=9" in line for line in result.detail_lines)
+    assert any("arbiter_prompt_tokens=7" in line for line in result.detail_lines)
+    assert any("arbiter_completion_tokens=2" in line for line in result.detail_lines)
+    assert any("routing_payload_bytes=1234" in line for line in result.detail_lines)

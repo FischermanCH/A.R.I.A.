@@ -21,6 +21,54 @@ def test_summarize_ssh_result_for_chat_disk_only() -> None:
     assert summary == "Festplattencheck für `server-main`: Root-Dateisystem /: 28% belegt, 28G frei (ok)."
 
 
+def test_summarize_ssh_result_for_chat_du_directory_inspection_does_not_become_disk_health() -> None:
+    result = SimpleNamespace(
+        metadata={
+            "custom_command": "du -h --max-depth=1 /tmp 2>/dev/null | sort -hr | head -20",
+            "custom_stdout": (
+                "3.6G\t/tmp\n"
+                "2.1G\t/tmp/build-cache\n"
+                "900M\t/tmp/uploads\n"
+                "4.0K\t/tmp/empty\n"
+            ),
+        },
+    )
+
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dev-server-01", language="de")
+
+    assert summary == (
+        "Verzeichnischeck für `dev-server-01` `/tmp`: Gesamt: 3.6G /tmp.\n\n"
+        "- 2.1G /tmp/build-cache\n"
+        "- 900M /tmp/uploads\n"
+        "- 4.0K /tmp/empty"
+    )
+    assert "Root-Dateisystem" not in summary
+
+
+def test_summarize_ssh_result_for_chat_ls_directory_inspection_uses_listing_stdout() -> None:
+    result = SimpleNamespace(
+        metadata={
+            "custom_command": "ls -lah /tmp",
+            "custom_stdout": (
+                "total 29M\n"
+                "drwxrwxrwt 10 root root 4.0K Jun 29 10:00 .\n"
+                "drwxr-xr-x 18 root root 4.0K Jun 29 09:00 ..\n"
+                "-rw-r--r-- 1 root root 12M Jun 29 09:10 core.dump\n"
+                "drwx------ 2 app app 4.0K Jun 29 09:11 systemd-private-demo\n"
+            ),
+        },
+    )
+
+    summary = summarize_ssh_result_for_chat(result, connection_ref="dev-server-01", language="de")
+
+    assert summary == (
+        "Verzeichnischeck für `dev-server-01` `/tmp`: Gesamt: total 29M.\n\n"
+        "- 12M core.dump\n"
+        "- 4.0K systemd-private-demo"
+    )
+    assert "Kurzcheck" not in summary
+
+
 def test_summarize_ssh_result_for_chat_uptime_since() -> None:
     result = SimpleNamespace(
         metadata={

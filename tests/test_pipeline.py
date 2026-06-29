@@ -12,10 +12,13 @@ import aria.core.pipeline as pipeline_mod
 import aria.core.agentic_execution_learning as agentic_execution_learning_mod
 import aria.core.recipe_runtime as skill_runtime_mod
 from aria.core.aria_turn_arbitration import ARIA_TURN_ARBITRATION_OPERATION
+from aria.core.aria_turn_arbitration import AriaTurnArbitration
+from aria.core.aria_turn_arbitration import AriaTurnPlan
 from aria.core.auto_memory import AutoMemoryExtractor
 from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints
 from aria.core.agentic_execution_learning import suppress_auto_learning
 from aria.core.capability_context import CapabilityContextStore
+from aria.core.context_surfaces import ContextRequest
 from aria.core.config import Settings
 from aria.core.notes_context import NotesContextHit
 from aria.core.pipeline import Pipeline
@@ -631,6 +634,127 @@ def test_pipeline_agentic_capability_no_action_blocks_local_ssh_fallback() -> No
     assert "capability_draft_decision" in llm.operations
     assert ssh_calls == []
     assert not any("agentic_runtime" in line for line in result.detail_lines)
+
+
+def test_pipeline_agentic_capability_out_of_bounds_blocks_local_ssh_fallback() -> None:
+    class OutOfBoundsCapabilityLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "discord",
+                            "target_scope": "single_target",
+                            "target_intent": "health_check",
+                            "content": "uptime",
+                            "confidence": "high",
+                            "reason": "Out-of-bounds kind for configured capability.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dns-node-01": {
+                        "host": "192.0.2.14",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Primary DNS",
+                        "aliases": ["dns server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = OutOfBoundsCapabilityLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "unexpected"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "ist mein dns server ok",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["chat"]
+    assert "capability_draft_decision" in llm.operations
+    assert ssh_calls == []
+    assert not any("agentic_runtime" in line for line in result.detail_lines)
+
+
+def test_pipeline_local_capability_fallback_marks_risk_class() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "Management Server",
+                        "aliases": ["management server"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=None)
+
+    read_only = pipeline._classify_capability_draft(
+        "wie sieht die hd auf meinem management server aus",
+        language="de",
+    )
+    mutating = pipeline._classify_capability_draft(
+        "lösche /tmp/test auf dem management server",
+        language="de",
+    )
+
+    assert read_only is not None
+    assert "capability_draft_source:local_fallback" in list(read_only.notes or [])
+    assert "local_fallback_risk:read_only" in list(read_only.notes or [])
+    assert mutating is not None
+    assert "capability_draft_source:local_fallback" in list(mutating.notes or [])
+    assert "local_fallback_risk:mutating_fail_closed" in list(mutating.notes or [])
+
+
+def test_pipeline_local_capability_fallback_only_allows_known_invalid_states() -> None:
+    assert Pipeline._local_capability_fallback_allowed("") is True
+    assert Pipeline._local_capability_fallback_allowed("unavailable") is True
+    assert Pipeline._local_capability_fallback_allowed("invalid:low_confidence") is True
+    assert Pipeline._local_capability_fallback_allowed("invalid:empty_or_invalid_response") is True
+    assert Pipeline._local_capability_fallback_allowed("invalid:llm_error") is True
+    assert Pipeline._local_capability_fallback_allowed("invalid:missing_action") is True
+    assert Pipeline._local_capability_fallback_allowed("no_action") is False
+    assert Pipeline._local_capability_fallback_allowed("invalid:out_of_bounds") is False
+    assert Pipeline._local_capability_fallback_allowed("invalid:unknown_schema") is False
 
 
 def test_pipeline_filters_weak_local_rag_context_for_general_howto() -> None:
@@ -2658,8 +2782,15 @@ def test_pipeline_freshness_arbitration_runs_without_keyword_candidate() -> None
 
 def test_pipeline_auto_adds_web_search_for_explicit_research_request() -> None:
     class ResearchLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
         async def chat(self, messages, **kwargs):
-            if kwargs.get("operation") == "chat_freshness_arbitration":
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "chat_freshness_arbitration":
                 self.calls += 1
                 self.last_messages = messages
                 return FakeLLMResponse(
@@ -2723,8 +2854,11 @@ def test_pipeline_auto_adds_web_search_for_explicit_research_request() -> None:
         )
 
         assert result.text == "ok"
-        assert result.intents == ["chat", "web_search"]
-        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
+        assert result.intents == ["web_search"]
+        assert any("explicit_web_research_fast_path" in line for line in result.detail_lines)
+        assert "aria_turn_surface_action_arbitration" in "\n".join(result.detail_lines)
+        assert "chat_freshness_arbitration" not in llm.operations
+        assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
         assert result.detail_lines[-1] == "Quelle: CyberDeck Cafe · https://cyberdeck.cafe/ · duckduckgo"
         assert "CyberDeck Cafe" in str(llm.last_messages[1]["content"])
 
@@ -2949,6 +3083,114 @@ def test_pipeline_returns_direct_error_when_web_search_fails() -> None:
     asyncio.run(_run())
 
 
+def test_pipeline_explicit_web_search_overrides_rss_action_contract() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+                "connections": {
+                    "rss": {
+                        "apple-newsroom": {
+                            "feed_url": "https://www.apple.com/newsroom/rss-feed.rss",
+                            "title": "Apple Newsroom",
+                        }
+                    },
+                    "searxng": {
+                        "web-search": {
+                            "timeout_seconds": 10,
+                        }
+                    },
+                },
+            }
+        )
+        llm = FakeLLMClient()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+        async def _unexpected_rss_read(*_args, **_kwargs):  # noqa: ANN002, ANN003
+            raise AssertionError("explicit internet search must not execute an RSS feed action")
+
+        pipeline._skill_runtime.execute_rss_read = _unexpected_rss_read  # type: ignore[method-assign]
+
+        class _WebSearchSkill:
+            async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+                _ = params
+                assert "apple watch ultra" in query.lower()
+                assert "iphone" in query.lower()
+                return SkillResult(
+                    skill_name="web_search",
+                    content=(
+                        "[Web Search via web-search]\n"
+                        "Suche: neueste Apple Watch Ultra und neuestes iPhone\n"
+                        "- [1] Apple Watch Ultra\n"
+                        "  URL: https://www.apple.com/apple-watch-ultra/\n"
+                        "  Engine: searxng"
+                    ),
+                    success=True,
+                    metadata={
+                        "detail_lines": [
+                            "Quelle: Apple Watch Ultra · https://www.apple.com/apple-watch-ultra/ · searxng",
+                        ]
+                    },
+                )
+
+        pipeline.web_search_skill = _WebSearchSkill()
+        arbitration = AriaTurnArbitration(
+            source="aria_meta_catalog_routing",
+            plan=AriaTurnPlan(
+                intents=("chat", "runtime_action"),
+                surfaces=("connections",),
+                actions=("rss_read_feed",),
+                needs_context=True,
+                context_directions=("connections",),
+                context_depth="shallow",
+                queries={"connections": "suche im internet nach der neusten apple watch ultra und dem neusten iphone"},
+                context_requests=(
+                    ContextRequest(
+                        surface_id="connections",
+                        mode="action",
+                        query="suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+                        depth="shallow",
+                        limit=1,
+                        budget={
+                            "kind": "rss",
+                            "ref": "apple-newsroom",
+                            "catalog_id": "connection|rss|apple-newsroom",
+                        },
+                        user_id="u1",
+                        turn_id="test",
+                    ),
+                ),
+                priority=("connection|rss|apple-newsroom",),
+                answer_mode="direct_answer",
+                contract_mode="action",
+                evidence_policy="source_bound",
+                risk="low",
+                needs_confirmation=False,
+                confidence=0.92,
+                reason="wrongly selected Apple RSS for explicit internet search",
+            ),
+            usage={},
+        )
+
+        result = await pipeline.process(
+            "suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+            user_id="u1",
+            source="test",
+            aria_turn_arbitration=arbitration,
+        )
+
+        assert result.intents == ["web_search"]
+        assert any(
+            line == "Quelle: Apple Watch Ultra · https://www.apple.com/apple-watch-ultra/ · searxng"
+            for line in result.detail_lines
+        )
+        assert not any("agentic_runtime ref=apple-newsroom kind=rss" in line for line in result.detail_lines)
+
+    asyncio.run(_run())
+
+
 def test_pipeline_explicit_web_search_skips_auto_memory_recall() -> None:
     async def _run() -> None:
         settings = Settings.model_validate(
@@ -3010,10 +3252,10 @@ def test_pipeline_explicit_web_search_skips_auto_memory_recall() -> None:
                 auto_memory_enabled=True,
                 memory_collection="aria_facts_u1",
                 session_collection="aria_sessions_u1_260407",
-            )
+        )
 
         assert result.intents == ["web_search"]
-        assert result.detail_lines == ["Quelle: Rabbit Update · https://example.org/rabbit · startpage"]
+        assert "Quelle: Rabbit Update · https://example.org/rabbit · startpage" in result.detail_lines
         assert fake_memory.calls == []
         assert llm.calls == 1
 
@@ -3074,7 +3316,7 @@ def test_pipeline_suppresses_notes_context_for_regular_web_search_without_local_
 
         assert result.text == "ok"
         assert result.intents == ["web_search"]
-        assert result.detail_lines == ["Quelle: Example · https://example.org · duckduckgo"]
+        assert "Quelle: Example · https://example.org · duckduckgo" in result.detail_lines
         assert captured["note_context_hits"] == []
 
     asyncio.run(_run())
@@ -4771,6 +5013,7 @@ def test_pipeline_mutating_multi_target_ssh_request_does_not_run_readonly_fallba
     assert result.intents == ["capability:ssh_command"]
     assert ssh_calls == []
     assert "Ich habe nichts ausgefuehrt" in result.text
+    assert "Guardrail/SSH-Policy" in result.text
     assert "read-only Statuscheck" in result.text
     assert "uptime" not in result.text
     assert "ssh_requested_runtime_effect" in llm.operations
@@ -6677,6 +6920,60 @@ def test_pipeline_rss_category_query_reads_group_digest_instead_of_single_feed(m
     assert calls == [("Security", ["alle-security-news", "krebs-on-security", "the-hacker-news"])]
 
 
+def test_pipeline_explicit_rss_ref_does_not_expand_to_group_digest(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "rss": {
+                    "heise-security-alerts": {
+                        "feed_url": "https://example.org/heise-security.xml",
+                        "title": "heise Security Alerts",
+                        "group_name": "Heise",
+                    },
+                    "heise-online-it": {
+                        "feed_url": "https://example.org/heise-it.xml",
+                        "title": "heise online IT",
+                        "group_name": "Heise",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    read_calls: list[str] = []
+
+    def fake_rss_read(connection_ref: str, *, language: str = "de") -> str:
+        read_calls.append(connection_ref)
+        assert language == "de"
+        return "Neueste Einträge aus `heise-security-alerts`:\n1. Security Alert"
+
+    def fake_rss_group_read(*_args, **_kwargs) -> str:
+        raise AssertionError("explicit feed ref must not be expanded to RSS group")
+
+    pipeline._skill_runtime.execute_rss_read = fake_rss_read  # type: ignore[method-assign]
+    pipeline._skill_runtime.execute_rss_group_read = fake_rss_group_read  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        pipeline.process(
+            "lies den feed heise-security-alerts",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:feed_read"]
+    assert result.text == "Neueste Einträge aus `heise-security-alerts`:\n1. Security Alert"
+    assert result.detail_lines == [
+        "Ausgeführt via RSS-Profil `heise-security-alerts`",
+    ]
+    assert read_calls == ["heise-security-alerts"]
+
+
 def test_pipeline_rss_category_query_uses_fallback_groups_without_manual_group_name(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
@@ -7098,6 +7395,825 @@ def test_resolve_unified_routed_action_adds_kind_only_decision_record(monkeypatc
     assert result is not None
     detail_lines = list(result.get("detail_lines", []) or [])
     assert any("Routing: kind_only_resolution selected `rss/-` source=kind_inferred note=rss" in line for line in detail_lines)
+
+
+def _unified_routing_chain_stub(
+    message: str,
+    *,
+    kind: str,
+    ref: str = "",
+    capability: str = "",
+    complete: bool = False,
+    source: str = "test_chain",
+    reason: str = "",
+) -> dict[str, object]:
+    return {
+        "status": "ok" if complete else "warn",
+        "visual_status": "ok" if complete else "warn",
+        "message": "",
+        "query": message,
+        "preferred_kind": kind,
+        "decision": {
+            "found": complete,
+            "kind": kind,
+            "ref": ref,
+            "source": source if complete else "",
+            "reason": reason,
+        },
+        "qdrant": {"enabled": False, "candidates": []},
+        "action_debug": {"decision": {"found": complete}},
+        "payload_debug": {
+            "payload": {
+                "found": complete,
+                "capability": capability,
+                "connection_kind": kind,
+                "connection_ref": ref,
+                "missing_fields": [] if complete else ["connection_ref"],
+            }
+        },
+        "safety_debug": {"decision": {}},
+        "execution_debug": {"decision": {}},
+        "detail_lines": [],
+    }
+
+
+def _forced_routing_result_stub(
+    *,
+    kind: str,
+    ref: str,
+    capability: str,
+    complete: bool,
+    missing_fields: list[str] | None = None,
+    source: str = "memory_hint",
+) -> dict[str, object]:
+    return {
+        "status": "ok" if complete else "warn",
+        "visual_status": "ok" if complete else "warn",
+        "message": "",
+        "query": "",
+        "preferred_kind": kind,
+        "decision": {"found": True, "kind": kind, "ref": ref, "source": source},
+        "qdrant": {"enabled": False, "candidates": []},
+        "action_debug": {"decision": {"found": True}},
+        "payload_debug": {
+            "payload": {
+                "found": complete,
+                "capability": capability,
+                "connection_kind": kind,
+                "connection_ref": ref if complete else "",
+                "missing_fields": list(missing_fields or ([] if complete else ["content"])),
+            }
+        },
+        "safety_debug": {"decision": {}},
+        "execution_debug": {"decision": {}},
+        "detail_lines": [],
+    }
+
+
+def _unified_routing_pipeline(connections: dict[str, object]) -> Pipeline:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": connections,
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    return Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+
+def test_resolve_unified_routed_action_returns_complete_chain_without_candidate_pool(monkeypatch) -> None:
+    pipeline = _unified_routing_pipeline({})
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(
+            message,
+            kind="rss",
+            ref="security-feed",
+            capability="feed_read",
+            complete=True,
+            source="qdrant_routing",
+            reason="meta catalog selected feed",
+        )
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+
+    result = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "lies den security feed",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(capability="feed_read", connection_kind="rss"),
+            llm_client=None,
+        )
+    )
+
+    assert result is not None
+    assert dict(result.get("decision", {}) or {}).get("ref") == "security-feed"
+    payload = dict((result.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_ref") == "security-feed"
+    detail_lines = list(result.get("detail_lines", []) or [])
+    assert any("Routing Debug: candidate_pool effective_kind=rss candidates=-" in line for line in detail_lines)
+
+
+def test_resolve_unified_routed_action_returns_none_for_empty_pool_and_incomplete_chain(monkeypatch) -> None:
+    pipeline = _unified_routing_pipeline({})
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(message, kind="rss", capability="feed_read", complete=False)
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+
+    result = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "lies irgendeinen feed",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(capability="feed_read", connection_kind="rss"),
+            llm_client=None,
+        )
+    )
+
+    assert result is None
+
+
+def test_resolve_unified_routed_action_uses_single_rss_profile_without_memory_assist(monkeypatch) -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "rss": {
+                "security-feed": {
+                    "feed_url": "https://example.org/security.xml",
+                    "title": "Security Feed",
+                }
+            }
+        }
+    )
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(message, kind="rss", capability="feed_read", complete=False)
+
+    async def _memory_should_not_run(*_args, **_kwargs):
+        raise AssertionError("single rss profile path should return before memory assist")
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", _memory_should_not_run)
+
+    result = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "lies meinen feed",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(capability="feed_read", connection_kind="rss"),
+            llm_client=None,
+        )
+    )
+
+    assert result is not None
+    assert dict(result.get("decision", {}) or {}).get("ref") == "security-feed"
+    assert dict(result.get("decision", {}) or {}).get("source") == "default_single_profile"
+    detail_lines = list(result.get("detail_lines", []) or [])
+    assert any("Routing Debug: single_rss_profile selected ref=security-feed" in line for line in detail_lines)
+    assert any(
+        "Routing: single_connection_resolution selected `rss/security-feed` source=default_single_profile note=security-feed"
+        in line
+        for line in detail_lines
+    )
+
+
+def test_resolve_unified_routed_action_retries_forced_resolution_without_llm_when_ref_is_missing(monkeypatch) -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "ops-mgmt-01": {
+                    "host": "192.0.2.10",
+                    "user": "root",
+                    "title": "Management Server",
+                }
+            }
+        }
+    )
+    forced_calls: list[object] = []
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(message, kind="ssh", capability="ssh_command", complete=False)
+
+    async def _fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(
+            connection_kind="ssh",
+            connection_ref="ops-mgmt-01",
+            source="memory_hint",
+            matched_text="management server",
+        )
+
+    async def _fake_forced_with_records(*_args, **kwargs):
+        forced_calls.append(kwargs.get("llm_client"))
+        if len(forced_calls) == 1:
+            return _forced_routing_result_stub(
+                kind="ssh",
+                ref="ops-mgmt-01",
+                capability="ssh_command",
+                complete=False,
+                missing_fields=["connection_ref"],
+            )
+        return _forced_routing_result_stub(
+            kind="ssh",
+            ref="ops-mgmt-01",
+            capability="ssh_command",
+            complete=True,
+        )
+
+    async def _kind_only_should_not_run(*_args, **_kwargs):
+        raise AssertionError("forced retry completed, kind-only fallback should not run")
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", _fake_memory_resolve)
+    monkeypatch.setattr(pipeline, "_build_forced_routed_resolution_with_records", _fake_forced_with_records)
+    monkeypatch.setattr(pipeline, "_build_kind_only_routed_resolution", _kind_only_should_not_run)
+
+    result = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "prüfe den management server",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(capability="ssh_command", connection_kind="ssh", content="uptime"),
+            llm_client=None,
+        )
+    )
+
+    assert result is not None
+    assert len(forced_calls) == 2
+    assert forced_calls[1] is None
+    payload = dict((result.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_ref") == "ops-mgmt-01"
+    assert payload.get("missing_fields") == []
+
+
+def test_resolve_unified_routed_action_falls_back_to_kind_only_when_forced_resolution_stays_incomplete(
+    monkeypatch,
+) -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "ops-mgmt-01": {
+                    "host": "192.0.2.10",
+                    "user": "root",
+                    "title": "Management Server",
+                }
+            }
+        }
+    )
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(message, kind="ssh", capability="ssh_command", complete=False)
+
+    async def _fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(
+            connection_kind="ssh",
+            connection_ref="ops-mgmt-01",
+            source="memory_hint",
+            matched_text="management server",
+        )
+
+    async def _fake_forced_with_records(*_args, **_kwargs):
+        return _forced_routing_result_stub(
+            kind="ssh",
+            ref="ops-mgmt-01",
+            capability="ssh_command",
+            complete=False,
+            missing_fields=["content"],
+        )
+
+    async def _fake_kind_only(message, *, connection_kind, capability_draft=None, **_kwargs):
+        return _unified_routing_chain_stub(
+            message,
+            kind=connection_kind,
+            ref="",
+            capability=str(getattr(capability_draft, "capability", "") or ""),
+            complete=True,
+            source="kind_inferred",
+            reason="management server",
+        )
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", _fake_memory_resolve)
+    monkeypatch.setattr(pipeline, "_build_forced_routed_resolution_with_records", _fake_forced_with_records)
+    monkeypatch.setattr(pipeline, "_build_kind_only_routed_resolution", _fake_kind_only)
+
+    result = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "prüfe den management server",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(capability="ssh_command", connection_kind="ssh", content=""),
+            llm_client=None,
+        )
+    )
+
+    assert result is not None
+    assert dict(result.get("decision", {}) or {}).get("ref") == ""
+    payload = dict((result.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_ref") == ""
+    detail_lines = list(result.get("detail_lines", []) or [])
+    assert any(
+        "Routing: kind_only_resolution selected `ssh/-` source=memory_hint note=management server"
+        in line
+        for line in detail_lines
+    )
+
+
+def test_resolve_unified_routed_action_binds_requested_ref_after_blocked_semantic_hint(monkeypatch) -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "ops-mgmt-01": {
+                    "host": "192.0.2.10",
+                    "user": "root",
+                    "title": "Management Server",
+                    "aliases": ["management server"],
+                },
+                "ops-backup-01": {
+                    "host": "192.0.2.13",
+                    "user": "root",
+                    "title": "Backup Server",
+                    "aliases": ["backup server", "backup host"],
+                },
+            }
+        }
+    )
+    resolve_calls = 0
+    forced_drafts: list[object] = []
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(message, kind="ssh", capability="ssh_command", complete=False)
+
+    async def _fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(connection_kind="ssh", connection_ref="", source="")
+
+    def _fake_collect(*_args, **_kwargs):
+        return [
+            SemanticConnectionCandidate(
+                connection_kind="ssh",
+                connection_ref="ops-mgmt-01",
+                source="semantic_alias",
+                alias="server",
+                note="management server",
+                score=500,
+            ),
+            SemanticConnectionCandidate(
+                connection_kind="ssh",
+                connection_ref="ops-backup-01",
+                source="semantic_alias",
+                alias="backup server",
+                note="backup server",
+                score=500,
+            ),
+        ]
+
+    def _fake_resolve_connection(*_args, **_kwargs):
+        nonlocal resolve_calls
+        resolve_calls += 1
+        if resolve_calls == 1:
+            return SemanticConnectionHint(
+                connection_kind="ssh",
+                connection_ref="ops-mgmt-01",
+                source="semantic_alias",
+                note="management server",
+            )
+        return SemanticConnectionHint(
+            connection_kind="ssh",
+            connection_ref="ops-backup-01",
+            source="semantic_alias",
+            note="backup server",
+        )
+
+    async def _fake_semantic_llm(*_args, **_kwargs):
+        return SemanticConnectionHint()
+
+    async def _fake_forced_with_records(*_args, **kwargs):
+        forced_drafts.append(kwargs.get("capability_draft"))
+        result = _forced_routing_result_stub(
+            kind="ssh",
+            ref="ops-backup-01",
+            capability="ssh_command",
+            complete=True,
+            source=str(kwargs.get("source") or "semantic_alias"),
+        )
+        result["detail_lines"] = pipeline._resolved_routing_detail_lines(kwargs["prior_resolved"])
+        semantic_record = kwargs.get("semantic_record")
+        if semantic_record is not None:
+            result = pipeline._append_routing_record_to_resolved(result, semantic_record)
+        return result
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", _fake_memory_resolve)
+    monkeypatch.setattr(pipeline._semantic_connection_resolver, "collect_connection_candidates", _fake_collect)
+    monkeypatch.setattr(pipeline._semantic_connection_resolver, "resolve_connection", _fake_resolve_connection)
+    monkeypatch.setattr(pipeline._semantic_connection_resolver, "resolve_connection_with_llm", _fake_semantic_llm)
+    monkeypatch.setattr(pipeline, "_build_forced_routed_resolution_with_records", _fake_forced_with_records)
+
+    result = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "prüfe den status vom backup server",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(
+                capability="ssh_command",
+                connection_kind="ssh",
+                requested_connection_ref="backup server",
+                content="uptime",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert result is not None
+    assert resolve_calls == 2
+    assert str(getattr(forced_drafts[-1], "explicit_connection_ref", "") or "") == "ops-backup-01"
+    assert str(getattr(forced_drafts[-1], "requested_connection_ref", "") or "") == ""
+    detail_lines = list(result.get("detail_lines", []) or [])
+    assert any("Routing Debug: semantic_hint blocked requested_ref=backup server ref=ops-mgmt-01" in line for line in detail_lines)
+    assert any("Routing Debug: explicit_ref selected ref=ops-backup-01" in line for line in detail_lines)
+    assert any(
+        "Routing: explicit_connection_resolution selected `ssh/ops-backup-01` source=explicit_ref note=ops-backup-01"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing: semantic_candidate_resolution selected `ssh/ops-backup-01` source=semantic_alias note=backup server"
+        in line
+        for line in detail_lines
+    )
+
+
+def _run_plural_memory_hint_scope_resolution(monkeypatch, *, forced_ref: str) -> dict[str, object]:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "dev-node-01": {
+                    "host": "192.0.2.11",
+                    "user": "root",
+                    "title": "Development Server 1",
+                    "aliases": ["dev server", "development"],
+                },
+                "dev-node-02": {
+                    "host": "192.0.2.12",
+                    "user": "root",
+                    "title": "Development Server 2",
+                    "aliases": ["dev server", "development"],
+                },
+                "ops-mgmt-01": {
+                    "host": "192.0.2.10",
+                    "user": "root",
+                    "title": "Management Server",
+                    "aliases": ["management server"],
+                },
+            }
+        }
+    )
+
+    async def _fake_chain(message, *_args, **_kwargs):
+        return _unified_routing_chain_stub(message, kind="ssh", capability="ssh_command", complete=False)
+
+    async def _fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(
+            connection_kind="ssh",
+            connection_ref=forced_ref,
+            source="memory_hint",
+            matched_text="letztes ziel",
+        )
+
+    def _fake_narrow(resolved, *, candidate_connections, **_kwargs):
+        scoped_connections = {
+            ref: candidate_connections[ref]
+            for ref in ("dev-node-01", "dev-node-02")
+            if ref in candidate_connections
+        }
+        narrowed = pipeline._append_debug_detail_lines(
+            resolved,
+            "Routing Debug: plural_target_scope narrowed_by_connection_context kind=ssh refs=dev-node-01, dev-node-02",
+        )
+        return narrowed, scoped_connections, []
+
+    async def _fake_kind_only(message, *, connection_kind, capability_draft=None, **_kwargs):
+        return _unified_routing_chain_stub(
+            message,
+            kind=connection_kind,
+            ref="",
+            capability=str(getattr(capability_draft, "capability", "") or ""),
+            complete=True,
+            source="kind_inferred",
+            reason="ssh",
+        )
+
+    async def _fake_prepare(resolved, *, capability_draft, **_kwargs):
+        return resolved, capability_draft
+
+    def _fake_apply_multi_target(resolved, *, candidate_connections, **_kwargs):
+        payload_debug = dict(resolved.get("payload_debug", {}) or {})
+        payload = dict(payload_debug.get("payload", {}) or {})
+        payload.update(
+            {
+                "connection_ref": "",
+                "connection_refs": list(candidate_connections.keys()),
+                "missing_fields": [],
+            }
+        )
+        payload_debug["payload"] = payload
+        resolved["payload_debug"] = payload_debug
+        return pipeline._append_debug_detail_lines(
+            resolved,
+            "Routing Debug: plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h",
+        )
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", _fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", _fake_memory_resolve)
+    monkeypatch.setattr(pipeline, "_narrow_ssh_plural_target_connections_by_context", _fake_narrow)
+    monkeypatch.setattr(pipeline, "_build_kind_only_routed_resolution", _fake_kind_only)
+    monkeypatch.setattr(pipeline, "_prepare_ssh_plural_multi_target_command", _fake_prepare)
+    monkeypatch.setattr(pipeline, "_apply_ssh_plural_multi_target_resolution", _fake_apply_multi_target)
+    monkeypatch.setattr(pipeline_mod, "connection_label_match_score", lambda *_args, **_kwargs: 0)
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "haben meine dev server noch genug festplattenspeicher",
+            user_id="u1",
+            language="de",
+            capability_draft=CapabilityDraft(
+                capability="ssh_command",
+                connection_kind="ssh",
+                content="df -h",
+                notes=["target_scope:multi_target"],
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    return resolved
+
+
+def test_resolve_unified_routed_action_ignores_plural_memory_hint_inside_scoped_group(monkeypatch) -> None:
+    resolved = _run_plural_memory_hint_scope_resolution(monkeypatch, forced_ref="dev-node-01")
+
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_refs") == ["dev-node-01", "dev-node-02"]
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "memory_hint ignored_by_plural_target_context ref=dev-node-01 refs=dev-node-01, dev-node-02"
+        in line
+        for line in detail_lines
+    )
+    assert not any("forced_connection_resolution selected `ssh/dev-node-01`" in line for line in detail_lines)
+
+
+def test_resolve_unified_routed_action_ignores_plural_memory_hint_outside_scoped_group(monkeypatch) -> None:
+    resolved = _run_plural_memory_hint_scope_resolution(monkeypatch, forced_ref="ops-mgmt-01")
+
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_refs") == ["dev-node-01", "dev-node-02"]
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "memory_hint ignored_by_plural_target_context ref=ops-mgmt-01 refs=dev-node-01, dev-node-02"
+        in line
+        for line in detail_lines
+    )
+    assert not any("forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in detail_lines)
+
+
+def test_resolve_requested_connection_scope_keeps_requested_single_ssh_target_single() -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "dev-node-01": {
+                    "host": "192.0.2.11",
+                    "user": "root",
+                    "title": "Development Server 1",
+                    "aliases": ["dev server", "development"],
+                },
+                "dev-node-02": {
+                    "host": "192.0.2.12",
+                    "user": "root",
+                    "title": "Development Server 2",
+                    "aliases": ["dev server", "development"],
+                },
+            }
+        }
+    )
+    candidate_connections = dict(pipeline._unified_routing_connection_pools()["ssh"])
+
+    decision = pipeline._resolve_requested_connection_scope(
+        resolved={"detail_lines": []},
+        message="prüfe nur meinen dev-node-01",
+        effective_kind="ssh",
+        explicit_ref="",
+        requested_ref_hint="dev-node-01",
+        looks_like_plural_target=lambda *_args, **_kwargs: True,
+        candidate_connections=candidate_connections,
+        working_draft=CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            requested_connection_ref="dev-node-01",
+            notes=["target_scope:multi_target"],
+        ),
+    )
+
+    assert decision.plural_target_scope is False
+    assert decision.candidate_connections == candidate_connections
+    detail_lines = list(decision.resolved.get("detail_lines", []) or [])
+    assert any(
+        "plural_target_scope disabled_by_requested_single_target requested_ref=dev-node-01"
+        in line
+        for line in detail_lines
+    )
+    assert not any("plural_target_scope selected_multi_target" in line for line in detail_lines)
+
+
+def test_resolve_requested_connection_scope_expands_requested_ssh_group_context() -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "dev-node-01": {
+                    "host": "192.0.2.11",
+                    "user": "root",
+                    "title": "Development Server 1",
+                    "aliases": ["dev server", "development", "code-server"],
+                },
+                "dev-node-02": {
+                    "host": "192.0.2.12",
+                    "user": "root",
+                    "title": "Development Server 2",
+                    "aliases": ["developer server", "development", "code-server"],
+                },
+                "ai-ui-01": {
+                    "host": "192.0.2.24",
+                    "user": "root",
+                    "title": "Open WebUI",
+                    "aliases": ["ai", "llm", "web-interface"],
+                },
+            }
+        }
+    )
+    candidate_connections = dict(pipeline._unified_routing_connection_pools()["ssh"])
+
+    decision = pipeline._resolve_requested_connection_scope(
+        resolved={"detail_lines": []},
+        message="haben meine developer server noch genug festplattenspeicher",
+        effective_kind="ssh",
+        explicit_ref="",
+        requested_ref_hint="developer server",
+        looks_like_plural_target=lambda *_args, **_kwargs: False,
+        candidate_connections=candidate_connections,
+        working_draft=CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            requested_connection_ref="developer server",
+            content="df -h",
+        ),
+    )
+
+    assert decision.plural_target_scope is True
+    assert list(decision.candidate_connections.keys()) == ["dev-node-01", "dev-node-02"]
+    detail_lines = list(decision.resolved.get("detail_lines", []) or [])
+    assert any(
+        "plural_target_scope enabled_by_requested_ref_context requested_ref=developer server refs=dev-node-01, dev-node-02"
+        in line
+        for line in detail_lines
+    )
+
+
+def _ssh_multi_target_resolution_input(*, query: str, command: str) -> dict[str, object]:
+    return {
+        "query": query,
+        "decision": {"found": True, "kind": "ssh", "ref": "", "source": "kind_inferred"},
+        "action_debug": {
+            "decision": {
+                "found": True,
+                "candidate_kind": "template",
+                "candidate_id": "ssh_run_command",
+                "capability": "ssh_command",
+                "inputs": {"command": command},
+            }
+        },
+        "payload_debug": {
+            "payload": {
+                "found": True,
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_ref": "",
+                "content": command,
+                "missing_fields": ["connection_ref"],
+            }
+        },
+        "safety_debug": {"decision": {}},
+        "execution_debug": {"decision": {}},
+        "detail_lines": [],
+    }
+
+
+def test_apply_ssh_plural_multi_target_resolution_adapts_health_command() -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "srv-a": {"host": "192.0.2.18", "user": "root", "title": "Server A"},
+                "srv-b": {"host": "192.0.2.19", "user": "root", "title": "Server B"},
+            }
+        }
+    )
+    candidate_connections = dict(pipeline._unified_routing_connection_pools()["ssh"])
+
+    finalized = pipeline._apply_ssh_plural_multi_target_resolution(
+        _ssh_multi_target_resolution_input(query="wie fit sind meine server", command="uptime"),
+        candidate_connections=candidate_connections,
+        capability_draft=CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            content="uptime",
+            notes=["target_intent:health_check"],
+        ),
+        language="de",
+    )
+
+    expected_command = "uptime -p && df -h && free -h"
+    payload = dict((finalized.get("payload_debug") or {}).get("payload", {}) or {})
+    action = dict((finalized.get("action_debug") or {}).get("decision", {}) or {})
+    assert payload.get("connection_refs") == ["srv-a", "srv-b"]
+    assert payload.get("content") == expected_command
+    assert action.get("inputs") == {"command": expected_command}
+    assert any(
+        f"plural_target_scope health_command_adapted command={expected_command}" in line
+        for line in finalized.get("detail_lines", [])
+    )
+    assert any(
+        f"plural_target_scope selected_multi_target kind=ssh refs=srv-a, srv-b command={expected_command}"
+        in line
+        for line in finalized.get("detail_lines", [])
+    )
+
+
+def test_apply_ssh_plural_multi_target_resolution_adapts_package_update_command() -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "srv-a": {"host": "192.0.2.18", "user": "root", "title": "Server A"},
+                "srv-b": {"host": "192.0.2.19", "user": "root", "title": "Server B"},
+            }
+        }
+    )
+    candidate_connections = dict(pipeline._unified_routing_connection_pools()["ssh"])
+
+    finalized = pipeline._apply_ssh_plural_multi_target_resolution(
+        _ssh_multi_target_resolution_input(query="brauchen meine server updates", command="uptime"),
+        candidate_connections=candidate_connections,
+        capability_draft=CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            content="uptime",
+            notes=["target_intent:package_update_check"],
+        ),
+        language="de",
+    )
+
+    expected_command = "apt list --upgradable"
+    payload = dict((finalized.get("payload_debug") or {}).get("payload", {}) or {})
+    action = dict((finalized.get("action_debug") or {}).get("decision", {}) or {})
+    assert payload.get("connection_refs") == ["srv-a", "srv-b"]
+    assert payload.get("content") == expected_command
+    assert action.get("inputs") == {"command": expected_command}
+    assert any(
+        f"plural_target_scope package_update_command_adapted command={expected_command}" in line
+        for line in finalized.get("detail_lines", [])
+    )
+
+
+def test_apply_ssh_plural_multi_target_resolution_does_not_finalize_mutating_command() -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "srv-a": {"host": "192.0.2.18", "user": "root", "title": "Server A"},
+                "srv-b": {"host": "192.0.2.19", "user": "root", "title": "Server B"},
+            }
+        }
+    )
+    candidate_connections = dict(pipeline._unified_routing_connection_pools()["ssh"])
+
+    finalized = pipeline._apply_ssh_plural_multi_target_resolution(
+        _ssh_multi_target_resolution_input(query="starte meine server neu", command="sudo reboot"),
+        candidate_connections=candidate_connections,
+        capability_draft=CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            content="sudo reboot",
+            notes=["target_scope:multi_target"],
+        ),
+        language="de",
+    )
+
+    payload = dict((finalized.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("connection_ref") == ""
+    assert not payload.get("connection_refs")
+    assert payload.get("content") == "sudo reboot"
+    assert not any("plural_target_scope selected_multi_target" in line for line in finalized.get("detail_lines", []))
 
 
 def test_pipeline_builds_planner_input_set_from_resolved_candidates(monkeypatch) -> None:
@@ -11531,6 +12647,23 @@ def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> No
     assert "Nicht ueberall" in text
     assert "srv-low" in text
     assert any("multi_target_ssh_summary agentic_source=llm_decision" in line for line in detail_lines)
+    assert any(
+        "Routing Debug: multi_target_ssh_target_timing ref=srv-ok state=ok ms=" in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing Debug: multi_target_ssh_target_timing ref=srv-low state=ok ms=" in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing Debug: multi_target_ssh_summary_timing records=2 operator_ms=" in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing Debug: multi_target_ssh_timing targets=2 allowed=2 blocked=0 preflight_ms=" in line
+        and "slowest_ref=" in line
+        for line in detail_lines
+    )
 
 
 def test_pipeline_runtime_outcome_followup_ranks_previous_package_updates() -> None:
@@ -11631,6 +12764,340 @@ def test_pipeline_runtime_outcome_followup_ranks_previous_package_updates() -> N
     assert "ssh_multi_target_summary" in llm.operations
     assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
     assert any("runtime_outcome_followup action=use_previous_outcome affordance=rank_updates" in line for line in result.detail_lines)
+
+
+def test_pipeline_confirmed_single_ssh_result_keeps_runtime_context_for_path_followup() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-server-01": {"host": "192.0.2.10", "user": "root", "title": "Dev Server"},
+                    "srv-dev02": {"host": "192.0.2.11", "user": "root", "title": "Other Dev Server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class PathFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                raise AssertionError("path follow-up should use direct frame evidence without LLM")
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("runtime follow-up should run before meta-catalog arbitration")
+            return await super().chat(messages, **kwargs)
+
+    llm = PathFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_execute(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        if plan.content.startswith("ls -lah /tmp"):
+            return "2.0G\t/tmp/build-cache\n1.5G\t/tmp/uploads"
+        return "15G\t/\n7.0G\t/home\n3.5G\t/tmp"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    confirmed = asyncio.run(
+        pipeline.execute_pending_routed_action(
+            {
+                "query": "wo verbraucht dev-server-01 am meisten festplattenspeicher",
+                "candidate_kind": "template",
+                "candidate_id": "ssh_run_command",
+                "routing_decision": {"kind": "ssh", "ref": "dev-server-01"},
+                "action_decision": {"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+                "payload": {
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "dev-server-01",
+                    "content": "du -h --max-depth=1 / 2>/dev/null",
+                },
+                "safety_decision": {"action": "ask_user", "reason": "ssh_command_needs_confirmation"},
+                "execution_decision": {"next_step": "execute"},
+            },
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert confirmed.intents == ["capability:ssh_command"]
+    assert any("runtime_outcome_frame stored" in line for line in confirmed.detail_lines)
+
+    result = asyncio.run(
+        pipeline.process(
+            "3.5G /tmp was liegt da alles rum",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert "build-cache" in result.text
+    assert "uploads" in result.text
+    assert ssh_calls == [
+        ("dev-server-01", "du -h --max-depth=1 / 2>/dev/null"),
+        ("dev-server-01", "ls -lah /tmp"),
+    ]
+    assert "runtime_outcome_followup_resolution" not in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("runtime_outcome_followup fast_path=direct_path_evidence" in line for line in result.detail_lines)
+    assert any("runtime_outcome_followup action=run_read_only_followup affordance=inspect_path" in line for line in result.detail_lines)
+    assert not any("plural_target_scope selected_multi_target" in line for line in result.detail_lines)
+
+
+def test_pipeline_unrelated_turn_after_runtime_frame_skips_followup_llm() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-server-01": {"host": "192.0.2.10", "user": "root", "title": "Dev Server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class UnrelatedTurnLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                raise AssertionError("unrelated turn must not pay runtime follow-up LLM")
+            return await super().chat(messages, **kwargs)
+
+    llm = UnrelatedTurnLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    detail_lines: list[str] = []
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "single_command",
+            "command": "du -h --max-depth=1 /",
+            "targets": ["dev-server-01"],
+            "records": [
+                {
+                    "ref": "dev-server-01",
+                    "state": "ok",
+                    "text": "15G\t/\n7.0G\t/home\n3.6G\t/tmp",
+                    "raw_text": "15G\t/\n7.0G\t/home\n3.6G\t/tmp",
+                }
+            ],
+            "summary": "15G\t/\n7.0G\t/home\n3.6G\t/tmp",
+            "followup_affordances": ["inspect_path", "explain_result", "rerun_check"],
+        },
+        user_id="u1",
+        detail_lines=detail_lines,
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "wie kriege ich meine heizungen ans wireless ?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.request_id
+    assert "runtime_outcome_followup_resolution" not in llm.operations
+    assert any("stage_timing stage=runtime_outcome_followup" in line for line in result.detail_lines)
+
+
+def test_pipeline_runtime_path_followup_accepts_structured_ref_and_affordance_variants() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-server-01": {"host": "192.0.2.10", "user": "root", "title": "Dev Server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class PathFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                raise AssertionError("path follow-up should use direct frame evidence without LLM")
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("runtime follow-up should not fall through to meta-catalog arbitration")
+            return await super().chat(messages, **kwargs)
+
+    llm = PathFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_execute(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        if plan.content.startswith("ls -lah /tmp"):
+            return "2.0G\t/tmp/build-cache\n1.6G\t/tmp/uploads"
+        return "15G\t/\n7.0G\t/home\n3.6G\t/tmp"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    confirmed = asyncio.run(
+        pipeline.execute_pending_routed_action(
+            {
+                "query": "wo verbraucht dev-server-01 am meisten festplattenspeicher",
+                "candidate_kind": "template",
+                "candidate_id": "ssh_run_command",
+                "routing_decision": {"kind": "ssh", "ref": "dev-server-01"},
+                "action_decision": {"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+                "payload": {
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "dev-server-01",
+                    "content": "du -h --max-depth=1 / 2>/dev/null | sort -rh | head -20",
+                },
+                "safety_decision": {"action": "ask_user", "reason": "ssh_command_needs_confirmation"},
+                "execution_decision": {"next_step": "execute"},
+            },
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert confirmed.intents == ["capability:ssh_command"]
+
+    result = asyncio.run(
+        pipeline.process(
+            "3.6G /tmp was liegt da alles rum",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert "build-cache" in result.text
+    assert "uploads" in result.text
+    assert ssh_calls == [
+        ("dev-server-01", "du -h --max-depth=1 / 2>/dev/null | sort -rh | head -20"),
+        ("dev-server-01", "ls -lah /tmp"),
+    ]
+    assert "runtime_outcome_followup_resolution" not in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("runtime_outcome_followup fast_path=direct_path_evidence" in line for line in result.detail_lines)
+    assert any("runtime_outcome_followup action=run_read_only_followup affordance=inspect_path" in line for line in result.detail_lines)
+
+
+def test_pipeline_runtime_path_followup_recovers_when_llm_marks_path_as_new_turn() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "dev-server-01": {"host": "192.0.2.10", "user": "root", "title": "Dev Server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class PathFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                raise AssertionError("path follow-up should use direct frame evidence without LLM")
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("runtime path follow-up should not fall through to meta-catalog arbitration")
+            return await super().chat(messages, **kwargs)
+
+    llm = PathFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_execute(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        if plan.content.startswith("ls -lah /tmp"):
+            return "total 3.6G\ndrwxrwxrwt 10 root root 4.0K /tmp\n2.0G build-cache\n1.6G uploads"
+        return "15G\t/\n7.0G\t/home\n3.7G\t/usr\n3.6G\t/tmp\n529M\t/var"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    confirmed = asyncio.run(
+        pipeline.execute_pending_routed_action(
+            {
+                "query": "wo verbraucht dev-server-01 am meisten festplattenspeicher",
+                "candidate_kind": "template",
+                "candidate_id": "ssh_run_command",
+                "routing_decision": {"kind": "ssh", "ref": "dev-server-01"},
+                "action_decision": {"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+                "payload": {
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "dev-server-01",
+                    "content": "du -h --max-depth=1 / 2>/dev/null | sort -hr | head -20",
+                },
+                "safety_decision": {"action": "ask_user", "reason": "ssh_command_needs_confirmation"},
+                "execution_decision": {"next_step": "execute"},
+            },
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert confirmed.intents == ["capability:ssh_command"]
+    assert any("runtime_outcome_frame stored" in line for line in confirmed.detail_lines)
+
+    result = asyncio.run(
+        pipeline.process(
+            "3.6G /tmp was liegt da alles rum",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.pending_action is None
+    assert "build-cache" in result.text
+    assert ssh_calls == [
+        ("dev-server-01", "du -h --max-depth=1 / 2>/dev/null | sort -hr | head -20"),
+        ("dev-server-01", "ls -lah /tmp"),
+    ]
+    assert "runtime_outcome_followup_resolution" not in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("runtime_outcome_followup fast_path=direct_path_evidence" in line for line in result.detail_lines)
+    assert any("runtime_outcome_followup action=run_read_only_followup affordance=inspect_path" in line for line in result.detail_lines)
 
 
 def test_pipeline_multi_target_ssh_llm_summary_receives_compact_target_results() -> None:

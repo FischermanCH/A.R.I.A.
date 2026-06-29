@@ -177,6 +177,7 @@ async def execute_chat_flow(
     auto_memory_enabled: bool,
     deps: ChatExecutionDeps,
     pipeline_message: str | None = None,
+    chat_history: list[dict[str, Any]] | None = None,
 ) -> ChatResponseState:
     web_start = time.perf_counter()
     response_state = ChatResponseState()
@@ -329,27 +330,33 @@ async def execute_chat_flow(
             session_collection=session_collection,
             auto_memory_enabled=auto_memory_enabled,
             aria_turn_arbitration=pre_pipeline_decision.arbitration,
+            recent_history=chat_history,
         )
         pipeline_call_ms = int((time.perf_counter() - pipeline_call_start) * 1000)
         post_pipeline_start = time.perf_counter()
+        result_mapping_start = time.perf_counter()
         response_state.assistant_text = result.text or _chat_execution_text(lang, "empty_answer", "I did not produce an answer right now.")
         response_state.icon, response_state.intent_label = deps.intent_badge(result.intents, result.skill_errors)
         response_state.total_tokens = int(result.usage.get("total_tokens", 0) or 0)
         if result.total_cost_usd is not None:
             response_state.cost_usd = f"${result.total_cost_usd:.6f}"
-        post_pipeline_ms = int((time.perf_counter() - post_pipeline_start) * 1000)
+        result_mapping_ms = int((time.perf_counter() - result_mapping_start) * 1000)
         web_total_ms = int((time.perf_counter() - web_start) * 1000)
         response_state.duration_s = f"{web_total_ms / 1000:.1f}"
         response_state.badge_details = [
             *list(result.detail_lines),
             "Routing Debug: web_outer_timing "
-            f"pre_pipeline_ms={pre_pipeline_ms} pipeline_call_ms={pipeline_call_ms} post_pipeline_ms={post_pipeline_ms}",
+            f"pre_pipeline_ms={pre_pipeline_ms} pipeline_call_ms={pipeline_call_ms} post_pipeline_ms=0",
             f"Routing Debug: web_request_timing total_ms={web_total_ms} pipeline_ms={int(result.duration_ms or 0)} source=web_chat",
         ]
+        warning_start = time.perf_counter()
         warning = deps.friendly_error_text(result.skill_errors)
         if warning:
             response_state.assistant_text = f"{response_state.assistant_text}\n\n{_chat_execution_text(lang, 'warning_prefix', 'Note')}: {warning}"
+        warning_ms = int((time.perf_counter() - warning_start) * 1000)
+        alert_ms = 0
         if should_alert_recipe_errors(result.skill_errors):
+            alert_start = time.perf_counter()
             discord_error_text = discord_alert_error_lines(result.skill_errors)
             await asyncio.to_thread(
                 deps.alert_sender,
@@ -363,6 +370,8 @@ async def execute_chat_flow(
                 ],
                 level="warn",
             )
+            alert_ms = int((time.perf_counter() - alert_start) * 1000)
+        pending_followup_start = time.perf_counter()
         followup = await chat_pending_flows.apply_chat_result_pending_followups(
             result=result,
             assistant_text=response_state.assistant_text,
@@ -377,6 +386,7 @@ async def execute_chat_flow(
             sanitize_connection_name=deps.sanitize_connection_name,
             alert_sender=deps.alert_sender,
         )
+        pending_followup_ms = int((time.perf_counter() - pending_followup_start) * 1000)
         response_state.assistant_text = followup.assistant_text
         response_state.icon = followup.icon
         response_state.intent_label = followup.intent_label
@@ -386,6 +396,20 @@ async def execute_chat_flow(
         response_state.clear_routed_action_cookie = chat_pending_flows.COOKIE_ROUTED_ACTION in followup.clear_cookies
         response_state.routed_action_confirm_command = followup.routed_action_confirm_command
         response_state.routed_action_confirm_payload = followup.routed_action_confirm_payload
+        post_pipeline_ms = int((time.perf_counter() - post_pipeline_start) * 1000)
+        for index, line in enumerate(response_state.badge_details):
+            if line.startswith("Routing Debug: web_outer_timing "):
+                response_state.badge_details[index] = (
+                    "Routing Debug: web_outer_timing "
+                    f"pre_pipeline_ms={pre_pipeline_ms} pipeline_call_ms={pipeline_call_ms} "
+                    f"post_pipeline_ms={post_pipeline_ms}"
+                )
+                break
+        response_state.badge_details.append(
+            "Routing Debug: web_post_pipeline_timing "
+            f"result_mapping_ms={result_mapping_ms} warning_ms={warning_ms} alert_ms={alert_ms} "
+            f"pending_followup_ms={pending_followup_ms} total_ms={post_pipeline_ms}"
+        )
         return response_state
     except (PromptLoadError, LLMClientError, ValueError) as exc:
         response_state.assistant_text = f"{_chat_execution_text(lang, 'error_prefix', 'Error')}: {exc}"

@@ -145,13 +145,41 @@ class WebSearchSkill(BaseSkill):
     )
 
     _NEWS_DOMAINS = (
+        "appgefahren.de",
         "computerbase.de",
         "heise.de",
+        "itmagazine.ch",
         "it-daily.net",
+        "n-tv.de",
+        "runnersworld.de",
         "t3n.de",
         "zeit.de",
         "bernerzeitung.ch",
     )
+
+    _DEAL_TERMS = (
+        "angebot",
+        "angebote",
+        "bundle",
+        "deal",
+        "deals",
+        "discount",
+        "g" + chr(252) + "nstig",
+        "guenstig",
+        "shopping",
+        "sale",
+        "rabatt",
+        "1 euro",
+        "one euro",
+    )
+
+    _TARGET_TERM_STOPWORDS = frozenset({
+        "apple",
+        "google",
+        "microsoft",
+        "samsung",
+        "sony",
+    })
 
     @staticmethod
     def _profile_rows(settings: Any) -> dict[str, Any]:
@@ -232,6 +260,91 @@ class WebSearchSkill(BaseSkill):
         )
 
     @classmethod
+    def _is_news_query(cls, query: str) -> bool:
+        text = str(query or "").strip().lower()
+        return any(term in text for term in ("news", "nachrichten", "meldungen", "headlines"))
+
+    @classmethod
+    def _should_run_official_supplement(cls, query: str) -> bool:
+        if cls._is_news_query(query):
+            return False
+        return cls._is_recency_query(query) or cls._is_current_version_query(query)
+
+    @classmethod
+    def _official_supplement_query(cls, query: str) -> str:
+        clean = re.sub(r"\s+", " ", str(query or "").strip())
+        if not clean:
+            return ""
+        lowered = clean.lower()
+        if "official" in lowered or "offizielle" in lowered or "hersteller" in lowered:
+            return clean
+        return f"{clean} official manufacturer product page"
+
+    @classmethod
+    def _official_supplement_queries(cls, query: str) -> list[str]:
+        primary = cls._official_supplement_query(query)
+        queries: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: str) -> None:
+            clean = re.sub(r"\s+", " ", str(value or "").strip(" .,:;!?"))
+            key = clean.lower()
+            if clean and key not in seen and key != str(query or "").strip().lower():
+                seen.add(key)
+                queries.append(clean)
+
+        add(primary)
+        for target in cls._official_product_targets(query):
+            add(f"{target} latest model official manufacturer product page")
+        return queries[:4]
+
+    @classmethod
+    def _official_product_targets(cls, query: str) -> list[str]:
+        if not cls._should_run_official_supplement(query):
+            return []
+        clean = re.sub(r"\s+", " ", str(query or "").strip())
+        if not clean:
+            return []
+        subject = clean
+        cleanup_patterns = (
+            r"\b(?:bitte|please)\b",
+            r"\b(?:suche|such|suchen|search|research|recherchier(?:e|en)?)\b",
+            r"\b(?:im|in dem|in|on the)\s+(?:internet|web)\b",
+            r"\b(?:online|nach|for)\b",
+            r"\b(?:der|die|das|dem|den|des|einer?|the)\b",
+            r"\b(?:neuste[ns]?|neueste[ns]?|aktuell(?:e[nsr]?)?|latest|newest|current|most recent)\b",
+            r"\b(?:modell|model|version|release)\b",
+        )
+        for pattern in cleanup_patterns:
+            subject = re.sub(pattern, " ", subject, flags=re.IGNORECASE)
+        subject = re.sub(r"\s+", " ", subject).strip(" .,:;!?")
+        if not subject:
+            return []
+        parts = [
+            re.sub(r"\s+", " ", part).strip(" .,:;!?")
+            for part in re.split(r"\s+(?:und|and|sowie|plus)\s+|[,;/]+", subject, flags=re.IGNORECASE)
+        ]
+        parts = [part for part in parts if part and len(part) >= 4]
+        if len(parts) < 2:
+            return []
+        query_lower = clean.lower()
+        targets: list[str] = []
+        seen: set[str] = set()
+        carried_brand = ""
+        for part in parts:
+            target = part
+            tokens = re.findall(r"[A-Za-z][A-Za-z0-9-]*", target)
+            if carried_brand and tokens and tokens[0].lower() != carried_brand.lower():
+                target = f"{carried_brand} {target}"
+            elif not carried_brand and len(tokens) >= 2 and tokens[0].lower() in query_lower:
+                carried_brand = tokens[0]
+            key = target.lower()
+            if key not in seen:
+                seen.add(key)
+                targets.append(target)
+        return targets[:3]
+
+    @classmethod
     def _is_current_version_query(cls, query: str) -> bool:
         text = re.sub(r"\s+", " ", str(query or "").strip().lower())
         if not text:
@@ -305,9 +418,6 @@ class WebSearchSkill(BaseSkill):
 
     @classmethod
     def _source_quality_score(cls, query: str, result: Any) -> int:
-        if not cls._is_current_version_query(query):
-            return 0
-
         title = str(getattr(result, "title", "") or "").lower()
         snippet = str(getattr(result, "snippet", "") or "").lower()
         engine = str(getattr(result, "engine", "") or "").lower()
@@ -318,6 +428,19 @@ class WebSearchSkill(BaseSkill):
         combined = " ".join(part for part in (title, snippet, url) if part)
 
         score = 0
+        terms = cls._query_terms(query)
+        meaningful_domain_terms = [term for term in terms if len(term) >= 4 and term not in {"latest", "neuste", "neueste"}]
+        if cls._should_run_official_supplement(query):
+            if any(term in domain for term in meaningful_domain_terms):
+                score += 22
+            if any(marker in domain for marker in ("official", "store.")):
+                score += 8
+            if any(marker in path for marker in ("/shop/", "/store/", "/product", "/iphone", "/watch")):
+                score += 5
+
+        if not cls._is_current_version_query(query) and not cls._should_run_official_supplement(query):
+            return score
+
         if "github.com" in domain and any(marker in path for marker in ("/releases", "/tags")):
             score += 28
         elif "github.com" in domain and any(marker in combined for marker in ("release", "changelog", "tag")):
@@ -336,12 +459,84 @@ class WebSearchSkill(BaseSkill):
 
         news_like = "news" in engine or any(news_domain in domain for news_domain in cls._NEWS_DOMAINS)
         if news_like:
-            score -= 12
+            score -= 28 if cls._should_run_official_supplement(query) else 12
+
+        if any(term in combined for term in cls._DEAL_TERMS):
+            score -= 18
 
         if "mozilla.org" in domain and "manifest.json/version" in path:
             score -= 20
 
         return score
+
+    @staticmethod
+    def _merge_search_results(primary: list[Any], supplemental: list[Any]) -> list[Any]:
+        merged: list[Any] = []
+        seen: set[str] = set()
+        for item in [*primary, *supplemental]:
+            url = str(getattr(item, "url", "") or "").strip().lower()
+            key = url or str(getattr(item, "title", "") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged
+
+    @classmethod
+    def _target_match_terms(cls, target: str) -> list[str]:
+        terms = [
+            term
+            for term in cls._query_terms(target)
+            if term not in cls._TARGET_TERM_STOPWORDS
+        ]
+        if terms:
+            return terms
+        return cls._query_terms(target)
+
+    @classmethod
+    def _result_search_text(cls, result: Any) -> str:
+        return " ".join(
+            str(value or "").lower()
+            for value in (
+                getattr(result, "title", ""),
+                getattr(result, "snippet", ""),
+                getattr(result, "url", ""),
+                getattr(result, "engine", ""),
+            )
+            if str(value or "").strip()
+        )
+
+    @classmethod
+    def _target_coverage_rows(cls, query: str, ordered_results: list[Any]) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for target in cls._official_product_targets(query):
+            terms = cls._target_match_terms(target)
+            if not terms:
+                continue
+            best: Any | None = None
+            best_score = -10_000
+            for index, result in enumerate(ordered_results):
+                combined = cls._result_search_text(result)
+                if not any(term in combined for term in terms):
+                    continue
+                quality = cls._source_quality_score(target, result)
+                relevance, matches = cls._result_relevance_score(target, result)
+                score = quality + relevance + matches * 8 - index
+                if score > best_score:
+                    best = result
+                    best_score = score
+            if best is None:
+                continue
+            rows.append(
+                {
+                    "target": target,
+                    "title": str(getattr(best, "title", "") or "").strip(),
+                    "url": str(getattr(best, "url", "") or "").strip(),
+                    "snippet": str(getattr(best, "snippet", "") or "").strip(),
+                    "engine": str(getattr(best, "engine", "") or "").strip(),
+                }
+            )
+        return rows
 
     def _prepare_results(self, query: str, results: list[Any]) -> list[Any]:
         prepared = list(results)
@@ -367,10 +562,24 @@ class WebSearchSkill(BaseSkill):
         if has_relevant_match:
             scored = [row for row in scored if row[2] > 0]
 
+        official_supplement_query = self._should_run_official_supplement(query)
         if current_version_query:
             scored.sort(
                 key=lambda row: (
-                    row[0],
+                    row[0] > 0,
+                    max(row[0], 0),
+                    row[2],
+                    row[1],
+                    row[3] if recency_query else 0.0,
+                    -row[4],
+                ),
+                reverse=True,
+            )
+        elif official_supplement_query:
+            scored.sort(
+                key=lambda row: (
+                    row[0] > 0,
+                    max(row[0], 0),
                     row[2],
                     row[1],
                     row[3] if recency_query else 0.0,
@@ -574,17 +783,40 @@ class WebSearchSkill(BaseSkill):
         ref, profile = selected
         display_name = str(self._profile_value(profile, "title", "")).strip() or ref
         try:
+            search_kwargs = {
+                "base_url": resolve_searxng_base_url(str(self._profile_value(profile, "base_url", "")).strip()),
+                "timeout_seconds": int(self._profile_value(profile, "timeout_seconds", 10) or 10),
+                "language": str(self._profile_value(profile, "language", "")).strip(),
+                "safe_search": int(self._profile_value(profile, "safe_search", 1) or 1),
+                "categories": self._profile_list(profile, "categories"),
+                "engines": self._profile_list(profile, "engines"),
+                "time_range": str(self._profile_value(profile, "time_range", "")).strip(),
+                "max_results": max(int(self._profile_value(profile, "max_results", 5) or 5), 8)
+                if self._should_run_official_supplement(query)
+                else int(self._profile_value(profile, "max_results", 5) or 5),
+            }
             response = await self.client.search(
-                base_url=resolve_searxng_base_url(str(self._profile_value(profile, "base_url", "")).strip()),
                 query=str(query or "").strip(),
-                timeout_seconds=int(self._profile_value(profile, "timeout_seconds", 10) or 10),
-                language=str(self._profile_value(profile, "language", "")).strip(),
-                safe_search=int(self._profile_value(profile, "safe_search", 1) or 1),
-                categories=self._profile_list(profile, "categories"),
-                engines=self._profile_list(profile, "engines"),
-                time_range=str(self._profile_value(profile, "time_range", "")).strip(),
-                max_results=int(self._profile_value(profile, "max_results", 5) or 5),
+                **search_kwargs,
             )
+            supplemental_count = 0
+            if self._should_run_official_supplement(query):
+                supplement_queries = self._official_supplement_queries(query)
+                if supplement_queries:
+                    supplemental_responses = await asyncio.gather(
+                        *[
+                            self.client.search(
+                                query=supplement_query,
+                                **search_kwargs,
+                            )
+                            for supplement_query in supplement_queries
+                        ]
+                    )
+                    supplemental_results = []
+                    for supplemental_response in supplemental_responses:
+                        supplemental_results.extend(list(supplemental_response.results or []))
+                    response.results = self._merge_search_results(response.results, supplemental_results)
+                    supplemental_count = len(supplemental_results)
         except SearXNGClientError as exc:
             return SkillResult(
                 skill_name=self.name,
@@ -642,6 +874,7 @@ class WebSearchSkill(BaseSkill):
                         "fetch_attempt_count": len(explicit_urls[:3]),
                         "page_excerpt_count": len(page_excerpts),
                         "source_quality_outcome": "explicit_url_page_fetch",
+                        "official_supplement_count": supplemental_count,
                     },
                 )
 
@@ -658,7 +891,8 @@ class WebSearchSkill(BaseSkill):
                             "Web search via {display_name} · 0 results",
                             display_name=display_name,
                         )
-                    ]
+                    ],
+                    "official_supplement_count": supplemental_count,
                 },
             )
 
@@ -679,6 +913,18 @@ class WebSearchSkill(BaseSkill):
                     "Note: results with recognized publication dates are shown first.",
                 )
             )
+        target_coverage = self._target_coverage_rows(query, ordered_results)
+        if target_coverage:
+            lines.append("Target coverage for the answer (answer each listed target separately; do not claim a target is missing when it has a row here):")
+            for row in target_coverage:
+                entry = f"- {row['target']}: {row['title']}"
+                if row["url"]:
+                    entry += f" · {row['url']}"
+                if row["engine"]:
+                    entry += f" · {row['engine']}"
+                if row["snippet"]:
+                    entry += f"\n  Evidence snippet: {row['snippet']}"
+                lines.append(entry)
         source_entries: list[dict[str, Any]] = []
         page_excerpts: dict[str, str] = {}
         fetch_attempts: set[str] = set()
@@ -740,6 +986,8 @@ class WebSearchSkill(BaseSkill):
                 "explicit_url_count": len(explicit_urls),
                 "fetch_attempt_count": len(fetch_candidates),
                 "page_excerpt_count": len({value for value in page_excerpts.values()}),
+                "official_supplement_count": supplemental_count,
+                "target_coverage": target_coverage,
                 "source_quality_outcome": (
                     "explicit_url_with_page_excerpt"
                     if explicit_urls and page_excerpts

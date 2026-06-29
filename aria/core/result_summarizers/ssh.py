@@ -68,6 +68,73 @@ def extract_df_metrics(stdout: str) -> dict[str, str]:
     }
 
 
+def _command_contains_df(command: str) -> bool:
+    return bool(re.search(r"(?:^|[;&|]\s*)df\s+-[A-Za-z]*h\b", str(command or "").strip().lower()))
+
+
+def _command_inspects_directory(command: str) -> bool:
+    clean = str(command or "").strip().lower()
+    return bool(
+        re.search(r"(?:^|[;&|]\s*)du\s+.*--max-depth\s*=\s*1\b", clean)
+        or re.search(r"(?:^|[;&|]\s*)ls\s+-[A-Za-z]*[ahl][A-Za-z]*\s+/", clean)
+    )
+
+
+def _extract_command_path(command: str) -> str:
+    text = str(command or "").strip()
+    for pattern in (
+        r"(?:^|[;&|]\s*)du\s+.*?--max-depth\s*=\s*1\s+((?:'[^']+'|\"[^\"]+\"|/[^\s;&|]+))",
+        r"(?:^|[;&|]\s*)ls\s+-[A-Za-z]*[ahl][A-Za-z]*\s+((?:'[^']+'|\"[^\"]+\"|/[^\s;&|]+))",
+    ):
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        path = match.group(1).strip().strip("'\"")
+        if path.startswith("/"):
+            return path
+    return ""
+
+
+def _summarize_directory_inspection(stdout: str, *, command: str, connection_ref: str, language: str | None = None) -> str:
+    text = str(stdout or "").strip()
+    if not text:
+        return ""
+    path = _extract_command_path(command) or "/"
+    entries: list[str] = []
+    total_line = ""
+    for raw_line in text.splitlines():
+        clean = raw_line.strip()
+        if not clean:
+            continue
+        if clean.lower().startswith("total "):
+            total_line = clean
+            continue
+        du_match = re.match(r"^(\S+)\s+(/.+)$", clean)
+        if du_match:
+            size, item_path = du_match.groups()
+            if item_path.rstrip("/") == path.rstrip("/"):
+                total_line = f"{size} {item_path}"
+                continue
+            entries.append(f"{size} {item_path}")
+            continue
+        parts = re.split(r"\s+", clean, maxsplit=8)
+        if len(parts) >= 9 and re.match(r"^[bcdlps-][rwxstST-]{9}", parts[0]):
+            name = parts[8].strip()
+            if name in {".", ".."}:
+                continue
+            entries.append(f"{parts[4]} {name}")
+    entries = entries[:10]
+    if not entries and not total_line:
+        return ""
+    host_label = f"`{connection_ref}`"
+    header = _ssh_summary_text(language, "directory_inspection", host=host_label, path=path)
+    if total_line:
+        header += " " + _ssh_summary_text(language, "directory_total", total=total_line)
+    if not entries:
+        return header.strip()
+    return (header.rstrip() + "\n\n" + "\n".join(f"- {entry}" for entry in entries)).strip()
+
+
 def extract_free_metrics(stdout: str) -> dict[str, str]:
     text = str(stdout or "").strip()
     if not text:
@@ -431,12 +498,22 @@ def summarize_ssh_result_for_chat(
     language: str | None = None,
 ) -> str:
     meta = getattr(result, "metadata", None) or {}
-    command = str(meta.get("custom_command", "") or "").strip().lower()
+    command_raw = str(meta.get("custom_command", "") or "").strip()
+    command = command_raw.lower()
     stdout = str(meta.get("custom_stdout", "") or "").strip()
     if not stdout:
         return ""
+    if _command_inspects_directory(command):
+        directory_summary = _summarize_directory_inspection(
+            stdout,
+            command=command_raw,
+            connection_ref=connection_ref,
+            language=language,
+        )
+        if directory_summary:
+            return directory_summary
     metrics = extract_uptime_metrics(stdout)
-    df_metrics = extract_df_metrics(stdout)
+    df_metrics = extract_df_metrics(stdout) if _command_contains_df(command) else {}
     free_metrics = extract_free_metrics(stdout)
     docker_metrics = extract_docker_ps_metrics(stdout)
     service_states = extract_systemctl_active_states(stdout)
@@ -474,11 +551,11 @@ def summarize_ssh_result_for_chat(
         or failed_metrics
         or journal_metrics
     )
-    if not has_health_signals and "df -h" not in command:
+    if not has_health_signals and not _command_contains_df(command):
         return ""
     if is_full_healthcheck:
         parts = [_ssh_summary_text(language, "server_healthcheck", host=host_label)]
-    elif "df -h" in command and not uptime_value and not load_value:
+    elif _command_contains_df(command) and not uptime_value and not load_value:
         parts = [_ssh_summary_text(language, "disk_check", host=host_label)]
     else:
         parts = [_ssh_summary_text(language, "quick_check", host=host_label)]

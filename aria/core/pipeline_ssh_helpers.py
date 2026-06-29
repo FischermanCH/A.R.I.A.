@@ -884,30 +884,21 @@ class PipelineSSHHelpersMixin:
         runtime_effect: dict[str, str],
         language: str | None = None,
     ) -> str:
-        reason = str(runtime_effect.get("reason", "") or "").strip()
-        lines = [
-            self._pipeline_text(language, "mutating_ssh_request_block.no_execution", "I did not run anything."),
-            self._pipeline_text(
-                language,
-                "mutating_ssh_request_block.no_readonly_fallback",
-                "This request looks state-changing, so ARIA will not replace it with a read-only status probe.",
-            ),
-            self._pipeline_text(
-                language,
-                "mutating_ssh_request_block.readonly_hint",
-                "Please ask for an explicit read-only check if you only want inspection.",
-            ),
-        ]
-        if reason:
-            lines.append(
+        return "\n".join(
+            [
+                self._pipeline_text(language, "mutating_ssh_request_block.no_execution", "I did not run anything."),
                 self._pipeline_text(
                     language,
-                    "mutating_ssh_request_block.reason",
-                    "Reason: {reason}",
-                    reason=reason,
-                )
-            )
-        return "\n".join(lines)
+                    "mutating_ssh_request_block.guardrail",
+                    "Guardrail/SSH policy blocked this state-changing request.",
+                ),
+                self._pipeline_text(
+                    language,
+                    "mutating_ssh_request_block.no_readonly_fallback",
+                    "ARIA will not replace it with a read-only status probe; ask for an explicit read-only check if you only want inspection.",
+                ),
+            ]
+        )
 
     async def _build_mutating_ssh_request_block_result(
         self,

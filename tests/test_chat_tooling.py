@@ -412,6 +412,31 @@ def test_pipeline_followup_resolution_rewrites_before_regex_fallback() -> None:
     assert llm.operations == ["followup_resolution"]
 
 
+def test_pipeline_followup_resolution_skips_standalone_explicit_web_search() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    llm = _FollowupLLM(
+        {
+            "action": "rewrite",
+            "target_space": "web_search",
+            "rewritten_message": "wrong",
+            "confidence": "high",
+            "reason": "should not run",
+        }
+    )
+
+    rewritten = asyncio.run(
+        chat_execution_routes._resolve_pipeline_followup_message(
+            "suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+            [{"role": "user", "text": "was habe ich fuer news feeds?"}],
+            llm_client=llm,
+        )
+    )
+
+    assert rewritten == "suche im internet nach der neusten apple watch ultra und dem neusten iphone"
+    assert llm.operations == []
+
+
 def test_pipeline_followup_resolution_no_rewrite_blocks_regex_fallback() -> None:
     import aria.web.chat_execution_routes as chat_execution_routes
 
@@ -1130,6 +1155,12 @@ def test_chat_badge_details_include_web_request_timing(monkeypatch) -> None:
     assert "Routing Debug: fake_pipeline" in response.text
     assert "Routing Debug: web_request_timing" in response.text
     assert "Routing Debug: web_total_wall_time" in response.text
+    assert "Routing Debug: web_post_pipeline_timing" in response.text
+    assert "Routing Debug: web_route_timing" in response.text
+    assert "history_load_ms=" in response.text
+    assert "pre_template_total_ms=" in response.text
+    assert response.headers["x-aria-web-template-ms"].isdigit()
+    assert response.headers["x-aria-web-cookies-ms"].isdigit()
     assert "pipeline_ms=7" in response.text
 
 

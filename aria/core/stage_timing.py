@@ -30,3 +30,25 @@ class StageTimingLedger:
         if not self.enabled or not self._rows:
             return []
         return [f"Routing Debug: stage_timing stage={name} ms={duration_ms}" for name, duration_ms in self._rows]
+
+
+def insert_stage_timing_detail_lines(detail_lines: list[str] | None, timing: StageTimingLedger) -> list[str]:
+    lines = list(detail_lines or [])
+    timing_lines = timing.debug_lines()
+    if not timing_lines:
+        return lines
+    tail_start = len(lines)
+    while tail_start > 0:
+        line = str(lines[tail_start - 1] or "").strip()
+        if (
+            line.startswith("Routing")
+            or line.startswith("Quelle:")
+            or ("-Kontext:" in line and line.split(":", 1)[0].endswith("Kontext"))
+        ):
+            break
+        tail_start -= 1
+    if tail_start == len(lines):
+        return [*lines, *timing_lines]
+    if tail_start <= 0:
+        return [*timing_lines, *lines]
+    return [*lines[:tail_start], *timing_lines, *lines[tail_start:]]

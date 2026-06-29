@@ -17,6 +17,8 @@ from aria.core.aria_turn_arbitration import _fallback_plan
 from aria.core.aria_turn_arbitration import _unique_clean
 from aria.core.bounded_decision import BoundedDecisionClient
 from aria.core.bounded_decision import confidence_score
+from aria.core.chat_turn_context import semantic_query_with_visible_chat_context
+from aria.core.chat_turn_context import visible_chat_context_from_turn_context
 from aria.core.context_surfaces import ContextRequest
 from aria.core.context_surfaces import SurfaceRegistry
 from aria.core.doc_meta_catalog import DocumentMetaCatalogStore, document_meta_collection_for_user
@@ -65,15 +67,15 @@ def _compact_meta_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "surface_id": str(payload.get("surface_id", "") or "").strip(),
         "kind": str(payload.get("kind", "") or "").strip(),
         "ref": str(payload.get("ref", "") or "").strip(),
-        "title": str(payload.get("title", "") or "").strip()[:180],
-        "description": str(payload.get("description", "") or "").strip()[:320],
-        "group_name": str(payload.get("group_name", "") or "").strip()[:120],
-        "knows": list(payload.get("knows", []) or [])[:12],
-        "can_load": list(payload.get("can_load", []) or [])[:10],
-        "can_do": list(payload.get("can_do", []) or [])[:10],
-        "action_candidates": list(payload.get("action_candidates", []) or [])[:8],
-        "loader_contract": str(payload.get("loader_contract", "") or "").strip()[:240],
-        "executor_contract": str(payload.get("executor_contract", "") or "").strip()[:240],
+        "title": str(payload.get("title", "") or "").strip()[:140],
+        "description": str(payload.get("description", "") or "").strip()[:220],
+        "group_name": str(payload.get("group_name", "") or "").strip()[:80],
+        "knows": list(payload.get("knows", []) or [])[:8],
+        "can_load": list(payload.get("can_load", []) or [])[:6],
+        "can_do": list(payload.get("can_do", []) or [])[:6],
+        "action_candidates": list(payload.get("action_candidates", []) or [])[:5],
+        "loader_contract": str(payload.get("loader_contract", "") or "").strip()[:160],
+        "executor_contract": str(payload.get("executor_contract", "") or "").strip()[:160],
         "risk_hint": str(payload.get("risk_hint", "") or "").strip(),
         "confirmation_policy": str(payload.get("confirmation_policy", "") or "").strip(),
         "score": float(hit.get("score", 0.0) or 0.0),
@@ -129,6 +131,40 @@ def _explicit_local_surface(message: str) -> str:
     return ""
 
 
+def _catalog_match_tokens(text: str) -> set[str]:
+    stop = {
+        "ich", "mir", "mein", "meine", "meinen", "meinem", "wie", "was", "wo", "wer",
+        "und", "oder", "der", "die", "das", "den", "dem", "des", "ein", "eine",
+        "einen", "einem", "ans", "zur", "zum", "in", "im", "am", "an", "auf", "mit",
+        "for", "the", "and", "how", "what", "where", "my", "your", "you",
+    }
+    return {
+        token
+        for token in re.findall(r"(?u)\b[\w][\w-]{2,}\b", str(text or "").lower())
+        if token not in stop
+    }
+
+
+def _hit_search_text(hit: dict[str, Any]) -> str:
+    payload = dict(hit.get("payload", {}) or {})
+    parts: list[str] = []
+    for key in ("title", "description", "group_name", "ref", "document_name", "text", "loader_contract"):
+        parts.append(str(payload.get(key, "") or hit.get(key, "") or ""))
+    for key in ("aliases", "tags", "knows", "can_load"):
+        value = payload.get(key, hit.get(key, []))
+        if isinstance(value, list | tuple | set):
+            parts.extend(str(item) for item in value)
+    return " ".join(parts)
+
+
+def _catalog_lexical_overlap(query: str, hit: dict[str, Any]) -> int:
+    query_tokens = _catalog_match_tokens(query)
+    if not query_tokens:
+        return 0
+    hit_tokens = _catalog_match_tokens(_hit_search_text(hit))
+    return len(query_tokens & hit_tokens)
+
+
 class MetaCatalogRouter:
     def __init__(
         self,
@@ -150,7 +186,12 @@ class MetaCatalogRouter:
         if clean_message.startswith("/"):
             return AriaTurnArbitration(plan=_fallback_plan(clean_message, reason="slash_command"), source="fallback")
 
-        hits, query_error = await self._query_meta_catalog(clean_message, user_id=routing_input.user_id)
+        contextual_query = semantic_query_with_visible_chat_context(clean_message, routing_input.turn_context)
+        hits, query_error = await self._query_meta_catalog(
+            clean_message,
+            user_id=routing_input.user_id,
+            contextual_query=contextual_query,
+        )
         if query_error:
             return AriaTurnArbitration(
                 plan=_fallback_plan(clean_message, reason="meta_catalog_unavailable"),
@@ -180,6 +221,7 @@ class MetaCatalogRouter:
                 "Use only the provided catalog entries; do not answer the user. "
                 "Decide whether ARIA should load more context or prepare an action preflight. "
                 "Select catalog_ids only when the entry is semantically useful for the user prompt. "
+                "Use recent_visible_chat_context as conversation evidence for elliptic follow-ups; if the user refers to the last visible action/output, route according to that referenced output before unrelated catalog topics. "
                 "If nothing fits, return needs_context=false and answer_mode=direct_answer. "
                 "Never invent surfaces, refs, collections, or actions. "
                 "Side effects and command execution require needs_confirmation=true. "
@@ -203,6 +245,7 @@ class MetaCatalogRouter:
                     "invalid_contract_behavior": "fallback_to_backup_path",
                 },
                 "last_turn_frame": _compact_last_turn_frame(routing_input.turn_context),
+                "recent_visible_chat_context": visible_chat_context_from_turn_context(routing_input.turn_context),
             },
             source=routing_input.source,
             user_id=routing_input.user_id,
@@ -213,6 +256,7 @@ class MetaCatalogRouter:
                 plan=_fallback_plan(clean_message, reason=result.error or "meta_catalog_router_unavailable"),
                 source="fallback",
                 usage=result.usage,
+                diagnostics=result.diagnostics,
                 error=result.error,
             )
         confidence = confidence_score(result.payload.get("confidence"))
@@ -221,6 +265,7 @@ class MetaCatalogRouter:
                 plan=_fallback_plan(clean_message, reason="meta_catalog_low_confidence"),
                 source="fallback",
                 usage=result.usage,
+                diagnostics=result.diagnostics,
             )
 
         selected_catalog_ids = tuple(
@@ -241,8 +286,35 @@ class MetaCatalogRouter:
             user_id=routing_input.user_id,
             request_id=routing_input.request_id,
         )
-        normalized_connection_inventory = self._looks_like_connection_inventory_question(clean_message, requested_surfaces, selected_catalog_ids, by_catalog_id)
+        normalized_connection_inventory = self._looks_like_connection_inventory_question(
+            clean_message,
+            requested_surfaces,
+            selected_catalog_ids,
+            by_catalog_id,
+            compact_hits=compact_hits,
+        )
         if normalized_connection_inventory:
+            inventory_catalog_ids = tuple(
+                catalog_id
+                for catalog_id in selected_catalog_ids
+                if str((by_catalog_id.get(catalog_id) or {}).get("surface_id", "") or "") == "connections"
+                and str((by_catalog_id.get(catalog_id) or {}).get("kind", "") or "") in {"rss", "website", "ssh", "sftp", "smb"}
+            )
+            if not inventory_catalog_ids:
+                prefer_rss = bool(re.search(r"\b(?:feed|feeds|rss|news)\b", clean_message, flags=re.IGNORECASE))
+                inventory_catalog_ids = tuple(
+                    str(hit.get("catalog_id", "") or "").strip()
+                    for hit in compact_hits
+                    if str(hit.get("surface_id", "") or "") == "connections"
+                    and (
+                        str(hit.get("kind", "") or "") == "rss"
+                        if prefer_rss
+                        else str(hit.get("kind", "") or "") in {"rss", "website", "ssh", "sftp", "smb"}
+                    )
+                    and str(hit.get("catalog_id", "") or "").strip()
+                )[:12]
+            if inventory_catalog_ids:
+                selected_catalog_ids = inventory_catalog_ids
             actions = ()
             requested_surfaces = ("connections",)
             context_requests = (
@@ -259,6 +331,27 @@ class MetaCatalogRouter:
                     user_id=routing_input.user_id,
                     turn_id=routing_input.request_id,
                 ),
+            )
+            if routing_input.surface_registry is not None:
+                context_requests = routing_input.surface_registry.validate_requests(context_requests)
+        normalized_rss_action = self._looks_like_rss_read_action(
+            clean_message,
+            actions=actions,
+            requested_surfaces=requested_surfaces,
+            selected_catalog_ids=selected_catalog_ids,
+            by_catalog_id=by_catalog_id,
+            context_requests=context_requests,
+        )
+        if normalized_rss_action:
+            actions = ("rss_read_feed",)
+            requested_surfaces = ("connections",)
+            context_requests = self._rss_action_context_requests(
+                clean_message,
+                selected_catalog_ids=selected_catalog_ids,
+                by_catalog_id=by_catalog_id,
+                existing_requests=context_requests,
+                user_id=routing_input.user_id,
+                request_id=routing_input.request_id,
             )
             if routing_input.surface_registry is not None:
                 context_requests = routing_input.surface_registry.validate_requests(context_requests)
@@ -288,6 +381,38 @@ class MetaCatalogRouter:
             )
             if routing_input.surface_registry is not None:
                 context_requests = routing_input.surface_registry.validate_requests(context_requests)
+        doc_override_id = self._document_context_override(
+            clean_message,
+            compact_hits=compact_hits,
+            selected_catalog_ids=selected_catalog_ids,
+            context_requests=context_requests,
+            actions=actions,
+            requested_surfaces=requested_surfaces,
+        )
+        if doc_override_id and not explicit_surface and not normalized_connection_inventory:
+            selected_catalog_ids = (doc_override_id,)
+            requested_surfaces = ("docs",)
+            hit = by_catalog_id.get(doc_override_id, {})
+            context_requests = (
+                ContextRequest(
+                    surface_id="docs",
+                    mode="search",
+                    query=clean_message,
+                    depth="shallow",
+                    limit=12,
+                    budget={
+                        "catalog_id": doc_override_id,
+                        "entity_type": str(hit.get("entity_type", "") or ""),
+                        "kind": str(hit.get("kind", "") or ""),
+                        "ref": str(hit.get("ref", "") or ""),
+                        "meta_contract_normalized": "document_meta_candidate_preferred",
+                    },
+                    user_id=routing_input.user_id,
+                    turn_id=routing_input.request_id,
+                ),
+            )
+            if routing_input.surface_registry is not None:
+                context_requests = routing_input.surface_registry.validate_requests(context_requests)
         inferred_surfaces = tuple(dict.fromkeys(request.surface_id for request in context_requests if request.surface_id))
         surfaces = requested_surfaces or inferred_surfaces
         intents = _unique_clean(result.payload.get("intents") or result.payload.get("intent"), allowed=ARIA_TURN_INTENTS, fallback=("chat",))
@@ -307,6 +432,11 @@ class MetaCatalogRouter:
             evidence_policy = "source_bound"
             answer_mode = "direct_answer"
             risk = "none"
+        if normalized_rss_action:
+            contract_mode = "action"
+            evidence_policy = "source_bound"
+            answer_mode = "direct_answer"
+            risk = "low"
         contract_error = self._contract_error(
             contract_mode=contract_mode,
             evidence_policy=evidence_policy,
@@ -320,6 +450,7 @@ class MetaCatalogRouter:
                 plan=_fallback_plan(clean_message, reason=f"meta_catalog_contract_invalid:{contract_error}"),
                 source="fallback",
                 usage=result.usage,
+                diagnostics=result.diagnostics,
             )
         if contract_mode in {"clarify", "empty"}:
             needs_context = False
@@ -359,7 +490,9 @@ class MetaCatalogRouter:
             contract_mode=contract_mode,
             evidence_policy=evidence_policy,
             risk=risk,
-            needs_confirmation=False if normalized_connection_inventory else bool(result.payload.get("needs_confirmation", False)) or risk in {"medium", "high"},
+            needs_confirmation=False
+            if normalized_connection_inventory or normalized_rss_action
+            else bool(result.payload.get("needs_confirmation", False)) or risk in {"medium", "high"},
             confidence=confidence,
             reason=str(result.payload.get("reason", "") or "meta_catalog_selected").strip()[:160],
         )
@@ -367,6 +500,7 @@ class MetaCatalogRouter:
             plan=plan,
             source=META_CATALOG_ROUTING_OPERATION,
             usage=result.usage,
+            diagnostics=result.diagnostics,
             rejected={"catalog_ids": rejected_catalog_ids},
         )
 
@@ -376,6 +510,8 @@ class MetaCatalogRouter:
         requested_surfaces: tuple[str, ...],
         selected_catalog_ids: tuple[str, ...],
         by_catalog_id: dict[str, dict[str, Any]],
+        *,
+        compact_hits: list[dict[str, Any]] | None = None,
     ) -> bool:
         clean = str(message or "").strip().lower()
         if not clean:
@@ -384,6 +520,12 @@ class MetaCatalogRouter:
             str((by_catalog_id.get(catalog_id) or {}).get("surface_id", "") or "") == "connections"
             for catalog_id in selected_catalog_ids
         )
+        if not has_connection_signal and compact_hits:
+            has_connection_signal = any(
+                str(hit.get("surface_id", "") or "") == "connections"
+                and str(hit.get("kind", "") or "") in {"rss", "website", "ssh", "sftp", "smb"}
+                for hit in compact_hits
+            )
         if not has_connection_signal:
             return False
         fuer_pattern = "f" + chr(252) + "r|" + "f" + "uer|fur"
@@ -405,6 +547,130 @@ class MetaCatalogRouter:
                 clean,
             )
         )
+
+    @staticmethod
+    def _looks_like_rss_read_action(
+        message: str,
+        *,
+        actions: tuple[str, ...],
+        requested_surfaces: tuple[str, ...],
+        selected_catalog_ids: tuple[str, ...],
+        by_catalog_id: dict[str, dict[str, Any]],
+        context_requests: tuple[ContextRequest, ...],
+    ) -> bool:
+        clean = str(message or "").strip().lower()
+        if not clean:
+            return False
+        rss_selected = any(
+            str((by_catalog_id.get(catalog_id) or {}).get("surface_id", "") or "") == "connections"
+            and str((by_catalog_id.get(catalog_id) or {}).get("kind", "") or "") == "rss"
+            for catalog_id in selected_catalog_ids
+        ) or any(
+            request.surface_id == "connections"
+            and str(dict(request.budget or {}).get("kind", "") or "") == "rss"
+            for request in context_requests
+        )
+        if not rss_selected:
+            return False
+        if any(str(action or "").strip().lower() in {"rss_read_feed", "feed_read", "connection_action_rss"} for action in actions):
+            return True
+        if "connections" not in requested_surfaces and not any(request.surface_id == "connections" for request in context_requests):
+            return False
+        action_terms = "lies|lese|read|" + chr(246) + "ffne|oeffne|zeige|pruefe|pr" + chr(252) + "fe"
+        return bool(
+            re.search(rf"\b(?:{action_terms})\b", clean)
+            and re.search(r"\b(?:feed|rss)\b", clean)
+        )
+
+    @staticmethod
+    def _rss_action_context_requests(
+        message: str,
+        *,
+        selected_catalog_ids: tuple[str, ...],
+        by_catalog_id: dict[str, dict[str, Any]],
+        existing_requests: tuple[ContextRequest, ...],
+        user_id: str,
+        request_id: str,
+    ) -> tuple[ContextRequest, ...]:
+        requests: list[ContextRequest] = []
+        for request in existing_requests:
+            budget = dict(request.budget or {})
+            if request.surface_id == "connections" and str(budget.get("kind", "") or "") == "rss":
+                requests.append(
+                    ContextRequest(
+                        surface_id="connections",
+                        mode="action",
+                        query=request.query or message,
+                        depth=request.depth or "shallow",
+                        limit=request.limit or 12,
+                        budget=budget,
+                        user_id=user_id,
+                        turn_id=request_id,
+                    )
+                )
+        if not requests:
+            for catalog_id in selected_catalog_ids[:6]:
+                hit = by_catalog_id.get(catalog_id) or {}
+                if str(hit.get("surface_id", "") or "") != "connections" or str(hit.get("kind", "") or "") != "rss":
+                    continue
+                requests.append(
+                    ContextRequest(
+                        surface_id="connections",
+                        mode="action",
+                        query=message,
+                        depth="shallow",
+                        limit=12,
+                        budget={
+                            "catalog_id": catalog_id,
+                            "entity_type": str(hit.get("entity_type", "") or ""),
+                            "kind": "rss",
+                            "ref": str(hit.get("ref", "") or ""),
+                            "meta_contract_normalized": "rss_read_action",
+                        },
+                        user_id=user_id,
+                        turn_id=request_id,
+                    )
+                )
+                break
+        return tuple(requests)
+
+    @staticmethod
+    def _document_context_override(
+        message: str,
+        *,
+        compact_hits: list[dict[str, Any]],
+        selected_catalog_ids: tuple[str, ...],
+        context_requests: tuple[ContextRequest, ...],
+        actions: tuple[str, ...],
+        requested_surfaces: tuple[str, ...],
+    ) -> str:
+        if actions:
+            return ""
+        has_local_request = any(request.surface_id in {"docs", "memory", "notes"} for request in context_requests)
+        if has_local_request or "docs" in requested_surfaces:
+            return ""
+        has_connection_answer = "connections" in requested_surfaces or any(
+            request.surface_id == "connections" for request in context_requests
+        )
+        if not has_connection_answer:
+            return ""
+        selected = set(selected_catalog_ids)
+        candidates = [
+            hit
+            for hit in compact_hits
+            if str(hit.get("surface_id", "") or "") == "docs"
+            and str(hit.get("kind", "") or "") == "document_meta"
+            and str(hit.get("catalog_id", "") or "") not in selected
+        ]
+        scored = [
+            (hit, _catalog_lexical_overlap(message, hit), float(hit.get("score", 0.0) or 0.0))
+            for hit in candidates
+        ]
+        scored = [row for row in scored if row[1] > 0]
+        if not scored:
+            return ""
+        scored.sort(key=lambda row: (row[1], row[2]), reverse=True)
+        return str(scored[0][0].get("catalog_id", "") or "").strip()
 
     @staticmethod
     def _contract_fields(
@@ -537,7 +803,13 @@ class MetaCatalogRouter:
             collapsed.append(request)
         return collapsed
 
-    async def _query_meta_catalog(self, query: str, *, user_id: str = "") -> tuple[list[dict[str, Any]], str]:
+    async def _query_meta_catalog(
+        self,
+        query: str,
+        *,
+        user_id: str = "",
+        contextual_query: str = "",
+    ) -> tuple[list[dict[str, Any]], str]:
         qdrant = None
         try:
             qdrant = await create_meta_catalog_qdrant_client(self.settings, timeout=5)
@@ -546,11 +818,24 @@ class MetaCatalogRouter:
                 embedding_client=self.embedding_client,
                 collection_name=meta_catalog_collection_name(self.settings),
             )
+            limit = max(1, int(self.config.candidate_limit or 1))
             hits = await store.query_catalog(
                 query,
-                limit=max(1, int(self.config.candidate_limit or 1)),
+                limit=limit,
                 score_threshold=float(self.config.score_threshold or 0.0),
             )
+            contextual_hits: list[dict[str, Any]] = []
+            clean_contextual_query = str(contextual_query or "").strip()
+            if clean_contextual_query and clean_contextual_query != str(query or "").strip():
+                try:
+                    contextual_hits = await store.query_catalog(
+                        clean_contextual_query,
+                        limit=min(4, limit),
+                        score_threshold=float(self.config.score_threshold or 0.0),
+                    )
+                except Exception:
+                    contextual_hits = []
+            merged_contextual_hits = False
             if str(user_id or "").strip():
                 try:
                     doc_store = DocumentMetaCatalogStore(
@@ -567,9 +852,35 @@ class MetaCatalogRouter:
                 except Exception:
                     doc_hits = []
                 if doc_hits:
-                    hits = [*doc_hits, *hits]
-                    hits.sort(key=lambda item: float(item.get("score", 0.0) or 0.0), reverse=True)
-                    hits = hits[: max(1, int(self.config.candidate_limit or 1))]
+                    reserved_doc_hits = [
+                        hit
+                        for hit in doc_hits
+                        if _catalog_lexical_overlap(query, hit) > 0
+                    ][: min(4, limit)]
+                    merged: list[dict[str, Any]] = []
+                    seen: set[str] = set()
+                    for hit in [*contextual_hits, *reserved_doc_hits, *hits, *doc_hits]:
+                        catalog_id = str(hit.get("catalog_id", "") or (dict(hit.get("payload", {}) or {})).get("catalog_id", "") or "").strip()
+                        if not catalog_id or catalog_id in seen:
+                            continue
+                        seen.add(catalog_id)
+                        merged.append(hit)
+                        if len(merged) >= limit:
+                            break
+                    hits = merged
+                    merged_contextual_hits = True
+            if contextual_hits and not merged_contextual_hits:
+                merged = []
+                seen = set()
+                for hit in [*contextual_hits, *hits]:
+                    catalog_id = str(hit.get("catalog_id", "") or (dict(hit.get("payload", {}) or {})).get("catalog_id", "") or "").strip()
+                    if not catalog_id or catalog_id in seen:
+                        continue
+                    seen.add(catalog_id)
+                    merged.append(hit)
+                    if len(merged) >= limit:
+                        break
+                hits = merged
             return hits, ""
         except Exception as exc:
             return [], str(exc).strip() or "query_failed"

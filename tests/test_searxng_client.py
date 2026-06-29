@@ -113,6 +113,134 @@ def test_web_search_skill_prefers_release_sources_for_current_version_queries() 
     assert all("mozilla.org" not in item.url for item in ordered[:2])
 
 
+def test_web_search_skill_prefers_official_product_sources_for_latest_products() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def search(self, **kwargs):
+            query = str(kwargs.get("query", ""))
+            self.queries.append(query)
+            query_lower = query.lower()
+            if "apple iphone" in query_lower and "official manufacturer" in query_lower:
+                results = [
+                    SearXNGSearchResult(
+                        title="iPhone",
+                        url="https://www.apple.com/iphone/",
+                        snippet="Explore the latest iPhone models from Apple.",
+                        engine="duckduckgo",
+                    ),
+                ]
+            elif "apple watch ultra" in query_lower and "official manufacturer" in query_lower:
+                results = [
+                    SearXNGSearchResult(
+                        title="Apple Watch Ultra",
+                        url="https://www.apple.com/apple-watch-ultra/",
+                        snippet="The most rugged and capable Apple Watch.",
+                        engine="duckduckgo",
+                    ),
+                ]
+            elif "official manufacturer" in query_lower:
+                results = [
+                    SearXNGSearchResult(
+                        title="iPhone",
+                        url="https://www.apple.com/iphone/",
+                        snippet="Explore the latest iPhone models from Apple.",
+                        engine="duckduckgo",
+                    ),
+                    SearXNGSearchResult(
+                        title="Apple Watch Ultra",
+                        url="https://www.apple.com/apple-watch-ultra/",
+                        snippet="The most rugged and capable Apple Watch.",
+                        engine="duckduckgo",
+                    ),
+                ]
+            else:
+                results = [
+                    SearXNGSearchResult(
+                        title="iPhone 17 Pro samt Watch Ultra 3 fuer 1 Euro",
+                        url="https://www.n-tv.de/shopping-und-service/iphone-watch-bundle.html",
+                        snippet="Bundle Angebot und Shopping-Deal.",
+                        engine="bing news",
+                        published_at="2026-05-22T09:00:00+00:00",
+                        published_label="2026-05-22",
+                    ),
+                    SearXNGSearchResult(
+                        title="Apple Watch Ultra 4 Geruechte",
+                        url="https://www.appgefahren.de/apple-watch-ultra-4-geruechte.html",
+                        snippet="News und Geruechte.",
+                        engine="duckduckgo news",
+                        published_at="2026-05-19T09:00:00+00:00",
+                        published_label="2026-05-19",
+                    ),
+                ]
+            return type("Resp", (), {"query": kwargs.get("query", ""), "results": results})()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                            "max_results": 5,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    client = FakeClient()
+    skill = WebSearchSkill(settings=settings, client=client)
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert len(client.queries) == 4
+    assert any(
+        "apple watch ultra latest model official manufacturer product page" in query.lower()
+        for query in client.queries
+    )
+    assert any(
+        "apple iphone latest model official manufacturer product page" in query.lower()
+        for query in client.queries
+    )
+    assert result.metadata["official_supplement_count"] >= 3
+    urls = [source["url"] for source in result.metadata["sources"]]
+    assert "https://www.apple.com/iphone/" in urls
+    assert "https://www.apple.com/apple-watch-ultra/" in urls
+    assert "n-tv.de" not in result.metadata["sources"][0]["url"]
+    assert "Target coverage for the answer" in result.content
+    assert "- apple watch ultra:" in result.content.lower()
+    assert "- apple iphone:" in result.content.lower()
+    coverage = result.metadata["target_coverage"]
+    assert [row["target"].lower() for row in coverage] == ["apple watch ultra", "apple iphone"]
+    assert [row["url"] for row in coverage] == [
+        "https://www.apple.com/apple-watch-ultra/",
+        "https://www.apple.com/iphone/",
+    ]
+
+
+def test_web_search_skill_splits_multi_product_official_targets() -> None:
+    targets = WebSearchSkill._official_product_targets(  # type: ignore[attr-defined]
+        "suche im internet nach der neusten apple watch ultra und dem neusten iphone"
+    )
+
+    assert [target.lower() for target in targets] == ["apple watch ultra", "apple iphone"]
+
+
 def test_web_search_skill_localizes_english_output() -> None:
     class FakeClient:
         async def search(self, **kwargs):

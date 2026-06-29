@@ -42,6 +42,8 @@ def test_bounded_decision_client_parses_json_and_usage() -> None:
         assert result.ok
         assert result.payload["use_context"] is True
         assert result.usage["total_tokens"] == 5
+        assert result.diagnostics["payload_bytes"] == len('{"message":"hello"}'.encode("utf-8"))
+        assert llm.calls[0][0][1]["content"] == '{"message":"hello"}'
         assert llm.calls[0][1]["operation"] == "unit_test_decision"
 
     asyncio.run(_run())

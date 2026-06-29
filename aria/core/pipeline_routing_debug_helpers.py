@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.connection_semantic_resolver import SemanticConnectionHint
 from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
+from aria.core.connection_semantic_resolver import build_routing_decision_record
 from aria.core.connection_semantic_resolver import format_routing_decision_record
+from aria.core.pipeline_action_flow_helpers import resolved_routing_detail_lines
 
 
 def resolved_routing_chain_has_signal(resolved: dict[str, Any] | None) -> bool:
@@ -167,3 +171,63 @@ def attach_connection_candidates_debug(
     if clean:
         resolved["connection_candidates_debug"] = clean
     return resolved
+
+
+class RoutedActionDebugBuilder:
+    def __init__(
+        self,
+        *,
+        routing_debug_enabled: Callable[[], bool],
+    ) -> None:
+        self._routing_debug_enabled = routing_debug_enabled
+
+    def resolved_detail_lines(self, resolved: dict[str, Any]) -> list[str]:
+        return resolved_routing_detail_lines(
+            resolved,
+            routing_debug_enabled=self._routing_debug_enabled(),
+        )
+
+    def append_routing_record(self, resolved: dict[str, Any], record: Any) -> dict[str, Any]:
+        return append_routing_record_to_resolved(
+            resolved,
+            record,
+            routing_debug_enabled=self._routing_debug_enabled(),
+        )
+
+    def routing_candidates_from_resolved(
+        self,
+        resolved: dict[str, Any],
+    ) -> list[SemanticConnectionCandidate]:
+        return routing_candidates_from_resolved(resolved)
+
+    def append_resolved_chain_record(self, resolved: dict[str, Any]) -> dict[str, Any]:
+        decision = dict(resolved.get("decision", {}) or {})
+        if not bool(decision.get("found")):
+            return resolved
+        return self.append_routing_record(
+            resolved,
+            build_routing_decision_record(
+                stage="routing_chain",
+                candidates=self.routing_candidates_from_resolved(resolved),
+                hint=SemanticConnectionHint(
+                    connection_kind=str(decision.get("kind", "") or "").strip(),
+                    connection_ref=str(decision.get("ref", "") or "").strip(),
+                    source=str(decision.get("source", "") or "").strip(),
+                    note=str(decision.get("reason", "") or "").strip(),
+                ),
+                preferred_kind=str(resolved.get("preferred_kind", "") or ""),
+            ),
+        )
+
+    @staticmethod
+    def serialize_connection_candidates(
+        candidates: list[SemanticConnectionCandidate],
+    ) -> list[dict[str, Any]]:
+        return serialize_connection_candidates(candidates)
+
+    @staticmethod
+    def attach_connection_candidates_debug(
+        resolved: dict[str, Any],
+        candidates: list[SemanticConnectionCandidate],
+    ) -> dict[str, Any]:
+        return attach_connection_candidates_debug(resolved, candidates)

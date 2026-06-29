@@ -19,10 +19,25 @@ from qdrant_client.models import (
 
 from aria.core.config import EmbeddingsConfig, MemoryConfig
 from aria.core.doc_meta_catalog import DOC_META_PREFIX, DocumentMetaCatalogStore, document_meta_collection_for_user
+from aria.core.document_memory_helpers import document_collection_user_slug
+from aria.core.document_memory_helpers import document_payload_id
+from aria.core.document_memory_helpers import document_payload_name
+from aria.core.document_memory_helpers import is_document_collection_name
+from aria.core.document_memory_helpers import is_document_guide_collection_name
+from aria.core.document_memory_helpers import is_document_meta_collection_name
+from aria.core.document_memory_helpers import is_document_payload
+from aria.core.document_memory_helpers import payload_user_matches
+from aria.core.document_memory_helpers import slug_user_id
 from aria.core.document_ingest import PreparedDocument
+from aria.core.document_memory_service import DocumentMemoryService
 from aria.core.embedding_client import EmbeddingClient
 from aria.core.i18n import I18NStore
+from aria.core.memory_admin_query_service import MemoryAdminQueryService
+from aria.core.memory_recall_helpers import build_recall_source_entries
+from aria.core.memory_recall_helpers import format_recall_source_detail
+from aria.core.memory_recall_helpers import recall_source_priority
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.session_compression_service import SessionCompressionService
 from aria.core.usage_meter import UsageMeter
 from aria.skills.base import BaseSkill, SkillResult
 
@@ -162,13 +177,14 @@ class MemorySkill(BaseSkill):
 
     @staticmethod
     def _slug_user_id(user_id: str) -> str:
-        clean = re.sub(r"[^a-zA-Z0-9_-]", "_", user_id.strip().lower())
-        clean = re.sub(r"_+", "_", clean).strip("_")
-        return clean or "web"
+        return slug_user_id(user_id)
 
     def _user_filter(self, user_id: str) -> Filter:
         normalized = str(user_id or "").strip() or "web"
         return Filter(must=[FieldCondition(key="user_id", match=MatchValue(value=normalized))])
+
+    def _payload_user_matches(self, payload_user_id: Any, requested_user_id: str) -> bool:
+        return payload_user_matches(payload_user_id, requested_user_id)
 
     @staticmethod
     def _parse_timestamp(value: Any) -> datetime | None:
@@ -196,24 +212,32 @@ class MemorySkill(BaseSkill):
         return mapping.get(memory_type, "MEMORY")
 
     @staticmethod
+    def _document_payload_name(payload: dict[str, Any] | None) -> str:
+        return document_payload_name(payload)
+
+    @staticmethod
+    def _document_payload_id(payload: dict[str, Any] | None) -> str:
+        return document_payload_id(payload)
+
+    @staticmethod
+    def _document_collection_user_slug(collection: str, prefix: str) -> str:
+        return document_collection_user_slug(collection, prefix)
+
+    @staticmethod
     def _is_document_payload(payload: dict[str, Any] | None) -> bool:
-        data = payload or {}
-        source = str(data.get("source", "")).strip().lower()
-        document_name = str(data.get("document_name", "")).strip()
-        document_id = str(data.get("document_id", "")).strip()
-        return source == "rag_upload" or bool(document_name) or bool(document_id)
+        return is_document_payload(payload)
 
     @staticmethod
     def _is_document_collection_name(collection: str) -> bool:
-        return str(collection or "").strip().lower().startswith("aria_docs")
+        return is_document_collection_name(collection)
 
     @classmethod
     def _is_document_guide_collection_name(cls, collection: str) -> bool:
-        return str(collection or "").strip().lower().startswith(cls.DOCUMENT_GUIDE_PREFIX)
+        return is_document_guide_collection_name(collection, cls.DOCUMENT_GUIDE_PREFIX)
 
     @staticmethod
     def _is_document_meta_collection_name(collection: str) -> bool:
-        return str(collection or "").strip().lower().startswith(DOC_META_PREFIX)
+        return is_document_meta_collection_name(collection)
 
     def _document_guide_collection_for_user(self, user_id: str) -> str:
         return f"{self.DOCUMENT_GUIDE_PREFIX}_{self._slug_user_id(user_id)}"
@@ -544,18 +568,7 @@ class MemorySkill(BaseSkill):
 
     @staticmethod
     def _build_document_guide_text(document: PreparedDocument, *, target_collection: str) -> str:
-        stem = Path(document.filename).stem.replace("_", " ").replace("-", " ").strip()
-        keywords = ", ".join(document.keywords[:8]).strip()
-        summary = str(document.summary or "").strip()
-        parts = [
-            f"Dokument: {document.filename}",
-            f"Titel: {stem}" if stem else "",
-            f"Collection: {target_collection}",
-            f"Zusammenfassung: {summary}" if summary else "",
-            f"Stichworte: {keywords}" if keywords else "",
-            f"Quelle: {document.source_type.upper()}",
-        ]
-        return "\n".join(part for part in parts if part).strip()
+        return DocumentMemoryService.build_document_guide_text(document, target_collection=target_collection)
 
     async def _build_document_guide_point(
         self,
@@ -564,47 +577,11 @@ class MemorySkill(BaseSkill):
         document: PreparedDocument,
         target_collection: str,
     ) -> tuple[str, PointStruct, dict[str, int]]:
-        guide_text = self._build_document_guide_text(document, target_collection=target_collection)
-        vector, usage = await self._embed(
-            guide_text,
-            source="rag_ingest",
-            operation="document_guide",
+        return await DocumentMemoryService(self).build_document_guide_point(
             user_id=user_id,
+            document=document,
+            target_collection=target_collection,
         )
-        guide_collection = await self._get_collection_for_vector(
-            len(vector),
-            base_collection=self._document_guide_collection_for_user(user_id),
-        )
-        point_id = str(
-            uuid5(
-                NAMESPACE_URL,
-                f"{guide_collection}|{user_id.strip()}|{target_collection}|{document.document_id}|guide",
-            )
-        )
-        now_iso = datetime.now(timezone.utc).isoformat()
-        point = PointStruct(
-            id=point_id,
-            vector=vector,
-            payload={
-                "text": guide_text,
-                "user_id": user_id,
-                "timestamp": now_iso,
-                "type": "knowledge",
-                "source": "rag_document_guide",
-                "document_id": document.document_id,
-                "document_name": document.filename,
-                "guide_summary": document.summary,
-                "guide_keywords": list(document.keywords),
-                "target_collection": target_collection,
-                "mime_type": document.mime_type,
-                "source_type": document.source_type,
-                "embedding_model": self._resolve_embedding_model(),
-                "embedding_fingerprint": self._active_embedding_fingerprint(),
-                "created_at": now_iso,
-                "updated_at": now_iso,
-            },
-        )
-        return guide_collection, point, usage
 
     async def _delete_document_guide_entries(
         self,
@@ -614,56 +591,12 @@ class MemorySkill(BaseSkill):
         document_id: str = "",
         document_name: str = "",
     ) -> int:
-        guide_collection = self._document_guide_collection_for_user(user_id)
-        clean_user = str(user_id).strip()
-        clean_target = str(target_collection).strip()
-        clean_document_id = str(document_id).strip()
-        clean_document_name = str(document_name).strip()
-        if not clean_target or (not clean_document_id and not clean_document_name):
-            return 0
-        try:
-            exists = await self.qdrant.collection_exists(collection_name=guide_collection)
-            if not exists:
-                return 0
-            point_ids: list[str | int] = []
-            offset = None
-            while True:
-                points, next_offset = await self.qdrant.scroll(
-                    collection_name=guide_collection,
-                    scroll_filter=self._user_filter(clean_user),
-                    limit=200,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                for point in points:
-                    payload = getattr(point, "payload", {}) or {}
-                    if str(payload.get("target_collection", "")).strip() != clean_target:
-                        continue
-                    matches = False
-                    if clean_document_id and str(payload.get("document_id", "")).strip() == clean_document_id:
-                        matches = True
-                    elif clean_document_name and str(payload.get("document_name", "")).strip() == clean_document_name:
-                        matches = True
-                    if not matches:
-                        continue
-                    point_id = getattr(point, "id", None)
-                    if point_id is None:
-                        continue
-                    point_ids.append(self._coerce_point_id(str(point_id)))
-                if next_offset is None:
-                    break
-                offset = next_offset
-            if not point_ids:
-                return 0
-            await self.qdrant.delete(
-                collection_name=guide_collection,
-                points_selector=PointIdsList(points=point_ids),
-                wait=True,
-            )
-            return len(point_ids)
-        except Exception:
-            return 0
+        return await DocumentMemoryService(self).delete_document_guide_entries(
+            user_id=user_id,
+            target_collection=target_collection,
+            document_id=document_id,
+            document_name=document_name,
+        )
 
     async def _query_document_guides(
         self,
@@ -673,113 +606,23 @@ class MemorySkill(BaseSkill):
         user_id: str,
         max_hits: int,
     ) -> list[dict[str, Any]]:
-        guide_collection = self._document_guide_collection_for_user(user_id)
-        try:
-            exists = await self.qdrant.collection_exists(collection_name=guide_collection)
-            if not exists:
-                return []
-            query_result = await self.qdrant.query_points(
-                collection_name=guide_collection,
-                query=vector,
-                query_filter=self._user_filter(user_id),
-                limit=max(2, int(max_hits)),
-            )
-        except Exception:
-            return []
-
-        query_tokens = set(self._tokenize_for_match(query))
-        rows: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-        for hit in self._extract_hits(query_result):
-            payload = hit.payload or {}
-            if not self._payload_embedding_compatible(payload):
-                continue
-            document_id = str(payload.get("document_id", "")).strip()
-            target_collection = str(payload.get("target_collection", "")).strip()
-            document_name = str(payload.get("document_name", "")).strip()
-            if not document_id or not target_collection:
-                continue
-            key = (target_collection, document_id)
-            if key in seen:
-                continue
-            raw_score = float(getattr(hit, "score", 0.0) or 0.0)
-            keyword_pool = {
-                str(item).strip().lower()
-                for item in (payload.get("guide_keywords", []) or [])
-                if str(item).strip()
-            }
-            keyword_pool.update(self._tokenize_for_match(Path(document_name).stem))
-            guide_text = " ".join(
-                [
-                    str(payload.get("guide_summary", "")).strip(),
-                    document_name,
-                    str(payload.get("text", "")).strip(),
-                ]
-            ).lower()
-            keyword_hits = sum(1 for token in query_tokens if token in keyword_pool)
-            text_hits = sum(1 for token in query_tokens if token and token in guide_text)
-            if raw_score < 0.18 and keyword_hits <= 0 and text_hits <= 0:
-                continue
-            seen.add(key)
-            rows.append(
-                {
-                    "document_id": document_id,
-                    "document_name": document_name,
-                    "collection": target_collection,
-                    "guide_score": raw_score + (keyword_hits * 0.12) + (min(text_hits, 3) * 0.05),
-                    "raw_score": raw_score,
-                    "keyword_hits": keyword_hits,
-                    "text_hits": text_hits,
-                }
-            )
-        rows.sort(key=lambda row: float(row.get("guide_score", 0.0)), reverse=True)
-        return rows[:max_hits]
+        return await DocumentMemoryService(self).query_document_guides(
+            vector=vector,
+            query=query,
+            user_id=user_id,
+            max_hits=max_hits,
+        )
 
     def _build_document_targets_from_guides(self, guide_hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if guide_hits:
-            max_keyword_hits = max(int(hit.get("keyword_hits", 0) or 0) for hit in guide_hits)
-            if max_keyword_hits > 0:
-                guide_hits = [
-                    hit
-                    for hit in guide_hits
-                    if int(hit.get("keyword_hits", 0) or 0) == max_keyword_hits
-                ]
-
-            if guide_hits:
-                best_score = max(float(hit.get("guide_score", 0.0) or 0.0) for hit in guide_hits)
-                threshold = max(best_score - 0.08, best_score * 0.9)
-                guide_hits = [
-                    hit
-                    for hit in guide_hits
-                    if float(hit.get("guide_score", 0.0) or 0.0) >= threshold
-                ]
-
-        targets: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-        for hit in guide_hits:
-            document_id = str(hit.get("document_id", "")).strip()
-            collection = str(hit.get("collection", "")).strip()
-            if not document_id or not collection:
-                continue
-            key = (collection, document_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            targets.append(
-                {
-                    "type": "document",
-                    "label": self._type_label("document"),
-                    "collection": collection,
-                    "top_k": int(self.memory.collections.knowledge.top_k),
-                    "document_id": document_id,
-                    "document_name": str(hit.get("document_name", "")).strip(),
-                    "guide_score": float(hit.get("guide_score", 0.0) or 0.0),
-                }
-            )
-        return targets
+        return DocumentMemoryService.build_document_targets_from_guides(
+            guide_hits,
+            label=self._type_label("document"),
+            top_k=int(self.memory.collections.knowledge.top_k),
+        )
 
     async def _document_guide_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
         guide_collection = self._document_guide_collection_for_user(user_id)
+        requested_slug = self._slug_user_id(user_id)
         try:
             exists = await self.qdrant.collection_exists(collection_name=guide_collection)
             if not exists:
@@ -789,7 +632,7 @@ class MemorySkill(BaseSkill):
             while True:
                 points, next_offset = await self.qdrant.scroll(
                     collection_name=guide_collection,
-                    scroll_filter=self._user_filter(user_id),
+                    scroll_filter=None,
                     limit=200,
                     offset=offset,
                     with_payload=True,
@@ -798,6 +641,9 @@ class MemorySkill(BaseSkill):
                 for point in points or []:
                     payload = dict(getattr(point, "payload", {}) or {})
                     if str(payload.get("source", "")).strip() != "rag_document_guide":
+                        continue
+                    payload_user = str(payload.get("user_id", "") or "").strip()
+                    if payload_user and not self._payload_user_matches(payload_user, requested_slug):
                         continue
                     rows.append(payload)
                 if next_offset is None:
@@ -809,10 +655,15 @@ class MemorySkill(BaseSkill):
 
     async def _document_chunk_catalog_payloads(self, *, user_id: str) -> list[dict[str, Any]]:
         clean_user = str(user_id or "").strip()
+        requested_slug = self._slug_user_id(clean_user)
         names = await self._list_collection_names()
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
         for collection in names:
             if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
+                continue
+            is_document_collection = self._is_document_collection_name(collection)
+            collection_user_slug = self._document_collection_user_slug(collection, "aria_docs")
+            if collection_user_slug and collection_user_slug != requested_slug:
                 continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
@@ -822,7 +673,7 @@ class MemorySkill(BaseSkill):
                 while True:
                     points, next_offset = await self.qdrant.scroll(
                         collection_name=collection,
-                        scroll_filter=self._user_filter(clean_user),
+                        scroll_filter=None if is_document_collection else self._user_filter(clean_user),
                         limit=200,
                         offset=offset,
                         with_payload=True,
@@ -834,16 +685,23 @@ class MemorySkill(BaseSkill):
                             continue
                         if not self._is_document_payload(payload):
                             continue
-                        document_id = str(payload.get("document_id", "")).strip()
-                        document_name = str(payload.get("document_name", "")).strip()
-                        if not document_id and not document_name:
+                        payload_user = str(payload.get("user_id", "") or "").strip()
+                        if payload_user:
+                            if not self._payload_user_matches(payload_user, requested_slug):
+                                continue
+                        elif is_document_collection and collection_user_slug != requested_slug:
                             continue
+                        document_id = self._document_payload_id(payload)
+                        document_name = self._document_payload_name(payload)
+                        if not document_id and not document_name:
+                            document_id = f"{collection}:legacy-document"
+                            document_name = collection
                         key = (collection, document_id or document_name)
                         row = grouped.setdefault(
                             key,
                             {
                                 "source": "rag_document_chunk_catalog",
-                                "user_id": clean_user,
+                                "user_id": requested_slug,
                                 "document_id": document_id,
                                 "document_name": document_name,
                                 "target_collection": collection,
@@ -964,37 +822,11 @@ class MemorySkill(BaseSkill):
 
     @staticmethod
     def _format_recall_source_detail(row: dict[str, Any]) -> str:
-        collection = str(row.get("collection", "")).strip()
-        document_name = str(row.get("document_name", "")).strip()
-        chunk_index = int(row.get("chunk_index", 0) or 0)
-        chunk_total = int(row.get("chunk_total", 0) or 0)
-        label = str(row.get("label", "")).strip() or "MEMORY"
-
-        if document_name:
-            parts = [f"Quelle: {document_name}"]
-            if collection:
-                parts.append(collection)
-            if chunk_index > 0 and chunk_total > 0:
-                parts.append(f"Chunk {chunk_index}/{chunk_total}")
-            return " · ".join(parts)
-
-        parts = [f"Quelle: {label}"]
-        if collection:
-            parts.append(collection)
-        return " · ".join(parts)
+        return format_recall_source_detail(row)
 
     @staticmethod
     def _recall_source_priority(entry: dict[str, Any]) -> tuple[int, int]:
-        source_type = str(entry.get("type", "")).strip().lower()
-        priority_map = {
-            "document": 0,
-            "web": 0,
-            "fact": 1,
-            "preference": 2,
-            "knowledge": 3,
-            "session": 4,
-        }
-        return priority_map.get(source_type, 9), int(entry.get("_position", 0) or 0)
+        return recall_source_priority(entry)
 
     def _build_recall_source_entries(
         self,
@@ -1002,31 +834,7 @@ class MemorySkill(BaseSkill):
         *,
         max_items: int = 4,
     ) -> list[dict[str, Any]]:
-        entries: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for index, row in enumerate(rows):
-            detail = self._format_recall_source_detail(row)
-            if not detail or detail in seen:
-                continue
-            seen.add(detail)
-            entries.append(
-                {
-                    "detail": detail,
-                    "type": str(row.get("type", "")).strip(),
-                    "label": str(row.get("label", "")).strip(),
-                    "collection": str(row.get("collection", "")).strip(),
-                    "document_id": str(row.get("document_id", "")).strip(),
-                    "document_name": str(row.get("document_name", "")).strip(),
-                    "chunk_index": int(row.get("chunk_index", 0) or 0),
-                    "chunk_total": int(row.get("chunk_total", 0) or 0),
-                    "_position": index,
-                }
-            )
-        entries.sort(key=self._recall_source_priority)
-        trimmed = entries[:max_items]
-        for entry in trimmed:
-            entry.pop("_position", None)
-        return trimmed
+        return build_recall_source_entries(rows, max_items=max_items)
 
     async def _query_weighted_hits(
         self,
@@ -1189,6 +997,10 @@ class MemorySkill(BaseSkill):
     ) -> SkillResult:
         all_points: list[Any] = []
         collection_names = collections or await self._candidate_collections(base_collection or self.memory.collection)
+        detail_line = (
+            "Routing Debug: memory_keyword_fallback "
+            f"collections={len(collection_names)} top_k={int(top_k or 0)}"
+        )
 
         for collection_name in collection_names:
             try:
@@ -1213,7 +1025,12 @@ class MemorySkill(BaseSkill):
                 continue
 
         if not all_points:
-            return SkillResult(skill_name=self.name, content="Keine passende Erinnerung gefunden.", success=True)
+            return SkillResult(
+                skill_name=self.name,
+                content="Keine passende Erinnerung gefunden.",
+                success=True,
+                metadata={"detail_lines": [f"{detail_line} matches=0 reason=no_points"]},
+            )
 
         query_tokens = self._tokenize_for_match(query)
         is_network_query = self._is_network_query(query_tokens)
@@ -1244,7 +1061,12 @@ class MemorySkill(BaseSkill):
 
         scored.sort(key=lambda item: item[0], reverse=True)
         if not scored:
-            return SkillResult(skill_name=self.name, content="Keine passende Erinnerung gefunden.", success=True)
+            return SkillResult(
+                skill_name=self.name,
+                content="Keine passende Erinnerung gefunden.",
+                success=True,
+                metadata={"detail_lines": [f"{detail_line} matches=0 reason=no_keyword_match"]},
+            )
 
         output_count = max(top_k, 6)
         selected_lines: list[str] = []
@@ -1260,11 +1082,22 @@ class MemorySkill(BaseSkill):
                 break
 
         if not selected_lines:
-            return SkillResult(skill_name=self.name, content="Keine passende Erinnerung gefunden.", success=True)
+            return SkillResult(
+                skill_name=self.name,
+                content="Keine passende Erinnerung gefunden.",
+                success=True,
+                metadata={"detail_lines": [f"{detail_line} matches=0 reason=no_selected_lines"]},
+            )
 
         content = "[Memory: hybride Suche]\n" + "\n".join(selected_lines)
         truncated, saved = self.truncate(content)
-        return SkillResult(skill_name=self.name, content=truncated, success=True, tokens_saved=saved)
+        return SkillResult(
+            skill_name=self.name,
+            content=truncated,
+            success=True,
+            tokens_saved=saved,
+            metadata={"detail_lines": [f"{detail_line} matches={len(selected_lines)} reason=keyword_match"]},
+        )
 
     async def _embed(
         self,
@@ -1424,103 +1257,11 @@ class MemorySkill(BaseSkill):
         base_collection: str | None = None,
         source: str = "rag_upload",
     ) -> SkillResult:
-        if not document.chunks:
-            return SkillResult(skill_name=self.name, content="", success=False, error="Leeres Dokument")
-
-        usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        base_name = (base_collection or self.memory.collection).strip() or self.memory.collection
-        target_collection = ""
-        points: list[PointStruct] = []
-        now_iso = datetime.now(timezone.utc).isoformat()
-
-        for chunk in document.chunks:
-            vector, usage = await self._embed(
-                chunk.text,
-                source="rag_ingest",
-                operation="document_chunk",
-                user_id=user_id,
-            )
-            for key in usage_total:
-                usage_total[key] += int(usage.get(key, 0) or 0)
-            if not target_collection:
-                target_collection = await self._get_collection_for_vector(len(vector), base_collection=base_name)
-            point_id = str(
-                uuid5(
-                    NAMESPACE_URL,
-                    (
-                        f"{target_collection}|{user_id.strip()}|{document.document_id}|"
-                        f"{chunk.index}|{chunk.text.strip().lower()}"
-                    ),
-                )
-            )
-            points.append(
-                PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload={
-                        "text": chunk.text,
-                        "user_id": user_id,
-                        "timestamp": now_iso,
-                        "type": "knowledge",
-                        "source": source,
-                        "document_id": document.document_id,
-                        "document_name": document.filename,
-                        "chunk_index": int(chunk.index),
-                        "chunk_total": int(chunk.total),
-                        "mime_type": document.mime_type,
-                        "source_type": document.source_type,
-                        "embedding_model": self._resolve_embedding_model(),
-                        "embedding_fingerprint": self._active_embedding_fingerprint(),
-                        "created_at": now_iso,
-                        "updated_at": now_iso,
-                    },
-                )
-            )
-
-        guide_collection = ""
-        guide_point: PointStruct | None = None
-        doc_meta_catalog: dict[str, Any] = {}
-        if target_collection:
-            guide_collection, guide_point, guide_usage = await self._build_document_guide_point(
-                user_id=user_id,
-                document=document,
-                target_collection=target_collection,
-            )
-            for key in usage_total:
-                usage_total[key] += int(guide_usage.get(key, 0) or 0)
-
-        if points:
-            await self.qdrant.upsert(collection_name=target_collection, points=points)
-            if guide_point is not None and guide_collection:
-                try:
-                    await self.qdrant.upsert(collection_name=guide_collection, points=[guide_point])
-                    try:
-                        doc_meta_catalog = await self.rebuild_document_meta_catalog(user_id=user_id)
-                    except Exception as exc:
-                        doc_meta_catalog = {"status": "error", "error": str(exc)}
-                except Exception:
-                    await self.qdrant.delete(
-                        collection_name=target_collection,
-                        points_selector=PointIdsList(points=[self._coerce_point_id(str(point.id)) for point in points]),
-                        wait=True,
-                    )
-                    raise
-
-        return SkillResult(
-            skill_name=self.name,
-            content="Dokument erfolgreich importiert.",
-            success=True,
-            metadata={
-                "embedding_usage": usage_total,
-                "embedding_model": self._resolve_embedding_model(),
-                "memory_type": "document",
-                "chunk_count": len(points),
-                "collection": target_collection,
-                "guide_collection": guide_collection,
-                "doc_meta_catalog": doc_meta_catalog,
-                "document_name": document.filename,
-                "document_id": document.document_id,
-            },
+        return await DocumentMemoryService(self).store_document(
+            user_id=user_id,
+            document=document,
+            base_collection=base_collection,
+            source=source,
         )
 
     async def _recall(
@@ -1865,33 +1606,11 @@ class MemorySkill(BaseSkill):
         type_filter: str = "all",
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        targets = await self._build_recall_targets(user_id=user_id)
-        filter_key = type_filter.strip().lower()
-        unique: dict[tuple[str, str], dict[str, Any]] = {}
-        for target in targets:
-            target_type = str(target.get("type", "")).strip().lower()
-            if filter_key and filter_key != "all" and target_type != filter_key:
-                continue
-            rows = await self._list_rows_from_collection(
-                collection=str(target["collection"]),
-                user_id=user_id,
-                memory_type=target_type,
-                label=str(target["label"]),
-                limit=max(20, limit // max(1, len(targets))),
-            )
-            for row in rows:
-                key = (str(row.get("collection", "")), str(row.get("id", "")))
-                if key[0] and key[1] and key not in unique:
-                    unique[key] = row
-
-        def _sort_key(item: dict[str, Any]) -> float:
-            parsed = self._parse_timestamp(item.get("timestamp"))
-            if not parsed:
-                return 0.0
-            return parsed.astimezone(timezone.utc).timestamp()
-
-        items = sorted(unique.values(), key=_sort_key, reverse=True)
-        return items[:limit]
+        return await MemoryAdminQueryService(self).list_memories(
+            user_id,
+            type_filter=type_filter,
+            limit=limit,
+        )
 
     async def list_memories_global(
         self,
@@ -1900,91 +1619,12 @@ class MemorySkill(BaseSkill):
         limit: int = 200,
         collection_filter: str = "",
     ) -> list[dict[str, Any]]:
-        filter_key = type_filter.strip().lower()
-        collection_key = str(collection_filter or "").strip()
-        rows: list[dict[str, Any]] = []
-        names = await self._list_collection_names()
-        for collection in names:
-            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
-                continue
-            if collection_key and collection != collection_key:
-                continue
-            try:
-                exists = await self.qdrant.collection_exists(collection_name=collection)
-                if not exists:
-                    continue
-                offset = None
-                while True:
-                    points, next_offset = await self.qdrant.scroll(
-                        collection_name=collection,
-                        scroll_filter=self._user_filter(user_id),
-                        limit=min(200, max(20, limit)),
-                        offset=offset,
-                        with_payload=True,
-                        with_vectors=False,
-                    )
-                    for point in points:
-                        payload = point.payload or {}
-                        text = self._clean_fact_text(str(payload.get("text", "")).strip())
-                        if not text:
-                            continue
-                        memory_type = self._display_memory_type(collection, payload)
-                        if filter_key and filter_key != "all" and memory_type != filter_key:
-                            continue
-                        label = self._type_label(memory_type)
-                        timestamp = (
-                            str(payload.get("updated_at", "")).strip()
-                            or str(payload.get("created_at", "")).strip()
-                            or str(payload.get("timestamp", "")).strip()
-                        )
-                        rows.append(
-                            {
-                                "id": str(getattr(point, "id", "")),
-                                "collection": collection,
-                                "type": memory_type,
-                                "label": label,
-                                "text": text,
-                                "timestamp": timestamp,
-                                "source": str(payload.get("source", "")).strip() or "n/a",
-                                "embedding_model": str(payload.get("embedding_model", "")).strip(),
-                                "embedding_fingerprint": str(payload.get("embedding_fingerprint", "")).strip(),
-                                "rollup_level": str(payload.get("rollup_level", "")).strip(),
-                                "rollup_bucket": str(payload.get("rollup_bucket", "")).strip(),
-                                "rollup_period_start": str(payload.get("rollup_period_start", "")).strip(),
-                                "rollup_period_end": str(payload.get("rollup_period_end", "")).strip(),
-                                "rollup_source_kind": str(payload.get("rollup_source_kind", "")).strip(),
-                                "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
-                                "document_id": str(payload.get("document_id", "")).strip(),
-                                "document_name": str(payload.get("document_name", "")).strip(),
-                                "chunk_index": int(payload.get("chunk_index", 0) or 0),
-                                "chunk_total": int(payload.get("chunk_total", 0) or 0),
-                                "candidate_status": str(payload.get("candidate_status", "")).strip(),
-                                "promotion_state": str(payload.get("promotion_state", "")).strip(),
-                                "promotion_gate_result": str(payload.get("promotion_gate_result", "")).strip(),
-                                "apply_state": str(payload.get("apply_state", "")).strip(),
-                                "apply_gate_result": str(payload.get("apply_gate_result", "")).strip(),
-                                "regression_required": bool(payload.get("regression_required") is True),
-                                "regression_status": str(payload.get("regression_status", "")).strip(),
-                                "regression_ref": str(payload.get("regression_ref", "")).strip(),
-                                "regression_verified": bool(payload.get("regression_verified") is True),
-                                "regression_verify_result": str(payload.get("regression_verify_result", "")).strip(),
-                                "regression_verify_reason": str(payload.get("regression_verify_reason", "")).strip(),
-                            }
-                        )
-                    if next_offset is None:
-                        break
-                    offset = next_offset
-            except Exception:
-                continue
-
-        def _sort_key(item: dict[str, Any]) -> float:
-            parsed = self._parse_timestamp(item.get("timestamp"))
-            if not parsed:
-                return 0.0
-            return parsed.astimezone(timezone.utc).timestamp()
-
-        rows.sort(key=_sort_key, reverse=True)
-        return rows[:limit]
+        return await MemoryAdminQueryService(self).list_memories_global(
+            user_id,
+            type_filter=type_filter,
+            limit=limit,
+            collection_filter=collection_filter,
+        )
 
     async def list_memory_graph_points(
         self,
@@ -1992,150 +1632,14 @@ class MemorySkill(BaseSkill):
         limit: int = 96,
         collection_limit: int = 16,
     ) -> list[dict[str, Any]]:
-        clean_user = str(user_id or "").strip() or "web"
-        max_points = max(12, min(int(limit or 96), 160))
-        max_collections = max(1, min(int(collection_limit or 16), 32))
-        rows: list[dict[str, Any]] = []
-        targets = await self._build_recall_targets(user_id=clean_user)
-        document_targets = await self._build_document_targets(user_id=clean_user)
-        seen_collections: set[str] = set()
-        collection_names: list[str] = []
-        for target in [*targets, *document_targets]:
-            collection = str(target.get("collection", "")).strip()
-            if collection and collection not in seen_collections:
-                seen_collections.add(collection)
-                collection_names.append(collection)
-        try:
-            resp = await self.qdrant.get_collections()
-            for item in getattr(resp, "collections", []):
-                collection = str(getattr(item, "name", "")).strip()
-                if not collection or collection in seen_collections:
-                    continue
-                if not collection.lower().startswith("aria_"):
-                    continue
-                if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
-                    continue
-                seen_collections.add(collection)
-                collection_names.append(collection)
-                if len(collection_names) >= max_collections:
-                    break
-        except Exception:
-            pass
-        for collection in collection_names:
-            if len(rows) >= max_points:
-                break
-            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
-                continue
-            try:
-                exists = await self.qdrant.collection_exists(collection_name=collection)
-                if not exists:
-                    continue
-                points, _next_offset = await self.qdrant.scroll(
-                    collection_name=collection,
-                    scroll_filter=self._user_filter(clean_user),
-                    limit=max(6, min(32, max_points - len(rows))),
-                    with_payload=True,
-                    with_vectors=True,
-                )
-                if not points:
-                    points, _next_offset = await self.qdrant.scroll(
-                        collection_name=collection,
-                        limit=max(6, min(32, max_points - len(rows))),
-                        with_payload=True,
-                        with_vectors=True,
-                    )
-            except Exception:
-                continue
-            for point in points:
-                payload = point.payload or {}
-                text = self._clean_fact_text(str(payload.get("text", "")).strip())
-                if not text:
-                    continue
-                vector = getattr(point, "vector", None)
-                if isinstance(vector, dict):
-                    vector = next((value for value in vector.values() if isinstance(value, list)), None)
-                if not isinstance(vector, list) or not vector:
-                    continue
-                memory_type = self._display_memory_type(collection, payload)
-                timestamp = (
-                    str(payload.get("updated_at", "")).strip()
-                    or str(payload.get("created_at", "")).strip()
-                    or str(payload.get("timestamp", "")).strip()
-                )
-                rows.append(
-                    {
-                        "id": str(getattr(point, "id", "")),
-                        "collection": collection,
-                        "type": memory_type,
-                        "label": self._type_label(memory_type),
-                        "text": text,
-                        "timestamp": timestamp,
-                        "source": str(payload.get("source", "")).strip() or "n/a",
-                        "document_name": str(payload.get("document_name", "")).strip(),
-                        "note_title": str(payload.get("note_title", "")).strip(),
-                        "note_folder": str(payload.get("note_folder", "")).strip(),
-                        "rollup_level": str(payload.get("rollup_level", "")).strip(),
-                        "vector": [float(value) for value in vector if isinstance(value, (int, float))],
-                    }
-                )
-                if len(rows) >= max_points:
-                    break
-            max_collections -= 1
-            if max_collections <= 0:
-                break
-
-        def _sort_key(item: dict[str, Any]) -> float:
-            parsed = self._parse_timestamp(item.get("timestamp"))
-            if not parsed:
-                return 0.0
-            return parsed.astimezone(timezone.utc).timestamp()
-
-        rows.sort(key=_sort_key, reverse=True)
-        return rows[:max_points]
+        return await MemoryAdminQueryService(self).list_memory_graph_points(
+            user_id,
+            limit=limit,
+            collection_limit=collection_limit,
+        )
 
     async def get_user_collection_stats(self, user_id: str) -> list[dict[str, Any]]:
-        names = await self._list_collection_names()
-        stats: list[dict[str, Any]] = []
-        for collection in names:
-            if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
-                continue
-            try:
-                exists = await self.qdrant.collection_exists(collection_name=collection)
-                if not exists:
-                    continue
-                count = 0
-                inferred_type = "fact"
-                offset = None
-                while True:
-                    points, next_offset = await self.qdrant.scroll(
-                        collection_name=collection,
-                        scroll_filter=self._user_filter(user_id),
-                        limit=256,
-                        offset=offset,
-                        with_payload=True,
-                        with_vectors=False,
-                    )
-                    if points:
-                        if count == 0:
-                            first_payload = (points[0].payload or {})
-                            inferred_type = self._display_memory_type(collection, first_payload)
-                        count += len(points)
-                    if next_offset is None:
-                        break
-                    offset = next_offset
-                if count <= 0:
-                    continue
-                stats.append(
-                    {
-                        "name": collection,
-                        "points": count,
-                        "kind": inferred_type,
-                    }
-                )
-            except Exception:
-                continue
-        stats.sort(key=lambda item: int(item.get("points", 0) or 0), reverse=True)
-        return stats
+        return await MemoryAdminQueryService(self).get_user_collection_stats(user_id)
 
     async def cleanup_empty_collections_for_user(self, user_id: str) -> list[str]:
         slug = self._slug_user_id(user_id)
@@ -2317,69 +1821,12 @@ class MemorySkill(BaseSkill):
         type_filter: str = "all",
         top_k: int = 25,
     ) -> list[dict[str, Any]]:
-        vector, _usage = await self._embed(
+        return await MemoryAdminQueryService(self).search_memories(
+            user_id,
             query,
-            source="memory_search",
-            operation="search_query",
-            user_id=user_id,
+            type_filter=type_filter,
+            top_k=top_k,
         )
-        targets = await self._build_recall_targets(user_id=user_id)
-        document_targets = await self._build_document_targets(user_id=user_id)
-        filter_key = type_filter.strip().lower()
-        if filter_key == "document":
-            targets = document_targets
-        elif filter_key in {"", "all"}:
-            targets = targets + document_targets
-        tasks = []
-        for target in targets:
-            target_type = str(target.get("type", "")).strip().lower()
-            if filter_key and filter_key != "all" and target_type != filter_key:
-                continue
-            tasks.append(
-                self._query_forget_hits(
-                    vector=vector,
-                    user_id=user_id,
-                    target=target,
-                    threshold=0.0,
-                )
-            )
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        rows: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-        for item in results:
-            if isinstance(item, Exception):
-                continue
-            for row in item:
-                key = (str(row.get("collection", "")), str(row.get("id", "")))
-                if key in seen:
-                    continue
-                seen.add(key)
-                rows.append(
-                    {
-                        "id": str(row.get("id", "")),
-                        "collection": str(row.get("collection", "")),
-                        "type": str(row.get("type", "")),
-                        "label": str(row.get("label", "")),
-                        "text": str(row.get("text", "")),
-                        "score": float(row.get("score", 0.0) or 0.0),
-                        "timestamp": str(row.get("timestamp", "")),
-                        "source": str(row.get("source", "n/a")),
-                        "embedding_model": str(row.get("embedding_model", "")),
-                        "embedding_fingerprint": str(row.get("embedding_fingerprint", "")),
-                        "rollup_level": str(row.get("rollup_level", "")),
-                        "rollup_bucket": str(row.get("rollup_bucket", "")),
-                        "rollup_period_start": str(row.get("rollup_period_start", "")),
-                        "rollup_period_end": str(row.get("rollup_period_end", "")),
-                        "rollup_source_kind": str(row.get("rollup_source_kind", "")),
-                        "rollup_source_count": int(row.get("rollup_source_count", 0) or 0),
-                        "document_id": str(row.get("document_id", "")),
-                        "document_name": str(row.get("document_name", "")),
-                        "chunk_index": int(row.get("chunk_index", 0) or 0),
-                        "chunk_total": int(row.get("chunk_total", 0) or 0),
-                    }
-                )
-        rows.sort(key=lambda value: float(value.get("score", 0.0)), reverse=True)
-        return rows[:top_k]
 
     async def delete_memory_point(self, user_id: str, collection: str, point_id: str) -> bool:
         clean_user = str(user_id).strip()
@@ -2410,68 +1857,12 @@ class MemorySkill(BaseSkill):
         document_id: str = "",
         document_name: str = "",
     ) -> int:
-        clean_user = str(user_id).strip()
-        clean_collection = str(collection).strip()
-        clean_document_id = str(document_id).strip()
-        clean_document_name = str(document_name).strip()
-        if not clean_collection or (not clean_document_id and not clean_document_name):
-            return 0
-        try:
-            exists = await self.qdrant.collection_exists(collection_name=clean_collection)
-            if not exists:
-                return 0
-            point_ids: list[str | int] = []
-            offset = None
-            while True:
-                points, next_offset = await self.qdrant.scroll(
-                    collection_name=clean_collection,
-                    scroll_filter=self._user_filter(clean_user),
-                    limit=200,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-                for point in points:
-                    payload = getattr(point, "payload", {}) or {}
-                    matches = False
-                    if clean_document_id and str(payload.get("document_id", "")).strip() == clean_document_id:
-                        matches = True
-                    elif clean_document_name and str(payload.get("document_name", "")).strip() == clean_document_name:
-                        matches = True
-                    if not matches:
-                        continue
-                    point_id = getattr(point, "id", None)
-                    if point_id is None:
-                        continue
-                    point_ids.append(self._coerce_point_id(str(point_id)))
-                if next_offset is None:
-                    break
-                offset = next_offset
-
-            if not point_ids:
-                return 0
-
-            await self.qdrant.delete(
-                collection_name=clean_collection,
-                points_selector=PointIdsList(points=point_ids),
-                wait=True,
-            )
-            await self._delete_document_guide_entries(
-                user_id=clean_user,
-                target_collection=clean_collection,
-                document_id=clean_document_id,
-                document_name=clean_document_name,
-            )
-            if clean_user:
-                try:
-                    await self.rebuild_document_meta_catalog(user_id=clean_user)
-                except Exception:
-                    pass
-            if clean_user:
-                await self.cleanup_empty_collections_for_user(clean_user)
-            return len(point_ids)
-        except Exception:
-            return 0
+        return await DocumentMemoryService(self).delete_document(
+            user_id,
+            collection,
+            document_id=document_id,
+            document_name=document_name,
+        )
 
     async def update_memory_point(self, user_id: str, collection: str, point_id: str, text: str) -> bool:
         clean_collection = str(collection).strip()
@@ -2598,166 +1989,11 @@ class MemorySkill(BaseSkill):
         compress_after_days: int = 7,
         monthly_after_days: int = 30,
     ) -> dict[str, Any]:
-        summary: dict[str, Any] = {
-            "compressed_week": 0,
-            "compressed_month": 0,
-            "collections_removed": 0,
-            "compressed_collections": [],
-            "removed_collections": [],
-            "skipped_recent": [],
-            "skipped_empty": [],
-            "failed_delete": [],
-            "week_rollups": [],
-            "month_rollups": [],
-        }
-        slug = self._slug_user_id(user_id)
-        session_prefix = f"{self.memory.collections.sessions.prefix}_{slug}_"
-        legacy_session_prefix = f"aria_memory_{slug}_session_"
-        context_mem_collection = self._context_collection_for_user(user_id)
-        now = datetime.now(timezone.utc)
-
-        names = await self._list_collection_names()
-        session_names = [
-            name
-            for name in names
-            if name.startswith(session_prefix) or name.startswith(legacy_session_prefix)
-        ]
-        weekly_groups: dict[str, dict[str, Any]] = {}
-        for collection_name in session_names:
-            rows = await self._list_rows_from_collection(
-                collection=collection_name,
-                user_id=user_id,
-                memory_type="session",
-                label=self._type_label("session"),
-                limit=120,
-            )
-            if not rows:
-                summary["skipped_empty"].append(collection_name)
-                continue
-
-            session_day = self._session_day_from_collection_name(collection_name)
-            newest_ts: datetime | None = None
-            for row in rows:
-                parsed = self._parse_timestamp(row.get("timestamp"))
-                if parsed is None:
-                    continue
-                if newest_ts is None or parsed > newest_ts:
-                    newest_ts = parsed
-
-            age_days: int | None = None
-            if session_day is not None:
-                age_days = max(0, int((now.date() - session_day).days))
-            elif newest_ts is not None:
-                age_days = max(0, int((now - newest_ts.astimezone(timezone.utc)).total_seconds() // 86400))
-                session_day = newest_ts.astimezone(timezone.utc).date()
-
-            if age_days is None or session_day is None:
-                continue
-
-            if age_days < max(1, compress_after_days):
-                summary["skipped_recent"].append(collection_name)
-                continue
-
-            week_bucket, week_start, week_end = self._week_bucket_for_day(session_day)
-            group = weekly_groups.setdefault(
-                week_bucket,
-                {
-                    "bucket": week_bucket,
-                    "period_start": week_start,
-                    "period_end": week_end,
-                    "rows": [],
-                    "collections": [],
-                },
-            )
-            group["rows"].extend(rows)
-            if collection_name not in group["collections"]:
-                group["collections"].append(collection_name)
-
-        for week_bucket, group in sorted(weekly_groups.items()):
-            rows = list(group.get("rows", []))
-            source_collections = list(group.get("collections", []))
-            if not rows or not source_collections:
-                continue
-            text = self._build_compression_summary(kind=self.ROLLUP_LEVEL_WEEK, day_raw=week_bucket, rows=rows)
-            await self._store_rollup_summary(
-                user_id=user_id,
-                text=text,
-                base_collection=context_mem_collection,
-                rollup_level=self.ROLLUP_LEVEL_WEEK,
-                rollup_bucket=week_bucket,
-                period_start=group["period_start"],
-                period_end=group["period_end"],
-                source_kind="session_day",
-                source_collections=source_collections,
-            )
-            summary["compressed_week"] += 1
-            summary["week_rollups"].append(week_bucket)
-            summary["compressed_collections"].extend(source_collections)
-            for collection_name in source_collections:
-                try:
-                    await self.qdrant.delete_collection(collection_name=collection_name)
-                    summary["collections_removed"] += 1
-                    summary["removed_collections"].append(collection_name)
-                except Exception:
-                    summary["failed_delete"].append(collection_name)
-
-        weekly_rollups = await self._list_rollup_rows(user_id, context_mem_collection)
-        monthly_groups: dict[str, dict[str, Any]] = {}
-        for row in weekly_rollups:
-            if str(row.get("rollup_level", "")).strip().lower() != self.ROLLUP_LEVEL_WEEK:
-                continue
-            period_end_raw = str(row.get("rollup_period_end", "")).strip()
-            if not period_end_raw:
-                continue
-            try:
-                period_end = datetime.fromisoformat(period_end_raw).date()
-            except ValueError:
-                continue
-            age_days = max(0, int((now.date() - period_end).days))
-            if age_days < max(monthly_after_days, compress_after_days + 1):
-                continue
-            period_start_raw = str(row.get("rollup_period_start", "")).strip()
-            try:
-                period_start = datetime.fromisoformat(period_start_raw).date() if period_start_raw else period_end
-            except ValueError:
-                period_start = period_end
-            month_bucket, month_start, month_end = self._month_bucket_for_day(period_start)
-            group = monthly_groups.setdefault(
-                month_bucket,
-                {
-                    "bucket": month_bucket,
-                    "period_start": month_start,
-                    "period_end": month_end,
-                    "rows": [],
-                    "collections": [],
-                },
-            )
-            group["rows"].append(row)
-            source_label = str(row.get("rollup_bucket", "")).strip() or str(row.get("collection", "")).strip()
-            if source_label and source_label not in group["collections"]:
-                group["collections"].append(source_label)
-
-        for month_bucket, group in sorted(monthly_groups.items()):
-            rows = list(group.get("rows", []))
-            source_collections = list(group.get("collections", []))
-            if not rows:
-                continue
-            text = self._build_compression_summary(kind=self.ROLLUP_LEVEL_MONTH, day_raw=month_bucket, rows=rows)
-            await self._store_rollup_summary(
-                user_id=user_id,
-                text=text,
-                base_collection=context_mem_collection,
-                rollup_level=self.ROLLUP_LEVEL_MONTH,
-                rollup_bucket=month_bucket,
-                period_start=group["period_start"],
-                period_end=group["period_end"],
-                source_kind="session_week",
-                source_collections=source_collections,
-            )
-            summary["compressed_month"] += 1
-            summary["month_rollups"].append(month_bucket)
-        await self.cleanup_empty_collections_for_user(user_id)
-        return summary
+        return await SessionCompressionService(self).compress_old_sessions(
+            user_id,
+            compress_after_days=compress_after_days,
+            monthly_after_days=monthly_after_days,
+        )
 
     async def _discover_users_from_collections(self) -> list[str]:
         names = await self._list_collection_names()
@@ -2769,6 +2005,10 @@ class MemorySkill(BaseSkill):
             self.memory.collections.sessions.prefix.strip(),
         )
         for name in names:
+            for prefix in ("aria_docs", self.DOCUMENT_GUIDE_PREFIX, DOC_META_PREFIX):
+                collection_user = self._document_collection_user_slug(name, prefix)
+                if collection_user:
+                    users.add(collection_user)
             for prefix in prefixes:
                 if not prefix:
                     continue
