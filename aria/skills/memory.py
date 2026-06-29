@@ -1573,6 +1573,7 @@ class MemorySkill(BaseSkill):
         include_documents: bool = True,
         docs_only: bool = False,
         document_inventory: bool = False,
+        document_corpus_scan: bool = False,
         document_ids: list[str] | tuple[str, ...] | None = None,
         document_names: list[str] | tuple[str, ...] | None = None,
         document_target_collections: list[str] | tuple[str, ...] | None = None,
@@ -1591,6 +1592,15 @@ class MemorySkill(BaseSkill):
                 target_collections=inventory_targets,
                 limit=max(top_k, 12),
             )
+        if document_corpus_scan and docs_only and include_documents:
+            corpus_scan = await self._recall_document_corpus_scan(
+                query=query,
+                user_id=user_id,
+                target_collections=allowed_targets,
+                limit=max(top_k, 8),
+            )
+            if corpus_scan is not None:
+                return corpus_scan
         try:
             vector, usage = await self._embed(
                 query,
@@ -2488,6 +2498,7 @@ class MemorySkill(BaseSkill):
                     include_documents=bool(params.get("include_documents", True)),
                     docs_only=bool(params.get("docs_only", False)),
                     document_inventory=bool(params.get("document_inventory", False)),
+                    document_corpus_scan=bool(params.get("document_corpus_scan", False)),
                     document_ids=self._coerce_string_list(params.get("document_ids")),
                     document_names=self._coerce_string_list(params.get("document_names")),
                     document_target_collections=self._coerce_string_list(params.get("document_target_collections")),

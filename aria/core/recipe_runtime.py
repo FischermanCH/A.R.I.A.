@@ -718,6 +718,8 @@ class RecipeRuntime:
                     "include_documents": bool(context_overrides.get("include_documents", True)),
                     "docs_only": bool(context_overrides.get("docs_only", False)),
                 }
+                if bool(context_overrides.get("document_corpus_scan", False)):
+                    recall_params["document_corpus_scan"] = True
                 if bool(context_overrides.get("document_inventory", False)):
                     recall_params.update(
                         {

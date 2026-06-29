@@ -10,6 +10,13 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha430] - 2026-06-30
+
+### Fixed
+
+- Tightened deep source-bound document searches over uploaded document collections. When the LLM-selected document plan asks for deep docs context, ARIA now requests an exhaustive document corpus scan before semantic top-k snippets can answer, preventing generic section/ingredient wording from masking that the specific searched term was not covered by the retrieved excerpts.
+- The deep document corpus scan remains part of the docs evidence policy, not a deterministic router: the Meta-Catalog still chooses the docs/deep context contract, and the Memory skill then proves corpus coverage before source-bound answers can claim presence or absence.
+
 ## [0.1.0-alpha429] - 2026-06-30
 
 ### Fixed

@@ -350,6 +350,8 @@ class AgenticContextRuntimeMixin:
         }
         if docs_only:
             overrides["docs_only"] = True
+            if plan.context_depth == "deep":
+                overrides["document_corpus_scan"] = True
         if len(document_ids) >= 2 or any(request.mode == "inventory" and request.surface_id == "docs" for request in plan.context_requests):
             overrides["document_inventory"] = True
             overrides["document_ids"] = document_ids
