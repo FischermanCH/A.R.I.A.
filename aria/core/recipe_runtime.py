@@ -709,17 +709,27 @@ class RecipeRuntime:
                     int(self.settings.memory.top_k),
                     int(self.settings.auto_memory.session_recall_top_k) + int(self.settings.auto_memory.user_recall_top_k),
                 )
+                recall_params: dict[str, Any] = {
+                    "action": "recall",
+                    "top_k": int(context_overrides.get("memory_top_k") or merged_top_k),
+                    "user_id": user_id,
+                    "collection": family_base,
+                    "target_collections": list(context_overrides.get("memory_target_collections") or []),
+                    "include_documents": bool(context_overrides.get("include_documents", True)),
+                    "docs_only": bool(context_overrides.get("docs_only", False)),
+                }
+                if bool(context_overrides.get("document_inventory", False)):
+                    recall_params.update(
+                        {
+                            "document_inventory": True,
+                            "document_ids": list(context_overrides.get("document_ids") or []),
+                            "document_names": list(context_overrides.get("document_names") or []),
+                            "document_target_collections": list(context_overrides.get("document_target_collections") or []),
+                        }
+                    )
                 recall_result = await memory_skill.execute(
                     query=recall_query,
-                    params={
-                        "action": "recall",
-                        "top_k": int(context_overrides.get("memory_top_k") or merged_top_k),
-                        "user_id": user_id,
-                        "collection": family_base,
-                        "target_collections": list(context_overrides.get("memory_target_collections") or []),
-                        "include_documents": bool(context_overrides.get("include_documents", True)),
-                        "docs_only": bool(context_overrides.get("docs_only", False)),
-                    },
+                    params=recall_params,
                 )
                 recall_result.skill_name = "memory_recall"
                 results.append(recall_result)

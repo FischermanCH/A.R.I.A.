@@ -1140,6 +1140,63 @@ def test_meta_catalog_action_selection_seeds_capability_draft() -> None:
     assert "capability_draft_source:meta_catalog" in draft.notes
 
 
+def test_meta_catalog_multi_document_meta_requests_enable_document_inventory() -> None:
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("chat", "local_retrieval"),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="docs",
+                    mode="search",
+                    query="liste die vorhandenen dokumente",
+                    budget={
+                        "catalog_id": "local|docs|document|doc-a",
+                        "entity_type": "local_context",
+                        "kind": "document_meta",
+                        "ref": "doc-a",
+                        "document_id": "doc-a",
+                        "document_name": "Alpha Instructions.pdf",
+                        "target_collection": "aria_docs_example_user",
+                    },
+                ),
+                ContextRequest(
+                    surface_id="docs",
+                    mode="search",
+                    query="liste die vorhandenen dokumente",
+                    budget={
+                        "catalog_id": "local|docs|document|doc-b",
+                        "entity_type": "local_context",
+                        "kind": "document_meta",
+                        "ref": "doc-b",
+                        "document_id": "doc-b",
+                        "document_name": "Beta Instructions.pdf",
+                        "target_collection": "aria_docs_example_user",
+                    },
+                ),
+            ),
+            priority=("local|docs|document|doc-a", "local|docs|document|doc-b"),
+            answer_mode="direct_answer",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.95,
+        ),
+    )
+
+    overrides = AgenticContextRuntimeMixin()._aria_turn_context_overrides(arbitration, user_id="example_user")
+
+    assert overrides["document_inventory"] is True
+    assert overrides["document_ids"] == ["doc-a", "doc-b"]
+    assert overrides["document_names"] == ["Alpha Instructions.pdf", "Beta Instructions.pdf"]
+    assert overrides["document_target_collections"] == ["aria_docs_example_user"]
+    assert overrides["include_documents"] is True
+    assert overrides["docs_only"] is True
+
+
 def test_meta_catalog_mixed_rss_ssh_action_seed_prefers_ssh_targets() -> None:
     arbitration = AriaTurnArbitration(
         source=META_CATALOG_ROUTING_OPERATION,

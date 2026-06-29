@@ -598,6 +598,65 @@ def test_document_guide_targets_keep_close_scored_same_keyword_matches() -> None
     assert {str(item.get("document_id", "")) for item in targets} == {"net-1", "net-2"}
 
 
+async def _run_document_inventory_recall_uses_document_metadata() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    skill.qdrant = fake
+    guide_collection = skill._document_guide_collection_for_user("example_user")
+    fake.collections[guide_collection] = [
+        SimpleNamespace(
+            id="doc-a-guide",
+            payload={
+                "source": "rag_document_guide",
+                "user_id": "example_user",
+                "document_id": "doc-a",
+                "document_name": "Alpha Instructions.pdf",
+                "target_collection": "aria_docs_example_user",
+                "source_type": "document",
+            },
+        ),
+        SimpleNamespace(
+            id="doc-b-guide",
+            payload={
+                "source": "rag_document_guide",
+                "user_id": "example_user",
+                "document_id": "doc-b",
+                "document_name": "Beta Instructions.pdf",
+                "target_collection": "aria_docs_example_user",
+                "source_type": "document",
+            },
+        ),
+    ]
+
+    async def fail_embed(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("document inventory recall must not run semantic embedding")
+
+    skill._embed = fail_embed  # type: ignore[assignment]
+
+    result = await skill.execute(
+        "liste die vorhandenen dokumente",
+        {
+            "action": "recall",
+            "user_id": "example_user",
+            "document_inventory": True,
+            "document_ids": ["doc-a", "doc-b"],
+        },
+    )
+
+    assert result.success is True
+    assert "Alpha Instructions.pdf" in result.content
+    assert "Beta Instructions.pdf" in result.content
+    assert result.metadata["document_inventory"] is True
+    assert {source["document_id"] for source in result.metadata["sources"]} == {"doc-a", "doc-b"}
+
+
+def test_document_inventory_recall_uses_document_metadata() -> None:
+    asyncio.run(_run_document_inventory_recall_uses_document_metadata())
+
+
 async def _run_session_vs_user_recall() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),

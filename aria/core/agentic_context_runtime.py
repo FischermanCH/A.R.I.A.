@@ -303,12 +303,26 @@ class AgenticContextRuntimeMixin:
         docs_only = bool("docs" in plan.context_directions or "docs" in request_surfaces)
         include_sessions = "sessions" in plan.context_directions or "sessions" in request_surfaces
         bound_local_collections: list[str] = []
+        document_ids: list[str] = []
+        document_names: list[str] = []
+        document_target_collections: list[str] = []
         for request in plan.context_requests:
             budget = dict(request.budget or {})
-            if str(budget.get("entity_type", "") or "").strip() != "local_context":
+            entity_type = str(budget.get("entity_type", "") or "").strip()
+            kind = str(budget.get("kind", "") or "").strip()
+            if request.surface_id == "docs" and entity_type == "local_context" and kind == "document_meta":
+                for value, target in (
+                    (budget.get("document_id") or budget.get("ref"), document_ids),
+                    (budget.get("document_name"), document_names),
+                    (budget.get("target_collection"), document_target_collections),
+                ):
+                    clean = str(value or "").strip()
+                    if clean and clean not in target:
+                        target.append(clean)
+                include_documents = True
+            if entity_type != "local_context":
                 continue
             ref = str(budget.get("ref", "") or "").strip()
-            kind = str(budget.get("kind", "") or "").strip()
             if request.surface_id == "docs" or kind == "docs_family":
                 include_documents = True
                 continue
@@ -336,9 +350,15 @@ class AgenticContextRuntimeMixin:
         }
         if docs_only:
             overrides["docs_only"] = True
+        if len(document_ids) >= 2 or any(request.mode == "inventory" and request.surface_id == "docs" for request in plan.context_requests):
+            overrides["document_inventory"] = True
+            overrides["document_ids"] = document_ids
+            overrides["document_names"] = document_names
+            overrides["document_target_collections"] = document_target_collections
+            overrides["memory_top_k"] = min(12, max(5, len(document_ids) or len(document_names) or 5))
         if memory_like:
             overrides["memory_target_collections"] = memory_like
-            overrides["memory_top_k"] = min(5, max(2, len(memory_like) * 2))
+            overrides["memory_top_k"] = max(int(overrides.get("memory_top_k") or 0), min(5, max(2, len(memory_like) * 2)))
         return overrides
 
     @staticmethod

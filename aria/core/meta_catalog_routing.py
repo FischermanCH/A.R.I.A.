@@ -69,6 +69,9 @@ def _compact_meta_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "ref": str(payload.get("ref", "") or "").strip(),
         "title": str(payload.get("title", "") or "").strip()[:140],
         "description": str(payload.get("description", "") or "").strip()[:220],
+        "document_id": str(payload.get("document_id", "") or "").strip(),
+        "document_name": str(payload.get("document_name", "") or "").strip()[:220],
+        "target_collection": str(payload.get("target_collection", "") or "").strip(),
         "group_name": str(payload.get("group_name", "") or "").strip()[:80],
         "knows": list(payload.get("knows", []) or [])[:8],
         "can_load": list(payload.get("can_load", []) or [])[:6],
@@ -933,6 +936,9 @@ class MetaCatalogRouter:
                         "entity_type": str(hit.get("entity_type", "") or ""),
                         "kind": str(hit.get("kind", "") or ""),
                         "ref": str(hit.get("ref", "") or ""),
+                        "document_id": str(hit.get("document_id", "") or ""),
+                        "document_name": str(hit.get("document_name", "") or ""),
+                        "target_collection": str(hit.get("target_collection", "") or ""),
                     }
             requests.append(
                 ContextRequest(
@@ -975,6 +981,9 @@ class MetaCatalogRouter:
                                 "entity_type": str((hit or {}).get("entity_type", "") or ""),
                                 "kind": str((hit or {}).get("kind", "") or ""),
                                 "ref": str((hit or {}).get("ref", "") or ""),
+                                "document_id": str((hit or {}).get("document_id", "") or ""),
+                                "document_name": str((hit or {}).get("document_name", "") or ""),
+                                "target_collection": str((hit or {}).get("target_collection", "") or ""),
                             }
                         ),
                         user_id=user_id,

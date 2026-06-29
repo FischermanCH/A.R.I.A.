@@ -2153,6 +2153,60 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
     def _payload_missing_fields(payload: dict[str, Any]) -> list[str]:
         return payload_missing_fields(payload)
 
+    async def _resolve_missing_payload_connection_ref(
+        self,
+        payload: dict[str, Any],
+        message: str,
+        *,
+        user_id: str,
+        language: str | None = None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        missing_fields = self._payload_missing_fields(payload)
+        if "connection_ref" not in missing_fields or str(payload.get("connection_ref", "") or "").strip():
+            return payload, []
+        connection_kind = str(payload.get("connection_kind", "") or "").strip().lower()
+        capability = str(payload.get("capability", "") or "").strip()
+        if not connection_kind or not capability:
+            return payload, []
+        connection_pools = self._filter_capability_connection_pools(capability, self._capability_routing_connection_pools())
+        candidate_connections = connection_pools.get(connection_kind, {})
+        if not isinstance(candidate_connections, dict) or not candidate_connections:
+            return payload, []
+        draft = CapabilityDraft(
+            capability=capability,
+            connection_kind=connection_kind,
+            explicit_connection_ref=str(payload.get("explicit_connection_ref", "") or "").strip(),
+            requested_connection_ref=str(payload.get("requested_connection_ref", "") or "").strip(),
+            path=str(payload.get("path", "") or "").strip(),
+            content=str(payload.get("content", "") or "").strip(),
+            plan_class=str(payload.get("plan_class", "") or "").strip(),
+            behavior_profile=str(payload.get("behavior_profile", "") or "").strip(),
+        )
+        hint_resolution = await self._resolve_capability_action_hints(
+            draft=draft,
+            connection_pools={connection_kind: candidate_connections},
+            message=message,
+            user_id=user_id,
+            language=language,
+        )
+        plan = build_action_plan(
+            hint_resolution.draft,
+            hint_resolution.hints,
+            available_connection_refs=sorted(candidate_connections.keys()),
+        )
+        if not str(plan.connection_ref or "").strip():
+            return payload, []
+        resolved_payload = dict(payload)
+        resolved_payload["connection_ref"] = plan.connection_ref
+        resolved_payload["requested_connection_ref"] = plan.requested_connection_ref
+        resolved_payload["resolution_source"] = plan.resolution_source
+        resolved_payload["notes"] = list(plan.notes or [])
+        resolved_payload["missing_fields"] = [field for field in missing_fields if field != "connection_ref"]
+        return resolved_payload, [
+            "Routing Debug: missing_payload_connection_ref_resolved "
+            f"kind={connection_kind} ref={plan.connection_ref} source={plan.resolution_source or '-'}"
+        ]
+
     @staticmethod
     def _resolved_next_step(
         *,
@@ -4588,6 +4642,34 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
             next_step = self._resolved_next_step(safety=safety, execution=execution)
             payload_missing_fields = self._payload_missing_fields(payload)
+        if "connection_ref" in payload_missing_fields:
+            payload, connection_ref_details = await self._resolve_missing_payload_connection_ref(
+                payload,
+                message,
+                user_id=user_id,
+                language=language,
+            )
+            if connection_ref_details:
+                routing_detail_lines = [*routing_detail_lines, *connection_ref_details]
+                resolved = dict(resolved)
+                payload_debug = dict(resolved.get("payload_debug") or {})
+                payload_debug["payload"] = payload
+                resolved["payload_debug"] = payload_debug
+                routing_decision = dict(resolved.get("decision") or {})
+                routing_decision["found"] = True
+                routing_decision["kind"] = str(payload.get("connection_kind", "") or routing_decision.get("kind", "") or "")
+                routing_decision["ref"] = str(payload.get("connection_ref", "") or routing_decision.get("ref", "") or "")
+                routing_decision["source"] = str(payload.get("resolution_source", "") or routing_decision.get("source", "") or "")
+                routing_decision["reason"] = str(payload.get("requested_connection_ref", "") or routing_decision.get("reason", "") or "")
+                resolved["decision"] = routing_decision
+                resolved = self._apply_filled_pending_input(resolved, language=language)
+                action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+                safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+                execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
+                next_step = self._resolved_next_step(safety=safety, execution=execution)
+                payload_missing_fields = self._payload_missing_fields(payload)
+                if not payload_missing_fields and next_step == "ask_user" and not safety and not execution:
+                    next_step = "execute"
         if payload_missing_fields:
             plan = self._payload_to_action_plan(payload)
             text = self._format_capability_missing_message(plan, language=language)
@@ -5001,6 +5083,19 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
                 preferred_kind="ssh",
                 language=language,
             )
+        if not str(hints.connection_ref or "").strip() and rows:
+            semantic_hint = await self._semantic_connection_resolver.resolve_connection_with_llm(
+                message,
+                {"ssh": rows},
+                preferred_kind="ssh",
+            )
+            if semantic_hint.connection_ref and semantic_hint.connection_ref in rows:
+                hints = MemoryHints(
+                    connection_kind=semantic_hint.connection_kind or "ssh",
+                    connection_ref=semantic_hint.connection_ref,
+                    source=semantic_hint.source or "semantic_llm",
+                    notes=[semantic_hint.note] if semantic_hint.note else [],
+                )
 
         plan = build_action_plan(draft, hints, available_connection_refs=sorted(rows.keys()))
         intent = [f"capability:{plan.capability}"]

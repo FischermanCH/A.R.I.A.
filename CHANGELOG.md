@@ -10,6 +10,17 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha428] - 2026-06-29
+
+### Fixed
+
+- Fixed source-bound document inventory questions over uploaded document collections. When the Meta-Catalog selects multiple document metadata entries, ARIA now carries document IDs, names, and target collections into the context loader and loads the document metadata inventory directly instead of falling back to a semantic chunk recall that could return only one matching document.
+- Fixed a Pre-RAG SSH target recovery edge case where a semantically resolved SSH profile could still leave stale `missing_parameters` safety/execution state behind, causing ARIA to ask for a profile even after resolving the target.
+
+### Changed
+
+- Document inventory recall now uses existing document guide/catalog metadata and skips the embedding/chunk-search path for these list-style document requests, making answers both more complete and cheaper for "what documents do I have?" style prompts.
+
 ## [0.1.0-alpha427] - 2026-06-29
 
 ### Changed

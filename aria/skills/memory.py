@@ -759,6 +759,87 @@ class MemorySkill(BaseSkill):
                 by_key[key] = row
         return list(by_key.values())
 
+    async def _recall_document_inventory(
+        self,
+        *,
+        user_id: str,
+        document_ids: list[str] | tuple[str, ...] | None = None,
+        document_names: list[str] | tuple[str, ...] | None = None,
+        target_collections: list[str] | tuple[str, ...] | None = None,
+        limit: int = 12,
+    ) -> SkillResult:
+        requested_ids = {str(item or "").strip() for item in list(document_ids or []) if str(item or "").strip()}
+        requested_names = {str(item or "").strip().lower() for item in list(document_names or []) if str(item or "").strip()}
+        requested_collections = {str(item or "").strip() for item in list(target_collections or []) if str(item or "").strip()}
+        rows = await self._document_catalog_payloads(user_id=user_id)
+        selected_rows: list[dict[str, Any]] = []
+        for row in rows:
+            document_id = str(row.get("document_id", "") or "").strip()
+            document_name = str(row.get("document_name", "") or "").strip()
+            collection = str(row.get("target_collection", "") or "").strip()
+            if requested_ids and document_id not in requested_ids:
+                continue
+            if not requested_ids and requested_names and document_name.lower() not in requested_names:
+                continue
+            if not requested_ids and not requested_names and requested_collections and collection not in requested_collections:
+                continue
+            selected_rows.append(row)
+
+        selected_rows.sort(
+            key=lambda row: (
+                str(row.get("target_collection", "") or ""),
+                str(row.get("document_name", "") or "").lower(),
+                str(row.get("document_id", "") or ""),
+            )
+        )
+        selected_rows = selected_rows[: max(1, int(limit or 12))]
+        if not selected_rows:
+            return SkillResult(
+                skill_name=self.name,
+                content="Keine passenden Dokumente gefunden.",
+                success=True,
+                metadata={
+                    "document_inventory": True,
+                    "sources": [],
+                    "detail_lines": ["Routing Debug: document_inventory selected=0 reason=no_matching_document_metadata"],
+                },
+            )
+
+        lines: list[str] = []
+        sources: list[dict[str, Any]] = []
+        for row in selected_rows:
+            document_id = str(row.get("document_id", "") or "").strip()
+            document_name = str(row.get("document_name", "") or "").strip()
+            collection = str(row.get("target_collection", "") or "").strip()
+            source_type = str(row.get("source_type", "") or "document").strip()
+            parts = [f"Collection: {collection}" if collection else "", f"Document-ID: {document_id}" if document_id else ""]
+            lines.append(f"- [Dokument: {document_name or document_id or collection}] {' · '.join(part for part in parts if part)}")
+            sources.append(
+                {
+                    "type": "document",
+                    "source_type": source_type,
+                    "document_id": document_id,
+                    "document_name": document_name,
+                    "collection": collection,
+                    "detail": f"Quelle: {document_name or document_id or collection} · {collection}".strip(),
+                }
+            )
+
+        content = "\n".join(lines)
+        truncated, saved = self.truncate(content)
+        collections = sorted({str(row.get("target_collection", "") or "") for row in selected_rows if str(row.get("target_collection", "") or "")})
+        metadata: dict[str, Any] = {
+            "document_inventory": True,
+            "sources": sources,
+            "detail_lines": [
+                "Routing Debug: document_inventory "
+                f"selected={len(selected_rows)} collections={','.join(collections[:8]) or '-'} "
+                f"requested_ids={len(requested_ids)}",
+                *[str(entry.get("detail", "")).strip() for entry in sources if str(entry.get("detail", "")).strip()],
+            ],
+        }
+        return SkillResult(skill_name=self.name, content=truncated, success=True, tokens_saved=saved, metadata=metadata)
+
     async def rebuild_document_meta_catalog(self, *, user_id: str) -> dict[str, Any]:
         guides = await self._document_catalog_payloads(user_id=user_id)
 
@@ -1273,12 +1354,25 @@ class MemorySkill(BaseSkill):
         target_collections: list[str] | tuple[str, ...] | None = None,
         include_documents: bool = True,
         docs_only: bool = False,
+        document_inventory: bool = False,
+        document_ids: list[str] | tuple[str, ...] | None = None,
+        document_names: list[str] | tuple[str, ...] | None = None,
+        document_target_collections: list[str] | tuple[str, ...] | None = None,
     ) -> SkillResult:
         allowed_targets = {
             str(item or "").strip()
             for item in list(target_collections or [])
             if str(item or "").strip()
         }
+        if document_inventory:
+            inventory_targets = list(document_target_collections or []) or list(allowed_targets)
+            return await self._recall_document_inventory(
+                user_id=user_id,
+                document_ids=document_ids,
+                document_names=document_names,
+                target_collections=inventory_targets,
+                limit=max(top_k, 12),
+            )
         try:
             vector, usage = await self._embed(
                 query,
@@ -1405,6 +1499,14 @@ class MemorySkill(BaseSkill):
             tokens_saved=saved,
             metadata=metadata,
         )
+
+    @staticmethod
+    def _coerce_string_list(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list | tuple | set):
+            return [str(item or "").strip() for item in value if str(item or "").strip()]
+        return []
 
     @staticmethod
     def _coerce_point_id(value: str) -> str | int:
@@ -2124,6 +2226,10 @@ class MemorySkill(BaseSkill):
                     target_collections=target_collections,
                     include_documents=bool(params.get("include_documents", True)),
                     docs_only=bool(params.get("docs_only", False)),
+                    document_inventory=bool(params.get("document_inventory", False)),
+                    document_ids=self._coerce_string_list(params.get("document_ids")),
+                    document_names=self._coerce_string_list(params.get("document_names")),
+                    document_target_collections=self._coerce_string_list(params.get("document_target_collections")),
                 )
 
             if action == "forget_preview":
