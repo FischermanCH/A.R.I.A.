@@ -10,6 +10,13 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha432] - 2026-06-30
+
+### Fixed
+
+- Fixed corpus-wide uploaded-document questions when the Meta-Catalog selects the structured document-corpus scope (`local|docs|documents`) but labels the context depth as shallow. ARIA now treats that selected scope as sufficient evidence-policy signal to require a document corpus scan before answering.
+- This keeps "is this term in any uploaded document?" answers source-bound to corpus coverage instead of allowing a single semantically retrieved document excerpt to answer for the whole uploaded-document set.
+
 ## [0.1.0-alpha431] - 2026-06-30
 
 ### Fixed

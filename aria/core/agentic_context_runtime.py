@@ -301,6 +301,7 @@ class AgenticContextRuntimeMixin:
         request_surfaces = {request.surface_id for request in plan.context_requests}
         include_documents = "docs" in plan.context_directions or "docs" in request_surfaces
         docs_only = bool("docs" in plan.context_directions or "docs" in request_surfaces)
+        document_corpus_scope = any(str(item or "").strip() == "local|docs|documents" for item in plan.priority)
         include_sessions = "sessions" in plan.context_directions or "sessions" in request_surfaces
         bound_local_collections: list[str] = []
         document_ids: list[str] = []
@@ -350,7 +351,7 @@ class AgenticContextRuntimeMixin:
         }
         if docs_only:
             overrides["docs_only"] = True
-            if plan.context_depth == "deep":
+            if plan.context_depth == "deep" or document_corpus_scope:
                 overrides["document_corpus_scan"] = True
         if len(document_ids) >= 2 or any(request.mode == "inventory" and request.surface_id == "docs" for request in plan.context_requests):
             overrides["document_inventory"] = True

@@ -129,6 +129,25 @@ def test_deep_docs_context_requests_document_corpus_scan() -> None:
     assert overrides["document_corpus_scan"] is True
 
 
+def test_docs_corpus_priority_requests_document_corpus_scan_even_when_shallow() -> None:
+    arbitration = AriaTurnArbitration(
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_depth="shallow",
+            context_requests=(ContextRequest(surface_id="docs", mode="search", query="Glucosamin"),),
+            priority=("local|docs|document|doc-a", "local|docs|documents"),
+        )
+    )
+
+    overrides = AgenticContextRuntimeMixin()._aria_turn_context_overrides(arbitration, user_id="u1")
+
+    assert overrides["include_documents"] is True
+    assert overrides["docs_only"] is True
+    assert overrides["document_corpus_scan"] is True
+
+
 def test_surface_loader_runtime_passes_document_corpus_scan_to_memory_recall() -> None:
     owner = _Owner()
     runtime = SurfaceLoaderRuntime(owner)
