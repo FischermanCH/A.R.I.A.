@@ -290,7 +290,115 @@ class AgenticContextRuntimeMixin:
         }
         return mapping.get(str(ref or "").strip(), "")
 
-    def _aria_turn_context_overrides(self, arbitration: AriaTurnArbitration | None, *, user_id: str = "web") -> dict[str, Any]:
+    @staticmethod
+    def _aria_turn_docs_request_text(plan: AriaTurnPlan) -> str:
+        parts: list[str] = []
+        for value in list(plan.queries.values()):
+            clean = str(value or "").strip()
+            if clean:
+                parts.append(clean)
+        for request in plan.context_requests:
+            if request.surface_id != "docs":
+                continue
+            clean = str(request.query or "").strip()
+            if clean:
+                parts.append(clean)
+        return " ".join(dict.fromkeys(parts))
+
+    @staticmethod
+    def _aria_turn_docs_query_needs_corpus_scan(query: str) -> bool:
+        lower = str(query or "").strip().lower()
+        if not lower:
+            return False
+        lower_ascii = lower.translate(
+            {
+                ord(chr(228)): "ae",
+                ord(chr(246)): "oe",
+                ord(chr(252)): "ue",
+                ord(chr(223)): "ss",
+            }
+        )
+        corpus_scope = any(
+            marker in lower_ascii
+            for marker in (
+                "eines der",
+                "einer der",
+                "einem der",
+                "allen dokument",
+                "alle dokument",
+                "any of",
+                "available",
+                "vorhanden",
+                "haben",
+            )
+        )
+        substance_scope = any(
+            marker in lower_ascii
+            for marker in (
+                "bestandteil",
+                "inhaltsstoff",
+                "zusammensetzung",
+                "wirkstoff",
+                "component",
+                "ingredient",
+                "contains",
+                "enthalten",
+                "kommt",
+            )
+        )
+        docs_scope = any(
+            marker in lower_ascii
+            for marker in (
+                "beipackzettel",
+                "dokument",
+                "document",
+                "pdf",
+                "medikament",
+            )
+        )
+        return docs_scope and corpus_scope and substance_scope
+
+    @staticmethod
+    def _aria_turn_docs_query_is_broad_inventory(query: str) -> bool:
+        lower = str(query or "").strip().lower()
+        if not lower:
+            return False
+        lower_ascii = lower.translate(
+            {
+                ord(chr(228)): "ae",
+                ord(chr(246)): "oe",
+                ord(chr(252)): "ue",
+                ord(chr(223)): "ss",
+            }
+        )
+        inventory_scope = any(
+            marker in lower_ascii
+            for marker in ("liste", "auflisten", "welche", f"was f{chr(117)}er", f"{chr(117)}ebersicht", "inventory")
+        )
+        available_scope = any(marker in lower_ascii for marker in ("haben", "vorhanden", "verfuegbar", "available"))
+        docs_scope = any(marker in lower_ascii for marker in ("beipackzettel", "dokument", "document", "pdf", "medikament"))
+        return inventory_scope and available_scope and docs_scope
+
+    @staticmethod
+    def _aria_turn_docs_query_is_named_document_family_inventory(query: str) -> bool:
+        lower = str(query or "").strip().lower()
+        lower_ascii = lower.translate(
+            {
+                ord(chr(228)): "ae",
+                ord(chr(246)): "oe",
+                ord(chr(252)): "ue",
+                ord(chr(223)): "ss",
+            }
+        )
+        return any(marker in lower_ascii for marker in ("beipackzettel", "medikament"))
+
+    def _aria_turn_context_overrides(
+        self,
+        arbitration: AriaTurnArbitration | None,
+        *,
+        user_id: str = "web",
+        message: str | None = None,
+    ) -> dict[str, Any]:
         if arbitration is None:
             return {}
         plan = arbitration.plan
@@ -302,6 +410,13 @@ class AgenticContextRuntimeMixin:
         include_documents = "docs" in plan.context_directions or "docs" in request_surfaces
         docs_only = bool("docs" in plan.context_directions or "docs" in request_surfaces)
         document_corpus_scope = any(str(item or "").strip() == "local|docs|documents" for item in plan.priority)
+        docs_request_text = " ".join(
+            part for part in (self._aria_turn_docs_request_text(plan), str(message or "").strip()) if part
+        )
+        docs_corpus_question = self._aria_turn_docs_query_needs_corpus_scan(docs_request_text)
+        broad_docs_inventory = self._aria_turn_docs_query_is_broad_inventory(docs_request_text) and (
+            document_corpus_scope or self._aria_turn_docs_query_is_named_document_family_inventory(docs_request_text)
+        )
         include_sessions = "sessions" in plan.context_directions or "sessions" in request_surfaces
         bound_local_collections: list[str] = []
         document_ids: list[str] = []
@@ -351,12 +466,18 @@ class AgenticContextRuntimeMixin:
         }
         if docs_only:
             overrides["docs_only"] = True
-            if plan.context_depth == "deep" or document_corpus_scope:
+            if plan.context_depth == "deep" or document_corpus_scope or docs_corpus_question:
                 overrides["document_corpus_scan"] = True
-        if len(document_ids) >= 2 or any(request.mode == "inventory" and request.surface_id == "docs" for request in plan.context_requests):
+            if document_target_collections:
+                overrides["document_target_collections"] = document_target_collections
+        if (
+            len(document_ids) >= 2
+            or broad_docs_inventory
+            or any(request.mode == "inventory" and request.surface_id == "docs" for request in plan.context_requests)
+        ):
             overrides["document_inventory"] = True
-            overrides["document_ids"] = document_ids
-            overrides["document_names"] = document_names
+            overrides["document_ids"] = [] if broad_docs_inventory else document_ids
+            overrides["document_names"] = [] if broad_docs_inventory else document_names
             overrides["document_target_collections"] = document_target_collections
             overrides["memory_top_k"] = min(12, max(5, len(document_ids) or len(document_names) or 5))
         if memory_like:

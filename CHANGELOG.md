@@ -10,6 +10,28 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha437] - 2026-06-30
+
+### Changed
+
+- Continued the agentic runtime cleanup by moving runtime-outcome follow-up handling out of the main pipeline into a focused resolver module, reducing the size of the central pipeline without changing the public routing contract.
+- Feedback learning from chat is now queued through the Learning Worker instead of being awaited directly in the web request, reducing avoidable wall time after user feedback.
+- Clear multi-target runtime tasks, such as server package update checks, can use a bounded capability-draft fast path before the Meta-Catalog call while still going through the existing confirmation, policy, and execution guardrails.
+- Web Search is more robust when SearXNG primary queries time out: official supplemental queries are best-effort and no longer discard otherwise valid primary results.
+
+### Fixed
+
+- Fixed broad uploaded-document inventory questions so ARIA loads the selected document store inventory instead of answering from only one or a few semantically selected document IDs.
+- Fixed corpus-wide uploaded-document substance checks when the Meta-Catalog narrows the query to one promising document. ARIA now preserves the original user prompt as a scope signal, keeps the selected document collection, and performs an exhaustive corpus scan before answering.
+- Fixed document corpus scans so explicit target collections are passed through the surface loader, recipe runtime, and Memory skill consistently, preventing unrelated documents or recipe-experience records from entering source-bound document answers.
+- Fixed a runtime-follow-up edge where a previous package-update frame could keep influencing a later, unrelated document question.
+
+### Upgrade Notes
+
+- Normal managed installs should use `/updates` or `./aria-stack.sh update`.
+- Fixed-tag installs can use `fischermanch/aria:0.1.0-alpha.437`.
+- Normal updates should recreate only the `aria` service and keep Qdrant, SearXNG, Valkey, and persistent volumes untouched.
+
 ## [0.1.0-alpha433] - 2026-06-30
 
 ### Fixed

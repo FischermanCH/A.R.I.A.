@@ -624,8 +624,8 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha331`
-- `alpha331` is the public alpha rollup after `alpha298`: it adds chat Recipe Learn Mode, chat-to-Notes archiving, a polished and faster Notes workspace, stronger RAG/source hygiene for general chat, clickable `/help` entry links, modularized chat-context filtering, the generic routed capability execution handler, improved current-version/web-research freshness, and refreshed ARIA logo/favicons with a cleaner busy animation.
+- Current public alpha release: `0.1.0-alpha437`
+- `alpha437` strengthens uploaded-document corpus answers, improves document inventory recall, keeps source-bound document scans scoped to the selected store, reduces avoidable runtime/follow-up latency for common operational tasks, and makes Web Search fallback handling more robust around SearXNG timeouts.
 
 ## One-line summary
 
@@ -965,7 +965,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Aktueller Public-Alpha-Release: `0.1.0-alpha331`. Dieser Stand buendelt Chat-Lernmodus, Chat-Archivierung in Notizen, eine ruhigere und schnellere Notes-Oberflaeche, bessere RAG-/Quellenhygiene fuer allgemeine Chatfragen, klickbare `/help`-Einstiege, modularisierte Chat-Kontextfilterung, die generische routed Capability Execution, bessere Freshness-Websuche fuer aktuelle Versions- und Recherchefragen sowie das neue ARIA-Logo mit sauberer Busy-Animation.
+Aktueller Public-Alpha-Release: `0.1.0-alpha437`. Dieser Stand verbessert hochgeladene Dokumente, corpusweite Dokumentantworten, Dokument-Inventare, source-bound Dokument-Scans, schnellere Runtime-/Follow-up-Pfade fuer typische Operationsfragen und robusteres Web-Search-Fallback-Verhalten bei SearXNG-Timeouts.
 
 ## Ein-Satz-Zusammenfassung
 

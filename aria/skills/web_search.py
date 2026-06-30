@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from aria.core.i18n import I18NStore
 from aria.core.notes_context import NotesContextHit, note_context_block, note_context_detail_lines
 from aria.core.config import resolve_searxng_base_url
-from aria.core.searxng_client import SearXNGClient, SearXNGClientError
+from aria.core.searxng_client import SearXNGClient, SearXNGClientError, SearXNGSearchResponse
 from aria.skills.base import BaseSkill, SkillResult
 
 _WEB_SEARCH_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
@@ -795,13 +795,20 @@ class WebSearchSkill(BaseSkill):
                 if self._should_run_official_supplement(query)
                 else int(self._profile_value(profile, "max_results", 5) or 5),
             }
-            response = await self.client.search(
-                query=str(query or "").strip(),
-                **search_kwargs,
-            )
             supplemental_count = 0
+            supplemental_errors: list[str] = []
+            supplement_queries = self._official_supplement_queries(query) if self._should_run_official_supplement(query) else []
+            try:
+                response = await self.client.search(
+                    query=str(query or "").strip(),
+                    **search_kwargs,
+                )
+            except SearXNGClientError as exc:
+                if not supplement_queries:
+                    raise
+                supplemental_errors.append(f"primary: {str(exc)[:170]}")
+                response = SearXNGSearchResponse(query=str(query or "").strip(), results=[], raw={})
             if self._should_run_official_supplement(query):
-                supplement_queries = self._official_supplement_queries(query)
                 if supplement_queries:
                     supplemental_responses = await asyncio.gather(
                         *[
@@ -810,13 +817,19 @@ class WebSearchSkill(BaseSkill):
                                 **search_kwargs,
                             )
                             for supplement_query in supplement_queries
-                        ]
+                        ],
+                        return_exceptions=True,
                     )
                     supplemental_results = []
                     for supplemental_response in supplemental_responses:
+                        if isinstance(supplemental_response, Exception):
+                            supplemental_errors.append(str(supplemental_response)[:180])
+                            continue
                         supplemental_results.extend(list(supplemental_response.results or []))
                     response.results = self._merge_search_results(response.results, supplemental_results)
                     supplemental_count = len(supplemental_results)
+                    if not response.results and supplemental_errors:
+                        raise SearXNGClientError("; ".join(supplemental_errors[:3]))
         except SearXNGClientError as exc:
             return SkillResult(
                 skill_name=self.name,
@@ -841,6 +854,7 @@ class WebSearchSkill(BaseSkill):
                     f"{self._text(language, 'search_label', 'Search')}: {response.query}",
                 ]
                 detail_lines = []
+                detail_lines.extend(f"Web search supplemental query failed: {error}" for error in supplemental_errors[:3])
                 source_entries = []
                 for index, (url, excerpt) in enumerate(page_excerpts.items(), start=1):
                     lines.append(f"- [{index}] {url}\n  Page excerpt:\n{excerpt}")
@@ -875,6 +889,8 @@ class WebSearchSkill(BaseSkill):
                         "page_excerpt_count": len(page_excerpts),
                         "source_quality_outcome": "explicit_url_page_fetch",
                         "official_supplement_count": supplemental_count,
+                        "official_supplement_error_count": len(supplemental_errors),
+                        "official_supplement_errors": supplemental_errors[:3],
                     },
                 )
 
@@ -893,11 +909,14 @@ class WebSearchSkill(BaseSkill):
                         )
                     ],
                     "official_supplement_count": supplemental_count,
+                    "official_supplement_error_count": len(supplemental_errors),
+                    "official_supplement_errors": supplemental_errors[:3],
                 },
             )
 
         lines: list[str] = []
         detail_lines: list[str] = []
+        detail_lines.extend(f"Web search supplemental query failed: {error}" for error in supplemental_errors[:3])
         if note_hits:
             context_block = note_context_block(note_hits, language=language)
             if context_block:
@@ -987,6 +1006,8 @@ class WebSearchSkill(BaseSkill):
                 "fetch_attempt_count": len(fetch_candidates),
                 "page_excerpt_count": len({value for value in page_excerpts.values()}),
                 "official_supplement_count": supplemental_count,
+                "official_supplement_error_count": len(supplemental_errors),
+                "official_supplement_errors": supplemental_errors[:3],
                 "target_coverage": target_coverage,
                 "source_quality_outcome": (
                     "explicit_url_with_page_excerpt"

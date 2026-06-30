@@ -636,6 +636,186 @@ def test_pipeline_agentic_capability_no_action_blocks_local_ssh_fallback() -> No
     assert not any("agentic_runtime" in line for line in result.detail_lines)
 
 
+def test_runtime_task_override_can_recover_server_updates_from_rss_action_contract() -> None:
+    class ServerUpdateDraftLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "package_update_check",
+                            "content": "apt list --upgradable",
+                            "confidence": "high",
+                            "reason": "server package update question",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/test_ed25519"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/test_ed25519"},
+                },
+                "rss": {
+                    "heise-security-alerts": {
+                        "url": "https://example.invalid/feed.xml",
+                        "title": "Heise Security Alerts",
+                    }
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = ServerUpdateDraftLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    meta = AriaTurnArbitration(
+        source="aria_meta_catalog_routing",
+        plan=AriaTurnPlan(
+            intents=("chat", "runtime_action"),
+            surfaces=("connections",),
+            actions=("rss_read_feed",),
+            needs_context=True,
+            context_directions=("connections",),
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="brauchen meine server updates und falls ja, welches sind die wichtigsten?",
+                    budget={
+                        "catalog_id": "connection|rss|heise-security-alerts",
+                        "entity_type": "connection",
+                        "kind": "rss",
+                        "ref": "heise-security-alerts",
+                    },
+                ),
+            ),
+            priority=("connection|rss|heise-security-alerts",),
+            answer_mode="direct_answer",
+            contract_mode="action",
+            evidence_policy="source_bound",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.91,
+        ),
+    )
+
+    override = asyncio.run(
+        pipeline._runtime_task_arbitration_override(
+            message="brauchen meine server updates und falls ja, welches sind die wichtigsten?",
+            user_id="u1",
+            request_id="r1",
+            language="de",
+            meta_arbitration=meta,
+        )
+    )
+
+    assert override is not None
+    assert override.source == "runtime_task_contract"
+    assert override.plan.actions == ("connection_action_ssh",)
+    assert override.plan.priority == ("connection|ssh|srv-a", "connection|ssh|srv-b")
+    assert "capability_draft_decision" in llm.operations
+    assert any("meta_answer_contract=overridden" in line for line in pipeline._last_meta_catalog_fallback_debug_lines)
+
+
+def test_pipeline_runtime_task_fastpath_skips_meta_catalog_for_server_updates() -> None:
+    class ServerUpdateFastPathLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("runtime task fast-path must not call the meta catalog")
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "package_update_check",
+                            "content": "apt list --upgradable",
+                            "confidence": "high",
+                            "reason": "server package update question",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Beide Server haben Paketupdates.",
+                            "confidence": "high",
+                            "reason": "Both SSH outputs contain upgradable packages.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/test_ed25519"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/test_ed25519"},
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = ServerUpdateFastPathLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "Listing... openssl/stable 3.0 [upgradable from: 3.0-old]"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "brauchen meine server updates und falls ja, welches sind die wichtigsten?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.pending_action is None
+    assert ssh_calls == [("srv-a", "apt list --upgradable"), ("srv-b", "apt list --upgradable")]
+    assert "capability_draft_decision" in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("runtime_task_contract" in line and "meta_catalog=skipped" in line for line in result.detail_lines)
+    assert any("Routing Debug: stage_timing stage=aria_turn_arbiter ms=0" in line for line in result.detail_lines)
+    assert any("multi_target_ssh_preflight_result allowed=2 blocked=0" in line for line in result.detail_lines)
+
+
 def test_pipeline_agentic_capability_out_of_bounds_blocks_local_ssh_fallback() -> None:
     class OutOfBoundsCapabilityLLM(FakeLLMClient):
         def __init__(self) -> None:
@@ -12913,6 +13093,73 @@ def test_pipeline_unrelated_turn_after_runtime_frame_skips_followup_llm() -> Non
     result = asyncio.run(
         pipeline.process(
             "wie kriege ich meine heizungen ans wireless ?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.request_id
+    assert "runtime_outcome_followup_resolution" not in llm.operations
+    assert any("stage_timing stage=runtime_outcome_followup" in line for line in result.detail_lines)
+
+
+def test_pipeline_docs_turn_after_package_update_frame_skips_runtime_followup_llm() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "title": "Server A"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DocsAfterUpdatesLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                raise AssertionError("docs turn must not pay package-update follow-up LLM")
+            return await super().chat(messages, **kwargs)
+
+    llm = DocsAfterUpdatesLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    detail_lines: list[str] = []
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "package_update_check",
+            "command": "apt list --upgradable",
+            "targets": ["srv-a"],
+            "records": [
+                {
+                    "ref": "srv-a",
+                    "state": "ok",
+                    "text": "openssl/stable 3.0 [upgradable from: 2.0]",
+                    "raw_text": "openssl/stable 3.0 [upgradable from: 2.0]",
+                }
+            ],
+            "summary": "srv-a has openssl updates.",
+            "followup_affordances": ["rank_updates", "list_packages_by_server", "explain_update_relevance"],
+        },
+        user_id="u1",
+        detail_lines=detail_lines,
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "Ist Glucosamin Bestandteil eines der Medikamente deren Beipackzettel wir haben",
             user_id="u1",
             source="test",
             language="de",

@@ -1610,8 +1610,15 @@ class MemorySkill(BaseSkill):
             for item in list(target_collections or [])
             if str(item or "").strip()
         }
+        document_scope_targets = {
+            str(item or "").strip()
+            for item in list(document_target_collections or [])
+            if str(item or "").strip()
+        }
+        if document_scope_targets:
+            allowed_targets.update(document_scope_targets)
         if document_inventory:
-            inventory_targets = list(document_target_collections or []) or list(allowed_targets)
+            inventory_targets = list(document_scope_targets or allowed_targets)
             return await self._recall_document_inventory(
                 user_id=user_id,
                 document_ids=document_ids,

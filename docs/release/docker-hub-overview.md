@@ -20,19 +20,17 @@ Repository and full documentation:
 
 Current public alpha release on Docker Hub:
 
-- `0.1.0-alpha331`
+- `0.1.0-alpha437`
 
 Current public alpha focus:
 
-- Chat Recipe Learn Mode can create review-only learned recipe candidates from an explicit observed chat run. Learned candidates never become active automatically.
-- Chats can be archived into Notes; the Notes workspace is faster, calmer, mobile-friendly, and handles long titles, URLs, tags, and folders without horizontal overflow.
-- General how-to/product/version answers filter weak local Memory/RAG context unless the user explicitly asks for local notes, documents, or memory.
-- Explicit web-research and current-version prompts can trigger Web Search freshness context, with source lines in chat details.
-- `/help` landing entries are clickable and route directly to Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security, and help-system docs.
-- Connection/action routing is more LLM-first for ambiguous language, while deterministic policy, Guardrails, confirmations, and runtime validation still decide execution.
-- Multi-target SSH checks are faster through bounded parallelism and better group scoping for role phrases such as developer servers.
-- `/stats` includes cost estimates, local billing-period reset, Operator Guardrail details, Runtime Health, third-party sidecar visibility, and safer update-path reporting.
-- The ARIA logo and browser icons were refreshed, and the global busy indicator now uses a cleaner holographic logo animation.
+- Uploaded-document questions can use source-bound corpus scans when a user asks whether a term appears in any uploaded document.
+- Document inventory questions load the selected document store inventory instead of relying on only semantic chunk hits.
+- Document corpus scans preserve selected store scope and avoid mixing unrelated document or recipe-experience records into the answer.
+- Common runtime operations avoid more unnecessary follow-up and Meta-Catalog overhead while keeping confirmations, policy, and execution guardrails intact.
+- Web Search fallback handling is more robust around SearXNG timeouts and best-effort official supplemental queries.
+- Chat feedback learning is queued through the Learning Worker instead of blocking the web request.
+- The ongoing pipeline cleanup continues, with runtime outcome follow-up handling moved into a focused resolver module.
 
 ## What you need
 

@@ -720,6 +720,8 @@ class RecipeRuntime:
                 }
                 if bool(context_overrides.get("document_corpus_scan", False)):
                     recall_params["document_corpus_scan"] = True
+                if context_overrides.get("document_target_collections"):
+                    recall_params["document_target_collections"] = list(context_overrides.get("document_target_collections") or [])
                 if bool(context_overrides.get("document_inventory", False)):
                     recall_params.update(
                         {

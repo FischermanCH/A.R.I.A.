@@ -487,6 +487,95 @@ def test_pipeline_followup_resolution_low_confidence_uses_regex_fallback() -> No
     assert llm.operations == ["followup_resolution"]
 
 
+def test_pipeline_followup_resolution_skips_standalone_local_prompt() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    llm = _FollowupLLM(
+        {
+            "action": "rewrite",
+            "target_space": "local_context",
+            "rewritten_message": "wrong",
+            "confidence": "high",
+            "reason": "should not run",
+        }
+    )
+
+    rewritten = asyncio.run(
+        chat_execution_routes._resolve_pipeline_followup_message(
+            "wie kriege ich meine heizungen ans wireless ?",
+            [{"role": "assistant", "text": "Vorherige Antwort"}],
+            llm_client=llm,
+        )
+    )
+
+    assert rewritten == "wie kriege ich meine heizungen ans wireless ?"
+    assert llm.operations == []
+
+
+def test_pipeline_followup_resolution_skips_runtime_path_followup() -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    llm = _FollowupLLM(
+        {
+            "action": "rewrite",
+            "target_space": "connections",
+            "rewritten_message": "wrong",
+            "confidence": "high",
+            "reason": "runtime frame should resolve this later",
+        }
+    )
+
+    rewritten = asyncio.run(
+        chat_execution_routes._resolve_pipeline_followup_message(
+            "3.6G /tmp was liegt da alles rum",
+            [{"role": "assistant", "text": "3.6G /tmp"}],
+            llm_client=llm,
+        )
+    )
+
+    assert rewritten == "3.6G /tmp was liegt da alles rum"
+    assert llm.operations == []
+
+
+def test_user_feedback_learning_is_scheduled_not_awaited(monkeypatch) -> None:
+    import aria.web.chat_execution_routes as chat_execution_routes
+
+    captured: dict[str, object] = {}
+
+    async def fake_capture_user_feedback_learning(**kwargs):
+        captured["capture_kwargs"] = kwargs
+        return {"captured": True, "reason": "captured"}
+
+    def fake_enqueue_learning_job(**kwargs):
+        captured["enqueue_kwargs"] = kwargs
+        return {"accepted": True, "job_id": "job-1", "reason": "queued"}
+
+    monkeypatch.setattr(chat_execution_routes, "capture_user_feedback_learning", fake_capture_user_feedback_learning)
+    monkeypatch.setattr(chat_execution_routes, "enqueue_learning_job", fake_enqueue_learning_job)
+
+    result = chat_execution_routes._schedule_user_feedback_learning(
+        message="das war gut",
+        user_id="sample_user",
+        history=[{"role": "user", "text": f"turn {index}"} for index in range(10)],
+        memory_skill=object(),
+        llm_client=object(),
+        session_id="session-1",
+    )
+
+    assert result == {"accepted": True, "job_id": "job-1", "reason": "queued"}
+    assert "capture_kwargs" not in captured
+    enqueue_kwargs = dict(captured["enqueue_kwargs"])  # type: ignore[arg-type]
+    assert enqueue_kwargs["job_type"] == "user_feedback_learning"
+    assert enqueue_kwargs["session_id"] == "session-1"
+
+    outcome = asyncio.run(enqueue_kwargs["factory"]())
+
+    assert outcome == {"captured": True, "reason": "captured"}
+    capture_kwargs = dict(captured["capture_kwargs"])  # type: ignore[arg-type]
+    assert capture_kwargs["message"] == "das war gut"
+    assert [row["text"] for row in capture_kwargs["history"]] == [f"turn {index}" for index in range(2, 10)]
+
+
 def test_chat_can_confirm_pending_routed_action(monkeypatch) -> None:
     async def fake_process(*_args, **_kwargs):
         return PipelineResult(

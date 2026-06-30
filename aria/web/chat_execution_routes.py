@@ -23,6 +23,7 @@ from aria.core.chat_learn_mode import start_chat_learn_mode
 from aria.core.chat_freshness import explicitly_requests_web_research
 from aria.core.followup_resolution import FollowupResolver
 from aria.core.i18n import I18NStore
+from aria.core.learning_worker import enqueue_learning_job
 from aria.core.notes_context import notes_index_enabled
 from aria.core.notes_index import NotesIndex
 from aria.core.notes_store import NotesStore
@@ -203,6 +204,36 @@ def _rewrite_vague_local_context_followup(message: str, history: list[dict[str, 
     return clean
 
 
+def _needs_followup_resolution_llm(message: str, history: list[dict[str, Any]]) -> bool:
+    clean = re.sub(r"\s+", " ", str(message or "").strip())
+    if not clean or not history:
+        return False
+    if re.search(r"(?<!\w)/[A-Za-z0-9._~@%+=:,/-]+", clean):
+        return False
+    if explicitly_requests_web_research(clean):
+        return _rewrite_vague_web_search_followup(clean, history) != clean
+    if _rewrite_vague_local_context_followup(clean, history) != clean:
+        return True
+    lower = clean.lower()
+    vague_markers = (
+        "und dazu",
+        "und davon",
+        "und damit",
+        "dazu",
+        "davon",
+        "darin",
+        "hierzu",
+        f"dar{chr(252)}ber",
+        f"dar{chr(117)}eber",
+        "that",
+        "this",
+        "those",
+        "them",
+        "it",
+    )
+    return any(marker in lower for marker in vague_markers)
+
+
 async def _resolve_pipeline_followup_message(
     message: str,
     history: list[dict[str, Any]],
@@ -218,6 +249,8 @@ async def _resolve_pipeline_followup_message(
         pipeline_message = _rewrite_vague_web_search_followup(clean, history)
         if pipeline_message == clean:
             return clean
+    if not _needs_followup_resolution_llm(clean, history):
+        return clean
     decision = await FollowupResolver(llm_client).resolve(
         clean,
         history=history,
@@ -230,6 +263,42 @@ async def _resolve_pipeline_followup_message(
         return clean
     pipeline_message = _rewrite_vague_web_search_followup(clean, history)
     return _rewrite_vague_local_context_followup(pipeline_message, history)
+
+
+def _schedule_user_feedback_learning(
+    *,
+    message: str,
+    user_id: str,
+    history: list[dict[str, Any]],
+    memory_skill: Any | None,
+    llm_client: Any | None,
+    request_id: str = "",
+    session_id: str = "",
+) -> dict[str, Any]:
+    if memory_skill is None:
+        return {"accepted": False, "reason": "memory_disabled"}
+    history_snapshot = [dict(item) for item in list(history or [])[-8:] if isinstance(item, dict)]
+    clean_message = re.sub(r"\s+", " ", str(message or "").strip())
+    try:
+        return enqueue_learning_job(
+            job_type="user_feedback_learning",
+            user_id=user_id,
+            source="chat_feedback",
+            artifact_type="user_feedback",
+            request_id=request_id,
+            session_id=session_id,
+            summary=clean_message[:260],
+            estimated_tokens=4500,
+            factory=lambda: capture_user_feedback_learning(
+                message=clean_message,
+                user_id=user_id,
+                history=history_snapshot,
+                memory_skill=memory_skill,
+                llm_client=llm_client,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"accepted": False, "reason": "feedback_schedule_failed", "error": str(exc)[:160]}
 
 
 def _format_chat_history_markdown(history: list[dict[str, Any]], *, saved_at: str, language: str) -> str:
@@ -589,18 +658,15 @@ def register_chat_execution_routes(app: FastAPI, deps: ChatExecutionRouteDeps) -
         feedback_ms = 0
         if not learn_active and auto_memory_enabled:
             feedback_start = time.perf_counter()
-            try:
-                await capture_user_feedback_learning(
-                    message=clean_message,
-                    user_id=username,
-                    history=chat_history,
-                    memory_skill=getattr(deps.execution_deps.pipeline, "memory_skill", None),
-                    llm_client=getattr(deps.execution_deps.pipeline, "llm_client", None),
-                )
-                feedback_ms = int((time.perf_counter() - feedback_start) * 1000)
-            except Exception:
-                feedback_ms = int((time.perf_counter() - feedback_start) * 1000)
-                pass
+            _schedule_user_feedback_learning(
+                message=clean_message,
+                user_id=username,
+                history=chat_history,
+                memory_skill=getattr(deps.execution_deps.pipeline, "memory_skill", None),
+                llm_client=getattr(deps.execution_deps.pipeline, "llm_client", None),
+                session_id=session_id,
+            )
+            feedback_ms = int((time.perf_counter() - feedback_start) * 1000)
         followup_rewrite_start = time.perf_counter()
         pipeline_message = await _resolve_pipeline_followup_message(
             clean_message,

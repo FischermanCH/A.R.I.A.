@@ -839,19 +839,19 @@ async def _run_forced_document_corpus_scan_uses_selected_named_document_collecti
     )
     fake = FakeQdrant()
     skill.qdrant = fake
-    fake.collections["aria_doc_guides_joe"] = [
+    fake.collections["aria_doc_guides_sample"] = [
         SimpleNamespace(
             id="guide-a",
             score=0.9,
             payload={
                 "source": "rag_document_guide",
-                "user_id": "joe",
+                "user_id": "sample",
                 "document_id": "doc-a",
                 "document_name": "Alpha Leaflet.pdf",
-                "target_collection": "aria_docs_whity_medikamente",
+                "target_collection": "aria_docs_sample_medications",
                 "guide_keywords": ["bestandteil"],
                 "guide_summary": "Medication package insert.",
-                "text": "Dokument: Alpha Leaflet.pdf\nCollection: aria_docs_whity_medikamente",
+                "text": "Dokument: Alpha Leaflet.pdf\nCollection: aria_docs_sample_medications",
                 "embedding_model": skill._resolve_embedding_model(),
                 "embedding_fingerprint": skill._active_embedding_fingerprint(),
             },
@@ -861,24 +861,24 @@ async def _run_forced_document_corpus_scan_uses_selected_named_document_collecti
             score=0.88,
             payload={
                 "source": "rag_document_guide",
-                "user_id": "joe",
+                "user_id": "sample",
                 "document_id": "doc-b",
                 "document_name": "Beta Leaflet.pdf",
-                "target_collection": "aria_docs_whity_medikamente",
+                "target_collection": "aria_docs_sample_medications",
                 "guide_keywords": ["bestandteil"],
                 "guide_summary": "Medication package insert.",
-                "text": "Dokument: Beta Leaflet.pdf\nCollection: aria_docs_whity_medikamente",
+                "text": "Dokument: Beta Leaflet.pdf\nCollection: aria_docs_sample_medications",
                 "embedding_model": skill._resolve_embedding_model(),
                 "embedding_fingerprint": skill._active_embedding_fingerprint(),
             },
         ),
     ]
-    fake.collections["aria_docs_whity_medikamente"] = [
+    fake.collections["aria_docs_sample_medications"] = [
         SimpleNamespace(
             id="doc-a-1",
             payload={
                 "source": "document",
-                "user_id": "whity",
+                "user_id": "sample",
                 "document_id": "doc-a",
                 "document_name": "Alpha Leaflet.pdf",
                 "chunk_index": 1,
@@ -890,7 +890,7 @@ async def _run_forced_document_corpus_scan_uses_selected_named_document_collecti
             id="doc-b-1",
             payload={
                 "source": "document",
-                "user_id": "whity",
+                "user_id": "sample",
                 "document_id": "doc-b",
                 "document_name": "Beta Leaflet.pdf",
                 "chunk_index": 1,
@@ -909,7 +909,7 @@ async def _run_forced_document_corpus_scan_uses_selected_named_document_collecti
         "Ist Glucosamin Bestandteil eines der Dokumente?",
         {
             "action": "recall",
-            "user_id": "joe",
+            "user_id": "sample",
             "include_documents": True,
             "docs_only": True,
             "document_corpus_scan": True,
@@ -926,6 +926,92 @@ async def _run_forced_document_corpus_scan_uses_selected_named_document_collecti
 
 def test_forced_document_corpus_scan_uses_selected_named_document_collection() -> None:
     asyncio.run(_run_forced_document_corpus_scan_uses_selected_named_document_collection())
+
+
+async def _run_document_corpus_scan_respects_explicit_document_target_collection_param() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=2),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    skill.qdrant = fake
+    fake.collections["aria_docs_sample_medications"] = [
+        SimpleNamespace(
+            id="med-a-1",
+            payload={
+                "source": "document",
+                "user_id": "sample",
+                "document_id": "med-a",
+                "document_name": "Olumiant.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Olumiant lists Baricitinib and excipients.",
+            },
+        ),
+        SimpleNamespace(
+            id="med-b-1",
+            payload={
+                "source": "document",
+                "user_id": "sample",
+                "document_id": "med-b",
+                "document_name": "Humira.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Humira contains Adalimumab.",
+            },
+        ),
+    ]
+    fake.collections["aria_docs_other_user"] = [
+        SimpleNamespace(
+            id="home-a-1",
+            payload={
+                "source": "document",
+                "user_id": "other_user",
+                "document_id": "home-a",
+                "document_name": "Arlo Manual.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Arlo camera setup.",
+            },
+        ),
+    ]
+    fake.collections["aria_recipe_experience_other_user"] = [
+        SimpleNamespace(
+            id="recipe-a-1",
+            payload={
+                "source": "document",
+                "user_id": "other_user",
+                "document_id": "recipe-a",
+                "document_name": "SSH Agentic Command",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Recipe experience document.",
+            },
+        ),
+    ]
+
+    result = await skill.execute(
+        "Ist Glucosamin Bestandteil eines der Medikamente deren Beipackzettel wir haben",
+        {
+            "action": "recall",
+            "user_id": "sample",
+            "include_documents": True,
+            "docs_only": True,
+            "document_corpus_scan": True,
+            "document_target_collections": ["aria_docs_sample_medications"],
+        },
+    )
+
+    assert result.success is True
+    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
+    assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
+    assert {source["document_id"] for source in result.metadata["sources"]} == {"med-a", "med-b"}
+    assert "Arlo Manual.pdf" not in result.content
+    assert "SSH Agentic Command" not in result.content
+
+
+def test_document_corpus_scan_respects_explicit_document_target_collection_param() -> None:
+    asyncio.run(_run_document_corpus_scan_respects_explicit_document_target_collection_param())
 
 
 async def _run_session_vs_user_recall() -> None:

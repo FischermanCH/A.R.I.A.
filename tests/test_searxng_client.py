@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aria.core.searxng_client import SearXNGClient, SearXNGSearchResult
+from aria.core.searxng_client import SearXNGClient, SearXNGClientError, SearXNGSearchResult
 from aria.skills.web_search import WebSearchSkill
 from aria.skills.base import SkillResult
 
@@ -239,6 +239,140 @@ def test_web_search_skill_splits_multi_product_official_targets() -> None:
     )
 
     assert [target.lower() for target in targets] == ["apple watch ultra", "apple iphone"]
+
+
+def test_web_search_skill_keeps_primary_results_when_official_supplement_times_out() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def search(self, **kwargs):
+            query = str(kwargs.get("query", ""))
+            self.queries.append(query)
+            if "official manufacturer" in query.lower():
+                raise SearXNGClientError("SearXNG request failed: timed out")
+            return type(
+                "Resp",
+                (),
+                {
+                    "query": query,
+                    "results": [
+                        SearXNGSearchResult(
+                            title="Apple Watch Ultra",
+                            url="https://www.apple.com/apple-watch-ultra/",
+                            snippet="Official Apple Watch Ultra page.",
+                            engine="duckduckgo",
+                        )
+                    ],
+                },
+            )()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                            "max_results": 5,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient())
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert result.metadata["result_count"] == 1
+    assert result.metadata["official_supplement_count"] == 0
+    assert result.metadata["official_supplement_error_count"] >= 1
+    assert any("supplemental query failed" in line for line in result.metadata["detail_lines"])
+
+
+def test_web_search_skill_uses_official_supplements_when_primary_query_times_out() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def search(self, **kwargs):
+            query = str(kwargs.get("query", ""))
+            self.queries.append(query)
+            if "official manufacturer" not in query.lower():
+                raise SearXNGClientError("SearXNG request failed: timed out")
+            return type(
+                "Resp",
+                (),
+                {
+                    "query": query,
+                    "results": [
+                        SearXNGSearchResult(
+                            title="iPhone",
+                            url="https://www.apple.com/iphone/",
+                            snippet="Explore the latest iPhone models from Apple.",
+                            engine="duckduckgo",
+                        ),
+                        SearXNGSearchResult(
+                            title="Apple Watch Ultra",
+                            url="https://www.apple.com/apple-watch-ultra/",
+                            snippet="The most rugged and capable Apple Watch.",
+                            engine="duckduckgo",
+                        ),
+                    ],
+                },
+            )()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                            "max_results": 5,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    skill = WebSearchSkill(settings=settings, client=FakeClient())
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "suche im internet nach der neusten apple watch ultra und dem neusten iphone",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert result.metadata["result_count"] >= 2
+    assert result.metadata["official_supplement_count"] >= 2
+    assert result.metadata["official_supplement_error_count"] == 1
+    urls = [source["url"] for source in result.metadata["sources"]]
+    assert "https://www.apple.com/iphone/" in urls
+    assert "https://www.apple.com/apple-watch-ultra/" in urls
 
 
 def test_web_search_skill_localizes_english_output() -> None:

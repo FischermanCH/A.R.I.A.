@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import time
 from dataclasses import dataclass, replace
 from functools import wraps
@@ -128,6 +127,7 @@ from aria.core.recipe_experience_memory import search_recipe_experience_memory
 from aria.core.recipe_experience_memory import store_recipe_experience_memory
 from aria.core.llm_client import LLMClient
 from aria.core.memory_assist import MemoryAssistResolver
+from aria.core.runtime_outcome_followup import RuntimeOutcomeFollowupResolver
 from aria.core.stage_timing import StageTimingLedger
 from aria.core.pipeline_action_flow_helpers import append_debug_detail_lines
 from aria.core.pipeline_action_flow_helpers import build_pending_action_state
@@ -5792,6 +5792,9 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         connection_pools = self._capability_routing_connection_pools()
         if not connection_pools:
             return False
+        non_empty_lines = [line for line in str(message or "").splitlines() if line.strip()]
+        if len(non_empty_lines) >= 3:
+            return False
         lower = str(message or "").strip().lower()
         lower_ascii = lower.translate(
             {
@@ -6862,6 +6865,136 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             usage={},
         )
 
+    def _runtime_task_arbitration_from_capability_draft(
+        self,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        capability_draft: Any | None,
+        confidence_floor: float = 0.70,
+    ) -> AriaTurnArbitration | None:
+        if capability_draft is None:
+            return None
+        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or ""))
+        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
+        if capability != "ssh_command" or kind != "ssh":
+            return None
+        notes = {str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])}
+        if "target_scope:multi_target" not in notes:
+            return None
+        ssh_rows = getattr(getattr(self.settings, "connections", object()), "ssh", {})
+        if not isinstance(ssh_rows, dict) or not ssh_rows:
+            return None
+        candidate_connections = {
+            str(ref or "").strip(): row
+            for ref, row in dict(ssh_rows).items()
+            if str(ref or "").strip()
+        }
+        narrowing = self._ssh_target_scope_policy.narrow_plural_target_connections_by_context(
+            {},
+            message=message,
+            candidate_connections=candidate_connections,
+        )
+        scoped_connections = (
+            narrowing.candidate_connections
+            if 1 < len(narrowing.candidate_connections) < len(candidate_connections)
+            else candidate_connections
+        )
+        refs = tuple(str(ref or "").strip() for ref in sorted(scoped_connections.keys()) if str(ref or "").strip())
+        if not refs:
+            return None
+        requests = tuple(
+            ContextRequest(
+                surface_id="connections",
+                mode="action",
+                query=str(message or "").strip(),
+                depth="shallow",
+                limit=1,
+                budget={
+                    "catalog_id": f"connection|ssh|{ref}",
+                    "entity_type": "connection",
+                    "kind": "ssh",
+                    "ref": ref,
+                    "contract_source": "runtime_task_capability_draft",
+                },
+                user_id=user_id,
+                turn_id=request_id,
+            )
+            for ref in refs
+        )
+        target_intent = next((note.split(":", 1)[1] for note in notes if note.startswith("target_intent:")), "")
+        return AriaTurnArbitration(
+            source="runtime_task_contract",
+            plan=AriaTurnPlan(
+                intents=("runtime_action",),
+                surfaces=("connections",),
+                actions=("connection_action_ssh",),
+                needs_context=True,
+                context_directions=("connections",),
+                context_depth="shallow",
+                queries={"connections": str(message or "").strip()},
+                context_requests=requests,
+                priority=tuple(f"connection|ssh|{ref}" for ref in refs),
+                answer_mode="plan_action",
+                contract_mode="action",
+                evidence_policy="source_bound",
+                risk="medium",
+                needs_confirmation=True,
+                confidence=max(confidence_floor, float(getattr(capability_draft, "confidence", 0.0) or 0.0)),
+                reason=f"runtime_task_contract:{target_intent or 'ssh_command'}",
+            ),
+            usage={},
+        )
+
+    async def _runtime_task_fastpath_arbitration(
+        self,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        language: str | None,
+    ) -> AriaTurnArbitration | None:
+        if not self._should_try_agentic_capability_draft_first(message):
+            return None
+        if SshTargetScopePolicy.has_single_target_disambiguator(message):
+            return None
+        capability_draft = await self._classify_capability_draft_with_llm(message, language=language)
+        notes = {str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])}
+        target_intent = next((note.split(":", 1)[1] for note in notes if note.startswith("target_intent:")), "")
+        if target_intent not in {"health_check", "package_update_check"}:
+            return None
+        arbitration = self._runtime_task_arbitration_from_capability_draft(
+            message=message,
+            user_id=user_id,
+            request_id=request_id,
+            capability_draft=capability_draft,
+        )
+        if arbitration is None:
+            return None
+        if self._routing_debug_enabled():
+            request_refs = [
+                str((request.budget or {}).get("ref", "") or "").strip()
+                for request in arbitration.plan.context_requests
+                if str((request.budget or {}).get("ref", "") or "").strip()
+            ]
+            ssh_rows = getattr(getattr(self.settings, "connections", object()), "ssh", {})
+            all_ref_count = len([ref for ref in dict(ssh_rows or {}).keys() if str(ref or "").strip()]) if isinstance(ssh_rows, dict) else 0
+            scoped_debug_lines: list[str] = []
+            if 1 < len(request_refs) < all_ref_count:
+                scoped_debug_lines.append(
+                    "Routing Debug: plural_target_scope narrowed_by_connection_context "
+                    f"kind=ssh refs={', '.join(request_refs)} aliases={', '.join(request_refs)}"
+                )
+            self._last_meta_catalog_fallback_debug_lines = [
+                "Routing Debug: runtime_task_contract "
+                f"source=capability_draft_decision capability=ssh_command kind=ssh "
+                f"target_scope=multi_target target_intent={target_intent or '-'} "
+                "meta_catalog=skipped",
+                *scoped_debug_lines,
+            ]
+        return arbitration
+
     def _available_connection_kinds_for_aria_turn(self) -> tuple[str, ...]:
         raw = getattr(self.settings, "connections", None)
         rows = raw.model_dump() if hasattr(raw, "model_dump") else {}
@@ -6890,70 +7023,26 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             return None
         selected_connections = self._aria_turn_selected_connections_from_catalog(meta_arbitration)
         has_turn_contract_ssh_target = any(item_kind == "ssh" and item_ref for item_kind, item_ref in selected_connections)
-        if (plan.actions or plan.needs_confirmation) and not has_turn_contract_ssh_target:
+        action_ids = {str(action or "").strip().lower() for action in plan.actions if str(action or "").strip()}
+        selected_kinds = {item_kind for item_kind, _item_ref in selected_connections}
+        read_only_feed_contract = bool(action_ids & {"rss_read_feed", "feed_read", "connection_action_rss"} or "rss" in selected_kinds)
+        if (plan.actions or plan.needs_confirmation) and not has_turn_contract_ssh_target and not read_only_feed_contract:
             return None
         if "connections" not in set(plan.context_directions or ()) and "connections" not in set(plan.surfaces or ()):
             return None
         if not self._should_try_agentic_capability_draft_first(message):
             return None
         capability_draft = await self._classify_capability_draft_with_llm(message, language=language)
-        if capability_draft is None:
-            return None
-        capability = normalize_capability(str(getattr(capability_draft, "capability", "") or ""))
-        kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
-        if capability != "ssh_command" or kind != "ssh":
+        arbitration = self._runtime_task_arbitration_from_capability_draft(
+            message=message,
+            user_id=user_id,
+            request_id=request_id,
+            capability_draft=capability_draft,
+        )
+        if arbitration is None:
             return None
         notes = {str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])}
-        if "target_scope:multi_target" not in notes:
-            return None
-        ssh_rows = getattr(getattr(self.settings, "connections", object()), "ssh", {})
-        if not isinstance(ssh_rows, dict) or not ssh_rows:
-            return None
-        refs = tuple(str(ref or "").strip() for ref in sorted(ssh_rows.keys()) if str(ref or "").strip())
-        if not refs:
-            return None
-        requests = tuple(
-            ContextRequest(
-                surface_id="connections",
-                mode="action",
-                query=str(message or "").strip(),
-                depth="shallow",
-                limit=1,
-                budget={
-                    "catalog_id": f"connection|ssh|{ref}",
-                    "entity_type": "connection",
-                    "kind": "ssh",
-                    "ref": ref,
-                    "contract_source": "runtime_task_capability_draft",
-                },
-                user_id=user_id,
-                turn_id=request_id,
-            )
-            for ref in refs
-        )
         target_intent = next((note.split(":", 1)[1] for note in notes if note.startswith("target_intent:")), "")
-        arbitration = AriaTurnArbitration(
-            source="runtime_task_contract",
-            plan=AriaTurnPlan(
-                intents=("runtime_action",),
-                surfaces=("connections",),
-                actions=("connection_action_ssh",),
-                needs_context=True,
-                context_directions=("connections",),
-                context_depth="shallow",
-                queries={"connections": str(message or "").strip()},
-                context_requests=requests,
-                priority=tuple(f"connection|ssh|{ref}" for ref in refs),
-                answer_mode="plan_action",
-                contract_mode="action",
-                evidence_policy="source_bound",
-                risk="medium",
-                needs_confirmation=True,
-                confidence=max(0.70, float(getattr(capability_draft, "confidence", 0.0) or 0.0)),
-                reason=f"runtime_task_contract:{target_intent or 'ssh_command'}",
-            ),
-            usage={},
-        )
         if self._routing_debug_enabled():
             self._last_meta_catalog_fallback_debug_lines = [
                 meta_arbitration.debug_line,
@@ -7266,7 +7355,11 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         recipe_intent_debug_lines: list[str],
     ) -> ProcessContextLoadResult:
         aria_query_overrides = self._aria_turn_query_overrides(aria_turn_arbitration)
-        aria_context_overrides = self._aria_turn_context_overrides(aria_turn_arbitration, user_id=user_id)
+        aria_context_overrides = self._aria_turn_context_overrides(
+            aria_turn_arbitration,
+            user_id=user_id,
+            message=message,
+        )
         force_selected_context = self._aria_turn_forces_selected_context(aria_turn_arbitration)
         skill_auto_memory_enabled = auto_memory_enabled and not force_selected_context
         direct_inventory_fast_path = self._aria_turn_can_direct_inventory_fast_path(aria_turn_arbitration)
@@ -7514,10 +7607,13 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         start: float,
     ) -> PipelineResult | None:
         frame = self._last_runtime_outcome_frame(user_id)
-        payload = frame.as_payload()
-        if not payload or not frame.followup_affordances:
-            return None
-        direct_followup = await self._runtime_outcome_direct_followup_result(
+        resolver = RuntimeOutcomeFollowupResolver(
+            llm_client=self.llm_client,
+            run_action=self._run_runtime_outcome_followup_action,
+            summarize_updates=self._summarize_runtime_outcome_package_updates,
+            package_update_fallback=self._runtime_outcome_package_update_fallback_summary,
+        )
+        return await resolver.resolve(
             frame=frame,
             message=message,
             user_id=user_id,
@@ -7526,124 +7622,52 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             language=language,
             start=start,
         )
-        if direct_followup is not None:
-            return direct_followup
-        if not self._runtime_outcome_should_run_followup_llm(message, frame):
-            return None
-        decision = await BoundedDecisionClient(self.llm_client).decide_json(
-            operation="runtime_outcome_followup_resolution",
-            system=(
-                "You decide whether the user message is a follow-up to ARIA's last runtime outcome. "
-                "Return JSON only. Choose action=use_previous_outcome, rerun_previous_action, "
-                "run_read_only_followup, new_meta_catalog_turn, or clarify. Use only the provided followup_affordances. "
-                "Use use_previous_outcome for pronouns or references such as 'davon', 'those', "
-                "'which of them', or requests to rank/explain the previous result. "
-                "Use run_read_only_followup only when the user asks to inspect the same runtime target or a path/result "
-                "from the previous output; then return target_ref and a concrete read-only SSH command. "
-                "For SSH targets, return target_ref exactly as one of last_runtime_outcome.targets, without a kind prefix. "
-                "For path inspection, use affordance=inspect_path when available. Do not invent data."
-            ),
-            payload={
-                "message": str(message or "").strip(),
-                "language": str(language or ""),
-                "last_runtime_outcome": payload,
-                "allowed_actions": [
-                    "use_previous_outcome",
-                    "rerun_previous_action",
-                    "run_read_only_followup",
-                    "new_meta_catalog_turn",
-                    "clarify",
-                ],
-                "allowed_affordances": list(frame.followup_affordances),
-            },
-            source=source,
-            user_id=user_id,
+
+    async def _run_runtime_outcome_followup_action(
+        self,
+        message: str,
+        user_id: str,
+        request_id: str,
+        source: str,
+        decision: RouterDecision,
+        start: float,
+        capability_draft: CapabilityDraft,
+        language: str | None,
+    ) -> PipelineResult | None:
+        return await self._try_unified_routed_action(
+            message,
+            user_id,
             request_id=request_id,
+            source=source,
+            decision=decision,
+            start=start,
+            runtime_recipes=[],
+            capability_draft=capability_draft,
+            language=language,
         )
-        if not decision.ok:
-            return None
-        confidence = confidence_score(decision.payload.get("confidence"))
-        action = str(decision.payload.get("action", "") or "").strip().lower()
-        affordance = str(decision.payload.get("affordance", "") or "").strip().lower()
-        allowed_affordances = set(frame.followup_affordances)
-        requested_path = self._runtime_outcome_followup_requested_path(dict(decision.payload or {}), message, frame)
-        if action == "run_read_only_followup" and affordance not in allowed_affordances:
-            if "inspect_path" in allowed_affordances:
-                affordance = "inspect_path"
-        if affordance not in allowed_affordances and requested_path and "inspect_path" in allowed_affordances:
-            affordance = "inspect_path"
-        if confidence < 0.62 or affordance not in allowed_affordances:
-            return None
-        if action == "run_read_only_followup":
-            return await self._runtime_outcome_ssh_followup_action_result(
-                frame=frame,
-                decision_payload=dict(decision.payload or {}),
-                message=message,
-                user_id=user_id,
-                request_id=request_id,
-                source=source,
-                language=language,
-                start=start,
-                confidence=confidence,
-                affordance=affordance,
-            )
-        if action in {"new_meta_catalog_turn", "use_previous_outcome"} and affordance == "inspect_path" and requested_path:
-            followup_payload = dict(decision.payload or {})
-            followup_payload.setdefault("path", requested_path)
-            if not str(followup_payload.get("command", "") or "").strip():
-                followup_payload["command"] = self._runtime_outcome_inspect_path_command(requested_path)
-            if not str(followup_payload.get("target_ref", "") or followup_payload.get("ref", "") or "").strip():
-                followup_payload["target_ref"] = self._runtime_outcome_followup_target_ref(followup_payload, frame)
-            result = await self._runtime_outcome_ssh_followup_action_result(
-                frame=frame,
-                decision_payload=followup_payload,
-                message=message,
-                user_id=user_id,
-                request_id=request_id,
-                source=source,
-                language=language,
-                start=start,
-                confidence=confidence,
-                affordance=affordance,
-            )
-            if result is not None:
-                result.detail_lines = [
-                    "Routing Debug: runtime_outcome_followup normalized_from="
-                    f"{action or '-'} source=frame_path_evidence path={requested_path}",
-                    *list(result.detail_lines or []),
-                ]
-                return result
-        if action != "use_previous_outcome":
-            return None
-        if frame.kind == "ssh" and frame.capability == "ssh_command" and frame.task_intent == "package_update_check":
-            fallback_summary = self._package_update_followup_fallback_summary(frame, language=language)
-            summary, summary_debug = await self._multi_target_ssh_llm_operator_summary(
-                message=str(message or "").strip(),
-                command=frame.command,
-                records=[dict(row) for row in frame.records],
-                fallback_summary=fallback_summary or frame.summary,
-                language=language,
-            )
-            text = summary or fallback_summary or frame.summary
-            detail_lines = [
-                "Routing Debug: runtime_outcome_followup "
-                f"action=use_previous_outcome affordance={affordance} "
-                f"surface={frame.surface_id} kind={frame.kind} capability={frame.capability} "
-                f"task_intent={frame.task_intent} targets={len(frame.targets)} confidence={confidence:.2f}",
-            ]
-            if summary_debug:
-                detail_lines.append(summary_debug)
-            return PipelineResult(
-                request_id=request_id,
-                text=text,
-                usage=dict(decision.usage or {}),
-                intents=["runtime_outcome_followup"],
-                skill_errors=[],
-                router_level=2,
-                duration_ms=int((time.perf_counter() - start) * 1000),
-                detail_lines=detail_lines,
-            )
-        return None
+
+    async def _summarize_runtime_outcome_package_updates(
+        self,
+        message: str,
+        command: str,
+        records: list[dict[str, Any]],
+        fallback_summary: str,
+        language: str | None,
+    ) -> tuple[str, str]:
+        return await self._multi_target_ssh_llm_operator_summary(
+            message=message,
+            command=command,
+            records=records,
+            fallback_summary=fallback_summary,
+            language=language,
+        )
+
+    def _runtime_outcome_package_update_fallback_summary(
+        self,
+        frame: RuntimeOutcomeFrame,
+        language: str | None,
+    ) -> str:
+        return self._package_update_followup_fallback_summary(frame, language=language)
 
     async def _runtime_outcome_direct_followup_result(
         self,
@@ -7656,156 +7680,45 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         language: str | None,
         start: float,
     ) -> PipelineResult | None:
-        if "inspect_path" not in set(frame.followup_affordances):
-            return None
-        requested_path = self._runtime_outcome_followup_requested_path({}, message, frame)
-        if not requested_path:
-            return None
-        target_ref = self._runtime_outcome_followup_target_ref({}, frame)
-        if not target_ref:
-            return None
-        result = await self._runtime_outcome_ssh_followup_action_result(
+        resolver = RuntimeOutcomeFollowupResolver(
+            llm_client=self.llm_client,
+            run_action=self._run_runtime_outcome_followup_action,
+            summarize_updates=self._summarize_runtime_outcome_package_updates,
+            package_update_fallback=self._runtime_outcome_package_update_fallback_summary,
+        )
+        return await resolver.direct_followup_result(
             frame=frame,
-            decision_payload={
-                "target_ref": target_ref,
-                "path": requested_path,
-                "command": self._runtime_outcome_inspect_path_command(requested_path),
-            },
             message=message,
             user_id=user_id,
             request_id=request_id,
             source=source,
             language=language,
             start=start,
-            confidence=0.90,
-            affordance="inspect_path",
         )
-        if result is not None:
-            result.detail_lines = [
-                "Routing Debug: runtime_outcome_followup fast_path=direct_path_evidence "
-                f"path={requested_path} target={target_ref}",
-                *list(result.detail_lines or []),
-            ]
-        return result
-
-    async def _runtime_outcome_ssh_followup_action_result(
-        self,
-        *,
-        frame: RuntimeOutcomeFrame,
-        decision_payload: dict[str, Any],
-        message: str,
-        user_id: str,
-        request_id: str,
-        source: str,
-        language: str | None,
-        start: float,
-        confidence: float,
-        affordance: str,
-    ) -> PipelineResult | None:
-        if frame.kind != "ssh" or frame.capability != "ssh_command":
-            return None
-        command = str(decision_payload.get("command", "") or "").strip()
-        targets = [str(target or "").strip() for target in frame.targets if str(target or "").strip()]
-        target_ref = self._runtime_outcome_followup_target_ref(decision_payload, frame)
-        if not command and affordance == "inspect_path":
-            path = self._runtime_outcome_followup_requested_path(decision_payload, message, frame)
-            if path and target_ref in set(targets):
-                command = self._runtime_outcome_inspect_path_command(path)
-        if not command or target_ref not in set(targets):
-            return None
-        draft = CapabilityDraft(
-            capability="ssh_command",
-            connection_kind="ssh",
-            explicit_connection_ref=target_ref,
-            content=command,
-            confidence=confidence,
-            notes=[f"runtime_outcome_followup:{affordance}", "target_scope:single_target"],
-        )
-        result = await self._try_unified_routed_action(
-            str(message or "").strip(),
-            user_id,
-            request_id=request_id,
-            source=source,
-            decision=RouterDecision(intents=["runtime_action"], level=2),
-            start=start,
-            runtime_recipes=[],
-            capability_draft=draft,
-            language=language,
-        )
-        if result is None:
-            return None
-        result.detail_lines = [
-            "Routing Debug: runtime_outcome_followup "
-            f"action=run_read_only_followup affordance={affordance} "
-            f"target={target_ref} command={command} confidence={confidence:.2f}",
-            *list(result.detail_lines or []),
-        ]
-        return result
 
     @classmethod
     def _runtime_outcome_should_run_followup_llm(cls, message: str, frame: RuntimeOutcomeFrame) -> bool:
-        if frame.task_intent == "package_update_check":
-            return True
-        if cls._runtime_outcome_followup_requested_path({}, message, frame):
-            return True
-        return False
+        return RuntimeOutcomeFollowupResolver.should_run_followup_llm(message, frame)
 
     @staticmethod
     def _runtime_outcome_followup_target_ref(decision_payload: dict[str, Any], frame: RuntimeOutcomeFrame) -> str:
-        target_ref = str(decision_payload.get("target_ref", "") or decision_payload.get("ref", "") or "").strip()
-        if "/" in target_ref:
-            target_kind, _, target_name = target_ref.partition("/")
-            if target_kind.strip().lower() == str(frame.kind or "").strip().lower() and target_name.strip():
-                target_ref = target_name.strip()
-        targets = [str(target or "").strip() for target in frame.targets if str(target or "").strip()]
-        if not target_ref and len(targets) == 1:
-            target_ref = targets[0]
-        return target_ref
+        return RuntimeOutcomeFollowupResolver.target_ref(decision_payload, frame)
 
     @staticmethod
     def _runtime_outcome_clean_path_candidate(value: Any) -> str:
-        clean = str(value or "").strip().strip("`'\".,;:)]}")
-        if not clean.startswith("/") or "\x00" in clean or "\n" in clean or "\r" in clean:
-            return ""
-        if any(ch in clean for ch in ("|", ";", "&", "$", "`", "<", ">", "\\")):
-            return ""
-        while len(clean) > 1 and clean.endswith("/"):
-            clean = clean[:-1]
-        return clean
+        return RuntimeOutcomeFollowupResolver.clean_path_candidate(value)
 
     @classmethod
     def _runtime_outcome_posix_paths(cls, text: str) -> list[str]:
-        paths: list[str] = []
-        seen: set[str] = set()
-        for match in re.finditer(r"(?<![\w.-])/[A-Za-z0-9._~@%+=:,/-]*", str(text or "")):
-            path = cls._runtime_outcome_clean_path_candidate(match.group(0))
-            if not path or path == "/" or path in seen:
-                continue
-            seen.add(path)
-            paths.append(path)
-        return paths
+        return RuntimeOutcomeFollowupResolver.posix_paths(text)
 
     @classmethod
     def _runtime_outcome_frame_paths(cls, frame: RuntimeOutcomeFrame) -> set[str]:
-        texts = [str(frame.summary or "")]
-        for row in frame.records:
-            texts.append(str(row.get("raw_text", "") or row.get("text", "") or ""))
-        paths: set[str] = set()
-        for text in texts:
-            paths.update(cls._runtime_outcome_posix_paths(text))
-        return paths
+        return RuntimeOutcomeFollowupResolver.frame_paths(frame)
 
     @classmethod
     def _runtime_outcome_path_in_frame(cls, path: str, frame_paths: set[str]) -> bool:
-        clean = cls._runtime_outcome_clean_path_candidate(path)
-        if not clean:
-            return False
-        for frame_path in frame_paths:
-            if clean == frame_path:
-                return True
-            if frame_path.startswith(clean.rstrip("/") + "/"):
-                return True
-        return False
+        return RuntimeOutcomeFollowupResolver.path_in_frame(path, frame_paths)
 
     @classmethod
     def _runtime_outcome_followup_requested_path(
@@ -7814,24 +7727,11 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         message: str,
         frame: RuntimeOutcomeFrame,
     ) -> str:
-        frame_paths = cls._runtime_outcome_frame_paths(frame)
-        if not frame_paths:
-            return ""
-        for key in ("path", "target_path", "directory", "dir", "requested_path"):
-            path = cls._runtime_outcome_clean_path_candidate(decision_payload.get(key))
-            if path and cls._runtime_outcome_path_in_frame(path, frame_paths):
-                return path
-        for path in cls._runtime_outcome_posix_paths(message):
-            if cls._runtime_outcome_path_in_frame(path, frame_paths):
-                return path
-        return ""
+        return RuntimeOutcomeFollowupResolver.requested_path(decision_payload, message, frame)
 
     @staticmethod
     def _runtime_outcome_inspect_path_command(path: str) -> str:
-        clean = Pipeline._runtime_outcome_clean_path_candidate(path)
-        if not clean:
-            return ""
-        return f"ls -lah {shlex.quote(clean)}"
+        return RuntimeOutcomeFollowupResolver.inspect_path_command(path)
 
     @staticmethod
     def _package_update_followup_fallback_summary(frame: RuntimeOutcomeFrame, *, language: str | None = None) -> str:
@@ -7907,6 +7807,17 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
                     "source=explicit_web_research_contract meta_catalog=skipped "
                     "runtime_outcome_followup=skipped boundary=context_enrichment",
                 ]
+        if aria_turn_arbitration is None:
+            with timing.measure("runtime_task_fastpath"):
+                aria_turn_arbitration = await self._runtime_task_fastpath_arbitration(
+                    message=message,
+                    user_id=user_id,
+                    request_id=request_id,
+                    language=language,
+                )
+            if aria_turn_arbitration is not None:
+                timing.add("runtime_outcome_followup", 0)
+                timing.add("aria_turn_arbiter", 0)
 
         def finalize_result(result: PipelineResult) -> PipelineResult:
             return self._finalize_process_result(result, start=start, timing=timing)
