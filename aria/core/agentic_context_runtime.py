@@ -469,7 +469,8 @@ class AgenticContextRuntimeMixin:
             f"depth={plan.context_depth} collections={selected_collections} actions={selected_actions} "
             f"requests={selected_requests} query_overrides={query_keys} memory_targets={memory_targets} "
             f"memory_enabled={str(bool(context_overrides.get('memory_recall_enabled', True))).lower()} "
-            f"include_documents={str(bool(context_overrides.get('include_documents', True))).lower()}",
+            f"include_documents={str(bool(context_overrides.get('include_documents', True))).lower()} "
+            f"document_corpus_scan={str(bool(context_overrides.get('document_corpus_scan', False))).lower()}",
             "Routing Debug: context_ledger "
             f"phase=loaded skills={loaded_skills} sources={context_sources} detail_lines={detail_count} "
             f"embedding_tokens={embedding_tokens} arbiter_tokens={arbiter_total_tokens} "

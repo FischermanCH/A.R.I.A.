@@ -889,13 +889,14 @@ class MemorySkill(BaseSkill):
         documents: dict[tuple[str, str], dict[str, Any]] = {}
         scanned_chunks = 0
         for collection in names:
+            collection_explicitly_requested = collection in requested_collections
             if requested_collections and collection not in requested_collections:
                 continue
             if self._is_document_guide_collection_name(collection) or self._is_document_meta_collection_name(collection):
                 continue
             is_document_collection = self._is_document_collection_name(collection)
             collection_user_slug = self._document_collection_user_slug(collection, "aria_docs")
-            if collection_user_slug and collection_user_slug != requested_slug:
+            if collection_user_slug and collection_user_slug != requested_slug and not collection_explicitly_requested:
                 continue
             try:
                 exists = await self.qdrant.collection_exists(collection_name=collection)
@@ -919,9 +920,9 @@ class MemorySkill(BaseSkill):
                             continue
                         payload_user = str(payload.get("user_id", "") or "").strip()
                         if payload_user:
-                            if not self._payload_user_matches(payload_user, requested_slug):
+                            if not self._payload_user_matches(payload_user, requested_slug) and not collection_explicitly_requested:
                                 continue
-                        elif is_document_collection and collection_user_slug != requested_slug:
+                        elif is_document_collection and collection_user_slug != requested_slug and not collection_explicitly_requested:
                             continue
                         text = str(payload.get("text", "") or "").strip()
                         if not text:
@@ -1633,6 +1634,17 @@ class MemorySkill(BaseSkill):
                     ]
                 recall_targets = recall_targets + document_targets
             target_collections = [str(t["collection"]) for t in recall_targets]
+            if document_corpus_scan and docs_only and include_documents:
+                corpus_scan = await self._recall_document_corpus_scan(
+                    query=query,
+                    user_id=user_id,
+                    target_collections=target_collections or allowed_targets,
+                    limit=max(top_k, 8),
+                )
+                if corpus_scan is not None:
+                    corpus_scan.metadata["embedding_usage"] = usage
+                    corpus_scan.metadata["embedding_model"] = self._resolve_embedding_model()
+                    return corpus_scan
             if not recall_targets:
                 if docs_only and include_documents:
                     corpus_scan = await self._recall_document_corpus_scan(

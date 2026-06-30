@@ -10,6 +10,14 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha431] - 2026-06-30
+
+### Fixed
+
+- Fixed deep document corpus scans for explicitly selected named document collections. When document guides or document metadata select a custom uploaded-document collection, the exhaustive scan now treats that selected collection as the allowed source scope even if the collection name is not a plain `aria_docs_<user>` slug.
+- Deep document searches now retry the corpus scan after guide selection when the pre-guide scan cannot find an accessible corpus, so source-bound answers over named upload collections no longer fall back to semantic top-k snippets only.
+- Added debug visibility for the deep document corpus-scan request in the context ledger.
+
 ## [0.1.0-alpha430] - 2026-06-30
 
 ### Fixed

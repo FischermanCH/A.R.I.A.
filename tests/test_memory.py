@@ -829,6 +829,102 @@ def test_forced_document_corpus_scan_finds_literal_past_generic_top_hit() -> Non
     asyncio.run(_run_forced_document_corpus_scan_finds_literal_past_generic_top_hit())
 
 
+async def _run_forced_document_corpus_scan_uses_selected_named_document_collection() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=2),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    skill.qdrant = fake
+    fake.collections["aria_doc_guides_joe"] = [
+        SimpleNamespace(
+            id="guide-a",
+            score=0.9,
+            payload={
+                "source": "rag_document_guide",
+                "user_id": "joe",
+                "document_id": "doc-a",
+                "document_name": "Alpha Leaflet.pdf",
+                "target_collection": "aria_docs_whity_medikamente",
+                "guide_keywords": ["bestandteil"],
+                "guide_summary": "Medication package insert.",
+                "text": "Dokument: Alpha Leaflet.pdf\nCollection: aria_docs_whity_medikamente",
+                "embedding_model": skill._resolve_embedding_model(),
+                "embedding_fingerprint": skill._active_embedding_fingerprint(),
+            },
+        ),
+        SimpleNamespace(
+            id="guide-b",
+            score=0.88,
+            payload={
+                "source": "rag_document_guide",
+                "user_id": "joe",
+                "document_id": "doc-b",
+                "document_name": "Beta Leaflet.pdf",
+                "target_collection": "aria_docs_whity_medikamente",
+                "guide_keywords": ["bestandteil"],
+                "guide_summary": "Medication package insert.",
+                "text": "Dokument: Beta Leaflet.pdf\nCollection: aria_docs_whity_medikamente",
+                "embedding_model": skill._resolve_embedding_model(),
+                "embedding_fingerprint": skill._active_embedding_fingerprint(),
+            },
+        ),
+    ]
+    fake.collections["aria_docs_whity_medikamente"] = [
+        SimpleNamespace(
+            id="doc-a-1",
+            payload={
+                "source": "document",
+                "user_id": "whity",
+                "document_id": "doc-a",
+                "document_name": "Alpha Leaflet.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Alpha lists lactose as an excipient.",
+            },
+        ),
+        SimpleNamespace(
+            id="doc-b-1",
+            payload={
+                "source": "document",
+                "user_id": "whity",
+                "document_id": "doc-b",
+                "document_name": "Beta Leaflet.pdf",
+                "chunk_index": 1,
+                "chunk_total": 1,
+                "text": "Beta lists Glucosamin as an excipient in this example leaflet.",
+            },
+        ),
+    ]
+
+    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.execute(
+        "Ist Glucosamin Bestandteil eines der Dokumente?",
+        {
+            "action": "recall",
+            "user_id": "joe",
+            "include_documents": True,
+            "docs_only": True,
+            "document_corpus_scan": True,
+        },
+    )
+
+    assert result.success is True
+    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
+    assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
+    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
+    assert "glucosamin: 1 Treffer-Chunks in 1 Dokumenten" in result.content
+    assert "Beta Leaflet.pdf" in result.content
+
+
+def test_forced_document_corpus_scan_uses_selected_named_document_collection() -> None:
+    asyncio.run(_run_forced_document_corpus_scan_uses_selected_named_document_collection())
+
+
 async def _run_session_vs_user_recall() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
