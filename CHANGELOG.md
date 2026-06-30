@@ -10,6 +10,13 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 - Nothing yet.
 
+## [0.1.0-alpha433] - 2026-06-30
+
+### Fixed
+
+- Fixed exhaustive uploaded-document corpus scan answers when the searched substance itself has zero matches but supporting context terms such as "ingredient" or "composition" have matches. ARIA now keeps per-term scan evidence and can answer from the corpus coverage without overclaiming from a single retrieved document.
+- Added a source-bound fallback for exhaustive document scans so an invalid answer-composer response no longer degrades to "matching passages found" when the primary searched term was not found.
+
 ## [0.1.0-alpha432] - 2026-06-30
 
 ### Fixed

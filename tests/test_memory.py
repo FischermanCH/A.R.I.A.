@@ -706,6 +706,9 @@ async def _run_docs_only_recall_scans_all_document_chunks_for_missing_literal() 
     assert "glucosamin: 0 Treffer-Chunks" in result.content
     assert result.metadata["document_corpus_scan"]["exhaustive"] is True
     assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
+    assert result.metadata["document_corpus_scan"]["term_stats"]["glucosamin"]["chunks"] == 0
+    assert "glucosamin" in result.metadata["document_corpus_scan"]["unmatched_terms"]
+    assert any("term_hits=" in line and "glucosamin:0" in line for line in result.metadata["detail_lines"])
     assert {source["document_id"] for source in result.metadata["sources"]} == {"doc-a", "doc-b"}
 
 

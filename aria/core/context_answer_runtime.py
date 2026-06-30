@@ -33,6 +33,8 @@ async def compose_aria_context_answer(
             break
     content = str(getattr(skill_result, "content", "") or "").strip() if skill_result is not None else ""
     sources = skill_result_sources(skill_result)
+    skill_metadata = dict(getattr(skill_result, "metadata", {}) or {}) if skill_result is not None else {}
+    document_corpus_scan = skill_metadata.get("document_corpus_scan")
     context_requests = [
         {
             "surface_id": request.surface_id,
@@ -62,6 +64,7 @@ async def compose_aria_context_answer(
                 "content": content,
                 "sources": sources,
                 "source_count": len(sources),
+                "document_corpus_scan": document_corpus_scan if isinstance(document_corpus_scan, dict) else {},
             },
             evidence={
                 "local_store_checked": True,
@@ -208,6 +211,14 @@ def docs_search_fallback_answer(
         for source in sources
     ):
         return ""
+    corpus_scan_text = _document_corpus_scan_no_primary_match_answer(
+        docs_result,
+        sources,
+        language=language,
+        pipeline_text=pipeline_text,
+    )
+    if corpus_scan_text:
+        return corpus_scan_text
     content = str(docs_result.content or "").strip()
     source_name = (
         str(sources[0].get("document_name", "") or "").strip()
@@ -337,6 +348,113 @@ def docs_search_fallback_answer(
         f"I found matching passages in {source_name or 'your documents'}, "
         "but could not summarize them safely enough."
     )
+
+
+def _document_corpus_scan_no_primary_match_answer(
+    docs_result: SkillResult,
+    sources: list[dict[str, Any]],
+    *,
+    language: str | None,
+    pipeline_text: Callable[[str | None, str, str], str],
+) -> str:
+    meta = dict(docs_result.metadata or {})
+    scan = meta.get("document_corpus_scan")
+    if not isinstance(scan, dict) or not bool(scan.get("exhaustive")):
+        return ""
+    terms = [str(term or "").strip() for term in list(scan.get("terms") or []) if str(term or "").strip()]
+    if not terms:
+        return ""
+    term_stats = scan.get("term_stats")
+    if not isinstance(term_stats, dict):
+        return ""
+    primary = terms[0]
+    primary_stats = term_stats.get(primary)
+    if not isinstance(primary_stats, dict):
+        return ""
+    primary_chunks = int(primary_stats.get("chunks", 0) or 0)
+    if primary_chunks > 0:
+        return ""
+    documents_scanned = int(scan.get("documents_scanned", 0) or 0)
+    chunks_scanned = int(scan.get("chunks_scanned", 0) or 0)
+    matched_context_terms = [
+        term
+        for term in terms[1:]
+        if int(dict(term_stats.get(term) or {}).get("chunks", 0) or 0) > 0
+    ]
+    source_names: list[str] = []
+    for source in sources:
+        label = (
+            str(source.get("document_name", "") or "").strip()
+            or str(source.get("title", "") or "").strip()
+            or str(source.get("label", "") or "").strip()
+            or str(source.get("document_id", "") or "").strip()
+        )
+        if label and label not in source_names:
+            source_names.append(label)
+    wants_english = str(language or "de").lower().startswith("en")
+    if wants_english:
+        lines = [
+            pipeline_text(
+                language,
+                "direct_context.docs_corpus_scan_coverage",
+                "I fully scanned the document corpus: {documents} documents, {chunks} chunks.",
+            ).replace("{documents}", str(documents_scanned)).replace("{chunks}", str(chunks_scanned)),
+            pipeline_text(
+                language,
+                "direct_context.docs_corpus_scan_primary_no_match",
+                "I found 0 exact matches for `{term}`. Based on that scan, I found no evidence that `{term}` is part of the available package inserts.",
+            ).replace("{term}", primary),
+        ]
+        if matched_context_terms:
+            lines.append(
+                pipeline_text(
+                    language,
+                    "direct_context.docs_corpus_scan_context_terms_only",
+                    "Other hits were only for additional query/context terms ({terms}), not for `{primary}` itself.",
+                )
+                .replace("{terms}", ", ".join(matched_context_terms[:6]))
+                .replace("{primary}", primary)
+            )
+        if source_names:
+            lines.append(
+                pipeline_text(
+                    language,
+                    "direct_context.docs_corpus_scan_checked_documents",
+                    "Checked documents: {documents}",
+                ).replace("{documents}", ", ".join(source_names[:8]) + ("." if len(source_names) <= 8 else ", ..."))
+            )
+        return "\n".join(lines)
+    lines = [
+        pipeline_text(
+            language,
+            "direct_context.docs_corpus_scan_coverage",
+            "I fully scanned the document corpus: {documents} documents, {chunks} chunks.",
+        ).replace("{documents}", str(documents_scanned)).replace("{chunks}", str(chunks_scanned)),
+        pipeline_text(
+            language,
+            "direct_context.docs_corpus_scan_primary_no_match",
+            "I found 0 exact matches for `{term}`. Based on that scan, I found no evidence that `{term}` is part of the available package inserts.",
+        ).replace("{term}", primary),
+    ]
+    if matched_context_terms:
+        lines.append(
+            pipeline_text(
+                language,
+                "direct_context.docs_corpus_scan_context_terms_only",
+                "Other hits were only for additional query/context terms ({terms}), not for `{primary}` itself.",
+            )
+            .replace("{terms}", ", ".join(matched_context_terms[:6]))
+            .replace("{primary}", primary)
+        )
+    if source_names:
+        lines.append(
+            pipeline_text(
+                language,
+                "direct_context.docs_corpus_scan_checked_documents",
+                "Checked documents: {documents}",
+            ).replace("{documents}", ", ".join(source_names[:8]) + ("." if len(source_names) <= 8 else ", ..."))
+        )
+    return "\n".join(lines)
 
 
 def fast_docs_search_answer(

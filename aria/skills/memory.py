@@ -973,6 +973,28 @@ class MemorySkill(BaseSkill):
             return None
 
         total_matches = sum(int(stats.get("chunks", 0) or 0) for stats in term_stats.values())
+        serializable_term_stats: dict[str, dict[str, Any]] = {}
+        for term, stats in term_stats.items():
+            document_keys = list(stats.get("documents", set()) or set())
+            document_names: list[str] = []
+            for collection, document_key in sorted(document_keys, key=lambda item: (str(item[0]), str(item[1]))):
+                row = documents.get((collection, document_key))
+                if not row:
+                    continue
+                label = str(row.get("document_name") or row.get("document_id") or row.get("collection") or "").strip()
+                if label and label not in document_names:
+                    document_names.append(label)
+            matches = stats.get("matches")
+            serializable_term_stats[term] = {
+                "chunks": int(stats.get("chunks", 0) or 0),
+                "documents": len(document_keys),
+                "document_names": document_names,
+                "matches": [dict(match) for match in matches if isinstance(match, dict)] if isinstance(matches, list) else [],
+            }
+        term_hit_summary = ",".join(
+            f"{term}:{serializable_term_stats.get(term, {}).get('chunks', 0)}"
+            for term in terms
+        ) or "-"
         doc_count = len(documents)
         lines = [
             "[Dokument-Corpus-Scan]",
@@ -1037,6 +1059,9 @@ class MemorySkill(BaseSkill):
             "document_corpus_scan": {
                 "exhaustive": True,
                 "terms": terms,
+                "matched_terms": [term for term in terms if int(serializable_term_stats.get(term, {}).get("chunks", 0) or 0) > 0],
+                "unmatched_terms": [term for term in terms if int(serializable_term_stats.get(term, {}).get("chunks", 0) or 0) <= 0],
+                "term_stats": serializable_term_stats,
                 "documents_scanned": doc_count,
                 "chunks_scanned": scanned_chunks,
                 "match_chunks": total_matches,
@@ -1045,7 +1070,8 @@ class MemorySkill(BaseSkill):
             "detail_lines": [
                 "Routing Debug: document_corpus_scan "
                 f"exhaustive=true documents={doc_count} chunks={scanned_chunks} "
-                f"terms={','.join(terms) or '-'} matches={total_matches}",
+                f"terms={','.join(terms) or '-'} matches={total_matches} "
+                f"term_hits={term_hit_summary}",
                 *[str(entry.get("detail", "")).strip() for entry in sources if str(entry.get("detail", "")).strip()],
             ],
         }

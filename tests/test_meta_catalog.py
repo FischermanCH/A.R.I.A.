@@ -1618,6 +1618,75 @@ def test_docs_fallback_uses_source_bound_mill_metadata_for_compact_instruction()
     assert "konnte sie aber nicht sicher genug" not in text
 
 
+def test_docs_fallback_answers_exhaustive_corpus_scan_without_primary_term_match() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_depth="deep",
+            context_requests=(
+                ContextRequest(
+                    surface_id="docs",
+                    mode="search",
+                    query="Glucosamin Bestandteil Inhaltsstoff Zusammensetzung",
+                ),
+            ),
+            priority=("local|docs|document|doc-a", "local|docs|documents"),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content=(
+            "[Dokument-Corpus-Scan]\n"
+            "Vollständig gescannt: 5 Dokumente, 296 Chunks.\n"
+            "Suchbegriff-Abdeckung:\n"
+            "- glucosamin: 0 Treffer-Chunks in 0 Dokumenten\n"
+            "- bestandteil: 7 Treffer-Chunks in 3 Dokumenten\n"
+        ),
+        metadata={
+            "document_corpus_scan": {
+                "exhaustive": True,
+                "terms": ["glucosamin", "bestandteil", "inhaltsstoff", "zusammensetzung"],
+                "matched_terms": ["bestandteil", "inhaltsstoff", "zusammensetzung"],
+                "unmatched_terms": ["glucosamin"],
+                "term_stats": {
+                    "glucosamin": {"chunks": 0, "documents": 0, "document_names": [], "matches": []},
+                    "bestandteil": {"chunks": 7, "documents": 3, "document_names": ["Olumiant.pdf"], "matches": []},
+                    "inhaltsstoff": {"chunks": 4, "documents": 2, "document_names": ["Cimzia.pdf"], "matches": []},
+                    "zusammensetzung": {"chunks": 12, "documents": 4, "document_names": ["Simponi.pdf"], "matches": []},
+                },
+                "documents_scanned": 5,
+                "chunks_scanned": 296,
+                "match_chunks": 23,
+            },
+            "sources": [
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Olumiant.pdf"},
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Cimzia.pdf"},
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Simponi.pdf"},
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Zoledronat.pdf"},
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Certolizumab.pdf"},
+            ],
+        },
+    )
+
+    text = runtime._aria_turn_fast_docs_search_answer(arbitration, result, language="de")
+
+    assert text.startswith("Ich habe den Dokument-Corpus vollständig gescannt: 5 Dokumente, 296 Chunks.")
+    assert "Für `glucosamin` gab es 0 exakte Treffer" in text
+    assert "keinen Beleg" in text
+    assert "Die übrigen Treffer betreffen nur weitere Such-/Kontextbegriffe" in text
+    assert "Geprüfte Dokumente: Olumiant.pdf, Cimzia.pdf, Simponi.pdf" in text
+    assert "konnte sie aber nicht sicher genug" not in text
+
+
 def test_docs_fast_answer_uses_bounded_mill_wifi_instruction_summary() -> None:
     runtime = AgenticContextRuntimeMixin()
     arbitration = AriaTurnArbitration(
