@@ -12,7 +12,7 @@
     <article class="memory-health-card">
       <div class="memory-health-head">
         <span class="health-lamp status-{{ 'ok' if health.user_total_points else 'warn' }}"></span>
-        <h3>{{ tr(request, 'memories.health_points', 'Memory-Punkte') }}</h3>
+        <h3>{{ tr(request, 'memories.health_points', 'Memory points') }}</h3>
       </div>
       <p>{{ health.user_total_points }}</p>
       <small>{{ tr(request, 'memories.health_over', 'über') }} {{ health.user_collections }} {{ tr(request, 'memories.health_collections', 'Collections') }}</small>
@@ -44,7 +44,7 @@
         <h3>{{ tr(request, 'memories.health_due', 'Komprimierung fällig') }}</h3>
       </div>
       <p>{{ health.stale_sessions }}</p>
-      <small>{{ tr(request, 'memories.health_days_old', 'Tages-Kontext älter als') }} {{ health.compress_after_days }} {{ tr(request, 'memories.days', 'Tage') }}</small>
+      <small>{{ tr(request, 'memories.health_days_old', 'Day context older than') }} {{ health.compress_after_days }} {{ tr(request, 'memories.days', 'days') }}</small>
     </a>
     <article class="memory-health-card">
       <div class="memory-health-head">
@@ -87,7 +87,7 @@
         <span class="memory-section-icon">{{ icon('activities', 'ui-action-icon') }}</span>
         <div>
     <h2>{{ tr(request, 'memories_map.rollups_title', 'Session-Rollups') }}</h2>
-    <p>{{ tr(request, 'memories_map.rollups_subtitle', 'Hier siehst du verdichteten Tages-Kontext als Wochen- und Monats-Rollups.') }}</p>
+    <p>{{ tr(request, 'memories_map.rollups_subtitle', 'This shows condensed daily context as weekly and monthly rollups.') }}</p>
         </div>
       </div>
     </div>
@@ -151,8 +151,8 @@
       <div class="memory-section-title-wrap">
         <span class="memory-section-icon">{{ icon('files', 'ui-action-icon') }}</span>
         <div>
-    <h2>{{ tr(request, 'memories.documents_title', 'Dokumente im Speicher') }}</h2>
-    <p>{{ tr(request, 'memories.documents_collections_subtitle', 'Jede Kachel steht fuer eine Dokument-Collection. Klappe sie auf, um die enthaltenen Dokumente zu sehen.') }}</p>
+    <h2>{{ tr(request, 'memories.documents_title', 'Documents in memory') }}</h2>
+    <p>{{ tr(request, 'memories.documents_collections_subtitle', 'Each tile represents a document collection. Expand it to see the documents inside.') }}</p>
         </div>
       </div>
     </div>
@@ -163,22 +163,22 @@
           <div>
             <strong><code>{{ group.collection }}</code></strong>
             <small>
-              {{ group.document_count }} {{ tr(request, 'memories.documents_count', 'Dokumente') }}
+              {{ group.document_count }} {{ tr(request, 'memories.documents_count', 'documents') }}
               · {{ tr(request, 'memories.document_chunks', 'Chunks') }}: {{ group.chunk_count }}
               {% if group.display_timestamp %}· {{ group.display_timestamp }}{% endif %}
             </small>
           </div>
-          <span class="chat-status">{{ tr(request, 'memories.type_document', 'Dokumente') }}</span>
+          <span class="chat-status">{{ tr(request, 'memories.type_document', 'Documents') }}</span>
         </summary>
         <div class="memory-group-list">
           {% for doc in group.documents %}
           <article class="memory-card memory-card-empty">
             <header class="memory-card-head">
               <div>
-                <strong><a class="memories-link" href="/memories/explorer?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}">{{ doc.document_name }}</a></strong>
+                <strong><a class="memories-link" href="/memories">{{ doc.document_name }}</a></strong>
                 <div class="memory-preview">{{ doc.preview }}</div>
               </div>
-              <span class="status-badge">{{ tr(request, 'memories.type_document', 'Dokumente') }}</span>
+              <span class="status-badge">{{ tr(request, 'memories.type_document', 'Documents') }}</span>
             </header>
             <footer class="memory-card-foot">
               <small>
@@ -188,7 +188,7 @@
               <div class="inline-actions">
                 <a
                   class="button-like ui-icon-only memories-link"
-                  href="/memories/explorer?type=document&collection_filter={{ doc.collection|urlencode }}&document_id={{ doc.document_id|urlencode }}"
+                  href="/memories"
                   title="{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}"
                   aria-label="{{ tr(request, 'memories.open_document_chunks', 'Chunks ansehen') }}"
                 >
@@ -223,7 +223,7 @@
         <span class="memory-section-icon">{{ icon('memories', 'ui-action-icon') }}</span>
         <div>
     <h2>{{ tr(request, 'memories_map.graph_title', 'Memory-Graph') }}</h2>
-    <p>{{ tr(request, 'memories_map.graph_subtitle', 'Ein einfacher Überblick über Typen, Collections, Dokumente und Rollups dieses Nutzers.') }}</p>
+    <p>{{ tr(request, 'memories_map.graph_subtitle', 'A simple overview of memory types, collections, documents, and rollups for this user.') }}</p>
         </div>
       </div>
     </div>
@@ -260,7 +260,7 @@
         <span class="memory-section-icon">{{ icon('notes', 'ui-action-icon') }}</span>
         <div>
     <h2>{{ tr(request, 'memories_map.notes_collections_title', 'Notes-Collections') }}</h2>
-    <p>{{ tr(request, 'memories_map.notes_collections_subtitle', 'Qdrant-Collections aus den Notizen. Sie erweitern das semantische Wissen und führen direkt zurück in die Notizverwaltung.') }}</p>
+    <p>{{ tr(request, 'memories_map.notes_collections_subtitle', 'Qdrant collections from notes. They enrich semantic knowledge and link back into Notes.') }}</p>
         </div>
       </div>
     </div>
@@ -268,7 +268,7 @@
       {% for row in notes_rows %}
       <a class="memory-type-card memory-collection-card" href="{{ row.browse_url or '/notes' }}">
         <strong><code>{{ row.name }}</code></strong>
-        <span>{{ tr(request, 'memories_map.kind_notes', 'Notizen') }} · {{ row.points }} {{ tr(request, 'memories_map.total_points', 'Total Points') }}{% if notes_total_points %} · {{ row.share_pct }}%{% endif %} · {{ row.status }}</span>
+        <span>{{ tr(request, 'memories_map.kind_notes', 'Notes') }} · {{ row.points }} {{ tr(request, 'memories_map.total_points', 'Total Points') }}{% if notes_total_points %} · {{ row.share_pct }}%{% endif %} · {{ row.status }}</span>
       </a>
       {% endfor %}
     </div>
@@ -310,7 +310,7 @@
         <tr>
           <th>{{ tr(request, 'memories_map.col_collection', 'Collection') }}</th>
           <th>{{ tr(request, 'memories_map.col_type', 'Typ') }}</th>
-          <th>{{ tr(request, 'memories_map.col_points', 'Punkte') }}</th>
+          <th>{{ tr(request, 'memories_map.col_points', 'Points') }}</th>
           <th>{{ tr(request, 'memories_map.col_share', 'Anteil') }}</th>
           <th>{{ tr(request, 'memories_map.col_status', 'Status') }}</th>
         </tr>
@@ -357,7 +357,7 @@
         <tr>
           <th>{{ tr(request, 'memories_map.col_collection', 'Collection') }}</th>
           <th>{{ tr(request, 'memories_map.col_type', 'Typ') }}</th>
-          <th>{{ tr(request, 'memories_map.col_points', 'Punkte') }}</th>
+          <th>{{ tr(request, 'memories_map.col_points', 'Points') }}</th>
           <th>{{ tr(request, 'memories_map.col_share', 'Anteil') }}</th>
           <th>{{ tr(request, 'memories_map.col_status', 'Status') }}</th>
         </tr>
@@ -384,7 +384,7 @@
         <tr>
           <th>{{ tr(request, 'memories_map.col_collection', 'Collection') }}</th>
           <th>{{ tr(request, 'memories_map.col_type', 'Typ') }}</th>
-          <th>{{ tr(request, 'memories_map.col_points', 'Punkte') }}</th>
+          <th>{{ tr(request, 'memories_map.col_points', 'Points') }}</th>
           <th>{{ tr(request, 'memories_map.col_share', 'Anteil') }}</th>
           <th>{{ tr(request, 'memories_map.col_status', 'Status') }}</th>
         </tr>

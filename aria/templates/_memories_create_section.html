@@ -1,0 +1,20 @@
+<section id="memory-create" class="floating-card config-domain-section">
+  <div class="page-title-row"><span>{{ icon('plus', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h3></div>
+  <p class="hint-text">{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</p>
+  <form method="post" action="/memories/create" class="editor-form">
+    <input type="hidden" name="source_view" value="{{ memory_create_source_view|default('create') }}">
+    <div class="connection-form-grid">
+      <div>
+        <label for="import_memory_type">{{ tr(request, 'memories.create_type', 'Memory-Typ') }}</label>
+        <select id="import_memory_type" name="memory_type">
+          <option value="fact">{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
+          <option value="preference">{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
+          <option value="knowledge">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
+        </select>
+      </div>
+    </div>
+    <label for="import_memory_text">{{ tr(request, 'memories.create_text', 'Text') }}</label>
+    <textarea id="import_memory_text" name="text" class="editor-textarea short" maxlength="4000" placeholder="{{ tr(request, 'memories.create_placeholder', 'z. B. Ich nutze für Server-Dateien meist mein Hauptsystem.') }}" required></textarea>
+    <button type="submit">{{ tr(request, 'memories.create_button', 'Memory speichern') }}</button>
+  </form>
+</section>

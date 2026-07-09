@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <main class="skills-layout skills-clean-layout skills-surface-layout">
-  {% include "_recipes_nav.html" %}
+  {% set admin_current_nav_id = 'admin.recipes.system' %}
+  {% include "_admin_section_nav.html" %}
   {% include "_recipes_page_header.html" %}
   <form id="skills-toggles-form" class="editor-form" method="post" action="/recipes/save">
     <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">

@@ -1,6 +1,6 @@
 # Agentic Live Regression Dossier
 
-Stand: 2026-05-13
+Stand: 2026-07-09
 
 Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen behandelt werden. Ziel ist nicht, fuer jede Formulierung einen neuen Spezialfall zu bauen, sondern den gemeinsamen Agentic Action Flow zu schuetzen:
 
@@ -15,6 +15,7 @@ Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen 
 
 | Prompt-Familie | Erwarteter Pfad | Wichtige Regression |
 | --- | --- | --- |
+| `haben meine linux server genug freien festplatten speicher` | Runtime-Task-Fastpath -> SSH multi-target -> `capacity_check`/`df -h` | Darf nicht in Docs/RAG oder medizinische Beipackzettel fallen, wenn der bounded LLM-Draft bereits `target_intent=capacity_check` liefert. |
 | `habe ich genuegend freien speicherplatz auf meinen servern?` | Pre-RAG Action Gate -> SSH multi-target -> `df -h` | Darf nicht als `memory_store`, RAG-Chat, RSS oder einzelner alter Server enden. |
 | `habe ich auf meinen servern ueberall mehr als 10gb freien festplattenspeicher?` / `zehn Gigabyte Reserve` | SSH multi-target -> `df -h` -> bounded LLM Operator-Summary ueber Runtime-Resultate -> Faktenvalidierung/LLM-Repair | Darf generische `ok`-Disk-Zusammenfassungen nicht uebernehmen, wenn freie-GiB-Schwelle unterschritten wird; freie Formulierungen wie `zehn Gigabyte Reserve` muessen durch die Summary-Schicht verstanden werden; harte Messwerte wie `12G frei` duerfen nicht als unter `10GB` gezaehlt werden. |
 | `wie sieht die hd auf meinem management server aus` | Pre-RAG Action Gate -> SSH single-target -> bounded LLM command draft -> Policy -> Runtime | Darf nicht mit irrelevanten Dokumenten wie Kamera-Handbuechern beantwortet werden. |
@@ -64,9 +65,11 @@ Die wichtigsten Live-Regressions liegen in:
 
 - `tests/test_pipeline.py::test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded`
 - `tests/test_pipeline.py::test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_generic_server_alias`
+- `tests/test_pipeline.py::test_pipeline_runtime_task_fastpath_routes_plural_server_disk_capacity_to_ssh`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch`
+- `tests/test_ssh_target_scope_policy.py::test_ssh_target_scope_policy_keeps_all_linux_server_scope_on_full_fleet`
 - `tests/test_pipeline.py::test_pipeline_routes_hd_question_on_management_server_before_rag_chat`
 - `tests/test_pipeline.py::test_pipeline_final_chat_keeps_pre_rag_no_action_debug_visible`
 - `tests/test_router.py::test_router_speicherplatz_is_not_memory_store`

@@ -3,8 +3,8 @@
 {% block content %}
 <main class="config-layout">
   <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('settings', 'page-title-icon') }}</span><h2>Admin-On/Off</h2></div>
-    <p>{{ agent_text(request, 'Wenn aktiv, zeigt ARIA Admin-Zusatzinfos und sensible Betriebslinks (z.B. Session/Stores/Qdrant) an.') }}</p>
+    <div class="page-title-row"><span>{{ icon('settings', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_admin_mode.title', 'Extended view') }}</h2></div>
+    <p>{{ tr(request, 'config_admin_mode.body', 'Shows technical areas and maintenance functions.') }}</p>
 
     {% if saved %}
     <p class="hint-text">Gespeichert.</p>
@@ -13,15 +13,15 @@
     <p class="error-text">{{ error_message }}</p>
     {% endif %}
 
-    <form class="editor-form" method="post" action="/config/debug/save">
+    <form class="editor-form" method="post" action="/config/admin-mode/save">
       <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <label class="inline-check">
         <input type="checkbox" name="debug_mode" value="1" {% if debug_mode %}checked{% endif %}>
-        Admin-Modus aktivieren
+        {{ tr(request, 'config_admin_mode.toggle_label', 'Enable Extended view') }}
       </label>
       <div class="inline-actions">
-        <button type="submit">Speichern</button>
-        <a class="nav-link" href="/config">Zurück zu Config</a>
+        <button type="submit">{{ tr(request, 'config_users.save', 'Save') }}</button>
+        <a class="nav-link" href="/config">{{ tr(request, 'base.nav_config', 'Settings') }}</a>
       </div>
     </form>
   </section>

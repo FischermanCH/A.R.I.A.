@@ -9,13 +9,13 @@
       <span class="chat-status">🗓 {{ tr(request, 'chat.debug_day_context', 'Tages-Kontext') }} <code>{{ active_session_collection }}</code></span>
       <span class="chat-status">🧷 {{ tr(request, 'chat.debug_login_session', 'Login-Session') }} <code>{{ active_session_id }}</code></span>
       <a
-        href="/memories/config#auto-memory"
+        href="/memories/auto-memory"
         class="chat-status auto-memory-indicator {% if auto_memory_enabled %}is-on{% else %}is-off{% endif %}"
-        title="{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }} {% if auto_memory_enabled %}{{ tr(request, 'chat.debug_active', 'aktiv') }}{% else %}{{ tr(request, 'chat.debug_inactive', 'deaktiviert') }}{% endif %}"
-        aria-label="{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }} {{ tr(request, 'nav.settings', 'Einstellungen') }}"
+        title="{{ tr(request, 'chat.debug_auto_memory_learning', 'Auto-Memory & Lernen') }} {% if auto_memory_enabled %}{{ tr(request, 'chat.debug_active', 'aktiv') }}{% else %}{{ tr(request, 'chat.debug_inactive', 'deaktiviert') }}{% endif %}"
+        aria-label="{{ tr(request, 'chat.debug_auto_memory_learning_settings', 'Auto-Memory & Lernen Einstellungen') }}"
       >
         <span class="status-lamp" aria-hidden="true"></span>
-        <span>{{ tr(request, 'chat.debug_auto_memory', 'Auto-Memory') }}</span>
+        <span>{{ tr(request, 'chat.debug_auto_memory_learning', 'Auto-Memory & Lernen') }}</span>
       </a>
     </div>
     <small class="hint-text">{{ tr(request, 'chat.debug_day', 'Tag') }}: <code>{{ active_memory_day }}</code> · {{ tr(request, 'chat.debug_role', 'Rolle') }}: <code>{{ auth_role }}</code></small>
@@ -142,6 +142,13 @@
         </div>
       </div>
     </div>
+    <section id="chat-queue" class="chat-queue" aria-live="polite" hidden>
+      <div class="chat-queue-header">
+        <strong id="chat-queue-title">{{ tr(request, 'chat.queue_title', 'Warteschlange') }}</strong>
+        <span id="chat-queue-count" class="chat-queue-count"></span>
+      </div>
+      <div id="chat-queue-list" class="chat-queue-list"></div>
+    </section>
   </form>
 </main>
 <script>
@@ -154,6 +161,21 @@
       cancel: {{ tr(request, 'chat.cancel', 'Abbrechen')|tojson }},
       cancelling: {{ tr(request, 'chat.cancelling', 'Wird abgebrochen...')|tojson }},
       cancelled: {{ tr(request, 'chat.cancelled', 'Anfrage im Browser abgebrochen.')|tojson }},
+      queued: {{ tr(request, 'chat.queued', 'Zur Warteschlange hinzugefügt.')|tojson }},
+      queuedCount: {{ tr(request, 'chat.queued_count', '{count} wartet')|tojson }},
+      queueEdit: {{ tr(request, 'chat.queue_edit', 'Bearbeiten')|tojson }},
+      queueDelete: {{ tr(request, 'chat.queue_delete', 'Entfernen')|tojson }},
+      queueMoveUp: {{ tr(request, 'chat.queue_move_up', 'Nach oben')|tojson }},
+      queueMoveDown: {{ tr(request, 'chat.queue_move_down', 'Nach unten')|tojson }},
+      queueEditPrompt: {{ tr(request, 'chat.queue_edit_prompt', 'Prompt bearbeiten')|tojson }},
+      queueConfirmationTitle: {{ tr(request, 'chat.queue_confirmation_title', 'Aktion wartet auf Bestätigung')|tojson }},
+      queueConfirmationExpired: {{ tr(request, 'chat.queue_confirmation_expired', 'Bestätigung abgelaufen')|tojson }},
+      queueConfirmationRun: {{ tr(request, 'chat.queue_confirmation_run', 'Ausführen')|tojson }},
+      queueConfirmationRenew: {{ tr(request, 'chat.queue_confirmation_renew', 'Neu planen')|tojson }},
+      queueConfirmationDiscard: {{ tr(request, 'chat.queue_confirmation_discard', 'Verwerfen')|tojson }},
+      queueConfirmationDone: {{ tr(request, 'chat.queue_confirmation_done', 'Ausgeführt')|tojson }},
+      queueConfirmationStatus: {{ tr(request, 'chat.queue_confirmation_status', 'wartet')|tojson }},
+      queueConfirmationExpiredStatus: {{ tr(request, 'chat.queue_confirmation_expired_status', 'abgelaufen')|tojson }},
       runningSkill: {{ tr(request, 'chat.running_skill', 'Rezept wird ausgeführt...')|tojson }},
       processingMessage: {{ tr(request, 'chat.processing_message', 'Nachricht wird verarbeitet...')|tojson }},
       workRouting: {{ tr(request, 'chat.work_routing', 'ARIA sortiert deine Anfrage...')|tojson }},
@@ -206,13 +228,323 @@
     const chatTools = document.querySelector(".chat-tools");
     const chatToolsToggle = document.querySelector(".chat-tools-toggle");
     const chatToolsPanel = document.getElementById("chat-toolbox-panel");
+    const queuePanel = document.getElementById("chat-queue");
+    const queueCount = document.getElementById("chat-queue-count");
+    const queueList = document.getElementById("chat-queue-list");
     const csrfMeta = document.querySelector("meta[name='csrf-token']");
     let pendingStatusTimer = null;
     let pendingStatusInterval = null;
     let pendingPhaseTimers = [];
     let currentRequestController = null;
+    let isChatBusy = false;
+    let promptQueue = [];
+    let promptQueueId = 1;
+    let pendingConfirmation = null;
+    let pendingConfirmationTimer = null;
+    const pendingConfirmationMaxAgeMs = 10 * 60 * 1000;
 
     const draftStorageKey = "aria_chat_draft_v1";
+
+    function shortQueueText(text) {
+      const clean = String(text || "").replace(/\s+/g, " ").trim();
+      if (clean.length <= 140) return clean;
+      return clean.slice(0, 137).trim() + "...";
+    }
+
+    function renderPromptQueue() {
+      if (!queuePanel || !queueList || !queueCount) return;
+      const hasPendingConfirmation = Boolean(pendingConfirmation);
+      queuePanel.hidden = promptQueue.length === 0 && !hasPendingConfirmation;
+      const countParts = [];
+      if (promptQueue.length) {
+        countParts.push(uiText.queuedCount.replace("{count}", String(promptQueue.length)));
+      }
+      if (hasPendingConfirmation) {
+        countParts.push(isPendingConfirmationExpired() ? uiText.queueConfirmationExpiredStatus : uiText.queueConfirmationStatus);
+      }
+      queueCount.textContent = countParts.join(" · ");
+      queueList.innerHTML = "";
+      if (pendingConfirmation) {
+        queueList.appendChild(buildPendingConfirmationQueueItem());
+      }
+      promptQueue.forEach((item, index) => {
+        const row = document.createElement("div");
+        row.className = "chat-queue-item";
+        row.dataset.queueId = String(item.id);
+
+        const position = document.createElement("span");
+        position.className = "chat-queue-position";
+        position.textContent = String(index + 1);
+        row.appendChild(position);
+
+        const text = document.createElement("p");
+        text.className = "chat-queue-text";
+        text.textContent = shortQueueText(item.displayMessage || item.message);
+        row.appendChild(text);
+
+        const actions = document.createElement("div");
+        actions.className = "chat-queue-actions";
+        const buttons = [
+          { action: "up", label: "↑", title: uiText.queueMoveUp, disabled: index === 0 },
+          { action: "down", label: "↓", title: uiText.queueMoveDown, disabled: index === promptQueue.length - 1 },
+          { action: "edit", label: "✎", title: uiText.queueEdit, disabled: false },
+          { action: "delete", label: "×", title: uiText.queueDelete, disabled: false },
+        ];
+        buttons.forEach((config) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "chat-queue-action";
+          button.dataset.queueAction = config.action;
+          button.dataset.queueId = String(item.id);
+          button.textContent = config.label;
+          button.title = config.title;
+          button.setAttribute("aria-label", config.title);
+          button.disabled = Boolean(config.disabled);
+          actions.appendChild(button);
+        });
+        row.appendChild(actions);
+        queueList.appendChild(row);
+      });
+    }
+
+    function isPendingConfirmationExpired() {
+      if (!pendingConfirmation) return false;
+      return Date.now() >= Number(pendingConfirmation.expiresAt || 0);
+    }
+
+    function schedulePendingConfirmationExpiry() {
+      if (pendingConfirmationTimer) {
+        window.clearTimeout(pendingConfirmationTimer);
+        pendingConfirmationTimer = null;
+      }
+      if (!pendingConfirmation) return;
+      const delay = Math.max(0, Number(pendingConfirmation.expiresAt || 0) - Date.now());
+      pendingConfirmationTimer = window.setTimeout(function () {
+        if (pendingConfirmation) {
+          pendingConfirmation.status = "expired";
+          renderPromptQueue();
+          disablePendingConfirmationButtons(pendingConfirmation.payload, uiText.queueConfirmationExpired);
+        }
+      }, delay + 250);
+    }
+
+    function buildPendingConfirmationQueueItem() {
+      const expired = isPendingConfirmationExpired() || pendingConfirmation.status === "expired";
+      const row = document.createElement("div");
+      row.className = "chat-queue-item chat-queue-confirmation";
+      row.dataset.confirmationPayload = pendingConfirmation.payload || "";
+
+      const status = document.createElement("span");
+      status.className = "chat-queue-position chat-queue-confirmation-status";
+      status.textContent = expired ? "!" : "✓";
+      row.appendChild(status);
+
+      const body = document.createElement("div");
+      body.className = "chat-queue-confirmation-body";
+      const title = document.createElement("strong");
+      title.textContent = expired ? uiText.queueConfirmationExpired : uiText.queueConfirmationTitle;
+      body.appendChild(title);
+      const text = document.createElement("p");
+      text.className = "chat-queue-text";
+      text.textContent = shortQueueText(pendingConfirmation.query || pendingConfirmation.label || pendingConfirmation.message);
+      body.appendChild(text);
+      row.appendChild(body);
+
+      const actions = document.createElement("div");
+      actions.className = "chat-queue-actions chat-queue-confirmation-actions";
+      [
+        { action: "run", label: uiText.queueConfirmationRun, disabled: expired },
+        { action: "renew", label: uiText.queueConfirmationRenew, disabled: false },
+        { action: "discard", label: uiText.queueConfirmationDiscard, disabled: false },
+      ].forEach((config) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chat-queue-action chat-queue-confirmation-action";
+        button.dataset.confirmationAction = config.action;
+        button.textContent = config.label;
+        button.title = config.label;
+        button.setAttribute("aria-label", config.label);
+        button.disabled = Boolean(config.disabled);
+        actions.appendChild(button);
+      });
+      row.appendChild(actions);
+      return row;
+    }
+
+    function previousUserTextForAssistantAction(button) {
+      const assistant = button && button.closest ? button.closest(".msg-assistant") : null;
+      let previous = assistant ? assistant.previousElementSibling : null;
+      while (previous) {
+        if (previous.classList && previous.classList.contains("msg-user")) {
+          const textNode = previous.querySelector("p");
+          return String(textNode ? textNode.textContent : "").trim();
+        }
+        previous = previous.previousElementSibling;
+      }
+      return "";
+    }
+
+    function setPendingConfirmationFromButton(button) {
+      if (!button) return;
+      const payload = String(button.getAttribute("data-routed-action-pending") || "").trim();
+      const message = String(button.getAttribute("data-message") || "").trim();
+      if (!payload || !message) return;
+      if (pendingConfirmation && pendingConfirmation.payload === payload) return;
+      pendingConfirmation = {
+        payload,
+        message,
+        label: String(button.textContent || "").trim() || uiText.queueConfirmationRun,
+        query: previousUserTextForAssistantAction(button),
+        createdAt: Date.now(),
+        expiresAt: Date.now() + pendingConfirmationMaxAgeMs,
+        status: "pending",
+      };
+      schedulePendingConfirmationExpiry();
+      renderPromptQueue();
+    }
+
+    function syncPendingConfirmationFromDom() {
+      if (!messages) return;
+      const buttons = Array.from(messages.querySelectorAll(".msg-actions .js-chat-send-message[data-routed-action-pending]"));
+      const activeButtons = buttons.filter((button) => String(button.getAttribute("data-routed-action-pending") || "").trim());
+      if (!activeButtons.length) return;
+      setPendingConfirmationFromButton(activeButtons[activeButtons.length - 1]);
+    }
+
+    function disablePendingConfirmationButtons(payload, label) {
+      if (!payload || !messages) return;
+      const escapedPayload = window.CSS && CSS.escape ? CSS.escape(payload) : payload.replace(/"/g, '\\"');
+      const buttons = messages.querySelectorAll('.msg-actions .js-chat-send-message[data-routed-action-pending="' + escapedPayload + '"]');
+      buttons.forEach((button) => {
+        button.disabled = true;
+        button.textContent = label;
+      });
+    }
+
+    function clearPendingConfirmation(payload, label) {
+      if (!pendingConfirmation) return;
+      const currentPayload = pendingConfirmation.payload;
+      if (payload && currentPayload && payload !== currentPayload) return;
+      pendingConfirmation = null;
+      if (pendingConfirmationTimer) {
+        window.clearTimeout(pendingConfirmationTimer);
+        pendingConfirmationTimer = null;
+      }
+      if (label) {
+        disablePendingConfirmationButtons(currentPayload, label);
+      }
+      renderPromptQueue();
+    }
+
+    function markPendingConfirmationExpired(payload) {
+      if (!pendingConfirmation) return;
+      if (payload && pendingConfirmation.payload && payload !== pendingConfirmation.payload) return;
+      pendingConfirmation.status = "expired";
+      pendingConfirmation.expiresAt = Date.now() - 1;
+      disablePendingConfirmationButtons(pendingConfirmation.payload, uiText.queueConfirmationExpired);
+      renderPromptQueue();
+    }
+
+    function enqueuePrompt(rawMessage, options) {
+      const message = String(rawMessage || "").trim();
+      if (!message) return false;
+      const itemOptions = options || {};
+      promptQueue.push({
+        id: promptQueueId,
+        message,
+        displayMessage: itemOptions.displayMessage ? String(itemOptions.displayMessage).trim() : message,
+        routedActionPending: itemOptions.routedActionPending ? String(itemOptions.routedActionPending).trim() : "",
+      });
+      promptQueueId += 1;
+      renderPromptQueue();
+      return true;
+    }
+
+    function queueIndexById(id) {
+      return promptQueue.findIndex((item) => String(item.id) === String(id));
+    }
+
+    function moveQueuedPrompt(id, direction) {
+      const index = queueIndexById(id);
+      if (index < 0) return;
+      const nextIndex = direction < 0 ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= promptQueue.length) return;
+      const item = promptQueue.splice(index, 1)[0];
+      promptQueue.splice(nextIndex, 0, item);
+      renderPromptQueue();
+    }
+
+    function deleteQueuedPrompt(id) {
+      const index = queueIndexById(id);
+      if (index < 0) return;
+      promptQueue.splice(index, 1);
+      renderPromptQueue();
+    }
+
+    function editQueuedPrompt(id) {
+      const index = queueIndexById(id);
+      if (index < 0) return;
+      const current = promptQueue[index];
+      const next = window.prompt(uiText.queueEditPrompt, current.message);
+      if (next === null) return;
+      const clean = String(next || "").trim();
+      if (!clean) {
+        deleteQueuedPrompt(id);
+        return;
+      }
+      promptQueue[index] = {
+        ...current,
+        message: clean,
+        displayMessage: clean,
+      };
+      renderPromptQueue();
+    }
+
+    function startNextQueuedPrompt() {
+      if (isChatBusy || !promptQueue.length) return;
+      const next = promptQueue.shift();
+      renderPromptQueue();
+      if (!next) return;
+      window.setTimeout(function () {
+        submitChatMessage(next.message, {
+          clearComposer: false,
+          displayMessage: next.displayMessage || next.message,
+          routedActionPending: next.routedActionPending || "",
+          fromQueue: true,
+        });
+      }, 80);
+    }
+
+    function runPendingConfirmation() {
+      if (!pendingConfirmation) return;
+      if (isPendingConfirmationExpired() || pendingConfirmation.status === "expired") {
+        markPendingConfirmationExpired(pendingConfirmation.payload);
+        return;
+      }
+      submitChatMessage(pendingConfirmation.message, {
+        clearComposer: false,
+        routedActionPending: pendingConfirmation.payload,
+        displayMessage: pendingConfirmation.label || uiText.queueConfirmationRun,
+      });
+    }
+
+    function renewPendingConfirmation() {
+      if (!pendingConfirmation) return;
+      const query = String(pendingConfirmation.query || "").trim();
+      const payload = pendingConfirmation.payload;
+      clearPendingConfirmation(payload, uiText.queueConfirmationExpired);
+      if (!query) return;
+      if (isChatBusy) {
+        enqueuePrompt(query, { displayMessage: query });
+        return;
+      }
+      submitChatMessage(query, { clearComposer: false, displayMessage: query });
+    }
+
+    function discardPendingConfirmation() {
+      if (!pendingConfirmation) return;
+      clearPendingConfirmation(pendingConfirmation.payload, uiText.queueConfirmationDiscard);
+    }
 
     function updateVisualViewportHeight() {
       const root = document.documentElement;
@@ -276,8 +608,6 @@
     }
 
     function setBusy(isBusy, busyText) {
-      textarea.disabled = isBusy;
-      sendBtn.disabled = isBusy;
       if (cancelBtn) {
         cancelBtn.hidden = !isBusy;
         cancelBtn.disabled = false;
@@ -293,7 +623,7 @@
       }
       if (isBusy) {
         if (thinkingText) thinkingText.textContent = busyText || uiText.processingMessage;
-        sendBtn.textContent = uiText.sending;
+        sendBtn.textContent = uiText.send;
       } else {
         if (thinkingText) thinkingText.textContent = uiText.thinking || {{ agent_text(request, 'ARIA denkt nach...')|tojson }};
         sendBtn.textContent = uiText.send;
@@ -744,9 +1074,7 @@
     textarea.addEventListener("keydown", function (event) {
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        if (!textarea.disabled) {
-          form.requestSubmit();
-        }
+        form.requestSubmit();
       } else if (event.key === "Escape") {
         hideSlashMenu();
         hideToolbox();
@@ -765,11 +1093,53 @@
     document.addEventListener("click", handleOutsideInteractions);
     document.addEventListener("pointerdown", handleOutsideInteractions, { passive: true });
 
+    if (queueList) {
+      queueList.addEventListener("click", function (event) {
+        const confirmationButton = event.target && event.target.closest ? event.target.closest(".chat-queue-confirmation-action") : null;
+        if (confirmationButton) {
+          event.preventDefault();
+          const confirmationAction = confirmationButton.getAttribute("data-confirmation-action");
+          if (confirmationAction === "run") {
+            runPendingConfirmation();
+          } else if (confirmationAction === "renew") {
+            renewPendingConfirmation();
+          } else if (confirmationAction === "discard") {
+            discardPendingConfirmation();
+          }
+          return;
+        }
+        const button = event.target && event.target.closest ? event.target.closest(".chat-queue-action") : null;
+        if (!button) return;
+        event.preventDefault();
+        const id = button.getAttribute("data-queue-id");
+        const action = button.getAttribute("data-queue-action");
+        if (action === "up") {
+          moveQueuedPrompt(id, -1);
+        } else if (action === "down") {
+          moveQueuedPrompt(id, 1);
+        } else if (action === "edit") {
+          editQueuedPrompt(id);
+        } else if (action === "delete") {
+          deleteQueuedPrompt(id);
+        }
+      });
+    }
+
     async function submitChatMessage(rawMessage, options) {
       const clearComposer = !options || options.clearComposer !== false;
       const message = String(rawMessage || "").trim();
       const displayMessage = options && options.displayMessage ? String(options.displayMessage).trim() : message;
-      if (!message || textarea.disabled) {
+      if (!message) {
+        return;
+      }
+      if (isChatBusy && !(options && options.fromQueue)) {
+        if (enqueuePrompt(message, options || {})) {
+          if (clearComposer) {
+            textarea.value = "";
+            localStorage.removeItem(draftStorageKey);
+          }
+          hideSlashMenu();
+        }
         return;
       }
       const command = message.toLowerCase();
@@ -780,6 +1150,7 @@
         return;
       }
       let shouldRefreshToolbox = false;
+      isChatBusy = true;
 
       const pendingUserNode = appendUserMessage(displayMessage || message);
       const requestStartedAt = performance.now();
@@ -844,6 +1215,15 @@
         pendingAssistantNode.remove();
         if (assistantHtml) {
           messages.insertAdjacentHTML("beforeend", assistantHtml);
+          if (options && options.routedActionPending) {
+            if (assistantHtml.indexOf("routed_action_invalid_token") >= 0) {
+              markPendingConfirmationExpired(String(options.routedActionPending || ""));
+            } else {
+              clearPendingConfirmation(String(options.routedActionPending || ""), uiText.queueConfirmationDone);
+            }
+          } else {
+            syncPendingConfirmationFromDom();
+          }
           appendClientWallTime(requestStartedAt);
         } else {
           appendErrorMessage(uiText.parseError);
@@ -860,6 +1240,7 @@
         }
       } finally {
         currentRequestController = null;
+        isChatBusy = false;
         clearPendingStatusTimers();
         updateChatState();
         setBusy(false);
@@ -870,6 +1251,8 @@
           window.setTimeout(function () {
             window.location.reload();
           }, 450);
+        } else {
+          startNextQueuedPrompt();
         }
       }
     }
@@ -886,16 +1269,24 @@
       }
       event.preventDefault();
       const message = String(button.getAttribute("data-message") || "").trim();
-      if (!message || textarea.disabled) {
+      if (!message) {
         return;
       }
       const routedActionPending = String(button.getAttribute("data-routed-action-pending") || "").trim();
-      button.disabled = true;
+      if (routedActionPending) {
+        setPendingConfirmationFromButton(button);
+      }
+      if (!isChatBusy) {
+        button.disabled = true;
+      }
       await submitChatMessage(message, {
         clearComposer: false,
         routedActionPending,
         displayMessage: String(button.textContent || "").trim() || message,
       });
+      if (!isChatBusy && !routedActionPending) {
+        button.disabled = false;
+      }
     });
 
     if (cancelBtn) {
@@ -903,6 +1294,8 @@
         cancelCurrentChatRequest();
       });
     }
+
+    syncPendingConfirmationFromDom();
   })();
 </script>
 {% endblock %}

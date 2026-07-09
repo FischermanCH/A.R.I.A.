@@ -12,9 +12,17 @@ config/config.yaml
 config/config.yaml.bak.*
 config/secrets.env
 
-data/auth/
-data/logs/
-data/skills/
+# Local runtime/user/demo data. The image must create empty runtime dirs itself.
+data/
+
+# Local screenshot/demo recipe prompts. Public/internal images must not bake
+# demo content into /app/prompts accidentally.
+prompts/recipes/coffee-fueled-incident-brief.md
+prompts/recipes/cosmic-release-radar.md
+prompts/recipes/documentation-dust-sweeper.md
+prompts/recipes/mobile-screenshot-scout.md
+prompts/recipes/retro-keyboard-researcher.md
+prompts/recipes/rubber-duck-standup.md
 
 tests/
 project.docu/
@@ -31,7 +39,3 @@ docs/product/deterministic-meaning-audit.md
 docs/product/llm-first-local-context-routing.md
 docs/product/qdrant-collections.md
 docs/product/qdrant-meta-catalog-redesign.md
-data/chat_history/
-data/qdrant/
-data/runtime/
-data/ssh_keys/

@@ -29,9 +29,13 @@ def test_help_home_renders_clickable_start_links() -> None:
     assert response.status_code == 200
     for doc_id in (
         "quick-start",
+        "chat",
+        "navigation",
         "memory",
+        "notes",
         "connections",
         "skills",
+        "agentic",
         "releases",
         "pricing",
         "security",
@@ -40,6 +44,21 @@ def test_help_home_renders_clickable_start_links() -> None:
     ):
         assert f'href="/help?doc={doc_id}"' in response.text
     assert "<code>Quick Start</code>" not in response.text
+
+
+def test_help_page_renders_current_workflow_docs() -> None:
+    client = TestClient(main_mod.app)
+
+    for doc_id, expected in {
+        "chat": "Prompt Queue",
+        "navigation": "Erweiterte Ansicht",
+        "notes": "Markdown",
+        "agentic": "Operator",
+    }.items():
+        response = client.get(f"/help?doc={doc_id}")
+
+        assert response.status_code == 200
+        assert expected in response.text
 
 
 def test_product_info_page_renders_docs_nav_and_markdown() -> None:

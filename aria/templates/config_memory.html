@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set memory_lang_de = request and request.state and (request.state.lang|string).lower().startswith('de') %}
 <main class="config-layout memory-config-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
   <section class="config-card">
-    <div class="page-title-row"><span>{{ icon('memories', 'page-title-icon') }}</span><h2>{{ tr(request, 'config_memory.setup_title', 'Memory setup (Qdrant)') }}</h2></div>
+    <div class="page-title-row">
+      <span>{{ icon('memories', 'page-title-icon') }}</span>
+      <h2>{{ tr(request, 'config_memory.setup_title', 'Memory setup (Qdrant)') }}</h2>
+    </div>
     <p>{{ tr(request, 'config_memory.setup_subtitle', 'Without selection, the default user collection is used automatically:') }} <code>{{ default_collection }}</code></p>
 
     {% if saved %}
@@ -200,16 +204,16 @@
 
     <hr class="config-divider">
 
-    <h2 id="rollup">{{ tr(request, 'config_memory.rollup_title', 'Context rollup (Qdrant)') }}</h2>
-    <p>{{ tr(request, 'config_memory.rollup_subtitle_before', 'Moves old') }} <strong>{{ tr(request, 'config_memory.rollup_day_collections', 'Qdrant day-context collections') }}</strong> {{ tr(request, 'config_memory.rollup_subtitle_after', 'automatically into') }} <code>aria_context-mem_{{ username|lower }}</code> {{ tr(request, 'config_memory.rollup_subtitle_delete', 'and deletes the old day collections afterwards.') }}</p>
+    <h2 id="rollup">{{ tr(request, 'config_memory.rollup_title', 'Kontext-Rollup (Qdrant)' if memory_lang_de else 'Context rollup (Qdrant)') }}</h2>
+    <p>{{ tr(request, 'config_memory.rollup_desc_plain', 'Verschiebt alten Tageskontext automatisch in' if memory_lang_de else 'Moves old day context automatically into') }} <code>aria_context-mem_{{ username|lower }}</code> {{ tr(request, 'config_memory.rollup_desc_plain_after', 'und löscht danach die alten Tageskontext-Sammlungen.' if memory_lang_de else 'and deletes the old day-context collections afterwards.') }}</p>
     <div class="inline-actions">
       <a class="nav-link" href="/config/prompts?file={{ memory_cfg.compression_summary_prompt|urlencode }}&return_to=%2Fmemories%2Fconfig">
-        {{ tr(request, 'config_memory.edit_summary_prompt', 'Edit summary prompt') }}
+        {{ tr(request, 'config_memory.edit_summary_prompt_label', 'Zusammenfassungs-Prompt bearbeiten' if memory_lang_de else 'Edit summary prompt') }}
       </a>
-      <span class="hint-text">{{ tr(request, 'config_memory.summary_prompt_hint', 'Prompt text is managed in Prompt Studio, not as a file path in end-user UI.') }}</span>
+      <span class="hint-text">{{ tr(request, 'config_memory.summary_prompt_hint_plain', 'Der Prompt-Text wird im Prompt Studio gepflegt, nicht als Dateipfad in der Benutzeroberfläche.' if memory_lang_de else 'Prompt text is managed in Prompt Studio, not as a file path in the user interface.') }}</span>
     </div>
     <form method="post" action="/memories/config/compression-save" class="editor-form">
-      <label for="compress_after_days">{{ tr(request, 'config_memory.compress_after_days', 'Move day context to rollup after how many days?') }}</label>
+      <label for="compress_after_days">{{ tr(request, 'config_memory.compress_after_days_plain', 'Nach wie vielen Tagen Tageskontext ins Rollup verschieben?' if memory_lang_de else 'Move day context to rollup after how many days?') }}</label>
       <input
         id="compress_after_days"
         name="compress_after_days"
@@ -218,7 +222,7 @@
         value="{{ memory_cfg.collections.sessions.compress_after_days or 7 }}"
         required
       >
-      <label for="monthly_after_days">{{ tr(request, 'config_memory.monthly_after_days', 'Create monthly summary after how many days?') }}</label>
+      <label for="monthly_after_days">{{ tr(request, 'config_memory.monthly_after_days_plain', 'Nach wie vielen Tagen als Monatszusammenfassung verdichten?' if memory_lang_de else 'Create monthly summary after how many days?') }}</label>
       <input
         id="monthly_after_days"
         name="monthly_after_days"
@@ -237,58 +241,6 @@
     <div class="alert ok">{{ compress_result }}</div>
     {% endif %}
 
-    <hr class="config-divider">
-
-    <h2 id="auto-memory">{{ tr(request, 'config_memory.auto_title', 'Auto-memory') }}</h2>
-    <p>{{ tr(request, 'config_memory.auto_subtitle', 'Extracts facts without code words and uses session + user memory during recall.') }}</p>
-
-    <div class="meta-row">
-      <span class="meta-badge">{{ tr(request, 'config_memory.config_status', 'Config') }}: {% if auto_memory.enabled %}{{ tr(request, 'config_memory.on', 'on') }}{% else %}{{ tr(request, 'config_memory.off', 'off') }}{% endif %}</span>
-      <span class="meta-badge">{{ tr(request, 'config_memory.browser_status', 'Current browser indicator') }}: {% if auto_memory_cookie %}{{ tr(request, 'config_memory.on', 'on') }}{% else %}{{ tr(request, 'config_memory.off', 'off') }}{% endif %}</span>
-    </div>
-
-    <form method="post" action="/memories/config/auto-save" class="editor-form">
-      <label for="auto_memory_enabled">{{ tr(request, 'config_memory.auto_memory', 'Auto-memory') }}</label>
-      <select id="auto_memory_enabled" name="enabled">
-        <option value="1" {% if auto_memory.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.on', 'on') }}</option>
-        <option value="0" {% if not auto_memory.enabled %}selected{% endif %}>{{ tr(request, 'config_memory.off', 'off') }}</option>
-      </select>
-
-      <label for="session_recall_top_k">{{ tr(request, 'config_memory.session_recall_top_k', 'Session recall top-k') }}</label>
-      <input
-        id="session_recall_top_k"
-        name="session_recall_top_k"
-        type="number"
-        min="1"
-        value="{{ auto_memory.session_recall_top_k }}"
-        required
-      >
-
-      <label for="user_recall_top_k">{{ tr(request, 'config_memory.user_recall_top_k', 'User recall top-k') }}</label>
-      <input
-        id="user_recall_top_k"
-        name="user_recall_top_k"
-        type="number"
-        min="1"
-        value="{{ auto_memory.user_recall_top_k }}"
-        required
-      >
-
-      <label for="max_facts_per_message">{{ tr(request, 'config_memory.max_facts_per_message', 'Max facts per message') }}</label>
-      <input
-        id="max_facts_per_message"
-        name="max_facts_per_message"
-        type="number"
-        min="1"
-        value="{{ auto_memory.max_facts_per_message }}"
-        required
-      >
-
-      <small class="hint-text">
-        {{ tr(request, 'config_memory.max_facts_hint', 'Tip: keep this small (e.g. 2-4) to keep prompt context lean.') }}
-      </small>
-      <button type="submit">{{ tr(request, 'config_memory.save_auto_memory', 'Save auto-memory') }}</button>
-    </form>
   </section>
 </main>
 <script>

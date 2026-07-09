@@ -20,6 +20,7 @@ from aria.core.action_plan import CapabilityDraft
 from aria.core.answer_composer import AnswerComposer
 from aria.core.answer_composer import AnswerComposerInput
 from aria.core.config import Settings
+from aria.core.context_surfaces import ContextRequest
 from aria.core.context_surface_adapters import build_builtin_surface_registry
 from aria.core.inventory_index import InventoryIndexStore
 from aria.core.inventory_index import build_inventory_documents
@@ -466,6 +467,101 @@ def test_explicit_internet_search_normalizes_meta_chat_contract_to_web_research(
     assert normalized.plan.contract_mode == "answer"
     assert normalized.plan.evidence_policy == "source_bound"
     assert pipeline._merge_aria_turn_intents(["chat"], normalized) == ["web_search"]
+
+
+def test_current_product_question_overrides_accidental_local_docs_contract() -> None:
+    class FreshnessLLM:
+        async def chat(self, messages, **kwargs):  # noqa: ANN001
+            if kwargs.get("operation") == "chat_freshness_arbitration":
+                return _Response(
+                    json.dumps(
+                        {
+                            "needs_fresh_context": True,
+                            "query": "Apple Watch Ultra latest model official Apple comparison",
+                            "confidence": "high",
+                            "reason": "current product comparison needs fresh external sources",
+                        }
+                    )
+                )
+            return _Response("{}")
+
+    pipeline = Pipeline.__new__(Pipeline)
+    pipeline.web_search_skill = object()
+    pipeline.llm_client = FreshnessLLM()
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("chat", "local_retrieval"),
+            surfaces=("docs",),
+            actions=(),
+            needs_context=True,
+            context_directions=("docs",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="docs",
+                    mode="search",
+                    query="welches ist die neuste apple watch ultra und was kann sie mehr als die alte version",
+                ),
+            ),
+            priority=("local|docs|document|arlo-ultra",),
+            answer_mode="direct_answer",
+            contract_mode="answer",
+            evidence_policy="source_bound",
+            risk="low",
+            confidence=0.88,
+            reason="The prompt matched a local Ultra document.",
+        ),
+    )
+
+    normalized = asyncio.run(
+        pipeline._normalize_fresh_web_context_contract(
+            arbitration,
+            message="welches ist die neuste apple watch ultra und was kann sie mehr als die alte version",
+            user_id="u1",
+            request_id="r1",
+            language="de",
+            source="test",
+        )
+    )
+
+    assert normalized is not None
+    assert normalized.plan.surfaces == ("web",)
+    assert normalized.plan.context_directions == ("web",)
+    assert normalized.plan.context_requests
+    assert normalized.plan.context_requests[0].surface_id == "web"
+    assert normalized.plan.context_requests[0].query == "Apple Watch Ultra latest model official Apple comparison"
+    assert normalized.plan.context_requests[0].budget["freshness_contract"] is True
+    assert normalized.plan.context_requests[0].budget["previous_surfaces"] == ["docs"]
+    assert "web_research" in normalized.plan.intents
+    assert "local_retrieval" not in normalized.plan.intents
+    assert pipeline._merge_aria_turn_intents(["chat"], normalized) == ["web_search"]
+
+
+def test_meta_catalog_web_context_request_runs_web_search_even_without_web_research_intent() -> None:
+    pipeline = Pipeline.__new__(Pipeline)
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("chat",),
+            surfaces=("web",),
+            actions=(),
+            needs_context=True,
+            context_directions=("web",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(surface_id="web", mode="search", query="newest Google Pixel phone"),
+            ),
+            answer_mode="direct_answer",
+            contract_mode="answer",
+            evidence_policy="source_bound",
+            risk="none",
+            confidence=0.91,
+            reason="User asks for a current product answer.",
+        ),
+    )
+
+    assert pipeline._merge_aria_turn_intents(["chat"], arbitration) == ["web_search"]
 
 
 def test_aria_turn_arbiter_sends_compact_stage_one_payload() -> None:
@@ -1234,6 +1330,218 @@ def test_pipeline_aria_turn_arbiter_can_drive_local_retrieval_query() -> None:
     assert "chat_freshness" not in llm.operations
 
 
+def test_pipeline_aria_turn_web_context_request_executes_web_search(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    async def fail_meta_qdrant(_settings, *, timeout: int = 10):  # noqa: ANN001, ARG001
+        raise RuntimeError("qdrant unavailable")
+
+    class WebSkill:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def execute(self, query: str, params: dict[str, object]) -> SkillResult:
+            self.calls.append({"query": query, "params": dict(params or {})})
+            return SkillResult(
+                skill_name="web_search",
+                success=True,
+                content=(
+                    "[Web Search via web-search]\n"
+                    "Suche: newest Google Pixel phone\n"
+                    "- [1] Google Pixel 10 phones\n"
+                    "  URL: https://store.google.com/category/phones\n"
+                    "  Snippet: Pixel 10, Pixel 10 Pro, Pixel 10 Pro XL, and Pixel 10 Pro Fold."
+                ),
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Google Pixel 10 phones",
+                            "url": "https://store.google.com/category/phones",
+                            "engine": "web",
+                        }
+                    ],
+                    "detail_lines": [
+                        "Quelle: Google Pixel 10 phones · https://store.google.com/category/phones · web"
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(meta_catalog_routing_mod, "create_meta_catalog_qdrant_client", fail_meta_qdrant)
+    llm = _PipelineArbiterLLM(
+        {
+            "intents": ["chat"],
+            "needs_context": True,
+            "context_directions": ["web"],
+            "context_depth": "shallow",
+            "surfaces": ["web"],
+            "context_requests": [
+                {"surface_id": "web", "mode": "search", "query": "newest Google Pixel phone"},
+            ],
+            "answer_mode": "direct_answer",
+            "risk": "none",
+            "confidence": "high",
+            "reason": "The user asks for current product information.",
+        }
+    )
+    web_skill = WebSkill()
+    pipeline = Pipeline(settings=settings, prompt_loader=_PipelinePromptLoader(), llm_client=llm)
+    pipeline.web_search_skill = web_skill  # type: ignore[assignment]
+
+    result = asyncio.run(
+        pipeline.process(
+            "welches ist das aktuell neuste google phone?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.text == "ok"
+    assert result.intents == ["web_search"]
+    assert web_skill.calls
+    assert web_skill.calls[-1]["query"] == "newest Google Pixel phone"
+    assert "Google Pixel 10 phones" in str(llm.last_messages[1]["content"])
+    assert any("context_ledger phase=loaded skills=web_search sources=1" in line for line in result.detail_lines)
+    assert any(
+        "Routing Debug: context_packet" in line and "requests=web:search" in line and "loaded=web:1" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        line == "Quelle: Google Pixel 10 phones · https://store.google.com/category/phones · web"
+        for line in result.detail_lines
+    )
+
+
+def test_pipeline_docs_inventory_uses_document_sources_as_evidence() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    query = "was für medizinische beipackzettel sind im dokumente speicher abgelegt?"
+    llm = _PipelineArbiterLLM(
+        {
+            "needs_context": True,
+            "context_directions": ["docs"],
+            "context_depth": "shallow",
+            "intents": ["chat", "local_retrieval"],
+            "surfaces": ["docs"],
+            "context_requests": [{"surface_id": "docs", "mode": "search", "query": query}],
+            "answer_mode": "direct_answer",
+            "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+            "risk": "low",
+            "confidence": "high",
+            "reason": "document inventory question",
+        }
+    )
+
+    class DocumentInventoryMemory:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def _build_recall_targets(self, user_id: str, base_collection: str | None = None):  # noqa: ANN001
+            _ = user_id, base_collection
+            return []
+
+        async def _build_document_targets(self, user_id: str):  # noqa: ANN001
+            _ = user_id
+            return []
+
+        async def execute(self, query: str, params: dict):  # noqa: ANN001
+            self.calls.append({"query": query, "params": dict(params or {})})
+            sources = [
+                {"type": "document", "document_name": "Arlo Ultra_User_Manual_en.pdf", "collection": "aria_docs_fischerman"},
+                {
+                    "type": "document",
+                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
+                    "collection": "aria_docs_fischerman",
+                },
+                {
+                    "type": "document",
+                    "document_name": "at_olumiant_gebrauchsinformation.pdf",
+                    "collection": "aria_docs_whity_medikamente",
+                },
+                {
+                    "type": "document",
+                    "document_name": "Certolizumab Pegol anx_63451_de.pdf",
+                    "collection": "aria_docs_whity_medikamente",
+                },
+                {
+                    "type": "document",
+                    "document_name": "cimzia-r-200-mg-injektionsloesung-in-einer-fertigspritze.pdf",
+                    "collection": "aria_docs_whity_medikamente",
+                },
+                {
+                    "type": "document",
+                    "document_name": "Humira 40 mg Injektionsloesung in einer Fertigspritze.pdf",
+                    "collection": "aria_docs_whity_medikamente",
+                },
+                {"type": "document", "document_name": "Simpoini50mg.pdf", "collection": "aria_docs_whity_medikamente"},
+                {
+                    "type": "document",
+                    "document_name": "Zoledronic acid Clonmel 4mg 5ml Concentrate for.pdf",
+                    "collection": "aria_docs_whity_medikamente",
+                },
+                {"type": "recipe", "title": "Discord Send Message", "collection": "aria_recipe_experience_fischerman"},
+            ]
+            return SkillResult(
+                skill_name="memory_recall",
+                success=True,
+                content="\n".join(
+                    f"- [Dokument: {source.get('document_name')}] Collection: {source.get('collection')}"
+                    for source in sources
+                    if source.get("type") == "document"
+                ),
+                metadata={
+                    "document_inventory": True,
+                    "sources": sources,
+                    "detail_lines": [
+                        "Routing Debug: document_inventory selected=9 collections=aria_docs_fischerman,aria_docs_whity_medikamente,aria_recipe_experience_fischerman requested_ids=0",
+                    ],
+                },
+            )
+
+    memory = DocumentInventoryMemory()
+    pipeline = Pipeline(settings=settings, prompt_loader=_PipelinePromptLoader(), llm_client=llm)
+    pipeline.memory_skill = memory  # type: ignore[assignment]
+
+    result = asyncio.run(pipeline.process(query, user_id="u1", source="test", language="de"))
+
+    assert memory.calls
+    assert memory.calls[-1]["params"]["document_inventory"] is True
+    assert result.text.startswith("Ich habe 6 passende Dokumente gefunden:")
+    assert "at_olumiant_gebrauchsinformation.pdf" in result.text
+    assert "Humira 40 mg Injektionsloesung in einer Fertigspritze.pdf" in result.text
+    assert "Zoledronic acid Clonmel 4mg 5ml Concentrate for.pdf" in result.text
+    assert "Arlo Ultra_User_Manual_en.pdf" not in result.text
+    assert "Mill Gentle Air WiFi" not in result.text
+    assert "Discord Send Message" not in result.text
+    assert "aria_answer_composer" not in llm.operations
+    assert any("Routing Debug: evidence_filter surface=docs mode=search matched=true" in line for line in result.detail_lines)
+    assert any(
+        "Routing Debug: context_packet" in line and "requests=docs:search" in line and "loaded=docs:9" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "Routing Debug: answer_contract kind=docs_search status=found mode=answer evidence_policy=source_bound" in line
+        for line in result.detail_lines
+    )
+    assert any("Routing Debug: fast_docs_inventory_filter kept=6 rejected=2" in line for line in result.detail_lines)
+    assert not any("Routing Debug: local_context_empty" in line for line in result.detail_lines)
+
+
 def test_pipeline_meta_catalog_unavailable_backup_chat_stays_local_retrieval(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
@@ -1464,6 +1772,7 @@ def test_pipeline_memory_search_without_topic_evidence_stays_source_bound_empty(
     assert "[FAKT] UI-Regel" not in result.text
     assert "final_chat_response" not in llm.operations
     assert any("Routing Debug: evidence_filter surface=memory mode=search matched=false terms=donald,trump" in line for line in result.detail_lines)
+    assert any("Routing Debug: answer_contract kind=empty_source_bound status=empty" in line for line in result.detail_lines)
     assert any("Routing Debug: local_context_empty directions=memory" in line and "reason=no_evidence_sources" in line for line in result.detail_lines)
 
 

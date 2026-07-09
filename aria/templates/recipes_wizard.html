@@ -132,7 +132,7 @@
             </label>
 
             <label>
-              {{ tr(request, 'recipes.wizard_connections_label', 'Connections (comma-separated)') }}
+              {{ tr(request, 'recipes.wizard_connections_label', 'Verbindungen (kommagetrennt)') }}
               <span class="field-help" title="{{ tr(request, 'recipes.wizard_connections_help', 'Optional override field for the recipe JSON. Runtime connections from steps are kept as well.') }}">i</span>
               <input type="text" name="skill_connections" value="{{ connections_text or '' }}" placeholder="z.B. ssh, llm, discord">
             </label>

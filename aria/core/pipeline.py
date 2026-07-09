@@ -27,6 +27,7 @@ from aria.core.agentic_execution import AgenticExecutionRequest
 from aria.core.agentic_execution_learning import AgenticExecutionLearningService
 from aria.core.agentic_execution_learning import auto_learning_suppressed
 from aria.core.agentic_execution_registry import AgenticExecutionRegistry
+from aria.core.agentic_operator_trace import append_operator_trace_detail_lines
 from aria.core.agentic_context_runtime import AgenticContextRuntimeMixin
 from aria.core.aria_turn_arbitration import AriaTurnArbiter
 from aria.core.aria_turn_arbitration import AriaTurnArbitration
@@ -93,6 +94,7 @@ from aria.core.execution_dry_run_payloads import read_row_value
 from aria.core.artifact_review_patterns import recall_artifact_review_patterns
 from aria.core.host_artifact_learning import host_artifact_discovery_outcome_events
 from aria.core.http_api_agentic_resolution import apply_agentic_http_api_resolution as core_apply_agentic_http_api_resolution
+from aria.core.http_api_agentic_resolution import is_http_api_status_like_request
 from aria.core.http_api_policy import HTTPAPIPolicyDecision
 from aria.core.file_agentic_resolution import apply_agentic_file_operation_resolution as core_apply_agentic_file_operation_resolution
 from aria.core.forced_resolution_builder import ForcedResolutionBuilder
@@ -2856,6 +2858,37 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         if behavior_profile_override:
             payload["behavior_profile"] = behavior_profile_override
             changed = True
+        draft_notes = [
+            str(item or "").strip()
+            for item in list(getattr(capability_draft, "notes", []) or [])
+            if str(item or "").strip()
+        ]
+        if draft_notes:
+            existing_notes = [
+                str(item or "").strip()
+                for item in list(payload.get("notes", []) or [])
+                if str(item or "").strip()
+            ]
+            merged_notes = list(existing_notes)
+            for note in draft_notes:
+                if note not in merged_notes:
+                    merged_notes.append(note)
+            if merged_notes != existing_notes:
+                payload["notes"] = merged_notes
+                changed = True
+            target_intent = next(
+                (
+                    note.split(":", 1)[1].strip().lower()
+                    for note in merged_notes
+                    if note.lower().startswith("target_intent:") and note.split(":", 1)[1].strip()
+                ),
+                "",
+            )
+            if target_intent and str(payload.get("target_intent", "") or "").strip().lower() != target_intent:
+                payload["target_intent"] = target_intent
+                if not str(payload.get("task_intent", "") or "").strip():
+                    payload["task_intent"] = target_intent
+                changed = True
         if path_override:
             payload["path"] = path_override
             missing_fields = [
@@ -4502,9 +4535,36 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
                 pass
             return intents, text, detail_lines, []
 
-        execution_request = AgenticExecutionRequest(
+        prepared_payload = await self._prepare_generic_execution_payload(
             resolved=resolved,
             payload=payload,
+            user_id=user_id,
+            language=language,
+        )
+        policy_action = str(prepared_payload.get("_policy_action", "") or "").strip()
+        if policy_action == "ask_user":
+            plan = self._payload_to_action_plan(prepared_payload)
+            intents = [f"capability:{plan.capability}"] if str(plan.capability or "").strip() else ["chat"]
+            detail_lines = [
+                str(line or "").strip()
+                for line in list(prepared_payload.get("_pre_detail_lines", []) or [])
+                if str(line or "").strip()
+            ]
+            detail_lines.extend(self._build_capability_detail_lines(plan, language=language))
+            return (
+                intents,
+                _pipeline_text(
+                    language,
+                    "http_api_needs_confirmation",
+                    "The HTTP API request still needs confirmation before execution.",
+                ),
+                detail_lines,
+                [],
+            )
+
+        execution_request = AgenticExecutionRequest(
+            resolved=resolved,
+            payload=prepared_payload,
             action=action,
             user_id=user_id,
             language=language,
@@ -4521,6 +4581,36 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         plan = self._payload_to_action_plan(payload)
         intents = [f"capability:{plan.capability}"] if str(plan.capability or "").strip() else ["chat"]
         return intents, self._format_capability_missing_message(plan, language=language), [], []
+
+    async def _prepare_generic_execution_payload(
+        self,
+        *,
+        resolved: dict[str, Any],
+        payload: dict[str, Any],
+        user_id: str,
+        language: str,
+    ) -> dict[str, Any]:
+        plan = self._payload_to_action_plan(payload)
+        if str(plan.capability or "").strip() != "api_request":
+            return payload
+        plan, api_debug_lines, api_policy = await self._apply_agentic_http_api_resolution(
+            message=str(resolved.get("query", "") or ""),
+            plan=plan,
+            user_id=user_id,
+            language=language,
+        )
+        prepared = dict(payload)
+        prepared["path"] = str(plan.path or "").strip()
+        prepared["content"] = str(plan.content or "").strip()
+        if plan.notes:
+            prepared["notes"] = list(plan.notes)
+        if api_debug_lines:
+            prepared["_pre_detail_lines"] = [*list(prepared.get("_pre_detail_lines", []) or []), *api_debug_lines]
+        if api_policy is not None:
+            prepared["_policy_action"] = api_policy.action
+            prepared["_policy_reason"] = api_policy.reason
+            prepared["_suppress_auto_learning"] = True
+        return prepared
 
     async def _try_unified_routed_action(
         self,
@@ -6072,6 +6162,8 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
         capability = normalize_capability(str(getattr(capability_draft, "capability", "") or "").strip())
         kind = normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or ""))
         content = str(getattr(capability_draft, "content", "") or "").strip()
+        if capability == "api_request" and kind == "http_api" and is_http_api_status_like_request(message):
+            return True
         if capability != "ssh_command" or kind != "ssh":
             return False
         if content:
@@ -6356,6 +6448,7 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             user_id,
             language=language,
         )
+        ssh_followup_rewritten = capability_message != message and capability_message.strip().lower().startswith("ssh ")
         capability_draft = seed_capability_draft
         seeded_by_turn_contract = capability_draft is not None and str(semantic_source or "").strip() in {
             "aria_meta_catalog_routing",
@@ -6400,7 +6493,7 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
                 return None, [], None
             capability_draft = draft_result.capability_draft
             agentic_first_draft_attempted = draft_result.agentic_first_draft_attempted
-        if self._should_suppress_recipe_candidates_for_capability_draft(capability_draft, capability_message):
+        if ssh_followup_rewritten or self._should_suppress_recipe_candidates_for_capability_draft(capability_draft, capability_message):
             custom_intents = []
         elif not seeded_by_turn_contract and self.llm_client is not None and runtime_recipes:
             custom_intents = await self._resolve_stored_recipe_intent_with_llm(message, runtime_recipes)
@@ -6959,10 +7052,12 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             return None
         if SshTargetScopePolicy.has_single_target_disambiguator(message):
             return None
+        if self._message_has_exact_single_ssh_target(message):
+            return None
         capability_draft = await self._classify_capability_draft_with_llm(message, language=language)
         notes = {str(note or "").strip().lower() for note in list(getattr(capability_draft, "notes", []) or [])}
         target_intent = next((note.split(":", 1)[1] for note in notes if note.startswith("target_intent:")), "")
-        if target_intent not in {"health_check", "package_update_check"}:
+        if target_intent not in {"health_check", "capacity_check", "package_update_check"}:
             return None
         arbitration = self._runtime_task_arbitration_from_capability_draft(
             message=message,
@@ -6994,6 +7089,17 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
                 *scoped_debug_lines,
             ]
         return arbitration
+
+    def _message_has_exact_single_ssh_target(self, message: str) -> bool:
+        ssh_rows = getattr(getattr(self.settings, "connections", object()), "ssh", {})
+        if not isinstance(ssh_rows, dict) or len(ssh_rows) < 2:
+            return False
+        exact_refs = [
+            str(ref or "").strip()
+            for ref in ssh_rows.keys()
+            if str(ref or "").strip() and connection_label_match_score(message, str(ref or "").strip()) >= 1000
+        ]
+        return len(exact_refs) == 1
 
     def _available_connection_kinds_for_aria_turn(self) -> tuple[str, ...]:
         raw = getattr(self.settings, "connections", None)
@@ -7065,6 +7171,7 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
     ) -> PipelineResult:
         timing.add("pipeline_wall_time", int((time.perf_counter() - start) * 1000))
         result.detail_lines = self._insert_stage_timing_detail_lines(result.detail_lines, timing)
+        result.detail_lines = append_operator_trace_detail_lines(result.detail_lines)
         return result
 
     def _schedule_process_active_learning_hint_outcome(
@@ -7089,12 +7196,26 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
 
     def _process_turn_contracts(self, arbitration: AriaTurnArbitration | None) -> ProcessTurnContracts:
         meta_catalog_contract = self._aria_turn_uses_meta_catalog_contract(arbitration)
+        selected_connection_kinds = {
+            kind
+            for kind, _ref in self._aria_turn_selected_connections_from_catalog(arbitration)
+            if kind in {"ssh", "rss"}
+        }
+        seedable_connection_action_contract = bool(
+            arbitration is not None
+            and selected_connection_kinds
+            and (
+                arbitration.plan.contract_mode == "action"
+                or any(request.mode == "action" for request in arbitration.plan.context_requests)
+            )
+        )
         action_contract_selected = bool(
             arbitration is not None
             and (
                 arbitration.plan.actions
                 or arbitration.plan.needs_confirmation
                 or arbitration.plan.answer_mode == "plan_action"
+                or seedable_connection_action_contract
             )
         )
         return ProcessTurnContracts(
@@ -7157,6 +7278,14 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
             message=message,
             user_id=user_id,
             request_id=request_id,
+        )
+        aria_turn_arbitration = await self._normalize_fresh_web_context_contract(
+            aria_turn_arbitration,
+            message=message,
+            user_id=user_id,
+            request_id=request_id,
+            language=language,
+            source=source,
         )
         turn_contracts = self._process_turn_contracts(aria_turn_arbitration)
         if turn_contracts.meta_catalog_contract:
@@ -7409,6 +7538,10 @@ class Pipeline(AgenticContextRuntimeMixin, PipelineLearningHelpersMixin, Pipelin
                 arbitration=aria_turn_arbitration,
                 query_overrides=aria_query_overrides,
                 context_overrides=aria_context_overrides,
+                skill_results=skill_results,
+            ),
+            *self._aria_turn_context_packet_lines(
+                arbitration=aria_turn_arbitration,
                 skill_results=skill_results,
             ),
         ]

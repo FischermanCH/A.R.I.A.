@@ -1,6 +1,6 @@
 # ARIA Alpha Hilfe
 
-Stand: 2026-05-15 / Public Alpha `0.1.0-alpha298`
+Stand: 2026-07-09 / Public Alpha `0.1.0-alpha437`
 
 Diese Seite ist die praktische Kurz-Hilfe fuer ARIA Alpha. Sie beschreibt den aktuellen Stand nach dem grossen Umbau von Legacy-Skills zu Rezepten, LLM-gestuetzter Action-Planung und kontrollierter Ausfuehrung.
 
@@ -13,9 +13,12 @@ Gut geeignet fuer:
 - einen eigenen AI-Workspace im Browser
 - Memory und Dokumenten-RAG mit Qdrant
 - Notizen als Markdown-Arbeitsbereich
+- Chat Prompt Queue mit editierbarer, umsortierbarer Warteschlange
+- sichtbare Pending Confirmations fuer bestaetigungspflichtige Aktionen
+- generierte Bereichsnavigation fuer Header, Account-Menue, Settings, Admin, Memory, Recipes und Connections
 - sichere Connections zu SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT, SearXNG und Google Calendar
 - recipe-first Automationen mit Guardrails
-- LLM-gestuetzte Action-Drafts: ARIA versteht natuerliche Prompts, schlaegt konkrete Aktionen vor und laesst Policy/Guardrails entscheiden
+- Agentic Operator Flow: ARIA versteht natuerliche Prompts, plant begrenzte Schritte, laesst Policy/Guardrails entscheiden, fuehrt aus und zeigt Details
 
 Noch nicht Ziel der Alpha:
 
@@ -33,7 +36,7 @@ Danach zuerst pruefen:
 2. `/config/embeddings` - Embedding-Modell fuer Memory und Routing
 3. `/stats` - Preflight, Qdrant, Modellstatus, Token/Kosten und Pricing Coverage
 4. `/connections/types` - Connections zu deinen Systemen
-5. `/recipes` - Rezepte importieren, reviewen oder mit dem Wizard bauen
+5. `/recipes` und `/recipes/mine` - Rezepte importieren, reviewen oder mit dem Wizard bauen
 6. `/config/routing` und `/config/workbench/routing` - Routing-Dry-runs und Debug-Prompts, wenn ARIA ein Ziel falsch versteht
 
 ## Admin-Modus und User-Modus
@@ -43,7 +46,7 @@ ARIA hat zwei Arbeitsmodi:
 - **User-Modus**: reduzierte Arbeitsansicht fuer den Alltag
 - **Admin-Modus**: zusaetzliche System-, Routing-, Security-, Workbench- und Config-Seiten
 
-Wenn Konfigurationsseiten fehlen, pruefe unter `/config/users`, ob **Admin aktiv** eingeschaltet ist.
+Wenn technische Konfigurationsseiten fehlen, pruefe im Account-Menue bzw. unter `/config/admin-mode`, ob **Erweiterte Ansicht** eingeschaltet ist.
 
 ## Chat, Aktionen und Details
 
@@ -71,9 +74,11 @@ Unter **Details** siehst du pro Antwort:
 - Laufzeit
 - Quellen bei RAG/Web/RSS-Antworten
 
+Die Chat Prompt Queue erlaubt weitere Eingaben, waehrend ARIA noch arbeitet. Wartende Prompts bleiben sichtbar, koennen umsortiert, bearbeitet oder entfernt werden und laufen danach sequentiell. Es gibt keine parallele Runtime-Ausfuehrung und keine Queue-Persistenz ueber Reloads.
+
 ## Bestaetigungen
 
-Ausgehende oder potentiell wirkungsvolle Aktionen koennen auf `ask_user` gehen. Dann zeigt ARIA im Chat einen Button wie **Aktion ausfuehren**.
+Ausgehende oder potentiell wirkungsvolle Aktionen koennen auf `ask_user` gehen. Dann zeigt ARIA im Chat und in der Queue eine Pending Confirmation.
 
 Beispiele:
 
@@ -81,7 +86,7 @@ Beispiele:
 - Webhook ausloesen
 - spaeter weitere nicht-read-only Aktionen
 
-Read-only Aktionen wie `df -h`, Healthchecks oder RSS-Lesen koennen direkt laufen, sofern Guardrails sie erlauben.
+Pending Confirmations koennen ausgefuehrt, neu geplant oder verworfen werden. Abgelaufene oder ungueltige Bestaetigungen werden nicht automatisch ausgefuehrt. Read-only Aktionen wie `df -h`, Healthchecks oder RSS-Lesen koennen direkt laufen, sofern Guardrails sie erlauben.
 
 ## Memory
 
@@ -95,11 +100,11 @@ Wichtig:
 - **Experience Memory** speichert erfolgreiche sichere Aktionsmuster als Planner-Kontext, nicht als blinde Executor-Automatik
 - fluechtige Momentaufnahmen aus SSH/RSS/SMB werden nicht pauschal in Memory geschrieben
 
-Auf `/memories` kannst du Erinnerungen ansehen, suchen, bearbeiten, loeschen und exportieren. `/memories/map` zeigt Collections, Dokumentgruppen, Rollups, Memory-Struktur und den Qdrant-Brain-Graph.
+Auf `/memories` zeigt der grafische Gedaechtnis-Browser Collections, Dokumente, Entries, Chunks und semantische Naehe. `/memories/import` importiert Dokumente und Memory-Daten; `/memories/maintenance` ist fuer technische Pflege und Review-Artefakte.
 
 ## Notizen
 
-Unter `/notes` gibt es einen eigenstaendigen Markdown-Arbeitsbereich mit Ordnernavigation, Kartenansicht und Editor. Notizen sind bewusst von Memory getrennt, koennen aber fuer Suche indiziert werden. Aktive Chats lassen sich in der Chat-Toolbox oder mit `/chat note` als normale Markdown-Notiz archivieren; beim Loeschen einer Note ueber ARIA wird auch der dazugehoerige Notes-Index in Qdrant bereinigt.
+Unter `/notes` gibt es einen eigenstaendigen Markdown-Arbeitsbereich mit Ordnernavigation, Kartenansicht, Editor und dichter Listenansicht. Notizen koennen aus Karten oder Editor in andere Ordner verschoben werden; die Listenansicht erlaubt Mehrfachauswahl und Bulk-Move. Notizen sind bewusst von Memory getrennt, koennen aber fuer Suche indiziert werden.
 
 ## Connections
 
@@ -216,8 +221,12 @@ ARIA ist fuer kontrollierte Umgebungen gebaut:
 ## Weiter lesen
 
 - `/help?doc=quick-start`
+- `/help?doc=chat`
+- `/help?doc=navigation`
 - `/help?doc=memory`
+- `/help?doc=notes`
 - `/help?doc=connections`
+- `/help?doc=agentic`
 - `/help?doc=skills`
 - `/help?doc=pricing`
 - `/help?doc=security`

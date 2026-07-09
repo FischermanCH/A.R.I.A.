@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from aria.core.release_meta import DEFAULT_RELEASE_LABEL
@@ -9,11 +10,34 @@ from aria.core.release_meta import DEFAULT_RELEASE_LABEL
 
 ROOT = Path(__file__).resolve().parents[1]
 
+DEMO_RECIPE_PROMPTS = {
+    "prompts/recipes/coffee-fueled-incident-brief.md",
+    "prompts/recipes/cosmic-release-radar.md",
+    "prompts/recipes/documentation-dust-sweeper.md",
+    "prompts/recipes/mobile-screenshot-scout.md",
+    "prompts/recipes/retro-keyboard-researcher.md",
+    "prompts/recipes/rubber-duck-standup.md",
+}
+
+LOCAL_PRIVATE_PATHS = {
+    "config/config.yaml",
+    "config/secrets.env",
+    "data/",
+    *DEMO_RECIPE_PROMPTS,
+}
+
 
 def test_gitignore_blocks_generated_packaging_outputs() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
     for pattern in {"*.egg-info/", "build/", "dist/", "*.whl"}:
+        assert pattern in gitignore
+
+
+def test_gitignore_blocks_local_user_and_demo_data() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    for pattern in LOCAL_PRIVATE_PATHS:
         assert pattern in gitignore
 
 
@@ -60,6 +84,34 @@ def test_dockerignore_blocks_internal_working_docs() -> None:
 
     for pattern in internal_docs:
         assert pattern in dockerignore
+
+
+def test_dockerignore_blocks_local_user_and_demo_data() -> None:
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+
+    for pattern in LOCAL_PRIVATE_PATHS:
+        assert pattern in dockerignore
+
+
+def test_public_tree_does_not_track_local_user_or_demo_data() -> None:
+    result = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    forbidden = sorted(
+        path
+        for path in tracked
+        if path in {"config/config.yaml", "config/secrets.env"}
+        or path.startswith("data/")
+        or path in DEMO_RECIPE_PROMPTS
+    )
+
+    assert forbidden == []
 
 
 def test_release_label_matches_current_alpha_backlog_version() -> None:
@@ -125,10 +177,37 @@ def test_chat_layout_keeps_window_fixed_and_history_scrollable() -> None:
     assert "scrollMessagesToLatest" in template
 
 
+def test_chat_prompt_queue_controls_are_present() -> None:
+    css = (ROOT / "aria" / "static" / "style.css").read_text(encoding="utf-8")
+    template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert 'id="chat-queue"' in template
+    assert 'id="chat-queue-list"' in template
+    assert "enqueuePrompt" in template
+    assert "moveQueuedPrompt" in template
+    assert "editQueuedPrompt" in template
+    assert "deleteQueuedPrompt" in template
+    assert "startNextQueuedPrompt" in template
+    assert ".chat-queue-item" in css
+    assert ".chat-queue-action" in css
+
+
+def test_memory_browser_keeps_ios_touch_navigation_usable() -> None:
+    css = (ROOT / "aria" / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert ".memory-drilldown-stage" in css
+    assert "touch-action: pan-x pan-y pinch-zoom;" in css
+    assert "-webkit-overflow-scrolling: touch;" in css
+    assert "@media (hover: none), (pointer: coarse)" in css
+    assert ".memory-drilldown-stage-controls button" in css
+    assert "min-height: 2.75rem;" in css
+    assert "font-size: 0.78rem;" in css
+
+
 def test_auto_memory_indicator_links_to_settings() -> None:
     template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
 
-    assert 'href="/memories/config#auto-memory"' in template
+    assert 'href="/memories/auto-memory"' in template
     assert "auto-memory-indicator" in template
 
 
@@ -138,6 +217,20 @@ def test_mobile_viewport_uses_ios_safe_area() -> None:
 
     assert "viewport-fit=cover" in template
     assert "viewport-fit=cover" in reconnect_shell
+
+
+def test_admin_config_mobile_guards_cover_small_viewports() -> None:
+    css = (ROOT / "aria" / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert ".admin-nav-group-summary" in css
+    assert "min-height: 44px;" in css
+    assert ".config-admin-return-link" in css
+    assert "flex: 1 1 100%;" in css
+    assert ".context-help-link" in css
+    assert "white-space: normal;" in css
+    assert "@media (max-width: 860px)" in css
+    assert "@media (max-width: 700px)" in css
+    assert "@media (max-width: 640px)" in css
 
 
 def test_stats_navigation_uses_immediate_busy_indicator() -> None:

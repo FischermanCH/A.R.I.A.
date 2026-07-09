@@ -9,25 +9,44 @@ from fastapi.testclient import TestClient
 from aria.core import recipe_manifests
 import aria.core.learned_recipe_store as learned_store
 import aria.web.recipes_routes as recipes_routes_module
+from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 from aria.web.recipes_routes import register_recipe_routes
 
 
-def _build_recipes_app(*, language: str = "de", get_pipeline=None) -> TestClient:
+def _first_memory_subnav(html: str) -> str:
+    start = html.find('<nav class="memory-subnav"')
+    if start < 0:
+        return ""
+    end = html.find("</nav>", start)
+    return html[start : end + len("</nav>")] if end >= 0 else html[start:]
+
+
+def _build_recipes_app(
+    *, language: str = "de", get_pipeline=None, advanced_mode: bool = True, update_available: bool = False
+) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
     templates.env.globals.setdefault("agent_text", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
 
     raw_config: dict = {}
 
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
-        request.state.can_access_advanced_config = True
+        request.state.can_access_advanced_config = advanced_mode
         request.state.lang = language
         request.state.csrf_token = "test-csrf"
         request.state.release_meta = {"label": "test"}
         request.state.auth_role = "admin"
+        request.state.authenticated = True
+        request.state.auth_user = "neo"
+        request.state.update_status = SimpleNamespace(update_available=update_available)
         return await call_next(request)
 
     settings = SimpleNamespace(
@@ -74,28 +93,97 @@ def test_recipes_page_sets_logical_back_url() -> None:
 
     assert response.status_code == 200
     assert "const logical='/config';" in response.text
-    assert 'aria-label="Rezepte Navigation"' in response.text
-    assert 'memory-health-grid' in response.text
-    assert 'memory-health-card memory-health-card-link" href="/recipes/mine"' in response.text
-    assert 'memory-health-card memory-health-card-link" href="/recipes/learned"' in response.text
-    assert 'memory-health-card memory-health-card-link" href="/recipes/system"' in response.text
-    assert 'memory-health-card memory-health-card-link" href="/recipes/templates"' in response.text
-    assert "<h3>Eigene</h3>" in response.text
-    assert "<h3>Gelernt</h3>" in response.text
-    assert "<h3>Importierbar</h3>" in response.text
-    assert "Meine Rezepte" in response.text
-    assert "Gelernte Rezepte" in response.text
-    assert "Rezept starten" in response.text
-    assert "Core / System" in response.text
-    assert "Vorlagen / Playbooks" in response.text
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
+    assert "<h2>Rezepte</h2>" in response.text or "<h2>Recipes</h2>" in response.text
+    assert "<h2>Meine Rezepte</h2>" not in response.text
+    assert "<h2>My recipes</h2>" not in response.text
+    assert 'form id="skills-toggles-form"' not in response.text
+    assert 'id="skills-custom"' not in response.text
+    assert "Einstellungen" in response.text or "Settings" in response.text
+    assert "Meine Rezepte" in response.text or "My recipes" in response.text
+    assert "Gelernte Rezepte" in response.text or "Learned recipes" in response.text
+    assert "Neu / Vorlagen" in response.text or "New / templates" in response.text
+    assert "Zurück zu Einstellungen" not in response.text
+    assert "Back to settings" not in response.text
+    assert 'href="/config"' in response.text
+    assert "Core / System" not in response.text
+    assert "Vorlagen / Playbooks" not in response.text
     assert "Nächste Schritte" not in response.text
     assert "Erstes Rezept erstellen" not in response.text
     assert "Vorlage uebernehmen" not in response.text
     assert 'href="/recipes/start"' in response.text
     assert 'href="/recipes/mine"' in response.text
+    assert 'href="/recipes"' in response.text
     assert 'href="/recipes/learned"' in response.text
-    assert 'href="/recipes/system"' in response.text
-    assert 'href="/recipes/templates"' in response.text
+    assert 'href="/config"' in response.text
+    assert 'memory-subnav-item' in response.text
+    assert 'href="/recipes/system"' not in response.text
+    assert 'href="/recipes/templates"' not in response.text
+
+
+def test_global_menu_groups_admin_links_by_admin_mode() -> None:
+    admin_client = _build_recipes_app(advanced_mode=True, update_available=True)
+    user_client = _build_recipes_app(advanced_mode=False, update_available=True)
+
+    admin_response = admin_client.get("/recipes")
+    user_response = user_client.get("/recipes")
+
+    assert admin_response.status_code == 200
+    assert user_response.status_code == 200
+    assert 'href="/memories"' in admin_response.text
+    assert 'href="/notes"' in admin_response.text
+    assert 'href="/recipes" class="user-menu-link user-menu-link-icon' not in admin_response.text
+    assert 'href="/config"' in admin_response.text
+    assert 'user-menu-admin-summary is-active' in admin_response.text
+    assert 'href="/stats"' in admin_response.text
+    assert 'href="/help"' in admin_response.text
+    assert 'href="/config/admin-mode"' in admin_response.text
+    assert "Erweiterte Ansicht" in admin_response.text or "Extended view" in admin_response.text
+    assert 'href="/config/users?return_to=/config/access#admin-mode"' not in admin_response.text
+    assert 'class="user-menu-admin-details user-menu-settings-details"' in admin_response.text
+    assert 'class="user-menu-admin-links user-menu-settings-links"' in admin_response.text
+    settings_menu = admin_response.text.split('class="user-menu-admin-links user-menu-settings-links"', 1)[1].split("</div>", 1)[0]
+    assert "Übersicht" in settings_menu or "Overview" in settings_menu
+    assert settings_menu.count("Einstellungen") == 0
+    assert 'href="/config/admin"' in admin_response.text
+    assert "Admin-Übersicht" not in admin_response.text
+    assert "Admin overview" not in admin_response.text
+    assert 'user-menu-section-label">Admin<' not in admin_response.text
+    assert 'href="/config/intelligence"' not in admin_response.text
+    assert 'href="/config/operations"' not in admin_response.text
+    assert 'href="/config/workbench"' not in admin_response.text
+    assert 'href="/recipes/learned"' in admin_response.text
+    assert 'href="/memories/import"' not in admin_response.text
+    assert 'href="/memories/maintenance"' not in admin_response.text
+    assert 'href="/connections"' in admin_response.text
+    assert 'href="/activities"' not in admin_response.text
+    assert 'href="/updates"' in admin_response.text
+    assert 'menu-update-chip' in admin_response.text
+    assert 'class="admin-nav-group"' not in admin_response.text
+
+    assert 'href="/memories"' in user_response.text
+    assert 'href="/notes"' in user_response.text
+    assert 'href="/recipes" class="user-menu-link user-menu-link-icon' not in user_response.text
+    assert 'href="/config"' in user_response.text
+    assert 'href="/stats"' in user_response.text
+    assert 'href="/help"' in user_response.text
+    assert 'href="/config/admin-mode"' in user_response.text
+    assert "Erweiterte Ansicht" in user_response.text or "Extended view" in user_response.text
+    assert 'href="/config/users?return_to=/config/access#admin-mode"' not in user_response.text
+    assert 'class="user-menu-admin-details user-menu-settings-details"' not in user_response.text
+    assert 'href="/config/admin"' not in user_response.text
+    assert 'href="/updates"' in user_response.text
+    assert 'menu-update-chip' in user_response.text
+    assert 'class="user-menu-admin-details user-menu-settings-details"' not in user_response.text
+    assert 'href="/config/intelligence"' not in user_response.text
+    assert 'href="/config/access"' not in user_response.text
+    assert 'href="/config/operations"' not in user_response.text
+    assert 'href="/config/workbench"' not in user_response.text
+    assert 'href="/recipes/system"' not in user_response.text
+    assert 'href="/memories/import"' not in user_response.text
+    assert 'href="/memories/maintenance"' not in user_response.text
+    assert 'href="/connections"' in user_response.text
+    assert 'href="/activities"' not in user_response.text
 
 
 def test_recipes_subpages_render_with_page_specific_actions() -> None:
@@ -118,24 +206,54 @@ def test_recipes_subpages_render_with_page_specific_actions() -> None:
 
     learned_response = client.get("/recipes/learned")
     assert learned_response.status_code == 200
+    assert 'aria-label="Settings navigation"' in learned_response.text or 'aria-label="Einstellungen Navigation"' in learned_response.text
+    assert 'href="/config"' in learned_response.text
+    assert 'href="/recipes"' in learned_response.text
+    assert 'href="/config/persona"' in learned_response.text
+    assert 'href="/connections"' in learned_response.text
+    assert 'class="memory-subnav-item active" href="/recipes"' in learned_response.text
+    assert 'href="/recipes/mine"' not in _first_memory_subnav(learned_response.text)
+    assert 'href="/recipes/start"' not in _first_memory_subnav(learned_response.text)
+    assert 'href="/recipes/learned"' not in _first_memory_subnav(learned_response.text)
+    assert 'href="/recipes/system"' not in learned_response.text
+    assert 'href="/recipes/learned/maintenance"' not in learned_response.text
     assert 'id="skills-learned"' in learned_response.text
+    assert 'class="learned-summary-strip"' in learned_response.text
+    assert 'class="recipe-filter-disclosure"' in learned_response.text
     assert "Woher gelernt?" in learned_response.text
     assert "data/runtime/learned_recipes.json" in learned_response.text
     assert "Wie abgerufen?" in learned_response.text
     assert "Policy und Guardrails bleiben immer davor" in learned_response.text
 
+    learned_maintenance_response = client.get("/recipes/learned/maintenance")
+    assert learned_maintenance_response.status_code == 200
+    assert 'aria-label="Admin-Übersicht"' in learned_maintenance_response.text or 'aria-label="Admin navigation"' in learned_maintenance_response.text
+    learned_maintenance_nav = _first_memory_subnav(learned_maintenance_response.text)
+    assert 'href="/config/admin/recipes"' in learned_maintenance_nav
+    assert 'class="memory-subnav-item active" href="/config/admin/recipes"' in learned_maintenance_nav
+    assert learned_maintenance_response.text.count(
+        'class="memory-subnav-item active" href="/recipes/learned/maintenance"'
+    ) == 0
+    assert 'href="/recipes/system"' not in learned_maintenance_nav
+    assert 'href="/recipes/start"' not in learned_maintenance_response.text
+    assert 'id="skills-learned"' in learned_maintenance_response.text
+
     system_response = client.get("/recipes/system")
     assert system_response.status_code == 200
+    system_nav = _first_memory_subnav(system_response.text)
+    assert 'class="memory-subnav-item active" href="/config/admin/recipes"' in system_nav
+    assert 'href="/recipes/system"' not in system_nav
+    assert 'href="/recipes/start"' not in system_response.text
     assert 'name="return_to" value="/recipes/system"' in system_response.text
     assert 'id="skills-system"' in system_response.text
 
     templates_response = client.get("/recipes/templates")
     assert templates_response.status_code == 200
-    assert 'name="return_to" value="/recipes/templates"' in templates_response.text
+    assert 'name="return_to" value="/recipes/start"' in templates_response.text
     assert 'class="config-group-card skill-card sample-skill-card"' in templates_response.text
     assert 'sample-skill-card" data-sample-skill open' not in templates_response.text
     assert "Schritte:" in templates_response.text
-    assert "Connections:" in templates_response.text
+    assert "Verbindungen:" in templates_response.text or "Connections:" in templates_response.text
     assert "Trigger:" in templates_response.text
     assert "Step-Typen:" in templates_response.text
     assert "Read-only / Chat" in templates_response.text
@@ -191,6 +309,8 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "Monitoring Quick Check" in response.text
+    assert 'class="learned-review-list"' in response.text
+    assert "learned-review-grid" not in response.text
     assert "Promotion fällig" in response.text
     assert "Runs: 5" in response.text
     assert "ops-monitor-01" in response.text
@@ -222,6 +342,71 @@ def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
     assert "Do not use for restarts." in response.text
     assert "Review-Reife" in response.text
     assert "Starke Evidenz: 5 Runs, Ziel und Aktion sind bekannt." in response.text
+
+
+def test_recipes_learned_page_hides_admin_details_when_admin_mode_is_off(monkeypatch) -> None:
+    monkeypatch.setattr(
+        recipes_routes_module,
+        "load_learned_recipe_store_entries",
+        lambda: [
+            {
+                "title": "Monitoring Quick Check",
+                "summary": "Kurzcheck fuer uptime und Speicher.",
+                "preview": "uptime && df -h /",
+                "intent": "server_health_check",
+                "connection_kind": "ssh",
+                "connection_ref": "ops-monitor-01",
+                "capability": "ssh_command",
+                "chosen_action": "uptime && df -h /",
+                "user_message": "wie geht es dem monitoring server",
+                "experience_count": 5,
+                "last_success_at": "2026-05-03T11:00:00Z",
+                "promotion_state": "eligible",
+                "promotion_hint": "Repeated successful runs make this learned recipe eligible for promotion.",
+                "router_keywords": ["monitoring server", "health"],
+                "recipe_scope": {"learning_origin": "guardrail_healthcheck_fallback"},
+                "confidence": 0.84,
+                "risk_level": "low",
+                "curation_source": "llm_curator",
+                "curation_policy": "context_only_not_executable",
+                "curation_status": "ok",
+                "learning_signal": "wording_variant",
+                "learning_signal_reason": "Same learned pattern matched a different user wording.",
+                "learning_weight": 0.75,
+                "learning_evidence": 5.75,
+            }
+        ],
+    )
+    client = _build_recipes_app(advanced_mode=False)
+
+    response = client.get("/recipes/learned")
+
+    assert response.status_code == 200
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
+    assert 'href="/config"' in response.text
+    assert 'class="memory-subnav-item active" href="/recipes"' in response.text
+    assert 'href="/recipes/start"' not in _first_memory_subnav(response.text)
+    assert 'href="/recipes/learned"' not in _first_memory_subnav(response.text)
+    assert 'href="/config/admin"' not in response.text
+    assert "Admin-Übersicht" not in response.text
+    assert "Admin overview" not in response.text
+    assert "Monitoring Quick Check" in response.text
+    assert 'class="learned-summary-strip"' in response.text
+    assert 'class="recipe-filter-disclosure"' in response.text
+    assert 'class="learned-review-list"' in response.text
+    assert "User sagte" in response.text
+    assert "wie geht es dem monitoring server" in response.text
+    assert "ops-monitor-01" in response.text
+    assert "uptime &amp;&amp; df -h /" in response.text
+    assert "Woher gelernt?" not in response.text
+    assert "data/runtime/learned_recipes.json" not in response.text
+    assert 'class="skill-details"' not in response.text
+    assert "Action Contract" not in response.text
+    assert "Curator-Debug" not in response.text
+    assert "Learning-Signal" not in response.text
+    assert "Promotion prüfen" not in response.text
+    assert 'action="/recipes/learned/dismiss"' not in response.text
+    assert 'action="/recipes/learned/delete"' not in response.text
 
 
 def test_recipes_learned_page_keeps_long_curator_fields_contained(monkeypatch) -> None:
@@ -607,6 +792,11 @@ def test_recipes_save_custom_toggle_preserves_core_toggles(monkeypatch, tmp_path
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
     templates.env.globals.setdefault("agent_text", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
 
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
@@ -710,6 +900,11 @@ def test_recipes_save_custom_toggle_can_disable_recipe(monkeypatch, tmp_path) ->
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
     templates.env.globals.setdefault("agent_text", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
 
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
@@ -855,7 +1050,7 @@ def test_recipes_wizard_page_sets_logical_back_url() -> None:
 
     assert response.status_code == 200
     assert "const logical='/recipes';" in response.text
-    assert 'aria-label="Rezepte Navigation"' in response.text
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
     assert "Create new recipe" in response.text
 
 

@@ -2,9 +2,9 @@
 {% if request.state.can_access_advanced_config %}
 <section class="floating-card config-domain-section">
   <div class="config-submenu">
-    <a class="config-submenu-item" href="/config/users?return_to={{ page_return_to | urlencode }}#admin-mode">
+    <a class="config-submenu-item" href="/config/users?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
-      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Benutzer') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Benutzerkonten, Rollen und Admin-Modus zentral verwalten.') }}</span></span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Users') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Manage user accounts and roles from one place.') }}</span></span>
     </a>
     <a class="config-submenu-item" href="/config/security?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>

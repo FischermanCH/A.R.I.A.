@@ -1,6 +1,6 @@
 # ARIA Help: Memory and Stores
 
-Updated: 2026-06-09
+Updated: 2026-07-09
 
 ## Purpose
 
@@ -60,20 +60,34 @@ Chat details show sources, collection, and chunk references when document recall
 
 ## UI
 
-- `/memories` for entries, search, editing, deletion, and JSON export
-- `/memories/map` for collections, document groups, rollups, structure, and the Qdrant Brain graph
+- `/memories` for the graphical Memory browser
+- `/memories/import` for new documents and memory imports
+- `/memories/auto-memory` for Auto-memory and agentic learning settings
+- `/memories/maintenance` for technical maintenance, rebuilds, and internal learning artifacts
 - `/config/embeddings` for embedding model and safety confirmation when memory already exists
 
-### Memory Map and Qdrant Brain
+### Auto-memory and learning
 
-The Memory Map first shows the logical structure: user, memory types, collections, document groups, rollups, notes, routing, and system collections.
+Auto-memory can store durable facts and preferences when ARIA has enough confidence. Agentic learning can also extract reviewable conventions from user feedback and successful safe runs. Learning artifacts are context and review material; they do not bypass policy, guardrails, or confirmation.
 
-When Qdrant is reachable and enough embedded points exist, the same page also shows the **Qdrant Brain**. This graph starts with Collections and lets you drill into a Collection to inspect its Qdrant points:
+### Memory browser
 
-- nodes are memory, document, notes, and rollup points
-- edges show computed semantic similarity between embeddings
-- zoom, pan, and node details help inspect clusters and relevance
-- raw vectors are never sent to the browser; only safe metadata, text previews, collection names, and point IDs are shown
+The Memory browser is the graphical maintenance and debug view for ARIA's Qdrant/Memory data. It presents the same data in two connected ways:
+
+- The graph shows root, memory types, collections, documents, entries, and chunks as a navigable structure.
+- The inspector shows details for the current level and can be used as its own navigation path.
+- On the entry screen, nothing is selected; the inspector lists all collections.
+- Collection levels first show their documents or entries. The related chunks appear one level deeper.
+- Document collections show documents and then their chunks. Other collections show entries and their memory points.
+- Individual chunks, points, and documents can be deleted in the browser. Contents are deliberately not edited inline because edits require re-embedding; deleting and re-importing is safer.
+
+### Structure and semantic proximity
+
+Structure mode is the default view. It supports zoom, free pan, panbars, fullscreen, inspector drilldown, and saved structure options for spacing, clustering, and attraction.
+
+Semantic proximity appears only on concrete chunk/entry/point levels. It shows computed neighborhoods from Qdrant embeddings without sending raw vectors to the browser.
+
+Only safe metadata, text previews, collection names, point IDs, and computed edges are visible. Fullscreen and iOS/touch handling use the same logic as the normal browser.
 
 ## Embedding fingerprint
 
@@ -96,4 +110,4 @@ Entries can be deleted directly in `/memories`. In chat, ARIA can recognize expl
 - use `remember ...` for explicit storage
 - ask about the same fact later
 - check `/stats` and chat details for recall sources
-- check `/memories/map` for collection/rollup structure
+- check `/memories` for collection/document/chunk structure and semantic proximity

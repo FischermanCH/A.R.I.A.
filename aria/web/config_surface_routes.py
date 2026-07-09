@@ -26,6 +26,13 @@ UpdateHelperStatusFetcher = Callable[..., dict[str, Any]]
 ServiceRestartTrigger = Callable[..., dict[str, Any]]
 _CONFIG_SURFACE_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 
+ADMIN_GROUP_PAGE_HEADINGS: dict[str, tuple[str, str]] = {
+    "config": ("config.admin_group_config_title", "System configuration"),
+    "recipes": ("config.admin_group_recipes_title", "Recipes & learning"),
+    "memory": ("config.admin_group_memory_title", "Memory"),
+    "operations": ("config.admin_group_operations_title", "Operations"),
+}
+
 
 def _config_surface_text(language: str, key: str, default: str = "", **values: object) -> str:
     template = _CONFIG_SURFACE_I18N.t(language, f"config_surface.{key}", default or key)
@@ -75,7 +82,7 @@ class ConfigSurfaceRouter:
         lang = str(getattr(request.state, "lang", "de") or "de")
         logical_back_url = self.deps.set_logical_back_url(request, fallback=logical_back_fallback)
         if error == "admin_mode_required":
-            error_message = _config_surface_text(lang, "admin_mode_required", "Enable admin mode to access this area.")
+            error_message = _config_surface_text(lang, "admin_mode_required", "Enable Extended view to access this area.")
         elif error == "no_admin":
             error_message = _config_surface_text(lang, "no_admin", "Only admins can open this area.")
         else:
@@ -175,6 +182,7 @@ class ConfigSurfaceRouter:
         config_nav: str = "overview",
         page_heading: str,
         show_overview_checks: bool = False,
+        extra_context: dict[str, Any] | None = None,
     ) -> HTMLResponse:
         context = self.build_config_page_context(
             request,
@@ -187,6 +195,8 @@ class ConfigSurfaceRouter:
             page_heading=page_heading,
             show_overview_checks=show_overview_checks,
         )
+        if extra_context:
+            context.update(extra_context)
         return self.deps.templates.TemplateResponse(request=request, name=template_name, context=context)
 
 
@@ -209,7 +219,57 @@ def register_config_surface_routes(app: FastAPI, router: ConfigSurfaceRouter) ->
             page_return_to="/config",
             config_nav="overview",
             page_heading=_config_surface_text(lang, "heading_settings", "Settings"),
-            show_overview_checks=True,
+            show_overview_checks=False,
+        )
+
+    @app.get("/config/admin", response_class=HTMLResponse)
+    async def config_admin_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+    ) -> HTMLResponse:
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return router.render_config_surface(
+            request,
+            template_name="config_admin.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/config",
+            page_return_to="/config/admin",
+            config_nav="admin",
+            page_heading=_config_surface_text(lang, "heading_admin", "Admin"),
+        )
+
+    @app.get("/config/admin/{group_id}", response_class=HTMLResponse)
+    async def config_admin_group_page(
+        request: Request,
+        group_id: str,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+    ) -> HTMLResponse:
+        clean_group_id = str(group_id or "").strip().lower()
+        heading = ADMIN_GROUP_PAGE_HEADINGS.get(clean_group_id)
+        if heading is None:
+            return RedirectResponse(url="/config/admin", status_code=303)
+        if not bool(getattr(request.state, "can_access_advanced_config", False)):
+            return RedirectResponse(url="/config?error=admin_mode_required", status_code=303)
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return router.render_config_surface(
+            request,
+            template_name="config_admin.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/config/admin",
+            page_return_to=f"/config/admin/{clean_group_id}",
+            config_nav="admin",
+            page_heading=router.deps.msg(lang, heading[0], heading[1]),
+            extra_context={"admin_group_filter": clean_group_id},
         )
 
     @app.get("/config/intelligence", response_class=HTMLResponse)

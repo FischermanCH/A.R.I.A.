@@ -100,19 +100,114 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
             {"value": "deep-space", "label_key": "config_appearance.theme_deep_space", "fallback": "Deep Space"},
         ]
         background_rows = discover_ui_background_files(static_dir)
+        appearance_preset_rows = [
+            {
+                "value": "matrix-grid-signal",
+                "theme": "matrix",
+                "background": "grid-signal",
+                "label_key": "config_appearance.preset_matrix_grid",
+                "fallback": "Matrix Green / Grid Signal",
+            },
+            {
+                "value": "sunset-mesh-weave",
+                "theme": "sunset",
+                "background": "mesh-weave",
+                "label_key": "config_appearance.preset_sunset_mesh",
+                "fallback": "Sunset Amber / Mesh Weave",
+            },
+            {
+                "value": "harbor-ai-lobby",
+                "theme": "harbor",
+                "background": "ai-lobby",
+                "label_key": "config_appearance.preset_harbor_lobby",
+                "fallback": "Harbor Blue / AI Lobby",
+            },
+            {
+                "value": "paper-ai-lobby",
+                "theme": "paper",
+                "background": "ai-lobby",
+                "label_key": "config_appearance.preset_paper_lobby",
+                "fallback": "Paper Ink / AI Lobby",
+            },
+            {
+                "value": "cyberpunk-side-circuits",
+                "theme": "cyberpunk",
+                "background": "side-circuits",
+                "label_key": "config_appearance.preset_cyberpunk_side",
+                "fallback": "CyberPunk Classic / Side Circuits",
+            },
+            {
+                "value": "cyberpunk-neo-aria-thinking",
+                "theme": "cyberpunk-neo",
+                "background": "aria-thinking",
+                "label_key": "config_appearance.preset_cyberpunk_neo_thinking",
+                "fallback": "CyberPunk Neo / ARIA Thinking",
+            },
+            {
+                "value": "nyan-cat-8-bit-arcade",
+                "theme": "nyan-cat",
+                "background": "8-bit-arcade",
+                "label_key": "config_appearance.preset_nyan_arcade",
+                "fallback": "Nyan Cat / 8-Bit Arcade",
+            },
+            {
+                "value": "puke-unicorn-puke-unicorn",
+                "theme": "puke-unicorn",
+                "background": "puke-unicorn",
+                "label_key": "config_appearance.preset_puke_unicorn",
+                "fallback": "Puke Unicorn / Puke Unicorn",
+            },
+            {
+                "value": "pixel-8-bit-arcade",
+                "theme": "pixel",
+                "background": "8-bit-arcade",
+                "label_key": "config_appearance.preset_pixel_arcade",
+                "fallback": "8-Bit Arcade / 8-Bit Arcade",
+            },
+            {
+                "value": "crt-amber-grid-signal",
+                "theme": "crt-amber",
+                "background": "grid-signal",
+                "label_key": "config_appearance.preset_crt_grid",
+                "fallback": "Amber CRT / Grid Signal",
+            },
+            {
+                "value": "deep-space-space-station",
+                "theme": "deep-space",
+                "background": "space-station",
+                "label_key": "config_appearance.preset_deep_space_station",
+                "fallback": "Deep Space / Space Station",
+            },
+        ]
+        background_values = {row["value"] for row in background_rows}
+        appearance_preset_rows = [
+            row
+            for row in appearance_preset_rows
+            if row["theme"] in UI_THEME_OPTIONS and row["background"] in background_values
+        ]
+        current_appearance_preset = next(
+            (
+                row["value"]
+                for row in appearance_preset_rows
+                if row["theme"] == current_theme and row["background"] == current_background
+            ),
+            "",
+        )
         context = deps.build_config_page_context(
             request,
             saved=saved,
             error=error,
             logical_back_fallback="/config/persona",
             page_return_to="/config/persona",
-            config_nav="persona",
+            config_nav="appearance",
             page_heading=deps.msg(lang, "Erscheinungsbild & Theme", "Appearance & theme"),
         )
         context.update(
             {
                 "theme_rows": [row for row in theme_rows if row["value"] in UI_THEME_OPTIONS],
                 "background_rows": background_rows,
+                "appearance_preset_rows": appearance_preset_rows,
+                "current_appearance_preset": current_appearance_preset,
                 "current_theme": current_theme,
                 "current_background": current_background,
             }
@@ -173,7 +268,7 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
             error=error,
             logical_back_fallback="/config/persona",
             page_return_to="/config/persona",
-            config_nav="persona",
+            config_nav="language",
             page_heading=deps.msg(lang, "Sprache", "Language"),
         )
         context.update(
@@ -281,7 +376,7 @@ def register_config_persona_routes(app: FastAPI, deps: ConfigPersonaRouteDeps) -
             error=error,
             logical_back_fallback="/config/persona",
             page_return_to="/config/persona",
-            config_nav="persona",
+            config_nav="prompts",
             page_heading=deps.msg(lang, "Prompt Studio", "Prompt studio"),
         )
         context.update(

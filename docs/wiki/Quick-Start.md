@@ -11,6 +11,7 @@ ARIA is designed to get from container to usable web UI quickly.
 5. open `/stats` and check preflight, pricing coverage, and gateway audit
 6. create first connections under `/connections/types`
 7. test a simple prompt
+8. open `/help?doc=chat`, `/help?doc=navigation`, and `/help?doc=agentic` if you want to understand queueing, menus, confirmations, and details
 
 ## Useful first prompts
 
@@ -22,9 +23,9 @@ ARIA is designed to get from container to usable web UI quickly.
 ## First daily-use areas
 
 - `/notes` for Markdown notes
-- `/memories` and `/memories/map` for memory and documents
+- `/memories` for the graphical Memory browser and `/memories/import` for document imports
 - `/connections/types` for external systems
-- `/recipes` for automation
+- `/recipes` for the recipe hub and `/recipes/mine` for saved recipes
 - `/config/workbench/routing` for action/routing dry-runs
 
 ## Deployment notes

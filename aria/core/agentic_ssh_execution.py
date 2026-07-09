@@ -222,6 +222,17 @@ class MultiTargetSSHExecutionHandler:
         )
         remember_ms = int((time.perf_counter() - remember_started) * 1000)
         if self._hooks.routing_debug_enabled():
+            detail_lines.append(
+                self._result_contract_debug_line(
+                    payload=payload,
+                    command=command,
+                    records=result_records,
+                    original_count=original_count,
+                    allowed_count=len(allowed_refs),
+                    blocked_count=len(blocked_refs),
+                    free_disk_threshold=free_disk_threshold,
+                )
+            )
             slowest_ref = "-"
             max_target_ms = 0
             if target_timings:
@@ -269,6 +280,10 @@ class MultiTargetSSHExecutionHandler:
 
     @staticmethod
     def _task_intent_from_payload(payload: dict[str, Any]) -> str:
+        for key in ("task_intent", "target_intent"):
+            clean_value = str(payload.get(key, "") or "").strip().lower()
+            if clean_value:
+                return clean_value
         for note in list(payload.get("notes", []) or []):
             clean = str(note or "").strip().lower()
             if clean.startswith("target_intent:"):
@@ -277,6 +292,110 @@ class MultiTargetSSHExecutionHandler:
         if "apt list --upgradable" in command:
             return "package_update_check"
         return ""
+
+    @classmethod
+    def _result_contract_debug_line(
+        cls,
+        *,
+        payload: dict[str, Any],
+        command: str,
+        records: list[dict[str, str]],
+        original_count: int,
+        allowed_count: int,
+        blocked_count: int,
+        free_disk_threshold: tuple[float, str] | None,
+    ) -> str:
+        state_counts = cls._state_counts(records)
+        assumption = cls._result_assumption(
+            payload=payload,
+            command=command,
+            free_disk_threshold=free_disk_threshold,
+        )
+        notable = cls._notable_refs(records)
+        confidence = cls._result_confidence(records, allowed_count=allowed_count, blocked_count=blocked_count)
+        task_intent = cls._task_intent_from_payload(payload) or "runtime_check"
+        return (
+            "Routing Debug: multi_target_ssh_result_contract "
+            f"task_intent={cls._field_value(task_intent)} command_profile={cls._command_profile(command)} "
+            f"targets={original_count} allowed={allowed_count} blocked={blocked_count} records={len(records)} "
+            f"ok={state_counts.get('ok', 0)} attention={state_counts.get('attention', 0)} "
+            f"error={state_counts.get('error', 0)} empty={state_counts.get('empty', 0)} "
+            f"assumption={cls._field_value(assumption)} notable={cls._field_value(notable)} "
+            f"confidence={confidence} source=runtime_records"
+        )
+
+    @staticmethod
+    def _state_counts(records: list[dict[str, str]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in records:
+            state = str(row.get("state", "") or "").strip().lower() or "unknown"
+            counts[state] = counts.get(state, 0) + 1
+        return counts
+
+    @classmethod
+    def _result_assumption(
+        cls,
+        *,
+        payload: dict[str, Any],
+        command: str,
+        free_disk_threshold: tuple[float, str] | None,
+    ) -> str:
+        if free_disk_threshold:
+            return f"requested_free_disk_threshold:{free_disk_threshold[1]}"
+        task_intent = cls._task_intent_from_payload(payload)
+        command_profile = cls._command_profile(command)
+        if task_intent == "package_update_check" or command_profile == "package_updates":
+            return "available_updates_only"
+        if command_profile == "disk_capacity":
+            return "no_user_threshold_capacity_review"
+        if command_profile == "host_health":
+            return "runtime_snapshot_review"
+        return "executed_command_output_review"
+
+    @staticmethod
+    def _notable_refs(records: list[dict[str, str]], *, limit: int = 5) -> str:
+        notable_refs: list[str] = []
+        for row in records:
+            state = str(row.get("state", "") or "").strip().lower()
+            ref = str(row.get("ref", "") or "").strip()
+            if ref and state and state != "ok":
+                notable_refs.append(ref)
+        if not notable_refs:
+            return "-"
+        visible = notable_refs[: max(1, int(limit or 1))]
+        suffix = f",+{len(notable_refs) - len(visible)}" if len(notable_refs) > len(visible) else ""
+        return ",".join(visible) + suffix
+
+    @staticmethod
+    def _result_confidence(records: list[dict[str, str]], *, allowed_count: int, blocked_count: int) -> str:
+        if blocked_count > 0:
+            return "medium"
+        if not records or len(records) < allowed_count:
+            return "low"
+        states = {str(row.get("state", "") or "").strip().lower() for row in records}
+        if states <= {"ok"}:
+            return "high"
+        if "error" in states or "blocked" in states:
+            return "medium"
+        return "high"
+
+    @staticmethod
+    def _command_profile(command: str) -> str:
+        clean = str(command or "").strip().lower()
+        if "apt list --upgradable" in clean:
+            return "package_updates"
+        if "df" in clean:
+            return "disk_capacity"
+        if "uptime" in clean or "free " in clean or clean == "free":
+            return "host_health"
+        return "ssh_command"
+
+    @staticmethod
+    def _field_value(value: str) -> str:
+        clean = str(value or "").strip()
+        if not clean:
+            return "-"
+        return "_".join(clean.split())[:160]
 
     @staticmethod
     def _followup_affordances_for_command(command: str, payload: dict[str, Any]) -> list[str]:

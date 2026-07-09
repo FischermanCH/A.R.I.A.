@@ -7,8 +7,17 @@
     <form method="post" action="/config/appearance/save" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
+        {{ tr(request, 'config_appearance.preset_label', 'Theme set') }}
+        <select name="appearance_preset" data-appearance-preset>
+          <option value="" {% if not current_appearance_preset %}selected{% endif %}>{{ tr(request, 'config_appearance.preset_custom', 'Custom combination') }}</option>
+          {% for row in appearance_preset_rows %}
+          <option value="{{ row.value }}" data-theme="{{ row.theme }}" data-background="{{ row.background }}" {% if current_appearance_preset == row.value %}selected{% endif %}>{{ tr(request, row.label_key, row.fallback) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
         {{ tr(request, 'config_appearance.theme_label', 'Theme palette') }}
-        <select name="theme">
+        <select name="theme" data-theme-select>
           {% for row in theme_rows %}
           <option value="{{ row.value }}" {% if current_theme == row.value %}selected{% endif %}>{{ tr(request, row.label_key, row.fallback) }}</option>
           {% endfor %}
@@ -16,7 +25,7 @@
       </label>
       <label>
         {{ tr(request, 'config_appearance.background_label', 'Background style') }}
-        <select name="background">
+        <select name="background" data-background-select>
           {% for row in background_rows %}
           <option value="{{ row.value }}" {% if current_background == row.value %}selected{% endif %}>{{ tr(request, row.label_key, row.fallback) }}</option>
           {% endfor %}
@@ -27,4 +36,33 @@
     </form>
   </section>
 </main>
+<script>
+  (() => {
+    const presetSelect = document.querySelector('[data-appearance-preset]');
+    const themeSelect = document.querySelector('[data-theme-select]');
+    const backgroundSelect = document.querySelector('[data-background-select]');
+    if (!presetSelect || !themeSelect || !backgroundSelect) {
+      return;
+    }
+
+    const updatePresetFromFields = () => {
+      const match = Array.from(presetSelect.options).find((option) => {
+        return option.dataset.theme === themeSelect.value
+          && option.dataset.background === backgroundSelect.value;
+      });
+      presetSelect.value = match ? match.value : '';
+    };
+
+    presetSelect.addEventListener('change', () => {
+      const selected = presetSelect.selectedOptions[0];
+      if (!selected || !selected.dataset.theme || !selected.dataset.background) {
+        return;
+      }
+      themeSelect.value = selected.dataset.theme;
+      backgroundSelect.value = selected.dataset.background;
+    });
+    themeSelect.addEventListener('change', updatePresetFromFields);
+    backgroundSelect.addEventListener('change', updatePresetFromFields);
+  })();
+</script>
 {% endblock %}

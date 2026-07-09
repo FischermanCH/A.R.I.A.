@@ -498,11 +498,17 @@ class PipelineTurnStagesMixin:
         read_only_followup_instruction = self._read_only_runtime_followup_instruction(chat_context_skill_results)
         if read_only_followup_instruction:
             prompts[0]["content"] = f"{prompts[0]['content']}\n\n{read_only_followup_instruction}"
-        if freshness_auto_web_search:
+        if freshness_auto_web_search or "web_search" in {str(intent or "").strip() for intent in intents}:
             prompts[0]["content"] = (
                 f"{prompts[0]['content']}\n\n"
                 f"Freshness instruction: Today is {date.today().isoformat()}. "
                 "When current web/search context is provided, prefer the freshest relevant sources. "
+                "For current product or version comparisons, treat official vendor, release-note, documentation, "
+                "and comparison pages as authoritative. Do not use rumor, deal, news, or future-model sources "
+                "as evidence for current capabilities unless the user explicitly asks for rumors or future plans. "
+                "When the user asks what is better or newer than an older version, separate model-specific changes "
+                "from carried-over, ecosystem, or software-only features; only call something an improvement over "
+                "the previous version when the provided sources support that comparison. "
                 "Do not mention outdated fallback dates or older training cutoffs unless the uncertainty is directly relevant."
             )
 

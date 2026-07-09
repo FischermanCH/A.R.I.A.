@@ -322,6 +322,23 @@ class SshTargetScopePolicy:
             for item in list(payload.get("missing_fields", []) or [])
             if str(item or "").strip() and str(item or "").strip() != "connection_ref"
         ]
+        notes = [
+            str(item or "").strip()
+            for item in list(payload.get("notes", []) or [])
+            if str(item or "").strip()
+        ]
+        for item in list(getattr(capability_draft, "notes", []) or []):
+            clean_note = str(item or "").strip()
+            if clean_note and clean_note not in notes:
+                notes.append(clean_note)
+        target_intent = next(
+            (
+                note.split(":", 1)[1].strip().lower()
+                for note in notes
+                if note.lower().startswith("target_intent:") and note.split(":", 1)[1].strip()
+            ),
+            "",
+        )
         payload.update(
             {
                 "found": True,
@@ -335,6 +352,12 @@ class SshTargetScopePolicy:
                 "resolution_source": "plural_target_scope",
             }
         )
+        if notes:
+            payload["notes"] = notes
+        if target_intent:
+            payload["target_intent"] = target_intent
+            if not str(payload.get("task_intent", "") or "").strip():
+                payload["task_intent"] = target_intent
         payload_debug.update(
             {
                 "used": True,
@@ -464,6 +487,15 @@ class SshTargetScopePolicy:
                 if ref and ref not in seen_refs:
                     seen_refs.add(ref)
                     strong_candidates.append(candidate)
+
+        if self._message_requests_all_targets_without_group_scope(message):
+            resolved = append_debug_detail_lines(
+                resolved,
+                "Routing Debug: plural_target_scope kept_full_fleet_by_all_scope "
+                "kind=ssh reason=no_specific_group_scope",
+                routing_debug_enabled=self._routing_debug_enabled(),
+            )
+            return SshTargetScopeNarrowing(resolved, candidate_connections, candidates)
 
         if not strong_candidates or len(strong_candidates) >= len(candidate_connections):
             return SshTargetScopeNarrowing(resolved, candidate_connections, candidates)
@@ -688,6 +720,60 @@ class SshTargetScopePolicy:
         if seed_terms & {"dns", "pihole", "pi-hole"}:
             seed_terms.update({"dns", "pihole", "pi-hole", "adblock", "ad-blocking"})
         return seed_terms
+
+    @staticmethod
+    def _message_requests_all_targets_without_group_scope(message: str) -> bool:
+        tokens = set(split_connection_tokens(message))
+        if not tokens & {"all", "alle", "allen", "jeder", "jeden", "every", "saemtliche"}:
+            return False
+        non_group_terms = {
+            "all",
+            "alle",
+            "allen",
+            "auf",
+            "ausreichend",
+            "bitte",
+            "capacity",
+            "check",
+            "den",
+            "der",
+            "die",
+            "disk",
+            "enough",
+            "festplatte",
+            "festplatten",
+            "festplattenplatz",
+            "frei",
+            "freie",
+            "freien",
+            "full",
+            "genug",
+            "haben",
+            "ich",
+            "jeder",
+            "jeden",
+            "linux",
+            "meine",
+            "meinen",
+            "partition",
+            "platz",
+            "pruef",
+            "pruefe",
+            "root",
+            "server",
+            "servern",
+            "servers",
+            "speicher",
+            "speicherplatz",
+            "system",
+            "systeme",
+            "usage",
+            "voll",
+            "volle",
+            "vollen",
+        }
+        scope_terms = SshTargetScopePolicy._seed_terms_from_message(message) - non_group_terms
+        return not scope_terms
 
     @staticmethod
     def _aliases_match_seed_terms(

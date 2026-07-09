@@ -32,31 +32,10 @@
   </section>
   {% endif %}
 
-  <section class="floating-card" id="connections-overview">
+  <section class="floating-card config-domain-links config-domain-links-compact" id="connections-overview">
     <div class="page-title-row"><span>{{ icon('connections', 'page-title-icon') }}</span><h2>{{ tr(request, 'connections_overview.title', 'Connections') }}</h2></div>
-    <div class="memory-health-grid">
-      {% for check in overview_checks %}
-      {% if check.href %}
-      <a class="memory-health-card memory-health-card-link" href="{{ check.href }}">
-      {% else %}
-      <article class="memory-health-card">
-      {% endif %}
-        <div class="memory-health-head">
-          <span class="health-lamp status-{{ check.status }}"></span>
-          <h3>{{ check.title }}</h3>
-        </div>
-        <p>{{ check.summary }}</p>
-        <small>{{ check.meta }}</small>
-      {% if check.href %}
-      </a>
-      {% else %}
-      </article>
-      {% endif %}
-      {% endfor %}
-    </div>
+    <p class="hint-text">{{ tr(request, 'connections_overview.subtitle', 'External systems, sources, and access in one place.') }}</p>
   </section>
-
-  {% include "_connections_live_status.html" %}
 
   {% if request.state.can_access_advanced_config %}
   {% call overview_section(
@@ -103,7 +82,7 @@
   {% endcall %}
 
   {% call overview_section(
-    tr(request, 'connections_overview.section_samples_title', 'Mitgelieferte Sample-Connections'),
+    tr(request, 'connections_overview.section_samples_title', 'Mitgelieferte Verbindungsvorlagen'),
     tr(request, 'connections_overview.section_samples_desc', 'Beispielprofile aus /app/samples/connections zum schnellen Import in deine ARIA-Instanz.'),
     sample_connection_rows|length
   ) %}
@@ -126,7 +105,7 @@
       </article>
       {% else %}
       <article class="config-group-card">
-        <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Sample-Connections gefunden') }}</h3>
+        <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Verbindungsvorlagen gefunden') }}</h3>
         <p>{{ tr(request, 'config.sample_connections_empty_desc', 'Im Container wurde kein samples/connections-Verzeichnis gefunden.') }}</p>
       </article>
       {% endfor %}
@@ -134,18 +113,18 @@
   {% endcall %}
   {% else %}
   {% call overview_section(
-    tr(request, 'connections_overview.admin_off_title', 'Connections brauchen gerade Admin-Modus'),
-    tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktiviertem Admin-Modus wird dieser Bereich sichtbar.'),
+    tr(request, 'connections_overview.admin_off_title', 'Connections brauchen gerade die erweiterte Ansicht'),
+    tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktivierter erweiterter Ansicht wird dieser Bereich sichtbar.'),
     1,
     True
   ) %}
     <div id="connections-admin"></div>
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/users?return_to=%2Fconnections#admin-mode">
-        <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+      <a class="config-submenu-item" href="/config/admin-mode?return_to=%2Fconnections">
+        <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
         <span class="submenu-copy">
-          <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Benutzer & Zugriff öffnen') }}</span>
-          <span class="submenu-desc">{{ tr(request, 'connections_overview.admin_off_link_desc', 'Dort kannst du den Admin-Modus wieder einschalten.') }}</span>
+          <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Open Extended view') }}</span>
+          <span class="submenu-desc">{{ tr(request, 'connections_overview.admin_off_link_desc', 'Dort kannst du die erweiterte Ansicht wieder einschalten.') }}</span>
         </span>
       </a>
     </div>

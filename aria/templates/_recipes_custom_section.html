@@ -5,8 +5,18 @@
   welche Eintraege gespeicherte Rezepte, Playbooks oder gelernte Vorschlaege sind.
 -->
 <section class="floating-card skills-section" id="skills-custom">
-  <h3>{{ tr(request, 'recipes.my_recipes_title', 'Meine Rezepte') }}</h3>
-  <p class="hint-text">{{ tr(request, 'recipes.my_recipes_desc', 'Hier findest du deine eigenen gespeicherten Rezepte. Vorlagen und Systemfunktionen liegen getrennt darunter.') }}</p>
+  <div class="recipes-section-head">
+    <div>
+      <h3>{{ tr(request, 'recipes.my_recipes_title', 'Meine Rezepte') }}</h3>
+      <p class="hint-text">{{ tr(request, 'recipes.my_recipes_desc_simple', 'Deine gespeicherten Rezepte. Systemrezepte und Vorlagen bleiben aus dieser Arbeitsliste heraus.') }}</p>
+    </div>
+    {% if not recipes_readonly %}
+    <div class="inline-actions recipes-section-actions">
+      <a class="button-like ui-action-link" href="/recipes/wizard?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.new_recipe_title', 'Neues Rezept') }}</a>
+      <a class="secondary-button ui-action-link" href="/recipes/start">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</a>
+    </div>
+    {% endif %}
+  </div>
   <div class="config-group-grid">
     {% for row in custom_rows %}
     <article class="config-group-card skill-card">
@@ -84,6 +94,12 @@
     <article class="config-group-card skill-card is-future">
       <h3>{{ tr(request, 'recipes.none_title', 'Noch keine gespeicherten Rezepte') }}</h3>
       <p>{{ tr(request, 'recipes.none_text', 'Erstelle das erste Rezept über den Wizard oder importiere ein JSON-Manifest.') }}</p>
+      {% if not recipes_readonly %}
+      <div class="inline-actions">
+        <a class="button-like ui-action-link" href="/recipes/wizard?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.new_recipe_title', 'Neues Rezept') }}</a>
+        <a class="secondary-button ui-action-link" href="/recipes/start">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</a>
+      </div>
+      {% endif %}
     </article>
     {% endfor %}
   </div>

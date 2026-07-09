@@ -1,6 +1,6 @@
 # ARIA Alpha Help
 
-Updated: 2026-05-15 / Public Alpha `0.1.0-alpha298`
+Updated: 2026-07-09 / Public Alpha `0.1.0-alpha437`
 
 This is the practical short help for ARIA Alpha. It reflects the current state after the larger move from legacy skills to recipes, LLM-assisted action planning, and controlled execution.
 
@@ -13,9 +13,12 @@ Good fit for:
 - a browser-based personal AI workspace
 - memory and document RAG with Qdrant
 - notes as a Markdown workspace
+- Chat Prompt Queue with editable and reorderable waiting prompts
+- visible Pending Confirmations for confirmation-required actions
+- generated section navigation for the header, account menu, Settings, Admin, Memory, Recipes, and Connections
 - safe connections to SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT, SearXNG, and Google Calendar
 - recipe-first automation with guardrails
-- LLM-assisted action drafts: ARIA understands natural prompts, proposes bounded actions, and lets policy/guardrails decide
+- Agentic Operator Flow: ARIA understands natural prompts, plans bounded steps, lets policy/guardrails decide, executes, and exposes details
 
 Not the current alpha target:
 
@@ -33,7 +36,7 @@ After that, check:
 2. `/config/embeddings` - embedding model for Memory and routing
 3. `/stats` - preflight, Qdrant, model status, tokens/costs, and pricing coverage
 4. `/connections/types` - connections to your systems
-5. `/recipes` - import, review, or build recipes
+5. `/recipes` and `/recipes/mine` - import, review, or build recipes
 6. `/config/routing` and `/config/workbench/routing` - routing dry-runs and debug prompts when ARIA picks the wrong target
 
 ## Admin mode and user mode
@@ -43,7 +46,7 @@ ARIA has two working modes:
 - **User mode**: reduced daily-use view
 - **Admin mode**: additional system, routing, security, workbench, and config pages
 
-If config pages are missing, open `/config/users` and check whether **Admin active** is enabled.
+If technical configuration pages are missing, check the account menu or `/config/admin-mode` and enable **Extended view**.
 
 ## Chat, actions, and details
 
@@ -71,9 +74,11 @@ Under **Details** you can inspect:
 - runtime
 - sources for RAG/web/RSS answers
 
+The Chat Prompt Queue lets you keep submitting prompts while ARIA is still working. Waiting prompts stay visible, can be reordered, edited, or removed, and then run sequentially. ARIA does not run multiple runtime requests in parallel and the queue is not persisted across reloads.
+
 ## Confirmations
 
-Outgoing or potentially impactful actions can require `ask_user`. ARIA then shows a chat button such as **Run action**.
+Outgoing or potentially impactful actions can require `ask_user`. ARIA then shows a Pending Confirmation in chat and in the queue.
 
 Examples:
 
@@ -81,7 +86,7 @@ Examples:
 - call a webhook
 - future non-read-only actions
 
-Read-only actions such as `df -h`, health checks, or RSS reads can run directly when guardrails allow them.
+Pending Confirmations can be run, planned again, or discarded. Expired or invalid confirmations are not executed automatically. Read-only actions such as `df -h`, health checks, or RSS reads can run directly when guardrails allow them.
 
 ## Memory
 
@@ -95,11 +100,11 @@ Important:
 - **Experience Memory** stores successful safe action patterns as planner context, not as blind executor automation
 - transient SSH/RSS/SMB snapshots are not written into Memory by default
 
-On `/memories`, you can inspect, search, edit, delete, and export memories. `/memories/map` shows collections, document groups, rollups, memory structure, and the Qdrant Brain graph.
+On `/memories`, the graphical Memory browser shows collections, documents, entries, chunks, and semantic proximity. `/memories/import` imports documents and memory data; `/memories/maintenance` is for technical maintenance and review artifacts.
 
 ## Notes
 
-`/notes` is a standalone Markdown workspace with folder navigation, cards, and an editor. Notes are intentionally separate from Memory, but can be indexed for search. Active chats can be archived as normal Markdown notes through the chat toolbox or `/chat note`; deleting a note through ARIA also removes the derived Notes index entries from Qdrant.
+`/notes` is a standalone Markdown workspace with folder navigation, cards, an editor, and a dense list view. Notes can be moved from cards or the editor into other folders; list view supports multi-select bulk move. Notes are intentionally separate from Memory, but can be indexed for search.
 
 ## Connections
 
@@ -214,9 +219,13 @@ ARIA is built for controlled environments:
 ## Where to read more
 
 - `/help?doc=quick-start`
+- `/help?doc=chat`
+- `/help?doc=navigation`
 - `/help?doc=memory`
+- `/help?doc=notes`
 - `/help?doc=connections`
 - `/help?doc=skills`
+- `/help?doc=agentic`
 - `/help?doc=pricing`
 - `/help?doc=security`
 - `/help?doc=releases`

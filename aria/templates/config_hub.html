@@ -4,28 +4,30 @@
 <main class="config-layout config-domain-layout config-domain-overview-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
-  <section class="floating-card config-domain-links">
-    <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/intelligence">
-        <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.h1', 'Intelligenz abstimmen') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_intelligence_desc', 'LLM- und Embedding-Profile für Denken, Antworten und semantische Suche.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/persona">
-        <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.persona_title', 'Persönlichkeit & Stil') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_persona_desc', 'Prompt-Stil, Theme und Sprache an einem gemeinsamen Ort.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/access">
-        <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.access_title', 'Zugriff & Sicherheit') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_access_desc', 'Benutzer, Rollen und Guardrails für den sicheren Betrieb.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/operations">
-        <span class="submenu-icon-wrap">{{ icon('updates', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.operations_title', 'Betrieb & Transfer') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_operations_desc', 'Updates, Logs und Backups als gemeinsamer Betriebsbereich.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/workbench">
-        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.workbench_title', 'Workbench (Advanced)') }}</span><span class="submenu-desc">{{ tr(request, 'config.domain_workbench_desc', 'Dry-runs, Dateiwerkzeuge und technische Spezialhilfen.') }}</span></span>
-      </a>
+  <section class="floating-card config-domain-links config-domain-links-compact">
+    <div class="admin-nav-groups settings-nav-groups">
+      {% for group in settings_nav_groups(request) %}
+      <details class="admin-nav-group settings-nav-group" data-settings-nav-group="{{ group.title_key }}" open>
+        <summary class="admin-nav-group-summary">
+          <span class="admin-nav-group-copy">
+            <h2>{{ tr(request, group.title_key, group.title_fallback) }}</h2>
+            <p>{{ tr(request, group.desc_key, group.desc_fallback) }}</p>
+          </span>
+          {{ icon('arrow_right', 'admin-nav-group-caret') }}
+        </summary>
+        <div class="config-submenu admin-nav-group-grid">
+          {% for item in group['items'] %}
+          <a class="config-submenu-item{% if item.active %} is-active{% endif %}" href="{{ item.href }}">
+            <span class="submenu-icon-wrap">{{ icon(item.icon, 'submenu-icon') }}</span>
+            <span class="submenu-copy">
+              <span class="submenu-title">{{ tr(request, item.title_key, item.title_fallback) }}</span>
+              <span class="submenu-desc">{{ tr(request, item.desc_key, item.desc_fallback) }}</span>
+            </span>
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
     </div>
   </section>
 </main>

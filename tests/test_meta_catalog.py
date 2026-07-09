@@ -15,6 +15,7 @@ from aria.core.inventory_index import inventory_collection_name
 from aria.core.meta_catalog import MetaCatalogStore, build_meta_catalog_documents, meta_catalog_collection_name, meta_catalog_documents_fingerprint
 from aria.core.meta_catalog_routing import META_CATALOG_ROUTING_OPERATION
 from aria.core.meta_catalog_routing import MetaCatalogRouter, MetaCatalogRoutingConfig, MetaCatalogRoutingInput
+from aria.core.pipeline import Pipeline
 from aria.skills.base import SkillResult
 
 
@@ -1138,6 +1139,52 @@ def test_meta_catalog_action_selection_seeds_capability_draft() -> None:
     assert draft.connection_kind == "ssh"
     assert draft.explicit_connection_ref == "mgmt-ssh"
     assert "capability_draft_source:meta_catalog" in draft.notes
+
+
+def test_meta_catalog_action_contract_without_actions_still_seeds_capability_draft() -> None:
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("chat", "context_inventory"),
+            surfaces=("connections",),
+            actions=(),
+            needs_context=True,
+            context_directions=("connections",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="server health",
+                    budget={
+                        "catalog_id": "connection|ssh|srv-dev02",
+                        "entity_type": "connection",
+                        "kind": "ssh",
+                        "ref": "srv-dev02",
+                    },
+                ),
+            ),
+            priority=("connection|ssh|srv-dev02",),
+            answer_mode="direct_answer",
+            contract_mode="action",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.9,
+        ),
+    )
+    runtime = AgenticContextRuntimeMixin()
+
+    draft = runtime._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "srv-dev02"
+    assert runtime._aria_turn_has_confident_local_context(arbitration) is False
+    assert runtime._aria_turn_can_direct_inventory_fast_path(arbitration) is False
+    contracts = Pipeline._process_turn_contracts(Pipeline.__new__(Pipeline), arbitration)
+    assert contracts.action_contract_selected is True
+    assert contracts.confident_local_context is False
 
 
 def test_meta_catalog_multi_document_meta_requests_enable_document_inventory() -> None:

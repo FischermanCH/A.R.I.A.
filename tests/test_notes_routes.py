@@ -226,6 +226,93 @@ def test_notes_rename_folder_moves_notes_and_updates_metadata(tmp_path: Path) ->
     assert not (tmp_path / "data" / "notes" / "tester" / "Projekte" / "ARIA").exists()
 
 
+def test_notes_move_note_updates_markdown_path_and_reindexes(tmp_path: Path) -> None:
+    client, index = _build_notes_app(tmp_path)
+    store = NotesStore(tmp_path / "data" / "notes")
+    note = store.save_note("tester", title="Area 41 Plan", folder="Projekte/ARIA", body="Ordnerpfad aktualisieren")
+
+    redirect = client.post(
+        "/notes/move",
+        data={"note_id": note.note_id, "target_folder": "Projekte/AREA41"},
+        follow_redirects=False,
+    )
+
+    assert redirect.status_code == 303
+    assert "folder=Projekte%2FAREA41" in redirect.headers["location"]
+    assert f"note={note.note_id}" in redirect.headers["location"]
+    moved = store.get_note("tester", note.note_id)
+    assert moved is not None
+    assert moved.folder == "Projekte/AREA41"
+    assert moved.relative_path == "Projekte/AREA41/area-41-plan.md"
+    assert moved.path.exists()
+    assert not note.path.exists()
+    assert "folder: Projekte/AREA41" in moved.path.read_text(encoding="utf-8")
+    assert index.reindexed == [note.note_id]
+
+
+def test_notes_page_exposes_move_controls_with_existing_folders(tmp_path: Path) -> None:
+    client, _index = _build_notes_app(tmp_path)
+    store = NotesStore(tmp_path / "data" / "notes")
+    note = store.save_note("tester", title="Move Me", folder="Inbox", body="Braucht einen neuen Ort.")
+    store.create_folder("tester", "Projekte/ARIA")
+
+    board = client.get("/notes")
+    editor = client.get(f"/notes?note={note.note_id}")
+
+    assert board.status_code == 200
+    assert 'action="/notes/move"' in board.text
+    assert '<option value="Projekte/ARIA"' in board.text
+    assert "Verschieben" in board.text
+    assert editor.status_code == 200
+    assert 'id="selected_note_move_folder"' in editor.text
+    assert '<option value="Projekte/ARIA"' in editor.text
+
+
+def test_notes_list_view_exposes_dense_rows_and_bulk_move(tmp_path: Path) -> None:
+    client, _index = _build_notes_app(tmp_path)
+    store = NotesStore(tmp_path / "data" / "notes")
+    first = store.save_note("tester", title="Move One", folder="Inbox", body="Erste Notiz.")
+    store.save_note("tester", title="Move Two", folder="Inbox", body="Zweite Notiz.")
+    store.create_folder("tester", "Projekte/ARIA")
+
+    response = client.get("/notes?view=list")
+
+    assert response.status_code == 200
+    assert 'class="notes-list-shell"' in response.text
+    assert 'action="/notes/bulk/move"' in response.text
+    assert f'value="{first.note_id}"' in response.text
+    assert '<option value="Projekte/ARIA"' in response.text
+    assert "Auswahl verschieben" in response.text
+
+
+def test_notes_bulk_move_updates_selected_notes_and_reindexes(tmp_path: Path) -> None:
+    client, index = _build_notes_app(tmp_path)
+    store = NotesStore(tmp_path / "data" / "notes")
+    first = store.save_note("tester", title="Move One", folder="Inbox", body="Erste Notiz.")
+    second = store.save_note("tester", title="Move Two", folder="Inbox", body="Zweite Notiz.")
+    untouched = store.save_note("tester", title="Stay Put", folder="Inbox", body="Bleibt hier.")
+
+    redirect = client.post(
+        "/notes/bulk/move",
+        data={"note_ids": [first.note_id, second.note_id], "target_folder": "Projekte/ARIA", "selected_folder": "__all__"},
+        follow_redirects=False,
+    )
+
+    assert redirect.status_code == 303
+    assert "folder=Projekte%2FARIA" in redirect.headers["location"]
+    assert "view=list" in redirect.headers["location"]
+    moved_first = store.get_note("tester", first.note_id)
+    moved_second = store.get_note("tester", second.note_id)
+    still_inbox = store.get_note("tester", untouched.note_id)
+    assert moved_first is not None
+    assert moved_second is not None
+    assert still_inbox is not None
+    assert moved_first.folder == "Projekte/ARIA"
+    assert moved_second.folder == "Projekte/ARIA"
+    assert still_inbox.folder == "Inbox"
+    assert index.reindexed == [first.note_id, second.note_id]
+
+
 def test_notes_page_resolves_folder_case_insensitively(tmp_path: Path) -> None:
     client, _index = _build_notes_app(tmp_path)
     store = NotesStore(tmp_path / "data" / "notes")
@@ -235,7 +322,7 @@ def test_notes_page_resolves_folder_case_insensitively(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Area 41 Plan" in response.text
-    assert 'href="/notes?folder=Area41"' in response.text
+    assert 'href="/notes?folder=Area41&view=cards"' in response.text
 
 
 def test_notes_store_preview_listing_does_not_load_full_large_body(tmp_path: Path) -> None:

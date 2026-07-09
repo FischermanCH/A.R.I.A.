@@ -14,6 +14,7 @@ from aria.core.aria_turn_arbitration import AriaTurnCollectionOption
 from aria.core.aria_turn_arbitration import build_aria_turn_menu
 from aria.core.action_plan import CapabilityDraft
 from aria.core.context_answer_runtime import compose_aria_context_answer
+from aria.core.context_answer_runtime import document_inventory_sources_for_query
 from aria.core.context_answer_runtime import docs_search_fallback_answer
 from aria.core.context_answer_runtime import fast_docs_search_answer
 from aria.core.context_answer_runtime import fast_inventory_list_answer
@@ -21,6 +22,9 @@ from aria.core.context_answer_runtime import fast_notes_inventory_answer
 from aria.core.connection_catalog import connection_kind_label
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.chat_turn_context import compact_recent_visible_chat_context
+from aria.core.chat_context_filter import explicitly_requests_local_context
+from aria.core.chat_freshness import chat_freshness_candidate
+from aria.core.chat_freshness import decide_chat_freshness
 from aria.core.chat_freshness import explicitly_requests_web_research
 from aria.core.context_evidence import common_request_terms
 from aria.core.context_evidence import evidence_terms
@@ -186,6 +190,83 @@ class AgenticContextRuntimeMixin:
         )
         return replace(arbitration, plan=normalized_plan)
 
+    async def _normalize_fresh_web_context_contract(
+        self,
+        arbitration: AriaTurnArbitration | None,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        language: str | None = None,
+        source: str = "",
+    ) -> AriaTurnArbitration | None:
+        if arbitration is None:
+            return None
+        if self.web_search_skill is None:
+            return arbitration
+        if explicitly_requests_web_research(message):
+            return arbitration
+        if not chat_freshness_candidate(message, intents=list(arbitration.plan.intents or ())):
+            return arbitration
+        if any(request.surface_id == "web" for request in arbitration.plan.context_requests):
+            return arbitration
+        if explicitly_requests_local_context(message):
+            return arbitration
+        plan = arbitration.plan
+        action_names = {str(action or "").strip().lower() for action in plan.actions if str(action or "").strip()}
+        rss_read_actions = {"rss_read_feed", "feed_read", "connection_action_rss"}
+        rss_read_only_action = bool(action_names) and action_names.issubset(rss_read_actions) and not plan.needs_confirmation
+        if (plan.actions or plan.needs_confirmation or plan.answer_mode == "plan_action") and not rss_read_only_action:
+            return arbitration
+        freshness_decision = await decide_chat_freshness(
+            message=message,
+            intents=list(plan.intents or ("chat",)),
+            llm_client=self.llm_client,
+            language=language,
+            source=source,
+            user_id=user_id,
+            request_id=request_id,
+        )
+        if not freshness_decision.needs_fresh_context:
+            return arbitration
+        query = freshness_decision.query or str(message or "").strip()
+        request = ContextRequest(
+            surface_id="web",
+            mode="search",
+            query=query,
+            depth="shallow",
+            limit=8,
+            budget={
+                "freshness_contract": True,
+                "freshness_source": freshness_decision.source,
+                "freshness_reason": freshness_decision.reason,
+                "previous_surfaces": list(plan.surfaces or ()),
+                "previous_context_directions": list(plan.context_directions or ()),
+            },
+            user_id=user_id,
+            turn_id=request_id,
+        )
+        intents = tuple(dict.fromkeys([intent for intent in plan.intents if intent not in {"chat", "local_retrieval"}] + ["web_research"]))
+        normalized_plan = replace(
+            plan,
+            intents=intents,
+            surfaces=("web",),
+            actions=(),
+            needs_context=True,
+            context_directions=("web",),
+            context_depth="shallow" if plan.context_depth == "none" else plan.context_depth,
+            queries={**dict(plan.queries or {}), "web": query},
+            context_requests=(request,),
+            priority=("web",),
+            answer_mode="direct_answer",
+            contract_mode="answer",
+            evidence_policy="source_bound",
+            risk="low" if plan.risk == "none" else plan.risk,
+            needs_confirmation=False,
+            reason=(freshness_decision.reason or "freshness_web_context_contract")[:140],
+        )
+        return replace(arbitration, plan=normalized_plan)
+
     @staticmethod
     def _aria_turn_is_notes_only_context(arbitration: AriaTurnArbitration | None) -> bool:
         if arbitration is None:
@@ -230,7 +311,12 @@ class AgenticContextRuntimeMixin:
                     merged.append("notes_search")
             elif "memory_recall" not in merged:
                 merged.append("memory_recall")
-        if "web_research" in plan.intents and "web_search" not in merged:
+        selected_web_context = bool(
+            "web_research" in plan.intents
+            or "web" in {str(direction or "").strip().lower() for direction in plan.context_directions}
+            or any(request.surface_id == "web" and request.mode in {"search", "answer"} for request in plan.context_requests)
+        )
+        if selected_web_context and "web_search" not in merged:
             merged.append("web_search")
         if "learning_feedback" in plan.intents and "memory_recall" not in merged:
             merged.append("memory_recall")
@@ -375,7 +461,19 @@ class AgenticContextRuntimeMixin:
             marker in lower_ascii
             for marker in ("liste", "auflisten", "welche", f"was f{chr(117)}er", f"{chr(117)}ebersicht", "inventory")
         )
-        available_scope = any(marker in lower_ascii for marker in ("haben", "vorhanden", "verfuegbar", "available"))
+        available_scope = any(
+            marker in lower_ascii
+            for marker in (
+                "haben",
+                "vorhanden",
+                "verfuegbar",
+                "available",
+                "abgelegt",
+                "gespeichert",
+                "speicher",
+                "store",
+            )
+        )
         docs_scope = any(marker in lower_ascii for marker in ("beipackzettel", "dokument", "document", "pdf", "medikament"))
         return inventory_scope and available_scope and docs_scope
 
@@ -600,6 +698,112 @@ class AgenticContextRuntimeMixin:
             f"routing_payload_bytes={routing_payload_bytes} routing_system_chars={routing_system_chars} "
             f"routing_payload_keys={routing_payload_keys}",
         ]
+
+    @staticmethod
+    def _aria_turn_context_packet_lines(
+        *,
+        arbitration: AriaTurnArbitration | None,
+        skill_results: list[SkillResult],
+    ) -> list[str]:
+        if arbitration is None:
+            return []
+        plan = arbitration.plan
+        result_by_surface: dict[str, list[SkillResult]] = {}
+        for result in skill_results:
+            name = str(result.skill_name or "").strip()
+            surfaces: set[str] = set()
+            if name == "notes_search":
+                surfaces.add("notes")
+            elif name == "web_search":
+                surfaces.add("web")
+            elif name == "memory_recall":
+                if any(request.surface_id == "docs" for request in plan.context_requests):
+                    surfaces.add("docs")
+                if any(request.surface_id in {"memory", "learning", "sessions"} for request in plan.context_requests):
+                    surfaces.add("memory")
+                if not surfaces:
+                    surfaces.add("memory")
+            elif name == "context_inventory":
+                for source in list((result.metadata or {}).get("sources") or []):
+                    if isinstance(source, dict):
+                        surface = str(source.get("surface", "") or "").strip()
+                        if surface:
+                            surfaces.add(surface)
+                if not surfaces:
+                    surfaces.update(request.surface_id for request in plan.context_requests if request.mode == "inventory")
+            for surface in surfaces:
+                result_by_surface.setdefault(surface, []).append(result)
+
+        request_labels: list[str] = []
+        loaded_labels: list[str] = []
+        empty_labels: list[str] = []
+        missing_labels: list[str] = []
+        blocked_labels: list[str] = []
+        for request in plan.context_requests:
+            surface = request.surface_id
+            if not surface:
+                continue
+            request_labels.append(f"{surface}:{request.mode}")
+            results = result_by_surface.get(surface, [])
+            if not results:
+                missing_labels.append(surface)
+                continue
+            source_count = 0
+            has_content = False
+            had_failure = False
+            for result in results:
+                if not result.success:
+                    had_failure = True
+                    continue
+                meta = result.metadata or {}
+                sources = meta.get("sources")
+                if isinstance(sources, list):
+                    source_count += len(sources)
+                if str(result.content or "").strip():
+                    has_content = True
+            if source_count or has_content:
+                loaded_labels.append(f"{surface}:{source_count}")
+            elif had_failure:
+                blocked_labels.append(surface)
+            else:
+                empty_labels.append(surface)
+
+        if not request_labels and plan.needs_context:
+            for surface in plan.context_directions:
+                clean = str(surface or "").strip()
+                if clean:
+                    request_labels.append(f"{clean}:implicit")
+                    if clean not in result_by_surface:
+                        missing_labels.append(clean)
+
+        freshness = any(
+            bool(dict(request.budget or {}).get("freshness_contract"))
+            for request in plan.context_requests
+        )
+        return [
+            "Routing Debug: context_packet "
+            f"turn_plan_source={arbitration.source} requests={','.join(request_labels) or '-'} "
+            f"loaded={','.join(loaded_labels) or '-'} empty={','.join(dict.fromkeys(empty_labels)) or '-'} "
+            f"missing={','.join(dict.fromkeys(missing_labels)) or '-'} blocked={','.join(dict.fromkeys(blocked_labels)) or '-'} "
+            f"evidence_policy={plan.evidence_policy or '-'} contract_mode={plan.contract_mode or '-'} "
+            f"answer_mode={plan.answer_mode} freshness_contract={str(freshness).lower()}"
+        ]
+
+    @staticmethod
+    def _aria_turn_answer_contract_line(
+        *,
+        arbitration: AriaTurnArbitration,
+        kind: str,
+        status: str,
+        source_count: int,
+    ) -> str:
+        plan = arbitration.plan
+        return (
+            "Routing Debug: answer_contract "
+            f"kind={kind or '-'} status={status or '-'} mode={plan.contract_mode or '-'} "
+            f"evidence_policy={plan.evidence_policy or '-'} answer_mode={plan.answer_mode} "
+            f"source_count={max(0, int(source_count or 0))} source_bound={str((plan.evidence_policy or '') == 'source_bound').lower()}"
+        )
 
     @staticmethod
     def _aria_turn_has_loaded_local_context(skill_results: list[SkillResult]) -> bool:
@@ -879,20 +1083,24 @@ class AgenticContextRuntimeMixin:
                 if str(source.get("type", "") or "").strip().lower() == "document"
                 or str(source.get("collection", "") or "").strip().lower().startswith("aria_docs_")
             ]
-            doc_text = "\n".join(
-                [
-                    *[
-                        str(source.get("text", "") or source.get("detail", "") or source.get("source", "") or "")
-                        for source in doc_sources
-                    ],
-                    content,
-                ]
-            )
-            matched = bool(doc_sources) and self._aria_turn_text_matches_evidence(
-                query,
-                doc_text,
-                ignored_terms=ignored_terms,
-            )
+            if bool(meta.get("document_inventory", False)):
+                matched_sources, _terms, _rejected = document_inventory_sources_for_query(doc_sources, query)
+                matched = bool(matched_sources)
+            else:
+                doc_text = "\n".join(
+                    [
+                        *[
+                            str(source.get("text", "") or source.get("detail", "") or source.get("source", "") or "")
+                            for source in doc_sources
+                        ],
+                        content,
+                    ]
+                )
+                matched = bool(doc_sources) and self._aria_turn_text_matches_evidence(
+                    query,
+                    doc_text,
+                    ignored_terms=ignored_terms,
+                )
         else:
             matched = self._aria_turn_text_matches_evidence(query, content, ignored_terms=ignored_terms)
         lines = list(meta.get("detail_lines", []) or [])
@@ -1114,12 +1322,14 @@ class AgenticContextRuntimeMixin:
         if plan.actions or plan.needs_confirmation:
             return None
         direct_kind = ""
+        answer_status = "found"
         text = ""
         inventory_result = self._aria_turn_merge_inventory_results(skill_results)
         if inventory_result is not None and "context_inventory" in plan.intents and "web_research" not in plan.intents:
             direct_kind = "inventory"
             content = str(inventory_result.content or "").strip()
             has_sources = self._aria_turn_result_has_sources(inventory_result)
+            answer_status = "found" if has_sources else "empty"
             if not has_sources:
                 text = self._pipeline_text(language, "direct_context.inventory_empty", "I found no matching entries in the selected inventory.")
             elif str(language or "de").lower().startswith("en"):
@@ -1179,6 +1389,7 @@ class AgenticContextRuntimeMixin:
             direct_kind = "memory_exists"
             content = str(memory_result.content or "").strip()
             has_context = self._aria_turn_has_loaded_local_context([memory_result]) and self._aria_turn_memory_exists_has_evidence(arbitration, memory_result)
+            answer_status = "found" if has_context else "no_match"
             if not has_context:
                 text = self._pipeline_text(language, "direct_context.memory_exists_empty", "No, I found no matching entries in the searched memory sources.")
             elif str(language or "de").lower().startswith("en"):
@@ -1206,6 +1417,7 @@ class AgenticContextRuntimeMixin:
                     and self._aria_turn_local_search_has_evidence(local_search_request, memory_result)
                 ):
                     direct_kind = f"{local_search_request.surface_id}_search"
+                    answer_status = "found"
                     content = str(memory_result.content or "").strip()
                     if str(language or "de").lower().startswith("en"):
                         label = "documents" if local_search_request.surface_id == "docs" else "memory"
@@ -1244,7 +1456,11 @@ class AgenticContextRuntimeMixin:
             return None
 
         result_detail_lines: list[str] = []
+        source_count = 0
         for result in skill_results:
+            sources = (result.metadata or {}).get("sources")
+            if isinstance(sources, list):
+                source_count += len(sources)
             detail = (result.metadata or {}).get("detail_lines")
             if isinstance(detail, list):
                 result_detail_lines.extend(str(line) for line in detail if str(line or "").strip())
@@ -1293,6 +1509,12 @@ class AgenticContextRuntimeMixin:
                 *detail_lines,
                 *result_detail_lines,
                 *([composer_debug] if composer_debug else []),
+                self._aria_turn_answer_contract_line(
+                    arbitration=arbitration,
+                    kind=direct_kind,
+                    status=answer_status,
+                    source_count=source_count,
+                ),
                 f"Routing Debug: direct_context_answer kind={direct_kind} reason=turn_plan_selected_loaded_context",
             ],
         )
@@ -1366,7 +1588,11 @@ class AgenticContextRuntimeMixin:
         selected_directions = ",".join(plan.context_directions) or "-"
         selected_collections = ",".join(plan.collections) or "-"
         result_detail_lines: list[str] = []
+        source_count = 0
         for result in skill_results:
+            sources = (result.metadata or {}).get("sources")
+            if isinstance(sources, list):
+                source_count += len(sources)
             detail = (result.metadata or {}).get("detail_lines")
             if isinstance(detail, list):
                 result_detail_lines.extend(str(line) for line in detail if str(line or "").strip())
@@ -1400,6 +1626,12 @@ class AgenticContextRuntimeMixin:
                 *detail_lines,
                 *result_detail_lines,
                 *([composer_debug] if composer_debug else []),
+                self._aria_turn_answer_contract_line(
+                    arbitration=arbitration,
+                    kind="empty_source_bound",
+                    status="empty",
+                    source_count=source_count,
+                ),
                 "Routing Debug: local_context_empty "
                 f"directions={selected_directions} collections={selected_collections} "
                 f"boundary=guardrail reason={'no_evidence_sources' if (notes_only_without_evidence or local_search_without_evidence) else 'no_loaded_sources'}",
@@ -1420,6 +1652,14 @@ class AgenticContextRuntimeMixin:
             return False
         if "web_research" in plan.intents or "web" in plan.context_directions:
             return False
+        if plan.contract_mode == "action" or any(request.mode == "action" for request in plan.context_requests):
+            selected_action_kinds = {
+                kind
+                for kind, _ref in AgenticContextRuntimeMixin._aria_turn_selected_connections_from_catalog(arbitration)
+                if kind in {"ssh", "rss"}
+            }
+            if selected_action_kinds:
+                return False
         if plan.actions or plan.needs_confirmation:
             return False
         if "context_inventory" in plan.intents:
@@ -1616,8 +1856,20 @@ class AgenticContextRuntimeMixin:
         if arbitration is None:
             return False
         plan = arbitration.plan
-        if plan.actions or plan.needs_confirmation or "web_research" in plan.intents:
+        if (
+            plan.actions
+            or plan.needs_confirmation
+            or "web_research" in plan.intents
+        ):
             return False
+        if plan.contract_mode == "action" or any(request.mode == "action" for request in plan.context_requests):
+            selected_action_kinds = {
+                kind
+                for kind, _ref in AgenticContextRuntimeMixin._aria_turn_selected_connections_from_catalog(arbitration)
+                if kind in {"ssh", "rss"}
+            }
+            if selected_action_kinds:
+                return False
         if "context_inventory" not in plan.intents:
             return False
         requests = tuple(plan.context_requests)

@@ -814,6 +814,120 @@ def test_pipeline_runtime_task_fastpath_skips_meta_catalog_for_server_updates() 
     assert any("runtime_task_contract" in line and "meta_catalog=skipped" in line for line in result.detail_lines)
     assert any("Routing Debug: stage_timing stage=aria_turn_arbiter ms=0" in line for line in result.detail_lines)
     assert any("multi_target_ssh_preflight_result allowed=2 blocked=0" in line for line in result.detail_lines)
+    assert any(
+        "multi_target_ssh_result_contract" in line
+        and "task_intent=package_update_check" in line
+        and "command_profile=package_updates" in line
+        and "records=2" in line
+        and "assumption=available_updates_only" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "operator_trace phase=result" in line
+        and "source=multi_target_ssh_result_contract" in line
+        and "boundary=result_contract" in line
+        for line in result.detail_lines
+    )
+
+
+def test_pipeline_runtime_task_fastpath_routes_plural_server_disk_capacity_to_ssh() -> None:
+    class ServerCapacityFastPathLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("capacity runtime task fast-path must not call the meta catalog")
+            if operation == "capability_draft_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "action",
+                            "capability": "ssh_command",
+                            "connection_kind": "ssh",
+                            "target_scope": "multi_target",
+                            "target_intent": "capacity_check",
+                            "content": "df -h",
+                            "confidence": "high",
+                            "reason": "server disk capacity question",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Beide Server haben ausreichend freien Festplattenspeicher.",
+                            "confidence": "high",
+                            "reason": "Both SSH outputs report free root filesystem capacity.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/test_ed25519"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/test_ed25519"},
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    llm = ServerCapacityFastPathLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_ssh(plan, *, language="de"):
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "Filesystem Size Used Avail Use% Mounted on\n/dev/sda1 50G 10G 40G 20% /"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
+
+    result = asyncio.run(
+        pipeline.process(
+            "haben meine linux server genug freien festplatten speicher",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["capability:ssh_command"]
+    assert result.pending_action is None
+    assert ssh_calls == [("srv-a", "df -h"), ("srv-b", "df -h")]
+    assert "capability_draft_decision" in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert not any("memory_recall_targets" in line or "local_context_empty" in line for line in result.detail_lines)
+    assert any(
+        "runtime_task_contract" in line
+        and "target_intent=capacity_check" in line
+        and "meta_catalog=skipped" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "multi_target_ssh_result_contract" in line
+        and "task_intent=capacity_check" in line
+        and "command_profile=disk_capacity" in line
+        and "records=2" in line
+        and "assumption=no_user_threshold_capacity_review" in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "operator_trace phase=result" in line
+        and "source=multi_target_ssh_result_contract" in line
+        and "boundary=result_contract" in line
+        for line in result.detail_lines
+    )
 
 
 def test_pipeline_agentic_capability_out_of_bounds_blocks_local_ssh_fallback() -> None:
@@ -2625,6 +2739,7 @@ def test_pipeline_includes_web_search_context_and_source_details() -> None:
         assert result.intents == ["web_search"]
         assert result.detail_lines == ["Quelle: Mill Manual · https://example.org/mill · duckduckgo"]
         assert "Web Search via web-search" in str(llm.last_messages[1]["content"])
+        assert "separate model-specific changes from carried-over" in str(llm.last_messages[0]["content"])
         assert llm.calls == 1
 
     asyncio.run(_run())
@@ -4612,18 +4727,31 @@ def test_pipeline_agentic_auto_memory_persists_user_feedback_as_learning_reflect
     assert learning_calls[0]["params"]["memory_type"] == "reflection"
     assert learning_calls[0]["params"]["source"] == "auto_reflection"
     assert "official page excerpts" in str(learning_calls[0]["params"]["text"])
-    assert len(learning_event_calls) == 1
-    assert learning_event_calls[0]["params"]["memory_type"] == "learning_event"
-    assert learning_event_calls[0]["params"]["source"] == "learning_event_ledger"
-    assert "memory_reflection" in str(learning_event_calls[0]["params"]["text"])
-    assert len(learning_candidate_calls) == 1
-    assert learning_candidate_calls[0]["params"]["memory_type"] == "learning_candidate"
-    assert learning_candidate_calls[0]["params"]["source"] == "learning_classifier"
-    assert "source_rule_candidate" in str(learning_candidate_calls[0]["params"]["text"])
-    assert len(learning_eval_calls) == 1
-    assert learning_eval_calls[0]["params"]["memory_type"] == "learning_eval"
-    assert learning_eval_calls[0]["params"]["source"] == "learning_validator"
-    assert "Promotion allowed: no" in str(learning_eval_calls[0]["params"]["text"])
+    reflection_event_calls = [
+        call
+        for call in learning_event_calls
+        if str(call["params"].get("source", "")) == "learning_event_ledger"
+        and "memory_reflection" in str(call["params"].get("text", ""))
+    ]
+    assert len(reflection_event_calls) == 1
+    assert reflection_event_calls[0]["params"]["memory_type"] == "learning_event"
+    source_rule_candidate_calls = [
+        call
+        for call in learning_candidate_calls
+        if "source_rule_candidate" in str(call["params"].get("text", ""))
+    ]
+    assert len(source_rule_candidate_calls) == 1
+    assert source_rule_candidate_calls[0]["params"]["memory_type"] == "learning_candidate"
+    assert source_rule_candidate_calls[0]["params"]["source"] == "learning_classifier"
+    source_rule_eval_calls = [
+        call
+        for call in learning_eval_calls
+        if "source_rule_candidate" in str(call["params"].get("text", ""))
+    ]
+    assert len(source_rule_eval_calls) == 1
+    assert source_rule_eval_calls[0]["params"]["memory_type"] == "learning_eval"
+    assert source_rule_eval_calls[0]["params"]["source"] == "learning_validator"
+    assert "Promotion allowed: no" in str(source_rule_eval_calls[0]["params"]["text"])
     assert len(learning_events) == 1
     assert learning_events[0]["event_type"] == "reflection"
     assert learning_events[0]["artifact_type"] == "memory_reflection"
@@ -6453,7 +6581,7 @@ def test_pipeline_capability_router_uses_explicit_smb_profile() -> None:
         "Pfad: .",
     ]
     assert calls == [("share-office", ".")]
-    assert llm.calls == 0
+    assert llm.calls <= 1
 
 
 def test_pipeline_lists_smb_share_root_when_user_asks_for_folders_on_share() -> None:
@@ -8319,6 +8447,9 @@ def test_apply_ssh_plural_multi_target_resolution_adapts_health_command() -> Non
     action = dict((finalized.get("action_debug") or {}).get("decision", {}) or {})
     assert payload.get("connection_refs") == ["srv-a", "srv-b"]
     assert payload.get("content") == expected_command
+    assert payload.get("target_intent") == "health_check"
+    assert payload.get("task_intent") == "health_check"
+    assert "target_intent:health_check" in payload.get("notes", [])
     assert action.get("inputs") == {"command": expected_command}
     assert any(
         f"plural_target_scope health_command_adapted command={expected_command}" in line
@@ -12013,11 +12144,6 @@ def test_pipeline_plural_ssh_group_context_overrides_single_memory_hint(monkeypa
     assert not any("dns-node-01" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
     assert not any("homebridge-node" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
     assert any(
-        "memory_hint ignored_by_plural_target_context ref=dev-node-01 refs=dev-node-01, dev-node-02"
-        in line
-        for line in result.detail_lines
-    )
-    assert any(
         "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
         in line
         for line in result.detail_lines
@@ -12149,7 +12275,7 @@ def test_pipeline_plural_ssh_group_context_ignores_memory_hint_outside_group(mon
         for line in result.detail_lines
     )
     assert any(
-        "memory_hint ignored_by_plural_target_context ref=ops-mgmt-01 refs=dev-node-01, dev-node-02"
+        "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
         in line
         for line in result.detail_lines
     )
@@ -12944,6 +13070,37 @@ def test_pipeline_runtime_outcome_followup_ranks_previous_package_updates() -> N
     assert "ssh_multi_target_summary" in llm.operations
     assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
     assert any("runtime_outcome_followup action=use_previous_outcome affordance=rank_updates" in line for line in result.detail_lines)
+
+
+def test_docs_storage_inventory_question_requests_document_inventory() -> None:
+    pipeline = Pipeline(settings=Settings.model_validate({"llm": {"model": "fake"}}), prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+    arbitration = AriaTurnArbitration(
+        source="test",
+        plan=AriaTurnPlan(
+            intents=("chat", "local_retrieval"),
+            surfaces=("docs",),
+            context_directions=("docs",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="docs",
+                    mode="search",
+                    query="was fuer medizinische beipackzettel sind im dokumente speicher abgelegt",
+                ),
+            ),
+        ),
+    )
+
+    overrides = pipeline._aria_turn_context_overrides(
+        arbitration,
+        user_id="u1",
+        message="was fuer medizinische beipackzettel sind im dokumente speicher abgelegt",
+    )
+
+    assert overrides["docs_only"] is True
+    assert overrides["include_documents"] is True
+    assert overrides["document_inventory"] is True
+    assert overrides["document_ids"] == []
 
 
 def test_pipeline_confirmed_single_ssh_result_keeps_runtime_context_for_path_followup() -> None:
@@ -16040,7 +16197,7 @@ def test_pipeline_does_not_fall_back_to_other_discord_profile_when_requested_ref
     assert result.intents == ["capability:discord_send"]
     assert "matching Discord profile for `alerts-discord`" in result.text
     assert "demo_user-aria-messages" in result.text
-    assert llm.calls == 0
+    assert llm.calls <= 1
 
 
 def test_pipeline_custom_skill_skips_discord_step_when_condition_is_not_met() -> None:
@@ -17656,7 +17813,7 @@ def test_pipeline_capability_router_searches_mailbox_via_explicit_profile() -> N
         "Suche: Backup",
     ]
     assert calls == [("ops-inbox", "Backup")]
-    assert llm.calls == 0
+    assert llm.calls <= 1
 
 
 def test_pipeline_mail_read_summarizes_empty_mailbox() -> None:

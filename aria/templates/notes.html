@@ -21,11 +21,12 @@
           <p class="notes-kicker">{{ tr(request, 'notes.title', 'Notizen') }}</p>
           <h2>{{ tr(request, 'notes.title', 'Notizen') }}</h2>
         </div>
-        <a class="notes-sidebar-create" href="/notes?folder={{ selected_folder|urlencode }}&new=1">{{ icon('plus', 'ui-action-icon') }}<span>{{ tr(request, 'notes.new_title', 'Neue Notiz') }}</span></a>
+        <a class="notes-sidebar-create" href="/notes?folder={{ selected_folder|urlencode }}&view={{ notes_view|urlencode }}&new=1">{{ icon('plus', 'ui-action-icon') }}<span>{{ tr(request, 'notes.new_title', 'Neue Notiz') }}</span></a>
       </div>
 
       <form method="get" action="/notes" class="notes-search-form">
         <input type="hidden" name="folder" value="{{ selected_folder }}">
+        <input type="hidden" name="view" value="{{ notes_view }}">
         <label class="sr-only" for="note_search_query">{{ tr(request, 'notes.search_label', 'Suchbegriff') }}</label>
         <input id="note_search_query" name="q" type="text" value="{{ note_search_query or '' }}" placeholder="{{ tr(request, 'notes.search_placeholder', 'Notizen durchsuchen') }}">
       </form>
@@ -34,7 +35,7 @@
         {% for row in note_folder_rows %}
         <a
           class="notes-folder-link{% if selected_folder == row.token and not note_search_query %} is-active{% endif %}"
-          href="/notes?folder={{ row.token|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}"
+          href="/notes?folder={{ row.token|urlencode }}&view={{ notes_view|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}"
           style="--folder-depth: {{ row.depth }}"
         >
           <span class="notes-folder-label">
@@ -82,9 +83,13 @@
           {% endif %}
         </div>
         <div class="notes-workspace-meta">
+          <nav class="notes-view-toggle" aria-label="{{ tr(request, 'notes.view_toggle_label', 'Ansicht') }}">
+            <a class="{% if notes_view != 'list' %}is-active{% endif %}" href="/notes?folder={{ selected_folder|urlencode }}&view=cards{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">{{ tr(request, 'notes.view_cards', 'Karten') }}</a>
+            <a class="{% if notes_view == 'list' %}is-active{% endif %}" href="/notes?folder={{ selected_folder|urlencode }}&view=list{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">{{ tr(request, 'notes.view_list', 'Liste') }}</a>
+          </nav>
           <span>{{ board_notes|length }} {{ tr(request, 'notes.count_meta', 'Notizen') }}</span>
           {% if note_search_query %}
-          <a class="secondary-button" href="/notes?folder={{ selected_folder|urlencode }}">{{ tr(request, 'notes.clear_search', 'Suche zurücksetzen') }}</a>
+          <a class="secondary-button" href="/notes?folder={{ selected_folder|urlencode }}&view={{ notes_view|urlencode }}">{{ tr(request, 'notes.clear_search', 'Suche zurücksetzen') }}</a>
           {% endif %}
         </div>
       </header>
@@ -98,7 +103,7 @@
             <h3>{{ tr(request, 'notes.editor_title', 'Notiz bearbeiten') if selected_note else tr(request, 'notes.create_title', 'Notiz anlegen') }}</h3>
           </div>
           <div class="notes-editor-actions">
-            <a class="secondary-button" href="/notes?folder={{ selected_folder|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">{{ tr(request, 'notes.back_to_board', 'Zurück zum Board') }}</a>
+            <a class="secondary-button" href="/notes?folder={{ selected_folder|urlencode }}&view={{ notes_view|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">{{ tr(request, 'notes.back_to_board', 'Zurück zum Board') }}</a>
             {% if selected_note %}
             <a class="secondary-button" href="/notes/export/{{ selected_note.note_id|urlencode }}.md">{{ tr(request, 'notes.export', 'Markdown exportieren') }}</a>
             {% endif %}
@@ -129,11 +134,24 @@
           <textarea id="note_body" name="body" class="editor-textarea notes-editor-textarea" rows="18" placeholder="{{ tr(request, 'notes.form_body_placeholder', 'Markdown ist erlaubt.') }}" required>{{ selected_note.body if selected_note else '' }}</textarea>
           <div class="notes-editor-buttons">
             <button type="submit">{{ tr(request, 'notes.save', 'Notiz speichern') }}</button>
-            <a class="secondary-button" href="/notes?folder={{ selected_folder|urlencode }}&new=1">{{ tr(request, 'notes.reset_editor', 'Neue leere Notiz') }}</a>
+            <a class="secondary-button" href="/notes?folder={{ selected_folder|urlencode }}&view={{ notes_view|urlencode }}&new=1">{{ tr(request, 'notes.reset_editor', 'Neue leere Notiz') }}</a>
           </div>
         </form>
 
         {% if selected_note %}
+        <form method="post" action="/notes/move" class="notes-move-form">
+          <input type="hidden" name="note_id" value="{{ selected_note.note_id }}">
+          <label for="selected_note_move_folder">{{ tr(request, 'notes.move_label', 'In Ordner verschieben') }}</label>
+          <div class="notes-move-row">
+            <select id="selected_note_move_folder" name="target_folder">
+              <option value="">{{ tr(request, 'notes.inbox', 'Inbox') }}</option>
+              {% for folder in note_folders %}
+              <option value="{{ folder }}" {% if selected_note.folder == folder %}selected{% endif %}>{{ folder }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="secondary-button">{{ tr(request, 'notes.move_button', 'Verschieben') }}</button>
+          </div>
+        </form>
         <form method="post" action="/notes/delete" class="inline-danger-form" onsubmit="return window.confirm('{{ tr(request, 'notes.delete_confirm', 'Diese Notiz wirklich löschen?') }}');">
           <input type="hidden" name="note_id" value="{{ selected_note.note_id }}">
           <button type="submit" class="danger-button">{{ tr(request, 'notes.delete', 'Notiz löschen') }}</button>
@@ -141,24 +159,82 @@
         {% endif %}
       </section>
       {% else %}
+      {% if notes_view == 'list' %}
+      <form method="post" action="/notes/bulk/move" class="notes-list-shell">
+        <input type="hidden" name="selected_folder" value="{{ selected_folder }}">
+        <div class="notes-list-toolbar">
+          <div>
+            <p class="notes-kicker">{{ tr(request, 'notes.bulk_section', 'Mehrfachauswahl') }}</p>
+            <strong>{{ tr(request, 'notes.bulk_move_title', 'Ausgewählte Notizen verschieben') }}</strong>
+          </div>
+          <div class="notes-list-bulk-controls">
+            <label class="sr-only" for="bulk_move_folder">{{ tr(request, 'notes.move_label', 'In Ordner verschieben') }}</label>
+            <select id="bulk_move_folder" name="target_folder">
+              <option value="">{{ tr(request, 'notes.inbox', 'Inbox') }}</option>
+              {% for folder in note_folders %}
+              <option value="{{ folder }}" {% if selected_folder == folder %}selected{% endif %}>{{ folder }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="secondary-button">{{ tr(request, 'notes.move_selected_button', 'Auswahl verschieben') }}</button>
+          </div>
+        </div>
+
+        <div class="notes-list" role="list">
+          {% for note in board_notes %}
+          {% set search_meta = note_search_result_map.get(note.note_id) if note_search_result_map else None %}
+          <article class="notes-list-row" role="listitem">
+            <label class="notes-list-check">
+              <input type="checkbox" name="note_ids" value="{{ note.note_id }}">
+              <span class="sr-only">{{ tr(request, 'notes.select_note', 'Notiz auswählen') }}</span>
+            </label>
+            <a class="notes-list-main" href="/notes?folder={{ selected_folder|urlencode }}&view=list&note={{ note.note_id|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">
+              <strong>{{ note.title }}</strong>
+              <span>{{ search_meta.snippet if search_meta and search_meta.snippet else (note.summary or note.relative_path) }}</span>
+            </a>
+            <span class="notes-list-folder">{{ note.folder or 'Inbox' }}</span>
+            <span class="notes-list-date">{{ note.updated_at[:10] }}</span>
+          </article>
+          {% else %}
+          <div class="notes-empty-board">
+            <h3>{{ tr(request, 'notes.empty', 'Noch keine Notizen vorhanden.') }}</h3>
+            <p>{{ tr(request, 'notes.empty_board_desc', 'Lege links einen Ordner an oder starte direkt mit einer neuen Notiz.') }}</p>
+            <a class="button-like" href="/notes?folder={{ selected_folder|urlencode }}&view=list&new=1">{{ tr(request, 'notes.new_title', 'Neue Notiz') }}</a>
+          </div>
+          {% endfor %}
+        </div>
+      </form>
+      {% else %}
       <div class="notes-board">
         {% for note in board_notes %}
-        <a class="notes-card{% if selected_note and selected_note.note_id == note.note_id %} is-active{% endif %}" href="/notes?folder={{ selected_folder|urlencode }}&note={{ note.note_id|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">
+        <article class="notes-card{% if selected_note and selected_note.note_id == note.note_id %} is-active{% endif %}">
           {% set search_meta = note_search_result_map.get(note.note_id) if note_search_result_map else None %}
-          <div class="notes-card-topline">
-            <strong>{{ note.title }}</strong>
-            <span>{{ note.updated_at[:10] }}</span>
-          </div>
-          <p class="notes-card-folder">{{ note.folder or 'Inbox' }}</p>
-          <p class="notes-card-preview">{{ search_meta.snippet if search_meta and search_meta.snippet else (note.summary or note.relative_path) }}</p>
-          {% if note.tags %}
-          <div class="notes-card-tags">
-            {% for tag in note.tags[:4] %}
-            <span>{{ tag }}</span>
-            {% endfor %}
-          </div>
-          {% endif %}
-        </a>
+          <a class="notes-card-link" href="/notes?folder={{ selected_folder|urlencode }}&note={{ note.note_id|urlencode }}{% if note_search_query %}&q={{ note_search_query|urlencode }}{% endif %}">
+            <div class="notes-card-topline">
+              <strong>{{ note.title }}</strong>
+              <span>{{ note.updated_at[:10] }}</span>
+            </div>
+            <p class="notes-card-folder">{{ note.folder or 'Inbox' }}</p>
+            <p class="notes-card-preview">{{ search_meta.snippet if search_meta and search_meta.snippet else (note.summary or note.relative_path) }}</p>
+            {% if note.tags %}
+            <div class="notes-card-tags">
+              {% for tag in note.tags[:4] %}
+              <span>{{ tag }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </a>
+          <form method="post" action="/notes/move" class="notes-card-move">
+            <input type="hidden" name="note_id" value="{{ note.note_id }}">
+            <label class="sr-only" for="move_note_{{ note.note_id }}">{{ tr(request, 'notes.move_label', 'In Ordner verschieben') }}</label>
+            <select id="move_note_{{ note.note_id }}" name="target_folder">
+              <option value="">{{ tr(request, 'notes.inbox', 'Inbox') }}</option>
+              {% for folder in note_folders %}
+              <option value="{{ folder }}" {% if note.folder == folder %}selected{% endif %}>{{ folder }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="secondary-button">{{ tr(request, 'notes.move_button', 'Verschieben') }}</button>
+          </form>
+        </article>
         {% else %}
         <div class="notes-empty-board">
           <h3>{{ tr(request, 'notes.empty', 'Noch keine Notizen vorhanden.') }}</h3>
@@ -167,6 +243,7 @@
         </div>
         {% endfor %}
       </div>
+      {% endif %}
       {% endif %}
     </section>
   </section>

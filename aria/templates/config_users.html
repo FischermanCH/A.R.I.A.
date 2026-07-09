@@ -4,31 +4,6 @@
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
 
-  <section id="admin-mode" class="config-card floating-card config-domain-section">
-    <h3>{{ tr(request, 'config_users.admin_toggle', 'Admin On/Off') }}</h3>
-    <p class="hint-text">{{ tr(request, 'config_users.admin_toggle_hint', 'Shows technical UI details (debug view) for admins only.') }}</p>
-    <p class="hint-text">{{ tr(request, 'config_users.admin_mode_explainer', 'Admin-Modus blendet tiefere Systembereiche wie LLM, Embeddings, Security, Logs und den Datei-Editor ein. User-Modus bleibt absichtlich schlanker für den Alltag. Rollenrechte und Admin-Modus sind zwei getrennte Dinge: nur Admins können diesen Schalter überhaupt nutzen.') }}</p>
-    <p class="hint-text">
-      <strong>{{ tr(request, 'config_users.admin_mode_status_label', 'Current status') }}:</strong>
-      {% if debug_mode %}
-      <span class="pill brand-admin-pill">{{ tr(request, 'config_users.admin_mode_on', 'Active') }}</span>
-      {% else %}
-      <span class="pill">{{ tr(request, 'config_users.admin_mode_off', 'Inactive') }}</span>
-      {% endif %}
-    </p>
-    <p class="hint-text">{{ tr(request, 'config_users.admin_toggle_effect', 'This controls advanced areas such as LLM, Embeddings, Security, Logs and the File Editor.') }}</p>
-    <form class="editor-form" method="post" action="/config/users/debug-save">
-      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
-      <label class="inline-check">
-        <input type="checkbox" name="debug_mode" value="1" {% if debug_mode %}checked{% endif %}>
-        {{ tr(request, 'config_users.enable_admin_mode', 'Enable admin mode') }}
-      </label>
-      <div class="inline-actions">
-        <button type="submit">{{ tr(request, 'config_users.save', 'Save') }}</button>
-      </div>
-    </form>
-  </section>
-
   <section class="config-card floating-card config-domain-section">
     <h3>{{ tr(request, 'config_users.login_bootstrap', 'Login & Bootstrap') }}</h3>
     <p class="hint-text">{{ tr(request, 'config_users.login_bootstrap_hint', 'Persönliche Login- und Erststart-Einstellungen für diese ARIA-Instanz.') }}</p>

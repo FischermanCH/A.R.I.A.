@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+{% set memory_lang_de = request and request.state and (request.state.lang|string).lower().startswith('de') %}
+<main class="config-layout memory-config-layout memory-domain-shell">
+  {% include "_admin_section_nav.html" %}
+  <section class="config-card">
+    <div class="page-title-row">
+      <h2>{{ tr(request, 'config_memory.auto_learning_title', 'Auto-Memory & agentisches Lernen' if memory_lang_de else 'Auto-memory & agentic learning') }}</h2>
+    </div>
+    {% if saved %}
+    <div class="alert ok">{{ tr(request, 'config_memory.saved', 'Memory setup updated.') }}</div>
+    {% endif %}
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    {% include "_memory_auto_section.html" %}
+  </section>
+</main>
+{% endblock %}

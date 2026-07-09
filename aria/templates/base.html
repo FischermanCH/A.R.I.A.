@@ -30,9 +30,10 @@
   {% set nav_notes_active = current_path.startswith('/notes') %}
   {% set nav_recipes_active = current_path.startswith('/recipes') %}
   {% set nav_connections_active = current_path == '/connections' or current_path.startswith('/config/connections') %}
-  {% set nav_stats_active = current_path.startswith('/stats') or current_path.startswith('/activities') %}
+  {% set nav_stats_active = current_path.startswith('/stats') %}
+  {% set nav_activities_active = current_path.startswith('/activities') %}
   {% set nav_updates_active = current_path.startswith('/updates') %}
-  {% set nav_config_active = current_path == '/config' or current_path.startswith('/config/') %}
+  {% set nav_config_active = current_path == '/config' or current_path.startswith('/config/') or current_path.startswith('/connections') or current_path.startswith('/recipes') %}
   {% set nav_help_active = current_path.startswith('/help') or current_path.startswith('/product-info') or current_path.startswith('/licenses') %}
   <div class="app-shell">
     <header class="topbar">
@@ -78,20 +79,55 @@
               <small>{{ request.state.auth_role }}</small>
               {% endif %}
             </div>
+            <a href="/config/admin-mode" class="user-menu-account-toggle{% if current_path == '/config/admin-mode' %} is-active{% endif %}">
+              <span class="user-menu-account-toggle-copy">
+                <span class="user-menu-account-toggle-title">{{ tr(request, 'base.nav_extended_view', 'Extended view') }}</span>
+                <span class="user-menu-account-toggle-subtitle">
+                  {% if request.state.can_access_advanced_config %}
+                  {{ tr(request, 'base.admin_mode_active', 'Admin mode active') }}
+                  {% else %}
+                  {{ tr(request, 'base.admin_mode_inactive', 'Admin mode off') }}
+                  {% endif %}
+                </span>
+              </span>
+              {% if request.state.can_access_advanced_config %}
+              <span class="user-menu-account-toggle-state is-on">{{ tr(request, 'base.admin_mode_on_short', 'on') }}</span>
+              {% else %}
+              <span class="user-menu-account-toggle-state">{{ tr(request, 'base.admin_mode_off_short', 'off') }}</span>
+              {% endif %}
+            </a>
             <div class="user-menu-section-label">{{ tr(request, 'base.nav_sections', 'Bereiche') }}</div>
-            <a href="/memories" class="user-menu-link user-menu-link-icon{% if nav_memories_active %} is-active{% endif %}">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
+            <a href="/memories" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_memories_active %} is-active{% endif %}">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
             <a href="/notes" class="user-menu-link user-menu-link-icon{% if nav_notes_active %} is-active{% endif %}">{{ icon('notes') }}<span>{{ tr(request, 'base.nav_notes', 'Notizen') }}</span></a>
-            <a href="/recipes" class="user-menu-link user-menu-link-icon{% if nav_recipes_active %} is-active{% endif %}">{{ icon('skills') }}<span>{{ tr(request, 'base.nav_skills', 'Rezepte') }}</span></a>
-            <a href="/connections" class="user-menu-link user-menu-link-icon{% if nav_connections_active %} is-active{% endif %}">{{ icon('connections') }}<span>{{ tr(request, 'base.nav_connections', 'Connections') }}</span></a>
+            {% if request.state.can_access_advanced_config %}
+            <details class="user-menu-admin-details user-menu-settings-details"{% if nav_config_active %} open{% endif %}>
+              <summary class="user-menu-link user-menu-link-icon user-menu-admin-summary{% if nav_config_active %} is-active{% endif %}">
+                {{ icon('settings') }}
+                <span>{{ tr(request, 'base.nav_config', 'Settings') }}</span>
+                {{ icon('arrow_right', 'user-menu-admin-caret') }}
+              </summary>
+              <div class="user-menu-admin-links user-menu-settings-links">
+                <a href="/config" class="user-menu-link user-menu-link-icon{% if current_path == '/config' %} is-active{% endif %}">
+                  {{ icon('settings') }}
+                  <span>{{ tr(request, 'base.nav_settings_overview', 'Overview') }}</span>
+                </a>
+                <a href="/config/admin" class="user-menu-link user-menu-link-icon{% if current_path == '/config/admin' or current_path.startswith('/config/admin/') %} is-active{% endif %}">
+                  {{ icon('settings') }}
+                  <span>{{ tr(request, 'base.nav_admin', 'Admin') }}</span>
+                </a>
+              </div>
+            </details>
+            {% else %}
             <a href="/config" class="user-menu-link user-menu-link-icon{% if nav_config_active %} is-active{% endif %}">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Settings') }}</span></a>
-            {% if update_status and update_status.update_available %}
+            {% endif %}
+            <a href="/stats" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
+            {% if (update_status and update_status.update_available) or nav_updates_active %}
             <a href="/updates" class="user-menu-link user-menu-link-icon{% if nav_updates_active %} is-active{% endif %}">
               {{ icon('updates') }}
               <span>{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
-              <span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>
+              {% if update_status and update_status.update_available %}<span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>{% endif %}
             </a>
             {% endif %}
-            <a href="/stats" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
             <a href="/help" class="user-menu-link user-menu-link-icon{% if nav_help_active %} is-active{% endif %}">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
             <div class="user-menu-divider" aria-hidden="true"></div>
             <form action="/logout" method="post" class="inline-form">

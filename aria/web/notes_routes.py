@@ -52,6 +52,10 @@ def _folder_token(folder: str) -> str:
     return clean or _ROOT_FOLDER_TOKEN
 
 
+def _notes_view(value: str) -> str:
+    return "list" if str(value or "").strip().lower() == "list" else "cards"
+
+
 def _folder_matches(note: NoteRecord, selected_folder: str) -> bool:
     if selected_folder == _ALL_FOLDER_TOKEN:
         return True
@@ -167,6 +171,7 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
         notes: list[NoteRecord] | None = None,
         folders: list[str] | None = None,
         selected_note: NoteRecord | None = None,
+        notes_view: str = "cards",
     ) -> HTMLResponse:
         settings = deps.get_settings()
         username = deps.get_username_from_request(request) or "web"
@@ -205,6 +210,7 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
                 "info_message": info_message,
                 "error_message": error_message,
                 "note_search_query": search_query,
+                "notes_view": _notes_view(notes_view),
                 "note_search_results": list(search_results or []),
                 "note_search_result_map": {
                     str(item.get("note_id", "")).strip(): item for item in list(search_results or []) if str(item.get("note_id", "")).strip()
@@ -221,6 +227,7 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
         info: str = "",
         error: str = "",
         new: int = 0,
+        view: str = "cards",
     ) -> HTMLResponse:
         username = deps.get_username_from_request(request) or "web"
         selected = str(note or "").strip()
@@ -313,6 +320,7 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
             notes=known_notes,
             folders=folders,
             selected_note=selected_note,
+            notes_view=view,
         )
 
     @app.post("/notes/save")
@@ -385,6 +393,121 @@ def register_notes_routes(app: FastAPI, deps: NotesRouteDeps) -> None:
             if callable(close):
                 await close()
         return RedirectResponse(url=f"/notes?folder={quote_plus(_ALL_FOLDER_TOKEN)}&info={quote_plus(info_message)}", status_code=303)
+
+    @app.post("/notes/move")
+    async def notes_move(
+        request: Request,
+        note_id: str = Form(""),
+        target_folder: str = Form(""),
+    ) -> RedirectResponse:
+        username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        store = _store()
+        folders = store.list_folders(username)
+        clean_target = store.resolve_folder_name(username, target_folder, folders=folders) if str(target_folder or "").strip() else ""
+        try:
+            note = store.move_note(username, note_id, folder=clean_target)
+        except NotesStoreError as exc:
+            return RedirectResponse(url=f"/notes?error={quote_plus(str(exc))}", status_code=303)
+        info_message = _notes_route_text(
+            lang,
+            "note_moved",
+            "Note moved to {folder}.",
+            folder=note.folder or "Inbox",
+        )
+        notes_index = _index()
+        try:
+            result = await notes_index.reindex_note(note)
+            if result.get("indexed"):
+                info_message = _notes_route_text(
+                    lang,
+                    "note_moved_indexed",
+                    "Note moved to {folder}. Qdrant index updated ({chunk_count} chunks).",
+                    folder=note.folder or "Inbox",
+                    chunk_count=int(result.get("chunk_count", 0) or 0),
+                )
+        except Exception as exc:
+            info_message = _notes_route_text(
+                lang,
+                "note_moved_index_failed",
+                "Note moved to {folder}. Qdrant index could not be updated: {error}",
+                folder=note.folder or "Inbox",
+                error=exc,
+            )
+        finally:
+            close = getattr(notes_index, "aclose", None)
+            if callable(close):
+                await close()
+        return RedirectResponse(
+            url=f"/notes?folder={quote_plus(_folder_token(note.folder))}&note={quote_plus(note.note_id)}&info={quote_plus(info_message)}",
+            status_code=303,
+        )
+
+    @app.post("/notes/bulk/move")
+    async def notes_bulk_move(request: Request) -> RedirectResponse:
+        username = deps.get_username_from_request(request) or "web"
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        form = await request.form()
+        note_ids = [str(item or "").strip() for item in form.getlist("note_ids") if str(item or "").strip()]
+        target_folder = str(form.get("target_folder") or "").strip()
+        selected_folder = str(form.get("selected_folder") or _ALL_FOLDER_TOKEN).strip() or _ALL_FOLDER_TOKEN
+        store = _store()
+        folders = store.list_folders(username)
+        clean_target = store.resolve_folder_name(username, target_folder, folders=folders) if target_folder else ""
+        if not note_ids:
+            info_message = _notes_route_text(lang, "bulk_move_no_selection", "Please select at least one note.")
+            return RedirectResponse(
+                url=f"/notes?folder={quote_plus(selected_folder)}&view=list&error={quote_plus(info_message)}",
+                status_code=303,
+            )
+        moved_notes: list[NoteRecord] = []
+        try:
+            for note_id in note_ids:
+                moved_notes.append(store.move_note(username, note_id, folder=clean_target))
+        except NotesStoreError as exc:
+            return RedirectResponse(
+                url=f"/notes?folder={quote_plus(selected_folder)}&view=list&error={quote_plus(str(exc))}",
+                status_code=303,
+            )
+        info_message = _notes_route_text(
+            lang,
+            "bulk_notes_moved",
+            "{count} notes moved to {folder}.",
+            count=len(moved_notes),
+            folder=clean_target or "Inbox",
+        )
+        notes_index = _index()
+        indexed_count = 0
+        try:
+            for note in moved_notes:
+                result = await notes_index.reindex_note(note)
+                if result.get("indexed"):
+                    indexed_count += 1
+            info_message = _notes_route_text(
+                lang,
+                "bulk_notes_moved_indexed",
+                "{count} notes moved to {folder}. Qdrant index updated for {indexed_count} notes.",
+                count=len(moved_notes),
+                folder=clean_target or "Inbox",
+                indexed_count=indexed_count,
+            )
+        except Exception as exc:
+            info_message = _notes_route_text(
+                lang,
+                "bulk_notes_moved_index_failed",
+                "{count} notes moved to {folder}. Qdrant index could not be fully updated: {error}",
+                count=len(moved_notes),
+                folder=clean_target or "Inbox",
+                error=exc,
+            )
+        finally:
+            close = getattr(notes_index, "aclose", None)
+            if callable(close):
+                await close()
+        return RedirectResponse(
+            url=f"/notes?folder={quote_plus(_folder_token(clean_target))}&view=list&info={quote_plus(info_message)}",
+            status_code=303,
+        )
 
     @app.post("/notes/folders/create")
     async def notes_create_folder(request: Request, folder: str = Form("")) -> RedirectResponse:

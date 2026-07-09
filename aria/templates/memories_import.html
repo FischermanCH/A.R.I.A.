@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout memory-import-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+  {% if error_message %}
+  <section class="floating-card">
+    <div class="alert err">{{ error_message }}</div>
+  </section>
+  {% endif %}
+  {% if info_message %}
+  <section class="floating-card">
+    <div class="alert ok">{{ info_message }}</div>
+  </section>
+  {% endif %}
+
+  <section id="document-import" class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('upload', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories_import.title', 'Import') }}</h2></div>
+    <p>{{ tr(request, 'memories_import.subtitle', 'Bring neue Inhalte ins Memory. Anzeigen, Browsen und semantische Nähe bleiben im Gedächtnis-Bereich.') }}</p>
+  </section>
+
+  <section id="document-import-form" class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('upload', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</h3></div>
+    <p class="hint-text">{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</p>
+    <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data" data-busy-immediate="true">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="source_view" value="import">
+      <label for="import_document_file">{{ tr(request, 'memories.upload_file', 'Datei') }}</label>
+      <input id="import_document_file" name="document_file" type="file" accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown" required>
+      <small class="hint-text">{{ tr(request, 'memories.upload_formats', 'Unterstützt:') }} {% for suffix in supported_upload_suffixes %}<code>{{ suffix }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</small>
+      <div class="connection-form-grid">
+        <div>
+          <label for="import_document_collection">{{ tr(request, 'memories.upload_collection', 'Bestehende Collection') }}</label>
+          <select id="import_document_collection" name="collection">
+            <option value="">{{ tr(request, 'memories.upload_use_active', 'Aktive Collection verwenden') }}{% if active_document_collection %}: {{ active_document_collection }}{% endif %}</option>
+            {% for name in document_collections %}
+            <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="import_document_new_collection">{{ tr(request, 'memories.upload_new_collection', 'Oder neue Collection') }}</label>
+          <input id="import_document_new_collection" name="new_collection_name" type="text" placeholder="{{ tr(request, 'memories.upload_new_collection_placeholder', 'z. B. aria_docs_handbuch') }}">
+        </div>
+      </div>
+      <small class="hint-text">{{ tr(request, 'memories.upload_collection_hint', 'Wenn keine Auswahl getroffen wird, nutzt ARIA die aktive Dokument-Collection oder legt die persönliche Default-Dokument-Collection an.') }} <code>{{ default_document_collection }}</code></small>
+      <button
+        type="submit"
+        class="memory-upload-submit"
+        data-default-label="{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}"
+        data-loading-label="{{ tr(request, 'memories.upload_button_loading', 'Dokument wird gechunkt und importiert ...') }}"
+      >{{ tr(request, 'memories.upload_button', 'Dokument importieren') }}</button>
+      <p class="upload-progress-note" hidden aria-live="polite">
+        {{ tr(request, 'memories.upload_progress', 'Dokument wird vorbereitet, gechunkt und nach Qdrant importiert. Das kann je nach PDF kurz dauern.') }}
+      </p>
+    </form>
+  </section>
+</main>
+{% endblock %}

@@ -1,6 +1,6 @@
 # ARIA Hilfe: Memory und Stores
 
-Stand: 2026-06-09
+Stand: 2026-07-09
 
 ## Zweck
 
@@ -60,20 +60,34 @@ Chat-Details zeigen Quellen, Collection und Chunk-Referenzen, wenn Dokument-Reca
 
 ## UI
 
-- `/memories` fuer Eintraege, Suche, Bearbeitung, Loeschen und JSON-Export
-- `/memories/map` fuer Collections, Dokumentgruppen, Rollups, Struktur und Qdrant-Brain-Graph
+- `/memories` fuer den grafischen Gedaechtnis-Browser
+- `/memories/import` fuer neue Dokumente und Memory-Importe
+- `/memories/auto-memory` fuer Auto-Memory und agentisches Lernen
+- `/memories/maintenance` fuer technische Pflege, Rebuilds und interne Lernartefakte
 - `/config/embeddings` fuer Embedding-Modell und Sicherheitsabfrage bei vorhandenem Memory
 
-### Memory Map und Qdrant Brain
+### Auto-Memory und Lernen
 
-Die Memory Map zeigt zuerst die logische Struktur: Nutzer, Memory-Typen, Collections, Dokumentgruppen, Rollups, Notes, Routing und System-Collections.
+Auto-Memory kann dauerhafte Fakten und Praeferenzen speichern, wenn ARIA genug Sicherheit hat. Agentisches Lernen kann ausserdem reviewbare Konventionen aus User-Feedback und erfolgreichen sicheren Laeufen extrahieren. Lernartefakte sind Kontext und Review-Material; sie umgehen keine Policy, Guardrails oder Bestaetigungen.
 
-Wenn Qdrant erreichbar ist und ausreichend Punkte mit Embeddings vorhanden sind, zeigt dieselbe Seite zusaetzlich den **Qdrant Brain**. Dieser Graph startet mit Collections und erlaubt den Drilldown in die enthaltenen Qdrant-Punkte:
+### Gedaechtnis-Browser
 
-- Knoten sind Memory-/Dokument-/Notes-/Rollup-Punkte.
-- Kanten zeigen berechnete semantische Naehe zwischen Embeddings innerhalb der ausgewaehlten Collection.
-- Zoom, Pan und Detailauswahl helfen beim Verstehen von Clustern und Relevanzen.
-- Roh-Vektoren werden nicht an den Browser ausgeliefert; sichtbar sind nur sichere Metadaten, Textauszuege, Collection und Point-ID.
+Der Gedaechtnis-Browser ist die grafische Pflege- und Debug-Ansicht fuer ARIAs Qdrant-/Memory-Daten. Er zeigt dieselben Daten in zwei zusammenhaengenden Formen:
+
+- Der Graph zeigt Root, Memory-Typen, Collections, Dokumente, Entries und Chunks als navigierbare Struktur.
+- Der Inspector zeigt zur aktuellen Ebene die passenden Details und kann wie eine eigene Navigation genutzt werden.
+- Auf der Eintrittsseite ist nichts ausgewaehlt; der Inspector zeigt alle Collections.
+- Collection-Ebenen zeigen zuerst darunterliegende Dokumente oder Entries. Erst eine Ebene tiefer werden die zugehoerigen Chunks sichtbar.
+- Dokument-Collections zeigen Dokumente und danach deren Chunks. Andere Collections zeigen Entries und deren Memory-Punkte.
+- Einzelne Chunks, Points und Dokumente koennen im Browser geloescht werden. Inhalte werden bewusst nicht inline editiert, weil Aenderungen ein Re-Embedding brauchen; sicherer ist loeschen und neu erfassen.
+
+### Struktur und semantische Naehe
+
+Der Strukturmodus ist die Standardansicht. Er nutzt Zoom, freies Pan, Panbars, Fullscreen, Inspector-Drilldown und gespeicherte Struktur-Optionen fuer Abstand, Cluster und Anziehung.
+
+Semantische Naehe erscheint erst auf konkreten Chunk-/Entry-/Point-Ebenen. Dann zeigt der Browser berechnete Nachbarschaften aus Qdrant-Embeddings, ohne Roh-Vektoren an den Browser auszuliefern.
+
+Sichtbar sind nur sichere Metadaten, Textauszuege, Collection, Point-ID und berechnete Kanten. Fullscreen und iOS-/Touch-Bedienung nutzen dieselbe Logik wie der normale Browser.
 
 ## Embedding-Fingerprint
 
@@ -96,4 +110,4 @@ Eintraege koennen direkt in `/memories` geloescht werden. Im Chat kann ARIA expl
 - `merk dir ...` fuer explizites Speichern
 - spaeter nach demselben Fakt fragen
 - `/stats` und Chat-Details fuer Recall-Quellen pruefen
-- `/memories/map` fuer Collection-/Rollup-Struktur pruefen
+- `/memories` fuer Collection-/Dokument-/Chunk-Struktur und semantische Naehe pruefen

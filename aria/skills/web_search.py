@@ -7,6 +7,7 @@ import inspect
 from pathlib import Path
 import re
 from typing import Any
+import unicodedata
 from urllib.parse import urldefrag, urlparse
 from urllib.request import Request, urlopen
 
@@ -181,6 +182,52 @@ class WebSearchSkill(BaseSkill):
         "sony",
     })
 
+    _PRODUCT_LINE_SUFFIX_TERMS = frozenset({
+        "device",
+        "devices",
+        "handy",
+        "model",
+        "models",
+        "phone",
+        "phones",
+        "product",
+        "products",
+        "smartphone",
+        "smartphones",
+        "version",
+        "versions",
+    })
+
+    _PRODUCT_QUERY_FILLER_TERMS = frozenset({
+        "absolut",
+        "aktuell",
+        "aktuelle",
+        "aktuellen",
+        "aktueller",
+        "aktuellste",
+        "aktuellstes",
+        "current",
+        "das",
+        "der",
+        "die",
+        "ist",
+        "latest",
+        "neue",
+        "neuen",
+        "neuer",
+        "neuest",
+        "neueste",
+        "neuesten",
+        "neustes",
+        "newest",
+        "the",
+        "today",
+        "welche",
+        "welchen",
+        "welcher",
+        "welches",
+    })
+
     @staticmethod
     def _profile_rows(settings: Any) -> dict[str, Any]:
         rows = getattr(getattr(settings, "connections", object()), "searxng", {})
@@ -306,6 +353,12 @@ class WebSearchSkill(BaseSkill):
         if not clean:
             return []
         subject = clean
+        subject = re.sub(
+            r"\b(?:und|and)\s+(?:was|what)\s+.*$",
+            " ",
+            subject,
+            flags=re.IGNORECASE,
+        )
         cleanup_patterns = (
             r"\b(?:bitte|please)\b",
             r"\b(?:suche|such|suchen|search|research|recherchier(?:e|en)?)\b",
@@ -326,7 +379,8 @@ class WebSearchSkill(BaseSkill):
         ]
         parts = [part for part in parts if part and len(part) >= 4]
         if len(parts) < 2:
-            return []
+            single = cls._single_official_product_target(subject)
+            return [single] if single else []
         query_lower = clean.lower()
         targets: list[str] = []
         seen: set[str] = set()
@@ -343,6 +397,22 @@ class WebSearchSkill(BaseSkill):
                 seen.add(key)
                 targets.append(target)
         return targets[:3]
+
+    @classmethod
+    def _single_official_product_target(cls, subject: str) -> str:
+        tokens = re.findall(r"[a-z0-9]+", str(subject or "").lower())
+        kept = [
+            token
+            for token in tokens
+            if token not in cls._PRODUCT_QUERY_FILLER_TERMS
+            and token not in cls._QUERY_STOPWORDS
+            and token not in cls._terms("query_stopwords", ())
+        ]
+        while kept and kept[-1] in cls._PRODUCT_LINE_SUFFIX_TERMS:
+            kept.pop()
+        if len(kept) >= 2:
+            return " ".join(kept[:4])
+        return ""
 
     @classmethod
     def _is_current_version_query(cls, query: str) -> bool:
@@ -464,10 +534,58 @@ class WebSearchSkill(BaseSkill):
         if any(term in combined for term in cls._DEAL_TERMS):
             score -= 18
 
+        normalized_combined = unicodedata.normalize("NFKD", combined).encode("ascii", "ignore").decode("ascii")
+        if cls._should_run_official_supplement(query) and any(
+            marker in normalized_combined
+            for marker in (
+                "rumor",
+                "rumour",
+                "geruecht",
+                "leak",
+                "leaked",
+                "leaks",
+                "release date",
+                "launch event",
+                "arrives",
+                "coming soon",
+                "kommt bald",
+                "upcoming",
+            )
+        ):
+            score -= 16
+
         if "mozilla.org" in domain and "manifest.json/version" in path:
             score -= 20
 
         return score
+
+    @classmethod
+    def _filter_current_product_sources(cls, query: str, results: list[Any]) -> tuple[list[Any], dict[str, Any]]:
+        if not results or not cls._should_run_official_supplement(query):
+            return results, {
+                "applied": False,
+                "kept": len(results),
+                "rejected": 0,
+                "reason": "not_current_product_query",
+            }
+        scored = [(result, cls._source_quality_score(query, result)) for result in results]
+        primary_sources = [result for result, score in scored if score >= 16]
+        if not primary_sources:
+            return results, {
+                "applied": False,
+                "kept": len(results),
+                "rejected": 0,
+                "reason": "no_primary_sources",
+            }
+        kept = [result for result, score in scored if score >= 8]
+        if not kept:
+            kept = primary_sources
+        return kept, {
+            "applied": len(kept) < len(results),
+            "kept": len(kept),
+            "rejected": max(0, len(results) - len(kept)),
+            "reason": "current_product_primary_sources",
+        }
 
     @staticmethod
     def _merge_search_results(primary: list[Any], supplemental: list[Any]) -> list[Any]:
@@ -839,6 +957,7 @@ class WebSearchSkill(BaseSkill):
             )
 
         ordered_results = self._prepare_results(query, response.results)
+        ordered_results, product_source_filter = self._filter_current_product_sources(query, ordered_results)
 
         explicit_urls = self._explicit_urls(query)
         if not ordered_results and explicit_urls:
@@ -917,6 +1036,13 @@ class WebSearchSkill(BaseSkill):
         lines: list[str] = []
         detail_lines: list[str] = []
         detail_lines.extend(f"Web search supplemental query failed: {error}" for error in supplemental_errors[:3])
+        if bool(product_source_filter.get("applied")):
+            detail_lines.append(
+                "Routing Debug: web_source_filter "
+                f"mode=official_product kept={int(product_source_filter.get('kept', 0) or 0)} "
+                f"rejected={int(product_source_filter.get('rejected', 0) or 0)} "
+                f"reason={product_source_filter.get('reason') or '-'}"
+            )
         if note_hits:
             context_block = note_context_block(note_hits, language=language)
             if context_block:
@@ -1009,6 +1135,7 @@ class WebSearchSkill(BaseSkill):
                 "official_supplement_error_count": len(supplemental_errors),
                 "official_supplement_errors": supplemental_errors[:3],
                 "target_coverage": target_coverage,
+                "web_source_filter": product_source_filter,
                 "source_quality_outcome": (
                     "explicit_url_with_page_excerpt"
                     if explicit_urls and page_excerpts

@@ -47,6 +47,156 @@ import aria.web.config_routes as config_routes_mod
 import aria.web.config_operations_detail_routes as config_ops_detail_routes
 from aria.core.config import Settings
 from aria.web.config_routes import ConfigRouteDeps, register_config_routes
+from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+
+
+class _NavUrl:
+    def __init__(self, path: str) -> None:
+        self.path = path
+
+
+def _nav_request(path: str, *, advanced_mode: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(
+        url=_NavUrl(path),
+        state=SimpleNamespace(can_access_advanced_config=advanced_mode),
+    )
+
+
+def test_navigation_registry_context_matrix_handles_modes_and_section_titles() -> None:
+    cases = [
+        (
+            "/config",
+            False,
+            "settings.overview",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/connections/status", "/recipes/start"],
+            ["/config"],
+        ),
+        (
+            "/config/persona",
+            False,
+            "settings.persona",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/config/appearance?return_to=/config/persona", "/connections/status", "/recipes/start"],
+            ["/config/persona"],
+        ),
+        (
+            "/config/appearance",
+            False,
+            "persona.appearance",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/config/appearance?return_to=/config/persona", "/connections/status", "/recipes/start"],
+            ["/config/persona"],
+        ),
+        (
+            "/config/prompts",
+            True,
+            "persona.prompts",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/config/prompts?return_to=/config/persona", "/connections/status", "/recipes/start"],
+            ["/config/persona"],
+        ),
+        (
+            "/recipes",
+            False,
+            "recipes.overview",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/recipes/start", "/recipes/learned", "/recipes/mine"],
+            ["/recipes"],
+        ),
+        (
+            "/recipes/mine",
+            False,
+            "recipes.mine",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/recipes/mine", "/recipes/start", "/recipes/learned", "/recipes/system"],
+            ["/recipes"],
+        ),
+        (
+            "/recipes/learned",
+            False,
+            "recipes.learned",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/recipes/mine", "/recipes/start", "/recipes/learned", "/recipes/system"],
+            ["/recipes"],
+        ),
+        (
+            "/recipes/learned",
+            True,
+            "recipes.learned",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/recipes/mine", "/recipes/start", "/recipes/learned", "/recipes/system", "/recipes/learned/maintenance"],
+            ["/recipes"],
+        ),
+        (
+            "/recipes/learned/maintenance",
+            True,
+            "admin.recipes.learned",
+            "admin",
+            ["/config/admin", "/config/admin/config", "/config/admin/recipes", "/config/admin/memory", "/config/admin/operations"],
+            ["/recipes/start", "/config/persona", "/recipes/mine"],
+            ["/config/admin/recipes"],
+        ),
+        (
+            "/connections",
+            True,
+            "connections.overview",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/connections/status", "/connections/types", "/connections/templates"],
+            ["/connections"],
+        ),
+        (
+            "/connections/status",
+            True,
+            "connections.status",
+            "settings",
+            ["/config", "/config/persona", "/connections", "/recipes", "/updates?return_to=/config"],
+            ["/config/admin", "/connections/status", "/connections/types", "/connections/templates"],
+            ["/connections"],
+        ),
+    ]
+    for path, advanced_mode, expected_id, expected_section, required_hrefs, forbidden_hrefs, expected_active_hrefs in cases:
+        ctx = context_nav_context(_nav_request(path, advanced_mode=advanced_mode))
+        hrefs = [item["href"] for item in ctx["items"]]
+        active_hrefs = [item["href"] for item in ctx["items"] if item["active"]]
+        assert ctx["current_id"] == expected_id
+        assert ctx["section"] == expected_section
+        assert active_hrefs == expected_active_hrefs, f"{path=} {advanced_mode=} active mismatch; got {active_hrefs}"
+        for href in required_hrefs:
+            assert href in hrefs, f"{path=} {advanced_mode=} missing {href}; got {hrefs}"
+        for href in forbidden_hrefs:
+            assert href not in hrefs, f"{path=} {advanced_mode=} unexpectedly had {href}; got {hrefs}"
+
+
+def test_navigation_registry_keeps_user_and_admin_recipes_learned_routes_distinct() -> None:
+    from aria.web.navigation_registry import NAV_NODES
+
+    assert NAV_NODES["recipes.learned"].href == "/recipes/learned"
+    assert NAV_NODES["admin.recipes.learned"].href == "/recipes/learned/maintenance"
+    assert NAV_NODES["recipes.learned"].href != NAV_NODES["admin.recipes.learned"].href
+
+
+def test_navigation_registry_does_not_assign_one_href_to_multiple_nodes() -> None:
+    from collections import defaultdict
+
+    from aria.web.navigation_registry import NAV_NODES
+
+    nodes_by_href: dict[str, list[str]] = defaultdict(list)
+    for node_id, node in NAV_NODES.items():
+        nodes_by_href[node.href].append(node_id)
+
+    duplicates = {href: node_ids for href, node_ids in nodes_by_href.items() if len(node_ids) > 1}
+
+    assert duplicates == {}
 
 
 def _write_profile_yaml(path: Path, data: dict) -> None:
@@ -78,11 +228,16 @@ class _MemoryStore:
         return []
 
 
-def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en') -> TestClient:
+def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en', advanced_mode: bool = True) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
     raw = {
         "aria": {"host": "0.0.0.0", "port": 8800},
         "ui": {"title": "Config Test"},
@@ -138,7 +293,10 @@ def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en') -> TestClient
 
     @app.middleware('http')
     async def _inject_state(request: Request, call_next):
-        request.state.can_access_advanced_config = True
+        request.state.can_access_advanced_config = advanced_mode
+        request.state.authenticated = True
+        request.state.auth_user = "tester"
+        request.state.auth_role = "admin"
         request.state.lang = lang
         request.state.cookie_names = {}
         request.state.csrf_token = 'test-csrf'
@@ -265,18 +423,33 @@ def _build_profile_config_app(tmp_path: Path, *, lang: str = 'en') -> TestClient
     return TestClient(app)
 
 
+def _first_memory_subnav(html: str) -> str:
+    start = html.find('<nav class="memory-subnav"')
+    if start < 0:
+        return ""
+    end = html.find("</nav>", start)
+    if end < 0:
+        return html[start:]
+    return html[start : end + len("</nav>")]
+
+
 def test_llm_config_page_shows_active_profile_runtime_meta(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
     response = client.get('/config/llm?return_to=%2Fconfig')
 
     assert response.status_code == 200
-    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
+    assert 'aria-label="Admin navigation"' in response.text or 'aria-label="Admin-Übersicht"' in response.text
+    assert 'aria-label="Settings navigation"' not in response.text
+    assert 'class="ui-action-link config-admin-return-link"' not in response.text
     assert 'Active profile' in response.text
     assert 'litellm-main' in response.text
     assert 'https://litellm.example/v1' in response.text
     assert 'openai/gpt-4.1-mini' in response.text
     assert 'action="/config/llm/test"' in response.text
+    assert 'href="/help?doc=pricing"' in response.text
+    assert "Open help" in response.text or "Hilfe öffnen" in response.text
+    assert "If answers get cut off" not in response.text
     assert "const logical='/config';" in response.text
 
 
@@ -297,7 +470,9 @@ def test_embeddings_page_uses_embedding_specific_provider_presets(tmp_path: Path
     response = client.get('/config/embeddings')
 
     assert response.status_code == 200
-    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
+    assert 'aria-label="Admin navigation"' in response.text or 'aria-label="Admin-Übersicht"' in response.text
+    assert 'aria-label="Settings navigation"' not in response.text
+    assert 'class="ui-action-link config-admin-return-link"' not in response.text
     assert 'LiteLLM Proxy' in response.text
     assert 'text-embedding-3-small' in response.text
     assert 'Anthropic' not in response.text
@@ -356,15 +531,15 @@ def test_config_page_shows_routing_workbench_link(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Settings Navigation"' in response.text
-    assert 'href="/config/intelligence"' in response.text
+    assert 'href="/config/admin"' in response.text
     assert 'href="/config/persona"' in response.text
-    assert 'href="/config/access"' in response.text
-    assert 'href="/config/operations"' in response.text
-    assert 'href="/config/workbench"' in response.text
+    assert 'href="/connections"' in response.text
+    assert 'href="/recipes"' in response.text
     assert 'Routing Workbench' not in response.text
-    assert 'litellm-main' in response.text
-    assert 'litellm-emb' in response.text
-    assert 'The currently active chat-brain profile for answers and tool decisions.' in response.text
+    assert 'litellm-main' not in response.text
+    assert 'litellm-emb' not in response.text
+    assert 'The currently active chat-brain profile for answers and tool decisions.' not in response.text
+    assert 'memory-health-grid' not in response.text
     assert 'Memory Triggers & Routing' not in response.text
     assert 'Skill Triggers & Routing' not in response.text
 
@@ -1121,6 +1296,24 @@ def test_config_appearance_lists_dynamic_background_files(tmp_path: Path) -> Non
     assert '8-Bit Arcade' in response.text
 
 
+def test_config_appearance_lists_matching_theme_presets(tmp_path: Path) -> None:
+    static_dir = tmp_path / "aria" / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    (static_dir / "background-grid-signal.png").write_bytes(b"png")
+    (static_dir / "background-space-station.png").write_bytes(b"png")
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get('/config/appearance?return_to=%2Fconfig')
+
+    assert response.status_code == 200
+    assert 'data-appearance-preset' in response.text
+    assert 'value="matrix-grid-signal"' in response.text
+    assert 'data-theme="matrix"' in response.text
+    assert 'data-background="grid-signal"' in response.text
+    assert 'value="deep-space-space-station"' in response.text
+    assert 'value="puke-unicorn-puke-unicorn"' not in response.text
+
+
 def test_additional_config_pages_set_logical_back_url(tmp_path: Path) -> None:
     client = _build_profile_config_app(tmp_path)
 
@@ -1130,7 +1323,8 @@ def test_additional_config_pages_set_logical_back_url(tmp_path: Path) -> None:
         '/config/routing?return_to=%2Fconfig',
         '/config/files?return_to=%2Fconfig',
         '/config/error-interpreter?return_to=%2Fconfig',
-        '/config/users?return_to=%2Fconfig#admin-mode',
+        '/config/users?return_to=%2Fconfig',
+        '/config/admin-mode?return_to=%2Fconfig',
     ):
         response = client.get(path)
         assert response.status_code == 200, path
@@ -1149,6 +1343,47 @@ def test_users_debug_save_route_is_available_from_users_surface(tmp_path: Path) 
     assert response.status_code == 303
     assert response.headers["location"].startswith("/config/users?saved=1")
     assert "return_to=%2Fconfig%2Faccess" in response.headers["location"]
+
+
+def test_admin_mode_page_contains_only_admin_mode_toggle(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get("/config/admin-mode")
+
+    assert response.status_code == 200
+    assert "Erweiterte Ansicht" in response.text or "Extended view" in response.text
+    assert 'action="/config/admin-mode/save"' in response.text
+    assert 'name="debug_mode"' in response.text
+    assert 'action="/config/users/create"' not in response.text
+    assert 'action="/config/users/security-save"' not in response.text
+    assert "Bestehende User" not in response.text
+
+
+def test_users_page_no_longer_contains_admin_mode_toggle(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.get("/config/users?return_to=/config/access")
+
+    assert response.status_code == 200
+    assert 'id="admin-mode"' not in response.text
+    assert 'action="/config/users/debug-save"' not in response.text
+    assert 'name="debug_mode"' not in response.text
+    assert 'action="/config/users/security-save"' in response.text
+    assert 'action="/config/users/create"' in response.text
+
+
+def test_admin_mode_save_redirects_to_admin_mode_page(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path)
+
+    response = client.post(
+        "/config/admin-mode/save",
+        data={"debug_mode": "1", "return_to": "/config"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/config/admin-mode?saved=1")
+    assert "return_to=%2Fconfig" in response.headers["location"]
 
 
 def test_ssh_page_exposes_service_url_helper_and_matching_sftp_create(tmp_path: Path) -> None:
@@ -1807,15 +2042,25 @@ def test_connections_overview_page_is_available_as_top_level_hub(tmp_path: Path)
 
     assert response.status_code == 200
     assert 'Connections' in response.text
-    assert 'aria-label="Verbindungs-Navigation"' in response.text or 'aria-label="Connections navigation"' in response.text
+    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
     assert 'Next steps' not in response.text
     assert 'Nächste Schritte' not in response.text
     assert 'Create first connection' not in response.text
     assert 'Erste Verbindung anlegen' not in response.text
+    assert 'memory-health-grid' not in response.text
+    assert 'SearXNG-Stackdienst' not in response.text
     assert 'href="/connections/status"' in response.text
     assert 'href="/connections/types"' in response.text
     assert 'href="/connections/templates"' in response.text
-    assert 'href="/config/connections/searxng?return_to=%2Fconnections"' in response.text
+    assert 'href="/config"' in response.text
+    assert 'Zurück zu Einstellungen' not in response.text
+    assert 'Back to settings' not in response.text
+    nav = _first_memory_subnav(response.text)
+    assert 'href="/config/persona"' in nav
+    assert 'class="memory-subnav-item active" href="/connections"' in nav
+    assert 'href="/connections/status"' not in nav
+    assert 'href="/connections/types"' not in nav
+    assert 'href="/connections/templates"' not in nav
 
 
 def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Path, monkeypatch) -> None:
@@ -1832,7 +2077,15 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
     status_response = client.get('/connections/status')
     assert status_response.status_code == 200
     assert 'Live status of all configured connections' in status_response.text or 'Live-Status aller konfigurierten Verbindungen' in status_response.text
+    assert 'href="/config"' in status_response.text
     assert 'href="/connections/status?refresh=1"' in status_response.text
+    status_nav = _first_memory_subnav(status_response.text)
+    assert 'href="/config/persona"' in status_nav
+    assert 'href="/connections"' in status_nav
+    assert 'class="memory-subnav-item active" href="/connections"' in status_nav
+    assert 'href="/connections/status"' not in status_nav
+    assert 'href="/connections/types"' not in status_nav
+    assert 'href="/connections/templates"' not in status_nav
 
     live_status_response = client.get('/connections/status?refresh=1')
     assert live_status_response.status_code == 200
@@ -1840,7 +2093,12 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
 
     types_response = client.get('/connections/types')
     assert types_response.status_code == 200
+    assert 'href="/config"' in types_response.text
     assert '/config/connections/ssh?return_to=/connections/types' in types_response.text
+    types_nav = _first_memory_subnav(types_response.text)
+    assert 'href="/config/persona"' in types_nav
+    assert 'class="memory-subnav-item active" href="/connections"' in types_nav
+    assert 'href="/connections/types"' not in types_nav
     assert 'SearXNG' in types_response.text
     assert 'Beobachtete Webseiten' in types_response.text or 'Watched Websites' in types_response.text
     assert 'Google Calendar' in types_response.text
@@ -1849,7 +2107,12 @@ def test_connections_subpages_render_with_surface_specific_targets(tmp_path: Pat
 
     templates_response = client.get('/connections/templates')
     assert templates_response.status_code == 200
+    assert 'href="/config"' in templates_response.text
     assert 'name="return_to" value="/connections/templates"' in templates_response.text
+    templates_nav = _first_memory_subnav(templates_response.text)
+    assert 'href="/config/persona"' in templates_nav
+    assert 'class="memory-subnav-item active" href="/connections"' in templates_nav
+    assert 'href="/connections/templates"' not in templates_nav
     assert page_probe_flags == [False, True, False, False]
 
 
@@ -1859,13 +2122,56 @@ def test_settings_page_groups_system_areas_without_connections_block(tmp_path: P
     response = client.get('/config')
 
     assert response.status_code == 200
-    assert '/config/intelligence' in response.text
+    assert '/config/admin' in response.text
     assert '/config/persona' in response.text
-    assert '/config/access' in response.text
-    assert '/config/operations' in response.text
-    assert '/config/workbench' in response.text
-    assert 'memory-health-grid' in response.text
+    assert 'href="/connections"' in response.text
+    assert 'href="/recipes"' in response.text
+    assert "My recipes" in response.text or "Meine Rezepte" in response.text
+    assert 'href="/recipes/mine"' in response.text
+    assert 'href="/connections/status"' in response.text
+    assert 'memory-health-grid' not in response.text
+    assert 'class="config-submenu-details"' not in response.text
     assert '/config/connections/ssh?return_to=%2Fconfig' not in response.text
+
+
+def test_settings_nav_hides_advanced_tabs_when_admin_mode_is_off(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, advanced_mode=False)
+
+    response = client.get('/config')
+
+    assert response.status_code == 200
+    assert 'href="/config"' in response.text
+    assert 'href="/config/persona"' in response.text
+    assert 'href="/updates?return_to=/config"' in response.text
+    assert 'href="/config/admin-mode"' in response.text
+    assert 'class="memory-subnav-admin"' not in response.text
+    assert 'href="/config/admin"' not in response.text
+    assert 'href="/config/intelligence"' not in response.text
+    assert 'href="/config/access"' not in response.text
+    assert 'href="/config/operations"' not in response.text
+    assert 'href="/config/workbench"' not in response.text
+
+
+def test_persona_theme_and_language_remain_user_accessible_without_admin_mode(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, advanced_mode=False)
+
+    persona = client.get('/config/persona')
+
+    assert persona.status_code == 200
+    assert '/config/appearance?return_to=/config/persona' in persona.text
+    assert '/config/language?return_to=/config/persona' in persona.text
+    assert '/config/prompts?return_to=/config/persona' not in persona.text
+    assert 'Admin mode is currently off' not in persona.text
+    assert 'Admin-Modus ist derzeit aus' not in persona.text
+
+    appearance = client.get('/config/appearance?return_to=/config/persona')
+    assert appearance.status_code == 200
+    assert 'action="/config/appearance/save"' in appearance.text
+
+    language = client.get('/config/language?return_to=/config/persona')
+    assert language.status_code == 200
+    assert 'action="/config/language/save"' in language.text
+    assert 'action="/config/language/file/save"' not in language.text
 
 
 def test_settings_subpages_link_to_existing_specialist_pages(tmp_path: Path) -> None:
@@ -1873,36 +2179,155 @@ def test_settings_subpages_link_to_existing_specialist_pages(tmp_path: Path) -> 
 
     hub = client.get('/config')
     assert hub.status_code == 200
+    assert '/config/admin' in hub.text
     assert '/config/operations/reindex?return_to=%2Fconfig' not in hub.text
+    assert 'class="admin-nav-groups settings-nav-groups"' in hub.text
+    assert hub.text.count('class="admin-nav-group settings-nav-group"') == 5
+    assert 'data-settings-nav-group="config.overview_title"' not in hub.text
+    assert "Arbeitsbereiche" not in hub.text
+    assert "Workspace" not in hub.text
+    assert "Persönlichkeit &amp; Stil" in hub.text or "Personality &amp; style" in hub.text
+    assert "Verbindungen" in hub.text or "Connections" in hub.text
+    assert "Rezepte" in hub.text or "Recipes" in hub.text
+    assert "Updates" in hub.text
+    assert "Admin" in hub.text
+    assert 'href="/config/persona"' in hub.text
+    assert 'href="/config/appearance?return_to=/config/persona"' in hub.text
+    assert 'href="/config/language?return_to=/config/persona"' in hub.text
+    assert 'href="/connections"' in hub.text
+    assert 'href="/connections/status"' in hub.text
+    assert 'href="/connections/types"' in hub.text
+    assert 'href="/connections/templates"' in hub.text
+    assert 'href="/recipes"' in hub.text
+    assert 'href="/recipes/mine"' in hub.text
+    assert 'href="/recipes/start"' in hub.text
+    assert 'href="/recipes/learned"' in hub.text
+    assert 'href="/updates?return_to=/config"' in hub.text
+    assert 'href="/config/admin"' in hub.text
+    assert 'href="/config/admin/config"' in hub.text
+    assert 'href="/config/admin/recipes"' in hub.text
+    assert 'href="/config/admin/memory"' in hub.text
+    assert 'href="/config/admin/operations"' in hub.text
+
+    admin = client.get('/config/admin')
+    assert admin.status_code == 200
+    assert 'aria-label="Settings navigation"' not in admin.text
+    assert 'aria-label="Einstellungen Navigation"' not in admin.text
+    assert 'href="/config/persona"' not in admin.text
+    assert 'href="/updates?return_to=/config"' not in admin.text
+    assert '<a class="memory-subnav-item" href="/connections"' not in admin.text
+    assert '<a class="memory-subnav-item" href="/recipes"' not in admin.text
+    assert 'class="admin-nav-groups"' in admin.text
+    assert 'class="admin-nav-group"' in admin.text
+    assert 'data-admin-nav-group="config.admin_group_config_title"' in admin.text
+    assert "Systemkonfiguration" in admin.text or "System configuration" in admin.text
+    assert "Rezepte &amp; Lernen" in admin.text or "Recipes &amp; learning" in admin.text
+    assert "Memory" in admin.text
+    assert "Betrieb" in admin.text or "Operations" in admin.text
+    assert 'href="/config/intelligence"' in admin.text
+    assert 'href="/config/access"' in admin.text
+    assert 'href="/config/operations"' in admin.text
+    assert 'href="/config/workbench"' in admin.text
+    assert 'href="/recipes/system"' in admin.text
+    assert 'href="/recipes/learned/maintenance"' in admin.text
+    assert 'href="/memories/import"' not in admin.text
+    assert 'href="/memories/auto-memory"' in admin.text
+    assert "Auto-Memory &amp; Lernen" in admin.text or "Auto-memory &amp; learning" in admin.text
+    assert 'href="/memories/maintenance"' not in admin.text
+    assert '<a class="config-submenu-item" href="/connections"' not in admin.text
+    assert 'href="/activities"' in admin.text
+    admin_nav = _first_memory_subnav(admin.text)
+    assert 'class="memory-subnav-item active" href="/config/admin"' in admin_nav
+    assert 'href="/config/admin/config"' in admin_nav
+    assert 'href="/config/admin/recipes"' in admin_nav
+    assert 'href="/config/admin/memory"' in admin_nav
+    assert 'href="/config/admin/operations"' in admin_nav
+    assert 'href="/config/intelligence"' not in admin_nav
+    assert 'href="/recipes/system"' not in admin_nav
+
+    admin_recipes = client.get('/config/admin/recipes')
+    assert admin_recipes.status_code == 200
+    admin_recipes_nav = _first_memory_subnav(admin_recipes.text)
+    assert 'class="memory-subnav-item active" href="/config/admin/recipes"' in admin_recipes_nav
+    assert 'href="/recipes/system"' in admin_recipes.text
+    assert 'href="/recipes/learned/maintenance"' in admin_recipes.text
+    assert 'href="/config/intelligence"' not in admin_recipes.text
+    assert 'href="/memories/auto-memory"' not in admin_recipes.text
+    assert admin_recipes.text.count('class="admin-nav-group"') == 1
+
+    admin_config = client.get('/config/admin/config')
+    assert admin_config.status_code == 200
+    admin_config_nav = _first_memory_subnav(admin_config.text)
+    assert 'class="memory-subnav-item active" href="/config/admin/config"' in admin_config_nav
+    assert 'href="/config/intelligence"' in admin_config.text
+    assert 'href="/config/access"' in admin_config.text
+    assert 'href="/config/workbench"' in admin_config.text
+    assert 'href="/recipes/system"' not in admin_config.text
+    assert admin_config.text.count('class="admin-nav-group"') == 1
+
+    admin_memory = client.get('/config/admin/memory')
+    assert admin_memory.status_code == 200
+    admin_memory_nav = _first_memory_subnav(admin_memory.text)
+    assert 'class="memory-subnav-item active" href="/config/admin/memory"' in admin_memory_nav
+    assert 'href="/memories/auto-memory"' in admin_memory.text
+    assert 'href="/recipes/system"' not in admin_memory.text
+    assert 'href="/config/operations"' not in admin_memory.text
+    assert admin_memory.text.count('class="admin-nav-group"') == 1
 
     intelligence = client.get('/config/intelligence')
     assert intelligence.status_code == 200
+    intelligence_nav = _first_memory_subnav(intelligence.text)
+    assert 'href="/config/admin/config"' in intelligence_nav
+    assert 'href="/config/admin/recipes"' in intelligence_nav
+    assert 'class="memory-subnav-item active" href="/config/admin/config"' in intelligence_nav
+    assert 'href="/config/intelligence"' not in intelligence_nav
+    assert 'class="ui-action-link config-admin-return-link"' not in intelligence.text
     assert '/config/llm?return_to=/config/intelligence' in intelligence.text
     assert '/config/embeddings?return_to=/config/intelligence' in intelligence.text
 
     persona = client.get('/config/persona')
     assert persona.status_code == 200
+    assert 'class="ui-action-link config-admin-return-link"' not in persona.text
+    assert 'aria-label="Settings navigation"' in persona.text or 'aria-label="Einstellungen Navigation"' in persona.text
+    assert 'class="memory-subnav-item active" href="/config/persona"' in persona.text
     assert '/config/prompts?return_to=/config/persona' in persona.text
     assert '/config/appearance?return_to=/config/persona' in persona.text
     assert '/config/language?return_to=/config/persona' in persona.text
 
     access = client.get('/config/access')
     assert access.status_code == 200
-    assert '/config/users?return_to=/config/access#admin-mode' in access.text
+    assert '/config/users?return_to=/config/access' in access.text
+    assert '/config/users?return_to=/config/access#admin-mode' not in access.text
     assert '/config/security?return_to=/config/access' in access.text
 
     operations = client.get('/config/operations')
     assert operations.status_code == 200
-    assert '/updates?return_to=/config/operations' in operations.text
+    operations_nav = _first_memory_subnav(operations.text)
+    assert 'class="memory-subnav-item active" href="/config/admin/operations"' in operations_nav
+    assert 'class="ui-action-link config-admin-return-link"' not in operations.text
+    assert '/updates?return_to=/config/operations' not in operations.text
+    assert 'Version, Release Notes' not in operations.text
     assert '/config/logs?return_to=/config/operations' in operations.text
     assert '/config/backup?return_to=/config/operations' in operations.text
     assert '/config/operations/reindex?return_to=/config/operations' not in operations.text
 
     workbench = client.get('/config/workbench')
     assert workbench.status_code == 200
+    workbench_nav = _first_memory_subnav(workbench.text)
+    assert 'class="memory-subnav-item active" href="/config/admin/config"' in workbench_nav
+    assert 'class="ui-action-link config-admin-return-link"' not in workbench.text
     assert '/config/workbench/routing?return_to=/config/workbench' in workbench.text
     assert '/config/files?return_to=/config/workbench' in workbench.text
     assert '/config/error-interpreter?return_to=/config/workbench' in workbench.text
+
+
+def test_config_admin_page_requires_admin_mode(tmp_path: Path) -> None:
+    client = _build_profile_config_app(tmp_path, advanced_mode=False)
+
+    response = client.get('/config/admin', follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers['location'].startswith('/config?error=admin_mode_required')
 
 
 def test_config_operations_page_shows_service_restart_controls(monkeypatch, tmp_path: Path) -> None:

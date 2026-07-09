@@ -179,6 +179,7 @@ class MemoryAdminQueryService:
         *,
         limit: int = 96,
         collection_limit: int = 16,
+        preferred_collections: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         clean_user = str(user_id or "").strip() or "web"
         max_points = max(12, min(int(limit or 96), 160))
@@ -188,7 +189,20 @@ class MemoryAdminQueryService:
         document_targets = await self.skill._build_document_targets(user_id=clean_user)
         seen_collections: set[str] = set()
         collection_names: list[str] = []
-        for target in [*targets, *document_targets]:
+        preferred_set = {
+            str(collection or "").strip()
+            for collection in (preferred_collections or ())
+            if str(collection or "").strip()
+        }
+        for preferred in preferred_collections or ():
+            collection = str(preferred or "").strip()
+            if collection and collection not in seen_collections:
+                seen_collections.add(collection)
+                collection_names.append(collection)
+        # The Memory browser opens on document collections by default. Sample those
+        # early so the semantic graph can focus the currently drilled document
+        # store instead of filling the graph budget with unrelated memory stores.
+        for target in [*document_targets, *targets]:
             collection = str(target.get("collection", "")).strip()
             if collection and collection not in seen_collections:
                 seen_collections.add(collection)
@@ -209,11 +223,15 @@ class MemoryAdminQueryService:
                     break
         except Exception:
             pass
-        for collection in collection_names:
+        regular_budget = max(4, min(12, max_points // max(1, len(collection_names))))
+        if preferred_set:
+            regular_budget = max(4, min(10, (max_points - min(72, max_points)) // max(1, len(collection_names) - len(preferred_set))))
+        for collection in collection_names[:max_collections]:
             if len(rows) >= max_points:
                 break
             if self.skill._is_document_guide_collection_name(collection) or self.skill._is_document_meta_collection_name(collection):
                 continue
+            collection_budget = 72 if collection in preferred_set else regular_budget
             try:
                 exists = await self.skill.qdrant.collection_exists(collection_name=collection)
                 if not exists:
@@ -221,14 +239,14 @@ class MemoryAdminQueryService:
                 points, _next_offset = await self.skill.qdrant.scroll(
                     collection_name=collection,
                     scroll_filter=self.skill._user_filter(clean_user),
-                    limit=max(6, min(32, max_points - len(rows))),
+                    limit=max(4, min(collection_budget, max_points - len(rows))),
                     with_payload=True,
                     with_vectors=True,
                 )
                 if not points:
                     points, _next_offset = await self.skill.qdrant.scroll(
                         collection_name=collection,
-                        limit=max(6, min(32, max_points - len(rows))),
+                        limit=max(4, min(collection_budget, max_points - len(rows))),
                         with_payload=True,
                         with_vectors=True,
                     )
@@ -259,7 +277,10 @@ class MemoryAdminQueryService:
                         "text": text,
                         "timestamp": timestamp,
                         "source": str(payload.get("source", "")).strip() or "n/a",
+                        "document_id": str(payload.get("document_id", "")).strip(),
                         "document_name": str(payload.get("document_name", "")).strip(),
+                        "chunk_index": int(payload.get("chunk_index", 0) or 0),
+                        "chunk_total": int(payload.get("chunk_total", 0) or 0),
                         "note_title": str(payload.get("note_title", "")).strip(),
                         "note_folder": str(payload.get("note_folder", "")).strip(),
                         "rollup_level": str(payload.get("rollup_level", "")).strip(),
@@ -268,9 +289,6 @@ class MemoryAdminQueryService:
                 )
                 if len(rows) >= max_points:
                     break
-            max_collections -= 1
-            if max_collections <= 0:
-                break
         rows.sort(key=self._timestamp_sort_key, reverse=True)
         return rows[:max_points]
 

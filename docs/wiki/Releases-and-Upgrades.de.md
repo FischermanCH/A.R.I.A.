@@ -1,6 +1,6 @@
 # Releases and Upgrades
 
-Aktuelle Public Alpha: `0.1.0-alpha298`.
+Aktuelle Public Alpha: `0.1.0-alpha437`.
 
 ARIA hat drei Update-Wege. Diese sollten sauber getrennt bleiben.
 

@@ -289,13 +289,13 @@ def test_chat_toolbox_links_to_document_import() -> None:
         recipe_trigger_hints=[],
     )
 
-    matching = [entry for entry in entries if entry.get("href") == "/memories/overview#document-import"]
+    matching = [entry for entry in entries if entry.get("href") == "/memories/import#document-import"]
     assert matching
     assert matching[0]["label"] == "Dokument importieren"
     document_groups = [group for group in groups if group.get("key") == "documents"]
     assert document_groups
     assert document_groups[0]["title"] == "Dokumente"
-    assert any(item.get("href") == "/memories/overview#document-import" for item in document_groups[0].get("items", []))
+    assert any(item.get("href") == "/memories/import#document-import" for item in document_groups[0].get("items", []))
 
 
 def test_chat_notes_flow_searches_natural_notes_question(monkeypatch, tmp_path) -> None:
@@ -717,6 +717,7 @@ def test_chat_rejects_unknown_routed_action_confirm_token(monkeypatch) -> None:
 
     assert confirm.status_code == 200
     assert "ungültig oder abgelaufen" in confirm.text or "invalid or expired" in confirm.text
+    assert "Plane die Aktion bitte neu" in confirm.text or "Plan the action again" in confirm.text
 
 
 def test_chat_can_continue_pending_routed_action_missing_input(monkeypatch) -> None:

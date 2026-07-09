@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout memory-maintenance-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+  {% if error_message %}
+  <section class="floating-card">
+    <div class="alert err">{{ error_message }}</div>
+  </section>
+  {% endif %}
+  {% if info_message %}
+  <section class="floating-card">
+    <div class="alert ok">{{ info_message }}</div>
+  </section>
+  {% endif %}
+
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row">
+      <span>{{ icon('settings', 'page-title-icon') }}</span>
+      <h2>{{ tr(request, 'memories_maintenance.title', 'Wartung') }}</h2>
+    </div>
+    <p>{{ tr(request, 'memories_maintenance.subtitle', 'Technische Memory-Werkzeuge liegen hier, damit der Gedächtnis-Browser View-only bleibt.') }}</p>
+  </section>
+
+  {% if request.state.can_access_advanced_config %}
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('refresh', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.rollup', 'Kontext-Rollup') }}</h3></div>
+    <p class="hint-text">{{ tr(request, 'memories_maintenance.rollup_desc', 'Verdichtet alten Tages-Kontext in Rollup-Collections.') }}</p>
+    <form method="post" action="/memories/maintenance" class="config-actions-row" data-busy-immediate="true">
+      <input type="hidden" name="source_view" value="maintenance">
+      <button type="submit" class="primary-action">{{ icon('refresh', 'btn-icon') }} {{ tr(request, 'memories_maintenance.rollup_run', 'Rollup starten') }}</button>
+    </form>
+  </section>
+
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('qdrant', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories_maintenance.indexing_title', 'Index und Setup') }}</h3></div>
+    <div class="config-submenu">
+      <a class="config-submenu-item" href="/memories/reindex">
+        <span class="submenu-icon-wrap">{{ icon('qdrant', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.reindex_title', 'Memory Reindex') }}</span><span class="submenu-desc">{{ tr(request, 'memories_maintenance.reindex_desc', 'Inventar- und Dokument-Metakataloge neu aufbauen.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/memories/config">
+        <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'memories.setup', 'Memory-Setup') }}</span><span class="submenu-desc">{{ tr(request, 'memories_maintenance.setup_desc', 'Qdrant, aktive Collection, Auto-Memory und Kompression konfigurieren.') }}</span></span>
+      </a>
+      <a class="config-submenu-item" href="/memories/export?type=all&sort=updated_desc">
+        <span class="submenu-icon-wrap">{{ icon('download', 'submenu-icon') }}</span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'memories_overview.export_title', 'Memory-JSON exportieren') }}</span><span class="submenu-desc">{{ tr(request, 'memories_overview.export_desc', 'Lade die aktuelle Memory-Sicht als JSON für Backup oder Inspektion herunter.') }}</span></span>
+      </a>
+    </div>
+  </section>
+
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('updates', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.learning_worker_title', 'Learning Worker') }}</h3></div>
+    <div class="stats-list">
+      <li><span>{{ tr(request, 'memories.learning_worker_running', 'laufend') }}</span><strong>{{ learning_worker_status.running }}</strong></li>
+      <li><span>{{ tr(request, 'memories.learning_worker_done', 'fertig') }}</span><strong>{{ learning_worker_status.counts.completed }}</strong></li>
+      <li><span>{{ tr(request, 'memories.learning_worker_failed', 'fehler') }}</span><strong>{{ learning_worker_status.counts.failed }}</strong></li>
+      <li><span>{{ tr(request, 'memories.learning_worker_budget', 'Budget') }}</span><strong>{{ learning_worker_status.budget.used_tokens }}/{{ learning_worker_status.budget.max_runtime_tokens }}</strong></li>
+    </div>
+    <form method="post" action="/memories/learning-worker/flush" class="config-actions-row">
+      <input type="hidden" name="scope" value="finished">
+      <button type="submit" class="secondary-action">{{ tr(request, 'memories.learning_worker_flush', 'History leeren') }}</button>
+    </form>
+  </section>
+
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('skills', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories_maintenance.self_learning_title', 'Self-Learning') }}</h3></div>
+    <p class="hint-text">{{ tr(request, 'memories_maintenance.self_learning_desc', 'Interne Lernartefakte, Kandidaten, Evals und aktive Hinweise. Diese Daten bleiben in der Wartung, damit der Gedächtnis-Browser ruhig bleibt.') }}</p>
+    <div class="memory-health-grid memory-maintenance-summary-grid">
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ 'ok' if self_learning.collection_count else 'warn' }}"></span>
+          <h4>{{ tr(request, 'memories.health_collections', 'Collections') }}</h4>
+        </div>
+        <p>{{ self_learning.collection_count }}</p>
+        <small>{{ self_learning.total_points }} {{ tr(request, 'memories.health_points', 'Memory-Punkte') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ 'ok' if self_learning.queue.candidate_total else 'warn' }}"></span>
+          <h4>{{ tr(request, 'memories_maintenance.self_learning_candidates', 'Kandidaten') }}</h4>
+        </div>
+        <p>{{ self_learning.queue.candidate_total }}</p>
+        <small>{{ tr(request, 'memories_maintenance.self_learning_reviewed', 'reviewed') }} {{ self_learning.queue.candidate_reviewed }} · {{ tr(request, 'memories_maintenance.self_learning_blocked', 'blocked') }} {{ self_learning.queue.candidate_blocked }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ 'ok' if self_learning.queue.eval_total else 'warn' }}"></span>
+          <h4>{{ tr(request, 'memories_maintenance.self_learning_evals', 'Evals') }}</h4>
+        </div>
+        <p>{{ self_learning.queue.eval_total }}</p>
+        <small>{{ tr(request, 'memories_maintenance.self_learning_active_hints', 'aktive Hinweise') }} {{ self_learning.queue.active_hint_total }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-{{ 'warn' if self_learning.queue.regression_missing else 'ok' }}"></span>
+          <h4>{{ tr(request, 'memories_maintenance.self_learning_regression', 'Regression') }}</h4>
+        </div>
+        <p>{{ self_learning.queue.regression_missing }}</p>
+        <small>{{ tr(request, 'memories_maintenance.self_learning_missing', 'missing') }} · {{ tr(request, 'memories_maintenance.self_learning_passed', 'passed') }} {{ self_learning.queue.regression_passed }}</small>
+      </article>
+    </div>
+
+    {% if self_learning.collections %}
+    <div class="memory-type-grid">
+      {% for row in self_learning.collections %}
+      <article class="memory-type-card memory-collection-card">
+        <strong><code>{{ row.name }}</code></strong>
+        <span>{{ row.label }} · {{ row.points }} {{ tr(request, 'memories.health_points', 'Memory-Punkte') }}</span>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if self_learning.rows %}
+    <div class="memories-list">
+      {% for row in self_learning.rows %}
+      <article class="memory-card memory-card-empty">
+        <header class="memory-card-head">
+          <div>
+            <strong>{{ row.title }}</strong>
+            <div class="memory-preview">{{ row.preview }}</div>
+          </div>
+          <span class="status-badge">{{ row.label }}</span>
+        </header>
+        <footer class="memory-card-foot">
+          <small>
+            <code>{{ row.collection }}</code>
+            {% if row.source %}· {{ row.source }}{% endif %}
+            {% if row.display_timestamp %}· {{ row.display_timestamp }}{% endif %}
+            {% if row.candidate_status %}· {{ row.candidate_status }}{% endif %}
+            {% if row.promotion_state %}· {{ row.promotion_state }}{% endif %}
+            {% if row.regression_status %}· regression {{ row.regression_status }}{% endif %}
+          </small>
+        </footer>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+  {% else %}
+  {% include '_config_admin_notice.html' %}
+  {% endif %}
+</main>
+{% endblock %}

@@ -81,7 +81,6 @@ def register_connections_surface_routes(app: FastAPI, deps: ConnectionsSurfaceRo
             page_return_to="/connections",
             connections_nav="overview",
             page_heading=_connections_route_text(lang, "heading_connections", "Connections"),
-            show_overview_checks=True,
         )
 
     @app.get("/connections/status", response_class=HTMLResponse)

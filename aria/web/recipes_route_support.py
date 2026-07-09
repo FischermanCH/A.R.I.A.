@@ -15,6 +15,7 @@ RECIPE_SURFACE_PATHS = {
     "/recipes",
     "/recipes/start",
     "/recipes/learned",
+    "/recipes/learned/maintenance",
     "/recipes/mine",
     "/recipes/system",
     "/recipes/templates",

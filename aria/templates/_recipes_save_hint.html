@@ -1,6 +1,6 @@
 <section class="floating-card skills-save">
   {% if not recipes_readonly %}
-  <p class="hint-text">{{ tr(request, 'recipes.auto_save', 'Änderungen an den Schaltern werden automatisch gespeichert.') }}</p>
+  <p class="hint-text">{{ tr(request, 'recipes.auto_save', 'Änderungen an den Schaltern werden automatisch gespeichert.') }} <a href="/recipes/system">{{ tr(request, 'recipes.system_link_compact', 'Systemrezepte') }}</a></p>
   {% else %}
   <p class="hint-text">{{ tr(request, 'recipes.readonly_hint', 'Stored recipes are visible in user mode, but editing, importing and toggling are disabled.') }}</p>
   {% endif %}

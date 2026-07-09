@@ -1,6 +1,9 @@
 {% from "_icons.html" import icon %}
 <section class="floating-card config-domain-intro">
-  <div class="page-title-row"><span>{{ icon('settings', 'page-title-icon') }}</span><h2>{{ config_page_heading }}</h2></div>
+  <div class="page-title-row">
+    <span>{{ icon('settings', 'page-title-icon') }}</span>
+    <h2>{{ config_page_heading }}</h2>
+  </div>
   {% if error_message %}
   <div class="alert err">{{ error_message }}</div>
   {% endif %}

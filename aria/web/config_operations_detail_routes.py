@@ -106,7 +106,7 @@ def register_config_operations_detail_routes(app: FastAPI, deps: ConfigOperation
             {
                 "inventory_index": getattr(settings, "inventory_index", None),
                 "inventory_index_status": status,
-                "memory_nav": "reindex",
+                "memory_nav": "maintenance",
                 "rebuilt": bool(rebuilt),
             }
         )

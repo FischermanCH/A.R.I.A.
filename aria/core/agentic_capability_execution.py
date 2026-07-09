@@ -38,7 +38,11 @@ class GenericCapabilityExecutionHandler:
             text, detail_lines, errors = content_access_result
             return AgenticExecutionResult(intents=intents, text=text, detail_lines=detail_lines, errors=errors)
 
-        detail_lines: list[str] = []
+        detail_lines: list[str] = [
+            str(line or "").strip()
+            for line in list(request.payload.get("_pre_detail_lines", []) or [])
+            if str(line or "").strip()
+        ]
         if self._hooks.routing_debug_enabled():
             detail_lines.append(runtime_debug_line_for_plan(plan))
         detail_lines.extend(self._hooks.build_capability_detail_lines(plan, request.language))
@@ -51,15 +55,16 @@ class GenericCapabilityExecutionHandler:
 
         if plan.is_complete:
             self._hooks.remember_action(request.user_id, plan)
-        self._hooks.learning_service.record_capability_success(
-            action=request.action,
-            plan=plan,
-            result_text=result_text,
-            user_message=str(request.resolved.get("query", "") or ""),
-            user_id=request.user_id,
-            language=request.language,
-            detail_lines=detail_lines,
-        )
+        if not bool(request.payload.get("_suppress_auto_learning")):
+            self._hooks.learning_service.record_capability_success(
+                action=request.action,
+                plan=plan,
+                result_text=result_text,
+                user_message=str(request.resolved.get("query", "") or ""),
+                user_id=request.user_id,
+                language=request.language,
+                detail_lines=detail_lines,
+            )
         return AgenticExecutionResult(
             intents=intents,
             text=result_text,

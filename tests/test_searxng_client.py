@@ -221,7 +221,12 @@ def test_web_search_skill_prefers_official_product_sources_for_latest_products()
     urls = [source["url"] for source in result.metadata["sources"]]
     assert "https://www.apple.com/iphone/" in urls
     assert "https://www.apple.com/apple-watch-ultra/" in urls
+    assert all("appgefahren.de" not in url for url in urls)
+    assert all("n-tv.de" not in url for url in urls)
     assert "n-tv.de" not in result.metadata["sources"][0]["url"]
+    assert "Apple Watch Ultra 4 Geruechte" not in result.content
+    assert "iPhone 17 Pro samt Watch Ultra 3 fuer 1 Euro" not in result.content
+    assert result.metadata["web_source_filter"]["applied"] is True
     assert "Target coverage for the answer" in result.content
     assert "- apple watch ultra:" in result.content.lower()
     assert "- apple iphone:" in result.content.lower()
@@ -239,6 +244,106 @@ def test_web_search_skill_splits_multi_product_official_targets() -> None:
     )
 
     assert [target.lower() for target in targets] == ["apple watch ultra", "apple iphone"]
+
+
+def test_web_search_skill_extracts_single_product_line_official_target() -> None:
+    assert WebSearchSkill._official_product_targets(  # type: ignore[attr-defined]
+        "welches ist aktuell das neuste google pixel phone?"
+    ) == ["google pixel"]
+    assert WebSearchSkill._official_product_targets(  # type: ignore[attr-defined]
+        "welches ist die neuste apple watch ultra und was kann sie mehr als die alte version?"
+    ) == ["apple watch ultra"]
+
+
+def test_web_search_skill_prefers_google_store_for_latest_pixel_line() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def search(self, **kwargs):
+            query = str(kwargs.get("query", ""))
+            self.queries.append(query)
+            if "google pixel latest model official manufacturer" in query.lower():
+                results = [
+                    SearXNGSearchResult(
+                        title="Pixel 10 Smartphones - Google Store",
+                        url="https://store.google.com/category/phones?hl=en-US",
+                        snippet="Shop the latest Pixel 10 smartphones: Pixel 10, Pixel 10 Pro & Pixel 10 Pro Fold.",
+                        engine="duckduckgo",
+                    ),
+                    SearXNGSearchResult(
+                        title="Compare Pixel phones and specs - Google Store",
+                        url="https://store.google.com/magazine/compare_pixel",
+                        snippet="Compare Pixel 10 Pro, Pixel 10 Pro Fold, Pixel 10 and Pixel 9.",
+                        engine="startpage",
+                    ),
+                ]
+            else:
+                results = [
+                    SearXNGSearchResult(
+                        title="Google Pixel 9 Series offiziell",
+                        url="https://www.go2android.de/google-pixel-9-series-offiziell",
+                        snippet="Das sind die vier Pixel-Phones 2024.",
+                        engine="qwant news",
+                        published_at="2024-08-14T09:00:00+00:00",
+                        published_label="2024-08-14",
+                    ),
+                    SearXNGSearchResult(
+                        title="Google Pixel 11 Release Date: 4 Phones on Leaked CAD Drawings",
+                        url="https://memeburn.com/google-pixel-11-release-date-2026/",
+                        snippet="Pixel 11 launch event and leaked CAD drawings.",
+                        engine="bing news",
+                        published_at="2026-07-01T09:00:00+00:00",
+                        published_label="2026-07-01",
+                    ),
+                ]
+            return type("Resp", (), {"query": query, "results": results})()
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "connections": type(
+                "Connections",
+                (),
+                {
+                    "searxng": {
+                        "web-search": {
+                            "title": "web-search",
+                            "base_url": "http://searxng:8080",
+                            "timeout_seconds": 10,
+                            "max_results": 5,
+                        }
+                    }
+                },
+            )()
+        },
+    )()
+
+    client = FakeClient()
+    skill = WebSearchSkill(settings=settings, client=client)
+
+    result = __import__("asyncio").run(
+        skill.execute(
+            "welches ist aktuell das neuste google pixel phone?",
+            {"language": "de"},
+        )
+    )
+
+    assert result.success is True
+    assert any(
+        "google pixel latest model official manufacturer product page" in query.lower()
+        for query in client.queries
+    )
+    urls = [source["url"] for source in result.metadata["sources"]]
+    assert "https://store.google.com/category/phones?hl=en-US" in urls
+    assert "https://store.google.com/magazine/compare_pixel" in urls
+    assert all("pixel-9-series" not in url for url in urls)
+    assert all("pixel-11-release-date" not in url for url in urls)
+    assert "Pixel 10 Smartphones - Google Store" in result.content
+    assert "Pixel 11 Release Date" not in result.content
+    assert result.metadata["web_source_filter"]["applied"] is True
+    assert result.metadata["web_source_filter"]["reason"] == "current_product_primary_sources"
 
 
 def test_web_search_skill_keeps_primary_results_when_official_supplement_times_out() -> None:

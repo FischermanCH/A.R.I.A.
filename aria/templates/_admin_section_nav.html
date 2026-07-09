@@ -1,0 +1,5 @@
+{% set nav_section_id = 'admin' %}
+{% set nav_aria_key = 'config.admin_overview_link' %}
+{% set nav_aria_fallback = 'Admin navigation' %}
+{% set current_nav_id = admin_current_nav_id|default(current_nav_id|default('')) %}
+{% include "_section_nav.html" %}

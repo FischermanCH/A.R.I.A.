@@ -6,9 +6,137 @@ Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgr
 
 ## [Unreleased]
 
+## [0.1.0-alpha511] - 2026-07-09
+
+### Public Release Candidate Notes
+
+- Prepared the post-`0.1.0-alpha437` public release line by consolidating the user-facing feature set: graphical Memory browser, Notes workspace improvements, Auto-memory and agentic learning UI, generated navigation, Chat Prompt Queue, visible pending confirmations, Agentic Operator Trace, stronger document inventory answers, web freshness source discipline, and safer multi-target runtime routing.
+- Refreshed public-facing help coverage for Chat & Queue, Navigation & Menus, Notes, and the Agentic Operator flow so new capabilities are documented from the end-user perspective before the next public push.
+- Published as public `0.1.0-alpha511` after internal `alpha511` validation; GitHub and Docker publication use the matching `v0.1.0-alpha.511` / `0.1.0-alpha.511` release line.
+
 ### Added
 
-- Nothing yet.
+- Added the completed graphical Memory browser as an internal Qdrant/Memory maintenance and debug tool. It combines structure navigation, inspector drilldown, collection/document/entry/chunk hierarchy, point-level semantic proximity, deletion actions for chunks/points/documents, fullscreen support, iOS/touch handling, panbars, saved structure preferences, and organic graph physics.
+
+### Changed
+
+- Built internal `0.1.0-alpha511` local image/TAR for the Public Release Readiness slice: release draft, refreshed help/wiki/i18n coverage, and mobile queue polish; public release remains `0.1.0-alpha437`.
+- Built internal `0.1.0-alpha510` local image/TAR for the product freshness official-source follow-up and post-`alpha509` full-suite fixes; public release remains `0.1.0-alpha437`.
+- Improved current/latest product-line web searches so single product families can add official manufacturer/store/compare sources, while leak, rumor, and future-model sources are demoted for current availability claims.
+- Built internal `0.1.0-alpha509` local image/TAR for Pending Confirmation Queue UX and the all-Linux full-fleet SSH scope follow-up; public release remains `0.1.0-alpha437`.
+- Hardened Pending Confirmations in Chat Prompt Queue: confirmation-required actions now stay visible as their own queue/action item with waiting or expired status plus run, plan-again, and discard actions, without bypassing guardrails or executing automatically.
+- Built internal `0.1.0-alpha508` local image/TAR for the server disk-capacity runtime fastpath and reusable local agentic prompt-test protocol; public release remains `0.1.0-alpha437`.
+- Built internal `0.1.0-alpha507` local image/TAR for the HTTP API health fastpath, product-comparison freshness tweak, and Agentic Runtime Result Contract v1; public release remains `0.1.0-alpha437`.
+- Added Agentic Runtime Result Contract v1 for multi-target SSH execution details: runtime records now emit a generic result contract with task intent, command profile, target/record/state counts, assumption or threshold, notable targets, and confidence, and Operator Trace prefers that contract as the visible `result` phase.
+- Built internal `0.1.0-alpha506` local image/TAR for the Agentic Source Discipline / Action Contract follow-up; public release remains `0.1.0-alpha437`.
+- Tightened current/latest product web answers so official vendor, release-note, documentation, and comparison sources dominate when available, while rumor, deal, news, and future-model sources are kept out of the answer context unless the user explicitly asks for them.
+- Hardened connection action contracts so SSH/RSS action requests selected by the meta catalog cannot fall through to a plain inventory answer just because the action list is empty.
+- Built internal `0.1.0-alpha505` local image/TAR for the Agentic Contract Trace follow-up; public release remains `0.1.0-alpha437`.
+- Documented Chat Prompt Queue v1 as an accepted workflow improvement after the internal `0.1.0-alpha504` test/build: users can keep submitting prompts while ARIA is busy, then edit, remove, and reorder queued prompts before sequential execution. Mobile/iOS support is expected from responsive CSS, with future polish reserved for replacing the current browser `prompt()` edit dialog if needed.
+- Built internal `0.1.0-alpha504` local image/TAR for Chat Prompt Queue v1; public release remains `0.1.0-alpha437`.
+- Added Chat Prompt Queue v1: the chat composer can accept prompts while a response is running, keep waiting prompts in a per-tab FIFO queue, and let users edit, remove, or reorder not-yet-started prompts before sequential execution.
+- Built internal `0.1.0-alpha503` local image/TAR for the Docs inventory evidence follow-up; public release remains `0.1.0-alpha437`.
+- Fixed Docs inventory answers so `document_inventory=True` results are treated as document metadata evidence instead of being discarded by the normal search-term evidence filter.
+- Built internal `0.1.0-alpha502` local image/TAR for the Web freshness contract follow-up; public release remains `0.1.0-alpha437`.
+- Fixed Meta-Catalog/AriaTurn web context requests so `web:search` requests execute the web search runtime even when the high-level intent is only `chat`, and final web-backed answers receive freshness instructions.
+- Built internal `0.1.0-alpha501` local image/TAR for the Docs inventory follow-up; public release remains `0.1.0-alpha437`.
+- Fixed document-store inventory questions phrased as stored/archived content so they request document inventory instead of answering from only the top semantic chunks.
+- Built internal `0.1.0-alpha500` local image/TAR for Agentic Operator Trace v1.1 contract propagation; public release remains `0.1.0-alpha437`.
+- Extended Agentic Operator Trace observability so existing policy/preflight result lines become a generic `policy` phase, aggregate runtime timing lines are preferred over per-target runtime traces, summary timing is recognized by shape, and existing `target_intent` / `task_intent` contracts are preserved into multi-target runtime outcomes.
+- Built internal `0.1.0-alpha499` local image/TAR for the first Agentic Operator Trace slice; public release remains `0.1.0-alpha437`.
+- Added an Agentic Operator Trace debug contract that normalizes existing routing/runtime detail lines into stable phases for understanding, context, draft/policy, runtime, result, summary, and review-only learning. The trace is observability-only: it does not add semantic routing rules, prompt special cases, or new action decisions.
+- Applied the HTTP API action contract before generic capability runtime execution, so configured health/status requests are normalized through the existing policy boundary before execution and mutating/confirmation-required HTTP API requests stay blocked from direct runtime execution.
+- Built internal `0.1.0-alpha498` local image/TAR for the completed navigation follow-up; public release remains `0.1.0-alpha437`.
+- Accepted the internal `alpha498` UI navigation follow-up after user live-testing on a real ARIA instance with live data; the menu/UI tweak block is considered closed.
+- Built internal `0.1.0-alpha497` local image/TAR for the current Auto-memory, navigation, Appearance, Admin Mode, and final UI-polish changes; public release remains `0.1.0-alpha437`.
+- Polished the generated navigation and hub pages: active states are quieter, Settings/Admin/Connections hubs are denser, Connections no longer acts as a status dashboard, Admin Mode is presented as `Extended view`, and long menu/help labels wrap more safely on mobile.
+- Built the navigation follow-up in `alpha498`: `_section_nav.html` now renders through a central context navigation registry, header menus stay stable per section instead of switching into subchapter navigation, `/config`, `/config/persona`, and `/recipes` hub cards are generated from the same registry instead of hard-coded template links, `/config` now renders one card per meaningful Settings destination instead of a self-link card, Settings subpages keep the Settings main nav, Admin subpages keep `Admin` plus four stable real group pages (`/config/admin/config`, `/config/admin/recipes`, `/config/admin/memory`, `/config/admin/operations`) instead of hash anchors, each Admin group page renders only its own block while `/config/admin` remains the full overview, the global account menu no longer has a separate Admin overview entry, Settings becomes a real account-menu submenu with Admin inside it when Extended view is active, Admin is only exposed from `/config` when Extended view is active, `/recipes` is a real Recipes section hub and `/recipes/mine` is the explicit saved-recipes worklist, `/recipes/learned` stays the normal Recipes view while Admin maintenance moved to the distinct `/recipes/learned/maintenance` URL, the navigation registry now has regression tests against duplicate href ownership, wrong header-context switches, and wrong Admin menu exposure, System recipes stay in Admin navigation, Admin config pages no longer show Settings nav plus a second right-side Admin return link, Activities uses Admin navigation chrome, Auto-memory now has its own `/memories/auto-memory` page instead of an anchor inside technical Memory setup, Operations no longer duplicates the Updates entry, and Memory maintenance is no longer duplicated on the Admin overview.
+- Refined the Recipes surface over the alpha UI work: saved recipes now live explicitly at `/recipes/mine`, `/recipes` is the Recipes section hub, New/Templates remains the combined creation/import/template entry point, Learned Recipes remains the review surface, and System recipes stay in the Admin maintenance context.
+- Combined new recipe creation, JSON import, and template import on the New/Templates page while keeping `/recipes/templates` as a compatibility route.
+- Reduced Recipes UI terminology drift by making visible labels recipe/template-first instead of skill/sample-first, and collapsed the Learned Recipes process explanation behind a compact help disclosure.
+- Added a clearer global Admin section in the authenticated menu: daily work areas stay separate from Admin Mode links such as system recipes, learned-recipe maintenance, Memory import/maintenance, connections, stats, activities, and updates, while the Admin Mode toggle remains reachable even when Admin Mode is off.
+- Hid advanced Config hub/subnav entries when Admin Mode is off, keeping the access/admin-mode path visible so users can re-enable administration without hunting through hidden tools.
+- Collapsed the global Admin section into one Admin submenu so the account menu stays compact while still keeping all admin destinations available on demand.
+- Moved Updates back into the normal user-facing navigation and grouped technical Config destinations under an Admin submenu, so `/config` stays focused while updates are not treated as an Admin-only destination.
+- Moved Statistics back into the normal user-facing navigation because usage and cost overview are useful outside Admin Mode.
+- Removed Memory Import from the global Admin submenu because document import is a normal Memory workflow reachable from the Memory area.
+- Added a dedicated, collapsible-section `/config/admin` hub and shared Admin navigation source so the global Admin submenu and Admin page stay consistent while `/config` shows only one Admin entry.
+- Simplified Config/Help chrome: technical Config subpages now link back to the Admin overview, contextual help blocks are compact links into the Help system instead of inline explanations, and visible German labels use recipes/templates/connections wording more consistently.
+- Tightened the new Admin/Config layout for iPhone, iPad mini, and other narrow touch viewports with explicit wrapping, touch-target, and compact-help-link guards.
+- Reduced global menu nesting by replacing the Admin submenu with one direct Admin overview entry; the generated `/config/admin` page remains the single place for grouped technical destinations and now has a dedicated Memory section with direct Auto-memory & learning and Memory maintenance links.
+- Added user-facing Connections and Recipes entries to the Settings hub and Settings subnav so central workflows are reachable from `/config` without being hidden in Admin; Recipes is no longer duplicated as a separate global menu entry.
+- Kept Memory Import as a normal Memory-area user action while moving Memory Maintenance out of the Memory subnav and leaving it reachable through the Admin overview's Memory section.
+- Added parent navigation for moved areas: Recipes and Connections now link back to Settings from their subnavs, while Auto-memory setup and Memory Maintenance link back to the Admin overview.
+- Added a central hierarchical navigation registry and shared subnav renderer so Settings, Recipes, Connections, Memory, and Admin navigation are generated from one movable page tree instead of hard-coded per-template links.
+- Removed the Settings subnav from the Admin overview so `/config/admin` shows only the generated Admin sections instead of repeating normal Settings tabs.
+- Removed status summary tiles from the Settings overview because those operational signals belong in Stats, leaving `/config` as a quieter navigation hub.
+- Removed status summary tiles from the Connections overview because live connection signals belong in Stats or the dedicated Live Status page, leaving `/connections` as a quieter navigation hub.
+- Moved the Admin Mode toggle out of the global Areas menu and the Users page into a compact account-level Extended view control, backed by a narrow `/config/admin-mode` page that only manages this one option.
+- Kept Appearance and default Language settings user-accessible when Admin Mode is off, while leaving Prompt Studio and language-file editing behind Admin Mode.
+- Added a direct `/memories/create` page and Memory subnav entry for creating a manual memory, so the create flow is no longer hidden below Document Import.
+- Added combined Appearance theme sets that choose a matching theme palette and background image together while keeping the individual Theme and Background selectors available for manual fine-tuning.
+- Clarified Auto-memory as Auto-memory & agentic learning: the new `/memories/auto-memory` page separates status, user-facing effects, help link, and advanced extraction details, and the chat/status entry points link directly to that page.
+- Simplified the Learned Recipes page further with a compact summary strip, collapsible filters/sorting, flatter review rows, and admin-only process, contract, learning, curator, promotion, dismiss, and delete details tied to Admin Mode.
+- Notes can now be moved directly from the board cards or the editor into another existing folder or back to Inbox. The move updates the Markdown source path/frontmatter and reindexes the note so the Qdrant Notes collection follows the new folder.
+- Added a dense Notes list view with multi-select bulk move, so existing notes can be organized across folders without opening each card one by one.
+- Added a compact clickable breadcrumb path to the Memory browser inspector so users can jump back to root, type, collection, or document context without hunting in the graph.
+- Consolidated Memory browser inspector selection handlers into shared state helpers, reducing duplicated navigation logic between collection, document, chunk, and entry drilldowns.
+- Simplified the unified Memory browser context model so structure navigation, inspector drilldown, and semantic proximity all derive availability from the same current point context instead of scattered special cases.
+- Tightened the Memory browser fullscreen layout so the graph/inspector workspace uses more of the viewport and the semantic viewport follows the same compact fullscreen sizing as the structure graph.
+- Stabilized the Memory browser as the primary graphical view for browsing and maintaining ARIA's Memory stores. Import and technical maintenance flows stay on separate pages so the browser can remain focused on reading, navigating, inspecting, and selectively deleting Memory data.
+- Refined the Memory section into clearer `Memory`, `Import`, and `Maintenance` areas. The Memory view is now a focused graphical browser for stores, documents, chunks, and semantic proximity, while upload and technical maintenance actions live on separate pages.
+- The Memory browser now keeps structure and semantic proximity as modes of the same browser space. Structure view auto-fits the graph to the available viewport and includes zoom, fit, and center controls for deeper drilldowns.
+- Structure mode now uses the same round-node SVG graph language as semantic proximity, so switching modes feels like staying in one browser instead of jumping between unrelated layouts.
+
+### Fixed
+
+- Fixed the no-LLM action-planner fallback so stored recipe candidates do not make a clear built-in template action look ambiguous when ARIA has no LLM client available.
+- Fixed SSH follow-up routing so a reconstructed current-target SSH prompt is not preempted by generic stored recipe arbitration.
+- Fixed all-scope SSH target narrowing so prompts like "all Linux servers" keep the full SSH fleet when only OS/runtime words are present, while true groups such as dev, DNS, or management can still narrow normally.
+- Fixed expired or invalid routed-action confirmation feedback so the user gets a recovery hint to plan the action again or discard the pending confirmation.
+- Fixed plural server disk-capacity questions so an LLM-selected `capacity_check` capability draft can use the runtime-task SSH fastpath instead of falling through to unrelated local document search; exact single SSH refs still stay on the normal single-target path.
+- Tightened web-backed product comparison answers so ARIA separates model-specific improvements from carried-over, ecosystem, or software-only features and only presents a change as "more than the old version" when the provided sources support that comparison.
+- Suppressed stored-recipe arbitration for clear HTTP API status/health capability drafts, so configured single-profile health checks can stay on the local `health_path` contract without an unnecessary `recipe_execution_intent` LLM call.
+- Added Agentic Contract Trace follow-up: current/latest public product comparison questions can override an accidental local Docs-only meta-catalog match and route to WebSearch, `context_packet` debug lines now summarize requested/loaded/empty/missing context per TurnPlan, and `answer_contract` debug lines expose source-bound answer status before direct or empty context answers.
+- Removed the extra `Puke Unicorn` theme decorator and theme-specific background pattern layers so the selected background image is the only visual background source for that palette.
+- Fixed Memory browser structure-node dragging so moved nodes become soft simulation anchors instead of snapping back to their old layout positions; connected neighbor nodes now receive a small settling impulse and drift with the dragged node.
+- Persisted Memory browser structure view options in local browser storage and widened the spacing, clustering, and attraction ranges for stronger layout tuning.
+- Fixed the Memory browser fullscreen header layout so the ARIA brand, browser title, and mode controls share one coherent header row instead of overlapping separate header blocks.
+- Fixed detached fullscreen semantic Memory views so document, chunk, and entry focus are preserved instead of falling back to structure mode.
+- Reworked the Memory browser fullscreen header into a compact topbar and added touch/iOS fallbacks so the graph and inspector get more usable height without cramped controls.
+- Replaced the earlier fullscreen right-rail title placement with the compact topbar layout so the header stays coherent across graph and inspector.
+- Fixed fullscreen semantic Memory graph clipping by allowing the SVG layer to render labels and shifted nodes beyond its internal viewBox edge.
+- Fixed the Memory browser fullscreen brand mark by rendering the actual ARIA logo image plus its overlay, instead of an invisible overlay-only logo.
+- Fixed theme collisions in Memory browser controls and inspector drilldown lists so broad theme button styles no longer turn browser navigation into oversized accent bars.
+- Fixed semantic proximity availability for collections/documents that already expose concrete entries/chunks in the inspector: semantic proximity is offered from the current visible point context, while higher summary levels remain structure-only.
+- Changed Memory browser semantic proximity into a point-level view: the semantic mode tab stays hidden on pure summary levels, appears when the current inspector level exposes concrete chunks/entries, and no longer exposes the global semantic collection overview inside the unified browser.
+- Fixed Memory browser semantic-mode state handoff: inspector navigation now keeps the semantic browser active, focuses the selected collection/entry/chunk in the Qdrant Brain view, clears stale semantic detail on the entry page, and restores the ARIA brand mark in fullscreen.
+- Reduced semantic overview label collisions by spreading collection nodes into a wider organic cloud with quieter overview labels, without changing the normal semantic point-graph layout.
+- Changed the Memory browser semantic entry overview from a forced column list into an organic collection cloud, and removed the temporary semantic overview fit experiment so the real semantic point graph logic stays isolated.
+- Fixed the Memory browser semantic switch so it no longer falls back to a global semantic root view when the current drilldown collection cannot be focused in the Qdrant Brain graph. Semantic proximity is only offered when the current collection can actually be shown.
+- Fixed semantic availability for document collections by prioritizing document graph points in the Qdrant Brain sample used by the Memory browser.
+- Fixed the Memory browser `Center` control so it recenters the current structure zoom level instead of resetting back to fit mode.
+- Added drag-to-pan for the structure graph stage so zoomed drilldowns can be moved directly with the pointer.
+- Fixed the Memory browser structure source so it shows all Qdrant collections from the live collection overview instead of only user-memory recall targets.
+- Fixed structure drilldown navigation so clicking a node focuses, centers, and zooms that node instead of returning to the full-map overview.
+- Fixed document-store counts in the Memory browser so non-document collections such as recipe experience or self-learning stores are not mixed into document totals.
+- Moved Self-Learning out of the user Memory view and into Maintenance, keeping review and worker tooling separate from read-only browsing.
+- Fixed structure graph interaction so nodes can be dragged like the semantic graph and connected edges update while dragging.
+- Kept the Memory node inspector visible in fullscreen as a compact detail strip below the graph.
+- Added cursor-centered mouse-wheel zoom and two-finger pinch zoom to the Memory structure graph.
+- Moved the Memory fullscreen inspector into a right-side detail rail on wide windows.
+- Added an automatic force-layout relaxation pass to the Memory structure graph so opened collections, documents, and chunks self-organize into clearer clusters.
+- Fixed fullscreen semantic proximity for focused document stores so the selected collection is carried into the Qdrant Brain graph sample and document chunks remain visible instead of falling back to a sparse/global semantic view.
+- Broadened Qdrant Brain sampling across ARIA collections so semantic proximity is also available for non-document stores such as Notes when they have visualizable vector-backed points.
+- Changed the Memory structure graph from a static post-layout cleanup to a live force simulation that continues to settle nodes and reheats after drag interactions.
+- Fixed semantic proximity detail panels so focusing a collection selects a real point immediately and falls back to readable label/meta previews when payload text is sparse.
+- Fixed embedded semantic proximity graph scoping so clicking a node updates the detail panel belonging to that graph instance, including fullscreen/document-store views.
+- Added compact Memory structure view options for spacing, clustering, and attraction, and made node focus less aggressively centered so open graphs use the available space better.
+- Fixed semantic proximity document chunk nodes so chunk points are labelled and detailed as chunks instead of appearing as the parent PDF, and exposed spacing, clustering, and attraction controls in the semantic graph/fullscreen view.
+- Fixed semantic proximity node details so clicked document chunks render as `Chunk N` with the actual chunk excerpt in the inspector, not as the parent PDF.
+- Added a Memory structure `Expand all` control that opens all currently known graph levels at once; centering now preserves the expanded graph state.
+- Adjusted Memory structure graph placement so relaxed node clusters are shifted into the usable middle of the stage instead of hugging the upper edge.
+- Improved Memory structure fitting so `Fit` uses the visible node bounds rather than empty graph canvas space, making open graphs use the available viewport more evenly.
 
 ## [0.1.0-alpha437] - 2026-06-30
 

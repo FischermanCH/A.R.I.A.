@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import html
+import json
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.parse import parse_qs
@@ -15,6 +18,7 @@ from aria.web.memories_routes import (
     _build_routing_collection_rows,
     _build_system_collection_rows,
     _build_memory_graph,
+    _build_memory_drilldown_browser_snapshot,
     _build_qdrant_brain_graph,
     _build_document_collection_groups,
     _build_document_entries,
@@ -32,6 +36,7 @@ from aria.web.memories_routes import (
 from aria.core.qdrant_collection_classifier import classify_qdrant_collection
 from aria.skills.base import SkillResult
 from aria.skills.memory import MemorySkill
+from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 from fastapi import UploadFile as FastAPIUploadFile
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -55,13 +60,34 @@ def _sanitize_collection_name(value: str | None) -> str:
     return clean[:64]
 
 
+def _extract_brain_payload(page: str) -> dict[str, object]:
+    match = re.search(r'<script type="application/json" data-brain-payload>(.*?)</script>', page, re.S)
+    assert match is not None
+    return json.loads(html.unescape(match.group(1)))
+
+
+def _first_memory_subnav(page: str) -> str:
+    start = page.find('<nav class="memory-subnav"')
+    if start < 0:
+        return ""
+    end = page.find("</nav>", start)
+    return page[start : end + len("</nav>")] if end >= 0 else page[start:]
+
+
 def _build_memories_app(
     memory_graph_points: list[dict[str, object]] | None = None,
+    *,
+    advanced_mode: bool = True,
 ) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
 
     settings = SimpleNamespace(
         ui=SimpleNamespace(title="Memories Test"),
@@ -90,6 +116,8 @@ def _build_memories_app(
         def __init__(self) -> None:
             self.payload_updates: list[dict[str, object]] = []
             self.execute_calls: list[dict[str, object]] = []
+            self.deleted_points: list[dict[str, object]] = []
+            self.deleted_documents: list[dict[str, object]] = []
 
         async def get_user_collection_stats(self, _username: str) -> list[dict[str, object]]:
             return [
@@ -106,8 +134,9 @@ def _build_memories_app(
             user_id: str,
             limit: int = 96,
             collection_limit: int = 18,
+            preferred_collections: list[str] | tuple[str, ...] | None = None,
         ) -> list[dict[str, object]]:
-            _ = (user_id, limit, collection_limit)
+            _ = (user_id, limit, collection_limit, preferred_collections)
             if memory_graph_points is not None:
                 return memory_graph_points
             return [
@@ -130,6 +159,54 @@ def _build_memories_app(
                     "source": "memory",
                     "timestamp": "2026-06-06T01:01:00+00:00",
                     "vector": [0.96, 0.04, 0.0],
+                },
+                {
+                    "id": "doc-graph-1",
+                    "collection": "aria_docs_tester_manuals",
+                    "type": "document",
+                    "label": "DOKUMENT",
+                    "text": "Setup manual graph chunk with import notes.",
+                    "source": "rag_upload",
+                    "timestamp": "2026-06-16T10:00:00+00:00",
+                    "document_name": "Setup Manual.pdf",
+                    "chunk_index": 1,
+                    "chunk_total": 2,
+                    "vector": [0.1, 0.95, 0.0],
+                },
+                {
+                    "id": "doc-graph-2",
+                    "collection": "aria_docs_tester_manuals",
+                    "type": "document",
+                    "label": "DOKUMENT",
+                    "text": "Setup manual graph chunk with troubleshooting notes.",
+                    "source": "rag_upload",
+                    "timestamp": "2026-06-16T10:01:00+00:00",
+                    "document_name": "Setup Manual.pdf",
+                    "chunk_index": 2,
+                    "chunk_total": 2,
+                    "vector": [0.12, 0.93, 0.01],
+                },
+                {
+                    "id": "note-graph-1",
+                    "collection": "aria_notes_tester",
+                    "type": "notes",
+                    "label": "NOTE",
+                    "text": "Area41 note graph chunk with travel context.",
+                    "source": "notes",
+                    "timestamp": "2026-06-17T10:00:00+00:00",
+                    "note_title": "Area41",
+                    "vector": [0.0, 0.1, 0.95],
+                },
+                {
+                    "id": "note-graph-2",
+                    "collection": "aria_notes_tester",
+                    "type": "notes",
+                    "label": "NOTE",
+                    "text": "Area41 note graph chunk with conference context.",
+                    "source": "notes",
+                    "timestamp": "2026-06-17T10:01:00+00:00",
+                    "note_title": "Area41",
+                    "vector": [0.0, 0.12, 0.93],
                 },
             ]
 
@@ -204,6 +281,28 @@ def _build_memories_app(
                     "source": "learning_validator",
                     "timestamp": "2026-06-15T10:01:00+00:00",
                 },
+                {
+                    "id": "doc-1-chunk-1",
+                    "collection": "aria_docs_tester_manuals",
+                    "type": "document",
+                    "label": "DOKUMENT",
+                    "text": "Setup manual first chunk with import notes.",
+                    "source": "rag_upload",
+                    "timestamp": "2026-06-16T10:00:00+00:00",
+                    "document_id": "doc-1",
+                    "document_name": "Setup Manual.pdf",
+                },
+                {
+                    "id": "doc-1-chunk-2",
+                    "collection": "aria_docs_tester_manuals",
+                    "type": "document",
+                    "label": "DOKUMENT",
+                    "text": "Setup manual second chunk with troubleshooting notes.",
+                    "source": "rag_upload",
+                    "timestamp": "2026-06-16T10:01:00+00:00",
+                    "document_id": "doc-1",
+                    "document_name": "Setup Manual.pdf",
+                },
             ]
             clean_type = str(type_filter or "all").strip().lower()
             clean_collection = str(collection_filter or "").strip()
@@ -230,6 +329,39 @@ def _build_memories_app(
             )
             return True
 
+        async def delete_memory_point(
+            self,
+            user_id: str,
+            collection: str,
+            point_id: str,
+        ) -> bool:
+            self.deleted_points.append(
+                {
+                    "user_id": user_id,
+                    "collection": collection,
+                    "point_id": point_id,
+                }
+            )
+            return True
+
+        async def delete_document(
+            self,
+            user_id: str,
+            collection: str,
+            *,
+            document_id: str = "",
+            document_name: str = "",
+        ) -> int:
+            self.deleted_documents.append(
+                {
+                    "user_id": user_id,
+                    "collection": collection,
+                    "document_id": document_id,
+                    "document_name": document_name,
+                }
+            )
+            return 2
+
         async def execute(self, query: str, params: dict) -> SkillResult:
             self.execute_calls.append({"query": query, "params": dict(params)})
             return SkillResult(skill_name="memory", content="Speicheraktion erfolgreich.", success=True)
@@ -244,7 +376,7 @@ def _build_memories_app(
         request.state.auth_user = "tester"
         request.state.auth_role = "admin"
         request.state.can_access_users = False
-        request.state.can_access_advanced_config = True
+        request.state.can_access_advanced_config = advanced_mode
         request.state.debug_mode = True
         request.state.lang = "en"
         request.state.cookie_names = {}
@@ -488,24 +620,445 @@ def test_build_document_entries_groups_chunks_by_document() -> None:
     assert entries[0]["collection"] == "aria_docs_manuals"
 
 
-def test_memories_overview_page_renders_unified_memory_hub() -> None:
+def test_memories_page_is_view_only_memory_area() -> None:
     client = _build_memories_app()
 
     response = client.get("/memories")
 
     assert response.status_code == 200
-    assert "Memory Overview" in response.text
-    assert "Memory-Graph" in response.text
+    assert 'data-memory-browser' in response.text
+    assert "Graphical browser" in response.text
+    assert "Struktur" in response.text
+    assert "Semantische Naehe" in response.text
+    assert "data-memory-brain" in response.text
+    assert "data-brain-payload" in response.text
+    assert "aria:memory-brain-focus" in response.text
+    assert "aria:memory-brain-back" in response.text
+    assert "viewportCenterInSvg" in response.text
+    assert "stableHash" in response.text
+    assert "seededUnit" in response.text
+    assert "2.399963229728653" in response.text
+    assert "labelSide: x > centerX ? 'left' : 'right'" in response.text
+    assert "const columns = collections.length" not in response.text
+    assert "fitScaleForBounds" not in response.text
+    assert "viewportSizeInSvg" not in response.text
+    assert "viewport.scrollLeft || 0" in response.text
+    assert "const visibleCenter = () =>" not in response.text
+    assert "__ariaMemoryBrain" in response.text
+    assert "canFocusCollection" in response.text
+    assert "strict: true" in response.text
+    assert "root.dataset.initialCollection || ''" in response.text
+    assert "canShowSemantic" in response.text
+    assert "semanticTargetHasPoint" in response.text
+    assert "selectedPointContext" in response.text
+    assert "documentChunks" in response.text
+    assert "context.pointKind === 'chunk'" in response.text
+    assert "context.pointKind === 'entry'" in response.text
+    assert "selectedSemanticCollection" in response.text
+    assert "allCollectionEntries(collection)[0]" in response.text
+    assert "memoryBrowserSemanticDetail" in response.text
+    assert "memory-brain-detail-home" in response.text
+    assert "spreadCollectionLabels" not in response.text
+    assert "overview-mode" not in response.text
+    assert "fitStructureStage" in response.text
+    assert "--memory-browser-stage-scale" in response.text
+    assert 'data-memory-browser-zoom="in"' in response.text
+    assert 'data-memory-browser-zoom="out"' in response.text
+    assert "data-memory-browser-fit" in response.text
+    assert "data-memory-browser-expand-all" in response.text
+    assert "data-label-collapse" in response.text
+    assert "Alles einklappen" in response.text
+    assert "memory-drilldown-next-level" in response.text
+    assert "memory-drilldown-next-list" in response.text
+    assert "memory-drilldown-breadcrumb" in response.text
+    assert "data-memory-browser-select-root" in response.text
+    assert "data-memory-browser-select-type" in response.text
+    assert "data-memory-browser-select-collection" in response.text
+    assert "data-memory-browser-select-document" in response.text
+    assert "data-memory-browser-select-entry" in response.text
+    assert "memory-drilldown-chunk-list" in response.text
+    assert "data-memory-browser-select-chunk" in response.text
+    assert "const inspectorItem = item =>" in response.text
+    assert "item = inspectorItem(item)" in response.text
+    assert "level: 'document'" in response.text
+    assert "level: 'chunk'" in response.text
+    assert '"all_chunks"' in response.text
+    assert "document.all_chunks || []" in response.text
+    assert "Array.isArray(item.all_chunks) && item.all_chunks.length" in response.text
+    assert "state.document = documentId" in response.text
+    assert "state.collection = collectionId || state.collection" in response.text
+    assert "state.entry = entryId" in response.text
+    assert "const selectCollection = (collectionId, kind = '') =>" in response.text
+    assert "const selectDocument = (documentId, collectionId = '') =>" in response.text
+    assert "state.type = ''" in response.text
+    assert "structurePanX += dx" in response.text
+    assert "structurePanY += dy" in response.text
+    assert 'data-memory-browser-pan-axis="x"' in response.text
+    assert 'data-memory-browser-pan-axis="y"' in response.text
+    assert "setStructurePanFromBar" in response.text
+    assert "updateStructurePanBars" in response.text
+    assert "data-memory-browser-delete-point" in response.text
+    assert "data-memory-browser-delete-document" in response.text
+    assert "['chunk', 'entry'].includes(item.level)" in response.text
+    assert "state.collection = item.parentId || state.collection" in response.text
+    assert "state.collection = parentDocument?.parentId || state.collection" in response.text
+    assert "state.document = item.parentId || state.document" in response.text
+    assert "const collectionInspectorItem = item => item ? ({" in response.text
+    assert "level: item.level || 'collection'" in response.text
+    assert "allCollectionItems().find(item => item.id === state.collection)" in response.text
+    assert "const typeInspectorItem = item => item ? ({" in response.text
+    assert "level: item.level || 'type'" in response.text
+    assert "data-brain-delete-point" in response.text
+    assert "/memories/browser/delete-point" in response.text
+    assert "/memories/browser/delete-document" in response.text
+    assert "csrfToken" in response.text
+    assert '"can_delete": true' in response.text
+    assert "centerStructureView" in response.text
+    assert "shiftStructureGraph" in response.text
+    assert "visibleCenterX" in response.text
+    assert "graphCenterX" in response.text
+    assert "structurePanX" in response.text
+    assert "--memory-browser-stage-pan-x" in response.text
+    assert "focusStructureNode" in response.text
+    assert "relaxStructureLayout" in response.text
+    assert "edgeLengthFor" in response.text
+    assert "seededUnit" in response.text
+    assert "placeInCloud" in response.text
+    assert "placeAroundParent" in response.text
+    assert "clampNodePosition" not in response.text
+    assert "structureEdges" in response.text
+    assert "wheelStructureZoom" in response.text
+    assert "zoomStructureAt" in response.text
+    assert "gentleFocus" in response.text
+    assert "preserveView" in response.text
+    assert "keepScale: Boolean(options.gentleFocus)" in response.text
+    assert "structureScale + (direction === 'in' ? 0.075 : -0.075)" in response.text
+    assert "event.deltaY < 0 ? 1.04 : 0.96" in response.text
+    assert 'min="55" max="190" value="112" data-memory-browser-force="spacing"' in response.text
+    assert 'min="45" max="180" value="108" data-memory-browser-force="cluster"' in response.text
+    assert 'min="35" max="170" value="92" data-memory-browser-force="attraction"' in response.text
+    assert "aria.memoryBrowser.structureOptions.v1" in response.text
+    assert "loadStructureOptions" in response.text
+    assert "saveStructureOptions" in response.text
+    assert "window.localStorage?.setItem" in response.text
+    assert "startPinchZoom" in response.text
+    assert "pinchLastCenter" in response.text
+    assert "pointerDistance" in response.text
+    assert "coarseStructurePointer" in response.text
+    assert "event.pointerType === 'touch'" in response.text
+    assert "pendingStructureFocusId" in response.text
+    assert "activeStructureNodeId" in response.text
+    assert "data-memory-drilldown-node-button" in response.text
+    assert "memory-drilldown-hitbox" in response.text
+    assert "data-edge-from" in response.text
+    assert "updateStructureEdges" in response.text
+    assert "draggedStructureNode" in response.text
+    assert "manualStructureAnchors" in response.text
+    assert "driftStructureDrag" in response.text
+    assert "settleStructureDrag" in response.text
+    assert "connectedStructureItems" in response.text
+    assert "is-dragging" in response.text
+    assert "pointerup" in response.text
+    assert "startStagePan" in response.text
+    assert "moveStagePan" in response.text
+    assert "stage.addEventListener('wheel', wheelStructureZoom, { passive: false })" in response.text
+    assert "event.target.closest?.('[data-memory-drilldown-node-button]')" in response.text
+    assert "if (event.pointerType === 'touch' || coarseStructurePointer) return;" not in response.text
+    assert "data-memory-browser-panel=\"semantic\"" not in response.text
+    assert "memory-drilldown-node semantic-node" not in response.text
+    assert "aria_learning_candidates_tester" in response.text
+    assert "aria_docs_tester_manuals" in response.text
+    assert "Setup Manual.pdf" in response.text
+    assert "Setup manual first chunk" in response.text
     assert "Nächste Schritte" not in response.text
     assert "/memories#memories-actions" not in response.text
+    assert 'href="/memories/import"' in response.text
+    assert 'href="/memories/create"' in response.text
+    assert 'href="/memories/maintenance"' in response.text
+    assert "Dokumente importieren" not in response.text
+    assert 'name="source_view" value="import"' not in response.text
+    assert 'id="memory-create"' not in response.text
+    assert "/memories/config#qdrant-access" not in response.text
+
+
+def test_memories_nav_hides_admin_tools_when_admin_mode_is_off() -> None:
+    client = _build_memories_app(advanced_mode=False)
+
+    response = client.get("/memories")
+
+    assert response.status_code == 200
+    assert 'href="/memories"' in response.text
+    assert 'href="/config/admin-mode"' in response.text
+    assert 'href="/config/users?return_to=/config/access#admin-mode"' not in response.text
+    assert 'href="/memories/import"' in response.text
+    assert 'href="/memories/create"' in response.text
+    assert 'href="/memories/maintenance"' not in response.text
+
+
+def test_memories_fullscreen_semantic_request_without_point_stays_in_structure_browser() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories?fullscreen=1&mode=semantic")
+
+    assert response.status_code == 200
+    assert 'data-memory-browser' in response.text
+    assert "data-memory-brain" in response.text
+    assert "memory-browser-fullscreen-page" in response.text
+    assert 'data-memory-browser-inspector' in response.text
+    assert "memory-drilldown-workbench" in response.text
+    assert 'data-memory-browser-mode="structure" aria-pressed="true"' in response.text
+    assert 'data-memory-browser-mode="semantic" aria-pressed="false" hidden disabled aria-disabled="true"' in response.text
+    assert "data-memory-browser-semantic-panel hidden" in response.text
+    assert "memory-browser-fullscreen-brand" in response.text
+    assert 'class="brand-logo">' in response.text
+    assert 'class="brand-logo-rotate"' in response.text
+    assert 'href="/memories?fullscreen=1"' not in response.text
+    assert 'class="memory-subnav"' not in response.text
+
+
+def test_memories_fullscreen_layout_keeps_header_compact_and_touch_ready() -> None:
+    css = (Path(__file__).resolve().parents[1] / "aria" / "static" / "style.css").read_text()
+
+    assert ".memory-browser-fullscreen-page .memory-drilldown-head" in css
+    assert "grid-template-columns: minmax(12rem, 17rem) minmax(18rem, 1fr) auto;" in css
+    assert "padding: 0.05rem 0.15rem 0.25rem;" in css
+    assert ".memory-browser-fullscreen-brand.brand-home" in css
+    assert "height: calc(100dvh - 5.05rem);" in css
+    assert "env(safe-area-inset-bottom)" in css
+    assert "height: clamp(23rem, 56dvh, 34rem);" in css
+    assert "-webkit-line-clamp: 2;" in css
+    assert ".memory-brain-svg" in css
+    assert "overflow: visible;" in css
+
+
+def test_memories_fullscreen_collection_focus_does_not_enable_semantic_before_point() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories?fullscreen=1&mode=semantic&collection=aria_docs_tester_manuals")
+
+    assert response.status_code == 200
+    assert '"initial_collection"' in response.text
+    assert "collection-aria-docs-tester-manuals" in response.text
+    assert 'data-memory-browser-mode="structure" aria-pressed="true"' in response.text
+    assert 'data-memory-browser-mode="semantic" aria-pressed="false" hidden disabled aria-disabled="true"' in response.text
+    assert "data-memory-browser-semantic-panel hidden" in response.text
+    assert "aria:memory-brain-focus" in response.text
+    assert "aria:memory-brain-focus-point" in response.text
+    assert "__ariaMemoryBrain" in response.text
+    assert "focusPoint" in response.text
+    assert "selectedSemanticTarget" in response.text
+    assert "selectedPointContext" in response.text
+    assert "documentChunks" in response.text
+    assert "renderActiveMode" in response.text
+    assert "semanticTargetHasPoint" in response.text
+    assert "spreadCollectionLabels" not in response.text
+    assert "overview-mode" not in response.text
+    assert "semanticPanel?.querySelector('[data-brain-center]')?.click()" not in response.text
+    assert "renderStructure({ focusId: chunkId, gentleFocus: true, preserveView: true })" not in response.text
+    assert 'data-initial-collection="aria_docs_tester_manuals"' in response.text
+    assert "aria:memory-brain-back" in response.text
+    assert "memoryBrowserSemanticDetail" in response.text
+    assert "aria_docs_tester_manuals" in response.text
+    assert "Setup manual graph chunk with import notes." in response.text
+    assert "Setup manual graph chunk with troubleshooting notes." in response.text
+    assert "data.initial_collection_name" in response.text
+
+
+def test_memories_fullscreen_semantic_payload_keeps_document_chunk_details() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories?fullscreen=1&mode=semantic&collection=aria_docs_tester_manuals")
+
+    assert response.status_code == 200
+    payload = _extract_brain_payload(response.text)
+    nodes = [
+        node
+        for node in payload["nodes"]
+        if node["collection"] == "aria_docs_tester_manuals"
+    ]
+    by_chunk = {int(node["chunk_index"]): node for node in nodes}
+    assert set(by_chunk) == {1, 2}
+    assert by_chunk[1]["label"] == "Chunk 1"
+    assert by_chunk[1]["level"] == "chunk"
+    assert by_chunk[1]["document_name"] == "Setup Manual.pdf"
+    assert by_chunk[1]["chunk_total"] == 2
+    assert "Setup manual graph chunk with import notes." in by_chunk[1]["preview"]
+    assert "Chunk 1/2" in by_chunk[1]["meta"]
+    assert by_chunk[2]["label"] == "Chunk 2"
+    assert "Setup manual graph chunk with troubleshooting notes." in by_chunk[2]["preview"]
+    assert "draggedPointerMoved" in response.text
+    assert "activeDetailItem" in response.text
+    assert "isChunk ? 'Chunk' : 'Payload Preview'" in response.text
+    assert "data-detail-field=\"document\"" in response.text
+
+
+def test_memories_fullscreen_semantic_starts_with_chunk_focus() -> None:
+    client = _build_memories_app()
+
+    response = client.get(
+        "/memories?fullscreen=1&mode=semantic"
+        "&collection=aria_docs_tester_manuals"
+        "&document=doc-1"
+        "&chunk=doc-1-chunk-1"
+    )
+
+    assert response.status_code == 200
+    assert '"initial_document": "document:aria_docs_tester_manuals:doc-1"' in response.text
+    assert '"initial_chunk": "doc-1-chunk-1"' in response.text
+    assert 'mode: "semantic"' in response.text
+    assert "aria:memory-brain-focus-point" in response.text
+    assert "focusSemanticBrowser" in response.text
+
+
+def test_memories_fullscreen_semantic_document_focus_promotes_first_chunk() -> None:
+    client = _build_memories_app()
+
+    response = client.get(
+        "/memories?fullscreen=1&mode=semantic"
+        "&collection=aria_docs_tester_manuals"
+        "&document=document:aria_docs_tester_manuals:doc-1"
+    )
+
+    assert response.status_code == 200
+    assert '"initial_document": "document:aria_docs_tester_manuals:doc-1"' in response.text
+    assert '"initial_chunk": "doc-1-chunk-1"' in response.text
+    assert 'mode: "semantic"' in response.text
+
+
+def test_memories_detached_fullscreen_link_preserves_point_context() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories")
+
+    assert response.status_code == 200
+    assert "const pointContext = semanticReady ? selectedPointContext() : null" in response.text
+    assert "params.set('document', state.document || pointContext.document.id)" in response.text
+    assert "params.set('chunk', state.chunk || pointContext.point.id)" in response.text
+    assert "params.set('entry', state.entry || pointContext.point.id)" in response.text
+
+
+def test_memories_browser_delete_point_uses_csrf_and_memory_skill() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/browser/delete-point",
+        json={
+            "collection": "aria_docs_tester_manuals",
+            "point_id": "doc-1-chunk-1",
+            "csrf_token": "test-csrf",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert client.app.state.memory_skill.deleted_points == [
+        {
+            "user_id": "tester",
+            "collection": "aria_docs_tester_manuals",
+            "point_id": "doc-1-chunk-1",
+        }
+    ]
+
+
+def test_memories_browser_delete_document_uses_csrf_and_memory_skill() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/browser/delete-document",
+        headers={"x-csrf-token": "test-csrf"},
+        json={
+            "collection": "aria_docs_tester_manuals",
+            "document_id": "doc-1",
+            "document_name": "Setup Manual.pdf",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert response.json()["removed"] == 2
+    assert client.app.state.memory_skill.deleted_documents == [
+        {
+            "user_id": "tester",
+            "collection": "aria_docs_tester_manuals",
+            "document_id": "doc-1",
+            "document_name": "Setup Manual.pdf",
+        }
+    ]
+
+
+def test_memories_browser_delete_point_rejects_missing_csrf() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/browser/delete-point",
+        json={"collection": "aria_docs_tester_manuals", "point_id": "doc-1-chunk-1"},
+    )
+
+    assert response.status_code == 403
+    assert client.app.state.memory_skill.deleted_points == []
+
+
+def test_memories_fullscreen_semantic_supports_notes_collection_focus() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories?fullscreen=1&mode=semantic&collection=aria_notes_tester")
+
+    assert response.status_code == 200
+    assert 'data-memory-browser-mode="structure" aria-pressed="true"' in response.text
+    assert 'data-memory-browser-mode="semantic" aria-pressed="false" hidden disabled aria-disabled="true"' in response.text
+    assert "data-memory-browser-semantic-panel hidden" in response.text
+    assert "aria_notes_tester" in response.text
+    assert "Area41 note graph chunk with travel context." in response.text
+    assert "Area41 note graph chunk with conference context." in response.text
+
+
+def test_memories_import_page_contains_only_intake_actions() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/import")
+
+    assert response.status_code == 200
     assert "Dokumente importieren" in response.text
-    assert "Eigene Memory erfassen" in response.text
-    assert "/memories/config#qdrant-access" in response.text
-    assert '/memories/config#auto-memory' in response.text
-    assert "Qdrant" in response.text
-    assert "aria_recipe_experience_tester" in response.text
-    assert "System-Collections" in response.text
-    assert "data-memory-brain" not in response.text
+    assert 'href="/memories/create"' in response.text
+    assert 'id="memory-create"' not in response.text
+    assert 'name="source_view" value="import"' in response.text
+    assert 'data-busy-immediate="true"' in response.text
+    assert "Memory-Graph" not in response.text
+    assert "Memory Reindex" not in response.text
+
+
+def test_memories_create_page_contains_manual_memory_form() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/create")
+
+    assert response.status_code == 200
+    assert "Eigene Memory erfassen" in response.text or "Create memory" in response.text
+    assert 'href="/memories/create"' in response.text
+    assert 'id="memory-create"' in response.text
+    assert 'name="source_view" value="create"' in response.text
+    assert 'action="/memories/create"' in response.text
+    assert "Dokumente importieren" not in response.text
+
+
+def test_memories_maintenance_page_groups_admin_tools() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/maintenance")
+
+    assert response.status_code == 200
+    assert "Wartung" in response.text
+    assert "Kontext-Rollup" in response.text
+    assert "Memory Reindex" in response.text
+    assert "Memory-Setup" in response.text
+    assert 'config-admin-return-link" href="/config/admin"' not in response.text
+    assert 'href="/memories/maintenance"' in response.text
+    assert "Self-Learning" in response.text
+    assert "aria_learning_candidates_tester" in response.text
+    assert "Learning Candidate: Official page excerpts first" in response.text
+    assert "Regression" in response.text
+    assert 'name="source_view" value="maintenance"' in response.text
+    assert "Dokumente importieren" not in response.text
 
 
 def test_memories_map_page_shows_notes_and_routing_collections() -> None:
@@ -526,13 +1079,7 @@ def test_memories_map_page_shows_notes_and_routing_collections() -> None:
     assert 'href="/notes"' in response.text
     assert "/config/routing" in response.text
     assert "/recipes/learned" in response.text
-    assert "type=reflection" in response.text
-    assert "type=learning_event" in response.text
-    assert "type=learning_candidate" in response.text
-    assert "type=learning_eval" in response.text
-    assert "collection_filter=aria_learning_events_tester" in response.text
-    assert "collection_filter=aria_learning_candidates_tester" in response.text
-    assert "collection_filter=aria_learning_evals_tester" in response.text
+    assert 'href="/memories"' in response.text
     assert 'href="/memories/config#rollup"' in response.text
     assert "Komprimierung im Memory-Setup öffnen" in response.text
     assert "Qdrant Brain" in response.text
@@ -552,32 +1099,29 @@ def test_memories_map_page_shows_brain_empty_state_when_no_vectors() -> None:
     assert response.status_code == 200
     assert "Qdrant Brain" in response.text
     assert "data-memory-brain" in response.text
-    assert "Noch keine visualisierbaren Qdrant-Punkte gefunden" in response.text
+    assert "No visualizable Qdrant points found yet" in response.text
 
 
 def test_memories_explorer_stays_focused_on_browsing_not_creation() -> None:
     client = _build_memories_app()
 
-    response = client.get("/memories/explorer")
+    response = client.get("/memories/explorer", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Memory Explorer" in response.text
-    assert "Dokumente importieren" not in response.text
-    assert "Eigene Memory erfassen" not in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories"
 
 
-def test_memories_explorer_shows_learning_worker_status_card() -> None:
-    from aria.core.learning_worker import reset_learning_worker_state
-
-    reset_learning_worker_state()
+def test_memories_explorer_does_not_duplicate_memory_browser_or_maintenance() -> None:
     client = _build_memories_app()
 
     response = client.get("/memories/explorer")
 
     assert response.status_code == 200
-    assert "Learning Worker" in response.text
-    assert "Budget" in response.text
-    assert "/memories/learning-worker/flush" in response.text
+    assert 'data-memory-browser' in response.text
+    assert "Memory Browser" not in response.text
+    assert "Semantische Map" not in response.text
+    assert "Learning Worker" not in response.text
+    assert "/memories/learning-worker/flush" not in response.text
 
 
 def test_memories_learning_worker_detail_route_returns_job_snapshot() -> None:
@@ -680,62 +1224,41 @@ def test_memories_learning_worker_retry_route_requeues_failed_job() -> None:
     assert detail["status"] in {"queued", "running", "completed"}
 
 
-def test_memories_explorer_shows_learning_candidate_review_actions() -> None:
+def test_memories_explorer_learning_candidate_filter_redirects_to_memory_browser() -> None:
     client = _build_memories_app()
 
-    response = client.get("/memories/explorer?type=learning_candidate")
+    response = client.get("/memories/explorer?type=learning_candidate", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Official page excerpts first" in response.text
-    assert "Review-only" in response.text
-    assert "/memories/learning-candidate/status" in response.text
-    assert "/memories/learning-candidate/apply" in response.text
-    assert "/memories/learning-candidate/apply-preview" in response.text
-    assert "Geprüft" in response.text
-    assert "Apply vorbereiten" in response.text
-    assert "Apply-Vorschau" in response.text
-    assert "regression: missing" in response.text
-    assert "Verwerfen" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories"
 
 
-def test_memories_explorer_shows_learning_review_queue_summary() -> None:
+def test_memories_maintenance_shows_learning_worker_summary() -> None:
     client = _build_memories_app()
 
-    response = client.get("/memories/explorer")
+    response = client.get("/memories/maintenance")
 
     assert response.status_code == 200
-    assert "Learning Review Queue" in response.text
-    assert "Kandidaten" in response.text
-    assert "Regression" in response.text
-    assert "Activation" in response.text
-    assert "missing" in response.text
+    assert "Learning Worker" in response.text
+    assert "/memories/learning-worker/flush" in response.text
 
 
-def test_memories_explorer_shows_app_learning_status_chips() -> None:
+def test_memories_explorer_app_learning_filter_redirects_to_memory_browser() -> None:
     client = _build_memories_app()
 
-    response = client.get("/memories/explorer?type=learning_candidate")
+    response = client.get("/memories/explorer?type=learning_candidate", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "app-learning" in response.text
-    assert "docker_compose" in response.text
-    assert "review_required" in response.text
-    assert "risk: medium" in response.text
-    assert "health drafts: 1" in response.text
-    assert "regression drafts: 1" in response.text
-    assert "pytest proposal: 1" in response.text
-    assert "/srv/aria" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories"
 
 
-def test_memories_explorer_shows_learning_eval_dry_run_chunks() -> None:
+def test_memories_explorer_learning_eval_filter_redirects_to_memory_browser() -> None:
     client = _build_memories_app()
 
-    response = client.get("/memories/explorer?type=learning_eval")
+    response = client.get("/memories/explorer?type=learning_eval", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Learning Eval Dry-Run" in response.text
-    assert "Promotion allowed: no" in response.text
-    assert "LERN-EVAL" in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories"
 
 
 def test_learning_candidate_status_route_updates_qdrant_payload() -> None:
@@ -1403,13 +1926,174 @@ def test_learning_candidate_activate_route_stores_active_hint_in_qdrant() -> Non
     assert payload["runtime_activation_allowed"] is False
 
 
-def test_memories_root_redirects_legacy_explorer_query_to_new_explorer_path() -> None:
+def test_memories_root_ignores_legacy_explorer_query_and_renders_browser() -> None:
     client = _build_memories_app()
 
     response = client.get("/memories?type=document&sort=collection", follow_redirects=False)
 
-    assert response.status_code == 307
-    assert response.headers["location"] == "/memories/explorer?type=document&sort=collection"
+    assert response.status_code == 200
+    assert 'data-memory-browser' in response.text
+
+
+def test_memory_drilldown_browser_counts_only_real_document_collections() -> None:
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[
+            {"name": "aria_docs_whity_medikamente", "kind": "document", "points": 338},
+            {"name": "aria_docs_fischerman", "kind": "document", "points": 207},
+            {"name": "aria_recipe_experience_fischerman", "kind": "recipe_experience", "points": 94},
+            {"name": "aria_facts_fischerman", "kind": "fact", "points": 19},
+        ],
+        document_rows=[
+            {
+                "id": "d1-c1",
+                "type": "document",
+                "collection": "aria_docs_whity_medikamente",
+                "document_id": "doc-1",
+                "document_name": "Olumiant.pdf",
+                "text": "Olumiant chunk",
+            },
+            {
+                "id": "d2-c1",
+                "type": "document",
+                "collection": "aria_docs_fischerman",
+                "document_id": "doc-2",
+                "document_name": "Arlo.pdf",
+                "text": "Arlo chunk",
+            },
+            {
+                "id": "r1",
+                "type": "document",
+                "collection": "aria_recipe_experience_fischerman",
+                "document_id": "recipe-1",
+                "document_name": "Recipe Experience",
+                "text": "Recipe experience must not count as a document store",
+            },
+        ],
+        brain={},
+    )
+
+    document_type = next(item for item in snapshot["types"] if item["kind"] == "document")
+    collections = {item["name"]: item for item in snapshot["collections"]}
+
+    assert document_type["points"] == 545
+    assert document_type["collection_count"] == 2
+    assert "aria_docs_whity_medikamente" in collections
+    assert "aria_docs_fischerman" in collections
+    assert collections["aria_recipe_experience_fischerman"]["kind"] == "recipe_experience"
+    whity_doc = collections["aria_docs_whity_medikamente"]["documents"][0]
+    assert len(whity_doc["all_chunks"]) == 1
+    assert whity_doc["all_chunks"][0]["label"] == "Chunk 1"
+
+
+def test_memory_drilldown_browser_keeps_all_document_chunks_for_inspector() -> None:
+    document_rows = [
+        {
+            "id": f"doc-1-chunk-{index}",
+            "type": "document",
+            "collection": "aria_docs_tester_manuals",
+            "document_id": "doc-1",
+            "document_name": "Setup Manual.pdf",
+            "timestamp": f"2026-04-06T02:{index:02d}:00+00:00",
+            "text": f"Setup manual chunk {index}",
+        }
+        for index in range(1, 15)
+    ]
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[{"name": "aria_docs_tester_manuals", "kind": "document", "points": 14}],
+        document_rows=document_rows,
+        brain={},
+    )
+
+    collection = next(item for item in snapshot["collections"] if item["name"] == "aria_docs_tester_manuals")
+    document = collection["documents"][0]
+
+    assert document["chunk_count"] == 14
+    assert len(document["chunks"]) == 12
+    assert len(document["all_chunks"]) == 14
+    assert document["all_chunks"][-1]["label"] == "Chunk 14"
+
+
+def test_memory_drilldown_browser_shows_self_learning_collections_read_only() -> None:
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[
+            {"name": "aria_learning_tester", "kind": "reflection", "points": 4},
+            {"name": "aria_learning_events_tester", "kind": "learning_event", "points": 37},
+            {"name": "aria_learning_candidates_tester", "kind": "learning_candidate", "points": 65},
+            {"name": "aria_learning_evals_tester", "kind": "learning_eval", "points": 1},
+        ],
+        document_rows=[],
+        brain={},
+    )
+
+    collections = {item["name"]: item for item in snapshot["collections"]}
+
+    assert any(item["kind"] == "reflection" for item in snapshot["types"])
+    assert collections["aria_learning_tester"]["kind"] == "reflection"
+    assert collections["aria_learning_candidates_tester"]["kind"] == "learning_candidate"
+
+
+def test_memory_drilldown_browser_attaches_non_document_collection_entries() -> None:
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[
+            {"name": "aria_learning_tester", "kind": "reflection", "points": 2},
+        ],
+        document_rows=[],
+        brain={
+            "nodes": [
+                {
+                    "id": "learning-1",
+                    "collection": "aria_learning_tester",
+                    "kind": "reflection",
+                    "label": "Learning",
+                    "preview": "User prefers direct inspector drilldown.",
+                    "source": "memory",
+                    "timestamp": "2026-07-05T10:00:00+00:00",
+                }
+            ]
+        },
+    )
+
+    collection = next(item for item in snapshot["collections"] if item["name"] == "aria_learning_tester")
+
+    assert collection["entries"][0]["id"] == "learning-1"
+    assert collection["entries"][0]["label"] == "Learning"
+    assert "inspector drilldown" in collection["entries"][0]["preview"]
+
+
+def test_memory_drilldown_browser_uses_qdrant_overview_as_collection_source() -> None:
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[
+            {"name": "aria_facts_tester", "kind": "fact", "points": 12},
+        ],
+        all_collections=[
+            {"name": "aria_facts_tester", "points": 12, "status": "green", "vectors": 12},
+            {"name": "aria_inventory_aria_8800", "points": 133, "status": "green", "vectors": 133},
+            {"name": "external_manual_index", "points": 7, "status": "green", "vectors": 7},
+        ],
+        document_rows=[],
+        brain={},
+    )
+
+    collections = {item["name"]: item for item in snapshot["collections"]}
+    kinds = {item["kind"] for item in snapshot["types"]}
+
+    assert "aria_facts_tester" in collections
+    assert "aria_inventory_aria_8800" in collections
+    assert collections["aria_inventory_aria_8800"]["kind"] == "system"
+    assert "external_manual_index" in collections
+    assert collections["external_manual_index"]["kind"] == "external"
+    assert "system" in kinds
+    assert "external" in kinds
 
 
 def test_memory_setup_page_keeps_qdrant_access_in_one_place() -> None:
@@ -1419,6 +2103,9 @@ def test_memory_setup_page_keeps_qdrant_access_in_one_place() -> None:
 
     assert response.status_code == 200
     assert response.text.count("Qdrant Dashboard + API-Key kopieren") == 1
+    assert 'class="ui-action-link config-admin-return-link"' not in response.text
+    assert "Admin-Übersicht" not in response.text
+    assert "Admin overview" not in response.text
     assert 'id="qdrant-access"' in response.text
     assert 'data-copy-source="qdrant-url"' in response.text
     assert 'data-copy-source="qdrant-key"' in response.text
@@ -1428,11 +2115,37 @@ def test_memory_setup_page_keeps_qdrant_access_in_one_place() -> None:
     assert "Memory backend enabled" not in response.text
 
 
+def test_auto_memory_page_explains_agentic_extraction() -> None:
+    client = _build_memories_app()
+
+    setup_response = client.get("/memories/config")
+    response = client.get("/memories/auto-memory")
+
+    assert setup_response.status_code == 200
+    assert 'id="auto-memory"' not in setup_response.text
+    assert response.status_code == 200
+    nav = _first_memory_subnav(response.text)
+    assert 'href="/config/admin/memory"' in nav
+    assert 'class="memory-subnav-item active" href="/config/admin/memory"' in nav
+    assert 'id="auto-memory"' in response.text
+    assert 'id="auto_memory_enabled"' in response.text
+    assert "Auto-memory &amp; agentic learning" in response.text
+    assert "Agentic extraction" in response.text
+    assert "aria_learning_*" in response.text
+    assert "Advanced extraction details" in response.text
+    assert "/help?doc=memory" in response.text
+
+
 def test_memory_backend_save_always_keeps_backend_enabled() -> None:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
 
     writes: list[dict[str, object]] = []
     runtime_reloaded = {"called": False}
@@ -1584,35 +2297,31 @@ def test_memories_redirect_keeps_collection_filter() -> None:
     )
 
     assert response.status_code == 303
-    assert "collection_filter=aria_docs_demo_user" in response.headers["location"]
+    assert response.headers["location"] == "/memories"
 
 
 def test_memory_collection_link_uses_matching_type_for_document_collections() -> None:
     url = _memory_collection_link(kind="document", collection="aria_docs_demo_user_manuals")
 
-    assert url.startswith("/memories/explorer?type=document")
-    assert "collection_filter=aria_docs_demo_user_manuals" in url
+    assert url == "/memories"
 
 
 def test_memory_collection_link_uses_learning_event_type() -> None:
     url = _memory_collection_link(kind="learning_event", collection="aria_learning_events_tester")
 
-    assert url.startswith("/memories/explorer?type=learning_event")
-    assert "collection_filter=aria_learning_events_tester" in url
+    assert url == "/memories"
 
 
 def test_memory_collection_link_uses_learning_candidate_type() -> None:
     url = _memory_collection_link(kind="learning_candidate", collection="aria_learning_candidates_tester")
 
-    assert url.startswith("/memories/explorer?type=learning_candidate")
-    assert "collection_filter=aria_learning_candidates_tester" in url
+    assert url == "/memories"
 
 
 def test_memory_collection_link_uses_learning_eval_type() -> None:
     url = _memory_collection_link(kind="learning_eval", collection="aria_learning_evals_tester")
 
-    assert url.startswith("/memories/explorer?type=learning_eval")
-    assert "collection_filter=aria_learning_evals_tester" in url
+    assert url == "/memories"
 
 
 def test_memory_document_link_points_to_document_chunks_view() -> None:
@@ -1622,9 +2331,7 @@ def test_memory_document_link_points_to_document_chunks_view() -> None:
         document_name="Atlas.pdf",
     )
 
-    assert url.startswith("/memories/explorer?type=document")
-    assert "collection_filter=aria_docs_demo_user" in url
-    assert "document_id=doc-42" in url
+    assert url == "/memories"
 
 
 def test_document_matches_filter_accepts_id_or_name() -> None:
@@ -1691,6 +2398,7 @@ def test_build_rollup_entries_and_groups() -> None:
 def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
     graph = _build_memory_graph(
         username="neo",
+        lang="de",
         map_rows=[
             {"name": "aria_facts_neo", "kind": "fact", "points": 12, "share_pct": 20},
             {"name": "aria_prefs_neo", "kind": "preference", "points": 8, "share_pct": 13},
@@ -1755,7 +2463,7 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
     assert "aria_routing_connections_neo_8800" in labels
     assert "Recipe Experience" in labels
     assert "aria_recipe_experience_neo" in labels
-    assert "type=document" in str(hrefs.get("aria_docs_neo_manuals", ""))
+    assert hrefs.get("aria_docs_neo_manuals", "") == "/memories"
     assert hrefs.get("Notizen", "") == "/notes"
     assert hrefs.get("aria_notes_neo", "") == "/notes"
     assert hrefs.get("Routing", "") == "/config/routing"
@@ -1799,7 +2507,8 @@ def test_build_qdrant_brain_graph_uses_similarity_without_exposing_vectors() -> 
                 "source": "document",
                 "vector": [0.0, 1.0, 0.0],
             },
-        ]
+        ],
+        lang="de",
     )
 
     assert graph["has_graph"] is True
@@ -1807,6 +2516,48 @@ def test_build_qdrant_brain_graph_uses_similarity_without_exposing_vectors() -> 
     assert graph["edge_count"] >= 1
     assert all("vector" not in node for node in graph["nodes"])
     assert graph["nodes"][0]["preview"] == "Dev server memory"
+
+
+def test_build_qdrant_brain_graph_labels_document_chunks_as_chunks() -> None:
+    graph = _build_qdrant_brain_graph(
+        [
+            {
+                "id": "chunk-7",
+                "collection": "aria_docs_tester",
+                "type": "document",
+                "document_name": "Manual.pdf",
+                "chunk_index": 7,
+                "chunk_total": 12,
+                "text": "The actual chunk text should drive the visible detail.",
+                "source": "rag_upload",
+                "vector": [1.0, 0.0, 0.0],
+            },
+            {
+                "id": "chunk-8",
+                "collection": "aria_docs_tester",
+                "type": "document",
+                "document_name": "Manual.pdf",
+                "chunk_index": 8,
+                "chunk_total": 12,
+                "text": "Neighbor chunk content.",
+                "source": "rag_upload",
+                "vector": [0.98, 0.02, 0.0],
+            },
+        ],
+        lang="de",
+        max_nodes=8,
+        max_edges=8,
+    )
+
+    first = graph["nodes"][0]
+    assert first["label"] == "Chunk 7"
+    assert first["level"] == "chunk"
+    assert first["document_name"] == "Manual.pdf"
+    assert first["chunk_index"] == 7
+    assert first["chunk_total"] == 12
+    assert "Manual.pdf" in first["meta"]
+    assert "Chunk 7/12" in first["meta"]
+    assert "actual chunk text" in first["preview"]
 
 
 def test_build_qdrant_brain_graph_keeps_collection_points_connected() -> None:
@@ -1845,6 +2596,7 @@ def test_build_qdrant_brain_graph_keeps_collection_points_connected() -> None:
                 "vector": [0.0, 0.0, 1.0],
             },
         ],
+        lang="de",
         max_edges=12,
     )
 

@@ -7,7 +7,9 @@ from aria.core.answer_composer import AnswerComposer
 from aria.core.answer_composer import AnswerComposerInput
 from aria.core.aria_turn_arbitration import AriaTurnArbitration
 from aria.core.connection_catalog import connection_kind_label
+from aria.core.context_evidence import evidence_terms
 from aria.core.context_evidence import normalized_evidence_text
+from aria.core.context_evidence import request_scope_terms
 from aria.core.context_surfaces import ContextRequest
 from aria.skills.base import SkillResult
 
@@ -188,6 +190,139 @@ def fast_inventory_list_answer(skill_result: SkillResult, *, language: str | Non
     else:
         heading = f"Ich habe {ref_count} passende {source_label} gefunden:"
     return "\n".join([heading, *content_lines]).strip()
+
+
+def _is_document_source(source: dict[str, Any]) -> bool:
+    return (
+        str(source.get("type", "") or "").strip().lower() == "document"
+        or str(source.get("collection", "") or "").strip().lower().startswith("aria_docs_")
+    )
+
+
+def _document_source_label(source: dict[str, Any]) -> str:
+    return (
+        str(source.get("document_name", "") or "").strip()
+        or str(source.get("title", "") or "").strip()
+        or str(source.get("label", "") or "").strip()
+        or str(source.get("document_id", "") or "").strip()
+        or str(source.get("collection", "") or "").strip()
+    )
+
+
+def _document_inventory_topic_terms(query: str) -> list[str]:
+    ignored = request_scope_terms("docs", "search")
+    ignored.update(
+        {
+            "abgelegt",
+            "document",
+            "documents",
+            "dokument",
+            "dokumente",
+            "gefunden",
+            "gespeichert",
+            "pdf",
+            "speicher",
+            "stored",
+            "store",
+        }
+    )
+    terms = list(evidence_terms(query, ignored_terms=ignored))
+    lower = normalized_evidence_text(query)
+    expanded: list[str] = []
+    for term in terms:
+        if term not in expanded:
+            expanded.append(term)
+        if term.startswith(("medizin", "medical", "medikament", "medication")):
+            for alias in ("medizin", "medical", "medikament", "medikamente", "medication", "gebrauchsinformation"):
+                if alias not in expanded:
+                    expanded.append(alias)
+    if "beipackzettel" in lower or "package insert" in lower:
+        for alias in ("beipackzettel", "gebrauchsinformation", "medikament", "medikamente", "medical"):
+            if alias not in expanded:
+                expanded.append(alias)
+    return expanded[:16]
+
+
+def document_inventory_sources_for_query(sources: list[dict[str, Any]], query: str) -> tuple[list[dict[str, Any]], list[str], int]:
+    document_sources: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for source in sources:
+        if not _is_document_source(source):
+            continue
+        collection = str(source.get("collection", "") or "").strip()
+        document_id = str(source.get("document_id", "") or "").strip()
+        label = _document_source_label(source)
+        key = (collection, document_id, label)
+        if key in seen:
+            continue
+        seen.add(key)
+        document_sources.append(source)
+    terms = _document_inventory_topic_terms(query)
+    if not terms:
+        return document_sources, terms, 0
+    matched_collections: set[str] = set()
+    matched_keys: set[tuple[str, str, str]] = set()
+    for source in document_sources:
+        collection = str(source.get("collection", "") or "").strip()
+        label = _document_source_label(source)
+        haystack = normalized_evidence_text(
+            " ".join(
+                str(value or "")
+                for value in (
+                    collection,
+                    label,
+                    source.get("detail", ""),
+                    source.get("guide_summary", ""),
+                    " ".join(str(item or "") for item in list(source.get("guide_keywords", []) or [])),
+                )
+            )
+        )
+        if any(term in haystack for term in terms):
+            matched_collections.add(collection)
+            matched_keys.add((collection, str(source.get("document_id", "") or "").strip(), label))
+    if not matched_collections and not matched_keys:
+        return [], terms, len(document_sources)
+    filtered = [
+        source
+        for source in document_sources
+        if str(source.get("collection", "") or "").strip() in matched_collections
+        or (
+            str(source.get("collection", "") or "").strip(),
+            str(source.get("document_id", "") or "").strip(),
+            _document_source_label(source),
+        )
+        in matched_keys
+    ]
+    return filtered, terms, max(0, len(document_sources) - len(filtered))
+
+
+def fast_document_inventory_answer(docs_result: SkillResult, query: str, *, language: str | None) -> str:
+    meta = dict(docs_result.metadata or {})
+    if not bool(meta.get("document_inventory", False)):
+        return ""
+    sources = [dict(source) for source in list(meta.get("sources", []) or []) if isinstance(source, dict)]
+    matched_sources, terms, rejected = document_inventory_sources_for_query(sources, query)
+    lines = list(meta.get("detail_lines", []) or [])
+    lines.append(
+        "Routing Debug: fast_docs_inventory_filter "
+        f"kept={len(matched_sources)} rejected={rejected} terms={','.join(terms) or '-'}"
+    )
+    meta["detail_lines"] = lines
+    docs_result.metadata = meta
+    if not matched_sources:
+        return ""
+    labels: list[str] = []
+    for source in matched_sources:
+        label = _document_source_label(source)
+        if label and label not in labels:
+            labels.append(label)
+    if not labels:
+        return ""
+    if str(language or "de").lower().startswith("en"):
+        heading = f"I found {len(labels)} matching documents:"
+    else:
+        heading = f"Ich habe {len(labels)} passende Dokumente gefunden:"
+    return "\n".join([heading, *(f"- {label}" for label in labels)]).strip()
 
 
 def docs_search_fallback_answer(
@@ -472,6 +607,9 @@ def fast_docs_search_answer(
     sources = skill_result_sources(docs_result)
     if not sources:
         return ""
+    inventory_answer = fast_document_inventory_answer(docs_result, str(request.query or ""), language=language)
+    if inventory_answer:
+        return inventory_answer
     if not all(
         str(source.get("type", "") or "").strip().lower() == "document"
         or str(source.get("collection", "") or "").strip().startswith("aria_docs")

@@ -1,0 +1,35 @@
+{% from "_icons.html" import icon %}
+
+{% macro admin_nav_items(request, variant='cards', group_filter='') -%}
+  {% for group in admin_nav_groups(request, group_filter) %}
+    {% if variant == 'menu' %}
+      {% for item in group['items'] %}
+      <a href="{{ item.href }}" class="user-menu-link user-menu-link-icon{% if item.active %} is-active{% endif %}">
+        {{ icon(item.icon) }}
+        <span>{{ tr(request, item.title_key, item.title_fallback) }}</span>
+      </a>
+      {% endfor %}
+    {% else %}
+      <details class="admin-nav-group" id="admin-group-{{ group.id }}" data-admin-nav-group="{{ group.title_key }}" open>
+        <summary class="admin-nav-group-summary">
+          <span class="admin-nav-group-copy">
+          <h2>{{ tr(request, group.title_key, group.title_fallback) }}</h2>
+          <p>{{ tr(request, group.desc_key, group.desc_fallback) }}</p>
+          </span>
+          {{ icon('arrow_right', 'admin-nav-group-caret') }}
+        </summary>
+        <div class="config-submenu admin-nav-group-grid">
+          {% for item in group['items'] %}
+          <a class="config-submenu-item{% if item.active %} is-active{% endif %}" href="{{ item.href }}">
+            <span class="submenu-icon-wrap">{{ icon(item.icon, 'submenu-icon') }}</span>
+            <span class="submenu-copy">
+              <span class="submenu-title">{{ tr(request, item.title_key, item.title_fallback) }}</span>
+              <span class="submenu-desc">{{ tr(request, item.desc_key, item.desc_fallback) }}</span>
+            </span>
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+    {% endif %}
+  {% endfor %}
+{%- endmacro %}

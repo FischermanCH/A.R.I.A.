@@ -110,9 +110,9 @@
     'config-access'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig#admin-mode">
+      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Benutzer') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Benutzerkonten, Rollen und Admin-Modus zentral verwalten.') }}</span></span>
+        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Users') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Manage user accounts and roles from one place.') }}</span></span>
       </a>
       <a class="config-submenu-item" href="/config/security?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
@@ -124,18 +124,18 @@
 
   {% if not request.state.can_access_advanced_config %}
   {% call config_section(
-    tr(request, 'config.admin_mode_off_title', 'Admin mode is currently off'),
-    tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Users > Admin On/Off.'),
+    tr(request, 'config.admin_mode_off_title', 'Extended view is currently off'),
+    tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Extended view.'),
     1,
     True,
     'config-admin'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig#admin-mode">
-        <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+      <a class="config-submenu-item" href="/config/admin-mode?return_to=%2Fconfig">
+        <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
         <span class="submenu-copy">
-          <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Users & Access') }}</span>
-          <span class="submenu-desc">{{ tr(request, 'config.admin_mode_off_link_desc', 'There you can turn admin mode back on.') }}</span>
+          <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Extended view') }}</span>
+          <span class="submenu-desc">{{ tr(request, 'config.admin_mode_off_link_desc', 'You can turn Extended view back on there.') }}</span>
         </span>
       </a>
     </div>

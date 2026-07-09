@@ -295,7 +295,7 @@
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
-          <h3>{{ tr(request, 'config_security.sample_guardrails_title', 'Mitgelieferte Sample-Guardrails') }}</h3>
+          <h3>{{ tr(request, 'config_security.sample_guardrails_title', 'Mitgelieferte Guardrail-Vorlagen') }}</h3>
           {% if sample_guardrail_rows %}<span class="config-section-count">{{ sample_guardrail_rows|length }}</span>{% endif %}
         </div>
         <span class="config-section-desc">{{ tr(request, 'config_security.sample_guardrails_subtitle', 'Starter-Pakete aus /app/samples/security, die direkt nach security.guardrails importiert werden können.') }}</span>
@@ -326,7 +326,7 @@
         </article>
         {% else %}
         <article class="config-group-card">
-          <h3>{{ tr(request, 'config_security.sample_guardrails_empty_title', 'Keine Sample-Guardrails gefunden') }}</h3>
+          <h3>{{ tr(request, 'config_security.sample_guardrails_empty_title', 'Keine Guardrail-Vorlagen gefunden') }}</h3>
           <p>{{ tr(request, 'config_security.sample_guardrails_empty_desc', 'Im Container wurde kein samples/security-Verzeichnis gefunden.') }}</p>
         </article>
         {% endfor %}

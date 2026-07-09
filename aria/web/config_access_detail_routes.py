@@ -218,9 +218,15 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
     @app.get("/config/debug", response_class=HTMLResponse)
     async def config_debug_page(request: Request, saved: int = 0, error: str = "") -> HTMLResponse:
         _ = request, saved, error
-        return deps.redirect_with_return_to("/config/users", request, fallback="/config")
+        return deps.redirect_with_return_to("/config/admin-mode", request, fallback="/config")
 
-    async def _config_debug_save(request: Request, debug_mode: str = Form("0"), return_to: str = Form("")) -> RedirectResponse:
+    async def _config_debug_save(
+        request: Request,
+        debug_mode: str = Form("0"),
+        return_to: str = Form(""),
+        *,
+        target_path: str = "/config/users",
+    ) -> RedirectResponse:
         try:
             lang = str(getattr(request.state, "lang", "de") or "de")
             active = str(debug_mode).strip().lower() in {"1", "true", "on", "yes"}
@@ -232,23 +238,23 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
             deps.write_raw_config(raw)
             deps.reload_runtime()
             info = (
-                "Admin-Modus aktiviert. Erweiterte Systembereiche sind jetzt sichtbar."
+                "Erweiterte Ansicht aktiviert. Erweiterte Systembereiche sind jetzt sichtbar."
                 if active and lang.startswith("de")
                 else "Admin mode enabled. Advanced system areas are now visible."
                 if active
-                else "Admin-Modus deaktiviert. Erweiterte Systembereiche sind jetzt ausgeblendet."
+                else "Erweiterte Ansicht deaktiviert. Erweiterte Systembereiche sind jetzt ausgeblendet."
                 if lang.startswith("de")
                 else "Admin mode disabled. Advanced system areas are now hidden."
             )
             return deps.redirect_with_return_to(
-                f"/config/users?saved=1&info={quote_plus(info)}",
+                f"{target_path}?saved=1&info={quote_plus(info)}",
                 request,
                 fallback="/config",
                 return_to=return_to,
             )
         except (OSError, ValueError) as exc:
             return deps.redirect_with_return_to(
-                f"/config/users?error={quote_plus(str(exc))}",
+                f"{target_path}?error={quote_plus(str(exc))}",
                 request,
                 fallback="/config",
                 return_to=return_to,
@@ -256,11 +262,37 @@ def register_config_access_detail_routes(app: FastAPI, deps: ConfigAccessDetailR
 
     @app.post("/config/debug/save")
     async def config_debug_save(request: Request, debug_mode: str = Form("0"), return_to: str = Form("")) -> RedirectResponse:
-        return await _config_debug_save(request, debug_mode=debug_mode, return_to=return_to)
+        return await _config_debug_save(request, debug_mode=debug_mode, return_to=return_to, target_path="/config/admin-mode")
 
     @app.post("/config/users/debug-save")
     async def config_users_debug_save(request: Request, debug_mode: str = Form("0"), return_to: str = Form("")) -> RedirectResponse:
         return await _config_debug_save(request, debug_mode=debug_mode, return_to=return_to)
+
+    @app.get("/config/admin-mode", response_class=HTMLResponse)
+    async def config_admin_mode_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+    ) -> HTMLResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        settings = deps.get_settings()
+        context = deps.build_config_page_context(
+            request,
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/config",
+            page_return_to="/config/admin-mode",
+            config_nav="overview",
+            page_heading=deps.msg(lang, "Extended view", "Extended view"),
+        )
+        context.update({"debug_mode": bool(settings.ui.debug_mode)})
+        return deps.templates.TemplateResponse(request=request, name="config_admin_mode.html", context=context)
+
+    @app.post("/config/admin-mode/save")
+    async def config_admin_mode_save(request: Request, debug_mode: str = Form("0"), return_to: str = Form("")) -> RedirectResponse:
+        return await _config_debug_save(request, debug_mode=debug_mode, return_to=return_to, target_path="/config/admin-mode")
 
     @app.get("/config/security", response_class=HTMLResponse)
     async def config_security_page(

@@ -683,6 +683,8 @@ async def debug_bounded_action_plan_decision(
         or decision.get("target_ask_user")
     )
     candidates = bounded_action_candidates_for_target(clean_query, connection_kind=connection_kind, language=language)
+    if llm_client is None:
+        candidates = [candidate for candidate in candidates if not is_recipe_candidate_kind(candidate.candidate_kind)]
     serialized_candidates = _sort_serialized_candidates(
         [
             _build_serialized_candidate(

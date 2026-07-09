@@ -96,3 +96,44 @@ def test_ssh_target_scope_policy_expands_requested_group_context() -> None:
         "refs=dev-node-01, dev-node-02" in line
         for line in list(decision.resolved.get("detail_lines", []) or [])
     )
+
+
+def test_ssh_target_scope_policy_keeps_all_linux_server_scope_on_full_fleet() -> None:
+    candidate_connections = {
+        "deb-node-01": {
+            "host": "192.0.2.11",
+            "user": "root",
+            "title": "Debian Node",
+            "aliases": ["debian", "linux server"],
+        },
+        "rp-node-01": {
+            "host": "192.0.2.12",
+            "user": "root",
+            "title": "Raspberry Pi Node",
+            "aliases": ["raspberry pi", "linux server"],
+        },
+        "ubn-mgmt-01": {
+            "host": "192.0.2.21",
+            "user": "root",
+            "title": "Ubuntu Management",
+            "aliases": ["ubuntu", "linux server", "management"],
+        },
+        "ubn-gaming-01": {
+            "host": "192.0.2.22",
+            "user": "root",
+            "title": "Ubuntu Gaming",
+            "aliases": ["ubuntu", "linux server", "gaming"],
+        },
+    }
+
+    narrowing = _policy().narrow_plural_target_connections_by_context(
+        {"detail_lines": []},
+        message="pruefe bitte den festplattenplatz auf allen linux servern",
+        candidate_connections=candidate_connections,
+    )
+
+    assert list(narrowing.candidate_connections.keys()) == list(candidate_connections.keys())
+    assert any(
+        "plural_target_scope kept_full_fleet_by_all_scope kind=ssh reason=no_specific_group_scope" in line
+        for line in list(narrowing.resolved.get("detail_lines", []) or [])
+    )

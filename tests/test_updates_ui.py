@@ -82,7 +82,7 @@ def test_authenticated_menu_surfaces_updates_destination_when_available(monkeypa
     assert "Update verf" in response.text or "Update avail" in response.text
 
 
-def test_authenticated_menu_hides_updates_destination_when_current(monkeypatch) -> None:
+def test_authenticated_menu_keeps_updates_destination_active_without_chip_when_current(monkeypatch) -> None:
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
@@ -108,7 +108,7 @@ def test_authenticated_menu_hides_updates_destination_when_current(monkeypatch) 
     response = client.get("/updates")
 
     assert response.status_code == 200
-    assert 'href="/updates"' not in response.text
+    assert 'href="/updates"' in response.text
     assert "menu-update-chip" not in response.text
 
 
@@ -158,7 +158,8 @@ def test_updates_page_renders_release_notes(monkeypatch) -> None:
     assert "Sichere Update-Sequenz" in response.text or "Safe update sequence" in response.text
     assert "aria-pull" in response.text
     assert "memory-subnav-item" in response.text
-    assert "/config/operations" in response.text
+    assert 'href="/updates?return_to=/config"' in response.text
+    assert "/config/operations" not in response.text
 
 
 def test_updates_page_is_public_but_hides_managed_controls_for_anonymous(monkeypatch) -> None:

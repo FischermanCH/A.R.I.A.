@@ -252,7 +252,7 @@ def register_auth_middleware(app: FastAPI, deps: AuthMiddlewareDeps) -> None:
                             "detail": deps.translate(
                                 request,
                                 "auth.admin_mode_required",
-                                "Admin-Modus erforderlich. Bitte unter Benutzer aktivieren.",
+                                "Erweiterte Ansicht erforderlich. Bitte im Account-Menue aktivieren.",
                             ),
                         },
                     )

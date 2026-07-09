@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <main class="skills-layout skills-clean-layout skills-surface-layout">
+  {% if recipes_admin_nav %}
+  {% set admin_current_nav_id = 'admin.recipes.learned' %}
+  {% include "_admin_section_nav.html" %}
+  {% else %}
   {% include "_recipes_nav.html" %}
+  {% endif %}
   {% include "_recipes_page_header.html" %}
   {% include "_recipes_learned_section.html" %}
 </main>

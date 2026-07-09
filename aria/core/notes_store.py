@@ -354,6 +354,19 @@ class NotesStore:
             raise NotesStoreError(_notes_store_text("note_save_failed", "The note could not be saved."))
         return note
 
+    def move_note(self, user_id: str, note_id: str, *, folder: str = "") -> NoteRecord:
+        note = self.get_note(user_id, note_id)
+        if note is None:
+            raise NotesStoreError(_notes_store_text("note_not_found", "The note was not found."))
+        return self.save_note(
+            user_id,
+            note_id=note.note_id,
+            title=note.title,
+            body=note.body,
+            folder=folder,
+            tags=note.tags,
+        )
+
     def delete_note(self, user_id: str, note_id: str) -> NoteRecord:
         note = self.get_note(user_id, note_id)
         if note is None:

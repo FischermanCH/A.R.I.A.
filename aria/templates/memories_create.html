@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+<main class="config-layout memory-import-layout memory-domain-shell">
+  {% include "_memories_nav.html" %}
+  {% if error_message %}
+  <section class="floating-card">
+    <div class="alert err">{{ error_message }}</div>
+  </section>
+  {% endif %}
+  {% if info_message %}
+  <section class="floating-card">
+    <div class="alert ok">{{ info_message }}</div>
+  </section>
+  {% endif %}
+
+  <section class="floating-card config-domain-section">
+    <div class="page-title-row"><span>{{ icon('plus', 'page-title-icon') }}</span><h2>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h2></div>
+    <p>{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</p>
+  </section>
+
+  {% set memory_create_source_view = 'create' %}
+  {% include "_memories_create_section.html" %}
+</main>
+{% endblock %}

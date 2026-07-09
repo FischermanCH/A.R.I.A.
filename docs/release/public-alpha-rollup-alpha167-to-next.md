@@ -1,10 +1,12 @@
 # ARIA 0.1.0-alpha298 - Public Alpha Rollup since 0.1.0-alpha266
 
+Status: historical `alpha298` rollup source. For the public release after `0.1.0-alpha437`, use `docs/release/github-release-v0.1.0-alpha.511.md`.
+
 GitHub Release and Docker Hub announcement source for `v0.1.0-alpha.298`.
 
 ## Summary
 
-`0.1.0-alpha298` is the current ARIA public alpha rollup since `0.1.0-alpha266`.
+`0.1.0-alpha298` was the public alpha rollup since `0.1.0-alpha266` at the time this file was written.
 
 This release continues the controlled-agent direction: ARIA gets more flexible in how it understands natural user requests, but runtime execution remains bounded by deterministic policy, Guardrails, confirmation, and clear operator feedback.
 

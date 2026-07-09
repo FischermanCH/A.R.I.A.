@@ -2049,11 +2049,13 @@ class MemorySkill(BaseSkill):
         user_id: str,
         limit: int = 96,
         collection_limit: int = 16,
+        preferred_collections: list[str] | tuple[str, ...] | None = None,
     ) -> list[dict[str, Any]]:
         return await MemoryAdminQueryService(self).list_memory_graph_points(
             user_id,
             limit=limit,
             collection_limit=collection_limit,
+            preferred_collections=preferred_collections,
         )
 
     async def get_user_collection_stats(self, user_id: str) -> list[dict[str, Any]]:

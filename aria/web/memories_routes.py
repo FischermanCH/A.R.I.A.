@@ -315,10 +315,12 @@ async def _build_memory_map_snapshot(
     *,
     pipeline: Any,
     username: str,
+    lang: str,
     overview: dict[str, Any],
     is_admin: bool,
     settings: Any,
     parse_collection_day_suffix: CollectionDayParser,
+    preferred_graph_collections: list[str] | None = None,
 ) -> dict[str, Any]:
     user_rows: list[dict[str, Any]] = []
     notes_rows: list[dict[str, Any]] = []
@@ -391,10 +393,11 @@ async def _build_memory_map_snapshot(
             try:
                 graph_rows = await memory_skill.list_memory_graph_points(
                     user_id=username,
-                    limit=96,
-                    collection_limit=18,
+                    limit=160,
+                    collection_limit=32,
+                    preferred_collections=preferred_graph_collections or [],
                 )
-                qdrant_brain_graph = _build_qdrant_brain_graph(list(graph_rows))
+                qdrant_brain_graph = _build_qdrant_brain_graph(list(graph_rows), lang=lang, max_nodes=160, max_edges=260)
             except Exception as exc:
                 qdrant_brain_graph = {
                     "nodes": [],
@@ -460,6 +463,7 @@ async def _build_memory_map_snapshot(
     )
     memory_graph = _build_memory_graph(
         username=username,
+        lang=lang,
         map_rows=user_rows,
         kind_totals=kind_totals,
         document_groups=document_groups,
@@ -509,7 +513,7 @@ def _slug_user_id(user_id: str) -> str:
 def _memory_title(text: str, *, limit: int = 88) -> str:
     raw = " ".join(str(text or "").strip().split())
     if not raw:
-        return "Leerer Eintrag"
+        return "Empty entry"
     for splitter in (". ", "! ", "? ", "\n"):
         if splitter in raw:
             raw = raw.split(splitter, 1)[0].strip()
@@ -665,6 +669,306 @@ def _build_document_collection_groups(entries: list[dict[str, Any]]) -> list[dic
     return items
 
 
+def _build_document_drilldown_groups(rows: list[dict[str, Any]], *, max_chunks_per_document: int = 12) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    document_lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        if str(row.get("type", "")).strip().lower() != "document":
+            continue
+        collection = str(row.get("collection", "")).strip()
+        if not _is_document_collection_name(collection):
+            continue
+        document_id = str(row.get("document_id", "")).strip()
+        document_name = str(row.get("document_name", "")).strip() or "Unbenanntes Dokument"
+        document_key = document_id or document_name
+        if not collection or not document_key:
+            continue
+        group = grouped.setdefault(
+            collection,
+            {
+                "collection": collection,
+                "document_count": 0,
+                "chunk_count": 0,
+                "latest_timestamp": "",
+                "documents": [],
+            },
+        )
+        doc = document_lookup.get((collection, document_key))
+        if doc is None:
+            doc = {
+                "id": f"document:{collection}:{document_key}",
+                "collection": collection,
+                "document_id": document_id,
+                "document_name": document_name,
+                "label": document_name,
+                "chunk_count": 0,
+                "latest_timestamp": "",
+                "preview": "",
+                "source": str(row.get("source", "")).strip() or "n/a",
+                "chunks": [],
+                "all_chunks": [],
+            }
+            document_lookup[(collection, document_key)] = doc
+            group["documents"].append(doc)
+            group["document_count"] += 1
+        timestamp = str(row.get("timestamp", "")).strip()
+        text = str(row.get("text", "")).strip()
+        doc["chunk_count"] += 1
+        group["chunk_count"] += 1
+        if timestamp and timestamp > str(doc.get("latest_timestamp", "")):
+            doc["latest_timestamp"] = timestamp
+        if timestamp and timestamp > str(group.get("latest_timestamp", "")):
+            group["latest_timestamp"] = timestamp
+        if text and not doc.get("preview"):
+            doc["preview"] = _memory_preview(text, limit=160)
+        chunk_entry = {
+            "id": str(row.get("id", "")).strip() or f"{doc['id']}:chunk:{doc['chunk_count']}",
+            "label": f"Chunk {doc['chunk_count']}",
+            "collection": collection,
+            "document_id": document_id,
+            "document_name": document_name,
+            "chunk_index": int(row.get("chunk_index", 0) or doc["chunk_count"]),
+            "chunk_total": int(row.get("chunk_total", 0) or 0),
+            "preview": _memory_preview(text, limit=220),
+            "timestamp": timestamp,
+            "source": str(row.get("source", "")).strip() or "n/a",
+        }
+        doc["all_chunks"].append(chunk_entry)
+        if len(doc["chunks"]) < max_chunks_per_document:
+            doc["chunks"].append(chunk_entry)
+
+    groups = list(grouped.values())
+    groups.sort(key=lambda item: str(item.get("latest_timestamp", "")), reverse=True)
+    for group in groups:
+        group["display_timestamp"] = _format_display_timestamp(group.get("latest_timestamp"))
+        group["documents"].sort(key=lambda item: str(item.get("latest_timestamp", "")), reverse=True)
+        for doc in group["documents"]:
+            doc["display_timestamp"] = _format_display_timestamp(doc.get("latest_timestamp"))
+            doc["chunks"].sort(key=lambda item: str(item.get("timestamp", "")))
+            doc["all_chunks"].sort(key=lambda item: str(item.get("timestamp", "")))
+    return groups
+
+
+def _memory_browser_node_id(prefix: str, value: str) -> str:
+    clean = "".join(char if char.isalnum() else "-" for char in str(value or "").strip().lower())
+    clean = "-".join(part for part in clean.split("-") if part)
+    return f"{prefix}-{clean[:72] or 'item'}"
+
+
+def _build_collection_point_entries(brain: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
+    entries: dict[str, list[dict[str, Any]]] = {}
+    for row in list((brain or {}).get("nodes", []) or []):
+        collection = str(row.get("collection", "")).strip()
+        point_id = str(row.get("id", "")).strip()
+        if not collection or not point_id:
+            continue
+        if _is_document_collection_name(collection) and str(row.get("level", "")).strip() == "chunk":
+            continue
+        entry = {
+            "id": point_id,
+            "label": str(row.get("label", "") or row.get("title", "") or row.get("kind", "") or "Entry").strip(),
+            "collection": collection,
+            "kind": str(row.get("kind", "") or row.get("type", "") or row.get("level", "") or "").strip(),
+            "source": str(row.get("source", "") or "").strip(),
+            "timestamp": str(row.get("timestamp", "") or "").strip(),
+            "preview": _memory_preview(str(row.get("preview", "") or row.get("text", "") or "").strip(), limit=220),
+        }
+        entries.setdefault(collection, []).append(entry)
+    for rows in entries.values():
+        rows.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
+    return entries
+
+
+def _build_memory_drilldown_browser_snapshot(
+    *,
+    username: str,
+    lang: str,
+    collection_stats: list[dict[str, Any]],
+    all_collections: list[dict[str, Any]] | None = None,
+    document_rows: list[dict[str, Any]],
+    brain: dict[str, Any] | None,
+) -> dict[str, Any]:
+    document_groups = _build_document_drilldown_groups(document_rows)
+    point_entries_by_collection = _build_collection_point_entries(brain)
+    types: dict[str, dict[str, Any]] = {}
+    collections: list[dict[str, Any]] = []
+    stats_by_name = {
+        str(row.get("name", "")).strip(): row
+        for row in collection_stats
+        if str(row.get("name", "")).strip()
+    }
+    source_collections = list(all_collections or []) or list(collection_stats)
+
+    for row in source_collections:
+        name = str(row.get("name", "")).strip()
+        if not name:
+            continue
+        classification = classify_qdrant_collection(name, username=username)
+        stats_row = stats_by_name.get(name, {})
+        kind = classification.kind
+        if kind == "legacy_memory":
+            kind = str(stats_row.get("kind", "") or row.get("kind", "") or "fact").strip().lower() or "fact"
+        browser_kind = kind
+        points = int(row.get("points", stats_row.get("points", 0)) or 0)
+        types.setdefault(
+            browser_kind,
+            {
+                "id": f"type:{browser_kind}",
+                "kind": browser_kind,
+                "label": _graph_kind_label(browser_kind, lang),
+                "points": 0,
+                "collection_count": 0,
+            },
+        )
+        types[browser_kind]["points"] += points
+        types[browser_kind]["collection_count"] += 1
+        collections.append(
+            {
+                "id": _memory_browser_node_id("collection", name),
+                "kind": browser_kind,
+                "original_kind": kind,
+                "kindLabel": _graph_kind_label(kind, lang),
+                "label": name,
+                "name": name,
+                "points": points,
+                "status": str(row.get("status", "") or stats_row.get("status", "") or ""),
+                "vectors": int(row.get("vectors", 0) or 0),
+                "indexed_vectors": int(row.get("indexed_vectors", 0) or 0),
+                "documents": [],
+                "entries": point_entries_by_collection.get(name, []),
+                "document_count": 0,
+                "chunk_count": 0,
+                "preview": "",
+                "href": _memory_collection_link(kind=kind, collection=name),
+            }
+        )
+
+    document_type = types.setdefault(
+        "document",
+        {
+            "id": "type:document",
+            "kind": "document",
+            "label": _graph_kind_label("document", lang),
+            "points": 0,
+            "collection_count": 0,
+        },
+    )
+    known_document_collections = {str(item.get("name", "")).strip() for item in collections if str(item.get("kind")) == "document"}
+    document_chunk_total = 0
+    for group in document_groups:
+        collection = str(group.get("collection", "")).strip()
+        document_chunk_total += int(group.get("chunk_count", 0) or 0)
+        if collection not in known_document_collections:
+            collections.append(
+                {
+                    "id": _memory_browser_node_id("collection", collection),
+                    "kind": "document",
+                    "label": collection,
+                    "name": collection,
+                    "points": int(group.get("chunk_count", 0) or 0),
+                    "documents": group.get("documents", []),
+                    "entries": point_entries_by_collection.get(collection, []),
+                    "document_count": int(group.get("document_count", 0) or 0),
+                    "chunk_count": int(group.get("chunk_count", 0) or 0),
+                    "preview": str(group.get("display_timestamp", "") or ""),
+                    "href": _memory_collection_link(kind="document", collection=collection),
+                }
+            )
+            continue
+        for item in collections:
+            if str(item.get("name", "")).strip() == collection and str(item.get("kind", "")).strip() == "document":
+                item["documents"] = group.get("documents", [])
+                item["document_count"] = int(group.get("document_count", 0) or 0)
+                item["chunk_count"] = int(group.get("chunk_count", 0) or 0)
+                item["points"] = max(int(item.get("points", 0) or 0), int(group.get("chunk_count", 0) or 0))
+                item["preview"] = str(group.get("display_timestamp", "") or "")
+                break
+    document_type["points"] = max(int(document_type.get("points", 0) or 0), document_chunk_total)
+    document_type["collection_count"] = max(
+        int(document_type.get("collection_count", 0) or 0),
+        len(document_groups),
+    )
+
+    type_items = [item for item in types.values() if int(item.get("points", 0) or 0) > 0 or int(item.get("collection_count", 0) or 0) > 0]
+    type_items.sort(key=lambda item: _graph_kind_order(str(item.get("kind", ""))))
+    collections.sort(key=lambda item: (_graph_kind_order(str(item.get("kind", ""))), -int(item.get("points", 0) or 0), str(item.get("name", "")).lower()))
+    root_points = sum(int(item.get("points", 0) or 0) for item in type_items)
+    initial_type = "document" if any(str(item.get("kind", "")) == "document" for item in type_items) else str(type_items[0].get("kind", "all") if type_items else "all")
+    return {
+        "root": {
+            "id": "root",
+            "label": username,
+            "meta": _msg(
+                lang,
+                f"{root_points} Punkte · {len(collections)} Collections",
+                f"{root_points} points · {len(collections)} collections",
+            ),
+        },
+        "types": type_items,
+        "collections": collections,
+        "initial_type": initial_type,
+        "semantic": brain or {},
+    }
+
+
+def _build_self_learning_maintenance_snapshot(
+    *,
+    username: str,
+    lang: str,
+    collection_stats: list[dict[str, Any]],
+    learning_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    learning_kinds = {"reflection", "learning_event", "learning_candidate", "learning_active_hint", "learning_eval"}
+    collections: list[dict[str, Any]] = []
+    for row in collection_stats:
+        name = str(row.get("name", "")).strip()
+        if not name:
+            continue
+        classification = classify_qdrant_collection(name, username=username)
+        kind = classification.kind if classification.kind != "legacy_memory" else str(row.get("kind", "")).strip().lower()
+        if kind not in learning_kinds:
+            continue
+        collections.append(
+            {
+                "name": name,
+                "kind": kind,
+                "label": _graph_kind_label(kind, lang),
+                "points": int(row.get("points", 0) or 0),
+            }
+        )
+    collections.sort(key=lambda item: (_graph_kind_order(str(item.get("kind", ""))), str(item.get("name", "")).lower()))
+    rows: list[dict[str, Any]] = []
+    for row in learning_rows:
+        row_type = str(row.get("type", "")).strip().lower()
+        if row_type not in learning_kinds:
+            continue
+        text = str(row.get("text", "")).strip()
+        rows.append(
+            {
+                "id": str(row.get("id", "")).strip(),
+                "collection": str(row.get("collection", "")).strip(),
+                "type": row_type,
+                "label": _graph_kind_label(row_type, lang),
+                "title": _memory_title(text, limit=72),
+                "preview": _memory_preview(text, limit=180),
+                "source": str(row.get("source", "")).strip(),
+                "display_timestamp": _format_display_timestamp(row.get("timestamp")),
+                "candidate_status": str(row.get("candidate_status", "") or row.get("status", "") or "").strip(),
+                "promotion_state": str(row.get("promotion_state", "") or "").strip(),
+                "regression_status": str(row.get("regression_status", "") or "").strip(),
+            }
+        )
+    rows.sort(key=lambda item: str(item.get("display_timestamp", "")), reverse=True)
+    queue = _build_learning_review_queue(learning_rows)
+    return {
+        "collections": collections,
+        "rows": rows[:12],
+        "queue": queue,
+        "total_points": sum(int(item.get("points", 0) or 0) for item in collections),
+        "collection_count": len(collections),
+    }
+
+
 def _document_matches_filter(row: dict[str, Any], *, document_id: str = "", document_name: str = "") -> bool:
     clean_document_id = str(document_id or "").strip()
     clean_document_name = str(document_name or "").strip()
@@ -746,36 +1050,41 @@ def _graph_kind_order(kind: str) -> int:
         "session": 2,
         "document": 3,
         "knowledge": 4,
-        "reflection": 5,
-        "learning_event": 6,
-        "learning_candidate": 7,
-        "learning_active_hint": 8,
-        "learning_eval": 9,
-        "notes": 10,
-        "routing": 11,
-        "recipe_experience": 12,
-        "system": 13,
+        "self_learning": 5,
+        "reflection": 6,
+        "learning_event": 7,
+        "learning_candidate": 8,
+        "learning_active_hint": 9,
+        "learning_eval": 10,
+        "notes": 11,
+        "routing": 12,
+        "recipe_experience": 13,
+        "system": 14,
+        "external": 15,
     }
     return order.get(str(kind or "").strip().lower(), 99)
 
 
-def _graph_kind_label(kind: str) -> str:
+def _graph_kind_label(kind: str, lang: str | None = None) -> str:
+    lang = str(lang or "de").strip().lower() or "de"
     normalized = str(kind or "").strip().lower()
     labels = {
-        "fact": _memory_routes_text("de", "graph.fact", "Facts"),
-        "preference": _memory_routes_text("de", "graph.preference", "Preferences"),
-        "session": _memory_routes_text("de", "graph.session", "Daily context"),
-        "document": _memory_routes_text("de", "graph.document", "Documents"),
-        "knowledge": _memory_routes_text("de", "graph.knowledge", "Knowledge"),
-        "reflection": _memory_routes_text("de", "graph.reflection", "Learning"),
-        "learning_event": _memory_routes_text("de", "graph.learning_event", "Learning Events"),
-        "learning_candidate": _memory_routes_text("de", "graph.learning_candidate", "Learning Candidates"),
-        "learning_active_hint": _memory_routes_text("de", "graph.learning_active_hint", "Active Learning Hints"),
-        "learning_eval": _memory_routes_text("de", "graph.learning_eval", "Learning Evals"),
-        "notes": _memory_routes_text("de", "graph.notes", "Notes"),
+        "fact": _memory_routes_text(lang, "graph.fact", "Facts"),
+        "preference": _memory_routes_text(lang, "graph.preference", "Preferences"),
+        "session": _memory_routes_text(lang, "graph.session", "Daily context"),
+        "document": _memory_routes_text(lang, "graph.document", "Documents"),
+        "knowledge": _memory_routes_text(lang, "graph.knowledge", "Knowledge"),
+        "self_learning": _memory_routes_text(lang, "graph.self_learning", "Self-Learning"),
+        "reflection": _memory_routes_text(lang, "graph.reflection", "Learning"),
+        "learning_event": _memory_routes_text(lang, "graph.learning_event", "Learning Events"),
+        "learning_candidate": _memory_routes_text(lang, "graph.learning_candidate", "Learning Candidates"),
+        "learning_active_hint": _memory_routes_text(lang, "graph.learning_active_hint", "Active Learning Hints"),
+        "learning_eval": _memory_routes_text(lang, "graph.learning_eval", "Learning Evals"),
+        "notes": _memory_routes_text(lang, "graph.notes", "Notes"),
         "routing": "Routing",
-        "recipe_experience": _memory_routes_text("de", "graph.recipe_experience", "Recipe Experience"),
-        "system": _memory_routes_text("de", "graph.system", "System"),
+        "recipe_experience": _memory_routes_text(lang, "graph.recipe_experience", "Recipe Experience"),
+        "system": _memory_routes_text(lang, "graph.system", "System"),
+        "external": "External",
     }
     return labels.get(normalized, normalized.upper() or "Memory")
 
@@ -789,6 +1098,7 @@ def _graph_kind_icon(kind: str) -> str:
         "session": "activities",
         "document": "files",
         "knowledge": "llm",
+        "self_learning": "skills",
         "reflection": "llm",
         "learning_event": "activities",
         "learning_candidate": "skills",
@@ -798,6 +1108,7 @@ def _graph_kind_icon(kind: str) -> str:
         "routing": "routing",
         "recipe_experience": "skills",
         "system": "settings",
+        "external": "files",
     }
     return icons.get(normalized, "memories")
 
@@ -807,10 +1118,7 @@ def _routing_graph_link() -> str:
 
 
 def _memory_graph_link(*, kind: str = "all", collection: str = "") -> str:
-    url = f"/memories/explorer?type={quote_plus(kind)}&q=&sort=updated_desc&limit=50&page=1"
-    if collection:
-        url += f"&collection_filter={quote_plus(collection)}"
-    return url
+    return "/memories"
 
 
 def _memory_collection_link(*, kind: str = "all", collection: str = "") -> str:
@@ -828,17 +1136,13 @@ def _memory_document_link(
     document_id: str = "",
     document_name: str = "",
 ) -> str:
-    url = _memory_graph_link(kind="document", collection=collection)
-    if document_id:
-        url += f"&document_id={quote_plus(document_id)}"
-    elif document_name:
-        url += f"&document_name={quote_plus(document_name)}"
-    return url
+    return "/memories"
 
 
 def _build_memory_graph(
     *,
     username: str,
+    lang: str,
     map_rows: list[dict[str, Any]],
     kind_totals: dict[str, int],
     document_groups: list[dict[str, Any]],
@@ -879,7 +1183,7 @@ def _build_memory_graph(
                     {
                         "label": str(group.get("collection", "")).strip(),
                         "meta": (
-                            f"{int(group.get('document_count', 0) or 0)} Dokumente"
+                            f"{int(group.get('document_count', 0) or 0)} {_msg(lang, 'Dokumente', 'documents')}"
                             f" · {int(group.get('chunk_count', 0) or 0)} Chunks"
                         ),
                         "href": _memory_collection_link(
@@ -895,7 +1199,11 @@ def _build_memory_graph(
                 detail_nodes_by_kind[kind].append(
                     {
                         "label": str(group.get("label", "")).strip(),
-                        "meta": f"{int(group.get('count', 0) or 0)} Rollups",
+                        "meta": _msg(
+                            lang,
+                            f"{int(group.get('count', 0) or 0)} Rollups",
+                            f"{int(group.get('count', 0) or 0)} rollups",
+                        ),
                         "href": _memory_graph_link(kind="knowledge"),
                         "variant": "rollup",
                     }
@@ -906,7 +1214,7 @@ def _build_memory_graph(
                     {
                         "label": str(row.get("name", "")).strip(),
                         "meta": (
-                            f"{int(row.get('points', 0) or 0)} Punkte"
+                            f"{int(row.get('points', 0) or 0)} {_msg(lang, 'Punkte', 'points')}"
                             f" · {int(row.get('share_pct', 0) or 0)}%"
                         ),
                         "href": str(row.get("browse_url", "")).strip() or "/notes",
@@ -920,7 +1228,7 @@ def _build_memory_graph(
                     {
                         "label": str(row.get("name", "")).strip(),
                         "meta": (
-                            f"{int(row.get('points', 0) or 0)} Punkte"
+                            f"{int(row.get('points', 0) or 0)} {_msg(lang, 'Punkte', 'points')}"
                             f" · {int(row.get('share_pct', 0) or 0)}%"
                         ),
                         "href": str(row.get("browse_url", "")).strip() or _routing_graph_link(),
@@ -934,7 +1242,7 @@ def _build_memory_graph(
                     {
                         "label": str(row.get("name", "")).strip(),
                         "meta": (
-                            f"{int(row.get('points', 0) or 0)} Punkte"
+                            f"{int(row.get('points', 0) or 0)} {_msg(lang, 'Punkte', 'points')}"
                             f" · {int(row.get('share_pct', 0) or 0)}%"
                         ),
                         "href": str(row.get("browse_url", "")).strip() or "/memories/config#qdrant-access",
@@ -946,7 +1254,10 @@ def _build_memory_graph(
             detail_nodes_by_kind[kind].append(
                 {
                     "label": str(row.get("name", "")).strip(),
-                    "meta": f"{int(row.get('points', 0) or 0)} Punkte · {int(row.get('share_pct', 0) or 0)}%",
+                    "meta": (
+                        f"{int(row.get('points', 0) or 0)} {_msg(lang, 'Punkte', 'points')}"
+                        f" · {int(row.get('share_pct', 0) or 0)}%"
+                    ),
                     "href": _memory_collection_link(
                         kind=kind,
                         collection=str(row.get("name", "")).strip(),
@@ -976,13 +1287,13 @@ def _build_memory_graph(
     notes_total_points = sum(int(row.get("points", 0) or 0) for row in note_items)
     routing_total_points = sum(int(row.get("points", 0) or 0) for row in routing_items)
     system_total_points = sum(int(row.get("points", 0) or 0) for row in system_items)
-    root_meta = f"{memory_total_points} Punkte im Memory"
+    root_meta = _msg(lang, f"{memory_total_points} Punkte im Memory", f"{memory_total_points} points in memory")
     if notes_total_points > 0:
-        root_meta += f" · {notes_total_points} Notes-Punkte"
+        root_meta += _msg(lang, f" · {notes_total_points} Notes-Punkte", f" · {notes_total_points} notes points")
     if routing_total_points > 0:
-        root_meta += f" · {routing_total_points} Routing-Punkte"
+        root_meta += _msg(lang, f" · {routing_total_points} Routing-Punkte", f" · {routing_total_points} routing points")
     if system_items:
-        root_meta += f" · {len(system_items)} System-Collections"
+        root_meta += _msg(lang, f" · {len(system_items)} System-Collections", f" · {len(system_items)} system collections")
     nodes.append(
         {
             "id": "graph-root",
@@ -1005,12 +1316,12 @@ def _build_memory_graph(
             {
                 "id": type_id,
                 "kind": kind,
-                "label": _graph_kind_label(kind),
+                "label": _graph_kind_label(kind, lang),
                 "meta": (
-                    _memory_routes_text("de", "graph.routing_points", "{points} points · System", points=routing_total_points)
+                    _memory_routes_text(lang, "graph.routing_points", "{points} points · System", points=routing_total_points)
                     if kind == "routing"
                     else _memory_routes_text(
-                        "de",
+                        lang,
                         "graph.recipe_experience_points",
                         "{points} points · Learning",
                         points=sum(
@@ -1020,11 +1331,11 @@ def _build_memory_graph(
                         ),
                     )
                     if kind == "recipe_experience"
-                    else _memory_routes_text("de", "graph.system_points", "{points} points · System", points=system_total_points)
+                    else _memory_routes_text(lang, "graph.system_points", "{points} points · System", points=system_total_points)
                     if kind == "system"
-                    else _memory_routes_text("de", "graph.notes_points", "{points} points · Notes", points=notes_total_points)
+                    else _memory_routes_text(lang, "graph.notes_points", "{points} points · Notes", points=notes_total_points)
                     if kind == "notes"
-                    else _memory_routes_text("de", "graph.points", "{points} points", points=int(kind_totals.get(kind, 0) or 0))
+                    else _memory_routes_text(lang, "graph.points", "{points} points", points=int(kind_totals.get(kind, 0) or 0))
                 ),
                 "left": round(x_center - type_width / 2, 2),
                 "top": round(type_y - 38, 2),
@@ -1091,8 +1402,8 @@ def _brain_graph_preview(value: Any, limit: int = 180) -> str:
     return clean[: max(0, limit - 1)].rstrip() + "…"
 
 
-def _brain_graph_kind_label(kind: str) -> str:
-    return _graph_kind_label(kind)
+def _brain_graph_kind_label(kind: str, lang: str | None = None) -> str:
+    return _graph_kind_label(kind, lang)
 
 
 def _brain_graph_vector(value: Any) -> list[float]:
@@ -1105,6 +1416,17 @@ def _brain_graph_vector(value: Any) -> list[float]:
         if isinstance(item, (int, float)):
             vector.append(float(item))
     return vector
+
+
+def _brain_graph_int(*values: Any) -> int:
+    for value in values:
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _brain_graph_cosine(left: list[float], right: list[float]) -> float:
@@ -1130,7 +1452,13 @@ def _brain_graph_collection_label(value: str) -> str:
     return f"{clean[:31]}..."
 
 
-def _build_qdrant_brain_graph(rows: list[dict[str, Any]], *, max_nodes: int = 96, max_edges: int = 180) -> dict[str, Any]:
+def _build_qdrant_brain_graph(
+    rows: list[dict[str, Any]],
+    *,
+    lang: str,
+    max_nodes: int = 96,
+    max_edges: int = 180,
+) -> dict[str, Any]:
     prepared: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for row in rows:
@@ -1146,9 +1474,12 @@ def _build_qdrant_brain_graph(rows: list[dict[str, Any]], *, max_nodes: int = 96
             continue
         seen.add(key)
         kind = str(row.get("type", "")).strip().lower() or "unknown"
+        chunk_index = _brain_graph_int(row.get("chunk_index"))
+        document_name = str(row.get("document_name", "")).strip()
         title = (
             str(row.get("note_title", "")).strip()
-            or str(row.get("document_name", "")).strip()
+            or (f"Chunk {chunk_index}" if document_name and chunk_index > 0 else "")
+            or document_name
             or _brain_graph_preview(row.get("text"), 54)
             or point_id
         )
@@ -1314,12 +1645,18 @@ def _build_qdrant_brain_graph(rows: list[dict[str, Any]], *, max_nodes: int = 96
         text = _brain_graph_preview(row.get("text"), 220)
         source = str(row.get("source", "")).strip() or "n/a"
         document_name = str(row.get("document_name", "")).strip()
+        chunk_index = _brain_graph_int(row.get("chunk_index"))
+        chunk_total = _brain_graph_int(row.get("chunk_total"))
         note_title = str(row.get("note_title", "")).strip()
         note_folder = str(row.get("note_folder", "")).strip()
         rollup_level = str(row.get("rollup_level", "")).strip()
-        detail_parts = [item["collection"], _brain_graph_kind_label(item["kind"]), source]
+        detail_parts = [item["collection"], _brain_graph_kind_label(item["kind"], lang), source]
         if document_name:
             detail_parts.append(document_name)
+        if chunk_index > 0 and chunk_total > 0:
+            detail_parts.append(f"Chunk {chunk_index}/{chunk_total}")
+        elif chunk_index > 0:
+            detail_parts.append(f"Chunk {chunk_index}")
         if note_title:
             detail_parts.append(note_title)
         if note_folder:
@@ -1346,11 +1683,17 @@ def _build_qdrant_brain_graph(rows: list[dict[str, Any]], *, max_nodes: int = 96
                 "id": f"brain-node-{index}",
                 "index": index,
                 "kind": item["kind"],
+                "level": "chunk" if document_name and chunk_index > 0 else item["kind"],
                 "label": _brain_graph_preview(item["label"], 48),
                 "meta": " · ".join(part for part in detail_parts if part),
                 "preview": text,
                 "collection": item["collection"],
                 "point_id": item["id"],
+                "source": source,
+                "document_id": str(row.get("document_id", "")).strip(),
+                "document_name": document_name,
+                "chunk_index": chunk_index,
+                "chunk_total": chunk_total,
                 "x": round(x, 2),
                 "y": round(y, 2),
                 "radius": 8 if item["kind"] in {"document", "notes"} else 7,
@@ -1359,7 +1702,7 @@ def _build_qdrant_brain_graph(rows: list[dict[str, Any]], *, max_nodes: int = 96
     collections: list[dict[str, Any]] = []
     for summary in collection_summaries.values():
         kinds_meta = ", ".join(
-            f"{_brain_graph_kind_label(kind)}: {count}"
+            f"{_brain_graph_kind_label(kind, lang)}: {count}"
             for kind, count in sorted(summary["kinds"].items(), key=lambda item: _graph_kind_order(item[0]))
         )
         collections.append(
@@ -1443,19 +1786,14 @@ def _memories_redirect(
     info: str = "",
     error: str = "",
 ) -> RedirectResponse:
-    url = (
-        f"/memories/explorer?type={quote_plus(filter_type)}&q={quote_plus(query)}"
-        f"&collection_filter={quote_plus(collection_filter)}"
-        f"&page={_coerce_page_number(page)}&limit={_coerce_page_size(limit)}&sort={quote_plus(sort)}"
-    )
-    if str(document_id or "").strip():
-        url += f"&document_id={quote_plus(str(document_id).strip())}"
-    if str(document_name or "").strip():
-        url += f"&document_name={quote_plus(str(document_name).strip())}"
+    url = "/memories"
+    params: list[str] = []
     if info:
-        url += f"&info={quote_plus(info)}"
+        params.append(f"info={quote_plus(info)}")
     if error:
-        url += f"&error={quote_plus(error)}"
+        params.append(f"error={quote_plus(error)}")
+    if params:
+        url += "?" + "&".join(params)
     return RedirectResponse(url=url, status_code=303)
 
 
@@ -1481,6 +1819,53 @@ def _memories_overview_redirect(*, info: str = "", error: str = "") -> RedirectR
     if params:
         url += "?" + "&".join(params)
     return RedirectResponse(url=url, status_code=303)
+
+
+def _memories_import_redirect(*, info: str = "", error: str = "") -> RedirectResponse:
+    url = "/memories/import"
+    params: list[str] = []
+    if info:
+        params.append(f"info={quote_plus(info)}")
+    if error:
+        params.append(f"error={quote_plus(error)}")
+    if params:
+        url += "?" + "&".join(params)
+    return RedirectResponse(url=url, status_code=303)
+
+
+def _memories_create_redirect(*, info: str = "", error: str = "") -> RedirectResponse:
+    url = "/memories/create"
+    params: list[str] = []
+    if info:
+        params.append(f"info={quote_plus(info)}")
+    if error:
+        params.append(f"error={quote_plus(error)}")
+    if params:
+        url += "?" + "&".join(params)
+    return RedirectResponse(url=url, status_code=303)
+
+
+def _memories_maintenance_redirect(*, info: str = "", error: str = "") -> RedirectResponse:
+    url = "/memories/maintenance"
+    params: list[str] = []
+    if info:
+        params.append(f"info={quote_plus(info)}")
+    if error:
+        params.append(f"error={quote_plus(error)}")
+    if params:
+        url += "?" + "&".join(params)
+    return RedirectResponse(url=url, status_code=303)
+
+
+def _memories_intake_redirect(source_view: str, *, info: str = "", error: str = "") -> RedirectResponse:
+    normalized = str(source_view or "").strip().lower()
+    if normalized == "import":
+        return _memories_import_redirect(info=info, error=error)
+    if normalized == "create":
+        return _memories_create_redirect(info=info, error=error)
+    if normalized == "overview":
+        return _memories_overview_redirect(info=info, error=error)
+    return _memories_overview_redirect(info=info, error=error)
 
 
 def _memory_export_filename(username: str, filter_type: str, query: str) -> str:
@@ -1766,21 +2151,6 @@ def register_memories_routes(
         info: str = "",
         error: str = "",
     ) -> HTMLResponse:
-        legacy_explorer_params = {
-            "type",
-            "q",
-            "collection_filter",
-            "document_id",
-            "document_name",
-            "limit",
-            "page",
-            "sort",
-        }
-        if any(key in request.query_params for key in legacy_explorer_params):
-            target = "/memories/explorer"
-            if request.url.query:
-                target += f"?{request.url.query}"
-            return RedirectResponse(url=target, status_code=307)
         settings = get_settings()
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
@@ -1800,15 +2170,30 @@ def register_memories_routes(
         if getattr(pipeline, "memory_skill", None):
             with suppress(Exception):
                 collection_stats = await pipeline.memory_skill.get_user_collection_stats(username)
+        document_rows: list[dict[str, Any]] = []
+        if getattr(pipeline, "memory_skill", None):
+            with suppress(Exception):
+                document_rows = await pipeline.memory_skill.list_memories_global(
+                    user_id=username,
+                    type_filter="document",
+                    limit=5000,
+                )
+        memory_browser_collection = str(request.query_params.get("collection", "") or "").strip()
+        memory_browser_document = str(request.query_params.get("document", "") or "").strip()
+        memory_browser_chunk = str(request.query_params.get("chunk", "") or "").strip()
+        memory_browser_entry = str(request.query_params.get("entry", "") or "").strip()
+        memory_browser_mode = str(request.query_params.get("mode", "") or "").strip().lower()
         user_memory_points = sum(int(row.get("points", 0) or 0) for row in collection_stats)
         auto_memory_enabled = bool(is_auto_memory_enabled(request))
         map_snapshot = await _build_memory_map_snapshot(
             pipeline=pipeline,
             username=username,
+            lang=lang,
             overview=overview,
             is_admin=is_admin,
             settings=settings,
             parse_collection_day_suffix=parse_collection_day_suffix,
+            preferred_graph_collections=[memory_browser_collection] if memory_browser_collection else [],
         )
         routing_rows = list(map_snapshot.get("routing_rows", []) or [])
         system_rows = list(map_snapshot.get("system_rows", []) or [])
@@ -1816,11 +2201,11 @@ def register_memories_routes(
             {
                 "title": "Qdrant",
                 "status": "ok" if overview.get("reachable") else "error",
-                "summary": "Erreichbar" if overview.get("reachable") else "Nicht erreichbar",
-                "meta": f"{len(collection_names)} Collections",
+                "summary": _msg(lang, "Erreichbar", "Reachable") if overview.get("reachable") else _msg(lang, "Nicht erreichbar", "Not reachable"),
+                "meta": _msg(lang, f"{len(collection_names)} Collections", f"{len(collection_names)} collections"),
             },
             {
-                "title": "Aktive Collection",
+                "title": _msg(lang, "Aktive Collection", "Active collection"),
                 "status": "ok" if active_collection else "warn",
                 "summary": active_collection or default_collection,
                 "meta": f"Default: {default_collection}",
@@ -1829,28 +2214,83 @@ def register_memories_routes(
                 "title": "User Memory",
                 "status": "ok" if user_memory_points > 0 else "warn",
                 "summary": str(user_memory_points),
-                "meta": f"{len(collection_stats)} Collections mit Punkten",
+                "meta": _msg(lang, f"{len(collection_stats)} Collections mit Punkten", f"{len(collection_stats)} collections with points"),
             },
             {
-                "title": "Dokumente",
+                "title": _msg(lang, "Dokumente", "Documents"),
                 "status": "ok" if document_collections else "warn",
                 "summary": default_document_collection,
-                "meta": f"{len(document_collections)} Dokument-Collections",
+                "meta": _msg(lang, f"{len(document_collections)} Dokument-Collections", f"{len(document_collections)} document collections"),
             },
             {
-                "title": "System-Collections",
+                "title": _msg(lang, "System-Collections", "System collections"),
                 "status": "ok" if system_rows or routing_rows else "warn",
                 "summary": str(len(system_rows) + len(routing_rows)),
-                "meta": "Routing, Recipe Experience und weitere ARIA-Collections",
+                "meta": _msg(lang, "Routing, Recipe Experience und weitere ARIA-Collections", "Routing, Recipe Experience, and other ARIA collections"),
             },
             {
-                "title": "Auto-Memory",
+                "title": _msg(lang, "Auto-Memory & Lernen", "Auto-memory & learning"),
                 "status": "ok" if auto_memory_enabled else "warn",
-                "summary": "Aktiv" if auto_memory_enabled else "Aus",
-                "meta": f"Backend: {settings.memory.backend or 'n/a'}",
-                "href": "/memories/config#auto-memory",
+                "summary": _msg(lang, "Aktiv", "Active") if auto_memory_enabled else _msg(lang, "Aus", "Off"),
+                "meta": _msg(lang, "Fakten, Praeferenzen und agentische Extraction", "Facts, preferences, and agentic extraction"),
+                "href": "/memories/auto-memory",
             },
         ]
+        memory_browser = _build_memory_drilldown_browser_snapshot(
+            username=username,
+            lang=lang,
+            collection_stats=collection_stats,
+            all_collections=list(overview.get("collections", []) or []),
+            document_rows=document_rows,
+            brain=dict(map_snapshot.get("memory_graph", {}).get("brain", {}) or {}),
+        )
+        if memory_browser_collection:
+            for browser_collection in memory_browser.get("collections", []):
+                collection_name = str(browser_collection.get("name", "") or "").strip()
+                collection_id = str(browser_collection.get("id", "") or "").strip()
+                if memory_browser_collection not in {collection_name, collection_id}:
+                    continue
+                memory_browser["initial_type"] = str(browser_collection.get("kind", "") or memory_browser.get("initial_type", ""))
+                memory_browser["initial_collection"] = collection_id
+                memory_browser["initial_collection_name"] = collection_name
+                if memory_browser_entry:
+                    for entry in browser_collection.get("entries", []) or []:
+                        if str(entry.get("id", "") or "").strip() == memory_browser_entry:
+                            memory_browser["initial_entry"] = memory_browser_entry
+                            memory_browser["initial_document"] = ""
+                            memory_browser["initial_chunk"] = ""
+                            break
+                if not memory_browser.get("initial_entry"):
+                    selected_document_id = ""
+                    selected_chunk_id = ""
+                    for document_item in browser_collection.get("documents", []) or []:
+                        document_id = str(document_item.get("id", "") or "").strip()
+                        chunks = list(document_item.get("all_chunks", []) or document_item.get("chunks", []) or [])
+                        if memory_browser_chunk:
+                            for chunk_item in chunks:
+                                chunk_id = str(chunk_item.get("id", "") or "").strip()
+                                if chunk_id == memory_browser_chunk:
+                                    selected_document_id = document_id
+                                    selected_chunk_id = chunk_id
+                                    break
+                            if selected_chunk_id:
+                                break
+                        if memory_browser_document and document_id == memory_browser_document:
+                            selected_document_id = document_id
+                            if memory_browser_mode == "semantic" and chunks:
+                                selected_chunk_id = str(chunks[0].get("id", "") or "").strip()
+                            break
+                    if selected_document_id:
+                        memory_browser["initial_document"] = selected_document_id
+                    if selected_chunk_id:
+                        memory_browser["initial_chunk"] = selected_chunk_id
+                break
+        if memory_browser_mode not in {"structure", "semantic"}:
+            memory_browser_mode = "structure"
+        if memory_browser_mode == "semantic" and not (memory_browser.get("initial_chunk") or memory_browser.get("initial_entry")):
+            memory_browser_mode = "structure"
+        memory_browser["can_delete"] = is_admin
+        memory_browser["csrf_token"] = str(getattr(request.state, "csrf_token", "") or "")
         next_steps = [
             {
                 "icon": "plus",
@@ -1866,7 +2306,7 @@ def register_memories_routes(
                     if user_memory_points <= 0
                     else "Add another fact or preference directly from the hub without jumping into the explorer first.",
                 ),
-                "href": "/memories#memories-actions",
+                "href": "/memories/create",
                 "badge": _memory_routes_text(lang, "next_step_memory_badge", "Right here"),
             },
             {
@@ -1883,7 +2323,7 @@ def register_memories_routes(
                     if not document_collections
                     else "Keep using the hub as the intake point for new PDFs or text files without opening setup.",
                 ),
-                "href": "/memories#memories-actions",
+                "href": "/memories/import#document-import",
                 "badge": default_document_collection,
             },
             {
@@ -1894,7 +2334,7 @@ def register_memories_routes(
                     "next_step_explorer_desc",
                     "Filter facts, documents, rollups, and day context so entries do not blur together later.",
                 ),
-                "href": "/memories/explorer",
+                "href": "/memories",
                 "badge": _memory_routes_text(lang, "next_step_explorer_badge", "Search & filters"),
             },
         ]
@@ -1904,7 +2344,7 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": username,
-                "memory_nav": "overview",
+                "memory_nav": "memory",
                 "info_message": info,
                 "error_message": error,
                 "active_collection": active_collection,
@@ -1921,6 +2361,9 @@ def register_memories_routes(
                 "overview_checks": overview_checks,
                 "next_steps": next_steps,
                 "memory_graph": map_snapshot["memory_graph"],
+                "memory_browser": memory_browser,
+                "memory_browser_fullscreen": str(request.query_params.get("fullscreen", "")).strip().lower() in {"1", "true", "yes"},
+                "memory_browser_initial_mode": memory_browser_mode,
                 "show_qdrant_brain": False,
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "document_collections": document_collections,
@@ -1930,6 +2373,64 @@ def register_memories_routes(
                     else default_document_collection
                 ),
                 "supported_upload_suffixes": supported_upload_suffixes(),
+            },
+        )
+
+    @app.get("/memories/import", response_class=HTMLResponse)
+    async def memories_import_page(
+        request: Request,
+        info: str = "",
+        error: str = "",
+    ) -> HTMLResponse:
+        settings = get_settings()
+        username = get_username_from_request(request) or "web"
+        overview = await qdrant_overview(request)
+        active_collection = get_effective_memory_collection(request, username)
+        default_document_collection = _default_document_collection_for_user(username)
+        collection_names = [
+            str(row.get("name", "")).strip()
+            for row in overview.get("collections", [])
+            if str(row.get("name", "")).strip()
+        ]
+        document_collections = _document_collection_names(collection_names)
+        return templates.TemplateResponse(
+            request=request,
+            name="memories_import.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "memory_nav": "import",
+                "info_message": info,
+                "error_message": error,
+                "active_collection": active_collection,
+                "default_document_collection": default_document_collection,
+                "document_collections": document_collections,
+                "active_document_collection": (
+                    active_collection
+                    if _is_document_collection_name(active_collection)
+                    else default_document_collection
+                ),
+                "supported_upload_suffixes": supported_upload_suffixes(),
+            },
+        )
+
+    @app.get("/memories/create", response_class=HTMLResponse)
+    async def memories_create_page(
+        request: Request,
+        info: str = "",
+        error: str = "",
+    ) -> HTMLResponse:
+        settings = get_settings()
+        username = get_username_from_request(request) or "web"
+        return templates.TemplateResponse(
+            request=request,
+            name="memories_create.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "memory_nav": "create",
+                "info_message": info,
+                "error_message": error,
             },
         )
 
@@ -1947,189 +2448,7 @@ def register_memories_routes(
         info: str = "",
         error: str = "",
     ) -> HTMLResponse:
-        settings = get_settings()
-        pipeline = get_pipeline()
-        username = get_username_from_request(request) or "web"
-        lang = str(getattr(request.state, "lang", "de") or "de")
-        overview = await qdrant_overview(request)
-        sort_key = _normalize_memory_sort(sort)
-        page_size = _coerce_page_size(limit)
-        page_number = _coerce_page_number(page)
-        selected_collection = sanitize_collection_name(collection_filter)
-        selected_document_id = str(document_id or "").strip()
-        selected_document_name = str(document_name or "").strip()
-        all_rows: list[dict[str, Any]] = []
-        collection_stats: list[dict[str, Any]] = []
-
-        if pipeline.memory_skill:
-            try:
-                if q.strip():
-                    all_rows = await pipeline.memory_skill.search_memories(
-                        user_id=username,
-                        query=q.strip(),
-                        type_filter=type,
-                        top_k=300,
-                    )
-                    if selected_collection:
-                        all_rows = [
-                            row
-                            for row in all_rows
-                            if str(row.get("collection", "")).strip() == selected_collection
-                        ]
-                else:
-                    all_rows = await pipeline.memory_skill.list_memories_global(
-                        user_id=username,
-                        type_filter=type,
-                        limit=2000 if selected_collection else 600,
-                        collection_filter=selected_collection,
-                    )
-                collection_stats = await pipeline.memory_skill.get_user_collection_stats(username)
-            except Exception as exc:  # noqa: BLE001
-                error = error or str(exc)
-
-        counts = _build_memory_counts(all_rows)
-        learning_review_queue = _build_learning_review_queue(all_rows)
-        document_browser_entries: list[dict[str, Any]] = []
-        active_document_entry: dict[str, Any] | None = None
-        document_store_view = False
-        if str(type or "").strip().lower() == "document" and all_rows:
-            document_browser_entries = _build_document_entries(all_rows)
-            for entry in document_browser_entries:
-                entry["browse_url"] = _memory_document_link(
-                    collection=str(entry.get("collection", "")).strip(),
-                    document_id=str(entry.get("document_id", "")).strip(),
-                    document_name=str(entry.get("document_name", "")).strip(),
-                )
-            if selected_document_id or selected_document_name:
-                active_document_entry = next(
-                    (
-                        entry
-                        for entry in document_browser_entries
-                        if _document_matches_filter(
-                            entry,
-                            document_id=selected_document_id,
-                            document_name=selected_document_name,
-                        )
-                    ),
-                    None,
-                )
-                all_rows = [
-                    row
-                    for row in all_rows
-                    if _document_matches_filter(
-                        row,
-                        document_id=selected_document_id,
-                        document_name=selected_document_name,
-                    )
-                ]
-            elif selected_collection and not q.strip():
-                document_store_view = True
-                all_rows = []
-
-        _sort_memory_rows(all_rows, sort_key)
-        total_rows = len(all_rows)
-        total_pages = max(1, (total_rows + page_size - 1) // page_size)
-        if page_number > total_pages:
-            page_number = total_pages
-        start = (page_number - 1) * page_size
-        end = start + page_size
-        rows = all_rows[start:end]
-        for row in rows:
-            row["display_timestamp"] = _format_display_timestamp(row.get("timestamp"))
-            row["title"] = _memory_title(str(row.get("text", "")))
-            row["preview"] = _memory_preview(str(row.get("text", "")))
-            if str(row.get("type", "")).strip().lower() == "learning_candidate":
-                gate_inputs = learning_candidate_gate_inputs(row)
-                row["candidate_artifact_type"] = gate_inputs["artifact_type"]
-                row["candidate_risk"] = gate_inputs["risk"]
-                row["app_learning_preview"] = _build_app_learning_preview(str(row.get("text", "")))
-                row["is_app_learning_candidate"] = gate_inputs["artifact_type"] in APP_LEARNING_ARTIFACT_TYPES
-                row["prepared_artifact_review"] = _build_prepared_artifact_review(
-                    pytest_write_state=str(row.get("pytest_write_state", "") or ""),
-                    pytest_write_gate_result=str(row.get("pytest_write_gate_result", "") or ""),
-                    pytest_target_file=str(row.get("pytest_target_file", "") or ""),
-                    pytest_code_preview_sha256=str(row.get("pytest_code_preview_sha256", "") or ""),
-                    pytest_write_review_state=str(row.get("pytest_write_review_state", "") or ""),
-                    pytest_write_review_decision=str(row.get("pytest_write_review_decision", "") or ""),
-                    pytest_write_review_notes=str(row.get("pytest_write_review_notes", "") or ""),
-                )
-                row["apply_allowed"] = learning_candidate_apply_allowed(
-                    artifact_type=gate_inputs["artifact_type"],
-                    risk=gate_inputs["risk"],
-                    promotion_state=str(row.get("promotion_state", "")).strip(),
-                )
-                row["apply_preview_allowed"] = learning_candidate_apply_preview_allowed(
-                    artifact_type=gate_inputs["artifact_type"],
-                    risk=gate_inputs["risk"],
-                    apply_state=str(row.get("apply_state", "")).strip(),
-                )
-        grouped_rows = _build_memory_groups(rows)
-        if document_store_view:
-            total_rows = len(document_browser_entries)
-            total_pages = 1
-            page_number = 1
-            start = 0
-            end = total_rows
-            grouped_rows = []
-        all_collection_names = [
-            str(row.get("name", "")).strip()
-            for row in overview.get("collections", [])
-            if str(row.get("name", "")).strip()
-        ]
-        document_collections = _document_collection_names(all_collection_names)
-        active_collection = get_effective_memory_collection(request, username)
-        active_document_collection = (
-            active_collection
-            if _is_document_collection_name(active_collection)
-            else _default_document_collection_for_user(username)
-        )
-        learning_worker_status = get_learning_worker_status(limit=5)
-        return templates.TemplateResponse(
-            request=request,
-            name="memories.html",
-            context={
-                "title": settings.ui.title,
-                "username": username,
-                "memory_nav": "explorer",
-                "rows": rows,
-                "grouped_rows": grouped_rows,
-                "filter_type": type,
-                "query": q,
-                "collection_filter": selected_collection,
-                "document_id_filter": selected_document_id,
-                "document_name_filter": selected_document_name,
-                "document_browser_entries": document_browser_entries,
-                "document_store_view": document_store_view,
-                "active_document_entry": active_document_entry,
-                "limit": page_size,
-                "page": page_number,
-                "sort": sort_key,
-                "total_rows": total_rows,
-                "page_start": (start + 1) if total_rows > 0 else 0,
-                "page_end": min(end, total_rows),
-                "total_pages": total_pages,
-                "prev_page": (page_number - 1) if page_number > 1 else 1,
-                "next_page": (page_number + 1) if page_number < total_pages else total_pages,
-                "counts": counts,
-                "learning_review_queue": learning_review_queue,
-                "info_message": info,
-                "error_message": error,
-                "qdrant_dashboard_url": qdrant_dashboard_url(request),
-                "manual_memory_types": [
-                    {"value": "fact", "label": _memory_routes_text(lang, "manual_type.fact", "Fact")},
-                    {"value": "preference", "label": _memory_routes_text(lang, "manual_type.preference", "Preference")},
-                    {"value": "knowledge", "label": _memory_routes_text(lang, "manual_type.knowledge", "Knowledge")},
-                ],
-                "collections": all_collection_names,
-                "document_collections": document_collections,
-                "active_collection": active_collection,
-                "active_document_collection": active_document_collection,
-                "default_collection": default_memory_collection_for_user(username),
-                "default_document_collection": _default_document_collection_for_user(username),
-                "supported_upload_suffixes": supported_upload_suffixes(),
-                "learning_worker_status": learning_worker_status,
-            },
-        )
+        return _memories_overview_redirect(info=info, error=error)
 
     @app.get("/memories/learning-worker/job/{job_id}")
     async def memories_learning_worker_job(job_id: str) -> JSONResponse:
@@ -2145,17 +2464,17 @@ def register_memories_routes(
         force: str = Form("1"),
     ) -> RedirectResponse:
         if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/memories/explorer?error=learning_worker_admin_required", status_code=303)
+            return RedirectResponse(url="/memories/maintenance?error=learning_worker_admin_required", status_code=303)
         result = retry_learning_job(
             job_id=job_id,
             force=str(force or "").strip().lower() in {"1", "true", "on", "yes"},
         )
         if not result.get("accepted"):
             return RedirectResponse(
-                url=f"/memories/explorer?error=learning_worker_retry_{quote_plus(str(result.get('reason', 'failed')))}",
+                url=f"/memories/maintenance?error=learning_worker_retry_{quote_plus(str(result.get('reason', 'failed')))}",
                 status_code=303,
             )
-        return RedirectResponse(url="/memories/explorer?info=learning_worker_retry_queued", status_code=303)
+        return RedirectResponse(url="/memories/maintenance?info=learning_worker_retry_queued", status_code=303)
 
     @app.post("/memories/learning-worker/flush")
     async def memories_learning_worker_flush(
@@ -2163,11 +2482,11 @@ def register_memories_routes(
         scope: str = Form("finished"),
     ) -> RedirectResponse:
         if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
-            return RedirectResponse(url="/memories/explorer?error=learning_worker_admin_required", status_code=303)
+            return RedirectResponse(url="/memories/maintenance?error=learning_worker_admin_required", status_code=303)
         result = flush_learning_worker_jobs(scope=scope)
         return RedirectResponse(
             url=(
-                "/memories/explorer?info="
+                "/memories/maintenance?info="
                 f"learning_worker_flushed_{quote_plus(str(result.get('scope', 'finished')))}_"
                 f"{int(result.get('removed_count', 0) or 0)}"
             ),
@@ -2242,6 +2561,7 @@ def register_memories_routes(
         snapshot = await _build_memory_map_snapshot(
             pipeline=pipeline,
             username=username,
+            lang=str(getattr(request.state, "lang", "de") or "de"),
             overview=overview,
             is_admin=is_admin,
             settings=settings,
@@ -2254,7 +2574,7 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": username,
-                "memory_nav": "map",
+                "memory_nav": "memory",
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "qdrant_api_key": str(getattr(settings.memory, "qdrant_api_key", "") or ""),
                 "qdrant_overview": overview,
@@ -2297,7 +2617,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         ok = await pipeline.memory_skill.delete_memory_point(
             user_id=username,
             collection=sanitize_collection_name(collection),
@@ -2346,7 +2666,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         removed = await pipeline.memory_skill.delete_document(
             user_id=username,
             collection=sanitize_collection_name(collection),
@@ -2382,6 +2702,81 @@ def register_memories_routes(
             error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.document_remove_failed", "Document could not be removed"),
         )
 
+    async def _memory_browser_json_payload(request: Request) -> dict[str, Any]:
+        try:
+            payload = await request.json()
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _memory_browser_csrf_valid(request: Request, payload: dict[str, Any]) -> bool:
+        submitted = request.headers.get("x-csrf-token") or payload.get("csrf_token")
+        expected = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
+        return _is_valid_csrf_submission(str(submitted or ""), expected)
+
+    @app.post("/memories/browser/delete-point")
+    async def memories_browser_delete_point(request: Request) -> JSONResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
+            return JSONResponse(
+                content={"ok": False, "error": _memory_routes_text(lang, "error.admin_required", "Admin access required")},
+                status_code=403,
+            )
+        payload = await _memory_browser_json_payload(request)
+        if not _memory_browser_csrf_valid(request, payload):
+            return JSONResponse(
+                content={"ok": False, "error": _memory_routes_text(lang, "error.csrf_failed", "Security check failed. Please reload the page.")},
+                status_code=403,
+            )
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        collection = sanitize_collection_name(str(payload.get("collection", "") or ""))
+        point_id = str(payload.get("point_id", "") or "").strip()
+        if not getattr(pipeline, "memory_skill", None):
+            return JSONResponse(content={"ok": False, "error": "memory_inactive"}, status_code=503)
+        if not collection or not point_id:
+            return JSONResponse(content={"ok": False, "error": "missing_target"}, status_code=400)
+        ok = await pipeline.memory_skill.delete_memory_point(
+            user_id=username,
+            collection=collection,
+            point_id=point_id,
+        )
+        return JSONResponse(content={"ok": bool(ok), "collection": collection, "point_id": point_id}, status_code=200 if ok else 404)
+
+    @app.post("/memories/browser/delete-document")
+    async def memories_browser_delete_document(request: Request) -> JSONResponse:
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
+            return JSONResponse(
+                content={"ok": False, "error": _memory_routes_text(lang, "error.admin_required", "Admin access required")},
+                status_code=403,
+            )
+        payload = await _memory_browser_json_payload(request)
+        if not _memory_browser_csrf_valid(request, payload):
+            return JSONResponse(
+                content={"ok": False, "error": _memory_routes_text(lang, "error.csrf_failed", "Security check failed. Please reload the page.")},
+                status_code=403,
+            )
+        pipeline = get_pipeline()
+        username = get_username_from_request(request) or "web"
+        collection = sanitize_collection_name(str(payload.get("collection", "") or ""))
+        document_id = str(payload.get("document_id", "") or "").strip()
+        document_name = str(payload.get("document_name", "") or "").strip()
+        if not getattr(pipeline, "memory_skill", None):
+            return JSONResponse(content={"ok": False, "error": "memory_inactive"}, status_code=503)
+        if not collection or not (document_id or document_name):
+            return JSONResponse(content={"ok": False, "error": "missing_target"}, status_code=400)
+        removed = await pipeline.memory_skill.delete_document(
+            user_id=username,
+            collection=collection,
+            document_id=document_id,
+            document_name=document_name,
+        )
+        return JSONResponse(
+            content={"ok": removed > 0, "collection": collection, "document_id": document_id, "document_name": document_name, "removed": removed},
+            status_code=200 if removed > 0 else 404,
+        )
+
     @app.post("/memories/edit")
     async def memories_edit(
         request: Request,
@@ -2400,7 +2795,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         clean_text = str(text).strip()
         if not clean_text:
             return _memories_redirect(
@@ -2430,7 +2825,7 @@ def register_memories_routes(
                 page=page,
                 limit=limit,
                 sort=sort,
-                info="Eintrag aktualisiert",
+                info=_msg(lang, "Eintrag aktualisiert", "Entry updated"),
             )
         return _memories_redirect(
             filter_type=type,
@@ -2441,7 +2836,7 @@ def register_memories_routes(
             page=page,
             limit=limit,
             sort=sort,
-            error="Eintrag konnte nicht aktualisiert werden",
+            error=_msg(lang, "Eintrag konnte nicht aktualisiert werden", "Entry could not be updated"),
         )
 
     @app.post("/memories/learning-candidate/status")
@@ -2463,7 +2858,7 @@ def register_memories_routes(
         username = get_username_from_request(request) or "web"
         lang = str(getattr(request.state, "lang", "de") or "de")
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         clean_decision = str(decision or "").strip().lower()
         status = {"review": "reviewed", "reject": "rejected"}.get(clean_decision, "")
         if not status:
@@ -2534,7 +2929,7 @@ def register_memories_routes(
         username = get_username_from_request(request) or "web"
         lang = str(getattr(request.state, "lang", "de") or "de")
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         apply_payload = prepare_learning_candidate_apply_payload(
             artifact_type=artifact_type,
             risk=risk,
@@ -2645,15 +3040,13 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": get_username_from_request(request) or "web",
-                "memory_nav": "explorer",
+                "memory_nav": "maintenance",
                 "preview": preview,
                 "activation_preview": activation_preview,
                 "app_learning_preview": app_learning_preview,
                 "prepared_artifact_review": prepared_artifact_review,
                 "return_url": (
-                    f"/memories/explorer?type={quote_plus(type)}&q={quote_plus(q)}"
-                    f"&collection_filter={quote_plus(collection_filter)}&page={max(1, int(page))}"
-                    f"&limit={max(10, min(int(limit), 100))}&sort={quote_plus(sort)}"
+                    "/memories/maintenance"
                 ),
             },
         )
@@ -2678,7 +3071,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         payload = link_learning_candidate_regression_payload(
             regression_ref=regression_ref,
             linked_by=username,
@@ -2731,7 +3124,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         app_learning_preview = _build_app_learning_preview(candidate_text)
         payload = prepare_pytest_write_payload(
             app_learning_preview.get("pytest_apply_preview") or {},
@@ -2801,7 +3194,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         payload = prepare_prepared_artifact_review_payload(
             artifact_kind=artifact_kind,
             decision=decision,
@@ -2875,7 +3268,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         payload = verify_learning_candidate_regression_payload(
             regression_ref=regression_ref,
             repo_root=BASE_DIR,
@@ -2928,7 +3321,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         payload = run_learning_candidate_regression_payload(
             regression_ref=regression_ref,
             repo_root=BASE_DIR,
@@ -2985,7 +3378,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         payload = learning_candidate_activation_preflight_payload(
             artifact_type=artifact_type,
             risk=risk,
@@ -3044,7 +3437,7 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         activation_preview = build_learning_candidate_activation_preview(
             artifact_type=artifact_type,
             risk=risk,
@@ -3113,18 +3506,19 @@ def register_memories_routes(
         settings = get_settings()
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
+        source_key = str(source_view or "").strip().lower()
         if not pipeline.memory_skill:
-            if str(source_view or "").strip().lower() == "overview":
-                return _memories_overview_redirect(error="Memory+nicht+aktiv")
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            if source_key in {"overview", "import", "create"}:
+                return _memories_intake_redirect(source_key, error="Memory+nicht+aktiv")
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
 
         clean_type = str(memory_type or "fact").strip().lower()
         if clean_type not in {"fact", "preference", "knowledge"}:
             clean_type = "fact"
         clean_text = str(text or "").strip()
         if not clean_text:
-            if str(source_view or "").strip().lower() == "overview":
-                return _memories_overview_redirect(error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.memory_text_empty", "Memory text must not be empty"))
+            if source_key in {"overview", "import", "create"}:
+                return _memories_intake_redirect(source_key, error=_memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.memory_text_empty", "Memory text must not be empty"))
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -3152,8 +3546,8 @@ def register_memories_routes(
                 },
             )
             if result.success:
-                if str(source_view or "").strip().lower() == "overview":
-                    return _memories_overview_redirect(info=result.content or "Memory gespeichert")
+                if source_key in {"overview", "import", "create"}:
+                    return _memories_intake_redirect(source_key, info=result.content or "Memory gespeichert")
                 return _memories_redirect(
                     filter_type=type,
                     query=q,
@@ -3165,8 +3559,9 @@ def register_memories_routes(
                     sort=sort,
                     info=result.content or "Memory gespeichert",
                 )
-            if str(source_view or "").strip().lower() == "overview":
-                return _memories_overview_redirect(
+            if source_key in {"overview", "import", "create"}:
+                return _memories_intake_redirect(
+                    source_key,
                     error=result.error or result.content or "Memory konnte nicht gespeichert werden"
                 )
             return _memories_redirect(
@@ -3182,8 +3577,9 @@ def register_memories_routes(
             )
         except Exception as exc:  # noqa: BLE001
             lang = str(getattr(request.state, "lang", "de") or "de")
-            if str(source_view or "").strip().lower() == "overview":
-                return _memories_overview_redirect(
+            if source_key in {"overview", "import", "create"}:
+                return _memories_intake_redirect(
+                    source_key,
                     error=_friendly_memory_error(
                         lang,
                         exc,
@@ -3241,8 +3637,9 @@ def register_memories_routes(
 
         expected_csrf = str(getattr(getattr(request, "state", object()), "csrf_token", "") or "")
         if not _is_valid_csrf_submission(csrf_token, expected_csrf):
-            if source_view == "overview":
-                return _memories_overview_redirect(
+            if source_view in {"overview", "import"}:
+                return _memories_intake_redirect(
+                    source_view,
                     error=_memory_routes_text(lang, "error.csrf_failed", "Security check failed. Please reload the page.")
                 )
             return _memories_redirect(
@@ -3257,8 +3654,9 @@ def register_memories_routes(
                 error=_memory_routes_text(lang, "error.csrf_failed", "Security check failed. Please reload the page."),
             )
         if not pipeline.memory_skill:
-            if source_view == "overview":
-                return _memories_overview_redirect(
+            if source_view in {"overview", "import"}:
+                return _memories_intake_redirect(
+                    source_view,
                     error=_memory_routes_text(lang, "error.memory_backend_unavailable", "Memory backend is currently unavailable.")
                 )
             return _memories_redirect(
@@ -3273,8 +3671,8 @@ def register_memories_routes(
                 error=_memory_routes_text(lang, "error.memory_backend_unavailable", "Memory backend is currently unavailable."),
             )
         if not _is_uploaded_file(document_file):
-            if source_view == "overview":
-                return _memories_overview_redirect(error=_memory_routes_text(lang, "error.choose_file", "Please choose a file."))
+            if source_view in {"overview", "import"}:
+                return _memories_intake_redirect(source_view, error=_memory_routes_text(lang, "error.choose_file", "Please choose a file."))
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -3317,8 +3715,9 @@ def register_memories_routes(
             if not result.success:
                 raise ValueError(result.error or _msg(lang, "Dokument konnte nicht importiert werden.", "Could not import document."))
             chunk_count = int((result.metadata or {}).get("chunk_count", 0) or 0)
-            if source_view == "overview":
-                return _memories_overview_redirect(
+            if source_view in {"overview", "import"}:
+                return _memories_intake_redirect(
+                    source_view,
                     info=_msg(
                         lang,
                         f"Dokument importiert: {prepared.filename} · {chunk_count} Chunks in {target_collection}",
@@ -3341,8 +3740,9 @@ def register_memories_routes(
                 ),
             )
         except (DocumentIngestError, ValueError) as exc:
-            if source_view == "overview":
-                return _memories_overview_redirect(
+            if source_view in {"overview", "import"}:
+                return _memories_intake_redirect(
+                    source_view,
                     error=str(exc).strip() or _memory_routes_text(lang, "error.document_import_failed", "Could not import document.")
                 )
             return _memories_redirect(
@@ -3357,8 +3757,9 @@ def register_memories_routes(
                 error=str(exc).strip() or _memory_routes_text(lang, "error.document_import_failed", "Could not import document."),
             )
         except Exception as exc:  # noqa: BLE001
-            if source_view == "overview":
-                return _memories_overview_redirect(
+            if source_view in {"overview", "import"}:
+                return _memories_intake_redirect(
+                    source_view,
                     error=_friendly_memory_error(lang, exc, _memory_routes_text(lang, "error.document_import_failed_short", "Document import failed."), "Document import failed.")
                 )
             return _memories_redirect(
@@ -3373,9 +3774,52 @@ def register_memories_routes(
                 error=_friendly_memory_error(lang, exc, _memory_routes_text(lang, "error.document_import_failed_short", "Document import failed."), "Document import failed."),
             )
 
-    @app.post("/memories/maintenance")
-    async def memories_maintenance(
+    @app.get("/memories/maintenance", response_class=HTMLResponse)
+    async def memories_maintenance_page(
         request: Request,
+        info: str = "",
+        error: str = "",
+    ) -> HTMLResponse:
+        settings = get_settings()
+        username = get_username_from_request(request) or "web"
+        pipeline = get_pipeline()
+        overview = await qdrant_overview(request)
+        collection_stats: list[dict[str, Any]] = []
+        learning_rows: list[dict[str, Any]] = []
+        if getattr(pipeline, "memory_skill", None):
+            with suppress(Exception):
+                collection_stats = await pipeline.memory_skill.get_user_collection_stats(username)
+            with suppress(Exception):
+                learning_rows = await pipeline.memory_skill.list_memories_global(
+                    user_id=username,
+                    type_filter="all",
+                    limit=300,
+                )
+        self_learning = _build_self_learning_maintenance_snapshot(
+            username=username,
+            lang=str(getattr(request.state, "lang", "de") or "de"),
+            collection_stats=collection_stats,
+            learning_rows=learning_rows,
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="memories_maintenance.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "memory_nav": "maintenance",
+                "info_message": info,
+                "error_message": error,
+                "qdrant_overview": overview,
+                "self_learning": self_learning,
+                "learning_worker_status": get_learning_worker_status(limit=5),
+            },
+        )
+
+    @app.post("/memories/maintenance")
+    async def memories_maintenance_run(
+        request: Request,
+        source_view: str = Form(""),
         type: str = Form("all"),
         q: str = Form(""),
         collection_filter: str = Form(""),
@@ -3388,7 +3832,9 @@ def register_memories_routes(
         pipeline = get_pipeline()
         username = get_username_from_request(request) or "web"
         if not pipeline.memory_skill:
-            return RedirectResponse(url="/memories/explorer?error=Memory+nicht+aktiv", status_code=303)
+            if str(source_view or "").strip().lower() == "maintenance":
+                return _memories_maintenance_redirect(error="Memory+nicht+aktiv")
+            return RedirectResponse(url="/memories?error=Memory+nicht+aktiv", status_code=303)
         try:
             session_cfg = settings.memory.collections.sessions
             result = await pipeline.memory_skill.execute(
@@ -3401,6 +3847,8 @@ def register_memories_routes(
                 },
             )
             if result.success:
+                if str(source_view or "").strip().lower() == "maintenance":
+                    return _memories_maintenance_redirect(info=result.content)
                 return _memories_redirect(
                     filter_type=type,
                     query=q,
@@ -3413,6 +3861,8 @@ def register_memories_routes(
                     info=result.content,
                 )
             message = result.error or _memory_routes_text(str(getattr(request.state, "lang", "de") or "de"), "error.compression_failed", "Compression failed")
+            if str(source_view or "").strip().lower() == "maintenance":
+                return _memories_maintenance_redirect(error=message)
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -3427,6 +3877,8 @@ def register_memories_routes(
         except Exception as exc:  # noqa: BLE001
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_memory_error(lang, exc, "Komprimierung konnte nicht gestartet werden.", "Could not start compression.")
+            if str(source_view or "").strip().lower() == "maintenance":
+                return _memories_maintenance_redirect(error=error)
             return _memories_redirect(
                 filter_type=type,
                 query=q,
@@ -3458,7 +3910,7 @@ def register_memories_routes(
             context={
                 "title": settings.ui.title,
                 "username": username,
-                "memory_nav": "setup",
+                "memory_nav": "maintenance",
                 "saved": bool(saved),
                 "error_message": error,
                 "collections": [row["name"] for row in overview.get("collections", [])],
@@ -3472,6 +3924,29 @@ def register_memories_routes(
                 "qdrant_api_key_value": str(getattr(settings.memory, "qdrant_api_key", "") or ""),
                 "qdrant_dashboard_url": qdrant_dashboard_url(request),
                 "compress_result": compress_result,
+            },
+        )
+
+    @app.get("/memories/auto-memory", response_class=HTMLResponse)
+    async def memories_auto_memory_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+    ) -> HTMLResponse:
+        settings = get_settings()
+        if not _is_admin_request(request, get_auth_session_from_request, sanitize_role):
+            return RedirectResponse(url="/memories?error=no_admin", status_code=303)
+        username = get_username_from_request(request) or "web"
+        return templates.TemplateResponse(
+            request=request,
+            name="memories_auto_memory.html",
+            context={
+                "title": settings.ui.title,
+                "username": username,
+                "saved": bool(saved),
+                "error_message": error,
+                "auto_memory": settings.auto_memory,
+                "auto_memory_cookie": is_auto_memory_enabled(request),
             },
         )
 
@@ -3597,7 +4072,7 @@ def register_memories_routes(
             reload_runtime()
 
             secure_cookie = cookie_should_be_secure(request, public_url=str(settings.aria.public_url or ""))
-            response = RedirectResponse(url="/memories/config?saved=1", status_code=303)
+            response = RedirectResponse(url="/memories/auto-memory?saved=1", status_code=303)
             response.set_cookie(
                 key=_cookie_name_for_request(request, "auto_memory", auto_memory_cookie),
                 value="1" if raw["auto_memory"]["enabled"] else "0",
@@ -3610,7 +4085,7 @@ def register_memories_routes(
         except (OSError, ValueError) as exc:
             lang = str(getattr(request.state, "lang", "de") or "de")
             error = _friendly_memory_error(lang, exc, "Auto-Memory konnte nicht gespeichert werden.", "Could not save auto-memory settings.")
-            return RedirectResponse(url=f"/memories/config?error={quote_plus(error)}", status_code=303)
+            return RedirectResponse(url=f"/memories/auto-memory?error={quote_plus(error)}", status_code=303)
 
     @app.post("/memories/config/compress")
     @app.post("/config/memory/compress")

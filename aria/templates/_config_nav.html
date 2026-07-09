@@ -1,27 +1,13 @@
-{% from "_icons.html" import icon %}
-<nav class="memory-subnav" aria-label="{{ tr(request, 'config.nav_label', 'Settings navigation') }}">
-  <a class="memory-subnav-item{% if config_nav == 'overview' %} active{% endif %}" href="/config">
-    {{ icon('settings', 'memory-subnav-icon') }}
-    <span>{{ tr(request, 'config.overview_title', 'Einstellungen') }}</span>
-  </a>
-  <a class="memory-subnav-item{% if config_nav == 'intelligence' %} active{% endif %}" href="/config/intelligence">
-    {{ icon('llm', 'memory-subnav-icon') }}
-    <span>{{ tr(request, 'config.h1', 'Intelligenz abstimmen') }}</span>
-  </a>
-  <a class="memory-subnav-item{% if config_nav == 'persona' %} active{% endif %}" href="/config/persona">
-    {{ icon('prompts', 'memory-subnav-icon') }}
-    <span>{{ tr(request, 'config.persona_title', 'Persönlichkeit & Stil') }}</span>
-  </a>
-  <a class="memory-subnav-item{% if config_nav == 'access' %} active{% endif %}" href="/config/access">
-    {{ icon('security', 'memory-subnav-icon') }}
-    <span>{{ tr(request, 'config.access_title', 'Zugriff & Sicherheit') }}</span>
-  </a>
-  <a class="memory-subnav-item{% if config_nav == 'operations' %} active{% endif %}" href="/config/operations">
-    {{ icon('updates', 'memory-subnav-icon') }}
-    <span>{{ tr(request, 'config.operations_title', 'Betrieb & Transfer') }}</span>
-  </a>
-  <a class="memory-subnav-item{% if config_nav == 'workbench' %} active{% endif %}" href="/config/workbench">
-    {{ icon('routing', 'memory-subnav-icon') }}
-    <span>{{ tr(request, 'config.workbench_title', 'Workbench (Advanced)') }}</span>
-  </a>
-</nav>
+{% set advanced_config_nav_values = ['intelligence', 'access', 'operations', 'workbench'] %}
+{% if config_nav|default('') in advanced_config_nav_values %}
+  {% set nav_section_id = 'admin' %}
+  {% set nav_aria_key = 'config.admin_overview_link' %}
+  {% set nav_aria_fallback = 'Admin navigation' %}
+  {% set current_nav_id = 'admin.' ~ config_nav %}
+{% else %}
+  {% set nav_section_id = 'settings' %}
+  {% set nav_aria_key = 'config.nav_label' %}
+  {% set nav_aria_fallback = 'Settings navigation' %}
+  {% set legacy_nav_value = config_nav|default('') %}
+{% endif %}
+{% include "_section_nav.html" %}

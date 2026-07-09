@@ -1,10 +1,6 @@
 {% from "_icons.html" import icon %}
+{% if help_doc %}
 <aside class="context-help-card">
-  <div class="context-help-head">
-    <strong>{{ heading }}</strong>
-    {% if help_doc %}
-    <a href="/help?doc={{ help_doc }}" class="context-help-link ui-action-link">{{ icon('help', 'ui-action-icon') }}{{ tr(request, 'context_help.open', 'Mehr dazu') }}</a>
-    {% endif %}
-  </div>
-  <p>{{ body }}</p>
+  <a href="/help?doc={{ help_doc }}" class="context-help-link ui-action-link">{{ icon('help', 'ui-action-icon') }}{{ tr(request, 'context_help.open', 'Hilfe öffnen') }}</a>
 </aside>
+{% endif %}

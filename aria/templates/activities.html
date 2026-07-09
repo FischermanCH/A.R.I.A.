@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <main class="stats-layout">
+  {% set admin_current_nav_id = 'admin.activities' %}
+  {% include "_admin_section_nav.html" %}
+
   <section class="stats-grid">
     <article class="stat-card">
       <h2>{{ tr(request, 'activities.total', 'Aktivitäten') }}</h2>

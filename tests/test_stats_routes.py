@@ -4,13 +4,15 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from aria.core.config import Settings
 from aria.core import connection_runtime
 import aria.core.learned_recipe_store as learned_store
+from aria.web.activities_routes import register_activities_routes
+from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 import aria.web.stats_routes as stats_routes
 from aria.web.stats_routes import (
     OPERATOR_GUARDRAIL_ROW_KEYS,
@@ -35,6 +37,50 @@ from aria.web.stats_routes import (
     _extract_qdrant_telemetry_disk_bytes,
     register_stats_routes,
 )
+
+
+def test_activities_page_uses_admin_navigation() -> None:
+    app = FastAPI()
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
+    templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
+    templates.env.globals["nav_section_items"] = nav_section_items
+    templates.env.globals["context_nav_items"] = context_nav_items
+    templates.env.globals["context_nav_context"] = context_nav_context
+    templates.env.globals["admin_nav_groups"] = admin_nav_groups
+    templates.env.globals["settings_nav_groups"] = settings_nav_groups
+
+    @app.middleware("http")
+    async def inject_state(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.can_access_advanced_config = True
+        request.state.lang = "de"
+        request.state.release_meta = {}
+        request.state.update_status = {}
+        request.state.auth_role = "admin"
+        request.state.authenticated = True
+        return await call_next(request)
+
+    class FakeTokenTracker:
+        async def get_recent_activities(self, **_kwargs: object) -> dict[str, object]:
+            return {"summary": {"count": 0, "success": 0, "errors": 0, "avg_duration_ms": 0}, "rows": []}
+
+    pipeline = SimpleNamespace(token_tracker=FakeTokenTracker())
+    settings = SimpleNamespace(ui=SimpleNamespace(title="Activities Test"))
+    register_activities_routes(
+        app,
+        templates=templates,
+        get_pipeline=lambda: pipeline,
+        get_settings=lambda: settings,
+        get_username_from_request=lambda _request: "neo",
+    )
+
+    response = TestClient(app).get("/activities")
+
+    assert response.status_code == 200
+    assert 'href="/config/admin"' in response.text
+    assert 'aria-label="Admin navigation"' in response.text
+    assert 'href="/config/admin/operations"' in response.text
+    assert 'class="memory-subnav-item active" href="/config/admin/operations"' in response.text
 
 
 def test_build_sidecar_inventory_meta_reads_visible_docker_sidecars(monkeypatch) -> None:

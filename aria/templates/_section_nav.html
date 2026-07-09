@@ -1,0 +1,11 @@
+{% from "_icons.html" import icon %}
+{% set nav_context = context_nav_context(request, current_nav_id|default(''), nav_section_id|default(''), legacy_nav_value|default('')) %}
+{% set nav_rows = nav_context["items"] %}
+<nav class="memory-subnav" aria-label="{{ tr(request, nav_context["aria_key"] or nav_aria_key, nav_context["aria_fallback"] or nav_aria_fallback) }}">
+  {% for item in nav_rows %}
+  <a class="memory-subnav-item{% if item.active %} active{% endif %}" href="{{ item.href }}"{% if item.href in ['/memories', '/memories/import', '/memories/create'] %} data-busy-immediate="true"{% endif %}>
+    {{ icon(item.icon, 'memory-subnav-icon') }}
+    <span>{{ tr(request, item.title_key, item.title_fallback) }}</span>
+  </a>
+  {% endfor %}
+</nav>

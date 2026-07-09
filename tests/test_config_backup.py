@@ -18,6 +18,7 @@ from aria.core.config_backup import (
 from aria.core.secure_store import SecureConfigStore, SecureStoreConfig, generate_master_key_b64
 from aria.core.secure_store import decode_master_key
 from aria.web.config_routes import ConfigRouteDeps, register_config_routes
+from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 
 
 def _write_yaml(path: Path, data: dict) -> None:
@@ -174,6 +175,11 @@ def _build_test_config_app(base_dir: Path) -> FastAPI:
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
     templates.env.globals.setdefault("agent_text", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("nav_section_items", nav_section_items)
+    templates.env.globals.setdefault("context_nav_items", context_nav_items)
+    templates.env.globals.setdefault("context_nav_context", context_nav_context)
+    templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
+    templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
     store = _make_store(base_dir / "data" / "auth" / "aria_secure.sqlite")
     raw = {
         "aria": {"host": "0.0.0.0", "port": 8800},

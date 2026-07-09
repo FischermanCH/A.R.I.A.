@@ -39,14 +39,14 @@
     {% endfor %}
   </div>
   {% else %}
-  <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade Admin-Modus') }}</h3>
-  <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktiviertem Admin-Modus wird dieser Bereich sichtbar.') }}</p>
+  <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade die erweiterte Ansicht') }}</h3>
+  <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktivierter erweiterter Ansicht wird dieser Bereich sichtbar.') }}</p>
   <div class="config-submenu">
-    <a class="config-submenu-item" href="/config/users?return_to={{ page_return_to | urlencode }}#admin-mode">
-      <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
+    <a class="config-submenu-item" href="/config/admin-mode?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
       <span class="submenu-copy">
-        <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Benutzer & Zugriff öffnen') }}</span>
-        <span class="submenu-desc">{{ tr(request, 'connections_overview.admin_off_link_desc', 'Dort kannst du den Admin-Modus wieder einschalten.') }}</span>
+        <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Open Extended view') }}</span>
+        <span class="submenu-desc">{{ tr(request, 'connections_overview.admin_off_link_desc', 'Dort kannst du die erweiterte Ansicht wieder einschalten.') }}</span>
       </span>
     </a>
   </div>

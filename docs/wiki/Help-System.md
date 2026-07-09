@@ -1,6 +1,6 @@
 # ARIA - Hilfe-System / Doku-Hub
 
-Stand: 2026-05-15
+Stand: 2026-07-09
 
 ## Aktuelle Richtung
 
@@ -13,6 +13,9 @@ Seit `0.1.0-alpha266` muessen Hilfe und Wiki klar abbilden:
 - Token-/Kosten-Sichtbarkeit fuer sichtbare und interne LLM-Aufrufe
 - LiteLLM-GitHub-Preisliste als Pricing-Quelle ohne LiteLLM-Paket
 - One-Click-Bestaetigungen im Chat
+- Chat Prompt Queue und sichtbare Pending Confirmations
+- grafischer Memory-Browser, Notes-Workspace und Auto-Memory & Lernen
+- Agentic Operator Trace fuer Understanding, Context, Policy, Runtime, Result und Learning
 - Multi-Target-Read-only-Checks, z. B. SSH-Fleet-Disk-Checks
 - RSS-Digests mit Quellen und Links
 - sicherer Managed-Update-Pfad

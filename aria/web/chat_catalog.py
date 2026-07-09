@@ -196,7 +196,7 @@ def _build_system_chat_command_entries(lang: str, *, advanced_mode: bool) -> tup
             "group": "documents",
             "icon": "📄",
             "label": _toolbox_label(lang, "tool_document_import", "Import document"),
-            "href": "/memories/overview#document-import",
+            "href": "/memories/import#document-import",
             "hint": _toolbox_label(lang, "tool_document_import_hint", "Opens document import with collection selection."),
             "keywords": ["dokument", "document", "upload", "import", "pdf", "rag", "qdrant", "collection"],
         },

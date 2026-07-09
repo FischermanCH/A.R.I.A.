@@ -8,8 +8,6 @@ ADVANCED_CONFIG_PREFIXES: tuple[str, ...] = (
     "/config/embeddings",
     "/config/routing",
     "/config/skill-routing",
-    "/config/appearance",
-    "/config/language",
     "/config/prompts",
     "/config/connections",
     "/config/language/file",
@@ -18,6 +16,7 @@ ADVANCED_CONFIG_PREFIXES: tuple[str, ...] = (
     "/config/logs",
     "/config/backup",
     "/config/error-interpreter",
+    "/config/admin",
 )
 
 ADMIN_ONLY_PREFIXES: tuple[str, ...] = (

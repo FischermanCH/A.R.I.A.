@@ -303,6 +303,7 @@ def register_recipe_routes(
         learned_filter: str = LEARNED_RECIPE_FILTER_ALL,
         learned_kind_filter: str = LEARNED_RECIPE_KIND_FILTER_ALL,
         learned_sort: str = LEARNED_RECIPE_SORT_LAST_SUCCESS,
+        recipes_admin_nav: bool = False,
     ) -> dict[str, Any]:
         settings = get_settings()
         username = get_username_from_request(request)
@@ -379,6 +380,7 @@ def register_recipe_routes(
             ),
             "next_steps": next_steps,
             "recipes_nav": recipes_nav,
+            "recipes_admin_nav": bool(recipes_admin_nav),
             "recipes_page_heading": page_heading,
             "show_overview_checks": bool(show_overview_checks),
         }
@@ -398,6 +400,7 @@ def register_recipe_routes(
         learned_filter: str = LEARNED_RECIPE_FILTER_ALL,
         learned_kind_filter: str = LEARNED_RECIPE_KIND_FILTER_ALL,
         learned_sort: str = LEARNED_RECIPE_SORT_LAST_SUCCESS,
+        recipes_admin_nav: bool = False,
     ) -> HTMLResponse:
         context = _build_recipes_page_context(
             request,
@@ -412,6 +415,7 @@ def register_recipe_routes(
             learned_filter=learned_filter,
             learned_kind_filter=learned_kind_filter,
             learned_sort=learned_sort,
+            recipes_admin_nav=recipes_admin_nav,
         )
         return templates.TemplateResponse(
             request=request,
@@ -431,8 +435,7 @@ def register_recipe_routes(
             logical_back_fallback="/",
             page_return_to="/recipes",
             recipes_nav="overview",
-            page_heading=translate(lang, "recipes.title", "Recipes"),
-            show_overview_checks=True,
+            page_heading=translate(lang, "base.nav_skills", "Recipes"),
         )
 
     @app.get("/recipes/start", response_class=HTMLResponse)
@@ -447,7 +450,7 @@ def register_recipe_routes(
             logical_back_fallback="/recipes",
             page_return_to="/recipes/start",
             recipes_nav="start",
-            page_heading=translate(lang, "recipes.start_title", "Start recipe"),
+            page_heading=translate(lang, "recipes.new_templates_title", "New / templates"),
         )
 
     @app.get("/recipes/mine", response_class=HTMLResponse)
@@ -489,6 +492,35 @@ def register_recipe_routes(
             learned_filter=state,
             learned_kind_filter=kind,
             learned_sort=sort,
+        )
+
+    @app.get("/recipes/learned/maintenance", response_class=HTMLResponse)
+    async def recipes_learned_maintenance_page(
+        request: Request,
+        saved: int = 0,
+        error: str = "",
+        info: str = "",
+        state: str = "",
+        kind: str = "",
+        sort: str = "",
+    ) -> Response:
+        if not _is_admin_mode_request(request, get_auth_session_from_request, sanitize_role):
+            return _redirect_with_return_to("/recipes/learned?error=readonly", request, fallback="/recipes/learned")
+        lang = str(getattr(request.state, "lang", "de") or "de")
+        return _render_recipes_surface(
+            request,
+            template_name="recipes_learned.html",
+            saved=saved,
+            error=error,
+            info=info,
+            logical_back_fallback="/config/admin",
+            page_return_to="/recipes/learned/maintenance",
+            recipes_nav="learned",
+            page_heading=translate(lang, "learned_recipes.title", "Learned recipes"),
+            learned_filter=state,
+            learned_kind_filter=kind,
+            learned_sort=sort,
+            recipes_admin_nav=True,
         )
 
     @app.get("/recipes/system", response_class=HTMLResponse)
@@ -640,14 +672,14 @@ def register_recipe_routes(
         lang = str(getattr(request.state, "lang", "de") or "de")
         return _render_recipes_surface(
             request,
-            template_name="recipes_templates.html",
+            template_name="recipes_start.html",
             saved=saved,
             error=error,
             info=info,
             logical_back_fallback="/recipes",
-            page_return_to="/recipes/templates",
-            recipes_nav="templates",
-            page_heading=translate(lang, "recipes.templates_title", "Vorlagen"),
+            page_return_to="/recipes/start",
+            recipes_nav="start",
+            page_heading=translate(lang, "recipes.new_templates_title", "New / templates"),
         )
 
     @app.post("/recipes/save")

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-surface-layout">
+  <section class="floating-card config-domain-intro">
+    <div class="page-title-row">
+      <h2>{{ tr(request, 'config_admin_mode.title', 'Extended view') }}</h2>
+    </div>
+    {% if error_message %}
+    <div class="alert err">{{ error_message }}</div>
+    {% endif %}
+    {% if saved %}
+    <div class="alert ok">{{ info_message or tr(request, 'config_users.saved', 'Saved.') }}</div>
+    {% elif info_message %}
+    <div class="alert ok">{{ info_message }}</div>
+    {% endif %}
+  </section>
+
+  <section class="config-card floating-card config-domain-section" id="admin-mode">
+    <h3>{{ tr(request, 'base.nav_extended_view', 'Extended view') }}</h3>
+    <p class="hint-text">{{ tr(request, 'config_admin_mode.body', 'Shows technical areas and maintenance functions.') }}</p>
+    <p class="hint-text">
+      <strong>{{ tr(request, 'config_users.admin_mode_status_label', 'Current status') }}:</strong>
+      {% if debug_mode %}
+      <span class="pill brand-admin-pill">{{ tr(request, 'base.admin_mode_on_short', 'on') }}</span>
+      {% else %}
+      <span class="pill">{{ tr(request, 'base.admin_mode_off_short', 'off') }}</span>
+      {% endif %}
+    </p>
+    <form class="editor-form" method="post" action="/config/admin-mode/save">
+      <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+      <label class="inline-check">
+        <input type="checkbox" name="debug_mode" value="1" {% if debug_mode %}checked{% endif %}>
+        {{ tr(request, 'config_admin_mode.toggle_label', 'Enable Extended view') }}
+      </label>
+      <div class="inline-actions">
+        <button type="submit">{{ tr(request, 'config_users.save', 'Save') }}</button>
+        <a class="button-like subtle-link" href="/config">{{ tr(request, 'base.nav_config', 'Settings') }}</a>
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}

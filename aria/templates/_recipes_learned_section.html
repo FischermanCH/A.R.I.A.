@@ -1,6 +1,10 @@
 <section class="floating-card skills-section" id="skills-learned">
+  {% set learned_base_path = page_return_to|default('/recipes/learned') %}
   <h3>{{ tr(request, 'learned_recipes.title', 'Gelernte Rezepte') }}</h3>
-  <p class="hint-text">{{ tr(request, 'learned_recipes.desc', 'Hier landen erfolgreiche Muster aus klaren, sicheren Läufen. Die Liste hilft beim Review, bevor daraus später bewusst übernommene Rezepte oder Promotion-Kandidaten werden.') }}</p>
+  <p class="hint-text">{{ tr(request, 'learned_recipes.desc_simple', 'Review-Liste für erfolgreiche Muster. Direkt ausführbar werden sie erst nach bewusster Promotion.') }}</p>
+  {% if not recipes_readonly %}
+  <details class="recipe-help-disclosure">
+    <summary>{{ tr(request, 'learned_recipes.how_it_works', 'Wie funktioniert das?') }}</summary>
   <div class="memory-health-grid learned-flow-grid">
     <article class="memory-health-card">
       <div class="memory-health-head">
@@ -43,59 +47,48 @@
       <small>{{ tr(request, 'learned_recipes.flow_retrieval_meta', 'LLM-first fuer Bedeutung, deterministisch fuer Sicherheit und Ausführung.') }}</small>
     </article>
   </div>
-  <div class="memory-health-grid">
-    <article class="memory-health-card">
-      <div class="memory-health-head">
-        <span class="health-lamp status-ok"></span>
-        <h3>{{ tr(request, 'learned_recipes.total_title', 'Gesamt') }}</h3>
-      </div>
-      <p>{{ learned_total_count }}</p>
-      <small>{{ tr(request, 'learned_recipes.total_meta', 'alle Review-Kandidaten in der Lernliste') }}</small>
-    </article>
-    <article class="memory-health-card">
-      <div class="memory-health-head">
-        <span class="health-lamp status-warn"></span>
-        <h3>{{ tr(request, 'learned_recipes.review_ready_title', 'Review bereit') }}</h3>
-      </div>
-      <p>{{ learned_filter_counts.review_ready }}</p>
-      <small>{{ tr(request, 'learned_recipes.review_ready_meta', 'mehrfach erfolgreich, bereit fuer Sichtung') }}</small>
-    </article>
-    <article class="memory-health-card">
-      <div class="memory-health-head">
-        <span class="health-lamp status-warn"></span>
-        <h3>{{ tr(request, 'learned_recipes.eligible_title', 'Promotion fällig') }}</h3>
-      </div>
-      <p>{{ learned_filter_counts.eligible }}</p>
-      <small>{{ tr(request, 'learned_recipes.eligible_meta', 'starke Kandidaten fuer bewusste Uebernahme') }}</small>
-    </article>
-    <article class="memory-health-card">
-      <div class="memory-health-head">
-        <span class="health-lamp status-ok"></span>
-        <h3>{{ tr(request, 'learned_recipes.promoted_title', 'Promoted') }}</h3>
-      </div>
-      <p>{{ learned_filter_counts.promoted }}</p>
-      <small>{{ tr(request, 'learned_recipes.promoted_meta', 'durch Admin bewusst bestaetigt') }}</small>
-    </article>
+  </details>
+  {% endif %}
+  <div class="learned-summary-strip" aria-label="{{ tr(request, 'learned_recipes.summary_label', 'Gelernte Rezepte Übersicht') }}">
+    <a class="learned-summary-item{% if learned_filter == 'all' %} is-active{% endif %}" href="{{ learned_base_path }}{% if learned_sort != 'last_success' %}?sort={{ learned_sort|urlencode }}{% endif %}{% if learned_sort == 'last_success' and learned_kind_filter != 'all' %}?kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' and learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">
+      <span>{{ tr(request, 'learned_recipes.total_title', 'Gesamt') }}</span>
+      <strong>{{ learned_total_count }}</strong>
+    </a>
+    <a class="learned-summary-item{% if learned_filter == 'review_ready' %} is-active{% endif %}" href="{{ learned_base_path }}?state=review_ready{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">
+      <span>{{ tr(request, 'learned_recipes.review_ready_title', 'Review bereit') }}</span>
+      <strong>{{ learned_filter_counts.review_ready }}</strong>
+    </a>
+    <a class="learned-summary-item{% if learned_filter == 'eligible' %} is-active{% endif %}" href="{{ learned_base_path }}?state=eligible{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">
+      <span>{{ tr(request, 'learned_recipes.eligible_title', 'Promotion fällig') }}</span>
+      <strong>{{ learned_filter_counts.eligible }}</strong>
+    </a>
+    <a class="learned-summary-item{% if learned_filter == 'promoted' %} is-active{% endif %}" href="{{ learned_base_path }}?state=promoted{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">
+      <span>{{ tr(request, 'learned_recipes.promoted_title', 'Promoted') }}</span>
+      <strong>{{ learned_filter_counts.promoted }}</strong>
+    </a>
   </div>
-  <div class="status-badge-row">
-    <a class="status-badge{% if learned_filter == 'all' %} status-badge-readonly{% endif %}" href="/recipes/learned{% if learned_sort != 'last_success' %}?sort={{ learned_sort|urlencode }}{% endif %}{% if learned_sort == 'last_success' and learned_kind_filter != 'all' %}?kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' and learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_all', 'Alle') }}: {{ learned_filter_counts.all }}</a>
-    <a class="status-badge{% if learned_filter == 'observed' %} status-badge-readonly{% endif %}" href="/recipes/learned?state=observed{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_observed', 'Beobachtet') }}: {{ learned_filter_counts.observed }}</a>
-    <a class="status-badge{% if learned_filter == 'review_ready' %} status-badge-readonly{% endif %}" href="/recipes/learned?state=review_ready{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_review_ready', 'Review bereit') }}: {{ learned_filter_counts.review_ready }}</a>
-    <a class="status-badge{% if learned_filter == 'eligible' %} status-badge-readonly{% endif %}" href="/recipes/learned?state=eligible{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_eligible', 'Promotion fällig') }}: {{ learned_filter_counts.eligible }}</a>
-    <a class="status-badge{% if learned_filter == 'promoted' %} status-badge-readonly{% endif %}" href="/recipes/learned?state=promoted{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_promoted', 'Promoted') }}: {{ learned_filter_counts.promoted }}</a>
-  </div>
-  <div class="status-badge-row compact">
-    <a class="status-badge{% if learned_kind_filter == 'all' %} status-badge-readonly{% endif %}" href="/recipes/learned{% if learned_filter != 'all' or learned_sort != 'last_success' %}?{% endif %}{% if learned_filter != 'all' %}state={{ learned_filter|urlencode }}{% endif %}{% if learned_filter != 'all' and learned_sort != 'last_success' %}&{% endif %}{% if learned_sort != 'last_success' %}sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.kind_all', 'Alle Typen') }}: {{ learned_kind_counts.all }}</a>
-    {% for kind_value in learned_kind_values %}
-    <a class="status-badge{% if learned_kind_filter == kind_value %} status-badge-readonly{% endif %}" href="/recipes/learned?kind={{ kind_value|urlencode }}{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ kind_value }}: {{ learned_kind_counts[kind_value] }}</a>
-    {% endfor %}
-  </div>
-  <div class="status-badge-row compact">
-    <span class="status-badge status-badge-muted">{{ tr(request, 'learned_recipes.sort_label', 'Sortierung') }}</span>
-    <a class="status-badge{% if learned_sort == 'last_success' %} status-badge-readonly{% endif %}" href="/recipes/learned{% if learned_filter != 'all' or learned_kind_filter != 'all' %}?{% endif %}{% if learned_filter != 'all' %}state={{ learned_filter|urlencode }}{% endif %}{% if learned_filter != 'all' and learned_kind_filter != 'all' %}&{% endif %}{% if learned_kind_filter != 'all' %}kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_last_success', 'Letzter Erfolg') }}</a>
-    <a class="status-badge{% if learned_sort == 'experience' %} status-badge-readonly{% endif %}" href="/recipes/learned?sort=experience{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_experience', 'Erfahrung') }}</a>
-    <a class="status-badge{% if learned_sort == 'title' %} status-badge-readonly{% endif %}" href="/recipes/learned?sort=title{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_title', 'Titel') }}</a>
-  </div>
+  <details class="recipe-filter-disclosure">
+    <summary>{{ tr(request, 'learned_recipes.filter_sort_title', 'Filter und Sortierung') }}</summary>
+    <div class="status-badge-row">
+      <a class="status-badge{% if learned_filter == 'all' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}{% if learned_sort != 'last_success' %}?sort={{ learned_sort|urlencode }}{% endif %}{% if learned_sort == 'last_success' and learned_kind_filter != 'all' %}?kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' and learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_all', 'Alle') }}: {{ learned_filter_counts.all }}</a>
+      <a class="status-badge{% if learned_filter == 'observed' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?state=observed{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_observed', 'Beobachtet') }}: {{ learned_filter_counts.observed }}</a>
+      <a class="status-badge{% if learned_filter == 'review_ready' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?state=review_ready{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_review_ready', 'Review bereit') }}: {{ learned_filter_counts.review_ready }}</a>
+      <a class="status-badge{% if learned_filter == 'eligible' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?state=eligible{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_eligible', 'Promotion fällig') }}: {{ learned_filter_counts.eligible }}</a>
+      <a class="status-badge{% if learned_filter == 'promoted' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?state=promoted{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.filter_promoted', 'Promoted') }}: {{ learned_filter_counts.promoted }}</a>
+    </div>
+    <div class="status-badge-row compact">
+      <a class="status-badge{% if learned_kind_filter == 'all' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}{% if learned_filter != 'all' or learned_sort != 'last_success' %}?{% endif %}{% if learned_filter != 'all' %}state={{ learned_filter|urlencode }}{% endif %}{% if learned_filter != 'all' and learned_sort != 'last_success' %}&{% endif %}{% if learned_sort != 'last_success' %}sort={{ learned_sort|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.kind_all', 'Alle Typen') }}: {{ learned_kind_counts.all }}</a>
+      {% for kind_value in learned_kind_values %}
+      <a class="status-badge{% if learned_kind_filter == kind_value %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?kind={{ kind_value|urlencode }}{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_sort != 'last_success' %}&sort={{ learned_sort|urlencode }}{% endif %}">{{ kind_value }}: {{ learned_kind_counts[kind_value] }}</a>
+      {% endfor %}
+    </div>
+    <div class="status-badge-row compact">
+      <span class="status-badge status-badge-muted">{{ tr(request, 'learned_recipes.sort_label', 'Sortierung') }}</span>
+      <a class="status-badge{% if learned_sort == 'last_success' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}{% if learned_filter != 'all' or learned_kind_filter != 'all' %}?{% endif %}{% if learned_filter != 'all' %}state={{ learned_filter|urlencode }}{% endif %}{% if learned_filter != 'all' and learned_kind_filter != 'all' %}&{% endif %}{% if learned_kind_filter != 'all' %}kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_last_success', 'Letzter Erfolg') }}</a>
+      <a class="status-badge{% if learned_sort == 'experience' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?sort=experience{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_experience', 'Erfahrung') }}</a>
+      <a class="status-badge{% if learned_sort == 'title' %} status-badge-readonly{% endif %}" href="{{ learned_base_path }}?sort=title{% if learned_filter != 'all' %}&state={{ learned_filter|urlencode }}{% endif %}{% if learned_kind_filter != 'all' %}&kind={{ learned_kind_filter|urlencode }}{% endif %}">{{ tr(request, 'learned_recipes.sort_title', 'Titel') }}</a>
+    </div>
+  </details>
   <div class="config-group-grid learned-recipe-grid">
     {% for row in learned_rows %}
     <article class="config-group-card skill-card learned-recipe-card">
@@ -107,89 +100,77 @@
       <p class="hint-text">{{ row.review_next_action_label }}</p>
       {% endif %}
       <p class="learned-recipe-summary">{{ row.summary or row.preview }}</p>
-      <div class="memory-health-grid learned-review-grid">
-        <article class="memory-health-card">
-          <div class="memory-health-head">
-            <span class="health-lamp status-ok"></span>
-            <h3>{{ tr(request, 'learned_recipes.review_user_wording', 'User sagte') }}</h3>
-          </div>
-          <p>{{ row.user_message or row.title }}</p>
-          <small>{{ tr(request, 'learned_recipes.review_user_wording_meta', 'Originale Formulierung oder bester bekannter Auslöser') }}</small>
-        </article>
-        <article class="memory-health-card">
-          <div class="memory-health-head">
-            <span class="health-lamp status-ok"></span>
-            <h3>{{ tr(request, 'learned_recipes.review_target', 'Ziel') }}</h3>
-          </div>
-          <p>{{ row.review_target_label or '-' }}</p>
-          <small>{{ tr(request, 'learned_recipes.review_target_meta', 'Connection-Scope der gelernten Erfahrung') }}</small>
-        </article>
-        <article class="memory-health-card">
-          <div class="memory-health-head">
-            <span class="health-lamp status-warn"></span>
-            <h3>{{ tr(request, 'learned_recipes.review_worked_action', 'Hat funktioniert') }}</h3>
-          </div>
-          <p>{{ row.review_action_label or '-' }}</p>
-          <small>{{ tr(request, 'learned_recipes.review_worked_action_meta', 'Nur Review-Kontext, keine direkte Ausführung') }}</small>
-        </article>
-        <article class="memory-health-card">
-          <div class="memory-health-head">
-            <span class="health-lamp {{ row.review_safety_class }}"></span>
-            <h3>{{ tr(request, 'learned_recipes.review_safety', 'Sicherheit') }}</h3>
-          </div>
-          <p>{{ row.review_safety_label }}</p>
-          <small>{{ tr(request, 'learned_recipes.review_safety_meta', 'Memory liefert Kontext; Runtime bleibt bounded und guardrailed') }}</small>
-        </article>
-      </div>
+      <dl class="learned-review-list">
+        <div>
+          <dt>{{ tr(request, 'learned_recipes.review_user_wording', 'User sagte') }}</dt>
+          <dd>{{ row.user_message or row.title }}</dd>
+        </div>
+        <div>
+          <dt>{{ tr(request, 'learned_recipes.review_target', 'Ziel') }}</dt>
+          <dd>{{ row.review_target_label or '-' }}</dd>
+        </div>
+        <div>
+          <dt>{{ tr(request, 'learned_recipes.review_worked_action', 'Hat funktioniert') }}</dt>
+          <dd>{{ row.review_action_label or '-' }}</dd>
+        </div>
+        <div>
+          <dt>{{ tr(request, 'learned_recipes.review_safety', 'Sicherheit') }}</dt>
+          <dd>{{ row.review_safety_label }}</dd>
+        </div>
+      </dl>
       <div class="status-badge-row compact">
         {% if row.intent_label %}<span class="status-badge">{{ row.intent_label }}</span>{% endif %}
         {% if row.capability %}<span class="status-badge">{{ row.capability }}</span>{% endif %}
         <span class="status-badge">{{ tr(request, 'learned_recipes.runs', 'Runs') }}: {{ row.experience_count }}</span>
       </div>
-      <div class="learned-recipe-meta-stack">
-        {% if row.review_contract_label %}
-        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.action_contract', 'Action Contract') }}: {{ row.review_contract_label }}</p>
-        {% endif %}
-        {% if row.review_maturity_label %}
-        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.review_maturity', 'Review-Reife') }}: {{ row.review_maturity_label }}</p>
-        {% endif %}
-      </div>
-      {% if row.learning_signal_label %}
-      <div class="status-badge-row compact">
-        <span class="status-badge">{{ tr(request, 'learned_recipes.learning_signal', 'Learning-Signal') }}: {{ row.learning_signal_label }}</span>
-        <span class="status-badge">{{ tr(request, 'learned_recipes.learning_quality', 'Lern-Evidenz') }}: {{ row.learning_quality_label }}</span>
+      {% if row.can_promote_to_stored_recipe and not recipes_readonly %}
+      <div class="inline-actions learned-card-actions">
+        <a class="button-like" href="/recipes/learned/promote-preview?recipe_id={{ row.recipe_id | urlencode }}&return_to={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) | urlencode }}">{{ tr(request, 'learned_recipes.promote_preview', 'Promotion prüfen') }}</a>
       </div>
       {% endif %}
-      {% if row.curation_source %}
-      <div class="status-badge-row compact">
-        <span class="status-badge">{{ tr(request, 'learned_recipes.curation_badge', 'LLM-kuratiert') }}</span>
-        {% if row.curation_confidence_label %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_confidence', 'Confidence') }}: {{ row.curation_confidence_label }}</span>{% endif %}
-        {% if row.risk_level %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_risk', 'Risiko') }}: {{ row.risk_level }}</span>{% endif %}
-      </div>
-      {% endif %}
-      <div class="learned-recipe-meta-stack">
-        {% if row.curation_debug_label %}
-        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.curation_debug', 'Curator-Debug') }}: {{ row.curation_debug_label }}</p>
-        {% endif %}
-        {% if row.generalization_hint %}
-        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ row.generalization_hint }}</p>
-        {% endif %}
-        {% if row.scope_label %}
-        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.scope', 'Scope') }}: {{ row.scope_label }}</p>
-        {% endif %}
-        {% if row.last_success_label %}
-        <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.last_success', 'Letzter Erfolg') }}: {{ row.last_success_label }}</p>
-        {% endif %}
-      </div>
       {% if row.stored_recipe_id %}
       <p class="hint-text">
         {{ tr(request, 'learned_recipes.promoted_target', 'Gespeichertes Rezept') }}:
         <a href="/recipes/wizard?skill_id={{ row.stored_recipe_id | urlencode }}&return_to={{ (request.url.path ~ ('?' ~ request.url.query if request.url.query else '')) | urlencode }}">{{ row.stored_recipe_id }}</a>
       </p>
       {% endif %}
+      {% if not recipes_readonly %}
       <details class="skill-details">
         <summary>{{ tr(request, 'learned_recipes.details', 'Details') }}</summary>
         <div class="skill-details-content">
+          <div class="learned-recipe-meta-stack">
+            {% if row.review_contract_label %}
+            <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.action_contract', 'Action Contract') }}: {{ row.review_contract_label }}</p>
+            {% endif %}
+            {% if row.review_maturity_label %}
+            <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.review_maturity', 'Review-Reife') }}: {{ row.review_maturity_label }}</p>
+            {% endif %}
+            {% if row.generalization_hint %}
+            <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.generalization_hint', 'Generalisiert als') }}: {{ row.generalization_hint }}</p>
+            {% endif %}
+            {% if row.scope_label %}
+            <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.scope', 'Scope') }}: {{ row.scope_label }}</p>
+            {% endif %}
+            {% if row.last_success_label %}
+            <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.last_success', 'Letzter Erfolg') }}: {{ row.last_success_label }}</p>
+            {% endif %}
+          </div>
+          {% if row.learning_signal_label %}
+          <div class="status-badge-row compact">
+            <span class="status-badge">{{ tr(request, 'learned_recipes.learning_signal', 'Learning-Signal') }}: {{ row.learning_signal_label }}</span>
+            <span class="status-badge">{{ tr(request, 'learned_recipes.learning_quality', 'Lern-Evidenz') }}: {{ row.learning_quality_label }}</span>
+          </div>
+          {% endif %}
+          {% if row.curation_source %}
+          <div class="status-badge-row compact">
+            <span class="status-badge">{{ tr(request, 'learned_recipes.curation_badge', 'LLM-kuratiert') }}</span>
+            {% if row.curation_confidence_label %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_confidence', 'Confidence') }}: {{ row.curation_confidence_label }}</span>{% endif %}
+            {% if row.risk_level %}<span class="status-badge">{{ tr(request, 'learned_recipes.curation_risk', 'Risiko') }}: {{ row.risk_level }}</span>{% endif %}
+          </div>
+          {% endif %}
+          {% if row.curation_debug_label %}
+          <p class="hint-text learned-recipe-meta">{{ tr(request, 'learned_recipes.curation_debug', 'Curator-Debug') }}: {{ row.curation_debug_label }}</p>
+          {% endif %}
           <dl class="learned-detail-list">
           {% if row.preview %}
           <div>
@@ -300,6 +281,7 @@
           {% endif %}
         </div>
       </details>
+      {% endif %}
     </article>
     {% else %}
     <article class="config-group-card skill-card is-future">

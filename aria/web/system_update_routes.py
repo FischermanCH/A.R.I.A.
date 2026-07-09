@@ -136,7 +136,7 @@ def register_system_update_routes(app: FastAPI, deps: SystemUpdateRouteDeps) -> 
         update_notice = str(request.query_params.get("notice", "") or "").strip().lower()
         update_error = str(request.query_params.get("error", "") or "").strip().lower()
         update_control = _build_update_control_payload(request)
-        logical_back_url = _sanitize_updates_return_to(request.query_params.get("return_to")) or "/config/operations"
+        logical_back_url = _sanitize_updates_return_to(request.query_params.get("return_to")) or "/config"
         request.state.logical_back_url = logical_back_url
         if deps.update_finished_after_session(request, update_control):
             return RedirectResponse(url="/updates/relogin?next=%2Fupdates", status_code=303)
@@ -151,7 +151,7 @@ def register_system_update_routes(app: FastAPI, deps: SystemUpdateRouteDeps) -> 
                 "update_control": update_control,
                 "update_notice": update_notice,
                 "update_error": update_error,
-                "config_nav": "operations",
+                "config_nav": "updates",
                 "config_page_heading": "Updates",
                 "error_message": "",
                 "saved": False,
@@ -159,7 +159,7 @@ def register_system_update_routes(app: FastAPI, deps: SystemUpdateRouteDeps) -> 
                 "show_overview_checks": False,
                 "overview_checks": [],
                 "return_to": logical_back_url,
-                "page_return_to": "/config/operations",
+                "page_return_to": "/updates",
             },
         )
 

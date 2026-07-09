@@ -21,13 +21,13 @@
     </article>
     {% else %}
     <article class="config-group-card">
-      <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Sample-Connections gefunden') }}</h3>
+      <h3>{{ tr(request, 'config.sample_connections_empty_title', 'Keine Verbindungsvorlagen gefunden') }}</h3>
       <p>{{ tr(request, 'config.sample_connections_empty_desc', 'Im Container wurde kein samples/connections-Verzeichnis gefunden.') }}</p>
     </article>
     {% endfor %}
   </div>
   {% else %}
-  <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade Admin-Modus') }}</h3>
-  <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktiviertem Admin-Modus wird dieser Bereich sichtbar.') }}</p>
+  <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade die erweiterte Ansicht') }}</h3>
+  <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktivierter erweiterter Ansicht wird dieser Bereich sichtbar.') }}</p>
   {% endif %}
 </section>

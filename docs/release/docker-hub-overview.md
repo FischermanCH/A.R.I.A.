@@ -20,17 +20,20 @@ Repository and full documentation:
 
 Current public alpha release on Docker Hub:
 
-- `0.1.0-alpha437`
+- `0.1.0-alpha511`
 
 Current public alpha focus:
 
-- Uploaded-document questions can use source-bound corpus scans when a user asks whether a term appears in any uploaded document.
-- Document inventory questions load the selected document store inventory instead of relying on only semantic chunk hits.
-- Document corpus scans preserve selected store scope and avoid mixing unrelated document or recipe-experience records into the answer.
-- Common runtime operations avoid more unnecessary follow-up and Meta-Catalog overhead while keeping confirmations, policy, and execution guardrails intact.
-- Web Search fallback handling is more robust around SearXNG timeouts and best-effort official supplemental queries.
-- Chat feedback learning is queued through the Learning Worker instead of blocking the web request.
-- The ongoing pipeline cleanup continues, with runtime outcome follow-up handling moved into a focused resolver module.
+- Chat Prompt Queue lets users keep writing while ARIA is busy, then edit, remove, or reorder waiting prompts before sequential execution.
+- Pending Confirmations stay visible as their own queue/action items with run, plan-again, and discard actions.
+- Graphical Memory browser adds Qdrant/Memory drilldown, document and chunk inspection, semantic proximity, fullscreen, and touch/iOS handling.
+- Notes workspace adds folder moves from cards/editor, a dense list view, and bulk-move support.
+- Auto-memory and agentic learning UI are clearer, with user-facing controls and better separation between memory, learning reflections, and technical maintenance.
+- Navigation is generated from a shared registry across the header, account menu, Settings, Admin, Memory, Recipes, and Connections.
+- Agentic Operator Trace and runtime result contracts make understanding, context, policy, runtime, result, and summary phases easier to inspect.
+- Document inventory and corpus checks are more source-bound and less likely to answer from unrelated snippets.
+- Web freshness answers prefer official/vendor/compare/release sources for current product and version questions.
+- Multi-target SSH/runtime paths keep full-fleet scope for prompts such as all Linux servers when no true subgroup is named.
 
 ## What you need
 

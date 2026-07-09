@@ -317,11 +317,12 @@ def test_can_access_settings_requires_admin_role() -> None:
     assert can_access_settings("") is False
 
 
-def test_advanced_config_path_covers_connections_prompts_and_language() -> None:
+def test_advanced_config_path_keeps_user_personalization_outside_admin_mode() -> None:
     assert is_advanced_config_path("/config/connections/ssh") is True
     assert is_advanced_config_path("/config/prompts") is True
-    assert is_advanced_config_path("/config/language") is True
-    assert is_advanced_config_path("/config/appearance") is True
+    assert is_advanced_config_path("/config/language/file") is True
+    assert is_advanced_config_path("/config/language") is False
+    assert is_advanced_config_path("/config/appearance") is False
     assert is_advanced_config_path("/config/backup") is True
 
 

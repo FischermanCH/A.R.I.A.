@@ -11,6 +11,7 @@ ARIA ist darauf ausgelegt, schnell vom Container zur nutzbaren Web-Oberflaeche z
 5. `/stats` oeffnen und Preflight, Pricing Coverage und Gateway Audit pruefen
 6. erste Connections unter `/connections/types` anlegen
 7. einen einfachen Prompt testen
+8. `/help?doc=chat`, `/help?doc=navigation` und `/help?doc=agentic` oeffnen, wenn du Queue, Menues, Bestaetigungen und Details verstehen willst
 
 ## Sinnvolle erste Prompts
 
@@ -22,9 +23,9 @@ ARIA ist darauf ausgelegt, schnell vom Container zur nutzbaren Web-Oberflaeche z
 ## Erste Alltagsbereiche
 
 - `/notes` fuer Markdown-Notizen
-- `/memories` und `/memories/map` fuer Memory und Dokumente
+- `/memories` fuer den grafischen Gedaechtnis-Browser und `/memories/import` fuer Dokumentimporte
 - `/connections/types` fuer externe Systeme
-- `/recipes` fuer Automationen
+- `/recipes` fuer den Rezepte-Hub und `/recipes/mine` fuer gespeicherte Rezepte
 - `/config/workbench/routing` fuer Action-/Routing-Dry-runs
 
 ## Deployment-Hinweise

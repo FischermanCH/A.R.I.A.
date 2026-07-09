@@ -1,21 +1,8 @@
 {% from "_icons.html" import icon %}
-{% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
 {% if request.state.can_access_advanced_config %}
 {% set service_restart = operations_service_restart if operations_service_restart is defined else {} %}
 <section class="floating-card config-domain-section">
   <div class="config-submenu">
-    <a class="config-submenu-item" href="/updates?return_to={{ page_return_to | urlencode }}">
-      <span class="submenu-icon-wrap">{{ icon('updates', 'submenu-icon') }}</span>
-      <span class="submenu-copy">
-        <span class="submenu-title-row">
-          <span class="submenu-title">{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
-          {% if update_status and update_status.update_available %}
-          <span class="alpha-flag warn-flag">{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span>
-          {% endif %}
-        </span>
-        <span class="submenu-desc">{{ tr(request, 'config.updates_desc', 'Version, Release Notes und kontrollierte Update-Pfade an einem Ort.') }}</span>
-      </span>
-    </a>
     <a class="config-submenu-item" href="/config/logs?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>

@@ -19,14 +19,17 @@ dist/*.tar
 dist/*.tar.gz
 dist/*.tgz
 
-data/auth/
-data/logs/
-data/pricing/
-data/skills/
-data/chat_history/
-data/qdrant/
-data/runtime/
-data/ssh_keys/
+# Local runtime/user/demo data. Never publish or commit this tree.
+data/
+
+# Local screenshot/demo recipe prompts. Production recipe prompts must be added
+# deliberately and covered by release hygiene before they become public assets.
+prompts/recipes/coffee-fueled-incident-brief.md
+prompts/recipes/cosmic-release-radar.md
+prompts/recipes/documentation-dust-sweeper.md
+prompts/recipes/mobile-screenshot-scout.md
+prompts/recipes/retro-keyboard-researcher.md
+prompts/recipes/rubber-duck-standup.md
 
 project.docu/
 docs/local/

@@ -83,7 +83,7 @@ def build_connections_page_context_helper(deps: ConnectionsSurfaceHelperDeps) ->
         _set_logical_back_url(request, fallback=logical_back_fallback)
         error_message = ""
         if error == "admin_mode_required":
-            error_message = _connections_text(lang, "admin_mode_required", "Enable admin mode to access this area.")
+            error_message = _connections_text(lang, "admin_mode_required", "Enable Extended view to access this area.")
         elif error == "no_admin":
             error_message = _connections_text(lang, "no_admin", "Only admins can open this area.")
 

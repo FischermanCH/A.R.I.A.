@@ -1,0 +1,2168 @@
+{% from "_icons.html" import icon %}
+{% set memory_browser_initial_semantic = false %}
+<section class="memory-drilldown-browser" data-memory-browser>
+  <header class="memory-drilldown-head">
+    {% if memory_browser_fullscreen|default(false) %}
+    <a class="memory-browser-fullscreen-brand brand brand-home" href="/" aria-label="{{ tr(request, 'nav.home', 'Startseite') }}">
+      <span class="brand-mark" aria-hidden="true">
+        <img src="/static/logo-aria-v01.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" alt="" class="brand-logo">
+        <span class="brand-logo-rotate"></span>
+      </span>
+      <span class="brand-text">
+        <span class="brand-title-row"><strong>A.R.I.A.</strong></span>
+        <span class="brand-subtitle">Adaptive Reasoning &amp; Intelligence Agent</span>
+      </span>
+    </a>
+    {% endif %}
+    <div class="memory-drilldown-title">
+      <span class="memory-section-icon">{{ icon('memories', 'ui-action-icon') }}</span>
+      <div>
+        <h2>{{ tr(request, 'memories_browser.title', 'Gedächtnis') }}</h2>
+        <p>{{ tr(request, 'memories_browser.subtitle', 'Graphical browser for stores, documents, chunks, and semantic proximity.') }}</p>
+      </div>
+    </div>
+    <div class="memory-drilldown-actions" aria-label="{{ tr(request, 'memories_browser.controls', 'Browser-Steuerung') }}">
+      <div class="memory-browser-mode-tabs" role="group" aria-label="{{ tr(request, 'memories_browser.mode_label', 'Ansicht') }}">
+        <button type="button" data-memory-browser-mode="structure" aria-pressed="{{ 'false' if memory_browser_initial_semantic else 'true' }}">{{ tr(request, 'memories_browser.mode_structure', 'Struktur') }}</button>
+        <button type="button" data-memory-browser-mode="semantic" aria-pressed="{{ 'true' if memory_browser_initial_semantic else 'false' }}" hidden disabled aria-disabled="true">{{ tr(request, 'memories_browser.mode_semantic', 'Semantische Naehe') }}</button>
+      </div>
+      {% if not memory_browser_fullscreen|default(false) %}
+      <a class="button-like ui-icon-only memories-link" href="/memories?fullscreen=1&mode={{ memory_browser_initial_mode|default('structure')|urlencode }}" target="_blank" rel="noopener" data-memory-browser-detach title="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}" aria-label="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}">
+        {{ icon('arrow_right', 'ui-action-icon') }}
+        <span class="sr-only">{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}</span>
+      </a>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="memory-drilldown-workbench">
+    <div class="memory-drilldown-structure-panel" data-memory-browser-structure-panel{% if memory_browser_initial_semantic %} hidden{% endif %}>
+      <div class="memory-drilldown-stage-controls" data-memory-browser-structure-controls aria-label="{{ tr(request, 'memories_browser.graph_controls', 'Graph-Steuerung') }}">
+        <button type="button" data-memory-browser-zoom="out" aria-label="{{ tr(request, 'memories_browser.zoom_out', 'Verkleinern') }}">−</button>
+        <button type="button" data-memory-browser-fit>{{ tr(request, 'memories_browser.fit', 'Einpassen') }}</button>
+        <button type="button" data-memory-browser-expand-all aria-pressed="false" data-label-expand="{{ tr(request, 'memories_browser.expand_all', 'Alle aufklappen') }}" data-label-collapse="{{ tr(request, 'memories_browser.collapse_all', 'Alles einklappen') }}">{{ tr(request, 'memories_browser.expand_all', 'Alle aufklappen') }}</button>
+        <button type="button" data-memory-browser-center>{{ tr(request, 'memories_map.brain_center', 'Center') }}</button>
+        <button type="button" data-memory-browser-options-toggle aria-expanded="false">{{ tr(request, 'memories_browser.view_options', 'Optionen') }}</button>
+        <button type="button" data-memory-browser-zoom="in" aria-label="{{ tr(request, 'memories_browser.zoom_in', 'Vergroessern') }}">+</button>
+      </div>
+      <div class="memory-drilldown-view-options" data-memory-browser-options hidden>
+        <label>
+          <span>{{ tr(request, 'memories_browser.option_spacing', 'Abstand') }}</span>
+          <input type="range" min="55" max="190" value="112" data-memory-browser-force="spacing">
+        </label>
+        <label>
+          <span>{{ tr(request, 'memories_browser.option_cluster', 'Cluster') }}</span>
+          <input type="range" min="45" max="180" value="108" data-memory-browser-force="cluster">
+        </label>
+        <label>
+          <span>{{ tr(request, 'memories_browser.option_attraction', 'Anziehung') }}</span>
+          <input type="range" min="35" max="170" value="92" data-memory-browser-force="attraction">
+        </label>
+      </div>
+      <div class="memory-drilldown-stage-shell">
+        <div class="memory-drilldown-stage" data-memory-browser-stage>
+          <svg class="memory-drilldown-lines" data-memory-browser-lines aria-hidden="true" focusable="false"></svg>
+          <div class="memory-drilldown-nodes" data-memory-browser-nodes></div>
+        </div>
+        <input class="memory-drilldown-panbar memory-drilldown-panbar-x" type="range" min="-1000" max="1000" value="0" step="1" data-memory-browser-pan-axis="x" aria-label="{{ tr(request, 'memories_browser.pan_horizontal', 'Pan horizontally') }}">
+        <input class="memory-drilldown-panbar memory-drilldown-panbar-y" type="range" min="-1000" max="1000" value="0" step="1" data-memory-browser-pan-axis="y" aria-label="{{ tr(request, 'memories_browser.pan_vertical', 'Pan vertically') }}">
+      </div>
+    </div>
+    <div class="memory-drilldown-semantic-panel" data-memory-browser-semantic-panel{% if not memory_browser_initial_semantic %} hidden{% endif %}>
+      {% with show_qdrant_brain=true, show_legacy_memory_graph=false %}
+      {% include "_memory_graph.html" %}
+      {% endwith %}
+    </div>
+    <aside class="memory-drilldown-inspector" data-memory-browser-inspector{% if memory_browser_initial_semantic %} hidden{% endif %}>
+      <p class="memory-card-kicker">{{ tr(request, 'memories_browser.inspector', 'Details') }}</p>
+      <h3>{{ tr(request, 'memories_browser.select_title', 'Auswahl') }}</h3>
+      <p>{{ tr(request, 'memories_browser.select_hint', 'Waehle einen Knoten im Browser.') }}</p>
+    </aside>
+  </div>
+
+  <script type="application/json" data-memory-browser-payload>{{ memory_browser|tojson }}</script>
+  <script type="application/json" data-memory-browser-labels>{{ {
+    "chunks": tr(request, 'memories.document_chunks', 'Chunks'),
+    "collections": tr(request, 'memories.health_collections', 'Collections'),
+    "documents": tr(request, 'memories.documents_count', 'documents'),
+    "empty": tr(request, 'memories.empty', 'No memory entries found.'),
+    "kind": tr(request, 'memories.type', 'Type'),
+    "points": tr(request, 'memories.health_points', 'Memory points'),
+    "root": tr(request, 'memories_browser.root', 'Root'),
+    "delete": tr(request, 'memories.delete', 'Delete'),
+    "delete_chunk": tr(request, 'memories_browser.delete_chunk', 'Delete chunk'),
+    "delete_document": tr(request, 'memories_browser.delete_document', 'Delete document'),
+    "delete_confirm": tr(request, 'memories_browser.delete_confirm', 'Delete this memory entry?'),
+    "delete_document_confirm": tr(request, 'memories_browser.delete_document_confirm', 'Delete this document with all chunks?'),
+    "delete_failed": tr(request, 'memories_browser.delete_failed', 'Delete failed.'),
+    "chunks_of_document": tr(request, 'memories_browser.chunks_of_document', 'Chunks in document'),
+    "semantic_empty": tr(request, 'memories_browser.semantic_empty', 'No semantic points available yet.'),
+    "semantic_hint": tr(request, 'memories_browser.semantic_hint', 'Edges show calculated embedding proximity.'),
+    "source": tr(request, 'memories.source', 'Source'),
+    "store": tr(request, 'memories_browser.store', 'Store')
+  }|tojson }}</script>
+</section>
+
+<script>
+(() => {
+  const root = document.querySelector('[data-memory-browser]');
+  if (!root || root.dataset.ready === '1') return;
+  root.dataset.ready = '1';
+  const payloadEl = root.querySelector('[data-memory-browser-payload]');
+  const labelsEl = root.querySelector('[data-memory-browser-labels]');
+  const stage = root.querySelector('[data-memory-browser-stage]');
+  const lines = root.querySelector('[data-memory-browser-lines]');
+  const nodesRoot = root.querySelector('[data-memory-browser-nodes]');
+  const inspector = root.querySelector('[data-memory-browser-inspector]');
+  const structurePanel = root.querySelector('[data-memory-browser-structure-panel]');
+  const semanticPanel = root.querySelector('[data-memory-browser-semantic-panel]');
+  const modeButtons = Array.from(root.querySelectorAll('[data-memory-browser-mode]'));
+  const detachLink = root.querySelector('[data-memory-browser-detach]');
+  const structureZoomButtons = Array.from(root.querySelectorAll('[data-memory-browser-zoom]'));
+  const structureFitButton = root.querySelector('[data-memory-browser-fit]');
+  const structureExpandAllButton = root.querySelector('[data-memory-browser-expand-all]');
+  const structureCenterButton = root.querySelector('[data-memory-browser-center]');
+  const structureOptionsToggle = root.querySelector('[data-memory-browser-options-toggle]');
+  const structureOptionsPanel = root.querySelector('[data-memory-browser-options]');
+  const structureOptionInputs = Array.from(root.querySelectorAll('[data-memory-browser-force]'));
+  const panBarX = root.querySelector('[data-memory-browser-pan-axis="x"]');
+  const panBarY = root.querySelector('[data-memory-browser-pan-axis="y"]');
+  const semanticDetail = semanticPanel?.querySelector('[data-brain-detail]');
+  const semanticDetailPlaceholder = document.createComment('memory-brain-detail-home');
+  if (semanticDetail?.parentNode) {
+    semanticDetail.parentNode.insertBefore(semanticDetailPlaceholder, semanticDetail);
+  }
+  let data = {};
+  let labels = {};
+  try {
+    data = JSON.parse(payloadEl?.textContent || '{}');
+    labels = JSON.parse(labelsEl?.textContent || '{}');
+  } catch (_error) {
+    data = {};
+    labels = {};
+  }
+
+  const state = {
+    mode: {{ (memory_browser_initial_mode|default('structure'))|tojson }},
+    type: data.initial_collection ? (data.initial_type || '') : '',
+    collection: data.initial_collection || '',
+    document: data.initial_document || '',
+    chunk: data.initial_chunk || '',
+    entry: data.initial_entry || '',
+    expandAll: false,
+  };
+  const canDelete = Boolean(data.can_delete);
+  const csrfToken = String(data.csrf_token || '');
+  const byId = new Map();
+  let fitFrame = 0;
+  let structureScale = 1;
+  let structureFitScale = 1;
+  let structurePanX = 0;
+  let structurePanY = 0;
+  let structureAutoFit = true;
+  let pendingStructureFocusId = '';
+  let stageDragging = false;
+  let stageDragLastX = 0;
+  let stageDragLastY = 0;
+  const activeStagePointers = new Map();
+  let pinchStartDistance = 0;
+  let pinchStartScale = 1;
+  let pinchLastCenter = null;
+  let draggedStructureNode = null;
+  let structurePointerMoved = false;
+  let structureDragOffsetX = 0;
+  let structureDragOffsetY = 0;
+  let structureSimulation = null;
+  let structureSimulationFrame = 0;
+  const manualStructureAnchors = new Map();
+  const coarseStructurePointer = window.matchMedia?.('(hover: none), (pointer: coarse)')?.matches || false;
+  const structureOptions = {
+    spacing: 1.12,
+    cluster: 1.08,
+    attraction: 0.92,
+  };
+  const structureOptionsStorageKey = 'aria.memoryBrowser.structureOptions.v1';
+
+  const shortText = (value, limit = 92) => {
+    const clean = String(value || '').replace(/\s+/g, ' ').trim();
+    return clean.length > limit ? `${clean.slice(0, limit - 3)}...` : clean;
+  };
+  const escapeHTML = value => String(value || '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+  const escapeAttr = escapeHTML;
+  const clampOptionInputValue = (input, value) => {
+    const min = Number(input?.min || 0);
+    const max = Number(input?.max || 200);
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return Number(input?.value || 100);
+    return Math.max(min, Math.min(max, numeric));
+  };
+  const applyStructureOptionInput = input => {
+    const key = input?.dataset?.memoryBrowserForce;
+    if (!key) return;
+    const value = clampOptionInputValue(input, input.value);
+    input.value = String(Math.round(value));
+    structureOptions[key] = Math.max(0.1, value / 100);
+  };
+  const loadStructureOptions = () => {
+    let stored = {};
+    try {
+      stored = JSON.parse(window.localStorage?.getItem(structureOptionsStorageKey) || '{}') || {};
+    } catch (_error) {
+      stored = {};
+    }
+    structureOptionInputs.forEach(input => {
+      const key = input.dataset.memoryBrowserForce;
+      if (key && stored[key] !== undefined) {
+        input.value = String(clampOptionInputValue(input, stored[key]));
+      }
+      applyStructureOptionInput(input);
+    });
+  };
+  const saveStructureOptions = () => {
+    try {
+      const values = {};
+      structureOptionInputs.forEach(input => {
+        const key = input.dataset.memoryBrowserForce;
+        if (key) values[key] = clampOptionInputValue(input, input.value);
+      });
+      window.localStorage?.setItem(structureOptionsStorageKey, JSON.stringify(values));
+    } catch (_error) {
+      // localStorage may be blocked; the current in-memory options still apply.
+    }
+  };
+  const postBrowserDelete = async (url, payload) => {
+    const response = await window.fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({ ...payload, csrf_token: csrfToken }),
+    });
+    let result = {};
+    try {
+      result = await response.json();
+    } catch (_error) {
+      result = {};
+    }
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || labels.delete_failed || 'Delete failed');
+    }
+    return result;
+  };
+  const typeItems = () => Array.isArray(data.types) ? data.types : [];
+  const collectionItems = kind => (Array.isArray(data.collections) ? data.collections : [])
+    .filter(item => String(item.kind || '') === String(kind || ''));
+  const allCollectionItems = () => Array.isArray(data.collections) ? data.collections : [];
+  const allCollectionEntries = collection => {
+    const entries = Array.isArray(collection?.entries) ? collection.entries : [];
+    return entries.map(entry => ({
+      ...entry,
+      level: entry.level || 'entry',
+      levelLabel: entry.levelLabel || labels.points || 'Memory points',
+      parentId: entry.parentId || collection.id || '',
+      collection: entry.collection || collection.name || '',
+    }));
+  };
+  const allDocuments = () => allCollectionItems().flatMap(collection => {
+    const documents = Array.isArray(collection?.documents) ? collection.documents : [];
+    return documents.map(documentItem => ({
+      ...documentItem,
+      level: documentItem.level || 'document',
+      levelLabel: documentItem.levelLabel || labels.documents || 'Documents',
+      parentId: documentItem.parentId || collection.id || '',
+      collection: documentItem.collection || collection.name || '',
+    }));
+  });
+  const allChunks = () => allDocuments().flatMap(documentItem => {
+    const chunks = Array.isArray(documentItem?.all_chunks) && documentItem.all_chunks.length
+      ? documentItem.all_chunks
+      : Array.isArray(documentItem?.chunks) ? documentItem.chunks : [];
+    return chunks.map(chunk => ({
+      ...chunk,
+      level: chunk.level || 'chunk',
+      levelLabel: chunk.levelLabel || labels.chunks || 'Chunks',
+      parentId: chunk.parentId || documentItem.id || '',
+      collection: chunk.collection || documentItem.collection || '',
+      document_id: chunk.document_id || documentItem.document_id || '',
+      document_name: chunk.document_name || documentItem.document_name || documentItem.label || '',
+    }));
+  });
+  const sameDocument = (left, right) => {
+    if (!left || !right) return false;
+    const leftId = String(left.id || '').trim();
+    const rightId = String(right.id || '').trim();
+    if (leftId && rightId && leftId === rightId) return true;
+    const leftDocumentId = String(left.document_id || '').trim();
+    const rightDocumentId = String(right.document_id || '').trim();
+    if (leftDocumentId && rightDocumentId && leftDocumentId === rightDocumentId) return true;
+    const leftName = String(left.document_name || left.label || '').trim();
+    const rightName = String(right.document_name || right.label || '').trim();
+    const leftCollection = String(left.collection || '').trim();
+    const rightCollection = String(right.collection || '').trim();
+    return Boolean(leftName && rightName && leftName === rightName && (!leftCollection || !rightCollection || leftCollection === rightCollection));
+  };
+  const inspectorItem = item => {
+    if (!item) return null;
+    if (item.level) return item;
+    const chunk = allChunks().find(candidate => String(candidate.id || '').trim() && String(candidate.id || '').trim() === String(item.id || '').trim());
+    if (chunk) {
+      return {
+        ...chunk,
+        ...item,
+        level: 'chunk',
+        levelLabel: item.levelLabel || labels.chunks || 'Chunks',
+        parentId: item.parentId || chunk.parentId || '',
+        collection: item.collection || chunk.collection || '',
+        document_id: item.document_id || chunk.document_id || '',
+        document_name: item.document_name || chunk.document_name || '',
+      };
+    }
+    const document = allDocuments().find(candidate => sameDocument(candidate, item));
+    if (document) {
+      return {
+        ...document,
+        ...item,
+        level: 'document',
+        levelLabel: item.levelLabel || labels.documents || 'Documents',
+        parentId: item.parentId || document.parentId || '',
+        collection: item.collection || document.collection || '',
+        all_chunks: Array.isArray(item.all_chunks) && item.all_chunks.length ? item.all_chunks : document.all_chunks || [],
+        chunks: Array.isArray(item.chunks) && item.chunks.length ? item.chunks : document.chunks || [],
+      };
+    }
+    return item;
+  };
+  const typeInspectorItem = item => item ? ({
+    ...item,
+    level: item.level || 'type',
+    levelLabel: item.levelLabel || labels.kind || 'Type',
+    meta: item.meta || `${item.points || 0} · ${item.collection_count || 0} ${labels.collections || 'Collections'}`,
+  }) : null;
+  const selectedType = () => state.type ? typeInspectorItem(typeItems().find(item => item.kind === state.type) || null) : null;
+  const collectionInspectorItem = item => item ? ({
+    ...item,
+    level: item.level || 'collection',
+    levelLabel: item.levelLabel || labels.store || 'Store',
+    meta: item.meta || (item.kind === 'document'
+      ? `${item.document_count || 0} ${labels.documents || 'Documents'} · ${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`
+      : `${item.points || 0} ${labels.points || 'Points'}`),
+  }) : null;
+  const selectedCollection = () => {
+    const collection = allCollectionItems().find(item => item.id === state.collection)
+      || collectionItems(state.type).find(item => item.id === state.collection)
+      || null;
+    return collectionInspectorItem(collection);
+  };
+  const selectedDocument = collection => {
+    const docs = Array.isArray(collection?.documents) ? collection.documents : [];
+    return docs.find(item => item.id === state.document) || null;
+  };
+  const selectedChunk = document => {
+    const chunks = Array.isArray(document?.all_chunks) && document.all_chunks.length
+      ? document.all_chunks
+      : Array.isArray(document?.chunks) ? document.chunks : [];
+    return chunks.find(item => item.id === state.chunk) || null;
+  };
+  const selectedEntry = collection => allCollectionEntries(collection).find(item => item.id === state.entry) || null;
+  const documentChunks = document => {
+    const chunks = Array.isArray(document?.all_chunks) && document.all_chunks.length
+      ? document.all_chunks
+      : Array.isArray(document?.chunks) ? document.chunks : [];
+    return chunks;
+  };
+  const collectionForItem = item => {
+    if (!item) return null;
+    if (item.level === 'collection') return collectionInspectorItem(item);
+    const parentId = String(item.parentId || '').trim();
+    const collectionName = String(item.collection || '').trim();
+    return collectionInspectorItem(
+      allCollectionItems().find(collection => (
+        (parentId && collection.id === parentId)
+        || (collectionName && String(collection.name || collection.collection || collection.label || '') === collectionName)
+      )) || selectedCollection()
+    );
+  };
+  const documentForItem = item => {
+    if (!item) return null;
+    if (item.level === 'document') return item;
+    if (item.level !== 'chunk') return null;
+    return allDocuments().find(documentItem => (
+      String(documentItem.id || '') === String(item.parentId || '')
+      || sameDocument(documentItem, item)
+    )) || selectedDocument(collectionForItem(item));
+  };
+  const typeForItem = item => {
+    const collection = collectionForItem(item);
+    const kind = item?.level === 'type'
+      ? item.kind
+      : collection?.kind || item?.kind || state.type;
+    return kind ? typeInspectorItem(typeItems().find(type => type.kind === kind) || null) : null;
+  };
+  const collectionSummary = collectionItem => collectionItem?.document_count
+    ? `${collectionItem.document_count} ${labels.documents || 'Documents'} · ${collectionItem.chunk_count || 0} ${labels.chunks || 'Chunks'}`
+    : `${collectionItem?.points || 0} ${labels.points || 'Memory points'}`;
+  const renderCollectionSelect = collectionItem => `
+    <li class="memory-drilldown-next-item">
+      <button type="button" class="memory-drilldown-next-select" data-memory-browser-select-collection="${escapeAttr(collectionItem.id)}" data-kind="${escapeAttr(collectionItem.kind || '')}">
+        <span>${escapeHTML(collectionItem.label || collectionItem.name || 'Collection')}</span>
+        <small>${escapeHTML(collectionItem.kindLabel || collectionItem.kind || '')}${collectionItem.kindLabel || collectionItem.kind ? ' · ' : ''}${escapeHTML(collectionSummary(collectionItem))}</small>
+      </button>
+    </li>`;
+  const renderInspectorBreadcrumb = item => {
+    const type = typeForItem(item);
+    const collection = collectionForItem(item);
+    const document = documentForItem(item);
+    const parts = [
+      `<button type="button" data-memory-browser-select-root>${escapeHTML(labels.root || 'Root')}</button>`,
+    ];
+    if (type) {
+      parts.push(`<button type="button" data-memory-browser-select-type="${escapeAttr(type.kind || '')}">${escapeHTML(type.label || type.kindLabel || type.kind || labels.kind || 'Typ')}</button>`);
+    }
+    if (collection) {
+      parts.push(`<button type="button" data-memory-browser-select-collection="${escapeAttr(collection.id || '')}" data-kind="${escapeAttr(collection.kind || '')}">${escapeHTML(collection.label || collection.name || labels.store || 'Store')}</button>`);
+    }
+    if (document) {
+      parts.push(`<button type="button" data-memory-browser-select-document="${escapeAttr(document.id || '')}" data-collection-id="${escapeAttr(document.parentId || collection?.id || '')}">${escapeHTML(document.label || document.document_name || labels.documents || 'Documents')}</button>`);
+    }
+    if (item?.level === 'chunk' || item?.level === 'entry') {
+      parts.push(`<span aria-current="page">${escapeHTML(item.label || item.levelLabel || labels.points || 'Memory points')}</span>`);
+    } else if (item?.level && item.level !== 'type' && item.level !== 'collection' && item.level !== 'document') {
+      parts.push(`<span aria-current="page">${escapeHTML(item.label || item.levelLabel || '')}</span>`);
+    }
+    return `<nav class="memory-drilldown-breadcrumb" aria-label="${escapeAttr(labels.inspector || 'Details')}">${parts.join('<span aria-hidden="true">/</span>')}</nav>`;
+  };
+  const selectedPointContext = () => {
+    const collection = selectedCollection();
+    const document = selectedDocument(collection);
+    const selected = {
+      collection,
+      document,
+      chunk: selectedChunk(document),
+      entry: selectedEntry(collection),
+      point: null,
+      pointKind: '',
+      collectionName: collection?.name || collection?.collection || collection?.label || '',
+    };
+    if (selected.chunk) {
+      selected.point = selected.chunk;
+      selected.pointKind = 'chunk';
+      selected.collectionName = selected.chunk.collection || document?.collection || selected.collectionName;
+      return selected;
+    }
+    if (selected.entry) {
+      selected.point = selected.entry;
+      selected.pointKind = 'entry';
+      selected.collectionName = selected.entry.collection || selected.collectionName;
+      return selected;
+    }
+    if (document) {
+      selected.point = documentChunks(document)[0] || null;
+      selected.pointKind = selected.point ? 'chunk' : '';
+      selected.collectionName = selected.point?.collection || document.collection || selected.collectionName;
+      return selected;
+    }
+    selected.point = allCollectionEntries(collection)[0] || null;
+    selected.pointKind = selected.point ? 'entry' : '';
+    selected.collectionName = selected.point?.collection || selected.collectionName;
+    return selected;
+  };
+  const selectedSemanticTarget = () => {
+    const context = selectedPointContext();
+    if (context.pointKind === 'chunk' && context.point) {
+      return {
+        collection: context.collectionName || selectedCollectionName(),
+        pointId: context.point.id || '',
+        documentName: context.point.document_name || context.document?.document_name || context.document?.label || '',
+        chunkIndex: context.point.chunk_index || 0,
+      };
+    }
+    if (context.pointKind === 'entry' && context.point) {
+      return {
+        collection: context.collectionName || selectedCollectionName(),
+        pointId: context.point.id || '',
+      };
+    }
+    return {};
+  };
+  const selectedSemanticCollection = () => {
+    const context = selectedPointContext();
+    return context.collectionName || selectedCollectionName();
+  };
+  const syncDefaults = () => {
+    const type = selectedType();
+    if (state.type && !type) {
+      state.type = '';
+      state.collection = '';
+      state.document = '';
+      state.chunk = '';
+      state.entry = '';
+      return;
+    }
+    const collection = selectedCollection();
+    if (state.collection && !collection) {
+      state.collection = '';
+      state.document = '';
+      state.chunk = '';
+      state.entry = '';
+      return;
+    }
+    const document = selectedDocument(collection);
+    if (state.document && !document) {
+      state.document = '';
+      state.chunk = '';
+      return;
+    }
+    const chunk = selectedChunk(document);
+    if (state.chunk && !chunk) {
+      state.chunk = '';
+    }
+    if (state.entry && !selectedEntry(collection)) {
+      state.entry = '';
+    }
+  };
+
+  const setInspector = item => {
+    item = inspectorItem(item);
+    if (!item) {
+      const collections = allCollectionItems();
+      inspector.innerHTML = `
+        <nav class="memory-drilldown-breadcrumb" aria-label="${escapeAttr(labels.inspector || 'Details')}"><span aria-current="page">${escapeHTML(labels.root || 'Root')}</span></nav>
+        <p class="memory-card-kicker">${escapeHTML(labels.root || 'Root')}</p>
+        <h3>${escapeHTML(labels.collections || 'Collections')}</h3>
+        <p>${escapeHTML(data.root?.meta || labels.empty || '')}</p>
+        <div class="memory-drilldown-next-level">
+          <h4>${escapeHTML(labels.collections || 'Collections')}</h4>
+          <ol class="memory-drilldown-next-list">
+            ${collections.map(renderCollectionSelect).join('')}
+          </ol>
+        </div>`;
+      return;
+    }
+    const meta = [item.meta, item.kindLabel, item.source].filter(Boolean).join(' · ');
+    const rows = [];
+    if (item.points !== undefined) rows.push([labels.points || 'Points', item.points]);
+    if (item.document_count) rows.push([labels.documents || 'Documents', item.document_count]);
+    if (item.chunk_count) rows.push([labels.chunks || 'Chunks', item.chunk_count]);
+    if (item.collection) rows.push([labels.store || 'Store', item.collection]);
+    const detailRows = rows.map(row => `<div><dt>${escapeHTML(row[0])}</dt><dd>${escapeHTML(row[1])}</dd></div>`).join('');
+    const documents = Array.isArray(item.documents) ? item.documents : [];
+    const collectionList = item.level === 'type'
+      ? `<div class="memory-drilldown-next-level">
+          <h4>${escapeHTML(labels.collections || 'Collections')}</h4>
+          <ol class="memory-drilldown-next-list">
+            ${collectionItems(item.kind).map(renderCollectionSelect).join('')}
+          </ol>
+        </div>`
+      : '';
+    const documentList = item.level === 'collection' && documents.length
+      ? `<div class="memory-drilldown-next-level">
+          <h4>${escapeHTML(labels.documents || 'Documents')}</h4>
+          <ol class="memory-drilldown-next-list">
+            ${documents.map(documentItem => `
+              <li class="memory-drilldown-next-item">
+                <button type="button" class="memory-drilldown-next-select" data-memory-browser-select-document="${escapeAttr(documentItem.id)}" data-collection-id="${escapeAttr(item.id)}">
+                  <span>${escapeHTML(documentItem.label || documentItem.document_name || 'Dokument')}</span>
+                  <small>${escapeHTML(`${documentItem.chunk_count || 0} ${labels.chunks || 'Chunks'}`)}</small>
+                </button>
+              </li>
+            `).join('')}
+          </ol>
+        </div>`
+      : '';
+    const entries = item.level === 'collection' && !documents.length ? allCollectionEntries(item) : [];
+    const chunks = Array.isArray(item.all_chunks) && item.all_chunks.length
+      ? item.all_chunks
+      : Array.isArray(item.chunks) ? item.chunks : [];
+    const chunkList = (item.level === 'document' || (item.level === 'collection' && !documents.length)) && chunks.length
+      ? `<div class="memory-drilldown-next-level memory-drilldown-chunks">
+          <h4>${escapeHTML(labels.chunks_of_document || 'Chunks im Dokument')}</h4>
+          <ol class="memory-drilldown-next-list memory-drilldown-chunk-list">
+            ${chunks.map(chunk => `
+              <li class="memory-drilldown-next-item memory-drilldown-chunk-item">
+                <button type="button" class="memory-drilldown-next-select memory-drilldown-chunk-select" data-memory-browser-select-chunk="${escapeAttr(chunk.id)}" data-collection-id="${escapeAttr(item.parentId || item.id || '')}" data-document-id="${escapeAttr(item.id || '')}">
+                  <span>${escapeHTML(chunk.label || 'Chunk')}</span>
+                  ${chunk.timestamp ? `<small>${escapeHTML(chunk.timestamp)}</small>` : ''}
+                </button>
+                ${chunk.preview ? `<p>${escapeHTML(shortText(chunk.preview, 170))}</p>` : ''}
+                ${canDelete && chunk.collection && chunk.id ? `<button type="button" class="memory-drilldown-delete-button" data-memory-browser-delete-point data-collection="${escapeAttr(chunk.collection)}" data-point-id="${escapeAttr(chunk.id)}">${escapeHTML(labels.delete_chunk || labels.delete || 'Delete')}</button>` : ''}
+              </li>
+            `).join('')}
+          </ol>
+        </div>`
+      : '';
+    const entryList = item.level === 'collection' && !documents.length && entries.length
+      ? `<div class="memory-drilldown-next-level memory-drilldown-chunks">
+          <h4>${escapeHTML(labels.points || 'Memory points')}</h4>
+          <ol class="memory-drilldown-next-list memory-drilldown-chunk-list">
+            ${entries.map(entry => `
+              <li class="memory-drilldown-next-item memory-drilldown-chunk-item">
+                <button type="button" class="memory-drilldown-next-select memory-drilldown-chunk-select" data-memory-browser-select-entry="${escapeAttr(entry.id)}" data-collection-id="${escapeAttr(item.id || '')}">
+                  <span>${escapeHTML(entry.label || 'Entry')}</span>
+                  ${entry.timestamp ? `<small>${escapeHTML(entry.timestamp)}</small>` : ''}
+                </button>
+                ${entry.preview ? `<p>${escapeHTML(shortText(entry.preview, 170))}</p>` : ''}
+                ${canDelete && entry.collection && entry.id ? `<button type="button" class="memory-drilldown-delete-button" data-memory-browser-delete-point data-collection="${escapeAttr(entry.collection)}" data-point-id="${escapeAttr(entry.id)}">${escapeHTML(labels.delete_chunk || labels.delete || 'Delete')}</button>` : ''}
+              </li>
+            `).join('')}
+          </ol>
+        </div>`
+      : '';
+    const documentDelete = canDelete && item.level === 'document' && item.collection && (item.document_id || item.document_name)
+      ? `<div class="memory-drilldown-actions-row"><button type="button" class="memory-drilldown-delete-button danger" data-memory-browser-delete-document data-collection="${escapeAttr(item.collection)}" data-document-id="${escapeAttr(item.document_id || '')}" data-document-name="${escapeAttr(item.document_name || item.label || '')}">${escapeHTML(labels.delete_document || 'Dokument loeschen')}</button></div>`
+      : '';
+    const pointDelete = canDelete && ['chunk', 'entry'].includes(item.level) && item.collection && item.id
+      ? `<div class="memory-drilldown-actions-row"><button type="button" class="memory-drilldown-delete-button danger" data-memory-browser-delete-point data-collection="${escapeAttr(item.collection)}" data-point-id="${escapeAttr(item.id)}">${escapeHTML(labels.delete_chunk || labels.delete || 'Delete')}</button></div>`
+      : '';
+    inspector.innerHTML = `
+      ${renderInspectorBreadcrumb(item)}
+      <p class="memory-card-kicker">${escapeHTML(item.levelLabel || labels.kind || '')}</p>
+      <h3>${escapeHTML(item.label || '')}</h3>
+      ${meta ? `<p class="memory-drilldown-meta">${escapeHTML(meta)}</p>` : ''}
+      ${item.preview ? `<p class="memory-drilldown-preview">${escapeHTML(shortText(item.preview, 320))}</p>` : ''}
+      ${detailRows ? `<dl>${detailRows}</dl>` : ''}
+      ${collectionList}
+      ${documentList}
+      ${chunkList}
+      ${entryList}
+      ${pointDelete}
+      ${documentDelete}
+    `;
+  };
+
+  const nodeButton = item => {
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const group = document.createElementNS(svgNS, 'g');
+    const button = document.createElementNS(svgNS, 'g');
+    const hitbox = document.createElementNS(svgNS, 'rect');
+    const circle = document.createElementNS(svgNS, 'circle');
+    const label = document.createElementNS(svgNS, 'text');
+    const meta = document.createElementNS(svgNS, 'text');
+    const radius = Number(item.radius || (item.level === 'root' ? 25 : item.level === 'type' ? 21 : item.level === 'collection' ? 20 : 17));
+    const x = Number(item.x || 0) + radius;
+    const y = Number(item.y || 0) + radius;
+    const contentWidth = Number(stage.dataset.contentWidth || 1180);
+    const contentCenterX = contentWidth / 2;
+    const labelSide = x > contentCenterX + 80 || (x > contentCenterX - 120 && seededUnit(item.id, 'label-side') > 0.62) ? 'left' : 'right';
+    const labelX = labelSide === 'left' ? -radius - 12 : radius + 12;
+    const textAnchor = labelSide === 'left' ? 'end' : 'start';
+    item.radius = radius;
+    item.width = radius * 2;
+    item.height = radius * 2;
+    item.centerX = x;
+    item.centerY = y;
+    group.setAttribute('class', `memory-brain-node memory-drilldown-node level-${item.level} kind-${item.kind || 'unknown'}${item.level === 'collection' || item.level === 'root' ? ' kind-collection' : ''}`);
+    group.setAttribute('transform', `translate(${x.toFixed(2)} ${y.toFixed(2)})`);
+    group.setAttribute('data-memory-drilldown-node-wrap', item.id);
+    button.setAttribute('data-brain-node', '');
+    button.setAttribute('data-memory-drilldown-node-button', '');
+    button.setAttribute('data-node-id', item.id);
+    button.setAttribute('role', 'button');
+    button.setAttribute('tabindex', '0');
+    button.setAttribute('aria-label', `${item.label || ''} ${item.meta || ''}`.trim());
+    if (item.active) button.classList.add('is-active');
+    const hitboxX = labelSide === 'left' ? -radius - 250 : -radius - 8;
+    const hitboxWidth = radius * 2 + 258;
+    hitbox.setAttribute('class', 'memory-drilldown-hitbox');
+    hitbox.setAttribute('x', String(hitboxX));
+    hitbox.setAttribute('y', String(-Math.max(radius + 8, 24)));
+    hitbox.setAttribute('width', String(hitboxWidth));
+    hitbox.setAttribute('height', String(Math.max(radius * 2 + 16, 50)));
+    hitbox.setAttribute('rx', '12');
+    circle.setAttribute('r', String(radius));
+    button.appendChild(hitbox);
+    label.setAttribute('x', String(labelX));
+    label.setAttribute('y', '-3');
+    label.setAttribute('text-anchor', textAnchor);
+    label.textContent = shortText(item.label, item.level === 'chunk' ? 32 : 28);
+    meta.setAttribute('x', String(labelX));
+    meta.setAttribute('y', '14');
+    meta.setAttribute('text-anchor', textAnchor);
+    meta.setAttribute('class', 'memory-brain-node-meta');
+    meta.textContent = shortText(item.meta, 36);
+    button.appendChild(circle);
+    button.appendChild(label);
+    button.appendChild(meta);
+    group.appendChild(button);
+    item.element = group;
+    const activate = () => {
+      if (state.mode === 'semantic') {
+        lines.querySelectorAll('[data-brain-node].is-active').forEach(node => node.classList.remove('is-active'));
+        button.classList.add('is-active');
+        setInspector(item);
+        return;
+      }
+      if (item.level === 'type') {
+        state.type = item.kind;
+        state.collection = '';
+        state.document = '';
+        state.chunk = '';
+        state.entry = '';
+      } else if (item.level === 'collection') {
+        state.type = item.kind || state.type;
+        state.collection = item.id;
+        state.document = '';
+        state.chunk = '';
+        state.entry = '';
+      } else if (item.level === 'document') {
+        state.type = 'document';
+        state.collection = item.parentId || state.collection;
+        state.document = item.id;
+        state.chunk = '';
+        state.entry = '';
+      } else if (item.level === 'chunk') {
+        state.type = 'document';
+        const parentDocument = byId.get(item.parentId);
+        state.collection = parentDocument?.parentId || state.collection;
+        state.document = item.parentId || state.document;
+        state.chunk = item.id;
+        state.entry = '';
+      } else if (item.level === 'entry') {
+        const parentCollection = byId.get(item.parentId);
+        state.type = parentCollection?.kind || state.type;
+        state.collection = item.parentId || state.collection;
+        state.document = '';
+        state.chunk = '';
+        state.entry = item.id;
+      }
+      renderStructure({ focusId: item.id, gentleFocus: true, preserveView: true });
+    };
+    const graphPoint = event => {
+      const box = stage.getBoundingClientRect();
+      return {
+        x: (event.clientX - box.left + stage.scrollLeft - structurePanX) / Math.max(0.01, structureScale),
+        y: (event.clientY - box.top + stage.scrollTop - structurePanY) / Math.max(0.01, structureScale),
+      };
+    };
+    const moveNode = (nextX, nextY) => {
+      const width = Number(stage.dataset.contentWidth || 0);
+      const height = Number(stage.dataset.contentHeight || 0);
+      const radiusValue = Number(item.radius || 20);
+      const previousX = Number(item.centerX || 0);
+      const previousY = Number(item.centerY || 0);
+      item.centerX = Math.max(radiusValue + 42, Math.min(width - radiusValue - 42, nextX));
+      item.centerY = Math.max(radiusValue + 42, Math.min(height - radiusValue - 42, nextY));
+      item.x = item.centerX - radiusValue;
+      item.y = item.centerY - radiusValue;
+      group.setAttribute('transform', `translate(${item.centerX.toFixed(2)} ${item.centerY.toFixed(2)})`);
+      updateStructureEdges();
+      return {
+        x: item.centerX - previousX,
+        y: item.centerY - previousY,
+      };
+    };
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchMoved = false;
+    button.addEventListener('pointerdown', event => {
+      event.stopPropagation();
+      if (event.button !== 0) return;
+      if (event.pointerType === 'touch' || coarseStructurePointer) {
+        touchStartX = event.clientX;
+        touchStartY = event.clientY;
+        touchMoved = false;
+        return;
+      }
+      const point = graphPoint(event);
+      draggedStructureNode = item;
+      structurePointerMoved = false;
+      structureDragOffsetX = item.centerX - point.x;
+      structureDragOffsetY = item.centerY - point.y;
+      button.classList.add('is-dragging');
+      button.setPointerCapture?.(event.pointerId);
+    });
+    button.addEventListener('pointermove', event => {
+      if ((event.pointerType === 'touch' || coarseStructurePointer) && draggedStructureNode !== item) {
+        if (Math.abs(event.clientX - touchStartX) + Math.abs(event.clientY - touchStartY) > 10) {
+          touchMoved = true;
+        }
+        return;
+      }
+      if (draggedStructureNode !== item) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const point = graphPoint(event);
+      const nextX = point.x + structureDragOffsetX;
+      const nextY = point.y + structureDragOffsetY;
+      if (Math.abs(nextX - item.centerX) + Math.abs(nextY - item.centerY) > 2) {
+        structurePointerMoved = true;
+      }
+      const delta = moveNode(nextX, nextY);
+      driftStructureDrag(item, delta);
+      warmStructureSimulation(0.85);
+    });
+    button.addEventListener('pointerup', event => {
+      event.stopPropagation();
+      if ((event.pointerType === 'touch' || coarseStructurePointer) && draggedStructureNode !== item) {
+        if (!touchMoved) activate();
+        return;
+      }
+      if (draggedStructureNode === item) {
+        settleStructureDrag(item);
+        draggedStructureNode = null;
+        button.classList.remove('is-dragging');
+        if (button.hasPointerCapture?.(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+      }
+      if (!structurePointerMoved) activate();
+    });
+    button.addEventListener('pointercancel', event => {
+      if (draggedStructureNode === item) {
+        settleStructureDrag(item);
+        draggedStructureNode = null;
+        button.classList.remove('is-dragging');
+        if (button.hasPointerCapture?.(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+      }
+    });
+    button.addEventListener('lostpointercapture', () => {
+      if (draggedStructureNode === item) {
+        settleStructureDrag(item);
+        draggedStructureNode = null;
+        button.classList.remove('is-dragging');
+      }
+    });
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+    });
+    button.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activate();
+      }
+    });
+    lines.appendChild(group);
+  };
+
+  const line = (from, to) => {
+    if (!from || !to) return;
+    const item = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    item.setAttribute('class', 'memory-brain-edge');
+    item.setAttribute('data-edge-from', from.id);
+    item.setAttribute('data-edge-to', to.id);
+    updateStructureEdge(item, from, to);
+    lines.insertBefore(item, lines.firstChild);
+  };
+
+  const updateStructureEdge = (lineEl, from, to) => {
+    if (!lineEl || !from || !to) return;
+    const fromRadius = Number(from.radius || 20);
+    const toRadius = Number(to.radius || 20);
+    const fromX = Number(from.centerX ?? (Number(from.x || 0) + fromRadius));
+    const fromY = Number(from.centerY ?? (Number(from.y || 0) + fromRadius));
+    const toX = Number(to.centerX ?? (Number(to.x || 0) + toRadius));
+    const toY = Number(to.centerY ?? (Number(to.y || 0) + toRadius));
+    lineEl.setAttribute('x1', String(fromX));
+    lineEl.setAttribute('y1', String(fromY));
+    lineEl.setAttribute('x2', String(toX));
+    lineEl.setAttribute('y2', String(toY));
+  };
+
+  const updateStructureEdges = () => {
+    lines.querySelectorAll('[data-edge-from][data-edge-to]').forEach(lineEl => {
+      updateStructureEdge(lineEl, byId.get(lineEl.dataset.edgeFrom), byId.get(lineEl.dataset.edgeTo));
+    });
+  };
+
+  const stopStructureSimulation = () => {
+    if (structureSimulationFrame) {
+      window.cancelAnimationFrame(structureSimulationFrame);
+      structureSimulationFrame = 0;
+    }
+    structureSimulation = null;
+  };
+
+  const updateStructureNodeFrame = () => {
+    if (!structureSimulation) return;
+    structureSimulation.items.forEach(item => {
+      const radius = Number(item.radius || 20);
+      item.x = Number(item.centerX || 0) - radius;
+      item.y = Number(item.centerY || 0) - radius;
+      if (item.element) {
+        item.element.setAttribute('transform', `translate(${Number(item.centerX || 0).toFixed(2)} ${Number(item.centerY || 0).toFixed(2)})`);
+      }
+    });
+    updateStructureEdges();
+  };
+
+  const warmStructureSimulation = (energy = 0.7) => {
+    if (!structureSimulation) return;
+    structureSimulation.energy = Math.max(structureSimulation.energy || 0, energy);
+    if (!structureSimulationFrame) {
+      structureSimulationFrame = window.requestAnimationFrame(structureSimulationStep);
+    }
+  };
+
+  const connectedStructureItems = item => {
+    if (!structureSimulation || !item) return [];
+    return structureSimulation.edges
+      .flatMap(edge => edge.from === item ? [edge.to] : edge.to === item ? [edge.from] : [])
+      .filter(Boolean);
+  };
+
+  const rememberStructureAnchor = (item, x = item?.centerX, y = item?.centerY) => {
+    if (!item?.id) return;
+    const anchor = {
+      x: Number(x ?? item.centerX ?? 0),
+      y: Number(y ?? item.centerY ?? 0),
+    };
+    manualStructureAnchors.set(item.id, anchor);
+    structureSimulation?.anchors.set(item.id, { ...anchor });
+  };
+
+  const driftStructureDrag = (item, delta) => {
+    if (!structureSimulation || !item || !delta) return;
+    if (Math.abs(delta.x) + Math.abs(delta.y) < 0.01) return;
+    rememberStructureAnchor(item);
+    connectedStructureItems(item).forEach(neighbor => {
+      const velocity = structureSimulation.velocities.get(neighbor.id);
+      if (velocity) {
+        velocity.x += delta.x * 0.16;
+        velocity.y += delta.y * 0.16;
+      }
+      const anchor = structureSimulation.anchors.get(neighbor.id);
+      if (anchor) {
+        anchor.x += delta.x * 0.08;
+        anchor.y += delta.y * 0.08;
+        manualStructureAnchors.set(neighbor.id, { x: anchor.x, y: anchor.y });
+      }
+    });
+  };
+
+  const settleStructureDrag = item => {
+    if (!item) return;
+    rememberStructureAnchor(item);
+    connectedStructureItems(item).forEach(neighbor => {
+      const anchor = structureSimulation?.anchors.get(neighbor.id);
+      if (anchor) {
+        manualStructureAnchors.set(neighbor.id, { x: anchor.x, y: anchor.y });
+      }
+    });
+    warmStructureSimulation(1);
+  };
+
+  const clearStage = () => {
+    stopStructureSimulation();
+    byId.clear();
+    nodesRoot.innerHTML = '';
+    lines.innerHTML = '';
+  };
+
+  const isFullscreenBrowser = () => Boolean(root.closest('.memory-browser-fullscreen-page'));
+  const placeSemanticDetail = enabled => {
+    if (!semanticDetail || !semanticDetailPlaceholder.parentNode) return;
+    if (enabled && isFullscreenBrowser() && inspector) {
+      inspector.replaceChildren(semanticDetail);
+      inspector.dataset.memoryBrowserSemanticDetail = 'active';
+      inspector.hidden = false;
+      return;
+    }
+    semanticDetailPlaceholder.parentNode.insertBefore(semanticDetail, semanticDetailPlaceholder.nextSibling);
+    if (inspector) delete inspector.dataset.memoryBrowserSemanticDetail;
+  };
+
+  const showSemanticPanel = enabled => {
+    placeSemanticDetail(Boolean(enabled));
+    if (structurePanel) structurePanel.hidden = Boolean(enabled);
+    if (semanticPanel) semanticPanel.hidden = !enabled;
+    if (inspector) inspector.hidden = Boolean(enabled) && !isFullscreenBrowser();
+    if (enabled) {
+      window.setTimeout(() => focusSemanticBrowser(), 0);
+    }
+  };
+
+  const selectedCollectionName = () => {
+    const collection = selectedCollection();
+    return collection?.name
+      || collection?.collection
+      || collection?.label
+      || data.initial_collection_name
+      || data.initial_collection
+      || state.collection
+      || '';
+  };
+  const semanticBrain = () => semanticPanel?.querySelector('[data-memory-brain]');
+  const semanticHasGraph = () => Boolean(
+    data.semantic?.has_graph
+    || (Array.isArray(data.semantic?.nodes) && data.semantic.nodes.length)
+  );
+  const semanticCollectionAvailable = collection => {
+    const name = String(collection || '').trim();
+    if (!name) return semanticHasGraph();
+    const brain = semanticBrain();
+    if (brain?.__ariaMemoryBrain?.canFocusCollection) {
+      return Boolean(brain.__ariaMemoryBrain.canFocusCollection(name));
+    }
+    try {
+      const graph = JSON.parse(brain?.querySelector('[data-brain-payload]')?.textContent || '{}');
+      return (graph.collections || []).some(item => String(item.collection || item.label || '') === name)
+        || (graph.nodes || []).some(item => String(item.collection || '') === name);
+    } catch (_error) {
+      return false;
+    }
+  };
+  const semanticTargetHasPoint = target => Boolean(
+    target?.pointId
+    || target?.id
+    || target?.chunkIndex
+    || target?.chunk_index
+  );
+  const canShowSemantic = () => {
+    const target = selectedSemanticTarget();
+    return semanticTargetHasPoint(target) && semanticCollectionAvailable(selectedSemanticCollection());
+  };
+
+  const clampStructureScale = value => Math.max(0.08, Math.min(2.4, Number(value) || 1));
+  const setPanBarRange = (input, min, max, value) => {
+    if (!input) return;
+    input.min = String(Math.floor(min));
+    input.max = String(Math.ceil(max));
+    input.value = String(Math.round(value));
+  };
+  const updateStructurePanBars = () => {
+    if (!stage) return;
+    const bounds = structureBounds();
+    const scale = Math.max(0.01, structureScale);
+    const marginX = Math.max(160, stage.clientWidth * 0.42);
+    const marginY = Math.max(160, stage.clientHeight * 0.42);
+    const left = (bounds?.minX ?? 0) * scale;
+    const right = (bounds?.maxX ?? Number(stage.dataset.contentWidth || 0)) * scale;
+    const top = (bounds?.minY ?? 0) * scale;
+    const bottom = (bounds?.maxY ?? Number(stage.dataset.contentHeight || 0)) * scale;
+    const minX = Math.min(marginX - right, structurePanX - 1);
+    const maxX = Math.max(stage.clientWidth - marginX - left, structurePanX + 1);
+    const minY = Math.min(marginY - bottom, structurePanY - 1);
+    const maxY = Math.max(stage.clientHeight - marginY - top, structurePanY + 1);
+    setPanBarRange(panBarX, minX, maxX, structurePanX);
+    setPanBarRange(panBarY, minY, maxY, structurePanY);
+  };
+  const applyStructureTransform = () => {
+    stage.style.setProperty('--memory-browser-stage-scale', structureScale.toFixed(4));
+    stage.style.setProperty('--memory-browser-stage-pan-x', `${structurePanX.toFixed(2)}px`);
+    stage.style.setProperty('--memory-browser-stage-pan-y', `${structurePanY.toFixed(2)}px`);
+    updateStructurePanBars();
+  };
+  const applyStructureScale = (scale, source = 'fit') => {
+    structureScale = clampStructureScale(scale);
+    applyStructureTransform();
+    if (source === 'zoom' || structureScale > structureFitScale + 0.01) {
+      stage.dataset.fit = 'zoomed';
+    } else {
+      stage.dataset.fit = structureScale < 0.995 ? 'scaled' : 'native';
+    }
+  };
+
+  const activeStructureNodeId = () => {
+    if (state.chunk) return state.chunk;
+    if (state.entry) return state.entry;
+    if (state.document) return state.document;
+    if (state.collection) return state.collection;
+    const type = selectedType();
+    return type?.id || 'root';
+  };
+
+  const focusStructureNode = (nodeId, options = {}) => {
+    if (!stage || !nodeId) return;
+    const item = byId.get(nodeId);
+    if (!item) return;
+    const box = stage.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const readableScale = Math.max(structureFitScale, Math.min(1.02, structureFitScale + 0.12));
+    const targetScale = options.keepScale
+      ? structureScale
+      : Math.max(structureFitScale, Math.min(1.02, readableScale));
+    structureAutoFit = false;
+    applyStructureScale(targetScale, 'zoom');
+    const centerX = (Number(item.x || 0) + Number(item.radius || 20)) * structureScale;
+    const centerY = (Number(item.y || 0) + Number(item.radius || 20)) * structureScale;
+    const nodeLeft = centerX + structurePanX;
+    const nodeTop = centerY + structurePanY;
+    const margin = Number(options.margin || 96);
+    const visibleLeft = stage.scrollLeft + margin;
+    const visibleRight = stage.scrollLeft + stage.clientWidth - margin;
+    const visibleTop = stage.scrollTop + margin;
+    const visibleBottom = stage.scrollTop + stage.clientHeight - margin;
+    let left = stage.scrollLeft;
+    let top = stage.scrollTop;
+    if (options.gentle) {
+      if (nodeLeft < visibleLeft) left = Math.max(0, nodeLeft - margin);
+      if (nodeLeft > visibleRight) left = Math.max(0, nodeLeft - stage.clientWidth + margin);
+      if (nodeTop < visibleTop) top = Math.max(0, nodeTop - margin);
+      if (nodeTop > visibleBottom) top = Math.max(0, nodeTop - stage.clientHeight + margin);
+    } else {
+      left = Math.max(0, centerX + structurePanX - stage.clientWidth / 2);
+      top = Math.max(0, centerY + structurePanY - stage.clientHeight / 2);
+    }
+    stage.scrollTo({ left, top, behavior: 'smooth' });
+  };
+
+  const structureBounds = () => {
+    const items = Array.from(byId.values());
+    if (!items.length) return null;
+    return items.reduce((bounds, item) => {
+      const radius = Number(item.radius || 20);
+      const centerX = Number(item.centerX ?? (Number(item.x || 0) + radius));
+      const centerY = Number(item.centerY ?? (Number(item.y || 0) + radius));
+      const labelWidth = Math.min(260, Math.max(96, String(item.label || '').length * 7.5));
+      const metaHeight = item.meta ? 22 : 0;
+      const left = centerX - radius - 22;
+      const right = centerX + radius + 24 + labelWidth;
+      const top = centerY - radius - 20;
+      const bottom = centerY + radius + 24 + metaHeight;
+      return {
+        minX: Math.min(bounds.minX, left),
+        minY: Math.min(bounds.minY, top),
+        maxX: Math.max(bounds.maxX, right),
+        maxY: Math.max(bounds.maxY, bottom),
+      };
+    }, { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+  };
+
+  const shiftStructureGraph = (dx, dy) => {
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (!dx && !dy)) return;
+    byId.forEach(item => {
+      const radius = Number(item.radius || 20);
+      item.centerX = Number(item.centerX ?? (Number(item.x || 0) + radius)) + dx;
+      item.centerY = Number(item.centerY ?? (Number(item.y || 0) + radius)) + dy;
+      item.x = item.centerX - radius;
+      item.y = item.centerY - radius;
+    });
+    if (structureSimulation) {
+      structureSimulation.anchors.forEach(anchor => {
+        anchor.x += dx;
+        anchor.y += dy;
+      });
+      structureSimulation.velocities.forEach(velocity => {
+        velocity.x *= 0.18;
+        velocity.y *= 0.18;
+      });
+      structureSimulation.energy = Math.min(0.12, structureSimulation.energy || 0.12);
+    }
+    updateStructureNodeFrame();
+  };
+
+  const centerStructureView = () => {
+    if (!stage || !byId.size) return;
+    const bounds = structureBounds();
+    if (!bounds) return;
+    const scale = Math.max(0.01, structureScale);
+    const graphWidth = Math.max(1, bounds.maxX - bounds.minX);
+    const graphHeight = Math.max(1, bounds.maxY - bounds.minY);
+    if (graphWidth * scale > stage.clientWidth - 48 || graphHeight * scale > stage.clientHeight - 48) {
+      fitStructureStage({ force: true, smooth: true, padding: 72 });
+      return;
+    }
+    const visibleCenterX = (stage.scrollLeft + stage.clientWidth / 2 - structurePanX) / scale;
+    const visibleCenterY = (stage.scrollTop + stage.clientHeight / 2 - structurePanY) / scale;
+    const graphCenterX = (bounds.minX + bounds.maxX) / 2;
+    const graphCenterY = (bounds.minY + bounds.maxY) / 2;
+    structurePanX += (visibleCenterX - graphCenterX) * scale;
+    structurePanY += (visibleCenterY - graphCenterY) * scale;
+    applyStructureTransform();
+  };
+
+  const setStructurePanFromBar = event => {
+    const axis = event.currentTarget?.dataset?.memoryBrowserPanAxis;
+    const value = Number(event.currentTarget?.value || 0);
+    structureAutoFit = false;
+    if (axis === 'x') {
+      structurePanX = value;
+    } else if (axis === 'y') {
+      structurePanY = value;
+    }
+    applyStructureTransform();
+  };
+
+  const fitStructureStage = (options = {}) => {
+    if (!stage || structurePanel?.hidden) return;
+    const box = stage.getBoundingClientRect();
+    const contentWidth = Number(stage.dataset.contentWidth || 0);
+    const contentHeight = Number(stage.dataset.contentHeight || 0);
+    if (!box.width || !box.height || !contentWidth || !contentHeight) return;
+    const bounds = structureBounds();
+    const padding = Number(options.padding || 96);
+    const boundsWidth = bounds ? Math.max(1, bounds.maxX - bounds.minX + padding * 2) : contentWidth;
+    const boundsHeight = bounds ? Math.max(1, bounds.maxY - bounds.minY + padding * 2) : contentHeight;
+    const availableWidth = Math.max(1, box.width - 18);
+    const availableHeight = Math.max(1, box.height - 18);
+    const scale = Math.min(
+      1.08,
+      Math.max(0.08, Math.min(availableWidth / boundsWidth, availableHeight / boundsHeight))
+    );
+    structureFitScale = scale;
+    if (bounds && (structureAutoFit || options.force)) {
+      structurePanX = (stage.clientWidth - boundsWidth * scale) / 2 - (bounds.minX - padding) * scale;
+      structurePanY = (stage.clientHeight - boundsHeight * scale) / 2 - (bounds.minY - padding) * scale;
+    }
+    if (structureAutoFit || options.force) applyStructureScale(scale, 'fit');
+    if (bounds && (structureAutoFit || options.force)) {
+      window.requestAnimationFrame(() => {
+        stage.scrollTo({ left: 0, top: 0, behavior: options.smooth ? 'smooth' : 'auto' });
+      });
+    }
+  };
+
+  const scheduleStructureFit = () => {
+    if (fitFrame) window.cancelAnimationFrame(fitFrame);
+    fitFrame = window.requestAnimationFrame(() => {
+      fitFrame = 0;
+      fitStructureStage();
+    });
+  };
+
+  window.addEventListener('resize', scheduleStructureFit);
+
+  const resetStructureFit = () => {
+    structureAutoFit = true;
+    fitStructureStage({ force: true, smooth: true });
+  };
+
+  const zoomStructure = direction => {
+    structureAutoFit = false;
+    applyStructureScale(structureScale + (direction === 'in' ? 0.075 : -0.075), 'zoom');
+  };
+
+  const zoomStructureAt = (targetScale, clientX, clientY) => {
+    if (!stage) return;
+    const previousScale = Math.max(0.01, structureScale);
+    const box = stage.getBoundingClientRect();
+    const localX = clientX - box.left;
+    const localY = clientY - box.top;
+    const graphX = (localX + stage.scrollLeft - structurePanX) / previousScale;
+    const graphY = (localY + stage.scrollTop - structurePanY) / previousScale;
+    structureAutoFit = false;
+    applyStructureScale(targetScale, 'zoom');
+    window.requestAnimationFrame(() => {
+      stage.scrollLeft = Math.max(0, graphX * structureScale + structurePanX - localX);
+      stage.scrollTop = Math.max(0, graphY * structureScale + structurePanY - localY);
+    });
+  };
+
+  const wheelStructureZoom = event => {
+    if (!stage || structurePanel?.hidden) return;
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.04 : 0.96;
+    zoomStructureAt(structureScale * factor, event.clientX, event.clientY);
+  };
+
+  const pointerDistance = () => {
+    const points = Array.from(activeStagePointers.values());
+    if (points.length < 2) return 0;
+    return Math.hypot(points[0].clientX - points[1].clientX, points[0].clientY - points[1].clientY);
+  };
+
+  const pointerCenter = () => {
+    const points = Array.from(activeStagePointers.values());
+    if (points.length < 2) return null;
+    return {
+      x: (points[0].clientX + points[1].clientX) / 2,
+      y: (points[0].clientY + points[1].clientY) / 2,
+    };
+  };
+
+  const startPinchZoom = () => {
+    pinchStartDistance = pointerDistance();
+    pinchStartScale = structureScale;
+    pinchLastCenter = pointerCenter();
+    stageDragging = false;
+    delete stage.dataset.panning;
+  };
+
+  const movePinchZoom = event => {
+    if (activeStagePointers.size < 2 || !pinchStartDistance) return false;
+    event.preventDefault();
+    const distance = pointerDistance();
+    const center = pointerCenter();
+    if (!distance || !center) return true;
+    zoomStructureAt(pinchStartScale * (distance / pinchStartDistance), center.x, center.y);
+    if (pinchLastCenter) {
+      structurePanX += center.x - pinchLastCenter.x;
+      structurePanY += center.y - pinchLastCenter.y;
+      applyStructureTransform();
+    }
+    pinchLastCenter = center;
+    return true;
+  };
+
+  const startStagePan = event => {
+    if (!stage || event.button !== 0) return;
+    if (event.target.closest?.('[data-memory-drilldown-node-button]')) return;
+    event.preventDefault();
+    activeStagePointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    stage.setPointerCapture?.(event.pointerId);
+    if (activeStagePointers.size >= 2) {
+      startPinchZoom();
+      return;
+    }
+    stageDragging = true;
+    stageDragLastX = event.clientX;
+    stageDragLastY = event.clientY;
+    stage.dataset.panning = 'active';
+  };
+  const moveStagePan = event => {
+    if (activeStagePointers.has(event.pointerId)) {
+      activeStagePointers.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+    }
+    if (movePinchZoom(event)) return;
+    if (!stageDragging) return;
+    event.preventDefault();
+    const dx = event.clientX - stageDragLastX;
+    const dy = event.clientY - stageDragLastY;
+    structureAutoFit = false;
+    structurePanX += dx;
+    structurePanY += dy;
+    applyStructureTransform();
+    stageDragLastX = event.clientX;
+    stageDragLastY = event.clientY;
+  };
+  const stopStagePan = event => {
+    if (event?.pointerId !== undefined) {
+      activeStagePointers.delete(event.pointerId);
+    }
+    if (activeStagePointers.size < 2) {
+      pinchStartDistance = 0;
+      pinchLastCenter = null;
+    }
+    if (!stageDragging) return;
+    stageDragging = false;
+    delete stage.dataset.panning;
+    if (event?.pointerId !== undefined && stage.hasPointerCapture?.(event.pointerId)) {
+      stage.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const focusSemanticBrowser = () => {
+    const brain = semanticPanel?.querySelector('[data-memory-brain]');
+    if (!brain) return;
+    const target = selectedSemanticTarget();
+    const collection = String(target.collection || '').trim();
+    const hasPointTarget = semanticTargetHasPoint(target);
+    if (!hasPointTarget) {
+      renderStructure({ focusId: activeStructureNodeId(), preserveView: true });
+      return;
+    }
+    if (hasPointTarget && brain.__ariaMemoryBrain?.focusPoint) {
+      brain.__ariaMemoryBrain.focusPoint(target, { strict: true });
+      return;
+    }
+    if (hasPointTarget) {
+      brain.dispatchEvent(new CustomEvent('aria:memory-brain-focus-point', {
+        detail: { ...target, strict: true },
+      }));
+      return;
+    }
+    if (brain.__ariaMemoryBrain?.focusCollection) {
+      brain.__ariaMemoryBrain.focusCollection(collection, { strict: true });
+      return;
+    }
+    brain.dispatchEvent(new CustomEvent('aria:memory-brain-focus', {
+      detail: { collection, strict: true },
+    }));
+  };
+
+  root.addEventListener('aria:memory-brain-back', () => {
+    state.mode = 'structure';
+    renderStructure({ focusId: activeStructureNodeId() });
+  });
+
+  const setStageSize = (width, height, options = {}) => {
+    const previousScale = structureScale;
+    const previousFitScale = structureFitScale;
+    const previousPanX = structurePanX;
+    const previousPanY = structurePanY;
+    const previousAutoFit = structureAutoFit;
+    stage.style.setProperty('--memory-browser-stage-width', `${width}px`);
+    stage.style.setProperty('--memory-browser-stage-height', `${height}px`);
+    structureScale = options.preserveView ? previousScale : 1;
+    structureFitScale = options.preserveView ? previousFitScale : 1;
+    structurePanX = options.preserveView ? previousPanX : 0;
+    structurePanY = options.preserveView ? previousPanY : 0;
+    structureAutoFit = options.preserveView ? previousAutoFit : true;
+    applyStructureTransform();
+    stage.dataset.contentWidth = String(width);
+    stage.dataset.contentHeight = String(height);
+    stage.dataset.fit = options.preserveView ? 'zoomed' : 'native';
+    lines.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    lines.setAttribute('width', String(width));
+    lines.setAttribute('height', String(height));
+  };
+
+  const placeNode = item => {
+    byId.set(item.id, item);
+    nodeButton(item);
+  };
+
+  const nodeCenter = item => ({
+    x: Number(item?.x || 0) + Number(item?.radius || 20),
+    y: Number(item?.y || 0) + Number(item?.radius || 20),
+  });
+
+  const syncNodeCenter = item => {
+    const radius = Number(item.radius || 20);
+    item.centerX = Number(item.x || 0) + radius;
+    item.centerY = Number(item.y || 0) + radius;
+  };
+
+  const setNodeCenter = (item, x, y) => {
+    const radius = Number(item.radius || 20);
+    item.centerX = x;
+    item.centerY = y;
+    item.x = x - radius;
+    item.y = y - radius;
+  };
+
+  const seededUnit = (value, salt = '') => {
+    const text = `${value || ''}:${salt}`;
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0) / 4294967295;
+  };
+
+  const seededOffset = (value, salt, amplitude) => (seededUnit(value, salt) - 0.5) * amplitude;
+
+  const edgeLengthFor = (from, to) => {
+    const pair = `${from?.level || ''}:${to?.level || ''}`;
+    const spacing = Number(structureOptions.spacing || 1);
+    const cluster = Math.max(0.7, Number(structureOptions.cluster || 1));
+    const base = pair === 'root:type' ? 245
+      : pair === 'type:collection' ? 220
+      : pair === 'collection:document' ? 190
+      : pair === 'document:chunk' ? 150
+      : 185;
+    const variance = pair === 'document:chunk' ? 0.82 + seededUnit(`${from?.id || ''}:${to?.id || ''}`, 'edge-length') * 0.38
+      : pair === 'collection:document' ? 0.9 + seededUnit(`${from?.id || ''}:${to?.id || ''}`, 'edge-length') * 0.24
+      : 0.95 + seededUnit(`${from?.id || ''}:${to?.id || ''}`, 'edge-length') * 0.16;
+    return base * spacing * variance / cluster;
+  };
+
+  const relaxStructureLayout = (items, edges, width, height) => {
+    if (!items.length) return;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const velocities = new Map(items.map(item => [item.id, { x: 0, y: 0 }]));
+    const anchors = new Map(items.map(item => [item.id, nodeCenter(item)]));
+    const rootItem = items.find(item => item.level === 'root');
+    const activeItems = new Set(items.filter(item => item.active || item.level === 'root').map(item => item.id));
+    items.forEach(item => {
+      const center = nodeCenter(item);
+      item.fx = center.x;
+      item.fy = center.y;
+    });
+    for (let step = 0; step < 120; step += 1) {
+      const alpha = 1 - step / 120;
+      for (let i = 0; i < items.length; i += 1) {
+        const a = items[i];
+        const av = velocities.get(a.id);
+        for (let j = i + 1; j < items.length; j += 1) {
+          const b = items[j];
+          const bv = velocities.get(b.id);
+          let dx = a.fx - b.fx;
+          let dy = a.fy - b.fy;
+          let distance = Math.hypot(dx, dy);
+          if (!distance) {
+            dx = Math.sin((i + 1) * 12.9898 + (j + 1) * 78.233);
+            dy = Math.cos((i + 1) * 4.1414 + (j + 1) * 31.415);
+            distance = 1;
+          }
+          const minimum = Number(a.radius || 20) + Number(b.radius || 20) + (88 * structureOptions.spacing);
+          const repel = Math.min(11, ((minimum * minimum) / Math.max(80, distance * distance)) * 1.8 * alpha);
+          const nx = dx / distance;
+          const ny = dy / distance;
+          av.x += nx * repel;
+          av.y += ny * repel;
+          bv.x -= nx * repel;
+          bv.y -= ny * repel;
+        }
+      }
+      edges.forEach(edge => {
+        const from = edge.from;
+        const to = edge.to;
+        if (!from || !to) return;
+        const av = velocities.get(from.id);
+        const bv = velocities.get(to.id);
+        let dx = to.fx - from.fx;
+        let dy = to.fy - from.fy;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const desired = edgeLengthFor(from, to);
+        const pair = `${from.level || ''}:${to.level || ''}`;
+        const pullStrength = pair === 'document:chunk' ? 0.021 : pair === 'collection:document' ? 0.019 : 0.016;
+        const pull = (distance - desired) * pullStrength * structureOptions.attraction * alpha;
+        const nx = dx / distance;
+        const ny = dy / distance;
+        av.x += nx * pull;
+        av.y += ny * pull;
+        bv.x -= nx * pull;
+        bv.y -= ny * pull;
+      });
+      items.forEach(item => {
+        const velocity = velocities.get(item.id);
+        const anchor = anchors.get(item.id);
+        const anchorStrength = item.level === 'root' ? 0.08 : activeItems.has(item.id) ? 0.01 : 0.0015;
+        velocity.x += (anchor.x - item.fx) * anchorStrength * alpha;
+        velocity.y += (anchor.y - item.fy) * anchorStrength * alpha;
+        if (rootItem && item !== rootItem && item.level !== 'root') {
+          let dx = item.fx - rootItem.fx;
+          let dy = item.fy - rootItem.fy;
+          const distance = Math.max(1, Math.hypot(dx, dy));
+          const radial = (item.level === 'type' ? 250 : item.level === 'collection' ? 360 : item.level === 'document' ? 450 : 540) * structureOptions.spacing;
+          const push = (radial - distance) * 0.0018 * structureOptions.cluster * alpha;
+          velocity.x += (dx / distance) * push;
+          velocity.y += (dy / distance) * push;
+        }
+        velocity.x *= 0.72;
+        velocity.y *= 0.72;
+        item.fx += velocity.x;
+        item.fy += velocity.y;
+        const radius = Number(item.radius || 20);
+        item.x = item.fx - radius;
+        item.y = item.fy - radius;
+      });
+    }
+    items.forEach(item => {
+      delete item.fx;
+      delete item.fy;
+    });
+  };
+
+  const centerStructureLayoutItems = (items, width, height) => {
+    if (!items.length) return;
+    const bounds = items.reduce((acc, item) => {
+      const radius = Number(item.radius || 20);
+      const center = nodeCenter(item);
+      const labelWidth = Math.min(260, Math.max(96, String(item.label || '').length * 7.5));
+      return {
+        minX: Math.min(acc.minX, center.x - radius - 24),
+        minY: Math.min(acc.minY, center.y - radius - 28),
+        maxX: Math.max(acc.maxX, center.x + radius + 34 + labelWidth),
+        maxY: Math.max(acc.maxY, center.y + radius + 34),
+      };
+    }, { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+    const graphCenterX = (bounds.minX + bounds.maxX) / 2;
+    const graphCenterY = (bounds.minY + bounds.maxY) / 2;
+    const targetX = width / 2;
+    const targetY = height * 0.54;
+    const dx = targetX - graphCenterX;
+    const dy = targetY - graphCenterY;
+    items.forEach(item => {
+      const radius = Number(item.radius || 20);
+      item.x = Number(item.x || 0) + dx;
+      item.y = Number(item.y || 0) + dy;
+      syncNodeCenter(item);
+    });
+  };
+
+  const applyRememberedStructureAnchors = (items, width, height) => {
+    items.forEach(item => {
+      const anchor = manualStructureAnchors.get(item.id);
+      if (!anchor) return;
+      const radius = Number(item.radius || 20);
+      setNodeCenter(
+        item,
+        Math.max(radius + 42, Math.min(width - radius - 42, Number(anchor.x || 0))),
+        Math.max(radius + 42, Math.min(height - radius - 42, Number(anchor.y || 0)))
+      );
+    });
+  };
+
+  function structureSimulationStep() {
+    if (!structureSimulation) return;
+    const items = structureSimulation.items;
+    const edges = structureSimulation.edges;
+    const width = structureSimulation.width;
+    const height = structureSimulation.height;
+    const velocities = structureSimulation.velocities;
+    const rootItem = items.find(item => item.level === 'root');
+    const forces = new Map(items.map(item => [item.id, { x: 0, y: 0 }]));
+    const energy = Math.max(0.02, Math.min(1, structureSimulation.energy || 0.35));
+    for (let leftIndex = 0; leftIndex < items.length; leftIndex += 1) {
+      const left = items[leftIndex];
+      for (let rightIndex = leftIndex + 1; rightIndex < items.length; rightIndex += 1) {
+        const right = items[rightIndex];
+        let dx = Number(left.centerX || 0) - Number(right.centerX || 0);
+        let dy = Number(left.centerY || 0) - Number(right.centerY || 0);
+        let distance = Math.hypot(dx, dy);
+        if (!distance) {
+          dx = Math.sin((leftIndex + 1) * 12.9898 + (rightIndex + 1) * 78.233);
+          dy = Math.cos((leftIndex + 1) * 4.1414 + (rightIndex + 1) * 31.415);
+          distance = 1;
+        }
+        const minimum = Number(left.radius || 20) + Number(right.radius || 20) + (88 * structureOptions.spacing);
+        const repel = Math.min(18, ((minimum * minimum) / Math.max(90, distance * distance)) * 2.0 * energy);
+        const nx = dx / distance;
+        const ny = dy / distance;
+        forces.get(left.id).x += nx * repel;
+        forces.get(left.id).y += ny * repel;
+        forces.get(right.id).x -= nx * repel;
+        forces.get(right.id).y -= ny * repel;
+      }
+    }
+    edges.forEach(edge => {
+      const from = edge.from;
+      const to = edge.to;
+      if (!from || !to) return;
+      const dx = Number(to.centerX || 0) - Number(from.centerX || 0);
+      const dy = Number(to.centerY || 0) - Number(from.centerY || 0);
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const desired = edgeLengthFor(from, to);
+      const pair = `${from.level || ''}:${to.level || ''}`;
+      const pullStrength = pair === 'document:chunk' ? 0.029 : pair === 'collection:document' ? 0.027 : 0.023;
+      const pull = (distance - desired) * pullStrength * structureOptions.attraction * energy;
+      const nx = dx / distance;
+      const ny = dy / distance;
+      forces.get(from.id).x += nx * pull;
+      forces.get(from.id).y += ny * pull;
+      forces.get(to.id).x -= nx * pull;
+      forces.get(to.id).y -= ny * pull;
+    });
+    items.forEach(item => {
+      const velocity = velocities.get(item.id) || { x: 0, y: 0 };
+      const force = forces.get(item.id) || { x: 0, y: 0 };
+      const anchor = structureSimulation.anchors.get(item.id) || { x: item.centerX, y: item.centerY };
+      const anchorStrength = item.level === 'root' ? 0.01 : item.active ? 0.0025 : 0.0008;
+      velocity.x += force.x + (anchor.x - Number(item.centerX || 0)) * anchorStrength;
+      velocity.y += force.y + (anchor.y - Number(item.centerY || 0)) * anchorStrength;
+      if (rootItem && item !== rootItem) {
+        const dx = Number(item.centerX || 0) - Number(rootItem.centerX || 0);
+        const dy = Number(item.centerY || 0) - Number(rootItem.centerY || 0);
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const targetRadius = (item.level === 'type' ? 320 : item.level === 'collection' ? 410 : item.level === 'document' ? 500 : 590) * structureOptions.spacing;
+        const radial = (targetRadius - distance) * 0.00065 * structureOptions.cluster * energy;
+        velocity.x += (dx / distance) * radial;
+        velocity.y += (dy / distance) * radial;
+      }
+      velocity.x *= item === draggedStructureNode ? 0.35 : 0.82;
+      velocity.y *= item === draggedStructureNode ? 0.35 : 0.82;
+      if (item !== draggedStructureNode) {
+        setNodeCenter(
+          item,
+          Number(item.centerX || 0) + velocity.x,
+          Number(item.centerY || 0) + velocity.y
+        );
+      }
+    });
+    updateStructureNodeFrame();
+    const movement = Array.from(velocities.values()).reduce((sum, velocity) => sum + Math.abs(velocity.x) + Math.abs(velocity.y), 0);
+    structureSimulation.energy *= 0.988;
+    if (draggedStructureNode || movement > 0.16 || structureSimulation.energy > 0.045) {
+      structureSimulationFrame = window.requestAnimationFrame(structureSimulationStep);
+    } else {
+      structureSimulationFrame = 0;
+      if (structureAutoFit) fitStructureStage({ force: true, padding: 72 });
+    }
+  }
+
+  const startStructureSimulation = (items, edges, width, height) => {
+    structureSimulation = {
+      items,
+      edges,
+      width,
+      height,
+      anchors: new Map(items.map(item => [item.id, { x: Number(item.centerX || 0), y: Number(item.centerY || 0) }])),
+      velocities: new Map(items.map(item => [item.id, { x: 0, y: 0 }])),
+      energy: 1,
+    };
+    warmStructureSimulation(1);
+    window.setTimeout(() => {
+      if (structureAutoFit) fitStructureStage({ force: true });
+    }, 180);
+    window.setTimeout(() => {
+      if (structureAutoFit) fitStructureStage({ force: true, padding: 72 });
+    }, 520);
+  };
+
+  const layoutCluster = (rows, width, height) => {
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const organicRadius = Math.min(width, height) * 0.34;
+    const placed = new Map();
+    const placeSeededNode = item => {
+      syncNodeCenter(item);
+      placeNode(item);
+      placed.set(item.id, item);
+    };
+    const placeInCloud = (item, index, count, options = {}) => {
+      const radius = Number(item.radius || 20);
+      const ring = Math.sqrt((index + 0.65) / Math.max(1, count));
+      const angle = index * 2.399963229728653 + seededUnit(item.id, 'cloud-angle') * 0.9;
+      const wobble = 0.82 + seededUnit(item.id, 'cloud-radius') * 0.42;
+      const x = centerX
+        + Math.cos(angle) * organicRadius * ring * wobble * Number(options.spreadX || 1)
+        + seededOffset(item.id, 'cloud-x', Number(options.jitter || 96));
+      const y = centerY
+        + Math.sin(angle) * organicRadius * ring * wobble * Number(options.spreadY || 0.86)
+        + seededOffset(item.id, 'cloud-y', Number(options.jitter || 96));
+      item.x = x - radius;
+      item.y = y - radius;
+      placeSeededNode(item);
+    };
+    const placeAroundParent = (item, parent, options = {}) => {
+      const parentCenter = nodeCenter(parent);
+      const radius = Number(item.radius || 20);
+      const distance = Number(options.distance || 260)
+        * (0.58 + seededUnit(item.id, 'distance') * 0.82)
+        * Number(structureOptions.spacing || 1);
+      const angle = seededUnit(item.id, 'angle') * Math.PI * 2;
+      const spreadX = Number(options.spreadX || 1);
+      const spreadY = Number(options.spreadY || 0.82);
+      const tangent = Number(options.tangent || 0);
+      const tangentX = -Math.sin(angle) * seededOffset(item.id, 'tangent', tangent);
+      const tangentY = Math.cos(angle) * seededOffset(item.id, 'tangent-y', tangent);
+      item.x = parentCenter.x + Math.cos(angle) * distance * spreadX + tangentX + seededOffset(item.id, 'x', Number(options.jitter || 80)) - radius;
+      item.y = parentCenter.y + Math.sin(angle) * distance * spreadY + tangentY + seededOffset(item.id, 'y', Number(options.jitter || 80)) - radius;
+      placeSeededNode(item);
+    };
+    rows[0].forEach(item => {
+      item.x = centerX - Number(item.radius || 25);
+      item.y = centerY - Number(item.radius || 25);
+      placeSeededNode(item);
+    });
+    rows[1].forEach((item, index) => {
+      placeInCloud(item, index, rows[1].length, {
+        jitter: 105,
+        spreadX: 1.06,
+        spreadY: 0.92,
+      });
+    });
+    const activeType = rows[1].find(item => item.active) || rows[1][0] || rows[0][0];
+    rows[2].forEach((item, index) => {
+      const parent = placed.get(item.parentId) || activeType;
+      const cloudBias = state.expandAll ? 0.54 : 0.28;
+      placeAroundParent(item, parent, {
+        distance: 260 + seededUnit(item.id, 'collection-distance') * 150,
+        jitter: 180,
+        spreadX: 1.04 + seededUnit(item.id, 'collection-spread-x') * 0.28,
+        spreadY: 0.86 + seededUnit(item.id, 'collection-spread-y') * 0.26,
+        tangent: 70,
+      });
+      if (state.expandAll) {
+        const radius = Number(item.radius || 20);
+        const angle = index * 2.399963229728653 + seededUnit(item.id, 'collection-cloud') * 1.2;
+        const ring = Math.sqrt((index + 1) / Math.max(1, rows[2].length));
+        item.x = item.x * (1 - cloudBias) + (centerX + Math.cos(angle) * organicRadius * 0.78 * ring - radius) * cloudBias;
+        item.y = item.y * (1 - cloudBias) + (centerY + Math.sin(angle) * organicRadius * 0.64 * ring - radius) * cloudBias;
+        syncNodeCenter(item);
+      }
+    });
+    const activeCollection = rows[2].find(item => item.active) || rows[2][0];
+    rows[3].forEach(item => {
+      placeAroundParent(item, placed.get(item.parentId) || activeCollection || activeType, {
+        distance: 185 + seededUnit(item.id, 'document-distance') * 150,
+        jitter: 210,
+        spreadX: 0.92 + seededUnit(item.id, 'document-spread-x') * 0.36,
+        spreadY: 0.84 + seededUnit(item.id, 'document-spread-y') * 0.34,
+        tangent: 96,
+      });
+    });
+    const activeDocument = rows[3].find(item => item.active) || rows[3][0];
+    rows[4].forEach(item => {
+      placeAroundParent(item, placed.get(item.parentId) || activeDocument || activeCollection || activeType, {
+        distance: 126 + seededUnit(item.id, 'chunk-distance') * 132,
+        jitter: 190,
+        spreadX: 0.88 + seededUnit(item.id, 'chunk-spread-x') * 0.38,
+        spreadY: 0.82 + seededUnit(item.id, 'chunk-spread-y') * 0.38,
+        tangent: 118,
+      });
+    });
+  };
+
+  const renderStructure = (options = {}) => {
+    state.mode = 'structure';
+    showSemanticPanel(false);
+    syncDefaults();
+    pendingStructureFocusId = options.focusId || '';
+    clearStage();
+    const rows = [[], [], [], [], []];
+    const rootNode = {
+      id: 'root',
+      level: 'root',
+      levelLabel: labels.root || 'Root',
+      kind: 'root',
+      label: data.root?.label || 'Memory',
+      meta: data.root?.meta || '',
+      radius: 25,
+      active: false,
+    };
+    rows[0].push(rootNode);
+    typeItems().forEach(item => rows[1].push({
+      ...item,
+      id: item.id,
+      level: 'type',
+      levelLabel: labels.kind || 'Type',
+      kind: item.kind,
+      label: item.label,
+      meta: `${item.points || 0} · ${item.collection_count || 0} ${labels.collections || 'Collections'}`,
+      radius: item.kind === state.type ? 22 : 19,
+      active: item.kind === state.type,
+    }));
+    const collections = state.expandAll ? allCollectionItems() : collectionItems(state.type);
+    collections.forEach(item => rows[2].push({
+      ...item,
+      level: 'collection',
+      levelLabel: labels.store || 'Store',
+      meta: item.kind === 'document'
+        ? `${item.document_count || 0} ${labels.documents || 'Documents'} · ${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`
+        : `${item.points || 0} ${labels.points || 'Points'}`,
+      radius: item.id === state.collection ? 21 : 18,
+      active: item.id === state.collection,
+      parentId: (typeItems().find(type => type.kind === item.kind) || {}).id || '',
+    }));
+    const collection = selectedCollection();
+    const documentCollections = state.expandAll ? rows[2] : (collection ? [collection] : []);
+    documentCollections.forEach(parentCollection => {
+      const documents = Array.isArray(parentCollection?.documents) ? parentCollection.documents : [];
+      documents.forEach(item => rows[3].push({
+        ...item,
+        id: item.id,
+        level: 'document',
+        levelLabel: labels.documents || 'Documents',
+        kind: 'document',
+        label: item.label || item.document_name,
+      meta: `${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`,
+      radius: item.id === state.document ? 19 : 16,
+      active: item.id === state.document,
+      parentId: parentCollection.id,
+      collection: item.collection || parentCollection.name || '',
+    }));
+    });
+    const document = selectedDocument(collection);
+    const chunkDocuments = state.expandAll ? rows[3] : (document ? [document] : []);
+    chunkDocuments.forEach(parentDocument => {
+      const chunks = Array.isArray(parentDocument?.chunks) ? parentDocument.chunks : [];
+      chunks.forEach(item => rows[4].push({
+        ...item,
+        level: 'chunk',
+        levelLabel: labels.chunks || 'Chunks',
+        kind: 'chunk',
+        meta: shortText(item.preview, 72),
+        radius: item.id === state.chunk ? 18 : 15,
+        active: item.id === state.chunk,
+        parentId: parentDocument.id,
+        collection: item.collection || parentDocument.collection || '',
+        document_id: item.document_id || parentDocument.document_id || '',
+        document_name: item.document_name || parentDocument.document_name || '',
+      }));
+    });
+    const selectedCollectionDocuments = Array.isArray(collection?.documents) ? collection.documents : [];
+    if (!document && collection && !selectedCollectionDocuments.length) {
+      allCollectionEntries(collection).forEach(item => rows[4].push({
+        ...item,
+        level: 'entry',
+        levelLabel: labels.points || 'Memory points',
+        kind: item.kind || collection.kind || 'entry',
+        meta: shortText(item.preview, 72),
+        radius: item.id === state.entry ? 18 : 15,
+        active: item.id === state.entry,
+        parentId: collection.id,
+        collection: item.collection || collection.name || '',
+      }));
+    }
+
+    const widestRow = Math.max(...rows.map(row => row.length), 1);
+    const chunkRows = Math.ceil(rows[4].length / 6);
+    const documentRows = Math.ceil(rows[3].length / 5);
+    const totalNodes = rows.reduce((sum, row) => sum + row.length, 0);
+    const organicSize = Math.sqrt(Math.max(1, totalNodes));
+    const width = state.expandAll
+      ? Math.max(1700, Math.min(2600, organicSize * 150))
+      : Math.max(1180, Math.min(1500, widestRow * 132 + 360));
+    const stageHeight = state.expandAll
+      ? Math.max(1150, Math.min(2200, organicSize * 122))
+      : Math.max(760, 760 + Math.max(0, documentRows - 1) * 92 + Math.max(0, chunkRows - 1) * 70);
+    setStageSize(width, stageHeight, { preserveView: Boolean(options.preserveView) });
+    layoutCluster(rows, width, stageHeight);
+    const activeType = rows[1].find(item => item.active) || rows[1][0];
+    const activeCollection = rows[2].find(item => item.active);
+    const activeDocument = rows[3].find(item => item.active);
+    const activeEntryCollection = rows[2].find(item => item.id === state.collection);
+    const structureEdges = [
+      ...rows[1].map(item => ({ from: rootNode, to: item })),
+      ...rows[2].map(item => ({ from: byId.get(item.parentId) || activeType, to: item })),
+      ...rows[3].map(item => ({ from: byId.get(item.parentId) || activeCollection, to: item })),
+      ...rows[4].map(item => ({ from: byId.get(item.parentId) || activeDocument || activeEntryCollection, to: item })),
+    ].filter(edge => edge.from && edge.to);
+    const positionedItems = rows.flat();
+    relaxStructureLayout(positionedItems, structureEdges, width, stageHeight);
+    centerStructureLayoutItems(positionedItems, width, stageHeight);
+    applyRememberedStructureAnchors(positionedItems, width, stageHeight);
+    clearStage();
+    positionedItems.forEach(item => placeNode(item));
+    structureEdges.forEach(edge => line(edge.from, edge.to));
+    startStructureSimulation(positionedItems, structureEdges, width, stageHeight);
+    setInspector(selectedChunk(document) || selectedEntry(collection) || document || collection || selectedType() || null);
+    setModeButtons();
+    if (pendingStructureFocusId) {
+      const focusId = pendingStructureFocusId;
+      pendingStructureFocusId = '';
+      window.requestAnimationFrame(() => focusStructureNode(focusId, {
+        gentle: Boolean(options.gentleFocus),
+        keepScale: Boolean(options.gentleFocus),
+      }));
+    } else {
+      scheduleStructureFit();
+    }
+  };
+
+  const renderSemantic = () => {
+    if (!canShowSemantic()) {
+      renderStructure();
+      return;
+    }
+    state.mode = 'semantic';
+    showSemanticPanel(true);
+    setModeButtons();
+  };
+
+  const renderActiveMode = (options = {}) => {
+    if (state.mode === 'semantic' && canShowSemantic()) {
+      renderSemantic();
+      return;
+    }
+    renderStructure(options);
+  };
+  const selectRoot = () => {
+    state.type = '';
+    state.collection = '';
+    state.document = '';
+    state.chunk = '';
+    state.entry = '';
+    renderActiveMode({ focusId: '', gentleFocus: true, preserveView: true });
+  };
+  const selectType = kind => {
+    if (!kind) return;
+    state.type = kind;
+    state.collection = '';
+    state.document = '';
+    state.chunk = '';
+    state.entry = '';
+    const type = typeItems().find(item => item.kind === kind);
+    renderActiveMode({ focusId: type?.id || '', gentleFocus: true, preserveView: true });
+  };
+  const selectCollection = (collectionId, kind = '') => {
+    if (!collectionId) return;
+    state.type = kind || state.type;
+    state.collection = collectionId;
+    state.document = '';
+    state.chunk = '';
+    state.entry = '';
+    renderActiveMode({ focusId: collectionId, gentleFocus: true, preserveView: true });
+  };
+  const selectDocument = (documentId, collectionId = '') => {
+    if (!documentId) return;
+    state.type = 'document';
+    state.collection = collectionId || state.collection;
+    state.document = documentId;
+    state.chunk = '';
+    state.entry = '';
+    renderActiveMode({ focusId: documentId, gentleFocus: true, preserveView: true });
+  };
+  const selectChunk = (chunkId, collectionId = '', documentId = '') => {
+    if (!chunkId) return;
+    state.type = 'document';
+    state.collection = collectionId || state.collection;
+    state.document = documentId || state.document;
+    state.chunk = chunkId;
+    state.entry = '';
+    renderActiveMode({ focusId: chunkId, gentleFocus: true, preserveView: true });
+  };
+  const selectEntry = (entryId, collectionId = '') => {
+    if (!entryId) return;
+    state.collection = collectionId || state.collection;
+    state.document = '';
+    state.chunk = '';
+    state.entry = entryId;
+    renderActiveMode({ focusId: entryId, gentleFocus: true, preserveView: true });
+  };
+
+  const setModeButtons = () => {
+    const semanticReady = canShowSemantic();
+    if (state.mode === 'semantic' && !semanticReady) {
+      state.mode = 'structure';
+    }
+    modeButtons.forEach(button => {
+      if (button.dataset.memoryBrowserMode === 'semantic') {
+        button.hidden = !semanticReady;
+        button.disabled = !semanticReady;
+        button.setAttribute('aria-disabled', semanticReady ? 'false' : 'true');
+      }
+      const active = button.dataset.memoryBrowserMode === state.mode;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    if (detachLink) {
+      const detachMode = state.mode === 'semantic' && semanticReady ? 'semantic' : 'structure';
+      const params = new URLSearchParams({ fullscreen: '1', mode: detachMode });
+      const collection = selectedCollectionName();
+      const pointContext = semanticReady ? selectedPointContext() : null;
+      if (collection) params.set('collection', collection);
+      if (state.document || pointContext?.document?.id) params.set('document', state.document || pointContext.document.id);
+      if (state.chunk || (pointContext?.pointKind === 'chunk' && pointContext.point?.id)) {
+        params.set('chunk', state.chunk || pointContext.point.id);
+      }
+      if (state.entry || (pointContext?.pointKind === 'entry' && pointContext.point?.id)) {
+        params.set('entry', state.entry || pointContext.point.id);
+      }
+      detachLink.href = `/memories?${params.toString()}`;
+    }
+  };
+  modeButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      if (button.dataset.memoryBrowserMode === 'semantic') {
+        renderSemantic();
+      } else {
+        renderStructure();
+      }
+    });
+  });
+  if (inspector) {
+    inspector.addEventListener('click', async event => {
+      const rootSelect = event.target.closest?.('[data-memory-browser-select-root]');
+      if (rootSelect) {
+        selectRoot();
+        return;
+      }
+      const typeSelect = event.target.closest?.('[data-memory-browser-select-type]');
+      if (typeSelect) {
+        selectType(typeSelect.dataset.memoryBrowserSelectType || '');
+        return;
+      }
+      const collectionSelect = event.target.closest?.('[data-memory-browser-select-collection]');
+      if (collectionSelect) {
+        selectCollection(
+          collectionSelect.dataset.memoryBrowserSelectCollection || '',
+          collectionSelect.dataset.kind || ''
+        );
+        return;
+      }
+      const documentSelect = event.target.closest?.('[data-memory-browser-select-document]');
+      if (documentSelect) {
+        selectDocument(
+          documentSelect.dataset.memoryBrowserSelectDocument || '',
+          documentSelect.dataset.collectionId || ''
+        );
+        return;
+      }
+      const chunkSelect = event.target.closest?.('[data-memory-browser-select-chunk]');
+      if (chunkSelect) {
+        selectChunk(
+          chunkSelect.dataset.memoryBrowserSelectChunk || '',
+          chunkSelect.dataset.collectionId || '',
+          chunkSelect.dataset.documentId || ''
+        );
+        return;
+      }
+      const entrySelect = event.target.closest?.('[data-memory-browser-select-entry]');
+      if (entrySelect) {
+        selectEntry(
+          entrySelect.dataset.memoryBrowserSelectEntry || '',
+          entrySelect.dataset.collectionId || ''
+        );
+        return;
+      }
+      const pointDelete = event.target.closest?.('[data-memory-browser-delete-point]');
+      if (pointDelete) {
+        const collection = pointDelete.dataset.collection || '';
+        const pointId = pointDelete.dataset.pointId || '';
+        if (!collection || !pointId) return;
+        if (!window.confirm(labels.delete_confirm || 'Delete this memory entry?')) return;
+        pointDelete.disabled = true;
+        try {
+          await postBrowserDelete('/memories/browser/delete-point', { collection, point_id: pointId });
+          window.location.reload();
+        } catch (error) {
+          window.alert(error?.message || labels.delete_failed || 'Delete failed.');
+          pointDelete.disabled = false;
+        }
+        return;
+      }
+      const documentDelete = event.target.closest?.('[data-memory-browser-delete-document]');
+      if (documentDelete) {
+        const collection = documentDelete.dataset.collection || '';
+        const documentId = documentDelete.dataset.documentId || '';
+        const documentName = documentDelete.dataset.documentName || '';
+        if (!collection || (!documentId && !documentName)) return;
+        if (!window.confirm(labels.delete_document_confirm || 'Dieses Dokument mit allen Chunks wirklich loeschen?')) return;
+        documentDelete.disabled = true;
+        try {
+          await postBrowserDelete('/memories/browser/delete-document', {
+            collection,
+            document_id: documentId,
+            document_name: documentName,
+          });
+          window.location.reload();
+        } catch (error) {
+          window.alert(error?.message || labels.delete_failed || 'Delete failed.');
+          documentDelete.disabled = false;
+        }
+      }
+    });
+  }
+  structureZoomButtons.forEach(button => {
+    button.addEventListener('click', () => zoomStructure(button.dataset.memoryBrowserZoom));
+  });
+  if (structureFitButton) structureFitButton.addEventListener('click', resetStructureFit);
+  panBarX?.addEventListener('input', setStructurePanFromBar);
+  panBarY?.addEventListener('input', setStructurePanFromBar);
+  if (structureExpandAllButton) {
+    structureExpandAllButton.addEventListener('click', () => {
+      state.expandAll = !state.expandAll;
+      if (!state.expandAll) {
+        state.type = '';
+        state.collection = '';
+        state.document = '';
+        state.chunk = '';
+        state.entry = '';
+      }
+      structureExpandAllButton.setAttribute('aria-pressed', state.expandAll ? 'true' : 'false');
+      structureExpandAllButton.textContent = state.expandAll
+        ? (structureExpandAllButton.dataset.labelCollapse || 'Alles einklappen')
+        : (structureExpandAllButton.dataset.labelExpand || 'Alle aufklappen');
+      renderStructure({ focusId: state.expandAll ? activeStructureNodeId() : '' });
+    });
+  }
+  if (structureCenterButton) structureCenterButton.addEventListener('click', centerStructureView);
+  if (structureOptionsToggle && structureOptionsPanel) {
+    structureOptionsToggle.addEventListener('click', () => {
+      const open = structureOptionsPanel.hidden;
+      structureOptionsPanel.hidden = !open;
+      structureOptionsToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+  structureOptionInputs.forEach(input => {
+    input.addEventListener('input', () => {
+      applyStructureOptionInput(input);
+      saveStructureOptions();
+      if (structureSimulation) {
+        warmStructureSimulation(1);
+      } else {
+        renderStructure({ focusId: activeStructureNodeId() });
+      }
+    });
+  });
+  if (stage) {
+    stage.addEventListener('wheel', wheelStructureZoom, { passive: false });
+    stage.addEventListener('pointerdown', startStagePan);
+    stage.addEventListener('pointermove', moveStagePan);
+    stage.addEventListener('pointerup', stopStagePan);
+    stage.addEventListener('pointercancel', stopStagePan);
+    stage.addEventListener('lostpointercapture', stopStagePan);
+  }
+
+  if (state.mode === 'semantic') {
+    loadStructureOptions();
+    renderSemantic();
+  } else {
+    loadStructureOptions();
+    renderStructure();
+  }
+})();
+</script>

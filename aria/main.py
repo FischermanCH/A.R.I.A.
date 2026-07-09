@@ -63,6 +63,7 @@ from aria.web.main_ui_helpers import (
     replace_agent_name as _replace_agent_name,
 )
 from aria.web.memories_routes import register_memories_routes
+from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 from aria.web.notes_routes import NotesRouteDeps, register_notes_routes
 from aria.web.recipes_routes import register_recipe_routes
 from aria.web.stats_routes import _refresh_pricing_snapshot
@@ -329,13 +330,43 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "group": "wiki",
     },
     {
+        "id": "chat",
+        "label_i18n": "help.doc_chat",
+        "label_default": "Chat & Queue",
+        "path": "docs/help/chat.md",
+        "summary_i18n": "help.doc_chat_summary",
+        "summary_default": "How chat, prompt queue, confirmations, details, and mobile use work.",
+        "icon": "llm",
+        "group": "wiki",
+    },
+    {
+        "id": "navigation",
+        "label_i18n": "help.doc_navigation",
+        "label_default": "Navigation & Menus",
+        "path": "docs/help/navigation.md",
+        "summary_i18n": "help.doc_navigation_summary",
+        "summary_default": "How header navigation, the account menu, Settings, Admin, and Extended view fit together.",
+        "icon": "settings",
+        "group": "wiki",
+    },
+    {
         "id": "memory",
         "label_i18n": "help.doc_memory",
         "label_default": "Memory",
         "path": "docs/wiki/Memory.md",
         "summary_i18n": "help.doc_memory_summary",
-        "summary_default": "Memory, RAG documents, Memory Map, and recall behavior explained compactly.",
+        "summary_default": "Memory, RAG documents, the graphical Memory browser, and recall behavior explained compactly.",
         "icon": "memories",
+        "group": "wiki",
+    },
+    {
+        "id": "notes",
+        "label_i18n": "help.doc_notes",
+        "label_default": "Notes",
+        "path": "docs/help/notes.md",
+        "summary_i18n": "help.doc_notes_summary",
+        "summary_default": "Markdown notes, folders, moving notes, list view, bulk move, and indexing.",
+        "icon": "notes",
         "group": "wiki",
     },
     {
@@ -346,6 +377,16 @@ HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
         "summary_i18n": "help.doc_skills_summary",
         "summary_default": "How recipes are structured, how triggers work, and how ARIA executes them.",
         "icon": "skills",
+        "group": "wiki",
+    },
+    {
+        "id": "agentic",
+        "label_i18n": "help.doc_agentic",
+        "label_default": "Agentic Operator",
+        "path": "docs/help/agentic-operator.md",
+        "summary_i18n": "help.doc_agentic_summary",
+        "summary_default": "The controlled operator flow: understanding, context, policy, runtime, result, and learning.",
+        "icon": "routing",
         "group": "wiki",
     },
     {
@@ -1031,6 +1072,11 @@ def _build_app() -> FastAPI:
     TEMPLATES.env.globals["agent_text"] = _agent_text
     TEMPLATES.env.globals["lang_flag"] = _lang_flag
     TEMPLATES.env.globals["lang_label"] = _lang_label
+    TEMPLATES.env.globals["nav_section_items"] = nav_section_items
+    TEMPLATES.env.globals["context_nav_items"] = context_nav_items
+    TEMPLATES.env.globals["context_nav_context"] = context_nav_context
+    TEMPLATES.env.globals["admin_nav_groups"] = admin_nav_groups
+    TEMPLATES.env.globals["settings_nav_groups"] = settings_nav_groups
     TEMPLATES.env.globals["render_assistant_message_html"] = _render_assistant_message_html
 
     register_auth_middleware(

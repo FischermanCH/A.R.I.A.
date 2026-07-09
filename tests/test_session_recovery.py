@@ -24,6 +24,9 @@ def _current_cookie_scope(host: str = "testserver") -> str:
     return main_mod._cookie_scope_source(public_url=f"http://{host}")
 
 
+_VALID_TEST_CSRF = "dummy_csrf_token_1234567890"
+
+
 def test_protected_route_with_invalid_auth_cookie_redirects_to_session_expired_and_clears_session() -> None:
     client = TestClient(app)
     client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
@@ -75,7 +78,7 @@ def test_json_fetch_on_protected_route_returns_login_required_json() -> None:
 def test_json_fetch_with_invalid_auth_cookie_returns_session_expired_json_and_clears_auth() -> None:
     client = TestClient(app)
     client.cookies.set(_current_cookie_name(AUTH_COOKIE), "invalid.session.cookie")
-    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), _VALID_TEST_CSRF)
 
     response = client.post(
         "/config/llm/models",
@@ -136,7 +139,7 @@ def test_json_fetch_with_temporary_auth_store_unavailability_keeps_auth_cookie(m
         _current_cookie_name(AUTH_COOKIE),
         main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope()),
     )
-    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), _VALID_TEST_CSRF)
 
     monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
 
@@ -205,12 +208,12 @@ def test_memories_upload_without_file_returns_redirect_instead_of_validation_jso
         _current_cookie_name(AUTH_COOKIE),
         main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope()),
     )
-    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), _VALID_TEST_CSRF)
 
     response = client.post(
         "/memories/upload",
         data={
-            "csrf_token": "dummy",
+            "csrf_token": _VALID_TEST_CSRF,
             "collection": "",
             "new_collection_name": "",
             "type": "all",
@@ -223,7 +226,8 @@ def test_memories_upload_without_file_returns_redirect_instead_of_validation_jso
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/memories/explorer?")
+    assert response.headers["location"].startswith("/memories")
+    assert "csrf" not in response.headers["location"].lower()
 
 
 def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None:
@@ -233,12 +237,12 @@ def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None
         _current_cookie_name(AUTH_COOKIE),
         main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope()),
     )
-    client.cookies.set(_current_cookie_name(CSRF_COOKIE), "dummy")
+    client.cookies.set(_current_cookie_name(CSRF_COOKIE), _VALID_TEST_CSRF)
 
     response = client.post(
         "/memories/upload",
         data={
-            "csrf_token": "dummy",
+            "csrf_token": _VALID_TEST_CSRF,
             "collection": "",
             "new_collection_name": "",
             "type": "all",
@@ -252,7 +256,8 @@ def test_memories_upload_multipart_submission_reaches_route(monkeypatch) -> None
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/memories/explorer?")
+    assert response.headers["location"].startswith("/memories")
+    assert "csrf" not in response.headers["location"].lower()
 
 
 def test_namespaced_auth_cookie_takes_precedence_over_invalid_legacy_cookie() -> None:
