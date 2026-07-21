@@ -2,6 +2,8 @@
 
 Stand: 2026-07-09
 
+> LIVE-EVIDENCE/HISTORY: Dieses Dossier sammelt reale Ausreisser als Belege. Aktive Matrix, Priorisierung und naechste Slices stehen ausschliesslich in `docs/internal/agentic-master-plan.md`.
+
 Dieses Dossier sammelt reale Alpha-Ausreisser, die als Architektur-Regressionen behandelt werden. Ziel ist nicht, fuer jede Formulierung einen neuen Spezialfall zu bauen, sondern den gemeinsamen Agentic Action Flow zu schuetzen:
 
 1. Prompt kommt rein.
@@ -65,7 +67,6 @@ Die wichtigsten Live-Regressions liegen in:
 
 - `tests/test_pipeline.py::test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded`
 - `tests/test_pipeline.py::test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_generic_server_alias`
-- `tests/test_pipeline.py::test_pipeline_runtime_task_fastpath_routes_plural_server_disk_capacity_to_ssh`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold`
 - `tests/test_pipeline.py::test_pipeline_multi_target_ssh_repairs_llm_threshold_count_mismatch`

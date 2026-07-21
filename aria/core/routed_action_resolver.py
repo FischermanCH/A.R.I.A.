@@ -3,11 +3,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from dataclasses import replace
+import re
 from typing import Any
 
 from aria.core.action_plan import CapabilityDraft
 from aria.core.action_plan import MemoryHints
 from aria.core.agentic_prompt_flow import agentic_context_debug_line
+from aria.core.capability_catalog import capability_executor_kinds
+from aria.core.capability_catalog import normalize_capability
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.connection_ref_scope import ConnectionRefScope
 from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
@@ -16,6 +19,18 @@ from aria.core.connection_semantic_resolver import build_routing_decision_record
 from aria.core.connection_semantic_resolver import connection_label_match_score
 from aria.core.connection_dossiers import with_capability_draft_updates
 from aria.core.routing_resolver import infer_preferred_connection_kind
+
+
+def _draft_value(draft: Any | None, key: str, default: Any = "") -> Any:
+    if isinstance(draft, dict):
+        return draft.get(key, default)
+    return getattr(draft, key, default)
+
+
+def _with_draft_connection_kind(draft: Any | None, connection_kind: str) -> Any | None:
+    if isinstance(draft, dict):
+        return {**draft, "connection_kind": connection_kind}
+    return with_capability_draft_updates(draft, connection_kind=connection_kind)
 
 
 @dataclass(slots=True)
@@ -31,6 +46,8 @@ class RoutedActionResolverRequest:
 class RoutedActionResolverPrelude:
     effective_llm_client: Any | None
     effective_kind: str
+    effective_kind_source: str
+    legacy_inferred_kind: str
     candidate_connections: dict[str, Any]
     working_draft: Any
     ref_scope: ConnectionRefScope
@@ -121,10 +138,26 @@ class RoutedActionResolver:
         effective_llm_client = default_llm_client if request.llm_client is ... else request.llm_client
         connection_pools = self._callbacks.connection_pools()
         effective_kind = normalize_connection_kind(
-            str(getattr(request.capability_draft, "connection_kind", "") or "")
+            str(_draft_value(request.capability_draft, "connection_kind", "") or "")
         )
+        effective_kind_source = "draft" if effective_kind else ""
+        legacy_inferred_kind = ""
         if not effective_kind:
-            effective_kind = infer_preferred_connection_kind(
+            draft_capability = normalize_capability(
+                str(_draft_value(request.capability_draft, "capability", "") or "")
+            )
+            configured_kinds = set(connection_pools.keys())
+            contract_kinds = [
+                kind for kind in capability_executor_kinds(draft_capability) if kind in configured_kinds
+            ]
+            if len(contract_kinds) == 1:
+                effective_kind = contract_kinds[0]
+                effective_kind_source = "capability_contract"
+            elif draft_capability:
+                effective_kind_source = "unresolved_capability_contract"
+            else:
+                effective_kind_source = "missing_contract"
+            legacy_inferred_kind = infer_preferred_connection_kind(
                 request.message,
                 available_kinds=connection_pools.keys(),
             )
@@ -135,6 +168,10 @@ class RoutedActionResolver:
         working_draft = request.capability_draft
         if working_draft is None:
             working_draft = CapabilityDraft(capability="", connection_kind=effective_kind)
+        elif effective_kind and not normalize_connection_kind(
+            str(_draft_value(working_draft, "connection_kind", "") or "")
+        ):
+            working_draft = _with_draft_connection_kind(working_draft, effective_kind)
         ref_scope = ConnectionRefScope.from_draft(working_draft)
         if effective_kind == "rss":
             effective_llm_client = None
@@ -148,6 +185,8 @@ class RoutedActionResolver:
         return RoutedActionResolverPrelude(
             effective_llm_client=effective_llm_client,
             effective_kind=effective_kind,
+            effective_kind_source=effective_kind_source,
+            legacy_inferred_kind=legacy_inferred_kind,
             candidate_connections=candidate_connections,
             working_draft=working_draft,
             ref_scope=ref_scope,
@@ -165,22 +204,23 @@ class RoutedActionResolver:
             llm_client=prelude.effective_llm_client,
             language=request.language,
         )
-        resolved = self._callbacks.append_debug_detail_lines(
-            resolved,
+        debug_lines = [
             agentic_context_debug_line(
                 "capability_draft",
                 {
-                    "capability": str(getattr(prelude.working_draft, "capability", "") or "").strip() or "-",
+                    "capability": str(_draft_value(prelude.working_draft, "capability", "") or "").strip() or "-",
                     "kind": prelude.effective_kind or "-",
+                    "kind_source": prelude.effective_kind_source or "-",
                     **prelude.ref_scope.debug_fields(),
-                    "path": str(getattr(prelude.working_draft, "path", "") or "").strip() or "-",
-                    "content": str(getattr(prelude.working_draft, "content", "") or "").strip() or "-",
+                    "path": str(_draft_value(prelude.working_draft, "path", "") or "").strip() or "-",
+                    "content": str(_draft_value(prelude.working_draft, "content", "") or "").strip() or "-",
                 },
             ),
             agentic_context_debug_line(
                 "candidate_pool",
                 {
                     "effective_kind": prelude.effective_kind or "-",
+                    "kind_source": prelude.effective_kind_source or "-",
                     "candidates": ", ".join(
                         sorted(
                             str(ref).strip()
@@ -191,6 +231,22 @@ class RoutedActionResolver:
                     or "-",
                 },
             ),
+        ]
+        if prelude.legacy_inferred_kind:
+            debug_lines.append(
+                agentic_context_debug_line(
+                    "legacy_kind_inference",
+                    {
+                        "component": "routed_action_resolver",
+                        "legacy_inferred_kind": prelude.legacy_inferred_kind or "-",
+                        "authority": "none",
+                        "effect": "observability_only",
+                    },
+                )
+            )
+        resolved = self._callbacks.append_debug_detail_lines(
+            resolved,
+            *debug_lines,
         )
         if prelude.effective_llm_client is not None and not self._callbacks.chain_complete(resolved):
             fallback_resolved = await self._callbacks.resolve_live_routing_chain(
@@ -308,36 +364,34 @@ class RoutedActionResolver:
                 top_ref
                 and top_ref != str(hints.connection_ref or "").strip()
                 and top_score >= 1000
+                and not ref_scope.has_explicit
                 and not ref_scope.has_requested
                 and not plural_target_scope
             ):
                 old_ref = str(hints.connection_ref or "").strip()
                 resolved = self._callbacks.append_debug_detail_lines(
                     resolved,
-                    "Routing Debug: memory_hint ignored_by_explicit_target "
-                    f"ref={old_ref} explicit_ref={top_ref}",
+                    "Routing Debug: memory_hint ignored_by_semantic_candidate "
+                    f"ref={old_ref} candidate_ref={top_ref} authority=candidate_only",
                 )
-                resolved = self._callbacks.append_debug_detail_lines(
-                    resolved,
-                    f"Routing Debug: explicit_ref selected ref={top_ref}",
+                semantic_hint = SemanticConnectionHint(
+                    connection_kind=top_candidate.connection_kind or effective_kind,
+                    connection_ref=top_ref,
+                    source=top_candidate.source or "semantic_alias",
+                    note=top_candidate.note or top_ref,
                 )
                 hints = replace(
                     hints,
-                    connection_kind=top_candidate.connection_kind or effective_kind,
-                    connection_ref=top_ref,
-                    source="explicit_ref",
-                    matched_text=top_ref,
-                    notes=list(hints.notes) + ([top_candidate.note] if top_candidate.note else []),
+                    connection_kind=semantic_hint.connection_kind or effective_kind,
+                    connection_ref=semantic_hint.connection_ref,
+                    source=semantic_hint.source,
+                    matched_text=semantic_hint.note,
+                    notes=list(hints.notes) + ([semantic_hint.note] if semantic_hint.note else []),
                 )
                 semantic_record = build_routing_decision_record(
-                    stage="explicit_connection_resolution",
+                    stage="semantic_candidate_resolution",
                     candidates=semantic_candidates,
-                    hint=SemanticConnectionHint(
-                        connection_kind=top_candidate.connection_kind or effective_kind,
-                        connection_ref=top_ref,
-                        source="explicit_ref",
-                        note=top_ref,
-                    ),
+                    hint=semantic_hint,
                     preferred_kind=effective_kind,
                 )
         return RoutedActionSemanticHintUpdate(
@@ -540,6 +594,66 @@ class RoutedActionResolver:
             planner_connection_candidates=planner_connection_candidates,
         )
 
+    def block_explicit_ref_memory_hint_mismatch(
+        self,
+        *,
+        resolved: dict[str, Any],
+        working_draft: Any,
+        hints: MemoryHints,
+    ) -> RoutedActionForcedRefUpdate:
+        forced_ref = str(hints.connection_ref or "").strip()
+        explicit_ref = self._explicit_single_ref_from_draft_or_resolution(
+            working_draft=working_draft,
+            resolved=resolved,
+        )
+        if (
+            forced_ref
+            and explicit_ref
+            and forced_ref != explicit_ref
+            and str(hints.source or "").strip() == "memory_hint"
+        ):
+            resolved = self._callbacks.append_debug_detail_lines(
+                resolved,
+                "Routing Debug: memory_hint ignored_by_explicit_target "
+                f"ref={forced_ref} explicit_ref={explicit_ref}",
+            )
+            hints = replace(
+                hints,
+                connection_ref=explicit_ref,
+                source="explicit_ref",
+                matched_text=explicit_ref,
+            )
+            forced_ref = explicit_ref
+        return RoutedActionForcedRefUpdate(
+            resolved=resolved,
+            working_draft=working_draft,
+            hints=hints,
+            forced_ref=forced_ref,
+        )
+
+    @staticmethod
+    def _explicit_single_ref_from_draft_or_resolution(
+        *,
+        working_draft: Any,
+        resolved: dict[str, Any],
+    ) -> str:
+        scope_ref = ConnectionRefScope.from_draft(working_draft).explicit_ref
+        if scope_ref:
+            return scope_ref
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        decision = dict(resolved.get("decision", {}) or {})
+        for value in (payload.get("connection_ref", ""), decision.get("ref", "")):
+            clean = str(value or "").strip()
+            if clean:
+                return clean
+        for line in list(resolved.get("detail_lines", []) or []):
+            match = re.search(r"\bexplicit_ref=([^\s`]+)", str(line or ""))
+            if match:
+                clean = str(match.group(1) or "").strip()
+                if clean and clean != "-":
+                    return clean
+        return ""
+
     def block_requested_ref_memory_hint_mismatch(
         self,
         *,
@@ -657,14 +771,103 @@ class RoutedActionResolver:
             semantic_record=semantic_record,
         )
 
+    def bind_forced_ref_from_resolved_decision(
+        self,
+        *,
+        resolved: dict[str, Any],
+        working_draft: Any,
+        hints: MemoryHints,
+        effective_kind: str,
+        candidate_connections: dict[str, Any],
+    ) -> RoutedActionForcedRefUpdate:
+        forced_ref = str(hints.connection_ref or "").strip()
+        if forced_ref:
+            return RoutedActionForcedRefUpdate(
+                resolved=resolved,
+                working_draft=working_draft,
+                hints=hints,
+                forced_ref=forced_ref,
+            )
+        decision = dict(resolved.get("decision", {}) or {})
+        decision_kind = normalize_connection_kind(str(decision.get("kind", "") or ""))
+        decision_ref = str(decision.get("ref", "") or "").strip()
+        decision_source = str(decision.get("source", "") or "").strip()
+        requested_ref = ConnectionRefScope.from_draft(working_draft).requested_ref
+        if requested_ref and decision_ref and decision_source == "default_single_profile":
+            resolved = self._callbacks.append_debug_detail_lines(
+                resolved,
+                "Routing Debug: default_single_profile blocked_by_requested_ref "
+                f"requested_ref={requested_ref} ref={decision_ref}",
+            )
+            return RoutedActionForcedRefUpdate(
+                resolved=resolved,
+                working_draft=working_draft,
+                hints=hints,
+                forced_ref="",
+            )
+        if not decision_ref:
+            decision_ref = self._explicit_single_ref_from_draft_or_resolution(
+                working_draft=working_draft,
+                resolved=resolved,
+            )
+            if decision_ref:
+                decision_kind = decision_kind or effective_kind
+        draft_capability = str(getattr(working_draft, "capability", "") or "").strip()
+        draft_content = str(getattr(working_draft, "content", "") or "").strip()
+        draft_path = str(getattr(working_draft, "path", "") or "").strip()
+        has_executor_input = True
+        if draft_capability in {"ssh_command", "discord_send", "webhook_send", "email_send", "mail_search", "mqtt_publish"}:
+            has_executor_input = bool(draft_content)
+        elif draft_capability in {"file_read", "file_write"}:
+            has_executor_input = bool(draft_path)
+        if (
+            (bool(decision.get("found")) or decision_ref)
+            and decision_kind == effective_kind
+            and decision_ref
+            and decision_ref in dict(candidate_connections or {})
+            and has_executor_input
+        ):
+            hints = replace(
+                hints,
+                connection_kind=effective_kind,
+                connection_ref=decision_ref,
+                source=str(decision.get("source", "") or "resolved_decision").strip() or "resolved_decision",
+                matched_text=str(decision.get("reason", "") or decision_ref).strip() or decision_ref,
+            )
+            working_draft = with_capability_draft_updates(
+                working_draft,
+                explicit_connection_ref=decision_ref,
+                requested_connection_ref="",
+            )
+            resolved = self._callbacks.append_debug_detail_lines(
+                resolved,
+                "Routing Debug: resolved_decision_bound_to_action_contract "
+                f"kind={effective_kind} ref={decision_ref}",
+            )
+            forced_ref = decision_ref
+        return RoutedActionForcedRefUpdate(
+            resolved=resolved,
+            working_draft=working_draft,
+            hints=hints,
+            forced_ref=forced_ref,
+        )
+
     @staticmethod
     def apply_default_single_profile(
         *,
         working_draft: Any,
         hints: MemoryHints,
         candidate_connections: dict[str, Any],
+        ref_scope: ConnectionRefScope | None = None,
     ) -> RoutedActionForcedRefUpdate:
         forced_ref = str(hints.connection_ref or "").strip()
+        if not forced_ref and ref_scope is not None and ref_scope.has_requested:
+            return RoutedActionForcedRefUpdate(
+                resolved={},
+                working_draft=working_draft,
+                hints=hints,
+                forced_ref="",
+            )
         if not forced_ref and len(candidate_connections) == 1:
             forced_ref = str(next(iter(candidate_connections.keys())) or "").strip()
             if forced_ref and not str(hints.source or "").strip():
@@ -858,6 +1061,28 @@ class RoutedActionResolver:
         forced_ref = forced_update.forced_ref
         planner_connection_candidates = forced_update.planner_connection_candidates or planner_connection_candidates
 
+        forced_update = self.block_explicit_ref_memory_hint_mismatch(
+            resolved=resolved,
+            working_draft=working_draft,
+            hints=hints,
+        )
+        resolved = forced_update.resolved
+        working_draft = forced_update.working_draft
+        hints = forced_update.hints
+        forced_ref = forced_update.forced_ref
+
+        forced_update = self.bind_forced_ref_from_resolved_decision(
+            resolved=resolved,
+            working_draft=working_draft,
+            hints=hints,
+            effective_kind=effective_kind,
+            candidate_connections=candidate_connections,
+        )
+        resolved = forced_update.resolved
+        working_draft = forced_update.working_draft
+        hints = forced_update.hints
+        forced_ref = forced_update.forced_ref
+
         forced_update = self.block_requested_ref_memory_hint_mismatch(
             requested_connection_ref_matches_candidate=semantic_callbacks.requested_ref_matches_candidate,
             resolved=resolved,
@@ -891,6 +1116,7 @@ class RoutedActionResolver:
             working_draft=working_draft,
             hints=hints,
             candidate_connections=candidate_connections,
+            ref_scope=ConnectionRefScope.from_draft(working_draft),
         )
         working_draft = forced_update.working_draft
         hints = forced_update.hints

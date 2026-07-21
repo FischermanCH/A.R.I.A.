@@ -41,6 +41,7 @@ def test_operator_trace_orders_existing_operator_phases() -> None:
     assert [line.split("phase=", 1)[1].split(" ", 1)[0] for line in traces] == [
         "understanding",
         "context",
+        "draft",
         "policy",
         "runtime",
         "result",
@@ -87,6 +88,222 @@ def test_operator_trace_maps_context_packet_and_answer_contract() -> None:
     assert any("requests=docs:search" in line and "loaded=docs:2" in line for line in traces)
     assert any("phase=result" in line and "source=answer_contract" in line for line in traces)
     assert any("status=found" in line and "source_bound=true" in line for line in traces)
+
+
+def test_operator_trace_maps_meta_catalog_surface_contract_review() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: meta_catalog_surface_contract_review "
+            "from=docs to=connections mode=inventory selected=connection|sftp|sync-node-01 "
+            "confidence=0.94 reason=configured_connection_profile_question",
+        ]
+    )
+
+    assert any("phase=context" in line and "source=meta_catalog_surface_contract_review" in line for line in traces)
+    assert any("from=docs" in line and "to=connections" in line and "selected=connection|sftp|sync-node-01" in line for line in traces)
+
+
+def test_operator_trace_maps_agentic_action_policy_and_execution_contracts() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+            "Routing Debug: agentic_action_contract candidate_kind=template candidate_id=discord_send_message candidate_role=template_candidate capability=discord_send kind=discord ref=alerts execution_state=needs_confirmation",
+            "Routing Debug: agentic_policy_decision action=ask_user reason=outbound_message_confirmation policy=message_confirm guardrail=- capability=discord_send kind=discord ref=alerts",
+            "Routing Debug: agentic_runtime ref=alerts kind=discord capability=discord_send operation=send message=ARIA_smoke_test boundary=runtime_execution",
+        ]
+    )
+
+    assert any("phase=context" in line and "source=meta_catalog_contract" in line for line in traces)
+    assert any("phase=draft" in line and "source=agentic_action_contract" in line for line in traces)
+    assert any("candidate_id=discord_send_message" in line for line in traces)
+    assert any("phase=policy" in line and "source=agentic_policy_decision" in line for line in traces)
+    assert any("phase=runtime" in line and "source=agentic_runtime" in line for line in traces)
+
+
+def test_operator_trace_maps_live_routed_action_shape_to_draft_policy_and_runtime() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+            "intents=chat,runtime_action needs_context=true context_directions=connections "
+            "surfaces=connections actions=discord_send_message answer_mode=plan_action "
+            "risk=medium needs_confirmation=true confidence=0.97 priority=connection|discord|fischerman-aria-messages",
+            "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+            "Ausgeführt via Discord-Profil `fischerman-aria-messages`",
+        ]
+    )
+
+    assert any("phase=understanding" in line and "actions=discord_send_message" in line for line in traces)
+    assert any("phase=draft" in line and "source=aria_turn_surface_action_arbitration" in line for line in traces)
+    assert any("phase=policy" in line and "action=confirm" in line for line in traces)
+    assert any(
+        "phase=runtime" in line
+        and "source=execution_detail" in line
+        and "kind=discord" in line
+        and "ref=fischerman-aria-messages" in line
+        for line in traces
+    )
+
+
+def test_operator_trace_aggregates_multi_target_execution_details() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+            "intents=runtime_action needs_context=true surfaces=connections "
+            "actions=connection_action_ssh answer_mode=plan_action risk=medium "
+            "needs_confirmation=true confidence=0.95",
+            "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+            "Ausgeführt via SSH-Profil `dev-node-01`",
+            "Befehl: df -h",
+            "Ausgeführt via SSH-Profil `dev-node-02`",
+            "Befehl: df -h",
+            "Ausgeführt via SSH-Profil `app-node-01`",
+            "Befehl: df -h",
+        ]
+    )
+
+    runtime = next(line for line in traces if "phase=runtime" in line)
+    assert "source=execution_detail" in runtime
+    assert "kind=ssh" in runtime
+    assert "targets=3" in runtime
+    assert "first_ref=dev-node-01" in runtime
+    assert " ref=dev-node-01" not in runtime
+
+
+def test_operator_trace_keeps_monitoring_explicit_ref_single_target_runtime() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+            "intents=chat,runtime_action needs_context=true context_directions=connections "
+            "surfaces=connections actions=ssh_run_command answer_mode=direct_answer "
+            "risk=medium needs_confirmation=true confidence=0.88 priority=connection|ssh|ops-alert-01",
+            "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+            "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ops-alert-01 requested_ref=- path=- content=uptime boundary=context_enrichment",
+            "Routing Debug: plural_target_scope disabled_by_explicit_single_target explicit_ref=ops-alert-01",
+            "Routing Debug: agentic_runtime ref=ops-alert-01 kind=ssh capability=ssh_command operation=run_command command=uptime boundary=runtime_execution",
+            "Ausgeführt via SSH-Profil `ops-alert-01`",
+            "Befehl: uptime",
+        ]
+    )
+
+    runtime = next(line for line in traces if "phase=runtime" in line)
+    assert "source=agentic_runtime" in runtime
+    assert "ref=ops-alert-01" in runtime
+    assert "targets=" not in runtime
+    assert not any("source=multi_target_ssh_timing" in line for line in traces)
+
+
+def test_operator_trace_real_policy_decision_overrides_turn_confirmation_hint() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+            "intents=chat,runtime_action needs_context=true context_directions=connections "
+            "surfaces=connections actions=ssh_run_command answer_mode=plan_action "
+            "risk=medium needs_confirmation=true confidence=0.88 priority=connection|ssh|ops-alert-01",
+            "Routing Debug: agentic_policy_decision action=allow reason=ssh_readonly_policy_allow "
+            "policy=- guardrail=ssh-dangerous-commands-block capability=ssh_command kind=ssh ref=ops-alert-01",
+            "Routing Debug: agentic_execution_decision next_step=allow capability=ssh_command "
+            "kind=ssh ref=ops-alert-01 operation=run_command",
+        ]
+    )
+
+    policy = next(line for line in traces if "phase=policy" in line)
+    assert "source=agentic_policy_decision" in policy
+    assert "action=allow" in policy
+    assert "action=confirm" not in policy
+
+
+def test_operator_trace_live_export_golden_shape() -> None:
+    ssh_lines = [
+        "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+        "intents=runtime_action needs_context=true surfaces=connections actions=connection_action_ssh "
+        "answer_mode=plan_action risk=medium needs_confirmation=true confidence=0.95",
+        "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+        "Ausgeführt via SSH-Profil `dev-node-01`",
+        "Ausgeführt via SSH-Profil `dev-node-02`",
+    ]
+    http_lines = [
+        "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+        "intents=chat,runtime_action needs_context=true surfaces=connections actions=http_api_request "
+        "answer_mode=plan_action risk=low needs_confirmation=false confidence=0.95",
+        "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+        "Ausgeführt via HTTP API-Profil `n8n-test-http-api`",
+        "Pfad: /health",
+    ]
+    pending_discord_lines = [
+        "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+        "intents=chat,runtime_action needs_context=true surfaces=connections actions=discord_send_message "
+        "answer_mode=plan_action risk=medium needs_confirmation=true confidence=0.95",
+        "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+    ]
+    confirmed_discord_lines = [
+        "Routing Debug: agentic_action_contract candidate_kind=template candidate_id=discord_send_message "
+        "candidate_role=template_candidate capability=discord_send kind=discord ref=fischerman-aria-messages "
+        "execution_state=needs_confirmation",
+        "Routing Debug: agentic_policy_decision action=ask_user reason=outbound_message_confirmation "
+        "policy=message_confirm guardrail=- capability=discord_send kind=discord ref=fischerman-aria-messages",
+        "Ausgeführt via Discord-Profil `fischerman-aria-messages`",
+    ]
+
+    ssh_phases = [line.split("phase=", 1)[1].split(" ", 1)[0] for line in build_operator_trace_lines(ssh_lines)]
+    http_phases = [line.split("phase=", 1)[1].split(" ", 1)[0] for line in build_operator_trace_lines(http_lines)]
+    pending_phases = [line.split("phase=", 1)[1].split(" ", 1)[0] for line in build_operator_trace_lines(pending_discord_lines)]
+    confirmed_phases = [line.split("phase=", 1)[1].split(" ", 1)[0] for line in build_operator_trace_lines(confirmed_discord_lines)]
+
+    assert ssh_phases == ["understanding", "context", "draft", "policy", "runtime"]
+    assert http_phases == ["understanding", "context", "draft", "policy", "runtime"]
+    assert pending_phases == ["understanding", "context", "draft", "policy"]
+    assert confirmed_phases == ["draft", "policy", "runtime"]
+
+
+def test_operator_trace_pending_confirmation_does_not_invent_runtime() -> None:
+    traces = build_operator_trace_lines(
+        [
+            "Routing Debug: aria_turn_surface_action_arbitration source=aria_meta_catalog_routing "
+            "intents=chat,runtime_action needs_context=true surfaces=connections "
+            "actions=discord_send_message answer_mode=plan_action risk=medium "
+            "needs_confirmation=true confidence=0.97",
+            "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+        ]
+    )
+
+    assert any("phase=draft" in line for line in traces)
+    assert any("phase=policy" in line and "action=confirm" in line for line in traces)
+    assert not any("phase=runtime" in line for line in traces)
+
+
+def test_operator_trace_append_handles_confirm_execute_without_routing_debug() -> None:
+    lines = [
+        "Ausgeführt via Discord-Profil `fischerman-aria-messages`",
+        "Routing Debug: web_total_wall_time total_ms=3227 source=web_chat_route boundary=prompt_in_to_html_ready",
+    ]
+
+    appended = append_operator_trace_detail_lines(lines, allow_execution_only=True)
+
+    assert any(
+        "operator_trace phase=runtime" in line
+        and "source=execution_detail" in line
+        and "kind=discord" in line
+        and "ref=fischerman-aria-messages" in line
+        for line in appended
+    )
+    assert appended.index("Ausgeführt via Discord-Profil `fischerman-aria-messages`") > next(
+        index for index, line in enumerate(appended) if "operator_trace phase=runtime" in line
+    )
+
+
+def test_operator_trace_append_handles_execution_only_detail_shapes() -> None:
+    cases = [
+        ("Ausgeführt via SSH-Profil `dev-node-01`", "kind=ssh", "ref=dev-node-01"),
+        ("Ausgeführt via HTTP API-Profil `n8n-test-http-api`", "kind=http_api", "ref=n8n-test-http-api"),
+        ("Ausgeführt via Discord-Profil `fischerman-aria-messages`", "kind=discord", "ref=fischerman-aria-messages"),
+    ]
+
+    for detail, kind_field, ref_field in cases:
+        appended = append_operator_trace_detail_lines([detail], allow_execution_only=True)
+        runtime = next(line for line in appended if "operator_trace phase=runtime" in line)
+        assert "source=execution_detail" in runtime
+        assert kind_field in runtime
+        assert ref_field in runtime
 
 
 def test_operator_trace_append_is_idempotent() -> None:

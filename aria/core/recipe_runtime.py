@@ -784,14 +784,18 @@ class RecipeRuntime:
                         query=web_query,
                         limit=3,
                     )
+                web_params: dict[str, Any] = {
+                    "action": "search",
+                    "user_id": user_id,
+                    "language": language,
+                    "note_context_hits": [hit.as_dict() for hit in note_hits],
+                }
+                web_source_plan = context_overrides.get("web_source_plan")
+                if isinstance(web_source_plan, dict):
+                    web_params["web_source_plan"] = web_source_plan
                 web_result = await web_search_skill.execute(
                     web_query,
-                    {
-                        "action": "search",
-                        "user_id": user_id,
-                        "language": language,
-                        "note_context_hits": [hit.as_dict() for hit in note_hits],
-                    },
+                    web_params,
                 )
                 web_result.skill_name = "web_search"
                 results.append(web_result)

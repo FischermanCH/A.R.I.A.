@@ -18,7 +18,7 @@ def test_record_learning_event_appends_redacted_jsonl(tmp_path) -> None:
             "summary": "Learn source behavior",
             "evidence": {
                 "message": "token=super-secret-value",
-                "api_key": "sk-testsecret1234567890",
+                "api_key": "dummy-provider-secret",
             },
             "metadata": {"auth": "Bearer abcdefghijklmnop"},
         },
@@ -29,7 +29,7 @@ def test_record_learning_event_appends_redacted_jsonl(tmp_path) -> None:
     assert path.exists()
     raw = path.read_text(encoding="utf-8")
     assert "super-secret-value" not in raw
-    assert "sk-testsecret" not in raw
+    assert "dummy-provider-secret" not in raw
     assert "abcdefghijklmnop" not in raw
     stored = json.loads(raw)
     assert stored["evidence"]["api_key"] == "[REDACTED]"

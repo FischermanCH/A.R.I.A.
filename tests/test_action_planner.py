@@ -295,7 +295,7 @@ def test_action_planner_dry_run_selects_builtin_template() -> None:
         )
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["decision"]["candidate_kind"] == "template"
     assert result["decision"]["candidate_kind_label"] == "Template"
     assert result["decision"]["candidate_id"] == "ssh_run_command"
@@ -305,17 +305,19 @@ def test_action_planner_dry_run_selects_builtin_template() -> None:
     assert result["decision"]["capability_label"] == "SSH-Befehl"
     assert result["decision"]["summary_line"] == "Template: Gesundheitscheck via SSH-Befehl auf ssh/dns-node-01"
     assert result["decision"]["score"] >= 0
-    assert result["decision"]["inputs"] == {"command": "uptime"}
-    assert result["decision"]["input_items"] == [{"key": "command", "key_label": "Befehl", "value": "uptime"}]
-    assert result["decision"]["execution_state"] == "ready"
-    assert result["decision"]["execution_state_label"] == "Bereit"
-    assert result["decision"]["preview"] == "SSH-Befehl: uptime"
-    assert result["confidence"] == "high"
-    assert result["confidence_label"] == "Hoch"
+    assert result["decision"]["inputs"] == {}
+    assert result["decision"]["input_items"] == []
+    assert result["decision"]["execution_state"] == "needs_input"
+    assert result["decision"]["execution_state_label"] == "Braucht Eingabe"
+    assert result["decision"]["preview"] == "SSH-Befehl aus Zielkontext und Benutzeranfrage"
+    assert result["confidence"] == "low"
+    assert result["confidence_label"] == "Niedrig"
     assert result["planner_source"] == "llm"
     assert result["planner_source_label"] == "LLM"
-    assert result["execution_state"] == "ready"
-    assert result["execution_state_label"] == "Bereit"
+    assert result["ask_user"] is True
+    assert result["execution_state"] == "needs_input"
+    assert result["execution_state_label"] == "Braucht Eingabe"
+    assert result["missing_input"] == "command"
     assert result["target_context"] == "ssh/dns-node-01"
     assert result["target_reason"] == "secondary dns"
 
@@ -385,6 +387,7 @@ def test_action_planner_dry_run_can_select_custom_skill(monkeypatch) -> None:
         item["candidate_id"] == "linux-health"
         and item["candidate_role"] == "stored_recipe_candidate"
         and item["recipe_origin"] == "stored_recipe_manifest"
+        and item["score"] == 0.0
         and item["experience_count"] == 0
         and item["promotion_state"] == ""
         for item in result["candidates"]
@@ -451,6 +454,7 @@ def test_bounded_action_candidates_include_learned_recipe_candidates_from_experi
     assert learned.recipe_scope == {"connection_kinds": ["ssh"], "step_types": ["ssh_run"]}
     assert learned.preview == "SSH-Befehl: uptime && df -h / && free -h"
     assert learned.inputs == {"command": "uptime && df -h / && free -h"}
+    assert learned.score == 0.0
     assert learned.experience_count == 7
     assert learned.last_success_at == "2026-05-01T10:15:00Z"
     assert learned.promotion_state == "promoted"
@@ -550,7 +554,7 @@ def test_load_learned_recipe_records_skips_promoted_entries_with_promotion_block
     assert [row["recipe_id"] for row in rows] == ["learned-single-health"]
 
 
-def test_heuristic_action_decision_keeps_scores_as_ranking_hint_when_multiple_candidates_match() -> None:
+def test_heuristic_action_decision_ignores_recipe_candidates_without_llm_review() -> None:
     template_candidate = ActionPlanCandidate(
         candidate_kind="template",
         candidate_id="ssh_run_command",
@@ -578,9 +582,32 @@ def test_heuristic_action_decision_keeps_scores_as_ranking_hint_when_multiple_ca
     )
 
     assert candidate is template_candidate
+    assert confidence == "high"
+    assert ask_user is False
+    assert reason == "single_candidate"
+
+
+def test_heuristic_action_decision_does_not_select_recipe_only_candidates() -> None:
+    recipe_candidate = ActionPlanCandidate(
+        candidate_kind="recipe",
+        candidate_id="linux-health",
+        intent="health_check",
+        connection_kind="ssh",
+        capability="ssh",
+        candidate_role="stored_recipe_candidate",
+        recipe_origin="stored_recipe_manifest",
+        score=5.0,
+    )
+
+    candidate, confidence, ask_user, reason = action_planner_mod._heuristic_action_decision(
+        "mach bitte einen linux health check",
+        [recipe_candidate],
+    )
+
+    assert candidate is None
     assert confidence == "low"
     assert ask_user is True
-    assert reason == "ranking_hint_needs_llm"
+    assert reason == "recipe_requires_llm_review"
 
 
 def test_action_planner_recovers_from_llm_candidate_id_variant() -> None:
@@ -635,7 +662,7 @@ def test_action_planner_inherits_routing_confirmation_requirement() -> None:
     assert "Ziel sollte vor der Ausfuehrung bestaetigt werden" in result["message"]
 
 
-def test_action_planner_without_llm_uses_heuristic_for_clear_single_direction() -> None:
+def test_action_planner_without_llm_requires_llm_review_but_keeps_candidate_preview() -> None:
     result = asyncio.run(
         debug_bounded_action_plan_decision(
             "wie lange laeuft mein dns server schon",
@@ -647,10 +674,14 @@ def test_action_planner_without_llm_uses_heuristic_for_clear_single_direction() 
 
     assert result["available"] is False
     assert result["used"] is False
-    assert result["status"] == "ok"
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "ssh_run_command"
+    assert result["status"] == "warn"
+    assert result["decision"] == {}
     assert result["ask_user"] is False
+    assert result["planner_source"] == "llm_required"
+    assert result["planner_source_label"] == "LLM required"
+    assert result["candidates"][0]["candidate_id"] == "ssh_run_command"
+    assert result["candidates"][0]["inputs"] == {"command": "uptime"}
+    assert result["candidates"][0]["preview"] == "SSH-Befehl: uptime"
 
 
 def test_action_planner_without_llm_derives_hosts_file_preview() -> None:
@@ -664,22 +695,16 @@ def test_action_planner_without_llm_derives_hosts_file_preview() -> None:
     )
 
     assert result["status"] == "warn"
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "sftp_read_file"
-    assert result["decision"]["capability"] == "file_read"
-    assert result["decision"]["intent_label"] == "Datei lesen"
-    assert result["decision"]["capability_label"] == "Datei lesen"
-    assert result["decision"]["summary_line"] == "Template: Datei lesen auf sftp/mgmt"
-    assert result["decision"]["inputs"] == {"remote_path": "/etc/hosts"}
-    assert result["decision"]["input_items"] == [{"key": "remote_path", "key_label": "Remote-Pfad", "value": "/etc/hosts"}]
-    assert result["decision"]["execution_state"] == "needs_confirmation"
-    assert result["decision"]["execution_state_label"] == "Braucht Bestaetigung"
-    assert result["decision"]["preview"] == "Remote-Pfad lesen: /etc/hosts"
-    assert result["ask_user"] is True
-    assert result["planner_source"] == "heuristic"
-    assert result["planner_source_label"] == "Heuristik"
-    assert result["confidence_label"] == "Niedrig"
-    assert result["execution_state"] == "needs_confirmation"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    read_candidate = next(item for item in result["candidates"] if item["candidate_id"] == "sftp_read_file")
+    assert read_candidate["capability"] == "file_read"
+    assert read_candidate["intent_label"] == "Datei lesen"
+    assert read_candidate["capability_label"] == "Datei lesen"
+    assert read_candidate["inputs"] == {"remote_path": "/etc/hosts"}
+    assert read_candidate["input_items"] == [{"key": "remote_path", "key_label": "Remote-Pfad", "value": "/etc/hosts"}]
+    assert read_candidate["preview"] == "Remote-Pfad lesen: /etc/hosts"
+    assert read_candidate["execution_state"] == "ready"
     assert result["target_context"] == "sftp/mgmt"
 
 
@@ -693,14 +718,13 @@ def test_action_planner_without_llm_normalizes_natural_disk_check_to_df_h() -> N
         )
     )
 
-    assert result["status"] == "ok"
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "ssh_run_command"
-    assert result["decision"]["inputs"] == {"command": "df -h"}
-    assert result["decision"]["preview"] == "SSH-Befehl: df -h"
-    assert result["decision"]["execution_state"] == "ready"
-    assert result["decision"]["execution_state_label"] == "Bereit"
-    assert result["ask_user"] is False
+    assert result["status"] == "warn"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert result["candidates"][0]["candidate_id"] == "ssh_run_command"
+    assert result["candidates"][0]["inputs"] == {"command": "df -h"}
+    assert result["candidates"][0]["preview"] == "SSH-Befehl: df -h"
+    assert result["candidates"][0]["execution_state"] == "ready"
 
 
 def test_action_planner_without_llm_derives_discord_test_message_preview() -> None:
@@ -713,18 +737,13 @@ def test_action_planner_without_llm_derives_discord_test_message_preview() -> No
         )
     )
 
-    assert result["status"] == "ok"
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "discord_send_message"
-    assert result["decision"]["capability"] == "discord_send"
-    assert result["decision"]["capability_label"] == "Discord-Nachricht senden"
-    assert result["decision"]["summary_line"] == "Template: Nachricht senden auf discord/alerts"
-    assert result["decision"]["inputs"] == {"message": "ARIA lebt"}
-    assert result["decision"]["execution_state"] == "ready"
-    assert result["decision"]["execution_state_label"] == "Bereit"
-    assert result["decision"]["preview"] == 'Discord-Nachricht: "ARIA lebt"'
-    assert result["ask_user"] is False
-    assert result["execution_state"] == "ready"
+    assert result["status"] == "warn"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert result["candidates"][0]["candidate_id"] == "discord_send_message"
+    assert result["candidates"][0]["capability"] == "discord_send"
+    assert result["candidates"][0]["inputs"] == {"message": "ARIA lebt"}
+    assert result["candidates"][0]["preview"] == 'Discord-Nachricht: "ARIA lebt"'
 
 
 def test_action_planner_without_llm_derives_google_calendar_preview() -> None:
@@ -737,18 +756,14 @@ def test_action_planner_without_llm_derives_google_calendar_preview() -> None:
         )
     )
 
-    assert result["status"] == "ok"
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "google_calendar_read_events"
-    assert result["decision"]["capability"] == "calendar_read"
-    assert result["decision"]["intent_label"] == "Kalender lesen"
-    assert result["decision"]["capability_label"] == "Kalendertermine lesen"
-    assert result["decision"]["summary_line"] == "Template: Kalender lesen via Kalendertermine lesen auf google_calendar/primary-calendar"
-    assert result["decision"]["inputs"] == {"range": "tomorrow"}
-    assert result["decision"]["input_items"] == [{"key": "range", "key_label": "Zeitraum", "value": "tomorrow"}]
-    assert result["decision"]["preview"] == "Kalender: Morgen"
-    assert result["decision"]["execution_state"] == "ready"
-    assert result["execution_state"] == "ready"
+    assert result["status"] == "warn"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert result["candidates"][0]["candidate_id"] == "google_calendar_read_events"
+    assert result["candidates"][0]["capability"] == "calendar_read"
+    assert result["candidates"][0]["inputs"] == {"range": "tomorrow"}
+    assert result["candidates"][0]["input_items"] == [{"key": "range", "key_label": "Zeitraum", "value": "tomorrow"}]
+    assert result["candidates"][0]["preview"] == "Kalender: Morgen"
 
 
 def test_action_planner_without_llm_derives_mailbox_search_preview() -> None:
@@ -762,13 +777,12 @@ def test_action_planner_without_llm_derives_mailbox_search_preview() -> None:
     )
 
     assert result["status"] == "warn"
-    assert result["ask_user"] is True
-    assert result["decision"]["candidate_id"] == "imap_search_mailbox"
-    assert result["decision"]["capability"] == "mail_search"
-    assert result["decision"]["capability_label"] == "Postfach durchsuchen"
-    assert result["decision"]["inputs"] == {"search_query": "Rechnung"}
-    assert result["decision"]["preview"] == "Mailbox-Suche: Rechnung"
-    assert result["decision"]["execution_state"] == "needs_confirmation"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert result["candidates"][0]["candidate_id"] == "imap_search_mailbox"
+    assert result["candidates"][0]["capability"] == "mail_search"
+    assert result["candidates"][0]["inputs"] == {"search_query": "Rechnung"}
+    assert result["candidates"][0]["preview"] == "Mailbox-Suche: Rechnung"
 
 
 def test_action_planner_without_llm_derives_mqtt_publish_preview() -> None:
@@ -781,12 +795,12 @@ def test_action_planner_without_llm_derives_mqtt_publish_preview() -> None:
         )
     )
 
-    assert result["status"] == "ok"
-    assert result["decision"]["candidate_id"] == "mqtt_publish_message"
-    assert result["decision"]["capability"] == "mqtt_publish"
-    assert result["decision"]["capability_label"] == "MQTT-Nachricht senden"
-    assert result["decision"]["inputs"] == {"topic": "aria/events", "message": "ARIA lebt"}
-    assert result["decision"]["execution_state"] == "ready"
+    assert result["status"] == "warn"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert result["candidates"][0]["candidate_id"] == "mqtt_publish_message"
+    assert result["candidates"][0]["capability"] == "mqtt_publish"
+    assert result["candidates"][0]["inputs"] == {"topic": "aria/events", "message": "ARIA lebt"}
 
 
 def test_action_planner_without_llm_asks_user_when_file_path_is_missing() -> None:
@@ -800,26 +814,14 @@ def test_action_planner_without_llm_asks_user_when_file_path_is_missing() -> Non
     )
 
     assert result["status"] == "warn"
-    assert result["ask_user"] is True
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "sftp_read_file"
-    assert result["decision"]["intent_label"] == "Datei lesen"
-    assert result["decision"]["capability_label"] == "Datei lesen"
-    assert result["decision"]["summary_line"] == "Template: Datei lesen auf sftp/mgmt"
-    assert result["decision"]["inputs"] == {}
-    assert result["decision"]["input_items"] == []
-    assert result["decision"]["execution_state"] == "needs_input"
-    assert result["decision"]["execution_state_label"] == "Braucht Eingabe"
-    assert result["missing_input"] == "remote_path"
-    assert result["missing_input_label"] == "Remote-Pfad"
-    assert result["clarifying_question"] == "Welchen Remote-Pfad soll ARIA lesen?"
-    assert result["example_prompt"] == "Lies /etc/hosts vom management server"
-    assert result["decision"]["reason"] == "Pflichtangabe fehlt: Remote-Pfad."
-    assert result["planner_source"] == "heuristic"
-    assert result["planner_source_label"] == "Heuristik"
-    assert result["confidence_label"] == "Niedrig"
-    assert result["execution_state"] == "needs_input"
-    assert result["execution_state_label"] == "Braucht Eingabe"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    read_candidate = next(item for item in result["candidates"] if item["candidate_id"] == "sftp_read_file")
+    assert read_candidate["inputs"] == {}
+    assert read_candidate["execution_state"] == "needs_input"
+    assert read_candidate["missing_input"] == "remote_path"
+    assert read_candidate["clarifying_question"] == "Welchen Remote-Pfad soll ARIA lesen?"
+    assert read_candidate["example_prompt"] == "Lies /etc/hosts vom management server"
     assert result["target_context"] == "sftp/mgmt"
 
 
@@ -835,15 +837,13 @@ def test_action_planner_without_llm_asks_user_on_ambiguous_request() -> None:
 
     assert result["available"] is False
     assert result["used"] is False
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["ask_user"] is False
-    assert result["decision"]["candidate_kind"] == "template"
-    assert result["decision"]["candidate_id"] == "ssh_run_command"
-    assert result["decision"]["execution_state"] == "ready"
-    assert result["decision"]["execution_state_label"] == "Bereit"
-    assert result["example_prompt"] == ""
-    assert result["execution_state"] == "ready"
-    assert result["execution_state_label"] == "Bereit"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert result["candidates"][0]["candidate_id"] == "ssh_run_command"
+    assert result["candidates"][0]["execution_state"] == "needs_input"
+    assert result["candidates"][0]["missing_input"] == "command"
     assert result["target_context"] == "ssh/mgmt"
 
 
@@ -859,9 +859,10 @@ def test_action_planner_debug_sorts_ready_candidates_before_needs_input() -> Non
 
     candidate_ids = [item["candidate_id"] for item in result["candidates"]]
     assert candidate_ids == ["ssh_run_command"]
-    assert result["candidates"][0]["execution_state"] == "ready"
-    assert result["candidates"][0]["execution_state_label"] == "Bereit"
+    assert result["candidates"][0]["execution_state"] == "needs_input"
+    assert result["candidates"][0]["execution_state_label"] == "Braucht Eingabe"
     assert result["candidates"][0]["intent_label"] == "Kommando ausfuehren"
     assert result["candidates"][0]["capability_label"] == "SSH-Befehl"
-    assert result["candidates"][0]["input_items"] == [{"key": "command", "key_label": "Befehl", "value": "uptime"}]
+    assert result["candidates"][0]["input_items"] == []
+    assert result["candidates"][0]["missing_input"] == "command"
     assert result["candidates"][0]["summary_line"] == "Template: Kommando ausfuehren via SSH-Befehl"

@@ -14,6 +14,7 @@ TURN_INTENT_ALLOWED = {
     "memory_store",
     "memory_recall",
     "memory_forget",
+    "recipe_status",
     "web_search",
 }
 
@@ -21,7 +22,7 @@ TURN_INTENT_ALLOWED = {
 @dataclass(frozen=True)
 class TurnIntentArbitration:
     decision: RouterDecision
-    source: str = "keyword_router"
+    source: str = "safe_fallback"
     reason: str = ""
     confidence: float = 0.0
     usage: dict[str, int] = field(default_factory=dict)
@@ -60,6 +61,10 @@ def _keyword_signal_payload(decision: RouterDecision) -> dict[str, Any]:
     }
 
 
+def _safe_chat_fallback(*, level: int = 1) -> RouterDecision:
+    return RouterDecision(intents=["chat"], level=max(1, int(level or 1)))
+
+
 class TurnIntentArbiter:
     def __init__(self, llm_client: Any | None):
         self.decision_client = BoundedDecisionClient(llm_client)
@@ -79,22 +84,22 @@ class TurnIntentArbiter:
         allowed = set(available_intents or TURN_INTENT_ALLOWED) & TURN_INTENT_ALLOWED
         if not allowed:
             allowed = {"chat"}
-        fallback_intents = _clean_intents(keyword_decision.intents, allowed=allowed | {"chat"})
-        fallback = RouterDecision(intents=fallback_intents, level=int(keyword_decision.level or 1))
+        safe_fallback = _safe_chat_fallback(level=int(keyword_decision.level or 1))
         clean_message = str(message or "").strip()
         if not clean_message:
-            return TurnIntentArbitration(decision=fallback, source="keyword_router", reason="empty_message")
+            return TurnIntentArbitration(decision=safe_fallback, source="safe_fallback", reason="empty_message")
         if clean_message.startswith("/"):
-            return TurnIntentArbitration(decision=fallback, source="keyword_router", reason="slash_command")
+            return TurnIntentArbitration(decision=safe_fallback, source="safe_fallback", reason="slash_command")
 
         system = (
             "You arbitrate ARIA's top-level turn intent from keyword-router signals. "
-            "Return JSON only. Allowed intents: chat, memory_store, memory_recall, memory_forget, web_search. "
+            "Return JSON only. Allowed intents: chat, memory_store, memory_recall, memory_forget, recipe_status, web_search. "
             "Choose chat for ordinary conversation, explanation, advice, diagnostics, or when the user does not ask "
             "to store/recall/forget memory or search the web. "
             "Choose memory_store only when the user asks ARIA to remember/store/save a durable fact or preference. "
             "Choose memory_recall only when the user asks what ARIA remembers or what the user previously said. "
             "Choose memory_forget only when the user asks ARIA to forget/delete its memory, not operational files/servers. "
+            "Choose recipe_status only when the user asks which ARIA recipes/skills/templates are active or available. "
             "Choose web_search only when the user asks to search/look up current web information or gives a concrete URL/source question. "
             "Active learning hints are weak learned signals from reviewed Qdrant memory. Use them only when relevant; "
             "they must never force an intent by themselves. "
@@ -117,8 +122,8 @@ class TurnIntentArbiter:
         )
         if not result.ok:
             return TurnIntentArbitration(
-                decision=fallback,
-                source="keyword_router",
+                decision=safe_fallback,
+                source="safe_fallback",
                 reason=result.error or "arbiter_unavailable",
                 usage=result.usage,
                 error=result.error,
@@ -126,15 +131,15 @@ class TurnIntentArbiter:
         confidence = confidence_score(result.payload.get("confidence"))
         if confidence < 0.62:
             return TurnIntentArbitration(
-                decision=fallback,
-                source="keyword_router",
+                decision=safe_fallback,
+                source="safe_fallback",
                 reason="arbiter_low_confidence",
                 confidence=confidence,
                 usage=result.usage,
             )
         intents = _clean_intents(result.payload.get("intents") or result.payload.get("intent"), allowed=allowed | {"chat"})
         if any(intent not in allowed and intent != "chat" for intent in intents):
-            intents = fallback_intents
+            intents = ["chat"]
         return TurnIntentArbitration(
             decision=RouterDecision(intents=intents, level=max(int(keyword_decision.level or 1), 2)),
             source="turn_intent_arbitration",

@@ -1849,7 +1849,7 @@ def test_ssh_save_can_create_matching_sftp_profile(monkeypatch, tmp_path: Path) 
         data={
             'connection_ref': 'mgmt-ssh',
             'original_ref': '',
-            'host': '10.0.1.5',
+            'host': '192.0.2.5',
             'service_url': 'https://grafana.example.local',
             'user': 'aria',
             'key_path': 'data/ssh_keys/mgmt_ed25519',
@@ -1869,7 +1869,7 @@ def test_ssh_save_can_create_matching_sftp_profile(monkeypatch, tmp_path: Path) 
     ssh_row = raw['connections']['ssh']['mgmt-ssh']
     sftp_row = raw['connections']['sftp']['mgmt-sftp']
     assert ssh_row['service_url'] == 'https://grafana.example.local'
-    assert sftp_row['host'] == '10.0.1.5'
+    assert sftp_row['host'] == '192.0.2.5'
     assert sftp_row['user'] == 'aria'
     assert sftp_row['key_path'] == 'data/ssh_keys/mgmt_ed25519'
     assert sftp_row['title'] == 'Management Server'
@@ -1914,7 +1914,7 @@ def test_ssh_save_autofills_routing_metadata_from_service_url(monkeypatch, tmp_p
         data={
             'connection_ref': 'grafana-ssh',
             'original_ref': '',
-            'host': '10.0.1.5',
+            'host': '192.0.2.5',
             'service_url': 'https://grafana.example.local',
             'user': 'aria',
             'key_path': 'data/ssh_keys/grafana_ed25519',
@@ -1951,7 +1951,7 @@ def test_sftp_save_persists_service_url(monkeypatch, tmp_path: Path) -> None:
         data={
             'connection_ref': 'files-sftp',
             'original_ref': '',
-            'host': '10.0.1.9',
+            'host': '192.0.2.9',
             'service_url': 'https://minio.example.local',
             'user': 'backup',
             'key_path': 'data/ssh_keys/files_ed25519',
@@ -1970,7 +1970,7 @@ def test_sftp_save_persists_service_url(monkeypatch, tmp_path: Path) -> None:
     raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
     sftp_row = raw['connections']['sftp']['files-sftp']
     assert sftp_row['service_url'] == 'https://minio.example.local'
-    assert sftp_row['host'] == '10.0.1.9'
+    assert sftp_row['host'] == '192.0.2.9'
     assert sftp_row['root_path'] == '/data'
 
 
@@ -2011,7 +2011,7 @@ def test_sftp_save_autofills_routing_metadata_from_service_url(monkeypatch, tmp_
         data={
             'connection_ref': 'files-sftp',
             'original_ref': '',
-            'host': '10.0.1.9',
+            'host': '192.0.2.9',
             'service_url': 'https://minio.example.local',
             'user': 'backup',
             'key_path': 'data/ssh_keys/files_ed25519',
@@ -2319,6 +2319,7 @@ def test_settings_subpages_link_to_existing_specialist_pages(tmp_path: Path) -> 
     assert '/config/workbench/routing?return_to=/config/workbench' in workbench.text
     assert '/config/files?return_to=/config/workbench' in workbench.text
     assert '/config/error-interpreter?return_to=/config/workbench' in workbench.text
+    assert '/config/prompts?file=prompts%2Fweb%2Fsearch_intent.md&return_to=/config/workbench' in workbench.text
 
 
 def test_config_admin_page_requires_admin_mode(tmp_path: Path) -> None:
@@ -2522,6 +2523,53 @@ def test_searxng_connection_page_prefills_local_stack_defaults(tmp_path: Path) -
     assert 'value="web-search"' in response.text
     assert 'Standardprofil fuer allgemeine Websuche' in response.text or 'Default profile for general web search' in response.text
     assert 'websuche, internet, suche' in response.text or 'web search, internet, search' in response.text
+
+
+def test_searxng_connection_save_persists_profile(tmp_path: Path, monkeypatch) -> None:
+    client = _build_profile_config_app(tmp_path, lang='de')
+
+    monkeypatch.setattr(
+        config_routes_mod,
+        'build_connection_status_row',
+        lambda *_args, **_kwargs: {'status': 'ok', 'message': 'ok'},
+    )
+
+    response = client.post(
+        '/config/connections/searxng/save',
+        data={
+            'connection_ref': 'www-search',
+            'original_ref': '',
+            'connection_title': 'Internet Search',
+            'connection_description': 'Diese Verbindung ist um im Internet zu suchen',
+            'connection_aliases': 'Internet, Suchen, DuckDuckGo',
+            'connection_tags': 'Internet Search',
+            'timeout_seconds': '12',
+            'language': 'de-CH',
+            'safe_search': '1',
+            'categories': ['general', 'news'],
+            'engines': ['duckduckgo', 'startpage', 'brave'],
+            'time_range': '',
+            'max_results': '10',
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert '/config/connections/searxng?saved=1' in response.headers['location']
+    assert 'searxng_ref=www-search' in response.headers['location']
+
+    raw = yaml.safe_load((tmp_path / 'config' / 'config.yaml').read_text(encoding='utf-8'))
+    row = raw['connections']['searxng']['www-search']
+    assert row['base_url'] == 'http://searxng:8080'
+    assert row['timeout_seconds'] == 12
+    assert row['language'] == 'de-CH'
+    assert row['safe_search'] == 1
+    assert row['categories'] == ['general', 'news']
+    assert row['engines'] == ['duckduckgo', 'startpage', 'brave']
+    assert row['max_results'] == 10
+    assert row['title'] == 'Internet Search'
+    assert row['aliases'] == ['Internet', 'Suchen', 'DuckDuckGo']
+    assert row['tags'] == ['Internet Search']
 
 
 def test_website_connection_page_renders(tmp_path: Path) -> None:

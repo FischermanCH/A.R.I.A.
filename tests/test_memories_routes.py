@@ -66,6 +66,12 @@ def _extract_brain_payload(page: str) -> dict[str, object]:
     return json.loads(html.unescape(match.group(1)))
 
 
+def _extract_memory_browser_payload(page: str) -> dict[str, object]:
+    match = re.search(r'<script type="application/json" data-memory-browser-payload>(.*?)</script>', page, re.S)
+    assert match is not None
+    return json.loads(html.unescape(match.group(1)))
+
+
 def _first_memory_subnav(page: str) -> str:
     start = page.find('<nav class="memory-subnav"')
     if start < 0:
@@ -302,6 +308,38 @@ def _build_memories_app(
                     "timestamp": "2026-06-16T10:01:00+00:00",
                     "document_id": "doc-1",
                     "document_name": "Setup Manual.pdf",
+                },
+                {
+                    "id": "death-note-chunk-1",
+                    "collection": "aria_notes_tester",
+                    "type": "notes",
+                    "label": "NOTIZEN",
+                    "text": "# Sample Project Note\n\n# Tweaks\n## Alpha Level\n- Mehr Druck fuer Player.",
+                    "source": "notes",
+                    "timestamp": "2026-07-20T10:44:00+00:00",
+                    "note_id": "death-pays-overtime",
+                    "note_title": "Sample Project Note",
+                    "note_folder": "Games",
+                    "note_path": "Games/death-pays-overtime.md",
+                    "note_tags": ["game", "tweaks"],
+                    "chunk_index": 1,
+                    "chunk_total": 2,
+                },
+                {
+                    "id": "death-note-chunk-2",
+                    "collection": "aria_notes_tester",
+                    "type": "notes",
+                    "label": "NOTIZEN",
+                    "text": "# Bugs\n\nPopups und Overlays stoeren das Game.",
+                    "source": "notes",
+                    "timestamp": "2026-07-20T10:44:01+00:00",
+                    "note_id": "death-pays-overtime",
+                    "note_title": "Sample Project Note",
+                    "note_folder": "Games",
+                    "note_path": "Games/death-pays-overtime.md",
+                    "note_tags": ["game", "bugs"],
+                    "chunk_index": 2,
+                    "chunk_total": 2,
                 },
             ]
             clean_type = str(type_filter or "all").strip().lower()
@@ -690,6 +728,12 @@ def test_memories_page_is_view_only_memory_area() -> None:
     assert "state.entry = entryId" in response.text
     assert "const selectCollection = (collectionId, kind = '') =>" in response.text
     assert "const selectDocument = (documentId, collectionId = '') =>" in response.text
+    assert "const collectionKindForSelection = (collectionId = '', documentId = '') =>" in response.text
+    assert "state.type = kind || collectionKindForSelection(collectionId) || state.type" in response.text
+    assert "state.type = collectionKindForSelection(collectionId || state.collection, documentId)" in response.text
+    assert "state.type = collectionKindForSelection(collectionId || state.collection, documentId || state.document)" in response.text
+    assert "state.type = collectionKindForSelection(collectionId || state.collection);" in response.text
+    assert "parentCollection?.kind || item.kind || state.type || 'document'" in response.text
     assert "state.type = ''" in response.text
     assert "structurePanX += dx" in response.text
     assert "structurePanY += dy" in response.text
@@ -2066,6 +2110,120 @@ def test_memory_drilldown_browser_attaches_non_document_collection_entries() -> 
     assert collection["entries"][0]["id"] == "learning-1"
     assert collection["entries"][0]["label"] == "Learning"
     assert "inspector drilldown" in collection["entries"][0]["preview"]
+
+
+def test_memory_drilldown_browser_uses_full_rows_for_notes_not_graph_sample() -> None:
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[
+            {"name": "aria_notes_tester", "kind": "notes", "points": 54},
+        ],
+        document_rows=[],
+        collection_rows=[
+            {
+                "id": "death-note-chunk-1",
+                "collection": "aria_notes_tester",
+                "type": "notes",
+                "label": "NOTIZEN",
+                "text": "# Sample Project Note\n\n# Tweaks\n## Alpha Level",
+                "source": "notes",
+                "timestamp": "2026-07-20T10:44:00+00:00",
+                "note_id": "death-pays-overtime",
+                "note_title": "Sample Project Note",
+                "note_folder": "Games",
+                "note_path": "Games/death-pays-overtime.md",
+                "chunk_index": 1,
+                "chunk_total": 2,
+            },
+            {
+                "id": "death-note-chunk-2",
+                "collection": "aria_notes_tester",
+                "type": "notes",
+                "label": "NOTIZEN",
+                "text": "# Bugs\n\nOverlays stoeren das Game.",
+                "source": "notes",
+                "timestamp": "2026-07-20T10:44:01+00:00",
+                "note_id": "death-pays-overtime",
+                "note_title": "Sample Project Note",
+                "note_folder": "Games",
+                "note_path": "Games/death-pays-overtime.md",
+                "chunk_index": 2,
+                "chunk_total": 2,
+            },
+        ],
+        brain={
+            "nodes": [
+                {
+                    "id": "old-note",
+                    "collection": "aria_notes_tester",
+                    "kind": "notes",
+                    "label": "Area41",
+                    "preview": "Older sampled note",
+                    "source": "notes",
+                }
+            ]
+        },
+    )
+
+    collection = next(item for item in snapshot["collections"] if item["name"] == "aria_notes_tester")
+    note = collection["documents"][0]
+
+    assert collection["kind"] == "notes"
+    assert collection["document_count"] == 1
+    assert collection["chunk_count"] == 2
+    assert collection["entries"] == []
+    assert note["label"] == "Sample Project Note"
+    assert note["kind"] == "notes"
+    assert [chunk["id"] for chunk in note["all_chunks"]] == ["death-note-chunk-1", "death-note-chunk-2"]
+    assert "Alpha Level" in note["preview"]
+
+
+def test_memories_page_browser_payload_contains_fresh_notes_from_full_rows() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories?collection=aria_notes_tester")
+
+    assert response.status_code == 200
+    payload = _extract_memory_browser_payload(response.text)
+    collection = next(item for item in payload["collections"] if item["name"] == "aria_notes_tester")
+    note = collection["documents"][0]
+
+    assert payload["initial_collection"] == collection["id"]
+    assert collection["kind"] == "notes"
+    assert note["label"] == "Sample Project Note"
+    assert note["chunk_count"] == 2
+    assert [chunk["id"] for chunk in note["all_chunks"]] == ["death-note-chunk-1", "death-note-chunk-2"]
+
+
+def test_memory_drilldown_browser_does_not_use_graph_sample_as_notes_truth() -> None:
+    snapshot = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[
+            {"name": "aria_notes_tester", "kind": "notes", "points": 54},
+        ],
+        document_rows=[],
+        collection_rows=[],
+        brain={
+            "nodes": [
+                {
+                    "id": "old-note",
+                    "collection": "aria_notes_tester",
+                    "kind": "notes",
+                    "label": "Area41",
+                    "preview": "Older sampled note",
+                    "source": "notes",
+                }
+            ]
+        },
+    )
+
+    collection = next(item for item in snapshot["collections"] if item["name"] == "aria_notes_tester")
+
+    assert collection["kind"] == "notes"
+    assert collection["documents"] == []
+    assert collection["entries"] == []
 
 
 def test_memory_drilldown_browser_uses_qdrant_overview_as_collection_source() -> None:

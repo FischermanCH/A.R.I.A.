@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from aria.core.config import Settings
 from aria.core.aria_turn_arbitration import build_aria_turn_menu
@@ -113,13 +114,14 @@ class FakeChatResponse:
 
 
 class FakeRoutingLLM:
-    def __init__(self, content: str) -> None:
-        self.content = content
+    def __init__(self, content: str | list[str]) -> None:
+        self.contents = list(content) if isinstance(content, list) else [content]
         self.calls: list[dict[str, object]] = []
 
     async def chat(self, messages, **kwargs):  # noqa: ANN001
         self.calls.append({"messages": messages, "kwargs": kwargs})
-        return FakeChatResponse(self.content)
+        index = min(len(self.calls) - 1, len(self.contents) - 1)
+        return FakeChatResponse(self.contents[index])
 
 
 def _settings() -> Settings:
@@ -165,6 +167,45 @@ def test_meta_catalog_documents_describe_connections_without_secret_targets() ->
     assert "mgmt.example.invalid" not in text
     assert "admin@" not in text
     assert "Management Server" in text
+
+
+def test_meta_catalog_connections_surface_carries_german_inventory_signal() -> None:
+    docs = build_meta_catalog_documents(_settings())
+    surface = next(doc for doc in docs if doc.catalog_id == "surface|connections")
+
+    assert surface.surface_id == "connections"
+    assert "Verbindungen" in surface.text
+    assert "bekannte Verbindungen" in surface.text
+
+
+def test_connection_inventory_normalizer_requires_contract_signal() -> None:
+    by_catalog_id = {
+        "local|docs|document|wrong": {"surface_id": "docs", "kind": "document"},
+        "connection|rss|security-feed": {"surface_id": "connections", "kind": "rss"},
+    }
+    message = "was habe ich für news feed für it security?"
+
+    assert not MetaCatalogRouter._looks_like_connection_inventory_question(
+        message,
+        requested_surfaces=("docs",),
+        selected_catalog_ids=("local|docs|document|wrong",),
+        by_catalog_id=by_catalog_id,
+        context_requests=(),
+    )
+    assert MetaCatalogRouter._looks_like_connection_inventory_question(
+        message,
+        requested_surfaces=("docs",),
+        selected_catalog_ids=("connection|rss|security-feed",),
+        by_catalog_id=by_catalog_id,
+        context_requests=(),
+    )
+    assert MetaCatalogRouter._looks_like_connection_inventory_question(
+        message,
+        requested_surfaces=("docs",),
+        selected_catalog_ids=("local|docs|document|wrong",),
+        by_catalog_id=by_catalog_id,
+        context_requests=(ContextRequest(surface_id="connections", mode="inventory", query=message),),
+    )
 
 
 def test_meta_catalog_documents_include_local_context_families() -> None:
@@ -421,6 +462,7 @@ def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch
           "intents": ["runtime_action"],
           "surfaces": ["connections"],
           "actions": ["ssh_run_command"],
+          "target_scope_authority": "explicit_refs",
           "answer_mode": "plan_action",
           "context_depth": "shallow",
           "contract": {"mode": "action", "evidence_policy": "source_bound"},
@@ -452,11 +494,25 @@ def test_meta_catalog_router_uses_catalog_before_legacy_turn_arbiter(monkeypatch
     assert "ssh_run_command" in arbitration.plan.actions
     assert arbitration.plan.contract_mode == "action"
     assert arbitration.plan.evidence_policy == "source_bound"
+    assert arbitration.plan.target_scope_authority == "explicit_refs"
     assert "contract_mode=action" in arbitration.debug_line
     assert arbitration.diagnostics["payload_bytes"] > 0
+    assert arbitration.diagnostics["llm_input_contract_v1"] == 1
+    assert arbitration.diagnostics["llm_input_world_meta_catalog"] >= 1
     assert "routing_payload_bytes=" in arbitration.debug_line
+    assert "llm_input_contract=v1" in arbitration.debug_line
     assert arbitration.plan.needs_confirmation is True
     assert llm.calls[0]["kwargs"]["operation"] == META_CATALOG_ROUTING_OPERATION
+    payload = llm.calls[0]["messages"][1]["content"]
+    assert "llm_input_contract" in payload
+    assert "llm_input_v1" in payload
+    assert "canonical_input" in payload
+    assert "meta_catalog_select_context_requests" in payload
+    assert "normalizer_is_not_router" in payload
+    assert "top_level_payload_fields_are_legacy_mirrors" in payload
+    assert "top_level_payload_fields_removed" in payload
+    assert "allowed_catalog_ids" in payload
+    assert "connection|ssh|mgmt-ssh" in payload
 
 
 def test_meta_catalog_router_uses_visible_chat_context_for_elliptic_action_followup(monkeypatch) -> None:
@@ -602,8 +658,25 @@ def test_meta_catalog_router_includes_user_document_meta_without_explicit_docs(m
     assert arbitration.plan.priority == ("local|docs|document|mill-manual",)
 
 
-def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_answer(monkeypatch) -> None:
-    settings = _settings()
+def test_meta_catalog_router_keeps_llm_connection_plan_over_doc_meta_overlap(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                }
+            },
+        }
+    )
     docs = build_meta_catalog_documents(settings)
     qdrant = FakeQdrant()
     store = MetaCatalogStore(qdrant=qdrant, embedding_client=FakeEmbeddingClient(), collection_name=meta_catalog_collection_name(settings))
@@ -620,10 +693,10 @@ def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_ans
                 {
                     "source": "rag_document_guide",
                     "user_id": "example_user",
-                    "document_id": "mill-manual",
-                    "document_name": "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf",
-                    "guide_summary": "The Mill heater has Wireless WiFi setup instructions and app pairing.",
-                    "guide_keywords": ["Mill", "Wireless", "WiFi", "heater"],
+                    "document_id": "arlo-manual",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "guide_summary": "Camera manual mentioning Syncthing only in unrelated local document text.",
+                    "guide_keywords": ["camera", "syncthing", "manual"],
                     "target_collection": "aria_docs_example_user",
                 }
             ],
@@ -638,8 +711,8 @@ def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_ans
         """
         {
           "needs_context": true,
-          "catalog_ids": ["connection|ssh|mgmt-ssh"],
-          "context_requests": [{"catalog_id": "connection|ssh|mgmt-ssh", "surface_id": "connections", "mode": "answer", "query": "wie kriege ich meine heizungen ans wireless"}],
+          "catalog_ids": ["connection|sftp|sync-node-01"],
+          "context_requests": [{"catalog_id": "connection|sftp|sync-node-01", "surface_id": "connections", "mode": "inventory", "query": "welche verbindungen kennst du für syncthing"}],
           "intents": ["chat"],
           "surfaces": ["connections"],
           "actions": [],
@@ -649,7 +722,7 @@ def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_ans
           "risk": "low",
           "needs_confirmation": false,
           "confidence": 0.92,
-          "reason": "wrongly chose homebridge connections"
+          "reason": "User asks which Syncthing connections are known. Two connections match: SFTP and SSH"
         }
         """
     )
@@ -657,7 +730,7 @@ def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_ans
     arbitration = asyncio.run(
         MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
             MetaCatalogRoutingInput(
-                message="wie kriege ich meine heizungen ans wireless",
+                message="welche verbindungen kennst du für syncthing?",
                 menu=build_aria_turn_menu(connection_kinds=("ssh", "sftp")),
                 surface_registry=build_builtin_surface_registry(settings),
                 user_id="Example_User",
@@ -667,13 +740,902 @@ def test_meta_catalog_router_prefers_matching_doc_meta_over_empty_connection_ans
     )
 
     payload = llm.calls[0]["messages"][1]["content"]
-    assert "local|docs|document|mill-manual" in str(payload)
+    assert "local|docs|document|arlo-manual" in str(payload)
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("connections",)
+    assert arbitration.plan.context_directions == ("connections",)
+    assert arbitration.plan.priority == ("connection|sftp|sync-node-01",)
+    assert arbitration.plan.context_requests[0].surface_id == "connections"
+    assert arbitration.plan.context_requests[0].mode == "inventory"
+    assert arbitration.plan.context_requests[0].budget["catalog_hint_ids"] == ["connection|sftp|sync-node-01"]
+
+
+def test_meta_catalog_surface_review_recovers_connection_inventory_from_wrong_docs_choice(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "arlo-manual",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "guide_summary": "Camera manual unrelated to configured server connections.",
+                    "guide_keywords": ["camera", "manual"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|arlo-manual"],
+              "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "welche verbindungen kennst du für syncthing"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "wrong document surface"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": true,
+              "catalog_ids": ["connection|sftp|sync-node-01"],
+              "query": "welche verbindungen kennst du für syncthing",
+              "confidence": 0.94,
+              "reason": "configured connection profile question"
+            }
+            """,
+        ]
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="welche verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("sftp",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
+    review_payload = llm.calls[1]["messages"][1]["content"]
+    assert "wrong document surface" in review_payload
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("connections",)
+    assert arbitration.plan.context_directions == ("connections",)
+    assert arbitration.plan.priority == ("connection|sftp|sync-node-01",)
+    assert arbitration.plan.context_requests[0].mode == "inventory"
+    assert arbitration.plan.context_requests[0].budget["meta_contract_normalized"] == "surface_contract_review"
+    assert arbitration.plan.context_requests[0].budget["surface_review_from"] == "docs"
+    assert arbitration.plan.context_requests[0].budget["surface_review_to"] == "connections"
+
+
+def test_meta_catalog_surface_review_uses_connections_surface_descriptor_when_specific_connection_not_in_candidates(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    meta_collection = meta_catalog_collection_name(settings)
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_collection,
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+    qdrant.collections[meta_collection]["points"] = [
+        point
+        for point in list(qdrant.collections[meta_collection]["points"])
+        if str((getattr(point, "payload", {}) or {}).get("catalog_id", "")) != "connection|sftp|sync-node-01"
+    ]
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "arlo-manual",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "guide_summary": "Camera manual unrelated to configured server connections.",
+                    "guide_keywords": ["camera", "manual"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|arlo-manual"],
+              "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "welche verbindungen kennst du für syncthing"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "wrong document surface while the connections surface is relevant"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": true,
+              "catalog_ids": ["surface|connections"],
+              "query": "welche verbindungen kennst du für syncthing",
+              "confidence": 0.91,
+              "reason": "user asks for configured connections, and only the connections surface descriptor is available"
+            }
+            """,
+        ]
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="welche verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("sftp",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
+    assert "surface|connections" in llm.calls[1]["messages"][1]["content"]
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("connections",)
+    assert arbitration.plan.context_directions == ("connections",)
+    assert arbitration.plan.priority == ("surface|connections",)
+    request = arbitration.plan.context_requests[0]
+    assert request.surface_id == "connections"
+    assert request.mode == "inventory"
+    assert request.budget["meta_contract_normalized"] == "surface_contract_review"
+    assert request.budget["catalog_hint_ids"] == ["surface|connections"]
+
+
+def test_meta_catalog_surface_review_recovers_connection_hits_from_meta_collection(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|wrong"],
+              "context_requests": [{"catalog_id": "local|docs|document|wrong", "surface_id": "docs", "mode": "search", "query": "welche verbindungen kennst du für syncthing"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "connection entries are acknowledged in prose but the structured plan still selected docs"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": true,
+              "catalog_ids": ["connection|sftp|sync-node-01"],
+              "query": "welche verbindungen kennst du für syncthing",
+              "confidence": 0.94,
+              "reason": "the recovered meta-catalog connection entry is the correct surface evidence"
+            }
+            """,
+        ]
+    )
+    router = MetaCatalogRouter(
+        settings=settings,
+        embedding_client=FakeEmbeddingClient(),
+        llm_client=llm,
+        config=MetaCatalogRoutingConfig(candidate_limit=1),
+    )
+
+    async def fake_initial_query(_query, *, user_id="", contextual_query=""):  # noqa: ANN001, ARG001
+        return [
+            {
+                "catalog_id": "local|docs|document|wrong",
+                "surface_id": "docs",
+                "kind": "document",
+                "ref": "wrong",
+                "score": 1.0,
+                "source": "qdrant_meta_catalog",
+                "payload": {
+                    "catalog_id": "local|docs|document|wrong",
+                    "entity_type": "document",
+                    "surface_id": "docs",
+                    "kind": "document",
+                    "ref": "wrong",
+                    "title": "Wrong document",
+                    "description": "Unrelated document candidate",
+                    "document_id": "wrong",
+                    "document_name": "Wrong.pdf",
+                    "target_collection": "aria_docs_example_user",
+                    "text": "Wrong document unrelated to connections.",
+                },
+            }
+        ], ""
+
+    router._query_meta_catalog = fake_initial_query  # type: ignore[method-assign]
+
+    arbitration = asyncio.run(
+        router.route(
+            MetaCatalogRoutingInput(
+                message="welche verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("sftp",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
+    review_payload = llm.calls[1]["messages"][1]["content"]
+    assert "connection|sftp|sync-node-01" in review_payload
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("connections",)
+    assert arbitration.plan.context_requests[0].surface_id == "connections"
+    assert arbitration.plan.context_requests[0].mode == "inventory"
+    assert arbitration.plan.priority == ("connection|sftp|sync-node-01",)
+    assert arbitration.plan.context_requests[0].budget["catalog_hint_ids"] == ["connection|sftp|sync-node-01"]
+
+
+def test_meta_catalog_surface_review_blocks_when_acknowledged_connection_evidence_is_not_recoverable(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        """
+        {
+          "needs_context": true,
+          "catalog_ids": ["local|docs|document|wrong"],
+          "context_requests": [{"catalog_id": "local|docs|document|wrong", "surface_id": "docs", "mode": "search", "query": "welche verbindungen kennst du für syncthing"}],
+          "intents": ["local_retrieval"],
+          "surfaces": ["docs"],
+          "actions": [],
+          "answer_mode": "direct_answer",
+          "context_depth": "shallow",
+          "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+          "risk": "low",
+          "needs_confirmation": false,
+          "confidence": 0.95,
+          "reason": "User asks which connections ARIA knows for Syncthing. Two catalog entries match: SFTP and SSH"
+        }
+        """
+    )
+    router = MetaCatalogRouter(
+        settings=settings,
+        embedding_client=FakeEmbeddingClient(),
+        llm_client=llm,
+        config=MetaCatalogRoutingConfig(candidate_limit=1),
+    )
+
+    async def fake_initial_query(_query, *, user_id="", contextual_query=""):  # noqa: ANN001, ARG001
+        return [
+            {
+                "catalog_id": "local|docs|document|wrong",
+                "surface_id": "docs",
+                "kind": "document",
+                "ref": "wrong",
+                "score": 1.0,
+                "source": "qdrant_meta_catalog",
+                "payload": {
+                    "catalog_id": "local|docs|document|wrong",
+                    "entity_type": "document",
+                    "surface_id": "docs",
+                    "kind": "document",
+                    "ref": "wrong",
+                    "title": "Wrong document",
+                    "description": "Unrelated document candidate",
+                    "document_id": "wrong",
+                    "document_name": "Wrong.pdf",
+                    "target_collection": "aria_docs_example_user",
+                    "text": "Wrong document unrelated to connections.",
+                },
+            }
+        ], ""
+
+    router._query_meta_catalog = fake_initial_query  # type: ignore[method-assign]
+    router._recover_connection_review_hits = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    arbitration = asyncio.run(
+        router.route(
+            MetaCatalogRoutingInput(
+                message="welche verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("sftp",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == ["aria_meta_catalog_routing"]
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.needs_context is False
+    assert arbitration.plan.context_directions == ()
+    assert arbitration.plan.answer_mode == "ask_clarification"
+    assert arbitration.plan.contract_mode == "clarify"
+    assert arbitration.plan.context_requests[0].surface_id == "docs"
+    assert arbitration.plan.context_requests[0].budget["surface_review_decision"] == "no_connection_evidence_recovered"
+    assert "no_connection_evidence_recovered" in arbitration.plan.reason
+
+
+def test_meta_catalog_surface_review_keeps_strong_specific_connection_candidate(monkeypatch) -> None:
+    generic_servers = {
+        f"aaa-generic-{index}": {
+            "host": f"192.0.2.{index}",
+            "user": "admin",
+            "title": f"Generic Server {index}",
+            "description": "Linux server inventory entry",
+            "aliases": [f"generic server {index}"],
+            "tags": ["server", "linux"],
+        }
+        for index in range(8)
+    }
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "ssh": {
+                    **generic_servers,
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "sync-node-01",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "server", "file-sync"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|wrong"],
+              "context_requests": [{"catalog_id": "local|docs|document|wrong", "surface_id": "docs", "mode": "search", "query": "welche server verbindungen kennst du für syncthing"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "wrong document surface"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": true,
+              "catalog_ids": ["connection|ssh|sync-node-01"],
+              "query": "welche server verbindungen kennst du für syncthing",
+              "confidence": 0.94,
+              "reason": "specific configured syncthing connection candidate is present"
+            }
+            """,
+        ]
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(
+            settings=settings,
+            embedding_client=FakeEmbeddingClient(),
+            llm_client=llm,
+            config=MetaCatalogRoutingConfig(candidate_limit=5),
+        ).route(
+            MetaCatalogRoutingInput(
+                message="welche server verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("ssh",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
+    review_payload = llm.calls[1]["messages"][1]["content"]
+    assert "connection|ssh|sync-node-01" in review_payload
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.surfaces == ("connections",)
+    assert arbitration.plan.context_requests[0].surface_id == "connections"
+    assert arbitration.plan.context_requests[0].mode == "inventory"
+    assert arbitration.plan.priority == ("connection|ssh|sync-node-01",)
+    assert arbitration.plan.context_requests[0].budget["catalog_hint_ids"] == ["connection|ssh|sync-node-01"]
+
+
+def test_meta_catalog_surface_review_keeps_real_document_question_on_docs(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "syncthing-manual",
+                    "document_name": "Syncthing Manual.pdf",
+                    "guide_summary": "Syncthing documentation and manual content.",
+                    "guide_keywords": ["Syncthing", "Manual", "Dokumentation"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|syncthing-manual"],
+              "context_requests": [{"catalog_id": "local|docs|document|syncthing-manual", "surface_id": "docs", "mode": "search", "query": "was steht im syncthing manual"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "document content question"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": false,
+              "catalog_ids": [],
+              "query": "was steht im syncthing manual",
+              "confidence": 0.90,
+              "reason": "user asks for manual content"
+            }
+            """,
+        ]
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="was steht im syncthing manual?",
+                menu=build_aria_turn_menu(connection_kinds=("sftp",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
     assert arbitration.source == META_CATALOG_ROUTING_OPERATION
     assert arbitration.plan.surfaces == ("docs",)
     assert arbitration.plan.context_directions == ("docs",)
-    assert arbitration.plan.priority == ("local|docs|document|mill-manual",)
+    assert arbitration.plan.priority == ("local|docs|document|syncthing-manual",)
     assert arbitration.plan.context_requests[0].surface_id == "docs"
-    assert arbitration.plan.context_requests[0].budget["meta_contract_normalized"] == "document_meta_candidate_preferred"
+    assert arbitration.plan.context_requests[0].budget["meta_contract_normalized"] == "surface_contract_review"
+    assert arbitration.plan.context_requests[0].budget["surface_review_decision"] == "keep_local"
+    assert arbitration.plan.context_requests[0].budget["surface_review_to"] == "local_context"
+
+
+def test_meta_catalog_surface_review_blocks_unresolved_local_connection_conflict(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Syncthing file sync server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "arlo-manual",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "guide_summary": "Camera manual unrelated to configured server connections.",
+                    "guide_keywords": ["camera", "manual"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|arlo-manual"],
+              "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "welche verbindungen kennst du für syncthing"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "User asks which connections ARIA knows for Syncthing. Two Syncthing connections found"
+            }
+            """,
+            "not json",
+        ]
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="welche verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("sftp",)),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.needs_context is False
+    assert arbitration.plan.context_directions == ()
+    assert arbitration.plan.answer_mode == "ask_clarification"
+    assert arbitration.plan.contract_mode == "clarify"
+    assert arbitration.plan.context_requests[0].surface_id == "docs"
+    assert arbitration.plan.context_requests[0].budget["surface_review_decision"] == "review_unavailable"
+    assert "review_unavailable" in arbitration.plan.reason
+
+
+def test_meta_catalog_surface_review_blocks_when_review_keeps_self_contradictory_local_plan(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": True, "backend": "qdrant", "qdrant_url": "http://qdrant:6333"},
+            "connections": {
+                "ssh": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "sync-node-01",
+                        "description": "Continuous file synchronization server",
+                        "aliases": ["syncthing"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                },
+                "sftp": {
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "description": "Dateisynchronisation",
+                        "aliases": ["syncthing", "dateisync"],
+                        "tags": ["syncthing", "file-sync"],
+                    }
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    qdrant = FakeQdrant()
+    meta_store = MetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=meta_catalog_collection_name(settings),
+    )
+    asyncio.run(meta_store.rebuild_documents(build_meta_catalog_documents(settings), catalog_hash="catalog"))
+    doc_store = DocumentMetaCatalogStore(
+        qdrant=qdrant,
+        embedding_client=FakeEmbeddingClient(),
+        collection_name=document_meta_collection_for_user("example_user"),
+    )
+    asyncio.run(
+        doc_store.rebuild_from_guides(
+            user_id="example_user",
+            guides=[
+                {
+                    "source": "rag_document_guide",
+                    "user_id": "example_user",
+                    "document_id": "arlo-manual",
+                    "document_name": "Arlo Ultra_User_Manual_en.pdf",
+                    "guide_summary": "Camera manual unrelated to configured server connections.",
+                    "guide_keywords": ["camera", "manual"],
+                    "target_collection": "aria_docs_example_user",
+                }
+            ],
+        )
+    )
+
+    async def fake_qdrant_factory(_settings, *, timeout=5):  # noqa: ANN001, ARG001
+        return qdrant
+
+    monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
+    llm = FakeRoutingLLM(
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|arlo-manual"],
+              "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "welche server verbindungen kennst du für syncthing"}],
+              "intents": ["local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "low",
+              "needs_confirmation": false,
+              "confidence": 0.95,
+              "reason": "User asks which server connections exist for Syncthing. Two catalog entries match: SFTP and SSH"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": false,
+              "catalog_ids": [],
+              "query": "welche server verbindungen kennst du für syncthing",
+              "confidence": 0.92,
+              "reason": "kept local docs despite the router reason naming connection entries"
+            }
+            """,
+        ]
+    )
+
+    arbitration = asyncio.run(
+        MetaCatalogRouter(settings=settings, embedding_client=FakeEmbeddingClient(), llm_client=llm).route(
+            MetaCatalogRoutingInput(
+                message="welche server verbindungen kennst du für syncthing?",
+                menu=build_aria_turn_menu(connection_kinds=("ssh", "sftp")),
+                surface_registry=build_builtin_surface_registry(settings),
+                user_id="example_user",
+                request_id="test",
+            )
+        )
+    )
+
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
+    assert arbitration.source == META_CATALOG_ROUTING_OPERATION
+    assert arbitration.plan.needs_context is False
+    assert arbitration.plan.context_directions == ()
+    assert arbitration.plan.answer_mode == "ask_clarification"
+    assert arbitration.plan.contract_mode == "clarify"
+    assert arbitration.plan.context_requests[0].surface_id == "docs"
+    assert arbitration.plan.context_requests[0].budget["surface_review_decision"] == "self_contradictory_keep_local"
+    assert "self_contradictory_keep_local" in arbitration.plan.reason
 
 
 def test_meta_catalog_router_prefers_rss_inventory_over_wrong_docs_choice(monkeypatch) -> None:
@@ -709,23 +1671,34 @@ def test_meta_catalog_router_prefers_rss_inventory_over_wrong_docs_choice(monkey
 
     monkeypatch.setattr("aria.core.meta_catalog_routing.create_meta_catalog_qdrant_client", fake_qdrant_factory)
     llm = FakeRoutingLLM(
-        """
-        {
-          "needs_context": true,
-          "catalog_ids": ["local|docs|document|arlo-manual"],
-          "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "was habe ich für news feed für it security?"}],
-          "intents": ["chat", "local_retrieval"],
-          "surfaces": ["docs"],
-          "actions": [],
-          "answer_mode": "direct_answer",
-          "context_depth": "shallow",
-          "contract": {"mode": "answer", "evidence_policy": "source_bound"},
-          "risk": "none",
-          "needs_confirmation": false,
-          "confidence": 0.92,
-          "reason": "wrongly chose document mentioning security feed"
-        }
-        """
+        [
+            """
+            {
+              "needs_context": true,
+              "catalog_ids": ["local|docs|document|arlo-manual"],
+              "context_requests": [{"catalog_id": "local|docs|document|arlo-manual", "surface_id": "docs", "mode": "search", "query": "was habe ich für news feed für it security?"}],
+              "intents": ["chat", "local_retrieval"],
+              "surfaces": ["docs"],
+              "actions": [],
+              "answer_mode": "direct_answer",
+              "context_depth": "shallow",
+              "contract": {"mode": "answer", "evidence_policy": "source_bound"},
+              "risk": "none",
+              "needs_confirmation": false,
+              "confidence": 0.92,
+              "reason": "wrongly chose document mentioning security feed"
+            }
+            """,
+            """
+            {
+              "use_connections_inventory": true,
+              "catalog_ids": ["connection|rss|security-feed"],
+              "query": "was habe ich für news feed für it security",
+              "confidence": 0.93,
+              "reason": "user asks which configured RSS/news feed connection exists for IT security"
+            }
+            """,
+        ]
     )
 
     arbitration = asyncio.run(
@@ -742,6 +1715,10 @@ def test_meta_catalog_router_prefers_rss_inventory_over_wrong_docs_choice(monkey
 
     payload = llm.calls[0]["messages"][1]["content"]
     assert "connection|rss|security-feed" in str(payload)
+    assert [call["kwargs"]["operation"] for call in llm.calls] == [
+        "aria_meta_catalog_routing",
+        "meta_catalog_surface_contract_review",
+    ]
     assert arbitration.source == META_CATALOG_ROUTING_OPERATION
     assert arbitration.plan.surfaces == ("connections",)
     assert arbitration.plan.context_directions == ("connections",)
@@ -1157,14 +2134,14 @@ def test_meta_catalog_action_contract_without_actions_still_seeds_capability_dra
                     mode="action",
                     query="server health",
                     budget={
-                        "catalog_id": "connection|ssh|srv-dev02",
+                        "catalog_id": "connection|ssh|dev-node-02",
                         "entity_type": "connection",
                         "kind": "ssh",
-                        "ref": "srv-dev02",
+                        "ref": "dev-node-02",
                     },
                 ),
             ),
-            priority=("connection|ssh|srv-dev02",),
+            priority=("connection|ssh|dev-node-02",),
             answer_mode="direct_answer",
             contract_mode="action",
             risk="low",
@@ -1179,12 +2156,122 @@ def test_meta_catalog_action_contract_without_actions_still_seeds_capability_dra
     assert draft is not None
     assert draft.capability == "ssh_command"
     assert draft.connection_kind == "ssh"
-    assert draft.explicit_connection_ref == "srv-dev02"
+    assert draft.explicit_connection_ref == "dev-node-02"
     assert runtime._aria_turn_has_confident_local_context(arbitration) is False
     assert runtime._aria_turn_can_direct_inventory_fast_path(arbitration) is False
     contracts = Pipeline._process_turn_contracts(Pipeline.__new__(Pipeline), arbitration)
     assert contracts.action_contract_selected is True
     assert contracts.confident_local_context is False
+
+
+def test_meta_catalog_ssh_priorities_seed_explicit_multi_target_contract() -> None:
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("chat", "runtime_action"),
+            surfaces=("connections",),
+            actions=("ssh_run_command",),
+            needs_context=True,
+            context_directions=("connections",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="was fuer ip adressen haben meine dev-server",
+                    budget={
+                        "catalog_id": "connection|ssh|dev-node-01",
+                        "entity_type": "connection",
+                        "kind": "ssh",
+                        "ref": "dev-node-01",
+                    },
+                ),
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="was fuer ip adressen haben meine dev-server",
+                    budget={
+                        "catalog_id": "connection|ssh|dev-node-02",
+                        "entity_type": "connection",
+                        "kind": "ssh",
+                        "ref": "dev-node-02",
+                    },
+                ),
+            ),
+            priority=("connection|ssh|dev-node-01", "connection|ssh|dev-node-02"),
+            target_scope_authority="semantic_group",
+            answer_mode="plan_action",
+            contract_mode="action",
+            risk="medium",
+            needs_confirmation=True,
+            confidence=0.92,
+            reason="candidate dev servers",
+        ),
+    )
+    runtime = AgenticContextRuntimeMixin()
+
+    draft = runtime._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.connection_refs == ["dev-node-01", "dev-node-02"]
+    assert "target_scope:multi_target" in draft.notes
+    assert "turn_contract_target_refs:dev-node-01,dev-node-02" in draft.notes
+    assert "turn_contract_priority:connection|ssh|dev-node-01,connection|ssh|dev-node-02" in draft.notes
+
+
+def test_meta_catalog_ssh_priorities_without_scope_authority_are_hints_only() -> None:
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("runtime_action",),
+            surfaces=("connections",),
+            actions=("ssh_run_command",),
+            needs_context=True,
+            context_directions=("connections",),
+            context_depth="shallow",
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="zeige mir den status meiner server",
+                    budget={
+                        "catalog_id": "connection|ssh|srv-a",
+                        "entity_type": "connection",
+                        "kind": "ssh",
+                        "ref": "srv-a",
+                    },
+                ),
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="zeige mir den status meiner server",
+                    budget={
+                        "catalog_id": "connection|ssh|srv-b",
+                        "entity_type": "connection",
+                        "kind": "ssh",
+                        "ref": "srv-b",
+                    },
+                ),
+            ),
+            priority=("connection|ssh|srv-a", "connection|ssh|srv-b"),
+            answer_mode="plan_action",
+            contract_mode="action",
+            risk="medium",
+            needs_confirmation=True,
+            confidence=0.92,
+        ),
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.connection_refs == []
+    assert "target_scope:multi_target" in draft.notes
+    assert "target_scope_authority:priority_sample" in draft.notes
+    assert "turn_contract_priority_refs_ignored:srv-a,srv-b" in draft.notes
 
 
 def test_meta_catalog_multi_document_meta_requests_enable_document_inventory() -> None:
@@ -1294,6 +2381,7 @@ def test_meta_catalog_mixed_rss_ssh_action_seed_prefers_ssh_targets() -> None:
                 "connection|ssh|srv-a",
                 "connection|ssh|srv-b",
             ),
+            target_scope_authority="semantic_group",
             answer_mode="direct_answer",
             contract_mode="action",
             evidence_policy="source_bound",
@@ -1312,6 +2400,7 @@ def test_meta_catalog_mixed_rss_ssh_action_seed_prefers_ssh_targets() -> None:
     assert draft.connection_refs == ["srv-a", "srv-b"]
     assert "target_scope:multi_target" in draft.notes
     assert "turn_contract_target_refs:srv-a,srv-b" in draft.notes
+    assert "turn_contract_priority:connection|rss|debian-security-advisories,connection|ssh|srv-a,connection|ssh|srv-b" in draft.notes
 
 
 def test_meta_catalog_rss_action_contract_without_action_array_seeds_feed_read() -> None:
@@ -1732,6 +2821,73 @@ def test_docs_fallback_answers_exhaustive_corpus_scan_without_primary_term_match
     assert "Die übrigen Treffer betreffen nur weitere Such-/Kontextbegriffe" in text
     assert "Geprüfte Dokumente: Olumiant.pdf, Cimzia.pdf, Simponi.pdf" in text
     assert "konnte sie aber nicht sicher genug" not in text
+
+
+def test_docs_search_rejects_exhaustive_corpus_scan_without_match_chunks() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    request = ContextRequest(
+        surface_id="docs",
+        mode="search",
+        query="welche verbindungen kennst du fuer syncthing",
+    )
+    arbitration = AriaTurnArbitration(
+        source=META_CATALOG_ROUTING_OPERATION,
+        plan=AriaTurnPlan(
+            intents=("local_retrieval",),
+            surfaces=("docs",),
+            needs_context=True,
+            context_directions=("docs",),
+            context_depth="deep",
+            context_requests=(request,),
+            priority=("local|docs|document|ffc2d1d6056e446221956170",),
+            answer_mode="direct_answer",
+            evidence_policy="source_bound",
+            confidence=0.91,
+        ),
+    )
+    result = SkillResult(
+        skill_name="memory_recall",
+        success=True,
+        content=(
+            "[Dokument-Corpus-Scan]\n"
+            "Vollständig gescannt: 2 Dokumente, 207 Chunks.\n"
+            "Suchbegriff-Abdeckung:\n"
+            "- welche: 0 Treffer-Chunks in 0 Dokumenten\n"
+            "- verbindungen: 0 Treffer-Chunks in 0 Dokumenten\n"
+            "- kennst: 0 Treffer-Chunks in 0 Dokumenten\n"
+            "- syncthing: 0 Treffer-Chunks in 0 Dokumenten\n"
+        ),
+        metadata={
+            "document_corpus_scan": {
+                "exhaustive": True,
+                "terms": ["welche", "verbindungen", "kennst", "syncthing"],
+                "matched_terms": [],
+                "unmatched_terms": ["welche", "verbindungen", "kennst", "syncthing"],
+                "term_stats": {
+                    "welche": {"chunks": 0, "documents": 0, "document_names": [], "matches": []},
+                    "verbindungen": {"chunks": 0, "documents": 0, "document_names": [], "matches": []},
+                    "kennst": {"chunks": 0, "documents": 0, "document_names": [], "matches": []},
+                    "syncthing": {"chunks": 0, "documents": 0, "document_names": [], "matches": []},
+                },
+                "documents_scanned": 2,
+                "chunks_scanned": 207,
+                "match_chunks": 0,
+            },
+            "sources": [
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Beipackzettel A.pdf"},
+                {"type": "document", "collection": "aria_docs_example_user", "document_name": "Beipackzettel B.pdf"},
+            ],
+        },
+    )
+
+    assert runtime._aria_turn_local_search_has_evidence(request, result) is False
+    assert runtime._aria_turn_fast_docs_search_answer(arbitration, result, language="de") == ""
+    assert runtime._aria_turn_docs_search_fallback_answer(arbitration, result, language="de") == ""
+    assert any(
+        "Routing Debug: evidence_filter surface=docs mode=search matched=false" in line
+        and "reason=document_corpus_scan_no_matches" in line
+        for line in result.metadata["detail_lines"]
+    )
 
 
 def test_docs_fast_answer_uses_bounded_mill_wifi_instruction_summary() -> None:

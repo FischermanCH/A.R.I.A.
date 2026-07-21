@@ -9,6 +9,8 @@ from aria.core.text_utils import localized_text
 
 def resolve_pending_missing_input(action: dict[str, Any], payload: dict[str, Any]) -> str:
     explicit = str(action.get("missing_input", "") or payload.get("missing_input", "") or "").strip()
+    if explicit == "connection_ref" and payload_connection_refs(payload):
+        explicit = ""
     if explicit:
         return explicit
     missing_fields = payload_missing_fields(payload)
@@ -31,11 +33,42 @@ def resolve_pending_missing_input(action: dict[str, Any], payload: dict[str, Any
     return primary
 
 
-def payload_missing_fields(payload: dict[str, Any]) -> list[str]:
+def payload_connection_refs(payload: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for item in list(payload.get("connection_refs", []) or []):
+        clean = str(item or "").strip()
+        if clean and clean not in refs:
+            refs.append(clean)
+    return refs
+
+
+def payload_field_is_satisfied(payload: dict[str, Any], field: str) -> bool:
+    clean_field = str(field or "").strip()
+    if not clean_field:
+        return False
+    if clean_field == "connection_ref":
+        return bool(str(payload.get("connection_ref", "") or "").strip() or payload_connection_refs(payload))
+    if clean_field in {"content", "command", "message", "search_query"}:
+        return bool(str(payload.get("content", "") or payload.get(clean_field, "") or "").strip())
+    if clean_field in {"path", "remote_path", "topic"}:
+        return bool(str(payload.get("path", "") or payload.get(clean_field, "") or "").strip())
+    return bool(str(payload.get(clean_field, "") or "").strip())
+
+
+def prune_satisfied_payload_missing_fields(payload: dict[str, Any]) -> list[str]:
     return [
         str(item or "").strip()
         for item in list(payload.get("missing_fields", []) or [])
-        if str(item or "").strip()
+        if str(item or "").strip() and not payload_field_is_satisfied(payload, str(item or "").strip())
+    ]
+
+
+def payload_missing_fields(payload: dict[str, Any]) -> list[str]:
+    connection_refs = payload_connection_refs(payload)
+    return [
+        str(item or "").strip()
+        for item in list(payload.get("missing_fields", []) or [])
+        if str(item or "").strip() and not (str(item or "").strip() == "connection_ref" and connection_refs)
     ]
 
 
@@ -76,7 +109,11 @@ def routed_action_intents(action: dict[str, Any], payload: dict[str, Any]) -> li
     candidate_id = str(action.get("candidate_id", "") or "").strip()
     if is_recipe_candidate_kind(candidate_kind) and candidate_id:
         return [build_recipe_intent(candidate_id)]
-    return pending_payload_intents(payload)
+    payload_intents = pending_payload_intents(payload)
+    if payload_intents != ["chat"]:
+        return payload_intents
+    capability = str(action.get("capability", "") or "").strip()
+    return [f"capability:{capability}"] if capability else payload_intents
 
 
 def routing_reason_text(

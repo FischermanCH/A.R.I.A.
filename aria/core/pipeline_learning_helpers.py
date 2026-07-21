@@ -4,8 +4,6 @@ import asyncio
 import sys
 from typing import Any
 
-from aria.core.capability_catalog import normalize_capability
-from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.host_artifact_learning import host_artifact_discovery_outcome_events
 from aria.core.artifact_review_patterns import recall_artifact_review_patterns
 from aria.core.learned_recipe_curator import curate_learned_recipe_entry
@@ -98,57 +96,6 @@ class PipelineLearningHelpersMixin:
                     session_id=session_id,
                 ),
             )
-
-    def _schedule_capability_fallback_learning_outcome(
-        self,
-        *,
-        message: str,
-        user_id: str,
-        request_id: str,
-        capability_draft: Any | None,
-        llm_state: str,
-        source: str,
-    ) -> None:
-        if self.memory_skill is None or capability_draft is None:
-            return
-        event = {
-            "event_type": "runtime_outcome",
-            "artifact_type": "routing_hint",
-            "status": "fallback_used",
-            "risk": "medium",
-            "user_id": user_id,
-            "source": "capability_draft_local_fallback",
-            "request_id": request_id,
-            "summary": "Local capability fallback produced an action draft after bounded LLM draft was unavailable or uncertain.",
-            "evidence": {
-                "user_message": str(message or "").strip(),
-                "outcome": "local_capability_fallback_used",
-                "llm_state": str(llm_state or "").strip(),
-                "capability": normalize_capability(str(getattr(capability_draft, "capability", "") or "")),
-                "connection_kind": normalize_connection_kind(str(getattr(capability_draft, "connection_kind", "") or "")),
-                "requested_connection_ref": str(getattr(capability_draft, "requested_connection_ref", "") or "").strip(),
-                "content": str(getattr(capability_draft, "content", "") or "").strip(),
-            },
-            "metadata": {
-                "source": source,
-                "draft_notes": [str(note or "") for note in list(getattr(capability_draft, "notes", []) or [])],
-            },
-        }
-
-        enqueue_learning_job(
-            job_type="capability_fallback_outcome",
-            user_id=user_id,
-            source=str(event.get("source") or "capability_draft_local_fallback"),
-            artifact_type=str(event.get("artifact_type") or "routing_hint"),
-            request_id=request_id,
-            summary=str(event.get("summary") or ""),
-            factory=lambda event=event: self._learning_symbol("capture_learning_outcome", capture_learning_outcome)(
-                event=event,
-                user_id=user_id,
-                memory_skill=self.memory_skill,
-                llm_client=self.llm_client,
-            ),
-        )
 
     def _schedule_runtime_learning_outcome(
         self,

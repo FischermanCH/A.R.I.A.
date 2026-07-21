@@ -153,10 +153,13 @@ def test_blocked_action_explanation_adds_security_link_for_builtin_ssh_policy_bl
             policy_reason_label="Mutating SSH commands are blocked.",
             skip_llm_reason="ssh_policy_block_fast_path",
             review_link_kind="ssh_policy",
+            suppress_preview=True,
         )
 
         assert result.used_llm is False
-        assert "sudo systemctl restart pihole-FTL" in result.text
+        assert "sudo systemctl restart pihole-FTL" not in result.text
+        assert "SSH-Mutation erkannt" in result.text
+        assert "keine belegte konkrete Shell-Zeile" in result.text
         assert "Sicherheitsregeln pruefen/anpassen: [Security Guardrails](/config/security)" in result.text
         assert "(/config/security)" in result.text
 

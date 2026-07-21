@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,8 +21,67 @@ _PENDING_ROUTE_KINDS = tuple(ordered_connection_kinds())
 
 def _pending_text(language: str | None, key: str, default: str = "", **values: Any) -> str:
     template = _CHAT_PENDING_I18N.t(language or "de", f"chat_pending.{key}", default or key)
+    template = str(template if template is not None else default or key)
     if not values:
         return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
+
+def _pending_payload_contract_missing(action: dict[str, Any], payload: dict[str, Any]) -> tuple[str, ...]:
+    missing = [
+        str(item or "").strip()
+        for item in list(payload.get("missing_fields", []) or [])
+        if str(item or "").strip()
+    ]
+    explicit = str(action.get("missing_input", "") or payload.get("missing_input", "") or "").strip()
+    if explicit:
+        missing.append(explicit)
+    capability = str(payload.get("capability", "") or "").strip().lower()
+    connection_kind = str(payload.get("connection_kind", "") or "").strip().lower()
+    connection_ref = str(payload.get("connection_ref", "") or "").strip()
+    connection_refs = [
+        str(item or "").strip()
+        for item in list(payload.get("connection_refs", []) or [])
+        if str(item or "").strip()
+    ]
+    content = str(payload.get("content", "") or "").strip()
+    path = str(payload.get("path", "") or "").strip()
+    if connection_kind and not connection_ref and not connection_refs:
+        missing.append("connection_ref")
+    if capability == "ssh_command" and not content:
+        missing.append("command")
+    elif capability in {"file_read", "file_write"} and not path:
+        missing.append("remote_path")
+    elif capability in {"discord_send", "webhook_send", "email_send", "mqtt_publish"} and not content:
+        missing.append("message")
+    elif capability == "mail_search" and not content:
+        missing.append("search_query")
+    return tuple(dict.fromkeys(item for item in missing if item))
+
+
+def _pending_contract_missing_text(language: str | None, missing: tuple[str, ...]) -> str:
+    labels_de = {
+        "connection_ref": "Ziel/Connection",
+        "command": "belegtes Kommando",
+        "remote_path": "Dateipfad",
+        "message": "Nachricht/Inhalt",
+        "search_query": "Suchbegriff",
+    }
+    labels_en = {
+        "connection_ref": "target/connection",
+        "command": "validated command",
+        "remote_path": "file path",
+        "message": "message/content",
+        "search_query": "search query",
+    }
+    labels = labels_en if str(language or "").lower().startswith("en") else labels_de
+    readable = ", ".join(labels.get(item, item) for item in missing)
+    if str(language or "").lower().startswith("en"):
+        return f"I cannot execute this yet because the action contract is missing: {readable}."
+    return f"Ich kann das noch nicht ausfuehren, weil im Action-Contract fehlt: {readable}."
     try:
         return template.format(**values)
     except Exception:
@@ -621,7 +681,7 @@ async def apply_chat_result_pending_followups(
     sanitize_connection_name: SanitizeConnectionName,
     alert_sender: AlertSender,
 ) -> ChatPipelinePendingOutcome:
-    final_text = assistant_text
+    final_text = str(assistant_text or "")
     final_icon = icon
     final_intent_label = intent_label
     set_cookies: dict[str, str] = {}
@@ -680,12 +740,9 @@ async def apply_chat_result_pending_followups(
         set_cookies[COOKIE_ROUTED_ACTION] = routed_action_confirm_payload
         action = dict(result.pending_action.get("action_decision", {}) or {})
         payload = dict(result.pending_action.get("payload", {}) or {})
-        pending_missing_input = str(action.get("missing_input", "") or payload.get("missing_input", "") or "").strip()
-        missing_fields = [
-            str(item or "").strip()
-            for item in list(payload.get("missing_fields", []) or [])
-            if str(item or "").strip()
-        ]
+        contract_missing = _pending_payload_contract_missing(action, payload)
+        pending_missing_input = contract_missing[0] if contract_missing else ""
+        missing_fields = list(contract_missing)
         if not pending_missing_input and not missing_fields:
             final_text = (
                 f"{final_text}\n\n"
@@ -704,6 +761,17 @@ async def apply_chat_result_pending_followups(
             )
             final_icon = "🟡"
             final_intent_label = "routed_action_pending"
+        else:
+            normalized_final_text = "".join(
+                char
+                for char in unicodedata.normalize("NFKD", final_text.lower())
+                if not unicodedata.combining(char)
+            )
+            confirmation_text = "bestaetig" in normalized_final_text or "bestatig" in normalized_final_text
+            if not final_text.strip() or confirmation_text:
+                final_text = _pending_contract_missing_text(language, contract_missing)
+            final_icon = "⚠"
+            final_intent_label = "routed_action_needs_input"
     else:
         clear_cookies.append(COOKIE_ROUTED_ACTION)
 

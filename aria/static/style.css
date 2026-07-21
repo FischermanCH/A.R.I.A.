@@ -2449,6 +2449,58 @@ body[data-background="nodes"] {
   position: relative;
 }
 
+.chat-tools-head {
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto;
+  align-items: center;
+  justify-content: end;
+  gap: 0.34rem;
+  position: relative;
+}
+
+.chat-export-button {
+  cursor: pointer;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(9, 23, 15, 0.9);
+  padding: 0;
+  font: inherit;
+  width: 1.95rem;
+  height: 1.95rem;
+  min-width: 1.95rem;
+  min-height: 1.95rem;
+}
+
+.chat-export-button:hover,
+.chat-export-button:focus-visible {
+  border-color: rgba(106, 231, 255, 0.32);
+  color: #d7ffe0;
+}
+
+.chat-export-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.chat-export-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.chat-export-status {
+  grid-column: 1 / -1;
+  justify-self: end;
+  max-width: min(58vw, 16rem);
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
 .chat-tools-toggle {
   cursor: pointer;
   font-size: 0.75rem;
@@ -2881,9 +2933,42 @@ body[data-background="nodes"] {
   font-size: 0.68rem;
 }
 
+.chat-queue-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.chat-queue-toggle {
+  min-height: 1.6rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(79, 156, 100, 0.72);
+  background: rgba(13, 39, 23, 0.95);
+  color: #caffd8;
+  box-shadow: none;
+  font-size: 0.66rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.chat-queue-toggle:hover {
+  background: rgba(25, 68, 39, 0.98);
+}
+
 .chat-queue-list {
   display: grid;
   gap: 0.34rem;
+}
+
+.chat-queue-list[hidden] {
+  display: none !important;
+}
+
+.chat-queue[data-collapsed="true"] {
+  padding-block: 0.38rem;
 }
 
 .chat-queue-item {
@@ -10676,7 +10761,7 @@ select {
 @media (max-width: 640px) {
   .app-shell {
     width: min(100%, calc(100dvw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
-    margin: 0.75rem auto 1.1rem;
+    margin: 0.45rem auto 1rem;
   }
 
   .app-shell:has(.chat-layout-fill) {
@@ -10692,32 +10777,52 @@ select {
 
   .topbar {
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: space-between;
-    gap: 0.5rem;
+    gap: 0.45rem;
+    margin-bottom: 0.8rem;
+    padding: 0.58rem 0.62rem;
+    border-radius: 14px;
   }
 
   .brand {
-    width: 100%;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    gap: 0.46rem;
+  }
+
+  .brand-mark {
+    width: 46px;
+    height: 46px;
   }
 
   .brand-logo {
-    width: 56px;
-    height: 56px;
+    width: 46px;
+    height: 46px;
+    padding: 0.2rem;
+    border-radius: 8px;
   }
 
   .brand-text {
-    min-height: 56px;
+    min-height: 46px;
+    min-width: 0;
   }
 
   .brand-text p {
-    font-size: 0.64rem;
+    max-width: 100%;
+    font-size: 0.58rem;
     line-height: 1.05;
-    white-space: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .topbar h1 {
-    font-size: 1.12rem;
+    max-width: 100%;
+    font-size: 1.02rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .config-domain-intro .page-title-row {
@@ -10735,10 +10840,12 @@ select {
     flex-wrap: nowrap;
     justify-content: flex-end;
     align-items: center;
-    gap: 0.35rem;
-    order: 3;
+    gap: 0.28rem;
+    order: initial;
     width: auto;
+    padding-bottom: 0;
     margin-left: auto;
+    flex: 0 0 auto;
   }
 
   .topnav > .nav-link,
@@ -10756,6 +10863,63 @@ select {
     justify-content: center;
     white-space: normal;
     text-align: center;
+  }
+
+  .topnav .mobile-admin-pill {
+    display: none !important;
+  }
+
+  .topnav .mobile-admin-pill::before {
+    content: none;
+  }
+
+  .topnav .app-menu-trigger {
+    width: 2.35rem;
+    height: 2.35rem;
+    padding: 0;
+    border-radius: 999px;
+  }
+
+  .topnav .app-menu-trigger.is-admin-active {
+    border-color: color-mix(in srgb, var(--accent) 72%, var(--border));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+      0 0 14px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+
+  .topnav .app-menu-trigger .mobile-only {
+    display: none !important;
+  }
+
+  .chat-meta-header {
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.48rem 0.58rem 0;
+  }
+
+  .chat-status-cluster {
+    gap: 0.3rem;
+    width: 100%;
+  }
+
+  .chat-status {
+    max-width: 100%;
+    min-height: 2rem;
+    padding: 0.16rem 0.48rem;
+    font-size: 0.72rem;
+  }
+
+  .chat-status code {
+    max-width: min(52vw, 15rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+
+  .auto-memory-indicator {
+    padding-inline: 0.52rem;
   }
 
   .user-menu summary {
@@ -10841,8 +11005,62 @@ select {
     position: relative;
   }
 
+  .chat-tools-head {
+    justify-content: start;
+  }
+
+  .chat-tools-toggle,
+  .chat-export-button {
+    width: 2.75rem;
+    height: 2.75rem;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+  }
+
+  .chat-tools-toggle {
+    justify-content: center;
+  }
+
+  .chat-tools-toggle::after,
+  .toolbox-summary-text,
+  .toolbox-live-badge {
+    display: none;
+  }
+
+  .toolbox-summary-label {
+    gap: 0;
+  }
+
+  .toolbox-summary-icon,
+  .chat-export-icon {
+    width: 1.18rem;
+    height: 1.18rem;
+    min-width: 1.18rem;
+  }
+
+  .chat-export-status {
+    justify-self: start;
+    max-width: 100%;
+  }
+
   .composer-actions {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .chat-queue-header {
+    align-items: flex-start;
+  }
+
+  .chat-queue-summary {
+    max-width: 68%;
+    flex-wrap: wrap;
+  }
+
+  .chat-queue-count {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .chat-queue-item {

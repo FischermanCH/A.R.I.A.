@@ -362,3 +362,385 @@ def test_surface_loader_runtime_passes_document_target_collections_for_corpus_sc
     assert result.skill_name == "memory_recall"
     assert owner.memory_skill.calls[-1]["params"]["document_corpus_scan"] is True
     assert owner.memory_skill.calls[-1]["params"]["document_target_collections"] == ["aria_docs_sample_medications"]
+
+
+def _connection_action_arbitration(
+    query: str,
+    *,
+    kind: str,
+    refs: tuple[str, ...],
+    actions: tuple[str, ...] = (),
+    target_scope_authority: str = "",
+) -> AriaTurnArbitration:
+    return AriaTurnArbitration(
+        plan=AriaTurnPlan(
+            intents=("chat",),
+            needs_context=True,
+            context_directions=("connections",),
+            context_requests=tuple(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query=query,
+                    budget={"entity_type": "connection", "kind": kind, "ref": ref},
+                )
+                for ref in refs
+            ),
+            actions=actions,
+            priority=tuple(f"connection|{kind}|{ref}" for ref in refs),
+            target_scope_authority=target_scope_authority,
+            answer_mode="plan_action",
+            contract_mode="action",
+            risk="medium",
+            needs_confirmation=True,
+            confidence=0.98,
+        ),
+        source="aria_meta_catalog_routing",
+    )
+
+
+def test_aria_turn_seed_full_kind_scope_does_not_bind_priority_refs() -> None:
+    arbitration = _connection_action_arbitration(
+        "zeige mir den status meiner server",
+        kind="ssh",
+        refs=("srv-a", "srv-b"),
+        actions=("ssh_run_command",),
+        target_scope_authority="full_kind",
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.connection_kind == "ssh"
+    assert draft.connection_refs == []
+    assert "target_scope:multi_target" in draft.notes
+    assert "target_scope_authority:full_kind" in draft.notes
+    assert "turn_contract_target_refs:full_kind" in draft.notes
+
+
+def test_aria_turn_seed_semantic_group_scope_binds_refs() -> None:
+    arbitration = _connection_action_arbitration(
+        "zeige mir den status meiner dev-server",
+        kind="ssh",
+        refs=("dev-node-01", "dev-node-02"),
+        actions=("ssh_run_command",),
+        target_scope_authority="semantic_group",
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.connection_refs == ["dev-node-01", "dev-node-02"]
+    assert "target_scope_authority:semantic_group" in draft.notes
+    assert "turn_contract_target_refs:dev-node-01,dev-node-02" in draft.notes
+
+
+def test_aria_turn_seed_sftp_read_extracts_file_path_from_live_query() -> None:
+    arbitration = _connection_action_arbitration(
+        "lies mir die datei /etc/hosts auf dns-node-02",
+        kind="sftp",
+        refs=("dns-node-02",),
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "file_read"
+    assert draft.connection_kind == "sftp"
+    assert draft.explicit_connection_ref == "dns-node-02"
+    assert draft.path == "/etc/hosts"
+    assert draft.content == ""
+
+
+def test_aria_turn_seed_blocks_unbound_explicit_identifier_target() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    runtime.settings = SimpleNamespace(  # type: ignore[attr-defined]
+        connections=SimpleNamespace(
+            ssh={
+                "ops-alert-01": {
+                    "host": "192.0.2.160",
+                    "title": "NetAlert Monitoring",
+                    "aliases": ["monitoring server"],
+                    "tags": ["monitoring", "network"],
+                }
+            }
+        )
+    )
+    arbitration = _connection_action_arbitration(
+        "Pruefe den Status von einem ops-unknown-01",
+        kind="ssh",
+        refs=("ops-alert-01",),
+        actions=("connection_action_ssh",),
+        target_scope_authority="explicit_refs",
+    )
+
+    draft = runtime._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "ops-unknown-01"
+    assert "explicit_target_authority:blocked_unbound_ref" in draft.notes
+    assert "explicit_target_candidate_blocked:ssh/ops-alert-01" in draft.notes
+
+
+def test_aria_turn_seed_blocks_unbound_target_against_raw_user_prompt() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    runtime.settings = SimpleNamespace(  # type: ignore[attr-defined]
+        connections=SimpleNamespace(
+            ssh={
+                "ops-alert-01": {
+                    "host": "192.0.2.160",
+                    "title": "NetAlert Monitoring",
+                    "aliases": ["monitoring server"],
+                    "tags": ["monitoring", "network"],
+                }
+            }
+        )
+    )
+    arbitration = _connection_action_arbitration(
+        "status check ops-alert-01",
+        kind="ssh",
+        refs=("ops-alert-01",),
+        actions=("connection_action_ssh",),
+        target_scope_authority="explicit_refs",
+    )
+
+    draft = runtime._aria_turn_seed_capability_draft(
+        arbitration,
+        user_message="Pruefe den Status von einem ops-unknown-01",
+    )
+
+    assert draft is not None
+    assert draft.explicit_connection_ref == ""
+    assert draft.requested_connection_ref == "ops-unknown-01"
+    assert "explicit_target_authority:blocked_unbound_ref" in draft.notes
+    assert "explicit_target_candidate_blocked:ssh/ops-alert-01" in draft.notes
+
+
+def test_aria_turn_seed_keeps_prompt_bound_semantic_explicit_target() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    runtime.settings = SimpleNamespace(  # type: ignore[attr-defined]
+        connections=SimpleNamespace(
+            ssh={
+                "ops-alert-01": {
+                    "host": "192.0.2.160",
+                    "title": "NetAlert Monitoring",
+                    "aliases": ["monitoring server"],
+                    "tags": ["monitoring", "network"],
+                }
+            }
+        )
+    )
+    arbitration = _connection_action_arbitration(
+        "Zeige mir den Status vom monitoring server",
+        kind="ssh",
+        refs=("ops-alert-01",),
+        actions=("connection_action_ssh",),
+        target_scope_authority="explicit_refs",
+    )
+
+    draft = runtime._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.explicit_connection_ref == "ops-alert-01"
+    assert draft.requested_connection_ref == ""
+    assert not any(note.startswith("explicit_target_candidate_blocked:") for note in draft.notes)
+
+
+def test_web_search_action_contract_normalizes_to_web_context() -> None:
+    runtime = AgenticContextRuntimeMixin()
+    runtime.web_search_skill = object()
+    arbitration = AriaTurnArbitration(
+        plan=AriaTurnPlan(
+            intents=("chat", "runtime_action"),
+            surfaces=("connections",),
+            actions=("web_search",),
+            needs_context=True,
+            context_directions=("connections",),
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="was ist der neuste amazon kindle",
+                    budget={"entity_type": "connection", "kind": "searxng", "ref": "www-search"},
+                ),
+            ),
+            priority=("connection|searxng|www-search",),
+            answer_mode="plan_action",
+            contract_mode="action",
+            evidence_policy="source_bound",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.93,
+            reason="use configured web search",
+        ),
+        source="aria_meta_catalog_routing",
+    )
+
+    normalized = runtime._normalize_web_search_action_contract(
+        arbitration,
+        message="was ist der neuste amazon kindle",
+        user_id="u1",
+        request_id="r1",
+    )
+
+    assert normalized is not None
+    assert normalized.plan.actions == ()
+    assert normalized.plan.surfaces == ("web",)
+    assert normalized.plan.context_directions == ("web",)
+    assert normalized.plan.context_requests[0].surface_id == "web"
+    assert normalized.plan.context_requests[0].budget["web_search_action_normalized"] is True
+    assert normalized.plan.contract_mode == "answer"
+
+
+def test_aria_turn_seed_sftp_list_uses_directory_or_default_path() -> None:
+    runtime = AgenticContextRuntimeMixin()
+
+    with_path = runtime._aria_turn_seed_capability_draft(
+        _connection_action_arbitration("liste die dateien in /var/log auf dns-node-02", kind="sftp", refs=("dns-node-02",))
+    )
+    without_path = runtime._aria_turn_seed_capability_draft(
+        _connection_action_arbitration("liste die dateien auf dns-node-02", kind="sftp", refs=("dns-node-02",))
+    )
+
+    assert with_path is not None
+    assert with_path.capability == "file_list"
+    assert with_path.path == "/var/log"
+    assert without_path is not None
+    assert without_path.capability == "file_list"
+    assert without_path.path == "."
+
+
+def test_aria_turn_seed_sftp_read_without_absolute_path_does_not_use_prompt_as_path() -> None:
+    arbitration = _connection_action_arbitration(
+        "lies mir die hosts datei auf dns-node-02",
+        kind="sftp",
+        refs=("dns-node-02",),
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "file_read"
+    assert draft.path == "/etc/hosts"
+
+
+def test_aria_turn_seed_sftp_management_hosts_file_uses_etc_hosts() -> None:
+    arbitration = _connection_action_arbitration(
+        "hosts datei vom management server bitte",
+        kind="sftp",
+        refs=("ops-mgmt-01",),
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "file_read"
+    assert draft.connection_kind == "sftp"
+    assert draft.explicit_connection_ref == "ops-mgmt-01"
+    assert draft.path == "/etc/hosts"
+
+
+def test_aria_turn_seed_sftp_manual_question_without_file_evidence_does_not_list_root() -> None:
+    arbitration = AriaTurnArbitration(
+        plan=AriaTurnPlan(
+            intents=("chat", "runtime_action"),
+            needs_context=True,
+            context_directions=("connections",),
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="was steht im syncthing manual?",
+                    budget={"entity_type": "connection", "kind": "sftp", "ref": "sync-node-01"},
+                ),
+            ),
+            priority=("connection|sftp|sync-node-01",),
+            actions=(),
+            answer_mode="direct_answer",
+            contract_mode="action",
+            evidence_policy="source_bound",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.9,
+        ),
+        source="aria_meta_catalog_routing",
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is None
+
+
+def test_aria_turn_seed_recovers_sftp_file_action_when_meta_contract_has_no_actions() -> None:
+    arbitration = AriaTurnArbitration(
+        plan=AriaTurnPlan(
+            intents=("chat",),
+            needs_context=True,
+            context_directions=("connections",),
+            context_requests=(
+                ContextRequest(
+                    surface_id="connections",
+                    mode="action",
+                    query="hosts datei vom management server bitte",
+                    budget={"entity_type": "connection", "kind": "sftp", "ref": "ops-mgmt-01"},
+                ),
+            ),
+            priority=("connection|sftp|ops-mgmt-01",),
+            actions=(),
+            answer_mode="direct_answer",
+            contract_mode="action",
+            evidence_policy="source_bound",
+            risk="low",
+            needs_confirmation=False,
+            confidence=0.88,
+        ),
+        source="aria_meta_catalog_routing",
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "file_read"
+    assert draft.connection_kind == "sftp"
+    assert draft.explicit_connection_ref == "ops-mgmt-01"
+    assert draft.path == "/etc/hosts"
+
+
+def test_aria_turn_seed_ssh_singular_catalog_choice_does_not_expand_to_fleet() -> None:
+    arbitration = _connection_action_arbitration(
+        "zeige mir den status vom monitoring server",
+        kind="ssh",
+        refs=("ops-alert-01",),
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == "ops-alert-01"
+    assert draft.connection_refs == []
+    assert "target_scope:multi_target" not in draft.notes
+
+
+def test_aria_turn_seed_ssh_fleet_query_keeps_multi_target_scope() -> None:
+    arbitration = _connection_action_arbitration(
+        "wie geht es meinen servern",
+        kind="ssh",
+        refs=("ops-alert-01", "dev-node-01", "dns-node-02"),
+        target_scope_authority="full_kind",
+    )
+
+    draft = AgenticContextRuntimeMixin()._aria_turn_seed_capability_draft(arbitration)
+
+    assert draft is not None
+    assert draft.capability == "ssh_command"
+    assert draft.connection_kind == "ssh"
+    assert draft.explicit_connection_ref == ""
+    assert draft.connection_refs == []
+    assert "target_scope:multi_target" in draft.notes
+    assert "target_scope_authority:full_kind" in draft.notes
+    assert "turn_contract_target_refs:full_kind" in draft.notes

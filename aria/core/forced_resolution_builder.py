@@ -130,6 +130,13 @@ class ForcedResolutionBuilder:
                     capability_draft=working_draft,
                     language=language,
                 )
+        forced_decision = dict(forced_resolved.get("decision", {}) or {})
+        if forced_ref and bool(forced_decision.get("found")) and str(forced_decision.get("ref", "") or "").strip():
+            return callbacks.apply_requested_guard(
+                forced_resolved,
+                capability_draft=working_draft,
+                language=language,
+            )
 
         kind_only = await callbacks.build_kind_only_resolution(
             message,

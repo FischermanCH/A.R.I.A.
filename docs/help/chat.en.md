@@ -46,6 +46,12 @@ Under **Details**, ARIA can show:
 
 These details are especially useful when ARIA misunderstood a target or blocked an action.
 
+## Exporting Chat
+
+**Export chat** creates a Markdown export of the currently visible chat. The export includes user prompts, ARIA answers, token/cost/runtime badges, and all routing/debug/Operator Trace lines from Details, even when those details are collapsed in the browser.
+
+ARIA first copies the export to the clipboard. If the browser blocks clipboard access, ARIA automatically downloads a `.md` file.
+
 ## Mobile and iOS
 
 Chat uses a fixed mobile workspace with its own scrollable history. On iPhone/iPad, the composer, queue, and toolbox remain reachable. Long prompts and confirmation buttons may wrap so they are not clipped on narrow viewports.
@@ -56,4 +62,5 @@ Chat uses a fixed mobile workspace with its own scrollable history. On iPhone/iP
 - reorder two waiting prompts
 - edit one waiting prompt and remove another
 - plan a confirmation-required action without running it immediately
+- export the chat and verify that Details/debug lines are included
 - check the same flow on iPhone width

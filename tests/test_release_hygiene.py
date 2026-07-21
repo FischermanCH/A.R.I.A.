@@ -182,14 +182,37 @@ def test_chat_prompt_queue_controls_are_present() -> None:
     template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
 
     assert 'id="chat-queue"' in template
+    assert 'id="chat-queue-toggle"' in template
     assert 'id="chat-queue-list"' in template
     assert "enqueuePrompt" in template
     assert "moveQueuedPrompt" in template
     assert "editQueuedPrompt" in template
     assert "deleteQueuedPrompt" in template
     assert "startNextQueuedPrompt" in template
+    assert "queueCollapseThreshold = 2" in template
+    assert "queueExpanded" in template
     assert ".chat-queue-item" in css
     assert ".chat-queue-action" in css
+    assert ".chat-queue-toggle" in css
+    assert '.chat-queue[data-collapsed="true"]' in css
+
+
+def test_chat_export_controls_are_present() -> None:
+    css = (ROOT / "aria" / "static" / "style.css").read_text(encoding="utf-8")
+    template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert "installChatExportControls" in template
+    assert "buildChatExportMarkdown" in template
+    assert "exportCurrentChat" in template
+    assert "navigator.clipboard.writeText" in template
+    assert "downloadChatExport" in template
+    assert 'id="chat-export-button"' in template
+    assert "{{ icon('copy', 'chat-export-icon') }}" in template
+    assert 'class="toolbox-summary-text"' in template
+    assert ".chat-tools-head" in css
+    assert ".chat-export-button" in css
+    assert ".chat-export-status" in css
+    assert ".toolbox-summary-text" in css
 
 
 def test_memory_browser_keeps_ios_touch_navigation_usable() -> None:

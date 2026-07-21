@@ -220,17 +220,12 @@ def test_ssh_health_status_replaces_blocked_uptime_with_allowed_guardrail_bundle
     )
 
     command = action_debug["decision"]["inputs"]["command"]
-    assert llm.operations == [
-        "ssh_requested_runtime_effect",
-        "ssh_command_decision",
-        "ssh_guardrail_intent",
-        "ssh_guardrail_command_selection",
-    ]
+    assert llm.operations == ["ssh_requested_runtime_effect"]
     assert "requested runtime effect" in llm.messages[0][0]["content"]
     assert command == " && ".join(allow_terms)
     assert updated_draft.content == command
     assert action_debug["decision"]["guardrail_fallback_from"] == "uptime"
-    assert "ssh_command_guardrail_fallback" in debug_line
+    assert "ssh_status_contract_fast_path" in debug_line
 
 
 def test_free_form_message_can_fill_content_but_policy_still_confirms_send() -> None:

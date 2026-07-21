@@ -68,6 +68,8 @@ def _planner_source_label(source: str, language: str = "") -> str:
         return "LLM"
     if clean == "heuristic":
         return "Heuristik" if not str(language or "").strip().lower().startswith("en") else "Heuristic"
+    if clean == "llm_required":
+        return "LLM erforderlich" if not str(language or "").strip().lower().startswith("en") else "LLM required"
     return clean or ("Unbekannt" if not str(language or "").strip().lower().startswith("en") else "Unknown")
 
 
@@ -185,34 +187,13 @@ async def debug_bounded_planner_decision(
         )
 
     if llm_client is None:
-        if len(connection_candidates) == 1 and len(action_candidates) == 1:
-            decision = _decision_payload(
-                connection_candidate=connection_candidates[0],
-                action_candidate=action_candidates[0],
-                reason="single bounded target and action candidate",
-                ask_user=False,
-                confidence="medium",
-            )
-            return _result_payload(
-                available=True,
-                used=False,
-                status="ok",
-                message="Bounded planner used the only bounded target/action pair.",
-                decision=decision,
-                confidence="medium",
-                ask_user=False,
-                planner_source="heuristic",
-                planner_source_label=_planner_source_label("heuristic", language),
-                planner_input=planner_payload,
-                agentic_flow=agentic_flow_payload,
-            )
         return _result_payload(
             available=False,
             used=False,
             status="warn",
-            message="Bounded planner unavailable: no LLM client is configured.",
-            planner_source="heuristic",
-            planner_source_label=_planner_source_label("heuristic", language),
+            message="Bounded planner requires LLM review before selecting a target/action pair.",
+            planner_source="llm_required",
+            planner_source_label=_planner_source_label("llm_required", language),
             planner_input=planner_payload,
             agentic_flow=agentic_flow_payload,
         )

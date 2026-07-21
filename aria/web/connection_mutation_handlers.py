@@ -10,6 +10,7 @@ from urllib.parse import quote_plus, urlparse
 from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
+from aria.core.config import resolve_searxng_base_url
 from aria.core.connection_admin import ConnectionAdminError
 from aria.core.guardrails import guardrail_applies_to_connection
 from aria.core.connection_admin import friendly_connection_admin_error_text

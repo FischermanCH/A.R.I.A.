@@ -78,6 +78,30 @@ def _guardrail_block_fallback_text(*, target: str, guardrail_ref: str, language:
     )
 
 
+def _unverified_ssh_mutation_fallback_text(*, target: str, language: str | None) -> str:
+    clean_target = str(target or "").strip()
+    if clean_target:
+        return _blocked_text(
+            language,
+            "unverified_ssh_mutation_summary_target",
+            "The SSH action on `{target}` was blocked. The mutating command is not verified as an allowed, grounded execution step.",
+            target=clean_target,
+        )
+    return _blocked_text(
+        language,
+        "unverified_ssh_mutation_summary",
+        "The SSH action was blocked. The mutating command is not verified as an allowed, grounded execution step.",
+    )
+
+
+def _unverified_ssh_mutation_preview(*, language: str | None) -> str:
+    return _blocked_text(
+        language,
+        "unverified_ssh_mutation_preview",
+        "SSH mutation request detected; no grounded command is exposed or executed.",
+    )
+
+
 def _clean_llm_text(value: str) -> str:
     text = str(value or "").strip()
     if text.startswith("```"):
@@ -226,15 +250,24 @@ async def explain_blocked_action(
     timeout_seconds: float = 4.0,
     skip_llm_reason: str = "",
     review_link_kind: str = "",
+    suppress_preview: bool = False,
 ) -> BlockedActionExplanation:
-    fallback_source = _guardrail_block_fallback_text(
+    clean_preview = str(preview or "").strip()
+    effective_preview = _unverified_ssh_mutation_preview(language=language) if suppress_preview else clean_preview
+    guardrail_fallback = _guardrail_block_fallback_text(
         target=target,
         guardrail_ref=guardrail_ref,
         language=language,
-    ) or str(fallback_text or "").strip()
+    )
+    fallback_source = (
+        guardrail_fallback
+        or _unverified_ssh_mutation_fallback_text(target=target, language=language)
+        if suppress_preview
+        else guardrail_fallback or str(fallback_text or "").strip()
+    )
     fallback = _ensure_context_lines(
         text=fallback_source,
-        preview=preview,
+        preview=effective_preview,
         guardrail_ref=guardrail_ref,
         language=language,
         review_link_kind=review_link_kind,
@@ -259,7 +292,7 @@ async def explain_blocked_action(
             f"language: {lang}",
             f"user_message: {user_message}",
             f"target: {target}",
-            f"planned_action: {preview}",
+            f"planned_action: {effective_preview}",
             f"capability: {capability}",
             f"policy_reason: {policy_reason}",
             f"policy_reason_label: {policy_reason_label}",
@@ -295,7 +328,7 @@ async def explain_blocked_action(
 
     text = _ensure_context_lines(
         text=text,
-        preview=preview,
+        preview=effective_preview,
         guardrail_ref=guardrail_ref,
         language=language,
         review_link_kind=review_link_kind,

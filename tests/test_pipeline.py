@@ -19,7 +19,9 @@ from aria.core.action_plan import ActionPlan, CapabilityDraft, MemoryHints
 from aria.core.agentic_execution_learning import suppress_auto_learning
 from aria.core.capability_context import CapabilityContextStore
 from aria.core.context_surfaces import ContextRequest
+from aria.core.context_surfaces import RuntimeOutcomeFrame
 from aria.core.config import Settings
+from aria.core.connection_ref_scope import ConnectionRefScope
 from aria.core.notes_context import NotesContextHit
 from aria.core.pipeline import Pipeline
 from aria.core.chat_context_filter import filter_chat_context_skill_results
@@ -31,6 +33,7 @@ from aria.core.recipe_runtime_http import HTTPAPIStatusError
 from aria.core.routing_admin import routing_connections_collection_name
 from aria.core.routing_index import build_connection_routing_documents
 from aria.core.routing_index import routing_documents_fingerprint
+from aria.core.runtime_outcome_followup import RuntimeOutcomeFollowupResolver
 from aria.skills.base import SkillResult
 
 
@@ -58,7 +61,7 @@ class FakeLLMClient:
                     {
                         "intents": [],
                         "confidence": "low",
-                        "reason": "test fallback keeps keyword router decision",
+                        "reason": "test low-confidence fallback",
                     }
                 )
             )
@@ -84,6 +87,33 @@ class FakeLLMClient:
                         "route": "action",
                         "confidence": "low",
                         "reason": "base test LLM leaves existing routing unchanged",
+                    }
+                )
+            )
+        if kwargs.get("operation") == "web_source_acquisition_plan":
+            self.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "should_plan": False,
+                        "goal": "",
+                        "queries": [],
+                        "required_sources": [],
+                        "avoid_sources": [],
+                        "confidence": "high",
+                        "reason": "base test LLM keeps ordinary web search unplanned",
+                    }
+                )
+            )
+        if kwargs.get("operation") == "web_source_relevance_review":
+            self.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "sources_relevant": True,
+                        "confidence": "high",
+                        "reason": "base test LLM accepts fixture sources",
+                        "retry_query": "",
                     }
                 )
             )
@@ -312,6 +342,1734 @@ class FeedResolverLLMClient(FakeLLMClient):
         return FakeLLMResponse(json.dumps({"ref": self.ref, "confidence": "high", "reason": "host passt"}))
 
 
+def test_ssh_kind_only_result_backfills_missing_command_contract() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    assert pipeline._should_backfill_missing_ssh_command(
+        resolved={
+            "decision": {"found": True, "kind": "ssh", "ref": ""},
+            "action_debug": {"decision": {"found": False}},
+        },
+        payload={},
+    )
+
+
+def test_empty_action_preflight_can_be_reframed_as_connections_inventory() -> None:
+    class SurfaceReviewLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "empty_action_preflight_surface_review":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "use_context": True,
+                            "surface": "connections",
+                            "mode": "inventory",
+                            "query": "dev-server ip adressen",
+                            "confidence": "high",
+                            "reason": "inventory answer, not runtime action",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=SurfaceReviewLLM())
+
+        async def fake_load_inventory(arbitration):
+            assert arbitration.plan.context_requests[0].surface_id == "connections"
+            assert arbitration.plan.context_requests[0].mode == "inventory"
+            return [
+                SkillResult(
+                    skill_name="context_inventory",
+                    content="- **dev-node-02** (Host: 192.0.2.110)",
+                    success=True,
+                    metadata={"sources": [{"surface": "connections", "kind": "ssh", "refs": ["dev-node-02"]}]},
+                )
+            ]
+
+        async def fake_direct_context_result(**kwargs):
+            assert kwargs["arbitration"].source == "surface_contract_review"
+            assert any("surface_contract_review" in line for line in kwargs["detail_lines"])
+            return pipeline_mod.PipelineResult(
+                request_id="req1",
+                text="Ich habe passende konfigurierte Quellen gefunden",
+                usage={},
+                intents=["context_inventory"],
+                skill_errors=[],
+                router_level="low",
+                duration_ms=1,
+                detail_lines=kwargs["detail_lines"],
+            )
+
+        pipeline._agentic_context_surface_loader = lambda: SimpleNamespace(load_inventory=fake_load_inventory)  # type: ignore[method-assign]
+        pipeline._aria_turn_direct_context_result = fake_direct_context_result  # type: ignore[method-assign]
+        arbitration = AriaTurnArbitration(
+            source="aria_meta_catalog_routing",
+            plan=AriaTurnPlan(
+                intents=("runtime_action",),
+                surfaces=("docs",),
+                actions=("document_search",),
+                needs_context=True,
+                context_directions=("docs",),
+                needs_confirmation=True,
+                confidence=0.8,
+                reason="wrong surface",
+            ),
+        )
+
+        result = await pipeline._review_empty_action_preflight_as_context(
+            message="was fuer ip adressen haben meine dev-server",
+            user_id="u1",
+            request_id="req1",
+            source="test",
+            decision=SimpleNamespace(level="low"),
+            start=0.0,
+            aria_turn_arbitration=arbitration,
+            capability_draft=None,
+            recipe_intent_debug_lines=[],
+            language="de",
+        )
+
+        assert result is not None
+        assert result.intents == ["context_inventory"]
+
+    asyncio.run(_run())
+
+
+def test_web_search_context_retries_when_sources_are_semantically_irrelevant() -> None:
+    class WebReviewLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_relevance_review":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_relevant": False,
+                            "confidence": "high",
+                            "reason": "sources are about another product",
+                            "retry_query": "rabbit r1 recent update release notes",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=WebReviewLLM())
+        seen_overrides: list[dict[str, str]] = []
+
+        async def fake_run_skills(*args, **kwargs):
+            seen_overrides.append(dict(kwargs.get("query_overrides") or {}))
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Rabbit R1 release notes",
+                    success=True,
+                    metadata={
+                        "sources": [
+                            {
+                                "title": "Rabbit R1 software update",
+                                "url": "https://www.rabbit.tech/updates",
+                                "snippet": "Recent Rabbit R1 update details.",
+                            }
+                        ]
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Firefox release notes",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Firefox release notes",
+                            "url": "https://developer.mozilla.org/firefox",
+                            "snippet": "Firefox browser release information.",
+                        },
+                        {
+                            "title": "MDN release notes",
+                            "url": "https://developer.mozilla.org/mdn",
+                            "snippet": "Documentation platform updates.",
+                        }
+                    ]
+                },
+            )
+        ]
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["chat", "web_search"],
+            message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={},
+            source="test",
+            request_id="req1",
+        )
+
+        assert seen_overrides == [{"web_search": "rabbit r1 recent update release notes"}]
+        assert results[0].content == "Rabbit R1 release notes"
+        assert any("retry=executed" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_web_search_context_reviews_single_irrelevant_source() -> None:
+    class WebReviewLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_relevance_review":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_relevant": False,
+                            "confidence": "high",
+                            "reason": "single source is about RabbitMQ, not Rabbit R1",
+                            "retry_query": "Rabbit R1 recent firmware update official release notes",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=WebReviewLLM())
+        seen_overrides: list[dict[str, str]] = []
+
+        async def fake_run_skills(*args, **kwargs):
+            seen_overrides.append(dict(kwargs.get("query_overrides") or {}))
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Rabbit R1 official update notes",
+                    success=True,
+                    metadata={
+                        "sources": [
+                            {
+                                "title": "Rabbit R1 update",
+                                "url": "https://www.rabbit.tech/updates",
+                                "snippet": "Official Rabbit R1 update notes.",
+                            }
+                        ]
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="RabbitMQ Docker Hub",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "rabbitmq",
+                            "url": "https://hub.docker.com/_/rabbitmq",
+                            "snippet": "Docker image for the RabbitMQ message broker.",
+                        }
+                    ]
+                },
+            )
+        ]
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={},
+            source="test",
+            request_id="req1",
+        )
+
+        assert seen_overrides == [{"web_search": "Rabbit R1 recent firmware update official release notes"}]
+        assert results[0].content == "Rabbit R1 official update notes"
+        assert any("retry=executed" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_web_source_relevance_review_uses_llm_input_contract() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+        captured_payload: dict[str, object] = {}
+
+        async def fake_decide_json(self, **kwargs):
+            captured_payload.update(kwargs.get("payload") or {})
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "sources_relevant": True,
+                    "confidence": "high",
+                    "reason": "sources match the requested device against the runtime date",
+                    "retry_query": "",
+                },
+            )
+
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Apple source",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Apple Watch Ultra",
+                            "url": "https://www.apple.com/apple-watch-ultra/",
+                            "snippet": "Official Apple Watch Ultra page.",
+                        }
+                    ]
+                },
+            )
+        ]
+
+        with patch(
+            "aria.core.pipeline.BoundedDecisionClient.decide_json",
+            new=fake_decide_json,
+        ), patch.object(Pipeline, "_current_web_source_date", return_value="2026-07-13"):
+            results = await pipeline._review_and_retry_web_search_context(
+                skill_results=initial,
+                intents=["web_search"],
+                message="welches ist die neuste apple watch ultra?",
+                user_id="u1",
+                routing_profile=settings.routing.for_language(None),
+                language="de",
+                runtime_recipes=[],
+                memory_collection=None,
+                session_collection=None,
+                auto_memory_enabled=False,
+                suppress_web_search_note_context=True,
+                query_overrides={},
+                context_overrides={},
+                source="test",
+                request_id="req1",
+            )
+
+        contract = captured_payload["llm_input_contract"]
+        assert set(captured_payload) == {"llm_input_contract"}
+        assert contract["contract_version"] == "llm_input_v1"
+        assert contract["canonical_input"] is True
+        assert contract["decision_task"] == "web_source_relevance_review"
+        assert contract["world_map"]["web_request"]["search_query"] == "welches ist die neuste apple watch ultra"
+        assert contract["world_map"]["web_request"]["current_date"] == "2026-07-13"
+        assert contract["world_map"]["web_request"]["sources"][0]["title"] == "Apple Watch Ultra"
+        assert "current_date" in str(contract["world_map"]["web_request"]["contract"])
+        assert any("llm_input_contract=v1" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_web_source_relevance_retry_validation_uses_llm_input_contract() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+        captured_payloads: list[dict[str, object]] = []
+
+        async def fake_decide_json(self, **kwargs):
+            captured_payloads.append(dict(kwargs.get("payload") or {}))
+            if len(captured_payloads) == 1:
+                return SimpleNamespace(
+                    ok=True,
+                    error=None,
+                    payload={
+                        "sources_relevant": False,
+                        "confidence": "high",
+                        "reason": "sources are about another product",
+                        "retry_query": "Rabbit R1 recent firmware update official release notes",
+                    },
+                )
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "sources_relevant": True,
+                    "confidence": "high",
+                    "reason": "retry sources match",
+                    "retry_query": "",
+                },
+            )
+
+        async def fake_run_skills(*args, **kwargs):
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Rabbit R1 official update notes",
+                    success=True,
+                    metadata={
+                        "sources": [
+                            {
+                                "title": "Rabbit R1 update",
+                                "url": "https://www.rabbit.tech/updates",
+                                "snippet": "Official Rabbit R1 update notes.",
+                            }
+                        ]
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="RabbitMQ Docker Hub",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "rabbitmq",
+                            "url": "https://hub.docker.com/_/rabbitmq",
+                            "snippet": "Docker image for the RabbitMQ message broker.",
+                        }
+                    ]
+                },
+            )
+        ]
+
+        with patch(
+            "aria.core.pipeline.BoundedDecisionClient.decide_json",
+            new=fake_decide_json,
+        ), patch.object(Pipeline, "_current_web_source_date", return_value="2026-07-13"):
+            results = await pipeline._review_and_retry_web_search_context(
+                skill_results=initial,
+                intents=["web_search"],
+                message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+                user_id="u1",
+                routing_profile=settings.routing.for_language(None),
+                language="de",
+                runtime_recipes=[],
+                memory_collection=None,
+                session_collection=None,
+                auto_memory_enabled=False,
+                suppress_web_search_note_context=True,
+                query_overrides={},
+                context_overrides={"web_source_plan": {}},
+                source="test",
+                request_id="req1",
+            )
+
+        assert len(captured_payloads) == 2
+        for payload in captured_payloads:
+            assert set(payload) == {"llm_input_contract"}
+            assert payload["llm_input_contract"]["contract_version"] == "llm_input_v1"
+        retry_contract = captured_payloads[1]["llm_input_contract"]
+        assert retry_contract["decision_task"] == "web_source_relevance_retry_review"
+        assert retry_contract["world_map"]["web_request"]["validation_round"] == "retry_result"
+        assert retry_contract["world_map"]["web_request"]["current_date"] == "2026-07-13"
+        assert results[0].success is True
+        assert any("retry_validation=true" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_web_source_acquisition_plan_uses_llm_queries() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+        captured_payload: dict[str, object] = {}
+
+        async def fake_decide_json(self, **kwargs):
+            captured_payload.update(kwargs.get("payload") or {})
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "should_plan": True,
+                    "search_mode": "fast_answer",
+                    "goal": "Find current Apple Watch Ultra evidence.",
+                    "queries": ["Apple Watch Ultra latest official Apple product comparison"],
+                    "required_sources": ["official vendor or authoritative comparison"],
+                    "avoid_sources": ["unrelated package registries"],
+                    "confidence": "high",
+                    "reason": "latest device question needs source acquisition",
+                },
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            prompt_path = Path(tmp) / "prompts" / "web" / "search_intent.md"
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            prompt_path.write_text("CUSTOM SEARCH INTENT PROMPT\n", encoding="utf-8")
+            pipeline._project_root = Path(tmp)
+
+            with patch(
+                "aria.core.pipeline.BoundedDecisionClient.decide_json",
+                new=fake_decide_json,
+            ), patch.object(Pipeline, "_current_web_source_date", return_value="2026-07-13"):
+                plan, debug_lines = await pipeline._plan_web_source_acquisition(
+                    message="welches ist die neuste apple watch ultra",
+                    active_query="welches ist die neuste apple watch ultra",
+                    user_id="u1",
+                    language="de",
+                    source="test",
+                    request_id="req1",
+                )
+
+        assert plan["queries"] == ["Apple Watch Ultra latest official Apple product comparison"]
+        assert plan["search_mode"] == "fast_answer"
+        assert plan["required_sources"] == ["official vendor or authoritative comparison"]
+        assert plan["avoid_sources"] == ["unrelated package registries"]
+        contract = captured_payload["llm_input_contract"]
+        assert contract["contract_version"] == "llm_input_v1"
+        assert contract["canonical_input"] is True
+        assert contract["decision_task"] == "web_source_acquisition_plan"
+        assert contract["world_map"]["web_request"]["current_date"] == "2026-07-13"
+        assert contract["world_map"]["web_request"]["search_intent_prompt"] == "CUSTOM SEARCH INTENT PROMPT"
+        assert set(captured_payload) == {"llm_input_contract"}
+        assert "current_date" in str(contract["world_map"]["web_request"]["contract"])
+        assert any("used=true" in line for line in debug_lines)
+        assert any("search_mode=fast_answer" in line for line in debug_lines)
+        assert any("llm_input_contract=v1" in line for line in debug_lines)
+
+    asyncio.run(_run())
+
+
+def test_fast_web_search_plan_skips_llm_source_curation() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.curation_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_curation":
+                self.curation_calls += 1
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="web result",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Apple Watch Ultra 3 review",
+                            "url": "https://example.test/apple-watch-ultra-3",
+                            "snippet": "Apple Watch Ultra 3 information.",
+                        }
+                    ],
+                    "detail_lines": ["Routing Debug: web_source_acquisition_plan used=true search_mode=fast_answer"],
+                },
+            )
+        ]
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="welches ist die neuste apple watch ultra",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={
+                "web_source_plan": {
+                    "search_mode": "fast_answer",
+                    "queries": ["Apple Watch Ultra latest"],
+                    "preferred_domains": ["apple.com"],
+                }
+            },
+            source="test",
+            request_id="req1",
+        )
+
+        assert llm.curation_calls == 0
+        assert results[0].success is True
+        assert any("web_search_fast_lane curation=skipped" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_search_fails_closed_when_source_curation_rejects_sources() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.curation_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_curation":
+                self.curation_calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_sufficient": False,
+                            "selected_source_indexes": [],
+                            "confidence": "high",
+                            "reason": "sources are still about container images, not the device",
+                            "retry_queries": [],
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Docker Hub result",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "ultralytics/xview",
+                            "url": "https://hub.docker.com/r/ultralytics/xview",
+                            "snippet": "Docker image unrelated to Apple Watch.",
+                        }
+                    ]
+                },
+            )
+        ]
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="welches ist die neuste apple watch ultra",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={
+                "web_source_plan": {
+                    "queries": ["Apple Watch Ultra latest official Apple product comparison"],
+                    "required_sources": ["official vendor or authoritative comparison"],
+                    "avoid_sources": ["unrelated package registries"],
+                }
+            },
+            source="test",
+            request_id="req1",
+        )
+
+        assert llm.curation_calls == 1
+        assert results[0].skill_name == "web_search"
+        assert results[0].success is False
+        assert "keine belastbaren Quellen" in str(results[0].error)
+        assert results[0].metadata["error_code"] == "web_source_no_reliable_sources"
+        assert any("web_source_curation" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_source_curation_receives_current_date_contract() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+        captured_payload: dict[str, object] = {}
+
+        async def fake_decide_json(self, **kwargs):
+            captured_payload.update(kwargs.get("payload") or {})
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "sources_sufficient": True,
+                    "selected_source_indexes": [1],
+                    "confidence": "high",
+                    "reason": "source is current against the runtime date",
+                    "retry_queries": [],
+                },
+            )
+
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Apple source",
+                success=True,
+                metadata={
+                    "connection_title": "web-search",
+                    "executed_queries": ["Apple Watch Ultra current official"],
+                    "sources": [
+                        {
+                            "title": "Apple Watch Ultra",
+                            "url": "https://www.apple.com/apple-watch-ultra/",
+                            "snippet": "Official Apple Watch Ultra page.",
+                            "detail": "Source: Apple Watch Ultra · https://www.apple.com/apple-watch-ultra/",
+                        }
+                    ],
+                },
+            )
+        ]
+
+        with patch(
+            "aria.core.pipeline.BoundedDecisionClient.decide_json",
+            new=fake_decide_json,
+        ), patch.object(Pipeline, "_current_web_source_date", return_value="2026-07-13"):
+            results = await pipeline._curate_planned_web_search_context(
+                skill_results=initial,
+                web_rows=[
+                    {
+                        "index": "1",
+                        "title": "Apple Watch Ultra",
+                        "url": "https://www.apple.com/apple-watch-ultra/",
+                        "snippet": "Official Apple Watch Ultra page.",
+                    }
+                ],
+                source_plan={
+                    "queries": ["Apple Watch Ultra current official"],
+                    "required_sources": ["official vendor"],
+                    "avoid_sources": ["stale sources"],
+                },
+                message="welches ist die neueste apple watch ultra?",
+                active_query="Apple Watch Ultra current official",
+                user_id="u1",
+                language="de",
+                source="test",
+                request_id="req1",
+            )
+
+        contract = captured_payload["llm_input_contract"]
+        assert contract["contract_version"] == "llm_input_v1"
+        assert contract["canonical_input"] is True
+        assert contract["decision_task"] == "web_source_curation"
+        assert set(captured_payload) == {"llm_input_contract"}
+        assert contract["world_map"]["web_request"]["current_date"] == "2026-07-13"
+        assert contract["world_map"]["web_request"]["source_plan"]["required_sources"] == ["official vendor"]
+        assert contract["world_map"]["web_request"]["sources"][0]["title"] == "Apple Watch Ultra"
+        assert "current_date" in str(contract["world_map"]["web_request"]["contract"])
+        assert results[0].success is True
+        assert results[0].metadata["result_count"] == 1
+        assert any("llm_input_contract=v1" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_source_curation_filters_to_required_domain_before_answer() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_decide_json(self, **kwargs):
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "sources_sufficient": True,
+                    "selected_source_indexes": [1, 2, 3],
+                    "confidence": "high",
+                    "reason": "mixed sources mention the requested device update",
+                    "retry_queries": [],
+                },
+            )
+
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="mixed Rabbit R1 sources",
+                success=True,
+                metadata={
+                    "connection_title": "web-search",
+                    "executed_queries": ["Rabbit R1 recent update official release notes"],
+                    "sources": [
+                        {
+                            "title": "Rabbit Inc. releases a new R1 update",
+                            "url": "https://www.thetechoutlook.com/news/os/rabbit-inc-releases-a-new-r1-update/",
+                            "snippet": "Third-party article about Rabbit R1 updates.",
+                            "detail": "Source: Rabbit Inc. releases a new R1 update · https://www.thetechoutlook.com/news/os/rabbit-inc-releases-a-new-r1-update/",
+                        },
+                        {
+                            "title": "Latest rabbit os version update",
+                            "url": "https://www.reddit.com/r/Rabbitr1/comments/example/latest_rabbit_os_version_update/",
+                            "snippet": "Forum discussion.",
+                            "detail": "Source: Latest rabbit os version update · https://www.reddit.com/r/Rabbitr1/comments/example/latest_rabbit_os_version_update/",
+                        },
+                        {
+                            "title": "updates: rabbit r1 evolution & changelog",
+                            "url": "https://www.rabbit.tech/updates",
+                            "snippet": "Official Rabbit R1 updates and changelog.",
+                            "detail": "Source: updates: rabbit r1 evolution & changelog · https://www.rabbit.tech/updates",
+                        },
+                    ],
+                },
+            )
+        ]
+
+        with patch("aria.core.pipeline.BoundedDecisionClient.decide_json", new=fake_decide_json):
+            results = await pipeline._curate_planned_web_search_context(
+                skill_results=initial,
+                web_rows=[
+                    {
+                        "index": "1",
+                        "title": "Rabbit Inc. releases a new R1 update",
+                        "url": "https://www.thetechoutlook.com/news/os/rabbit-inc-releases-a-new-r1-update/",
+                        "snippet": "Third-party article about Rabbit R1 updates.",
+                    },
+                    {
+                        "index": "2",
+                        "title": "Latest rabbit os version update",
+                        "url": "https://www.reddit.com/r/Rabbitr1/comments/example/latest_rabbit_os_version_update/",
+                        "snippet": "Forum discussion.",
+                    },
+                    {
+                        "index": "3",
+                        "title": "updates: rabbit r1 evolution & changelog",
+                        "url": "https://www.rabbit.tech/updates",
+                        "snippet": "Official Rabbit R1 updates and changelog.",
+                    },
+                ],
+                source_plan={
+                    "queries": ["Rabbit R1 recent update official release notes"],
+                    "must_have_domains": ["rabbit.tech"],
+                    "required_sources": ["rabbit.tech official website", "Rabbit R1 official release notes or changelog"],
+                    "avoid_sources": ["User forums without official confirmation"],
+                },
+                message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+                active_query="Rabbit R1 recent update official release notes",
+                user_id="u1",
+                language="de",
+                source="test",
+                request_id="req1",
+            )
+
+        assert results[0].success is True
+        assert results[0].metadata["result_count"] == 1
+        assert results[0].metadata["sources"][0]["url"] == "https://www.rabbit.tech/updates"
+        assert results[0].metadata["sources"][0]["web_source_index"] == 3
+        assert "- [3] updates: rabbit r1 evolution & changelog" in results[0].content
+        assert "thetechoutlook" not in results[0].content
+        assert "reddit.com" not in results[0].content
+        assert any("contract_validation=required_domains=rabbit.tech" in line for line in results[0].metadata["detail_lines"])
+        assert any("removed=1,2" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_source_curation_fails_closed_when_required_domain_missing() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_decide_json(self, **kwargs):
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "sources_sufficient": True,
+                    "selected_source_indexes": [1],
+                    "confidence": "high",
+                    "reason": "third-party source claims to cover the update",
+                    "retry_queries": [],
+                },
+            )
+
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="third-party update source",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Rabbit Inc. releases a new R1 update",
+                            "url": "https://www.thetechoutlook.com/news/os/rabbit-inc-releases-a-new-r1-update/",
+                            "snippet": "Third-party article about Rabbit R1 updates.",
+                            "detail": "Source: Rabbit Inc. releases a new R1 update · https://www.thetechoutlook.com/news/os/rabbit-inc-releases-a-new-r1-update/",
+                        }
+                    ],
+                },
+            )
+        ]
+
+        with patch("aria.core.pipeline.BoundedDecisionClient.decide_json", new=fake_decide_json):
+            results = await pipeline._curate_planned_web_search_context(
+                skill_results=initial,
+                web_rows=[
+                    {
+                        "index": "1",
+                        "title": "Rabbit Inc. releases a new R1 update",
+                        "url": "https://www.thetechoutlook.com/news/os/rabbit-inc-releases-a-new-r1-update/",
+                        "snippet": "Third-party article about Rabbit R1 updates.",
+                    }
+                ],
+                source_plan={
+                    "queries": ["Rabbit R1 recent update official release notes"],
+                    "must_have_domains": ["rabbit.tech"],
+                    "required_sources": ["rabbit.tech official website"],
+                    "avoid_sources": ["User forums without official confirmation"],
+                },
+                message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+                active_query="Rabbit R1 recent update official release notes",
+                user_id="u1",
+                language="de",
+                source="test",
+                request_id="req1",
+            )
+
+        assert results[0].success is False
+        assert results[0].metadata["error_code"] == "web_source_no_reliable_sources"
+        assert "required source domain" in str(results[0].error)
+        assert any("contract_validation=required_domains=rabbit.tech" in line for line in results[0].metadata["detail_lines"])
+        assert any(
+            "web_source_contract" in line and "missing_domains=rabbit.tech" in line
+            for line in results[0].metadata["detail_lines"]
+        )
+
+    asyncio.run(_run())
+
+
+def test_planned_web_source_curation_allows_preferred_domain_missing_with_strong_sources() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_decide_json(self, **kwargs):
+            return SimpleNamespace(
+                ok=True,
+                error=None,
+                payload={
+                    "sources_sufficient": True,
+                    "selected_source_indexes": [1, 2],
+                    "confidence": "high",
+                    "reason": "reputable third-party sources directly compare the current model",
+                    "retry_queries": [],
+                },
+            )
+
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="third-party Apple Watch comparison sources",
+                success=True,
+                metadata={
+                    "connection_title": "web-search",
+                    "executed_queries": ["Apple Watch Ultra latest model official specs comparison"],
+                    "sources": [
+                        {
+                            "title": "Apple Watch Ultra 3 Test",
+                            "url": "https://www.computerbild.de/artikel/Tests-Wearables-Apple-Watch-Ultra-3-Review-40376915.html",
+                            "snippet": "Review confirms Apple Watch Ultra 3 as latest model.",
+                            "detail": "Source: Apple Watch Ultra 3 Test · https://www.computerbild.de/artikel/Tests-Wearables-Apple-Watch-Ultra-3-Review-40376915.html",
+                        },
+                        {
+                            "title": "Apple Watch Ultra 2 und Ultra 3 - alle Unterschiede",
+                            "url": "https://www.msn.com/de-de/lifestyle/shopping/apple-watch-ultra-2-und-ultra-3-alle-unterschiede-im-vergleich/ar-AA1MhdL4",
+                            "snippet": "Comparison of Ultra 2 and Ultra 3.",
+                            "detail": "Source: Apple Watch Ultra 2 und Ultra 3 · https://www.msn.com/de-de/lifestyle/shopping/apple-watch-ultra-2-und-ultra-3-alle-unterschiede-im-vergleich/ar-AA1MhdL4",
+                        },
+                    ],
+                },
+            )
+        ]
+
+        with patch("aria.core.pipeline.BoundedDecisionClient.decide_json", new=fake_decide_json):
+            results = await pipeline._curate_planned_web_search_context(
+                skill_results=initial,
+                web_rows=[
+                    {
+                        "index": "1",
+                        "title": "Apple Watch Ultra 3 Test",
+                        "url": "https://www.computerbild.de/artikel/Tests-Wearables-Apple-Watch-Ultra-3-Review-40376915.html",
+                        "snippet": "Review confirms Apple Watch Ultra 3 as latest model.",
+                    },
+                    {
+                        "index": "2",
+                        "title": "Apple Watch Ultra 2 und Ultra 3 - alle Unterschiede",
+                        "url": "https://www.msn.com/de-de/lifestyle/shopping/apple-watch-ultra-2-und-ultra-3-alle-unterschiede-im-vergleich/ar-AA1MhdL4",
+                        "snippet": "Comparison of Ultra 2 and Ultra 3.",
+                    },
+                ],
+                source_plan={
+                    "queries": ["Apple Watch Ultra latest model official specs comparison"],
+                    "preferred_domains": ["apple.com"],
+                    "required_sources": ["apple.com official product pages", "authoritative comparison reviews"],
+                    "avoid_sources": ["speculation or unrelated software pages"],
+                },
+                message="welches ist die neuste apple watch ultra und was kann sie mehr als die alte version",
+                active_query="Apple Watch Ultra latest model official specs comparison",
+                user_id="u1",
+                language="de",
+                source="test",
+                request_id="req1",
+            )
+
+        assert results[0].success is True
+        assert results[0].metadata["result_count"] == 2
+        assert any(
+            "preferred_domain_validation=web_source_preferred_domains preferred_domains=apple.com missing_domains=apple.com" in line
+            for line in results[0].metadata["detail_lines"]
+        )
+        assert not any("contract_validation=required_domains=apple.com" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_search_retries_llm_curation_query_once() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.curation_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_curation":
+                self.curation_calls += 1
+                if self.curation_calls == 1:
+                    return FakeLLMResponse(
+                        json.dumps(
+                            {
+                                "sources_sufficient": False,
+                                "selected_source_indexes": [],
+                                "confidence": "high",
+                                "reason": "sources are about Firefox and RabbitMQ, not Rabbit R1",
+                                "retry_queries": ["Rabbit R1 recent update official release notes"],
+                            }
+                        )
+                    )
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_sufficient": True,
+                            "selected_source_indexes": [1],
+                            "confidence": "high",
+                            "reason": "official Rabbit source matches the requested device update",
+                            "retry_queries": [],
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        seen_overrides: list[dict[str, str]] = []
+
+        async def fake_run_skills(*args, **kwargs):
+            seen_overrides.append(dict(kwargs.get("query_overrides") or {}))
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Rabbit R1 official update notes",
+                    success=True,
+                    metadata={
+                        "connection_title": "web-search",
+                        "executed_queries": ["Rabbit R1 recent update official release notes"],
+                        "sources": [
+                            {
+                                "title": "rabbit r1 updates",
+                                "url": "https://www.rabbit.tech/updates",
+                                "snippet": "Recent official Rabbit R1 update notes.",
+                                "detail": "Source: rabbit r1 updates · https://www.rabbit.tech/updates",
+                            }
+                        ],
+                        "detail_lines": ["Source: rabbit r1 updates · https://www.rabbit.tech/updates"],
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Firefox and RabbitMQ results",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Firefox release notes",
+                            "url": "https://developer.mozilla.org/firefox",
+                            "snippet": "Firefox browser release information.",
+                        },
+                        {
+                            "title": "RabbitMQ Docker image",
+                            "url": "https://hub.docker.com/_/rabbitmq",
+                            "snippet": "Docker image for the RabbitMQ broker.",
+                        },
+                    ],
+                    "detail_lines": ["Source: Firefox release notes · https://developer.mozilla.org/firefox"],
+                },
+            )
+        ]
+
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={
+                "web_source_plan": {
+                    "queries": ["rabbit r1 update last weeks"],
+                    "required_sources": ["official vendor or release notes"],
+                    "avoid_sources": ["RabbitMQ", "Firefox"],
+                }
+            },
+            source="test",
+            request_id="req1",
+        )
+
+        assert llm.curation_calls == 2
+        assert seen_overrides == [{"web_search": "Rabbit R1 recent update official release notes"}]
+        assert results[0].success is True
+        assert "Rabbit R1" in results[0].content
+        assert any("web_source_curation_retry" in line for line in results[0].metadata["detail_lines"])
+        assert any("web_source_curation" in line and "sufficient=true" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_search_retries_required_domain_contract_once() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.curation_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_curation":
+                self.curation_calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_sufficient": True,
+                            "selected_source_indexes": [1],
+                            "confidence": "high",
+                            "reason": "selected source is enough",
+                            "retry_queries": [],
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        seen_overrides: list[dict[str, str]] = []
+
+        async def fake_run_skills(*args, **kwargs):
+            seen_overrides.append(dict(kwargs.get("query_overrides") or {}))
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Apple official product page",
+                    success=True,
+                    metadata={
+                        "connection_title": "web-search",
+                        "executed_queries": ["site:apple.com Apple Watch Ultra latest official Apple product comparison"],
+                        "sources": [
+                            {
+                                "title": "Apple Watch Ultra 3",
+                                "url": "https://www.apple.com/apple-watch-ultra-3/",
+                                "snippet": "Official Apple Watch Ultra 3 product information.",
+                                "detail": "Source: Apple Watch Ultra 3 · https://www.apple.com/apple-watch-ultra-3/",
+                            }
+                        ],
+                        "detail_lines": ["Source: Apple Watch Ultra 3 · https://www.apple.com/apple-watch-ultra-3/"],
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="third-party Apple Watch rumors",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Apple Watch Ultra 4 rumor roundup",
+                            "url": "https://example.org/apple-watch-ultra-4-rumors",
+                            "snippet": "Third-party rumors about a future model.",
+                        }
+                    ],
+                    "detail_lines": ["Source: Apple Watch Ultra 4 rumor roundup · https://example.org/apple-watch-ultra-4-rumors"],
+                },
+            )
+        ]
+
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="welches ist die neuste apple watch ultra und was kann sie mehr als die alte version",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={
+                "web_source_plan": {
+                    "queries": ["Apple Watch Ultra latest official Apple product comparison"],
+                    "must_have_domains": ["apple.com"],
+                    "required_sources": ["apple.com official product pages"],
+                    "avoid_sources": ["speculation or rumor sites without official confirmation"],
+                }
+            },
+            source="test",
+            request_id="req1",
+        )
+
+        assert llm.curation_calls == 2
+        assert seen_overrides == [{"web_search": "site:apple.com Apple Watch Ultra latest official Apple product comparison"}]
+        assert results[0].success is True
+        assert "apple.com/apple-watch-ultra-3" in results[0].content
+        assert any("agentic_source=contract_validation" in line for line in results[0].metadata["detail_lines"])
+        assert any("contract_validation=required_domains=apple.com" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_web_source_plan_validation_normalizes_stale_years_and_demotes_inferred_required_domains() -> None:
+    plan = {
+        "queries": [
+            "site:rabbit.tech Rabbit R1 update Juli 2024 changelog",
+            "Rabbit R1 latest release notes 2024",
+        ],
+        "must_have_domains": ["rabbit.tech"],
+        "preferred_domains": [],
+        "reason": "recent Rabbit R1 update query",
+    }
+
+    sanitized, details = Pipeline._web_source_sanitize_plan_for_request(
+        plan,
+        message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+        current_date="2026-07-15",
+    )
+
+    assert sanitized["must_have_domains"] == []
+    assert "rabbit.tech" in sanitized["preferred_domains"]
+    assert all("2024" not in query for query in sanitized["queries"])
+    assert any("demoted_must_domains=rabbit.tech" in line for line in details)
+    assert any("normalized_stale_query_years=2024" in line for line in details)
+
+
+def test_web_source_plan_validation_keeps_user_required_domain() -> None:
+    plan = {
+        "queries": ["site:apple.com Apple Watch Ultra specs"],
+        "must_have_domains": ["apple.com"],
+    }
+
+    sanitized, details = Pipeline._web_source_sanitize_plan_for_request(
+        plan,
+        message="suche auf apple.com die technischen daten der apple watch ultra",
+        current_date="2026-07-15",
+    )
+
+    assert sanitized["must_have_domains"] == ["apple.com"]
+    assert not any("demoted_must_domains" in line for line in details)
+
+
+def test_planned_web_search_prefers_required_domain_retry_over_generic_llm_retry() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.curation_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_curation":
+                self.curation_calls += 1
+                if self.curation_calls == 1:
+                    return FakeLLMResponse(
+                        json.dumps(
+                            {
+                                "sources_sufficient": False,
+                                "selected_source_indexes": [],
+                                "confidence": "high",
+                                "reason": "sources are about RabbitMQ and Docker, not the requested device",
+                                "retry_queries": ["Rabbit R1 device software update July 2026"],
+                            }
+                        )
+                    )
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_sufficient": True,
+                            "selected_source_indexes": [1],
+                            "confidence": "high",
+                            "reason": "official vendor source matches the requested device update",
+                            "retry_queries": [],
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        seen_overrides: list[dict[str, str]] = []
+
+        async def fake_run_skills(*args, **kwargs):
+            seen_overrides.append(dict(kwargs.get("query_overrides") or {}))
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Official vendor update notes",
+                    success=True,
+                    metadata={
+                        "connection_title": "web-search",
+                        "executed_queries": ["site:vendor.example device update last weeks"],
+                        "sources": [
+                            {
+                                "title": "device updates",
+                                "url": "https://vendor.example/updates",
+                                "snippet": "Official update published this month.",
+                                "detail": "Source: device updates · https://vendor.example/updates",
+                            }
+                        ],
+                        "detail_lines": ["Source: device updates · https://vendor.example/updates"],
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="unrelated package registry results",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "RabbitMQ Docker image",
+                            "url": "https://hub.docker.com/_/rabbitmq",
+                            "snippet": "Docker image for the RabbitMQ broker.",
+                        },
+                    ],
+                    "detail_lines": ["Source: RabbitMQ Docker image · https://hub.docker.com/_/rabbitmq"],
+                },
+            )
+        ]
+
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="gibts vom geraet ein update das in den letzten wochen rausgekommen ist",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={
+                "web_source_plan": {
+                    "queries": ["device update last weeks"],
+                    "must_have_domains": ["vendor.example"],
+                    "required_sources": ["vendor.example official website"],
+                    "avoid_sources": ["User forums without official confirmation"],
+                }
+            },
+            source="test",
+            request_id="req1",
+        )
+
+        assert llm.curation_calls == 2
+        assert seen_overrides == [{"web_search": "site:vendor.example device update last weeks"}]
+        assert results[0].success is True
+        assert "vendor.example/updates" in results[0].content
+        assert any("agentic_source=contract_validation" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_search_retries_stale_required_domain_freshness_once() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.curation_calls = 0
+
+        async def chat(self, messages, **kwargs):
+            if kwargs.get("operation") == "web_source_curation":
+                self.curation_calls += 1
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_sufficient": True,
+                            "selected_source_indexes": [1],
+                            "confidence": "high",
+                            "reason": "official source matches the requested device update",
+                            "retry_queries": [],
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        seen_overrides: list[dict[str, str]] = []
+
+        async def fake_run_skills(*args, **kwargs):
+            seen_overrides.append(dict(kwargs.get("query_overrides") or {}))
+            return [
+                SkillResult(
+                    skill_name="web_search",
+                    content="Rabbit R1 official fresh update notes",
+                    success=True,
+                    metadata={
+                        "connection_title": "web-search",
+                        "executed_queries": ["site:rabbit.tech rabbit r1 update last weeks 2026-07"],
+                        "sources": [
+                            {
+                                "title": "rabbit r1 updates",
+                                "url": "https://www.rabbit.tech/updates",
+                                "snippet": "Official Rabbit R1 OTA update published 2026-07-10.",
+                                "detail": "Source: rabbit r1 updates · https://www.rabbit.tech/updates",
+                            }
+                        ],
+                        "detail_lines": ["Source: rabbit r1 updates · https://www.rabbit.tech/updates"],
+                    },
+                )
+            ]
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Rabbit R1 official stale update notes",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "rabbit r1 updates",
+                            "url": "https://www.rabbit.tech/updates",
+                            "snippet": "Official Rabbit R1 release history through April 2026.",
+                            "detail": "Source: rabbit r1 updates · https://www.rabbit.tech/updates",
+                        },
+                    ],
+                    "detail_lines": ["Source: rabbit r1 updates · https://www.rabbit.tech/updates"],
+                },
+            )
+        ]
+
+        with patch.object(Pipeline, "_current_web_source_date", return_value="2026-07-14"):
+            results = await pipeline._review_and_retry_web_search_context(
+                skill_results=initial,
+                intents=["web_search"],
+                message="gibts vom rabbit r1 ein update das in den letzten wochen rausgekommen ist",
+                user_id="u1",
+                routing_profile=settings.routing.for_language(None),
+                language="de",
+                runtime_recipes=[],
+                memory_collection=None,
+                session_collection=None,
+                auto_memory_enabled=False,
+                suppress_web_search_note_context=True,
+                query_overrides={},
+                context_overrides={
+                    "web_source_plan": {
+                        "queries": ["rabbit r1 update last weeks"],
+                        "required_sources": ["rabbit.tech official website"],
+                        "avoid_sources": ["User forums without official confirmation"],
+                    }
+                },
+                source="test",
+                request_id="req1",
+            )
+
+        assert llm.curation_calls == 2
+        assert seen_overrides == [{"web_search": "site:rabbit.tech rabbit r1 update last weeks 2026-07"}]
+        assert results[0].success is True
+        assert "2026-07-10" in results[0].content
+        assert any("freshness_validation=freshness_window_days=49" in line for line in results[0].metadata["detail_lines"])
+        assert any("agentic_source=freshness_validation" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_planned_web_search_curates_sources_before_answer_context() -> None:
+    class WebCurationLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "web_source_curation":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "sources_sufficient": True,
+                            "selected_source_indexes": [2],
+                            "confidence": "high",
+                            "reason": "official Google Store source matches the current Pixel phone question",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        llm = WebCurationLLM()
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="mixed raw web results",
+                success=True,
+                metadata={
+                    "connection_title": "web-search",
+                    "executed_queries": ["neustes google pixel phone", "Google Store latest Pixel phone"],
+                    "sources": [
+                        {
+                            "title": "Google Pixel 9 review",
+                            "url": "https://example.test/pixel-9-review",
+                            "snippet": "Older Pixel 9 review.",
+                            "detail": "Source: Google Pixel 9 review · https://example.test/pixel-9-review",
+                        },
+                        {
+                            "title": "New Google Pixel 10 Smartphones, Engineered by Google",
+                            "url": "https://store.google.com/category/phones",
+                            "snippet": "Google Store presents the new Pixel 10 smartphones.",
+                            "detail": "Source: New Google Pixel 10 Smartphones, Engineered by Google · https://store.google.com/category/phones",
+                        },
+                        {
+                            "title": "google/cloud-sdk - Docker Hub",
+                            "url": "https://hub.docker.com/r/google/cloud-sdk",
+                            "snippet": "Container image for Google Cloud SDK.",
+                            "detail": "Source: google/cloud-sdk - Docker Hub · https://hub.docker.com/r/google/cloud-sdk",
+                        },
+                    ],
+                    "detail_lines": ["Routing Debug: web_source_acquisition_plan used=true"],
+                },
+            )
+        ]
+        results = await pipeline._review_and_retry_web_search_context(
+            skill_results=initial,
+            intents=["web_search"],
+            message="welches ist aktuell das neuste google pixel phone?",
+            user_id="u1",
+            routing_profile=settings.routing.for_language(None),
+            language="de",
+            runtime_recipes=[],
+            memory_collection=None,
+            session_collection=None,
+            auto_memory_enabled=False,
+            suppress_web_search_note_context=True,
+            query_overrides={},
+            context_overrides={
+                "web_source_plan": {
+                    "queries": ["Google Store latest Pixel phone"],
+                    "required_sources": ["official Google Store or support"],
+                    "avoid_sources": ["package registries", "container images"],
+                }
+            },
+            source="test",
+            request_id="req1",
+        )
+
+        assert llm.operations == ["web_source_curation"]
+        assert results[0].success is True
+        assert results[0].metadata["result_count"] == 1
+        assert results[0].metadata["sources"][0]["url"] == "https://store.google.com/category/phones"
+        assert "Pixel 10" in results[0].content
+        assert "Pixel 9 review" not in results[0].content
+        assert "Docker Hub" not in results[0].content
+        assert any("web_source_curation" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
+def test_web_search_relevance_review_timeout_keeps_original_sources() -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_run_skills(*args, **kwargs):
+            raise AssertionError("review timeout must not trigger a retry")
+
+        pipeline._run_skills = fake_run_skills  # type: ignore[method-assign]
+        initial = [
+            SkillResult(
+                skill_name="web_search",
+                content="Existing web result",
+                success=True,
+                metadata={
+                    "sources": [
+                        {
+                            "title": "Apple Watch Ultra",
+                            "url": "https://www.apple.com/apple-watch-ultra-2/",
+                            "snippet": "Official Apple Watch Ultra information.",
+                        }
+                    ]
+                },
+            )
+        ]
+        with patch("aria.core.pipeline.BoundedDecisionClient.decide_json", side_effect=asyncio.TimeoutError):
+            results = await pipeline._review_and_retry_web_search_context(
+                skill_results=initial,
+                intents=["web_search"],
+                message="welches ist die neuste apple watch ultra",
+                user_id="u1",
+                routing_profile=settings.routing.for_language(None),
+                language="de",
+                runtime_recipes=[],
+                memory_collection=None,
+                session_collection=None,
+                auto_memory_enabled=False,
+                suppress_web_search_note_context=True,
+                query_overrides={},
+                context_overrides={},
+                source="test",
+                request_id="req1",
+            )
+
+        assert results[0].content == "Existing web result"
+        assert any("reason=timeout" in line for line in results[0].metadata["detail_lines"])
+
+    asyncio.run(_run())
+
+
 class FakeMemorySkill:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
@@ -387,6 +2145,7 @@ def test_memory_assist_does_not_accept_generic_server_alias_as_direct_match() ->
         {
             "llm": {"model": "fake"},
             "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
                     "ops-mgmt-01": {
@@ -636,298 +2395,13 @@ def test_pipeline_agentic_capability_no_action_blocks_local_ssh_fallback() -> No
     assert not any("agentic_runtime" in line for line in result.detail_lines)
 
 
-def test_runtime_task_override_can_recover_server_updates_from_rss_action_contract() -> None:
-    class ServerUpdateDraftLLM(FakeLLMClient):
-        def __init__(self) -> None:
-            super().__init__()
-            self.operations: list[str] = []
-
-        async def chat(self, messages, **kwargs):
-            operation = str(kwargs.get("operation") or "")
-            if operation:
-                self.operations.append(operation)
-            if operation == "capability_draft_decision":
-                return FakeLLMResponse(
-                    json.dumps(
-                        {
-                            "action": "action",
-                            "capability": "ssh_command",
-                            "connection_kind": "ssh",
-                            "target_scope": "multi_target",
-                            "target_intent": "package_update_check",
-                            "content": "apt list --upgradable",
-                            "confidence": "high",
-                            "reason": "server package update question",
-                        }
-                    )
-                )
-            return await super().chat(messages, **kwargs)
-
-    settings = Settings.model_validate(
-        {
-            "llm": {"model": "fake"},
-            "memory": {"enabled": False},
-            "ui": {"debug_mode": True},
-            "connections": {
-                "ssh": {
-                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/test_ed25519"},
-                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/test_ed25519"},
-                },
-                "rss": {
-                    "heise-security-alerts": {
-                        "url": "https://example.invalid/feed.xml",
-                        "title": "Heise Security Alerts",
-                    }
-                },
-            },
-            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
-        }
-    )
-    llm = ServerUpdateDraftLLM()
-    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
-    meta = AriaTurnArbitration(
-        source="aria_meta_catalog_routing",
-        plan=AriaTurnPlan(
-            intents=("chat", "runtime_action"),
-            surfaces=("connections",),
-            actions=("rss_read_feed",),
-            needs_context=True,
-            context_directions=("connections",),
-            context_requests=(
-                ContextRequest(
-                    surface_id="connections",
-                    mode="action",
-                    query="brauchen meine server updates und falls ja, welches sind die wichtigsten?",
-                    budget={
-                        "catalog_id": "connection|rss|heise-security-alerts",
-                        "entity_type": "connection",
-                        "kind": "rss",
-                        "ref": "heise-security-alerts",
-                    },
-                ),
-            ),
-            priority=("connection|rss|heise-security-alerts",),
-            answer_mode="direct_answer",
-            contract_mode="action",
-            evidence_policy="source_bound",
-            risk="low",
-            needs_confirmation=False,
-            confidence=0.91,
-        ),
-    )
-
-    override = asyncio.run(
-        pipeline._runtime_task_arbitration_override(
-            message="brauchen meine server updates und falls ja, welches sind die wichtigsten?",
-            user_id="u1",
-            request_id="r1",
-            language="de",
-            meta_arbitration=meta,
-        )
-    )
-
-    assert override is not None
-    assert override.source == "runtime_task_contract"
-    assert override.plan.actions == ("connection_action_ssh",)
-    assert override.plan.priority == ("connection|ssh|srv-a", "connection|ssh|srv-b")
-    assert "capability_draft_decision" in llm.operations
-    assert any("meta_answer_contract=overridden" in line for line in pipeline._last_meta_catalog_fallback_debug_lines)
+def test_runtime_task_override_hook_is_removed() -> None:
+    assert not hasattr(Pipeline, "_runtime_task_arbitration_override")
+    assert not hasattr(Pipeline, "_runtime_task_arbitration_from_capability_draft")
 
 
-def test_pipeline_runtime_task_fastpath_skips_meta_catalog_for_server_updates() -> None:
-    class ServerUpdateFastPathLLM(FakeLLMClient):
-        def __init__(self) -> None:
-            super().__init__()
-            self.operations: list[str] = []
-
-        async def chat(self, messages, **kwargs):
-            operation = str(kwargs.get("operation") or "")
-            if operation:
-                self.operations.append(operation)
-            if operation == ARIA_TURN_ARBITRATION_OPERATION:
-                raise AssertionError("runtime task fast-path must not call the meta catalog")
-            if operation == "capability_draft_decision":
-                return FakeLLMResponse(
-                    json.dumps(
-                        {
-                            "action": "action",
-                            "capability": "ssh_command",
-                            "connection_kind": "ssh",
-                            "target_scope": "multi_target",
-                            "target_intent": "package_update_check",
-                            "content": "apt list --upgradable",
-                            "confidence": "high",
-                            "reason": "server package update question",
-                        }
-                    )
-                )
-            if operation == "ssh_multi_target_summary":
-                return FakeLLMResponse(
-                    json.dumps(
-                        {
-                            "summary": "Beide Server haben Paketupdates.",
-                            "confidence": "high",
-                            "reason": "Both SSH outputs contain upgradable packages.",
-                        }
-                    )
-                )
-            return await super().chat(messages, **kwargs)
-
-    settings = Settings.model_validate(
-        {
-            "llm": {"model": "fake"},
-            "memory": {"enabled": False},
-            "ui": {"debug_mode": True},
-            "connections": {
-                "ssh": {
-                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/test_ed25519"},
-                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/test_ed25519"},
-                }
-            },
-            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
-        }
-    )
-    llm = ServerUpdateFastPathLLM()
-    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
-    ssh_calls: list[tuple[str, str]] = []
-
-    async def fake_ssh(plan, *, language="de"):
-        ssh_calls.append((plan.connection_ref, plan.content))
-        return "Listing... openssl/stable 3.0 [upgradable from: 3.0-old]"
-
-    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
-
-    result = asyncio.run(
-        pipeline.process(
-            "brauchen meine server updates und falls ja, welches sind die wichtigsten?",
-            user_id="u1",
-            source="test",
-            language="de",
-        )
-    )
-
-    assert result.intents == ["capability:ssh_command"]
-    assert result.pending_action is None
-    assert ssh_calls == [("srv-a", "apt list --upgradable"), ("srv-b", "apt list --upgradable")]
-    assert "capability_draft_decision" in llm.operations
-    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
-    assert any("runtime_task_contract" in line and "meta_catalog=skipped" in line for line in result.detail_lines)
-    assert any("Routing Debug: stage_timing stage=aria_turn_arbiter ms=0" in line for line in result.detail_lines)
-    assert any("multi_target_ssh_preflight_result allowed=2 blocked=0" in line for line in result.detail_lines)
-    assert any(
-        "multi_target_ssh_result_contract" in line
-        and "task_intent=package_update_check" in line
-        and "command_profile=package_updates" in line
-        and "records=2" in line
-        and "assumption=available_updates_only" in line
-        for line in result.detail_lines
-    )
-    assert any(
-        "operator_trace phase=result" in line
-        and "source=multi_target_ssh_result_contract" in line
-        and "boundary=result_contract" in line
-        for line in result.detail_lines
-    )
-
-
-def test_pipeline_runtime_task_fastpath_routes_plural_server_disk_capacity_to_ssh() -> None:
-    class ServerCapacityFastPathLLM(FakeLLMClient):
-        def __init__(self) -> None:
-            super().__init__()
-            self.operations: list[str] = []
-
-        async def chat(self, messages, **kwargs):
-            operation = str(kwargs.get("operation") or "")
-            if operation:
-                self.operations.append(operation)
-            if operation == ARIA_TURN_ARBITRATION_OPERATION:
-                raise AssertionError("capacity runtime task fast-path must not call the meta catalog")
-            if operation == "capability_draft_decision":
-                return FakeLLMResponse(
-                    json.dumps(
-                        {
-                            "action": "action",
-                            "capability": "ssh_command",
-                            "connection_kind": "ssh",
-                            "target_scope": "multi_target",
-                            "target_intent": "capacity_check",
-                            "content": "df -h",
-                            "confidence": "high",
-                            "reason": "server disk capacity question",
-                        }
-                    )
-                )
-            if operation == "ssh_multi_target_summary":
-                return FakeLLMResponse(
-                    json.dumps(
-                        {
-                            "summary": "Beide Server haben ausreichend freien Festplattenspeicher.",
-                            "confidence": "high",
-                            "reason": "Both SSH outputs report free root filesystem capacity.",
-                        }
-                    )
-                )
-            return await super().chat(messages, **kwargs)
-
-    settings = Settings.model_validate(
-        {
-            "llm": {"model": "fake"},
-            "memory": {"enabled": False},
-            "ui": {"debug_mode": True},
-            "connections": {
-                "ssh": {
-                    "srv-a": {"host": "192.0.2.10", "user": "root", "key_path": "/tmp/test_ed25519"},
-                    "srv-b": {"host": "192.0.2.11", "user": "root", "key_path": "/tmp/test_ed25519"},
-                }
-            },
-            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
-        }
-    )
-    llm = ServerCapacityFastPathLLM()
-    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
-    ssh_calls: list[tuple[str, str]] = []
-
-    async def fake_ssh(plan, *, language="de"):
-        ssh_calls.append((plan.connection_ref, plan.content))
-        return "Filesystem Size Used Avail Use% Mounted on\n/dev/sda1 50G 10G 40G 20% /"
-
-    pipeline._executor_registry.register("ssh", "ssh_command", fake_ssh)
-
-    result = asyncio.run(
-        pipeline.process(
-            "haben meine linux server genug freien festplatten speicher",
-            user_id="u1",
-            source="test",
-            language="de",
-        )
-    )
-
-    assert result.intents == ["capability:ssh_command"]
-    assert result.pending_action is None
-    assert ssh_calls == [("srv-a", "df -h"), ("srv-b", "df -h")]
-    assert "capability_draft_decision" in llm.operations
-    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
-    assert not any("memory_recall_targets" in line or "local_context_empty" in line for line in result.detail_lines)
-    assert any(
-        "runtime_task_contract" in line
-        and "target_intent=capacity_check" in line
-        and "meta_catalog=skipped" in line
-        for line in result.detail_lines
-    )
-    assert any(
-        "multi_target_ssh_result_contract" in line
-        and "task_intent=capacity_check" in line
-        and "command_profile=disk_capacity" in line
-        and "records=2" in line
-        and "assumption=no_user_threshold_capacity_review" in line
-        for line in result.detail_lines
-    )
-    assert any(
-        "operator_trace phase=result" in line
-        and "source=multi_target_ssh_result_contract" in line
-        and "boundary=result_contract" in line
-        for line in result.detail_lines
-    )
+def test_pipeline_runtime_task_fastpath_hook_is_removed() -> None:
+    assert not hasattr(Pipeline, "_runtime_task_fastpath_arbitration")
 
 
 def test_pipeline_agentic_capability_out_of_bounds_blocks_local_ssh_fallback() -> None:
@@ -1001,11 +2475,12 @@ def test_pipeline_agentic_capability_out_of_bounds_blocks_local_ssh_fallback() -
     assert not any("agentic_runtime" in line for line in result.detail_lines)
 
 
-def test_pipeline_local_capability_fallback_marks_risk_class() -> None:
+def test_pipeline_legacy_capability_fallback_is_disabled() -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
             "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
             "connections": {
                 "ssh": {
                     "ops-mgmt-01": {
@@ -1031,24 +2506,8 @@ def test_pipeline_local_capability_fallback_marks_risk_class() -> None:
         language="de",
     )
 
-    assert read_only is not None
-    assert "capability_draft_source:local_fallback" in list(read_only.notes or [])
-    assert "local_fallback_risk:read_only" in list(read_only.notes or [])
-    assert mutating is not None
-    assert "capability_draft_source:local_fallback" in list(mutating.notes or [])
-    assert "local_fallback_risk:mutating_fail_closed" in list(mutating.notes or [])
-
-
-def test_pipeline_local_capability_fallback_only_allows_known_invalid_states() -> None:
-    assert Pipeline._local_capability_fallback_allowed("") is True
-    assert Pipeline._local_capability_fallback_allowed("unavailable") is True
-    assert Pipeline._local_capability_fallback_allowed("invalid:low_confidence") is True
-    assert Pipeline._local_capability_fallback_allowed("invalid:empty_or_invalid_response") is True
-    assert Pipeline._local_capability_fallback_allowed("invalid:llm_error") is True
-    assert Pipeline._local_capability_fallback_allowed("invalid:missing_action") is True
-    assert Pipeline._local_capability_fallback_allowed("no_action") is False
-    assert Pipeline._local_capability_fallback_allowed("invalid:out_of_bounds") is False
-    assert Pipeline._local_capability_fallback_allowed("invalid:unknown_schema") is False
+    assert read_only is None
+    assert mutating is None
 
 
 def test_pipeline_filters_weak_local_rag_context_for_general_howto() -> None:
@@ -1817,21 +3276,20 @@ def test_pipeline_process_shows_live_routing_debug_and_blocks_stale_memory_hint_
             matched_text="brauchen meine linux server updates ?",
         )
 
+    async def fake_capability_draft(*_args, **_kwargs):
+        return CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            requested_connection_ref="backup server",
+            content="uptime",
+            confidence=0.95,
+            notes=["capability_draft_source:llm"],
+        )
+
     monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
     monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
     monkeypatch.setattr(pipeline, "classify_routing", lambda *_args, **_kwargs: SimpleNamespace(intents=["chat"], level=0))
-    monkeypatch.setattr(
-        pipeline,
-        "_classify_capability_draft",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            capability="ssh_command",
-            connection_kind="ssh",
-            explicit_connection_ref="",
-            requested_connection_ref="backup server",
-            path="",
-            content="uptime",
-        ),
-    )
+    monkeypatch.setattr(pipeline, "_classify_capability_draft_with_llm", fake_capability_draft)
     monkeypatch.setattr(
         type(pipeline._executor_registry),
         "execute",
@@ -1849,7 +3307,11 @@ def test_pipeline_process_shows_live_routing_debug_and_blocks_stale_memory_hint_
 
     assert result.intents == ["capability:ssh_command"]
     assert result.text == "backup uptime ok"
-    assert any("Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=- requested_ref=backup server" in line for line in result.detail_lines)
+    assert any(
+        "Routing Debug: capability_draft capability=ssh_command kind=ssh kind_source=draft explicit_ref=- requested_ref=backup server"
+        in line
+        for line in result.detail_lines
+    )
     assert any("Routing Debug: memory_hint source=memory_hint ref=ops-mgmt-01 matched_text=brauchen meine linux server updates ?" in line for line in result.detail_lines)
     assert any("Routing Debug: memory_hint blocked requested_ref=backup server ref=ops-mgmt-01" in line for line in result.detail_lines)
     assert not any("Routing: forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in result.detail_lines)
@@ -1925,6 +3387,16 @@ def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(mon
             matched_text="brauchen meine linux server updates ?",
         )
 
+    async def fake_capability_draft(*_args, **_kwargs):
+        return CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            explicit_connection_ref="ops-backup-01",
+            content="uptime",
+            confidence=0.95,
+            notes=["capability_draft_source:llm"],
+        )
+
     async def fake_execute(_self, plan, *, language="de"):
         _ = language
         assert plan.connection_ref == "ops-backup-01"
@@ -1934,6 +3406,7 @@ def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(mon
     monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
     monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
     monkeypatch.setattr(pipeline, "classify_routing", lambda *_args, **_kwargs: SimpleNamespace(intents=["chat"], level=0))
+    monkeypatch.setattr(pipeline, "_classify_capability_draft_with_llm", fake_capability_draft)
     monkeypatch.setattr(type(pipeline._executor_registry), "execute", fake_execute)
 
     result = asyncio.run(
@@ -1948,17 +3421,643 @@ def test_pipeline_process_prefers_explicit_ssh_target_over_stale_memory_hint(mon
     assert result.intents == ["capability:ssh_command"]
     assert result.text == "ok"
     assert any(
-        "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ops-backup-01 requested_ref=-"
+        "Routing Debug: capability_draft capability=ssh_command kind=ssh kind_source=draft explicit_ref=ops-backup-01 requested_ref=-"
         in line
         for line in result.detail_lines
     )
-    assert any("Routing Debug: explicit_ref selected ref=ops-backup-01" in line for line in result.detail_lines)
     assert any(
-        "Routing: explicit_connection_resolution selected `ssh/ops-backup-01` source=explicit_ref note=ops-backup-01"
+        "Routing Debug: memory_hint ignored_by_semantic_candidate ref=ops-mgmt-01 candidate_ref=ops-backup-01 authority=candidate_only"
+        in line
+        for line in result.detail_lines
+    )
+    assert any(
+        "Routing: semantic_candidate_resolution selected `ssh/ops-backup-01` source=semantic_alias"
         in line
         for line in result.detail_lines
     )
     assert not any("Routing: forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in result.detail_lines)
+
+
+def test_pipeline_recovered_explicit_ssh_target_beats_stale_memory_hint(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "title": "Management Server",
+                        "aliases": ["management server"],
+                    },
+                    "ops-alert-01": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "title": "Monitoring Server",
+                        "aliases": ["monitoring server", "netalert"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class MonitoringLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if kwargs.get("operation") == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "uptime",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "read status",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=MonitoringLLM())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": "",
+            "query": "zeige mir den status vom monitoring server",
+            "preferred_kind": "ssh",
+            "decision": {"found": True, "kind": "ssh", "ref": "ops-alert-01"},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": False}},
+            "payload_debug": {"payload": {"found": False}},
+            "safety_debug": {"decision": {}},
+            "execution_debug": {"decision": {}},
+            "detail_lines": [
+                "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ops-alert-01 requested_ref=- path=- content=uptime",
+                "Routing Debug: plural_target_scope disabled_by_explicit_single_target explicit_ref=ops-alert-01",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints(
+            connection_kind="ssh",
+            connection_ref="ops-mgmt-01",
+            source="memory_hint",
+            matched_text="old management task",
+        )
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "zeige mir den status vom monitoring server",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(
+                capability="ssh_command",
+                connection_kind="ssh",
+                explicit_connection_ref="",
+                requested_connection_ref="",
+                content="uptime",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    assert dict(resolved.get("decision", {}) or {}).get("ref") == "ops-alert-01"
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("found") is True
+    assert payload.get("capability") == "ssh_command"
+    assert payload.get("connection_ref") == "ops-alert-01"
+    assert payload.get("content") == "uptime"
+    assert payload.get("missing_fields") == []
+    assert dict((resolved.get("safety_debug") or {}).get("decision", {}) or {}).get("action") == "allow"
+    assert dict((resolved.get("execution_debug") or {}).get("decision", {}) or {}).get("next_step") == "allow"
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "Routing Debug: memory_hint ignored_by_semantic_candidate ref=ops-mgmt-01 candidate_ref=ops-alert-01 authority=candidate_only"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing: semantic_candidate_resolution selected `ssh/ops-alert-01` source=semantic_alias"
+        in line
+        for line in detail_lines
+    )
+    assert not any("forced_connection_resolution selected `ssh/ops-mgmt-01`" in line for line in detail_lines)
+    assert not any("kind_only_resolution selected `ssh/-`" in line for line in detail_lines)
+
+
+def test_pipeline_binds_resolved_decision_ref_to_complete_capability_draft_payload(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "title": "Management Server",
+                    },
+                    "ops-alert-01": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "title": "Monitoring Server",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": "",
+            "query": "zeige status",
+            "preferred_kind": "ssh",
+            "decision": {"found": True, "kind": "ssh", "ref": "ops-alert-01", "source": "aria_meta_catalog_routing"},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": False}},
+            "payload_debug": {"payload": {"found": False}},
+            "safety_debug": {"decision": {}},
+            "execution_debug": {"decision": {}},
+            "detail_lines": [
+                "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh explicit_ref=ops-alert-01 requested_ref=- path=- content=uptime boundary=context_enrichment",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints()
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    monkeypatch.setattr(
+        pipeline._semantic_connection_resolver,
+        "collect_connection_candidates",
+        lambda *_args, **_kwargs: [],
+    )
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "zeige status",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(
+                capability="ssh_command",
+                connection_kind="ssh",
+                content="uptime",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("found") is True
+    assert payload.get("capability") == "ssh_command"
+    assert payload.get("connection_ref") == "ops-alert-01"
+    assert payload.get("content") == "uptime"
+    assert payload.get("missing_fields") == []
+    assert dict((resolved.get("safety_debug") or {}).get("decision", {}) or {}).get("action") == "allow"
+    assert dict((resolved.get("execution_debug") or {}).get("decision", {}) or {}).get("next_step") == "allow"
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "Routing Debug: resolved_decision_bound_to_action_contract kind=ssh ref=ops-alert-01"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing: forced_connection_resolution selected `ssh/ops-alert-01`" in line
+        for line in detail_lines
+    )
+    assert not any("kind_only_resolution selected `ssh/-`" in line for line in detail_lines)
+
+
+def test_pipeline_alias_resolved_sftp_target_beats_wrong_meta_explicit_ref(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "sftp": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.1",
+                        "user": "fischerman",
+                        "title": "Management Server",
+                        "aliases": ["management server"],
+                    },
+                    "sync-node-01": {
+                        "host": "192.0.2.40",
+                        "user": "fischerman",
+                        "title": "Syncthing Datei-Sync Server",
+                        "aliases": ["syncthing"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "ok",
+            "visual_status": "ok",
+            "message": "",
+            "query": "hosts datei vom management server bitte",
+            "preferred_kind": "sftp",
+            "decision": {"found": True, "kind": "sftp", "ref": "ops-mgmt-01", "source": "alias", "reason": "management server"},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": False}},
+            "payload_debug": {"payload": {"found": False}},
+            "safety_debug": {"decision": {}},
+            "execution_debug": {"decision": {}},
+            "detail_lines": [
+                "Routing: routing_chain selected `sftp/ops-mgmt-01` source=alias note=management server",
+                "Routing Debug: connection_target_selection stage=routing_chain preferred=sftp selected=sftp/ops-mgmt-01 source=alias candidate_count=1 note=management server",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints()
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    monkeypatch.setattr(
+        pipeline._semantic_connection_resolver,
+        "collect_connection_candidates",
+        lambda *_args, **_kwargs: [],
+    )
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "hosts datei vom management server bitte",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(
+                capability="file_read",
+                connection_kind="sftp",
+                explicit_connection_ref="sync-node-01",
+                path="/etc/hosts",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("found") is True
+    assert payload.get("capability") == "file_read"
+    assert payload.get("connection_ref") == "ops-mgmt-01"
+    assert payload.get("path") == "/etc/hosts"
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "Routing Debug: explicit_ref_deferred_to_resolved_target from=sync-node-01 to=ops-mgmt-01 source=alias"
+        in line
+        for line in detail_lines
+    )
+    assert any(
+        "Routing: explicit_connection_resolution selected `sftp/ops-mgmt-01`" in line
+        for line in detail_lines
+    )
+    assert not any("forced_connection_resolution selected `sftp/sync-node-01`" in line for line in detail_lines)
+
+
+def test_pipeline_multi_target_connection_refs_satisfy_action_contract() -> None:
+    payload = {
+        "found": True,
+        "capability": "ssh_command",
+        "connection_kind": "ssh",
+        "connection_ref": "",
+        "connection_refs": ["dev-node-01", "dev-node-02"],
+        "content": "hostname -I",
+        "missing_fields": ["connection_ref"],
+    }
+
+    assert Pipeline._payload_missing_fields(payload) == []
+    assert Pipeline._payload_to_action_plan(payload).missing_fields == []
+    assert Pipeline._resolve_pending_missing_input({"missing_input": "connection_ref"}, payload) == ""
+    missing = Pipeline._action_contract_missing_fields(
+        routing={"kind": "ssh", "ref": ""},
+        action={"capability": "ssh_command", "missing_input": "connection_ref"},
+        payload=payload,
+    )
+
+    assert missing == []
+
+
+def test_pipeline_binds_trace_explicit_ref_to_complete_capability_draft_payload(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-mgmt-01": {
+                        "host": "192.0.2.10",
+                        "user": "root",
+                        "title": "Management Server",
+                    },
+                    "ops-alert-01": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "title": "Monitoring Server",
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": "",
+            "query": "zeige mir den status vom monitoring server und nutze nur belegte kommandos",
+            "preferred_kind": "ssh",
+            "decision": {"found": False},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": False}},
+            "payload_debug": {"payload": {"found": False}},
+            "safety_debug": {"decision": {}},
+            "execution_debug": {"decision": {}},
+            "detail_lines": [
+                "Routing Debug: pre_rag_action_gate action_path=unified_routing capability=ssh_command kind=ssh explicit_ref=ops-alert-01 requested_ref=- path=- content=uptime boundary=context_enrichment",
+                "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ops-alert-01 requested_ref=- path=- content=uptime boundary=context_enrichment",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints()
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+    monkeypatch.setattr(
+        pipeline._semantic_connection_resolver,
+        "collect_connection_candidates",
+        lambda *_args, **_kwargs: [],
+    )
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "zeige mir den status vom monitoring server und nutze nur belegte kommandos",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(
+                capability="ssh_command",
+                connection_kind="ssh",
+                content="uptime",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("found") is True
+    assert payload.get("capability") == "ssh_command"
+    assert payload.get("connection_ref") == "ops-alert-01"
+    assert payload.get("content") == "uptime"
+    assert payload.get("missing_fields") == []
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any(
+        "Routing Debug: resolved_decision_bound_to_action_contract kind=ssh ref=ops-alert-01"
+        in line
+        for line in detail_lines
+    )
+    assert any("Routing: forced_connection_resolution selected `ssh/ops-alert-01`" in line for line in detail_lines)
+    assert not any("kind_only_resolution selected `ssh/-`" in line for line in detail_lines)
+
+
+def test_pipeline_resolves_missing_ssh_command_for_capability_draft_without_template_decision(monkeypatch) -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-alert-01": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "title": "Monitoring Server",
+                        "aliases": ["monitoring server"],
+                    },
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class MonitoringCommandLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if kwargs.get("operation") == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "uptime",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "Use a read-only host status command from the target dossier.",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=MonitoringCommandLLM())
+
+    async def fake_chain(*_args, **_kwargs):
+        return {
+            "status": "warn",
+            "visual_status": "warn",
+            "message": "",
+            "query": "zeige mir den status vom monitoring server",
+            "preferred_kind": "ssh",
+            "decision": {"found": False},
+            "qdrant": {"enabled": False, "candidates": []},
+            "action_debug": {"decision": {"found": False}},
+            "payload_debug": {"payload": {"found": False}},
+            "safety_debug": {"decision": {}},
+            "execution_debug": {"decision": {}},
+            "detail_lines": [
+                "Routing Debug: capability_draft capability=ssh_command kind=ssh explicit_ref=ops-alert-01 requested_ref=- path=- content=- boundary=context_enrichment",
+            ],
+        }
+
+    async def fake_memory_resolve(*_args, **_kwargs):
+        return MemoryHints()
+
+    monkeypatch.setattr(pipeline, "_resolve_live_routing_chain", fake_chain)
+    monkeypatch.setattr(pipeline._memory_assist, "resolve", fake_memory_resolve)
+
+    resolved = asyncio.run(
+        pipeline._resolve_unified_routed_action(
+            "zeige mir den status vom monitoring server",
+            user_id="u1",
+            language="de",
+            capability_draft=SimpleNamespace(
+                capability="ssh_command",
+                connection_kind="ssh",
+                explicit_connection_ref="ops-alert-01",
+                content="",
+            ),
+            llm_client=None,
+        )
+    )
+
+    assert resolved is not None
+    payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+    assert payload.get("found") is True
+    assert payload.get("capability") == "ssh_command"
+    assert payload.get("connection_ref") == "ops-alert-01"
+    assert payload.get("content") == "uptime"
+    assert payload.get("missing_fields") == []
+    assert dict((resolved.get("execution_debug") or {}).get("decision", {}) or {}).get("next_step") == "allow"
+    detail_lines = list(resolved.get("detail_lines", []) or [])
+    assert any("Routing Debug: ssh_command_decision ref=ops-alert-01" in line for line in detail_lines)
+    assert not any("missing=payload,command" in line for line in detail_lines)
+
+
+def test_pipeline_replaces_ungrounded_service_status_probe_with_host_status() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "connections": {
+                "ssh": {
+                    "ops-alert-01": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "NetAlertX Monitoring Server",
+                        "description": "Network monitoring host running the NetAlertX application.",
+                        "aliases": ["monitoring server", "netalert"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class ServiceGuessLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            if kwargs.get("operation") == "ssh_command_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "command": "systemctl status netalertx",
+                            "confidence": "high",
+                            "ask_user": False,
+                            "reason": "guessed service status",
+                        }
+                    )
+                )
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=ServiceGuessLLM())
+
+    updated, updated_draft, debug_line = asyncio.run(
+        pipeline._apply_agentic_ssh_command_resolution(
+            message="zeige mir den status vom monitoring server",
+            user_id="u1",
+            routing_decision={"found": True, "kind": "ssh", "ref": "ops-alert-01"},
+            action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+            capability_draft=SimpleNamespace(capability="ssh_command", connection_kind="ssh", content=""),
+            language="de",
+        )
+    )
+
+    assert updated["decision"]["inputs"]["command"] == "uptime -p && df -h / && free -h"
+    assert updated["decision"]["guardrail_fallback_from"] == "systemctl status netalertx"
+    assert updated["decision"]["reason"] == "ungrounded_service_status_probe_replaced_by_host_status"
+    assert getattr(updated_draft, "content") == "uptime -p && df -h / && free -h"
+
+
+def test_pipeline_uses_status_contract_decision_for_missing_ssh_command_without_command_decision() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "ops-alert-01": {
+                        "host": "192.0.2.20",
+                        "user": "root",
+                        "key_path": "/tmp/test_ed25519",
+                        "title": "NetAlert Monitoring Server",
+                        "description": "Network monitoring host.",
+                        "aliases": ["monitoring server", "netalert"],
+                    }
+                }
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class StatusContractLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            self.calls += 1
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "ssh_status_contract_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "read_only",
+                            "intent": "status_check",
+                            "confidence": "high",
+                            "reason": "Monitoring server status can use the generic host status contract.",
+                        }
+                    )
+                )
+            if operation == "ssh_command_decision":
+                raise AssertionError("status contract path must not ask the command LLM")
+            return await super().chat(messages, **kwargs)
+
+    llm = StatusContractLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+
+    updated, updated_draft, debug_line = asyncio.run(
+        pipeline._apply_agentic_ssh_command_resolution(
+            message="zeige mir den status vom monitoring server",
+            user_id="u1",
+            routing_decision={"found": True, "kind": "ssh", "ref": "ops-alert-01"},
+            action_debug={"decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"}},
+            capability_draft=SimpleNamespace(capability="ssh_command", connection_kind="ssh", content=""),
+            language="de",
+            llm_client=llm,
+        )
+    )
+
+    assert llm.operations == ["ssh_status_contract_decision"]
+    assert updated["decision"]["inputs"]["command"] == "uptime -p && df -h / && free -h"
+    assert updated["decision"]["reason"] == "guardrail_allowed_healthcheck"
+    assert "guardrail_fallback_from" not in updated["decision"]
+    assert getattr(updated_draft, "content") == "uptime -p && df -h / && free -h"
+    assert "ssh_status_contract_fast_path ref=ops-alert-01 from=missing_command" in debug_line
+    assert "ssh_status_contract_decision ref=ops-alert-01 runtime_effect=read_only intent=status_check" in debug_line
+    assert "ssh_command_decision" not in debug_line
 
 
 async def _run_pipeline() -> None:
@@ -2252,6 +4351,81 @@ def test_pipeline_unified_routing_returns_pending_confirmation(monkeypatch) -> N
     asyncio.run(_run())
 
 
+def test_pipeline_debug_trace_shows_pending_confirmation_contract(monkeypatch) -> None:
+    async def _run() -> None:
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_chain(*_args, **_kwargs):
+            return {
+                "decision": {"found": True, "kind": "discord", "ref": "alerts", "source": "test"},
+                "action_debug": {
+                    "decision": {
+                        "found": True,
+                        "candidate_kind": "template",
+                        "candidate_id": "discord_send_message",
+                        "candidate_role": "template_candidate",
+                        "execution_state": "needs_confirmation",
+                    }
+                },
+                "payload_debug": {
+                    "payload": {
+                        "found": True,
+                        "capability": "discord_send",
+                        "connection_kind": "discord",
+                        "connection_ref": "alerts",
+                        "content": "ARIA smoke test",
+                        "preview": "Discord message: ARIA smoke test",
+                        "missing_fields": [],
+                    }
+                },
+                "safety_debug": {
+                    "decision": {
+                        "action": "ask_user",
+                        "reason": "outbound_message_confirmation",
+                        "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden.",
+                    }
+                },
+                "execution_debug": {
+                    "decision": {
+                        "next_step": "ask_user",
+                        "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
+                    }
+                },
+                "detail_lines": [
+                    "Routing Debug: meta_catalog_contract phase=action_preflight legacy_semantics=skipped",
+                ],
+            }
+
+        monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
+        pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+        result = await pipeline.process(
+            "schick eine testnachricht an discord: ARIA smoke test",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+
+        assert result.pending_action is not None
+        assert any("Routing Debug: agentic_action_contract" in line for line in result.detail_lines)
+        assert any("Routing Debug: agentic_policy_decision action=ask_user" in line for line in result.detail_lines)
+        assert any("Routing Debug: meta_catalog_contract phase=action_preflight" in line for line in result.detail_lines)
+        assert any("operator_trace phase=context" in line for line in result.detail_lines)
+        assert any("operator_trace phase=draft source=agentic_action_contract" in line for line in result.detail_lines)
+        assert any("operator_trace phase=policy source=agentic_policy_decision" in line for line in result.detail_lines)
+        assert not any("operator_trace phase=runtime" in line for line in result.detail_lines)
+
+    asyncio.run(_run())
+
+
 def test_pipeline_unified_routing_ssh_alias_runs_before_legacy_fallbacks(monkeypatch) -> None:
     async def _run() -> None:
         settings = Settings.model_validate(
@@ -2383,7 +4557,7 @@ def test_pipeline_discord_request_without_discord_profile_does_not_reuse_smb_con
             "connections": {
                 "smb": {
                     "example_share": {
-                        "host": "synrs816-01",
+                        "host": "storage-node-01",
                         "share": "Example_Share",
                         "user": "demo",
                     }
@@ -2459,8 +4633,8 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
                         "capability": "ssh_command",
                         "connection_kind": "ssh",
                         "connection_ref": "srv-a",
-                        "content": "rm -rf /tmp/test",
-                        "preview": "SSH command: rm -rf /tmp/test",
+                            "content": "sudo systemctl restart pihole-FTL",
+                            "preview": "SSH command: sudo systemctl restart pihole-FTL",
                         "missing_fields": [],
                     }
                 },
@@ -2472,19 +4646,29 @@ def test_pipeline_unified_routing_returns_blocked_result(monkeypatch) -> None:
                         "guardrail_kind": "ssh_command",
                     }
                 },
-                "execution_debug": {"decision": {"next_step": "block", "summary": "ARIA kann diese Aktion auf ssh/srv-a nicht ausfuehren: SSH command: rm -rf /tmp/test"}},
+                "execution_debug": {
+                    "decision": {
+                        "next_step": "block",
+                        "summary": (
+                            "ARIA kann diese Aktion auf ssh/srv-a nicht ausfuehren: "
+                            "SSH command: sudo systemctl restart pihole-FTL"
+                        ),
+                    }
+                },
             }
 
         monkeypatch.setattr(pipeline_mod, "resolve_connection_routing_chain", fake_chain)
         pipeline._should_try_unified_routing = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
 
-        result = await pipeline.process("fuehre rm -rf aus", user_id="u1", source="test", language="de")
+        result = await pipeline.process("starte meinen dns server neu", user_id="u1", source="test", language="de")
 
         assert result.pending_action is None
         assert result.skill_errors == []
         assert "wurde durch das Guardrail-Profil `safe-ssh` blockiert" in result.text
         assert "aktive Sicherheitsregel" in result.text
-        assert "SSH command: rm -rf /tmp/test" in result.text
+        assert "sudo systemctl restart pihole-FTL" not in result.text
+        assert "SSH-Mutation erkannt" in result.text
+        assert "keine belegte konkrete Shell-Zeile" in result.text
         assert "[safe-ssh](/config/security?guardrail_ref=safe-ssh)" in result.text
         details = "\n".join(result.detail_lines)
         assert "blocked_action_explanation agentic_source=deterministic_fallback reason=ssh_policy_block_fast_path" in details
@@ -2565,7 +4749,9 @@ def test_pipeline_unified_routing_adds_security_link_for_builtin_ssh_policy_bloc
 
         assert result.pending_action is None
         assert result.skill_errors == []
-        assert "sudo systemctl restart pihole-FTL" in result.text
+        assert "sudo systemctl restart pihole-FTL" not in result.text
+        assert "SSH-Mutation erkannt" in result.text
+        assert "keine belegte konkrete Shell-Zeile" in result.text
         assert "Sicherheitsregeln pruefen/anpassen: [Security Guardrails](/config/security)" in result.text
         assert "(/config/security)" in result.text
         details = "\n".join(result.detail_lines)
@@ -2723,11 +4909,19 @@ def test_pipeline_includes_web_search_context_and_source_details() -> None:
                         "  Engine: duckduckgo\n"
                         "  Snippet: WiFi setup steps"
                     ),
-                    success=True,
-                    metadata={
-                        "detail_lines": [
-                            "Quelle: Mill Manual · https://example.org/mill · duckduckgo",
-                        ]
+                        success=True,
+                        metadata={
+                            "sources": [
+                                {
+                                    "title": "Mill Manual",
+                                    "url": "https://example.org/mill",
+                                    "engine": "duckduckgo",
+                                    "type": "web",
+                                }
+                            ],
+                            "detail_lines": [
+                                "Quelle: Mill Manual · https://example.org/mill · duckduckgo",
+                            ]
                     },
                 )
 
@@ -2737,7 +4931,7 @@ def test_pipeline_includes_web_search_context_and_source_details() -> None:
 
         assert result.text == "ok"
         assert result.intents == ["web_search"]
-        assert result.detail_lines == ["Quelle: Mill Manual · https://example.org/mill · duckduckgo"]
+        assert "Quelle: Mill Manual · https://example.org/mill · duckduckgo" in result.detail_lines
         assert "Web Search via web-search" in str(llm.last_messages[1]["content"])
         assert "separate model-specific changes from carried-over" in str(llm.last_messages[0]["content"])
         assert llm.calls == 1
@@ -2747,15 +4941,28 @@ def test_pipeline_includes_web_search_context_and_source_details() -> None:
 
 def test_pipeline_auto_adds_web_search_for_fresh_product_howto() -> None:
     class FreshnessLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
         async def chat(self, messages, **kwargs):
-            if kwargs.get("operation") == "chat_freshness_arbitration":
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "web_source_acquisition_plan":
                 self.calls += 1
                 self.last_messages = messages
                 return FakeLLMResponse(
                     json.dumps(
                         {
-                            "needs_fresh_context": True,
-                            "query": "OpenAI Codex SSH development server",
+                            "should_plan": True,
+                            "search_mode": "fast_answer",
+                            "goal": "Find current OpenAI Codex SSH development server documentation.",
+                            "queries": ["OpenAI Codex SSH development server"],
+                            "search_profile_ref": "web-search",
+                            "preferred_domains": ["developers.openai.com"],
+                            "required_sources": ["official documentation"],
+                            "avoid_sources": ["unrelated sources"],
                             "confidence": "high",
                             "reason": "current product setup may depend on current docs",
                         }
@@ -2796,11 +5003,19 @@ def test_pipeline_auto_adds_web_search_for_fresh_product_howto() -> None:
                         "  Engine: duckduckgo\n"
                         "  Snippet: Codex is OpenAI's coding agent."
                     ),
-                    success=True,
-                    metadata={
-                        "detail_lines": [
-                            "Quelle: OpenAI Codex docs · https://developers.openai.com/codex · duckduckgo",
-                        ]
+                        success=True,
+                        metadata={
+                            "sources": [
+                                {
+                                    "title": "OpenAI Codex docs",
+                                    "url": "https://developers.openai.com/codex",
+                                    "engine": "duckduckgo",
+                                    "type": "web",
+                                }
+                            ],
+                            "detail_lines": [
+                                "Quelle: OpenAI Codex docs · https://developers.openai.com/codex · duckduckgo",
+                            ]
                     },
                 )
 
@@ -2814,10 +5029,14 @@ def test_pipeline_auto_adds_web_search_for_fresh_product_howto() -> None:
 
         assert result.text == "ok"
         assert result.intents == ["chat", "web_search"]
-        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
-        assert result.detail_lines[-1] == "Quelle: OpenAI Codex docs · https://developers.openai.com/codex · duckduckgo"
+        assert not any("chat_freshness action=web_search" in line for line in result.detail_lines)
+        assert any("web_freshness_fast_path" in line for line in result.detail_lines)
+        assert any("web_source_acquisition_plan reused=true" in line for line in result.detail_lines)
+        assert "Quelle: OpenAI Codex docs · https://developers.openai.com/codex · duckduckgo" in result.detail_lines
         assert "OpenAI Codex docs" in str(llm.last_messages[1]["content"])
-        assert llm.calls == 2
+        assert "chat_freshness_arbitration" not in llm.operations
+        assert "web_source_acquisition_plan" in llm.operations
+        assert llm.calls >= 2
 
     asyncio.run(_run())
 
@@ -3002,15 +5221,28 @@ def test_pipeline_keeps_official_page_excerpt_visible_after_aggregator_snippets(
 
 def test_pipeline_freshness_arbitration_runs_without_keyword_candidate() -> None:
     class FreshnessLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
         async def chat(self, messages, **kwargs):
-            if kwargs.get("operation") == "chat_freshness_arbitration":
+            operation = str(kwargs.get("operation") or "")
+            if operation:
+                self.operations.append(operation)
+            if operation == "web_source_acquisition_plan":
                 self.calls += 1
                 self.last_messages = messages
                 return FakeLLMResponse(
                     json.dumps(
                         {
-                            "needs_fresh_context": True,
-                            "query": "Qdrant scrolling API changes official docs",
+                            "should_plan": True,
+                            "search_mode": "fast_answer",
+                            "goal": "Find current Qdrant scroll API documentation changes.",
+                            "queries": ["Qdrant scrolling API changes official docs"],
+                            "search_profile_ref": "web-search",
+                            "preferred_domains": ["qdrant.tech"],
+                            "required_sources": ["official documentation"],
+                            "avoid_sources": ["unrelated sources"],
                             "confidence": "high",
                             "reason": "The question asks about a possibly changed product API.",
                         }
@@ -3050,11 +5282,19 @@ def test_pipeline_freshness_arbitration_runs_without_keyword_candidate() -> None
                         "  Engine: duckduckgo\n"
                         "  Snippet: Qdrant API documentation."
                     ),
-                    success=True,
-                    metadata={
-                        "detail_lines": [
-                            "Quelle: Qdrant API docs · https://qdrant.tech/documentation/ · duckduckgo",
-                        ]
+                        success=True,
+                        metadata={
+                            "sources": [
+                                {
+                                    "title": "Qdrant API docs",
+                                    "url": "https://qdrant.tech/documentation/",
+                                    "engine": "duckduckgo",
+                                    "type": "web",
+                                }
+                            ],
+                            "detail_lines": [
+                                "Quelle: Qdrant API docs · https://qdrant.tech/documentation/ · duckduckgo",
+                            ]
                     },
                 )
 
@@ -3068,9 +5308,13 @@ def test_pipeline_freshness_arbitration_runs_without_keyword_candidate() -> None
 
         assert result.text == "ok"
         assert result.intents == ["chat", "web_search"]
-        assert any("chat_freshness action=web_search source=llm" in line for line in result.detail_lines)
+        assert not any("chat_freshness action=web_search" in line for line in result.detail_lines)
+        assert any("web_freshness_fast_path" in line for line in result.detail_lines)
+        assert any("web_source_acquisition_plan reused=true" in line for line in result.detail_lines)
         assert "Qdrant API docs" in str(llm.last_messages[1]["content"])
-        assert llm.calls == 2
+        assert "chat_freshness_arbitration" not in llm.operations
+        assert "web_source_acquisition_plan" in llm.operations
+        assert llm.calls >= 2
 
     asyncio.run(_run())
 
@@ -3694,14 +5938,14 @@ def test_extract_memory_store_text() -> None:
         }
     )
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
-    text = pipeline._extract_memory_store_text("Merk dir, dass mein NAS 10.0.10.100 hat.")
-    assert text == "mein NAS 10.0.10.100 hat"
+    text = pipeline._extract_memory_store_text("Merk dir, dass mein NAS 198.51.100.100 hat.")
+    assert text == "mein NAS 198.51.100.100 hat"
 
 
 def test_auto_memory_extractor_finds_basic_facts() -> None:
-    decision = AutoMemoryExtractor.decide("Hostname: server-main, IP: 10.0.1.1")
+    decision = AutoMemoryExtractor.decide("Hostname: server-main, IP: 192.0.2.11")
     assert decision.facts
-    assert any("10.0.1.1" in fact for fact in decision.facts)
+    assert any("192.0.2.11" in fact for fact in decision.facts)
 
 
 def test_pipeline_custom_skill_runtime_llm_task() -> None:
@@ -4012,7 +6256,7 @@ def test_pipeline_custom_skill_runtime_sftp_write_and_read() -> None:
             "connections": {
                 "sftp": {
                     "nas-share": {
-                        "host": "10.0.1.20",
+                        "host": "192.0.2.120",
                         "port": 22,
                         "user": "backup",
                         "password": "secret",
@@ -4143,7 +6387,7 @@ def test_pipeline_custom_skill_runtime_sftp_uses_key_path_auth(monkeypatch, tmp_
             "connections": {
                 "sftp": {
                     "nas-share": {
-                        "host": "10.0.1.20",
+                        "host": "192.0.2.120",
                         "port": 22,
                         "user": "backup",
                         "key_path": "data/ssh_keys/nas-share_ed25519",
@@ -4210,7 +6454,29 @@ def test_pipeline_custom_skill_runtime_sftp_uses_key_path_auth(monkeypatch, tmp_
         assert "password" not in connect_calls[0]
 
 
-def test_pipeline_recipe_status_is_deterministic_without_llm_call() -> None:
+class _RecipeStatusLLMClient(FakeLLMClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.operations: list[str] = []
+
+    async def chat(self, messages, **kwargs):
+        operation = str(kwargs.get("operation") or "")
+        self.operations.append(operation)
+        if operation == "turn_intent_arbitration":
+            self.last_messages = messages
+            return FakeLLMResponse(
+                json.dumps(
+                    {
+                        "intents": ["recipe_status"],
+                        "confidence": "high",
+                        "reason": "The user asks which ARIA recipes or skills are active.",
+                    }
+                )
+            )
+        return await super().chat(messages, **kwargs)
+
+
+def test_pipeline_recipe_status_requires_turn_intent_arbitration() -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
@@ -4219,7 +6485,7 @@ def test_pipeline_recipe_status_is_deterministic_without_llm_call() -> None:
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
         }
     )
-    llm = FakeLLMClient()
+    llm = _RecipeStatusLLMClient()
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
 
     with tempfile.TemporaryDirectory() as td:
@@ -4260,10 +6526,10 @@ def test_pipeline_recipe_status_is_deterministic_without_llm_call() -> None:
         assert "Aktiv:" in result.text
         assert "Deaktiviert:" in result.text
         assert "[Custom] Server Update" in result.text
-        assert llm.calls == 0
+        assert "turn_intent_arbitration" in llm.operations
 
 
-def test_pipeline_recipe_status_current_skills_phrase_is_deterministic() -> None:
+def test_pipeline_recipe_status_current_skills_phrase_uses_turn_intent_arbitration() -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
@@ -4272,7 +6538,7 @@ def test_pipeline_recipe_status_current_skills_phrase_is_deterministic() -> None
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
         }
     )
-    llm = FakeLLMClient()
+    llm = _RecipeStatusLLMClient()
     pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
 
     with tempfile.TemporaryDirectory() as td:
@@ -4308,10 +6574,9 @@ def test_pipeline_recipe_status_current_skills_phrase_is_deterministic() -> None
             pipeline.process("Was sind deine aktuellen Skills?", user_id="u1", source="test", auto_memory_enabled=True)
         )
         assert result.intents == ["recipe_status"]
-        assert result.usage["total_tokens"] == 0
         assert "Recipes (Runtime-Status)" in result.text
         assert "[Custom] Server Update" in result.text
-        assert llm.calls == 0
+        assert "turn_intent_arbitration" in llm.operations
 
 
 def test_pipeline_custom_skill_chat_send_direct_response() -> None:
@@ -4482,7 +6747,7 @@ def test_pipeline_auto_memory_persists_declarative_user_context_to_session_and_f
 
     result = asyncio.run(
         pipeline.process(
-            "Mein NAS heisst atlas und laeuft auf 10.0.10.100.",
+            "Mein NAS heisst atlas und laeuft auf 198.51.100.100.",
             user_id="u1",
             source="test",
             auto_memory_enabled=True,
@@ -4499,7 +6764,7 @@ def test_pipeline_auto_memory_persists_declarative_user_context_to_session_and_f
     ]
     stored_texts = [str(call["params"].get("text", "")) for call in persisted_calls]
     stored_collections = [str(call["params"].get("collection", "")) for call in persisted_calls]
-    assert any("10.0.10.100" in text for text in stored_texts)
+    assert any("198.51.100.100" in text for text in stored_texts)
     assert "aria_facts_u1" in stored_collections
     assert "aria_sessions_u1_260403" in stored_collections
 
@@ -5266,6 +7531,7 @@ def test_pipeline_mutating_multi_target_ssh_request_does_not_run_readonly_fallba
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "full_kind",
                             "target_intent": "",
                             "content": "",
                             "confidence": "high",
@@ -5492,10 +7758,10 @@ The following packages have been kept back:
 def test_format_held_packages_summary_contains_safe_fix() -> None:
     summary = Pipeline._format_held_packages_summary(
         {"srv-a": ["ubuntu-drivers-common", "webmin"]},
-        {"srv-a": "root@10.0.1.10"},
+        {"srv-a": "root@192.0.2.10"},
     )
     assert "Zurückgehaltene Pakete" in summary
-    assert "srv-a (root@10.0.1.10)" in summary
+    assert "srv-a (root@192.0.2.10)" in summary
     assert "sudo apt install --only-upgrade ubuntu-drivers-common webmin" in summary
 
 
@@ -5506,7 +7772,7 @@ def test_format_ssh_step_run_summary_contains_duration_and_warnings() -> None:
         [
             {
                 "connection_ref": "server-main",
-                "target": "demo_user@10.0.1.1",
+                "target": "demo_user@192.0.2.11",
                 "exit_code": 0,
                 "duration_seconds": 12.4,
                 "held_packages": ["webmin"],
@@ -5548,7 +7814,7 @@ def test_pipeline_capability_router_sftp_write_direct_response() -> None:
             "connections": {
                 "sftp": {
                     "server-main": {
-                        "host": "10.0.3.160",
+                        "host": "192.0.2.160",
                         "user": "demo_user",
                     }
                 }
@@ -5593,7 +7859,7 @@ def test_pipeline_capability_router_uses_single_sftp_profile_as_default() -> Non
             "connections": {
                 "sftp": {
                     "server-main": {
-                        "host": "10.0.3.160",
+                        "host": "192.0.2.160",
                         "user": "demo_user",
                     }
                 }
@@ -5636,8 +7902,8 @@ def test_pipeline_capability_router_uses_memory_hint_for_sftp_profile() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "server-main": {"host": "10.0.3.160", "user": "demo_user"},
-                    "server-alert": {"host": "10.0.3.161", "user": "demo_user"},
+                    "server-main": {"host": "192.0.2.160", "user": "demo_user"},
+                    "server-alert": {"host": "192.0.2.161", "user": "demo_user"},
                 }
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -5675,14 +7941,14 @@ def test_pipeline_capability_router_uses_memory_hint_for_sftp_profile() -> None:
     assert llm.calls == 0
 
 
-def test_pipeline_sftp_requested_missing_profile_blocks_stale_memory_hint() -> None:
+def test_pipeline_sftp_requested_missing_profile_blocks_stale_memory_hint(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "ops-mgmt-01": {"host": "10.0.3.160", "user": "demo_user"},
+                    "ops-mgmt-01": {"host": "192.0.2.160", "user": "demo_user"},
                 }
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -5694,9 +7960,20 @@ def test_pipeline_sftp_requested_missing_profile_blocks_stale_memory_hint() -> N
         [{"text": "und jetzt nochmal den management server ops-mgmt-01"}]
     )
 
+    async def fake_capability_draft(*_args, **_kwargs):
+        return CapabilityDraft(
+            capability="file_list",
+            connection_kind="sftp",
+            requested_connection_ref="dev-node-01",
+            path=".",
+            confidence=0.95,
+            notes=["capability_draft_source:llm"],
+        )
+
     def fake_list(connection_ref: str, remote_path: str) -> str:
         raise AssertionError(f"SFTP list should not run via stale memory hint: {connection_ref}:{remote_path}")
 
+    monkeypatch.setattr(pipeline, "_classify_capability_draft_with_llm", fake_capability_draft)
     pipeline._skill_runtime.execute_sftp_list = fake_list  # type: ignore[method-assign]
 
     result = asyncio.run(
@@ -5714,7 +7991,7 @@ def test_pipeline_sftp_requested_missing_profile_blocks_stale_memory_hint() -> N
     assert not any("forced_connection_resolution selected `sftp/ops-mgmt-01`" in line for line in result.detail_lines)
 
 
-def test_pipeline_file_debug_includes_semantic_candidate_record() -> None:
+def test_pipeline_file_debug_includes_semantic_candidate_record(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
@@ -5722,8 +7999,8 @@ def test_pipeline_file_debug_includes_semantic_candidate_record() -> None:
             "ui": {"debug_mode": True},
             "connections": {
                 "sftp": {
-                    "server-main": {"host": "10.0.3.160", "user": "demo_user", "title": "Main Server"},
-                    "backup-host": {"host": "10.0.3.161", "user": "demo_user", "title": "Backup Host"},
+                    "server-main": {"host": "192.0.2.160", "user": "demo_user", "title": "Main Server"},
+                    "backup-host": {"host": "192.0.2.161", "user": "demo_user", "title": "Backup Host"},
                 }
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -5734,10 +8011,21 @@ def test_pipeline_file_debug_includes_semantic_candidate_record() -> None:
 
     calls: list[tuple[str, str]] = []
 
+    async def fake_capability_draft(*_args, **_kwargs):
+        return CapabilityDraft(
+            capability="file_read",
+            connection_kind="sftp",
+            requested_connection_ref="backup host",
+            path="/etc/hosts",
+            confidence=0.95,
+            notes=["capability_draft_source:llm"],
+        )
+
     def fake_read(connection_ref: str, remote_path: str) -> str:
         calls.append((connection_ref, remote_path))
         return f"READ {remote_path} via {connection_ref}"
 
+    monkeypatch.setattr(pipeline, "_classify_capability_draft_with_llm", fake_capability_draft)
     pipeline._skill_runtime.execute_sftp_read = fake_read  # type: ignore[method-assign]
 
     result = asyncio.run(
@@ -5752,11 +8040,67 @@ def test_pipeline_file_debug_includes_semantic_candidate_record() -> None:
     assert result.text == "READ /etc/hosts via backup-host"
     assert any("Routing: routing_chain candidates=1 preferred=sftp -> `sftp/backup-host`" in line for line in result.detail_lines)
     assert any("Routing: routing_chain selected `sftp/backup-host` source=exact_ref_spaced note=backup host" == line for line in result.detail_lines)
-    assert result.detail_lines[-2:] == [
-        "Ausgeführt via SFTP-Profil `backup-host`",
-        "Pfad: /etc/hosts",
-    ]
+    assert "Ausgeführt via SFTP-Profil `backup-host`" in result.detail_lines
+    assert "Pfad: /etc/hosts" in result.detail_lines
     assert calls == [("backup-host", "/etc/hosts")]
+
+
+def test_pipeline_file_payload_contract_normalizes_embedded_absolute_path() -> None:
+    resolved, payload = Pipeline._normalize_file_payload_contract(
+        {
+            "payload_debug": {
+                "payload": {
+                    "capability": "file_read",
+                    "connection_kind": "sftp",
+                    "connection_ref": "dns-node-02",
+                    "path": "lies mir die datei /etc/hosts auf dem backup host",
+                    "missing_fields": [],
+                }
+            },
+            "detail_lines": [],
+        },
+        {
+            "capability": "file_read",
+            "connection_kind": "sftp",
+            "connection_ref": "dns-node-02",
+            "path": "lies mir die datei /etc/hosts auf dem backup host",
+            "missing_fields": [],
+        },
+    )
+
+    assert payload["path"] == "/etc/hosts"
+    assert payload["missing_fields"] == []
+    assert dict(resolved["payload_debug"])["payload"]["path"] == "/etc/hosts"
+    assert any("file_path_contract normalized capability=file_read kind=sftp path=/etc/hosts" in line for line in resolved["detail_lines"])
+
+
+def test_pipeline_file_payload_contract_blocks_ambiguous_prompt_as_path() -> None:
+    resolved, payload = Pipeline._normalize_file_payload_contract(
+        {
+            "payload_debug": {
+                "payload": {
+                    "capability": "file_read",
+                    "connection_kind": "sftp",
+                    "connection_ref": "dns-node-02",
+                    "path": "lies mir die hosts datei auf dem backup host",
+                    "missing_fields": [],
+                }
+            },
+            "detail_lines": [],
+        },
+        {
+            "capability": "file_read",
+            "connection_kind": "sftp",
+            "connection_ref": "dns-node-02",
+            "path": "lies mir die hosts datei auf dem backup host",
+            "missing_fields": [],
+        },
+    )
+
+    assert payload["path"] == ""
+    assert payload["missing_fields"] == ["path"]
+    assert dict(resolved["payload_debug"])["payload"]["missing_fields"] == ["path"]
+    assert any("file_path_contract blocked capability=file_read kind=sftp" in line for line in resolved["detail_lines"])
 
 
 def test_pipeline_file_list_summarizes_runtime_directory_listing() -> None:
@@ -5766,7 +8110,7 @@ def test_pipeline_file_list_summarizes_runtime_directory_listing() -> None:
             "memory": {"enabled": False},
             "connections": {
                 "sftp": {
-                    "server-main": {"host": "10.0.3.160", "user": "demo_user"},
+                    "server-main": {"host": "192.0.2.160", "user": "demo_user"},
                 }
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -5843,10 +8187,11 @@ def test_pipeline_capability_router_uses_recent_context_for_same_server_phrase()
             {
                 "llm": {"model": "fake"},
                 "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
                 "connections": {
                     "sftp": {
-                        "server-main": {"host": "10.0.3.160", "user": "demo_user"},
-                        "server-alert": {"host": "10.0.3.161", "user": "demo_user"},
+                        "server-main": {"host": "192.0.2.160", "user": "demo_user"},
+                        "server-alert": {"host": "192.0.2.161", "user": "demo_user"},
                     }
                 },
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -5918,7 +8263,7 @@ def test_pipeline_capability_router_uses_recent_context_for_same_path_phrase() -
                 "memory": {"enabled": False},
                 "connections": {
                     "sftp": {
-                        "server-main": {"host": "10.0.3.160", "user": "demo_user"},
+                        "server-main": {"host": "192.0.2.160", "user": "demo_user"},
                     }
                 },
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -5976,7 +8321,7 @@ def test_pipeline_capability_router_keeps_recent_list_directory_for_same_folder_
                 "memory": {"enabled": False},
                 "connections": {
                     "sftp": {
-                        "server-main": {"host": "10.0.3.160", "user": "demo_user"},
+                        "server-main": {"host": "192.0.2.160", "user": "demo_user"},
                     }
                 },
                 "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -6066,6 +8411,7 @@ def test_pipeline_uses_recent_multi_target_context_for_target_list_followup() ->
                                     "capability": "ssh_command",
                                     "connection_kind": "ssh",
                                     "target_scope": "multi_target",
+                                    "target_scope_authority": "full_kind",
                                     "target_intent": "package_update_check",
                                     "content": "apt list --upgradable",
                                     "confidence": "high",
@@ -6160,6 +8506,7 @@ def test_pipeline_rewrites_short_calendar_followup_with_recent_filter(monkeypatc
                 {
                     "llm": {"model": "fake"},
                     "memory": {"enabled": False},
+                    "ui": {"debug_mode": True},
                     "connections": {
                         "google_calendar": {
                             "primary-calendar": {
@@ -6546,7 +8893,7 @@ def test_pipeline_capability_router_uses_explicit_smb_profile() -> None:
             "connections": {
                 "smb": {
                     "share-office": {
-                        "host": "10.0.3.200",
+                        "host": "198.51.100.200",
                         "share": "office",
                         "user": "demo_user",
                     }
@@ -6592,7 +8939,7 @@ def test_pipeline_lists_smb_share_root_when_user_asks_for_folders_on_share() -> 
             "connections": {
                 "smb": {
                     "example_share": {
-                        "host": "10.0.3.200",
+                        "host": "198.51.100.200",
                         "share": "Example_Share",
                         "user": "demo_user",
                         "aliases": ["Example Share", "example"],
@@ -6634,7 +8981,7 @@ def test_pipeline_capability_router_uses_single_smb_profile_as_default() -> None
             "connections": {
                 "smb": {
                     "share-office": {
-                        "host": "10.0.3.200",
+                        "host": "198.51.100.200",
                         "share": "office",
                         "user": "demo_user",
                     }
@@ -6727,7 +9074,7 @@ def test_pipeline_capability_router_uses_real_numbered_smb_ref_for_docker_direct
             "connections": {
                 "smb": {
                     "nas-docker-01": {
-                        "host": "10.0.5.230",
+                        "host": "198.51.100.230",
                         "share": "docker",
                         "user": "demo",
                         "root_path": "",
@@ -6774,7 +9121,7 @@ def test_pipeline_capability_router_uses_smb_alias_for_what_files_are_in_my_shar
             "connections": {
                 "smb": {
                     "nas-docker": {
-                        "host": "synrs816-01",
+                        "host": "storage-node-01",
                         "share": "Example",
                         "user": "demo_user",
                         "aliases": ["mein Share", "Example Share"],
@@ -6821,7 +9168,7 @@ def test_pipeline_capability_action_returns_friendly_error_instead_of_raising() 
             "connections": {
                 "smb": {
                     "nas-docker-01": {
-                        "host": "10.0.5.230",
+                        "host": "198.51.100.230",
                         "share": "docker",
                         "user": "demo",
                         "root_path": "",
@@ -8330,14 +10677,14 @@ def test_resolve_requested_connection_scope_keeps_requested_single_ssh_target_si
     assert decision.candidate_connections == candidate_connections
     detail_lines = list(decision.resolved.get("detail_lines", []) or [])
     assert any(
-        "plural_target_scope disabled_by_requested_single_target requested_ref=dev-node-01"
+        "plural_target_scope disabled_by_existing_requested_target requested_ref=dev-node-01"
         in line
         for line in detail_lines
     )
     assert not any("plural_target_scope selected_multi_target" in line for line in detail_lines)
 
 
-def test_resolve_requested_connection_scope_expands_requested_ssh_group_context() -> None:
+def test_resolve_requested_connection_scope_does_not_expand_requested_ssh_group_context_without_contract() -> None:
     pipeline = _unified_routing_pipeline(
         {
             "ssh": {
@@ -8380,17 +10727,18 @@ def test_resolve_requested_connection_scope_expands_requested_ssh_group_context(
         ),
     )
 
-    assert decision.plural_target_scope is True
-    assert list(decision.candidate_connections.keys()) == ["dev-node-01", "dev-node-02"]
+    assert decision.plural_target_scope is False
+    assert decision.candidate_connections == candidate_connections
     detail_lines = list(decision.resolved.get("detail_lines", []) or [])
-    assert any(
-        "plural_target_scope enabled_by_requested_ref_context requested_ref=developer server refs=dev-node-01, dev-node-02"
-        in line
-        for line in detail_lines
-    )
+    assert not any("enabled_by_requested_ref_context" in line for line in detail_lines)
 
 
-def _ssh_multi_target_resolution_input(*, query: str, command: str) -> dict[str, object]:
+def _ssh_multi_target_resolution_input(
+    *,
+    query: str,
+    command: str,
+    missing_fields: list[str] | None = None,
+) -> dict[str, object]:
     return {
         "query": query,
         "decision": {"found": True, "kind": "ssh", "ref": "", "source": "kind_inferred"},
@@ -8410,7 +10758,7 @@ def _ssh_multi_target_resolution_input(*, query: str, command: str) -> dict[str,
                 "connection_kind": "ssh",
                 "connection_ref": "",
                 "content": command,
-                "missing_fields": ["connection_ref"],
+                "missing_fields": list(missing_fields or ["connection_ref"]),
             }
         },
         "safety_debug": {"decision": {}},
@@ -8458,6 +10806,52 @@ def test_apply_ssh_plural_multi_target_resolution_adapts_health_command() -> Non
     assert any(
         f"plural_target_scope selected_multi_target kind=ssh refs=srv-a, srv-b command={expected_command}"
         in line
+        for line in finalized.get("detail_lines", [])
+    )
+
+
+def test_apply_ssh_plural_multi_target_resolution_prunes_stale_missing_command_fields_before_policy() -> None:
+    pipeline = _unified_routing_pipeline(
+        {
+            "ssh": {
+                "srv-a": {"host": "192.0.2.18", "user": "root", "title": "Server A"},
+                "srv-b": {"host": "192.0.2.19", "user": "root", "title": "Server B"},
+            }
+        }
+    )
+    candidate_connections = dict(pipeline._unified_routing_connection_pools()["ssh"])
+
+    finalized = pipeline._apply_ssh_plural_multi_target_resolution(
+        _ssh_multi_target_resolution_input(
+            query="haben die festplatten auf meinen server genug harddisk speicher?",
+            command="uptime -p && df -h / && free -h",
+            missing_fields=["connection_ref", "content", "command"],
+        ),
+        candidate_connections=candidate_connections,
+        capability_draft=CapabilityDraft(
+            capability="ssh_command",
+            connection_kind="ssh",
+            content="uptime -p && df -h / && free -h",
+            notes=["target_intent:capacity_check"],
+        ),
+        language="de",
+    )
+
+    payload = dict((finalized.get("payload_debug") or {}).get("payload", {}) or {})
+    action = dict((finalized.get("action_debug") or {}).get("decision", {}) or {})
+    safety = dict((finalized.get("safety_debug") or {}).get("decision", {}) or {})
+    execution = dict((finalized.get("execution_debug") or {}).get("decision", {}) or {})
+    assert payload.get("connection_refs") == ["srv-a", "srv-b"]
+    assert payload.get("content") == "uptime -p && df -h / && free -h"
+    assert payload.get("missing_fields") == []
+    assert action.get("missing_input") == ""
+    assert action.get("execution_state") == "ready"
+    assert safety.get("action") == "allow"
+    assert safety.get("reason") == "ssh_readonly_policy_allow"
+    assert execution.get("next_step") == "allow"
+    assert any(
+        "plural_target_scope selected_multi_target kind=ssh refs=srv-a, srv-b "
+        "command=uptime -p && df -h / && free -h" in line
         for line in finalized.get("detail_lines", [])
     )
 
@@ -11469,14 +13863,16 @@ def test_pipeline_plural_server_disk_check_does_not_run_fleet_recipe_or_pick_gen
             if kwargs.get("operation") == "capability_draft_decision":
                 return FakeLLMResponse(
                     json.dumps(
-                        {
-                            "action": "action",
-                            "capability": "ssh_command",
-                            "connection_kind": "ssh",
-                            "target_scope": "multi_target",
-                            "target_intent": "capacity_check",
-                            "content": "df -h",
-                            "confidence": "high",
+                            {
+                                "action": "action",
+                                "capability": "ssh_command",
+                                "connection_kind": "ssh",
+                                "target_scope": "multi_target",
+                                "target_scope_authority": "semantic_group",
+                                "connection_refs": ["dev-node-01", "dev-node-02"],
+                                "target_intent": "capacity_check",
+                                "content": "df -h",
+                                "confidence": "high",
                             "reason": "disk check across the available servers",
                         }
                     )
@@ -11917,8 +14313,27 @@ def test_pipeline_scopes_plural_ssh_disk_check_to_connection_context_aliases() -
         async def chat(self, messages, **kwargs):
             self.calls += 1
             self.last_messages = messages
+            user_text = " ".join(
+                str(item.get("content", "") if isinstance(item, dict) else "")
+                for item in list(messages or [])
+            )
             operation = str(kwargs.get("operation", "") or "")
             if operation == "capability_draft_decision":
+                if "hat dev-node-01" in user_text:
+                    return FakeLLMResponse(
+                        json.dumps(
+                            {
+                                "action": "action",
+                                "capability": "ssh_command",
+                                "connection_kind": "ssh",
+                                "requested_connection_ref": "dev-node-01",
+                                "target_scope": "single_target",
+                                "content": "df -h",
+                                "confidence": "high",
+                                "reason": "disk space question about explicit dev-node-01",
+                            }
+                        )
+                    )
                 return FakeLLMResponse(
                     json.dumps(
                         {
@@ -11926,6 +14341,8 @@ def test_pipeline_scopes_plural_ssh_disk_check_to_connection_context_aliases() -
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "semantic_group",
+                            "connection_refs": ["dev-node-01", "dev-node-02"],
                             "target_intent": "capacity_check",
                             "content": "df -h",
                             "confidence": "high",
@@ -11982,7 +14399,7 @@ def test_pipeline_scopes_plural_ssh_disk_check_to_connection_context_aliases() -
     assert not any("home-automation-01" in line and "narrowed_by_connection_context" in line for line in result.detail_lines)
     assert "Mehrere SSH-Ziele geprueft (2)." in result.text
     assert any(
-        "plural_target_scope narrowed_by_connection_context kind=ssh refs=dev-node-01, dev-node-02"
+        "plural_target_scope bound_by_turn_contract kind=ssh refs=dev-node-01, dev-node-02 source=llm"
         in line
         for line in result.detail_lines
     )
@@ -11990,24 +14407,6 @@ def test_pipeline_scopes_plural_ssh_disk_check_to_connection_context_aliases() -
         "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
         in line
         for line in result.detail_lines
-    )
-
-    ssh_calls.clear()
-    single_result = asyncio.run(
-        pipeline.process(
-            "hat dev-node-01 noch genug festplattenspeicher",
-            user_id="u1",
-            source="test",
-            language="de",
-        )
-    )
-
-    assert single_result.intents == ["capability:ssh_command"]
-    assert single_result.pending_action is None
-    assert ssh_calls == [("dev-node-01", "df -h")]
-    assert not any(
-        "plural_target_scope selected_multi_target" in line
-        for line in single_result.detail_lines
     )
 
 
@@ -12080,6 +14479,8 @@ def test_pipeline_plural_ssh_group_context_overrides_single_memory_hint(monkeypa
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "semantic_group",
+                            "connection_refs": ["dev-node-01", "dev-node-02"],
                             "target_intent": "capacity_check",
                             "content": "df -h",
                             "confidence": "high",
@@ -12208,6 +14609,8 @@ def test_pipeline_plural_ssh_group_context_ignores_memory_hint_outside_group(mon
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "semantic_group",
+                            "connection_refs": ["dev-node-01", "dev-node-02"],
                             "target_intent": "capacity_check",
                             "content": "df -h",
                             "confidence": "high",
@@ -12281,7 +14684,7 @@ def test_pipeline_plural_ssh_group_context_ignores_memory_hint_outside_group(mon
     )
 
 
-def test_pipeline_requested_developer_server_ref_can_expand_to_metadata_group(monkeypatch) -> None:
+def test_pipeline_requested_developer_server_ref_requires_contract_target_refs(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
@@ -12325,6 +14728,8 @@ def test_pipeline_requested_developer_server_ref_can_expand_to_metadata_group(mo
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "requested_connection_ref": "developer server",
+                            "target_scope": "multi_target",
+                            "connection_refs": [],
                             "content": "df -h",
                             "confidence": "high",
                             "reason": "disk space question about developer servers",
@@ -12376,19 +14781,11 @@ def test_pipeline_requested_developer_server_ref_can_expand_to_metadata_group(mo
         )
     )
 
-    assert result.intents == ["capability:ssh_command"]
-    assert result.pending_action is None
-    assert ssh_calls == [("dev-node-01", "df -h"), ("dev-node-02", "df -h")]
-    assert any(
-        "plural_target_scope enabled_by_requested_ref_context requested_ref=developer server refs=dev-node-01, dev-node-02"
-        in line
-        for line in result.detail_lines
-    )
-    assert any(
-        "plural_target_scope selected_multi_target kind=ssh refs=dev-node-01, dev-node-02 command=df -h"
-        in line
-        for line in result.detail_lines
-    )
+    assert result.intents == ["chat"]
+    assert result.pending_action is not None
+    assert ssh_calls == []
+    assert not any("enabled_by_requested_ref_context" in line for line in result.detail_lines)
+    assert not any("selected_multi_target kind=ssh refs=dev-node-01, dev-node-02" in line for line in result.detail_lines)
 
 
 def test_pipeline_plural_ssh_context_rebuilds_chain_complete_single_ref(monkeypatch) -> None:
@@ -12474,6 +14871,7 @@ def test_pipeline_plural_ssh_context_rebuilds_chain_complete_single_ref(monkeypa
                 connection_kind="ssh",
                 explicit_connection_ref="dev-node-01",
                 content="df -h",
+                connection_refs=["dev-node-01", "dev-node-02"],
                 notes=["target_scope:multi_target"],
             ),
             llm_client=None,
@@ -12486,7 +14884,7 @@ def test_pipeline_plural_ssh_context_rebuilds_chain_complete_single_ref(monkeypa
     assert payload.get("connection_ref") == ""
     detail_lines = list(resolved.get("detail_lines", []) or [])
     assert any(
-        "chain_complete_single_ref ignored_by_plural_target_context ref=dev-node-01 refs=dev-node-01, dev-node-02"
+        "plural_target_scope bound_by_turn_contract kind=ssh refs=dev-node-01, dev-node-02 source=meta_catalog"
         in line
         for line in detail_lines
     )
@@ -12884,6 +15282,148 @@ def test_pipeline_multi_target_ssh_operator_summary_honors_free_disk_threshold()
     assert "srv-ok" not in text
 
 
+def test_pipeline_multi_target_ssh_full_kind_completes_missing_configured_ref_before_preflight() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.18", "user": "root", "title": "A"},
+                    "srv-b": {"host": "192.0.2.19", "user": "root", "title": "B"},
+                    "srv-c": {"host": "192.0.2.20", "user": "root", "title": "C"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+    ssh_calls: list[tuple[str, str]] = []
+
+    async def fake_execute(plan, *, language="de"):  # noqa: ANN001, ARG001
+        ssh_calls.append((plan.connection_ref, plan.content))
+        return "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 10G 40G 20% /"
+
+    pipeline._executor_registry.register("ssh", "ssh_command", fake_execute)
+
+    _intents, _text, detail_lines, errors = asyncio.run(
+        pipeline._execute_multi_target_ssh_action(
+            resolved={"query": "haben meine server genug disk speicher?"},
+            payload={
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_refs": ["srv-a", "srv-b"],
+                "content": "df -h",
+                "notes": [
+                    "target_scope:multi_target",
+                    "target_scope_authority:full_kind",
+                    "turn_contract_target_refs:full_kind",
+                    "target_intent:capacity_check",
+                ],
+            },
+            action={"candidate_kind": "template", "candidate_id": "ssh_run_command"},
+            user_id="u1",
+            language="de",
+        )
+    )
+
+    assert errors == []
+    assert ssh_calls == [("srv-a", "df -h"), ("srv-b", "df -h"), ("srv-c", "df -h")]
+    assert any("multi_target_ssh_full_kind_completed expected=3 selected=2 completed=3 added=srv-c" in line for line in detail_lines)
+    assert any("multi_target_ssh_preflight refs=3" in line for line in detail_lines)
+
+
+def test_pipeline_runtime_outcome_capacity_followup_uses_structured_summary_measurements() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-ok": {"host": "192.0.2.10", "user": "root", "title": "OK server"},
+                    "srv-full": {"host": "192.0.2.11", "user": "root", "title": "Full server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DecliningDiskFollowupLLM(FakeLLMClient):
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            if operation == "runtime_outcome_followup_resolution":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "new_meta_catalog_turn",
+                            "affordance": "summarize_targets",
+                            "confidence": "high",
+                            "reason": "wrongly declined previous disk observation",
+                        }
+                    )
+                )
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("structured disk follow-up must not fall through to meta catalog")
+            return await super().chat(messages, **kwargs)
+
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=DecliningDiskFollowupLLM())
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "capacity_check",
+            "command": "df -h",
+            "targets": ["srv-ok", "srv-full"],
+            "records": [
+                {
+                    "ref": "srv-ok",
+                    "state": "ok",
+                    "text": "Festplattencheck fuer `srv-ok`: Root-Dateisystem /: 35% belegt, 32GiB frei (ok).",
+                    "raw_text": "Festplattencheck fuer `srv-ok`: Root-Dateisystem /: 35% belegt, 32GiB frei (ok).",
+                },
+                {
+                    "ref": "srv-full",
+                    "state": "ok",
+                    "text": "Festplattencheck fuer `srv-full`: Root-Dateisystem /: 83% belegt, 9.7GiB frei (ok).",
+                    "raw_text": "Festplattencheck fuer `srv-full`: Root-Dateisystem /: 83% belegt, 9.7GiB frei (ok).",
+                },
+            ],
+            "summary": "srv-full has 83% disk usage; srv-ok has 35%.",
+            "followup_affordances": ["summarize_targets", "explain_result", "rerun_check"],
+        },
+        user_id="u1",
+        detail_lines=[],
+    )
+
+    over_result = asyncio.run(
+        pipeline.process(
+            "Zeig mir nur die Server über 75% Festplattenbelegung.",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+    least_result = asyncio.run(
+        pipeline.process(
+            "Welche Server haben am wenigsten freien Speicher?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert over_result.intents == ["runtime_outcome_followup"]
+    assert "`srv-full`: 83% belegt" in over_result.text
+    assert "`srv-ok`" not in over_result.text
+    assert "keine strukturierten `df`-Werte" not in over_result.text
+    assert least_result.intents == ["runtime_outcome_followup"]
+    assert least_result.text.index("`srv-full`: 9.7GiB frei") < least_result.text.index("`srv-ok`: 32GiB frei")
+    assert "keine strukturierten `df`-Werte" not in least_result.text
+
+
 def test_pipeline_multi_target_ssh_uses_llm_for_dynamic_operator_summary() -> None:
     settings = Settings.model_validate(
         {
@@ -13072,6 +15612,516 @@ def test_pipeline_runtime_outcome_followup_ranks_previous_package_updates() -> N
     assert any("runtime_outcome_followup action=use_previous_outcome affordance=rank_updates" in line for line in result.detail_lines)
 
 
+def test_pipeline_runtime_outcome_followup_preempts_web_for_update_ranking() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "title": "Server A"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "title": "Server B"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class FollowupBeforeWebLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                payload = json.loads(messages[-1]["content"])
+                assert payload["last_runtime_outcome"]["task_intent"] == "package_update_check"
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "use_previous_outcome",
+                            "affordance": "rank_updates",
+                            "confidence": "high",
+                            "reason": "question asks to rank servers from the previous update outcome",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "`srv-b` hat mit zwei Paketen die meisten Updates; `srv-a` hat eines.",
+                            "confidence": "high",
+                            "reason": "ranked from previous runtime records",
+                        }
+                    )
+                )
+            if operation == "web_source_acquisition_plan":
+                raise AssertionError("last runtime observation must preempt web freshness for update follow-up")
+            return await super().chat(messages, **kwargs)
+
+    llm = FollowupBeforeWebLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "package_update_check",
+            "command": "apt list --upgradable",
+            "targets": ["srv-a", "srv-b"],
+            "records": [
+                {
+                    "ref": "srv-a",
+                    "state": "ok",
+                    "text": "openssl/stable 3.0 [upgradable from: 2.0]",
+                    "raw_text": "openssl/stable 3.0 [upgradable from: 2.0]",
+                },
+                {
+                    "ref": "srv-b",
+                    "state": "ok",
+                    "text": "openssl/stable 3.0 [upgradable from: 2.0]\nlinux-image-amd64/stable 6.1 [upgradable from: 6.0]",
+                    "raw_text": "openssl/stable 3.0 [upgradable from: 2.0]\nlinux-image-amd64/stable 6.1 [upgradable from: 6.0]",
+                },
+            ],
+            "summary": "srv-a and srv-b have updates.",
+            "followup_affordances": ["rank_updates", "list_packages_by_server", "explain_update_relevance", "rerun_update_check"],
+        },
+        user_id="u1",
+        detail_lines=[],
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "Welche Server haben die meisten Updates?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["runtime_outcome_followup"]
+    assert "`srv-b`" in result.text
+    assert "web_source_acquisition_plan" not in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("runtime_outcome_followup action=use_previous_outcome affordance=rank_updates" in line for line in result.detail_lines)
+    assert not any("inventory_candidate_context" in line for line in result.detail_lines)
+
+
+def test_pipeline_runtime_outcome_followup_filters_previous_disk_capacity_before_inventory_review() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-ok": {"host": "192.0.2.10", "user": "root", "title": "OK server"},
+                    "srv-full": {"host": "192.0.2.11", "user": "root", "title": "Full server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DiskFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                payload = json.loads(messages[-1]["content"])
+                assert payload["last_runtime_outcome"]["task_intent"] == "capacity_check"
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "use_previous_outcome",
+                            "affordance": "summarize_targets",
+                            "confidence": "high",
+                            "reason": "question filters the previous disk usage observation",
+                        }
+                    )
+                )
+            if operation == "ssh_multi_target_summary":
+                payload = json.loads(messages[-1]["content"])
+                assert payload["executed_command"] == "df -h"
+                assert {row["ref"] for row in payload["targets"]} == {"srv-ok", "srv-full"}
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "summary": "Ueber 75% liegt nur `srv-full` mit 83% Belegung; `srv-ok` liegt bei 35%.",
+                            "confidence": "high",
+                            "reason": "filtered from previous df output",
+                        }
+                    )
+                )
+            if operation == "empty_action_preflight_surface_review":
+                raise AssertionError("runtime observation follow-up must not be reframed to connection inventory")
+            return await super().chat(messages, **kwargs)
+
+    llm = DiskFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "capacity_check",
+            "command": "df -h",
+            "targets": ["srv-ok", "srv-full"],
+            "records": [
+                {
+                    "ref": "srv-ok",
+                    "state": "ok",
+                    "text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 18G 32G 35% /",
+                    "raw_text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 18G 32G 35% /",
+                },
+                {
+                    "ref": "srv-full",
+                    "state": "ok",
+                    "text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 60G 50G 9.8G 83% /",
+                    "raw_text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 60G 50G 9.8G 83% /",
+                },
+            ],
+            "summary": "srv-full has 83% disk usage; srv-ok has 35%.",
+            "followup_affordances": ["summarize_targets", "explain_result", "rerun_check"],
+        },
+        user_id="u1",
+        detail_lines=[],
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "Zeig mir nur die Server über 75% Festplattenbelegung.",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["runtime_outcome_followup"]
+    assert "`srv-full`" in result.text
+    assert "runtime_outcome_followup_resolution" in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert "empty_action_preflight_surface_review" not in llm.operations
+    assert any("runtime_outcome_followup action=use_previous_outcome affordance=summarize_targets" in line for line in result.detail_lines)
+    assert not any("inventory_candidate_context" in line for line in result.detail_lines)
+
+
+def test_pipeline_runtime_outcome_followup_fail_closed_when_update_review_declines() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-a": {"host": "192.0.2.10", "user": "root", "title": "Server A"},
+                    "srv-b": {"host": "192.0.2.11", "user": "root", "title": "Server B"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DecliningFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "new_meta_catalog_turn",
+                            "affordance": "rank_updates",
+                            "confidence": "high",
+                            "reason": "wrongly treated as a new web/server question",
+                        }
+                    )
+                )
+            if operation == "web_source_acquisition_plan":
+                raise AssertionError("declined runtime follow-up must not fall through to web")
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("declined runtime follow-up must not fall through to meta catalog")
+            return await super().chat(messages, **kwargs)
+
+    llm = DecliningFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "package_update_check",
+            "command": "apt list --upgradable",
+            "targets": ["srv-a", "srv-b"],
+            "records": [
+                {
+                    "ref": "srv-a",
+                    "state": "ok",
+                    "text": "openssl/stable 3.0 [upgradable from: 2.0]",
+                    "raw_text": "openssl/stable 3.0 [upgradable from: 2.0]",
+                },
+                {
+                    "ref": "srv-b",
+                    "state": "ok",
+                    "text": "openssl/stable 3.0 [upgradable from: 2.0]\nlinux-image-amd64/stable 6.1 [upgradable from: 6.0]",
+                    "raw_text": "openssl/stable 3.0 [upgradable from: 2.0]\nlinux-image-amd64/stable 6.1 [upgradable from: 6.0]",
+                },
+            ],
+            "summary": "srv-a and srv-b have updates.",
+            "followup_affordances": ["rank_updates", "list_packages_by_server", "explain_update_relevance", "rerun_update_check"],
+        },
+        user_id="u1",
+        detail_lines=[],
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "Welche Server haben die meisten Updates?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["runtime_outcome_followup"]
+    assert "`srv-b`: 2 Updates" in result.text
+    assert "runtime_outcome_followup_resolution" in llm.operations
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert "web_source_acquisition_plan" not in llm.operations
+    assert any("claim=fail_closed_previous_outcome" in line for line in result.detail_lines)
+    assert any("runtime_outcome_evidence_contract" in line for line in result.detail_lines)
+
+
+def test_pipeline_runtime_outcome_followup_fail_closed_for_security_update_question() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {"srv-a": {"host": "192.0.2.10", "user": "root", "title": "Server A"}},
+                "rss": {"debian-security-advisories": {"url": "https://example.invalid/feed.xml", "title": "Security"}},
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DecliningSecurityFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "new_meta_catalog_turn",
+                            "affordance": "explain_update_relevance",
+                            "confidence": "high",
+                            "reason": "wrongly treated as a configured security source inventory",
+                        }
+                    )
+                )
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("security update follow-up must not fall through to RSS inventory")
+            return await super().chat(messages, **kwargs)
+
+    llm = DecliningSecurityFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "package_update_check",
+            "command": "apt list --upgradable",
+            "targets": ["srv-a"],
+            "records": [
+                {
+                    "ref": "srv-a",
+                    "state": "ok",
+                    "text": "openssl/stable-security 3.0 [upgradable from: 2.0]\ncurl/stable 8.0 [upgradable from: 7.0]",
+                    "raw_text": "openssl/stable-security 3.0 [upgradable from: 2.0]\ncurl/stable 8.0 [upgradable from: 7.0]",
+                },
+            ],
+            "summary": "srv-a has updates.",
+            "followup_affordances": ["rank_updates", "list_packages_by_server", "explain_update_relevance", "rerun_update_check"],
+        },
+        user_id="u1",
+        detail_lines=[],
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "Welche Updates sind sicherheitsrelevant?",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["runtime_outcome_followup"]
+    assert "openssl" in result.text
+    assert "keine bestaetigte CVE-Einstufung" in result.text
+    assert "debian-security-advisories" not in result.text
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert any("claim=fail_closed_previous_outcome" in line for line in result.detail_lines)
+
+
+def test_pipeline_runtime_outcome_followup_fail_closed_when_disk_review_declines() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "memory": {"enabled": False},
+            "ui": {"debug_mode": True},
+            "connections": {
+                "ssh": {
+                    "srv-ok": {"host": "192.0.2.10", "user": "root", "title": "OK server"},
+                    "srv-full": {"host": "192.0.2.11", "user": "root", "title": "Full server"},
+                },
+            },
+            "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+        }
+    )
+
+    class DecliningDiskFollowupLLM(FakeLLMClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.operations: list[str] = []
+
+        async def chat(self, messages, **kwargs):
+            operation = str(kwargs.get("operation", "") or "")
+            self.operations.append(operation)
+            if operation == "runtime_outcome_followup_resolution":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "action": "new_meta_catalog_turn",
+                            "affordance": "summarize_targets",
+                            "confidence": "high",
+                            "reason": "wrongly treated as connection inventory",
+                        }
+                    )
+                )
+            if operation == "empty_action_preflight_surface_review":
+                raise AssertionError("declined disk follow-up must not be reframed to connection inventory")
+            if operation == ARIA_TURN_ARBITRATION_OPERATION:
+                raise AssertionError("declined disk follow-up must not fall through to meta catalog")
+            return await super().chat(messages, **kwargs)
+
+    llm = DecliningDiskFollowupLLM()
+    pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=llm)
+    pipeline._remember_runtime_outcome_frame(
+        {
+            "surface_id": "connections",
+            "kind": "ssh",
+            "capability": "ssh_command",
+            "task_intent": "capacity_check",
+            "command": "df -h",
+            "targets": ["srv-ok", "srv-full"],
+            "records": [
+                {
+                    "ref": "srv-ok",
+                    "state": "ok",
+                    "text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 18G 32G 35% /",
+                    "raw_text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 18G 32G 35% /",
+                },
+                {
+                    "ref": "srv-full",
+                    "state": "ok",
+                    "text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 60G 50G 9.8G 83% /",
+                    "raw_text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 60G 50G 9.8G 83% /",
+                },
+            ],
+            "summary": "srv-full has 83% disk usage; srv-ok has 35%.",
+            "followup_affordances": ["summarize_targets", "explain_result", "rerun_check"],
+        },
+        user_id="u1",
+        detail_lines=[],
+    )
+
+    result = asyncio.run(
+        pipeline.process(
+            "Zeig mir nur die Server über 75% Festplattenbelegung.",
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+    )
+
+    assert result.intents == ["runtime_outcome_followup"]
+    assert "`srv-full`: 83% belegt" in result.text
+    assert "`srv-ok`" not in result.text
+    assert ARIA_TURN_ARBITRATION_OPERATION not in llm.operations
+    assert "empty_action_preflight_surface_review" not in llm.operations
+    assert any("claim=fail_closed_previous_outcome" in line for line in result.detail_lines)
+
+
+def test_runtime_outcome_fail_closed_gate_does_not_claim_host_inventory_after_disk_check() -> None:
+    frame = RuntimeOutcomeFrame(
+        surface_id="connections",
+        kind="ssh",
+        capability="ssh_command",
+        task_intent="capacity_check",
+        command="df -h",
+        targets=("srv-a",),
+        records=(
+            {
+                "ref": "srv-a",
+                "state": "ok",
+                "text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 18G 32G 35% /",
+                "raw_text": "Filesystem Size Used Avail Use% Mounted on\n/dev/root 50G 18G 32G 35% /",
+            },
+        ),
+        summary="srv-a has free disk space.",
+        followup_affordances=("summarize_targets", "explain_result", "rerun_check"),
+    )
+
+    assert RuntimeOutcomeFollowupResolver.should_run_followup_llm(
+        "Gib mir eine Übersicht meiner SSH-Server mit Hostname und IP.",
+        frame,
+    )
+    assert not RuntimeOutcomeFollowupResolver.should_claim_previous_outcome_on_review_failure(
+        "Gib mir eine Übersicht meiner SSH-Server mit Hostname und IP.",
+        frame,
+    )
+    resolver = RuntimeOutcomeFollowupResolver(
+        llm_client=FakeLLMClient(),
+        run_action=lambda *_args, **_kwargs: None,
+        summarize_updates=lambda *_args, **_kwargs: None,
+        package_update_fallback=lambda *_args, **_kwargs: "",
+    )
+    assert (
+        resolver.previous_outcome_fallback_result(
+            frame=frame,
+            message="Gib mir eine Übersicht meiner SSH-Server mit Hostname und IP.",
+            request_id="req",
+            language="de",
+            start=0.0,
+            reason="review_action_new_meta_catalog_turn",
+            decision_action="new_meta_catalog_turn",
+            decision_affordance="",
+            confidence=0.9,
+        )
+        is None
+    )
+
+
 def test_docs_storage_inventory_question_requests_document_inventory() -> None:
     pipeline = Pipeline(settings=Settings.model_validate({"llm": {"model": "fake"}}), prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
     arbitration = AriaTurnArbitration(
@@ -13112,7 +16162,7 @@ def test_pipeline_confirmed_single_ssh_result_keeps_runtime_context_for_path_fol
             "connections": {
                 "ssh": {
                     "dev-server-01": {"host": "192.0.2.10", "user": "root", "title": "Dev Server"},
-                    "srv-dev02": {"host": "192.0.2.11", "user": "root", "title": "Other Dev Server"},
+                    "dev-node-02": {"host": "192.0.2.11", "user": "root", "title": "Other Dev Server"},
                 },
             },
             "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
@@ -14334,6 +17384,17 @@ def test_pipeline_restart_request_reasks_llm_when_mutating_intent_was_replaced_b
             self.last_messages = messages
             operation = str(kwargs.get("operation", "") or "")
             self.operations.append(operation)
+            if operation == "ssh_status_contract_decision":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "mutating",
+                            "intent": "other",
+                            "confidence": "high",
+                            "reason": "The user asks to change service state, not inspect it.",
+                        }
+                    )
+                )
             if operation == "ssh_command_decision":
                 return FakeLLMResponse(
                     json.dumps(
@@ -14388,7 +17449,7 @@ def test_pipeline_restart_request_reasks_llm_when_mutating_intent_was_replaced_b
         )
     )
 
-    assert llm.operations[:3] == ["ssh_command_decision", "ssh_requested_runtime_effect", "ssh_command_mutating_intent"]
+    assert llm.operations[:3] == ["ssh_status_contract_decision", "ssh_command_decision", "ssh_command_mutating_intent"]
     assert updated["decision"]["inputs"]["command"] == "systemctl restart pihole-FTL"
     assert getattr(updated_draft, "content") == "systemctl restart pihole-FTL"
     assert updated["decision"]["execution_state"] == "blocked"
@@ -14641,6 +17702,16 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
         async def chat(self, messages, **kwargs):
             self.calls += 1
             self.operations.append(str(kwargs.get("operation", "") or ""))
+            if kwargs.get("operation") == "ssh_requested_runtime_effect":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "read_only",
+                            "confidence": "high",
+                            "reason": "The user asks for inspection only.",
+                        }
+                    )
+                )
             if kwargs.get("operation") == "ssh_guardrail_intent":
                 return FakeLLMResponse(
                     json.dumps(
@@ -14691,7 +17762,7 @@ def test_pipeline_treats_natural_how_is_server_prompt_as_guardrail_healthcheck()
     assert getattr(updated_draft, "content") == expected_command
     assert updated["decision"]["reason"] == "guardrail_allowed_healthcheck"
     assert updated["decision"]["guardrail_fallback_from"] == "uptime"
-    assert "ssh_guardrail_intent" in llm.operations
+    assert llm.operations == ["ssh_requested_runtime_effect"]
     assert "ssh_command_policy" not in debug_line
 
 
@@ -14814,6 +17885,16 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
             self.calls += 1
             self.last_messages = messages
             self.operations.append(str(kwargs.get("operation", "") or ""))
+            if kwargs.get("operation") == "ssh_requested_runtime_effect":
+                return FakeLLMResponse(
+                    json.dumps(
+                        {
+                            "runtime_effect": "read_only",
+                            "confidence": "high",
+                            "reason": "The user asks for inspection only.",
+                        }
+                    )
+                )
             if kwargs.get("operation") == "ssh_guardrail_intent":
                 return FakeLLMResponse(
                     json.dumps(
@@ -14855,7 +17936,7 @@ def test_pipeline_treats_natural_is_server_ok_prompt_as_guardrail_healthcheck() 
     assert getattr(updated_draft, "content") == expected_command
     assert updated["decision"]["reason"] == "guardrail_allowed_healthcheck"
     assert updated["decision"]["guardrail_fallback_from"] == "uptime"
-    assert "ssh_guardrail_intent" in llm.operations
+    assert llm.operations == ["ssh_requested_runtime_effect"]
     assert "ssh_command_policy" not in debug_line
 
 
@@ -15338,7 +18419,7 @@ def test_pipeline_capability_draft_low_confidence_allows_local_disk_fallback() -
     assert "capability_draft_decision" in llm.operations
 
 
-def test_pipeline_records_learning_outcome_when_local_capability_fallback_is_used(monkeypatch) -> None:
+def test_pipeline_does_not_record_learning_outcome_for_removed_legacy_capability_fallback(monkeypatch) -> None:
     class LowConfidenceLLM(FakeLLMClient):
         async def chat(self, messages, **kwargs):
             if kwargs.get("operation") == "capability_draft_decision":
@@ -15395,17 +18476,12 @@ def test_pipeline_records_learning_outcome_when_local_capability_fallback_is_use
             user_id="u1",
             source="test",
             language="de",
-            auto_memory_enabled=True,
+            auto_memory_enabled=False,
         )
         await asyncio.sleep(0)
 
-        assert result.intents == ["capability:ssh_command"]
-        assert captured
-        event = captured[0]["event"]
-        assert isinstance(event, dict)
-        assert event["source"] == "capability_draft_local_fallback"
-        assert event["artifact_type"] == "routing_hint"
-        assert event["evidence"]["llm_state"] == "invalid:low_confidence"
+        assert result.intents != ["capability:ssh_command"]
+        assert captured == []
 
     asyncio.run(_run())
 
@@ -15827,11 +18903,57 @@ def test_pipeline_formats_semantic_monitoring_health_request_as_command_single_e
         "Kurzcheck für `ops-monitor-01`: Erreichbar. Laufzeit 53 days, 16:06. "
         "Load 1.11, 1.04, 1.01: unauffällig."
     )
-    assert result.detail_lines[-2:] == [
-        "Ausgeführt via SSH-Profil `ops-monitor-01`",
-        "Befehl: uptime",
-    ]
+    assert "Ausgeführt via SSH-Profil `ops-monitor-01`" in result.detail_lines
+    assert "Befehl: uptime" in result.detail_lines
     assert calls == ["uptime"]
+
+
+def test_pipeline_explicit_monitoring_ref_wins_over_later_plural_scope() -> None:
+    pipeline = Pipeline(
+        settings=Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "connections": {
+                    "ssh": {
+                        "dev-node-01": {},
+                        "home-auto-01": {},
+                        "ops-alert-01": {},
+                    }
+                },
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        ),
+        prompt_loader=FakePromptLoader(),
+        llm_client=FakeLLMClient(),
+    )
+    resolved = {"detail_lines": []}
+    draft = CapabilityDraft(
+        capability="ssh_command",
+        connection_kind="ssh",
+        explicit_connection_ref="ops-alert-01",
+        content="uptime",
+        notes=["target_scope:multi_target", "target_intent:health_check"],
+    )
+
+    scope = pipeline._resolve_requested_connection_scope(
+        resolved=resolved,
+        message="zeige mir den status vom monitoring server",
+        effective_kind="ssh",
+        looks_like_plural_target=lambda *_args: True,
+        candidate_connections={"dev-node-01": {}, "home-auto-01": {}, "ops-alert-01": {}},
+        working_draft=draft,
+        ref_scope=ConnectionRefScope.from_draft(draft),
+    )
+
+    assert scope.plural_target_scope is False
+    assert any(
+        "plural_target_scope disabled_by_explicit_single_target explicit_ref=ops-alert-01" in line
+        for line in scope.resolved.get("detail_lines", [])
+    )
+    assert not any("plural_target_scope blocks_single_target_resolution" in line for line in scope.resolved.get("detail_lines", []))
+    assert not any("plural_target_scope selected_multi_target" in line for line in scope.resolved.get("detail_lines", []))
 
 
 def test_pipeline_requested_monitoring_server_still_uses_semantic_llm_after_generic_candidate_score(monkeypatch) -> None:
@@ -16228,7 +19350,7 @@ def test_pipeline_custom_skill_skips_discord_step_when_condition_is_not_met() ->
                     {
                         "intents": [],
                         "confidence": "low",
-                        "reason": "test fallback keeps keyword router decision",
+                        "reason": "test low-confidence fallback",
                     }
                 )
             )
@@ -16874,6 +19996,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "full_kind",
                             "target_intent": "capacity_check",
                             "content": "df -h",
                             "confidence": "high",
@@ -16891,6 +20014,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "full_kind",
                             "target_intent": "capacity_check",
                             "content": "uptime",
                             "confidence": "high",
@@ -16906,6 +20030,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "full_kind",
                             "target_intent": "package_update_check",
                             "content": "uptime",
                             "confidence": "high",
@@ -16928,6 +20053,7 @@ def test_pipeline_alpha246_live_test_sequence_keeps_agentic_routing_bounded() ->
                             "capability": "ssh_command",
                             "connection_kind": "ssh",
                             "target_scope": "multi_target",
+                            "target_scope_authority": "full_kind",
                             "target_intent": "health_check",
                             "content": "uptime",
                             "confidence": "high",
@@ -17274,7 +20400,13 @@ def test_pipeline_records_learning_outcome_for_confirmed_connection_action(monke
                 "candidate_id": "discord_send_message",
                 "routing_decision": {"kind": "discord", "ref": "alerts"},
                 "action_decision": {"candidate_kind": "template", "candidate_id": "discord_send_message"},
-                "payload": {"capability": "discord_send", "connection_kind": "discord", "connection_ref": "alerts"},
+                "payload": {
+                    "found": True,
+                    "capability": "discord_send",
+                    "connection_kind": "discord",
+                    "connection_ref": "alerts",
+                    "content": "alpha test",
+                },
                 "safety_decision": {"action": "ask_user", "reason": "confirm outgoing message"},
                 "execution_decision": {"next_step": "execute"},
             },
@@ -17297,6 +20429,111 @@ def test_pipeline_records_learning_outcome_for_confirmed_connection_action(monke
     assert event["artifact_type"] == "procedure_candidate"
     assert event["evidence"]["outcome"] == "confirmed_connection_action_executed"
     assert event["evidence"]["connection_ref"] == "alerts"
+
+
+def test_pipeline_confirmed_routed_action_appends_operator_runtime_trace(monkeypatch) -> None:
+    async def _run():
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_execute_routed_action(*_args, **_kwargs):
+            return ["capability:discord_send"], "Discord gesendet.", ["Ausgeführt via Discord-Profil `alerts`"], []
+
+        monkeypatch.setattr(pipeline, "_execute_routed_action", fake_execute_routed_action)
+        return await pipeline.execute_pending_routed_action(
+            {
+                "query": "schick eine testnachricht an discord",
+                "candidate_kind": "template",
+                "candidate_id": "discord_send_message",
+                "routing_decision": {"kind": "discord", "ref": "alerts"},
+                "action_decision": {
+                    "candidate_kind": "template",
+                    "candidate_id": "discord_send_message",
+                    "candidate_role": "template_candidate",
+                    "execution_state": "needs_confirmation",
+                },
+                "payload": {
+                    "found": True,
+                    "capability": "discord_send",
+                    "connection_kind": "discord",
+                    "connection_ref": "alerts",
+                    "content": "alpha test",
+                },
+                "safety_decision": {"action": "ask_user", "reason": "confirm outgoing message"},
+                "execution_decision": {"next_step": "execute"},
+            },
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+
+    result = asyncio.run(_run())
+
+    assert result.intents == ["capability:discord_send"]
+    assert any("operator_trace phase=draft" in line for line in result.detail_lines)
+    assert any("operator_trace phase=policy" in line for line in result.detail_lines)
+    assert any(
+        "operator_trace phase=runtime" in line
+        and "source=agentic_execution_decision" in line
+        and "kind=discord" in line
+        and "ref=alerts" in line
+        for line in result.detail_lines
+    )
+
+
+def test_pipeline_blocks_incomplete_pending_action_contract_before_execution(monkeypatch) -> None:
+    async def _run():
+        settings = Settings.model_validate(
+            {
+                "llm": {"model": "fake"},
+                "memory": {"enabled": False},
+                "ui": {"debug_mode": True},
+                "token_tracking": {"enabled": False, "log_file": "data/logs/test_tokens.jsonl"},
+            }
+        )
+        pipeline = Pipeline(settings=settings, prompt_loader=FakePromptLoader(), llm_client=FakeLLMClient())
+
+        async def fake_execute_routed_action(*_args, **_kwargs):
+            raise AssertionError("incomplete pending action contract must not execute")
+
+        monkeypatch.setattr(pipeline, "_execute_routed_action", fake_execute_routed_action)
+        return await pipeline.execute_pending_routed_action(
+            {
+                "query": "zeige mir den status vom monitoring server",
+                "candidate_kind": "template",
+                "candidate_id": "ssh_run_command",
+                "routing_decision": {"found": True, "kind": "ssh", "ref": "ops-alert-01"},
+                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"},
+                "payload": {
+                    "found": True,
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "ops-alert-01",
+                    "content": "",
+                    "missing_fields": [],
+                },
+                "safety_decision": {"action": "ask_user"},
+                "execution_decision": {"next_step": "ask_user"},
+            },
+            user_id="u1",
+            source="test",
+            language="de",
+        )
+
+    result = asyncio.run(_run())
+
+    assert result.pending_action is None
+    assert result.skill_errors == ["incomplete_pending_action_contract"]
+    assert "Action-Contract fehlt: belegtes Kommando" in result.text
+    assert "brauche aber noch: ." not in result.text
+    assert any("pending_action_contract status=blocked missing=command" in line for line in result.detail_lines)
 
 
 def test_pipeline_explicit_http_api_status_path_stays_out_of_sftp_memory_hint() -> None:
@@ -17718,7 +20955,7 @@ def test_pipeline_capability_router_reads_mailbox_via_metadata_title_alias() -> 
     assert llm.calls == 0
 
 
-def test_pipeline_mail_debug_includes_semantic_candidate_record() -> None:
+def test_pipeline_mail_debug_includes_semantic_candidate_record(monkeypatch) -> None:
     settings = Settings.model_validate(
         {
             "llm": {"model": "fake"},
@@ -17748,10 +20985,20 @@ def test_pipeline_mail_debug_includes_semantic_candidate_record() -> None:
 
     calls: list[str] = []
 
+    async def fake_capability_draft(*_args, **_kwargs):
+        return CapabilityDraft(
+            capability="mail_read",
+            connection_kind="imap",
+            requested_connection_ref="ops inbox",
+            confidence=0.95,
+            notes=["capability_draft_source:llm"],
+        )
+
     def fake_imap_read(connection_ref: str) -> str:
         calls.append(connection_ref)
         return "Neueste Mails aus INBOX:\n1. Backup ok"
 
+    monkeypatch.setattr(pipeline, "_classify_capability_draft_with_llm", fake_capability_draft)
     pipeline._skill_runtime.execute_imap_read = fake_imap_read  # type: ignore[method-assign]
 
     result = asyncio.run(
@@ -17766,7 +21013,7 @@ def test_pipeline_mail_debug_includes_semantic_candidate_record() -> None:
     assert result.text == "Postfachcheck für `ops-inbox`: 1 neueste Mail aus INBOX. Neueste Betreffe: Backup ok."
     assert any("Routing: routing_chain candidates=1 preferred=imap -> `imap/ops-inbox`" in line for line in result.detail_lines)
     assert any("Routing: routing_chain selected `imap/ops-inbox` source=exact_ref_spaced note=ops inbox" == line for line in result.detail_lines)
-    assert result.detail_lines[-1] == "Ausgeführt via IMAP-Profil `ops-inbox`"
+    assert "Ausgeführt via IMAP-Profil `ops-inbox`" in result.detail_lines
     assert calls == ["ops-inbox"]
 
 

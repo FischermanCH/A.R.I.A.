@@ -64,7 +64,7 @@
         {% endif %}
         <details class="user-menu app-menu">
           <summary
-            class="user-pill user-pill-icon app-menu-trigger"
+            class="user-pill user-pill-icon app-menu-trigger{% if request.state.can_access_advanced_config %} is-admin-active{% endif %}"
             aria-label="{{ tr(request, 'base.nav_sections', 'Bereiche') }}"
             title="{{ tr(request, 'base.nav_sections', 'Bereiche') }}"
           >

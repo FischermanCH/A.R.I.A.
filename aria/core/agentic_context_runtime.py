@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from pathlib import Path
 import re
@@ -13,14 +14,17 @@ from aria.core.aria_turn_arbitration import AriaTurnArbitration
 from aria.core.aria_turn_arbitration import AriaTurnCollectionOption
 from aria.core.aria_turn_arbitration import build_aria_turn_menu
 from aria.core.action_plan import CapabilityDraft
+from aria.core.bounded_decision import BoundedDecisionClient
 from aria.core.context_answer_runtime import compose_aria_context_answer
+from aria.core.context_answer_runtime import document_corpus_scan_match_chunks
 from aria.core.context_answer_runtime import document_inventory_sources_for_query
 from aria.core.context_answer_runtime import docs_search_fallback_answer
 from aria.core.context_answer_runtime import fast_docs_search_answer
-from aria.core.context_answer_runtime import fast_inventory_list_answer
 from aria.core.context_answer_runtime import fast_notes_inventory_answer
 from aria.core.connection_catalog import connection_kind_label
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.connection_semantic_resolver import build_connection_aliases
+from aria.core.connection_semantic_resolver import connection_label_match_score
 from aria.core.chat_turn_context import compact_recent_visible_chat_context
 from aria.core.chat_context_filter import explicitly_requests_local_context
 from aria.core.chat_freshness import chat_freshness_candidate
@@ -34,6 +38,7 @@ from aria.core.context_evidence import inventory_soft_scope_terms
 from aria.core.context_evidence import normalized_evidence_text
 from aria.core.context_evidence import request_scope_terms
 from aria.core.context_evidence import text_matches_evidence
+from aria.core.context_source_counts import context_source_count
 from aria.core.context_surface_adapters import build_builtin_surface_registry
 from aria.core.context_surfaces import ContextRequest
 from aria.core.context_runtime_state import ContextRuntimeState
@@ -47,11 +52,16 @@ from aria.core.pipeline_models import PipelineResult
 from aria.core.stage_timing import StageTimingLedger
 from aria.core.stage_timing import insert_stage_timing_detail_lines
 from aria.core.surface_loader_runtime import SurfaceLoaderRuntime
+from aria.core.surface_loader_runtime import _BROAD_ADDRESS_SCOPE_TOKENS
+from aria.core.surface_loader_runtime import _query_requests_specific_connection_scope
+from aria.core.surface_loader_runtime import _query_requests_network_address
+from aria.core.surface_loader_runtime import _tokenize_inventory_scope
 from aria.core.turn_intent_arbitration import TurnIntentArbiter
 from aria.skills.base import SkillResult
 
 
 _AGENTIC_CONTEXT_RUNTIME_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+CONNECTION_EVIDENCE_SCOPE_REVIEW_OPERATION = "connection_evidence_scope_review"
 
 
 class AgenticContextRuntimeMixin:
@@ -190,6 +200,75 @@ class AgenticContextRuntimeMixin:
         )
         return replace(arbitration, plan=normalized_plan)
 
+    def _normalize_web_search_action_contract(
+        self,
+        arbitration: AriaTurnArbitration | None,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+    ) -> AriaTurnArbitration | None:
+        if arbitration is None:
+            return None
+        if self.web_search_skill is None:
+            return arbitration
+        plan = arbitration.plan
+        action_names = {str(action or "").strip().lower() for action in plan.actions if str(action or "").strip()}
+        selected_connection_kinds = {
+            kind
+            for kind, _ref in self._aria_turn_selected_connections_from_catalog(arbitration)
+            if kind
+        }
+        if "web_search" not in action_names and "searxng" not in selected_connection_kinds:
+            return arbitration
+        query = str(plan.queries.get("web") or "").strip()
+        if not query:
+            query = next(
+                (
+                    str(request.query or "").strip()
+                    for request in plan.context_requests
+                    if str(request.query or "").strip()
+                ),
+                "",
+            )
+        query = query or str(message or "").strip()
+        if not query:
+            return arbitration
+        request = ContextRequest(
+            surface_id="web",
+            mode="search",
+            query=query,
+            depth="shallow",
+            limit=8,
+            budget={
+                "web_search_action_normalized": True,
+                "previous_actions": list(plan.actions),
+                "previous_surfaces": list(plan.surfaces),
+            },
+            user_id=user_id,
+            turn_id=request_id,
+        )
+        intents = tuple(dict.fromkeys([intent for intent in plan.intents if intent != "chat"] + ["web_research"]))
+        normalized_plan = replace(
+            plan,
+            intents=intents,
+            surfaces=("web",),
+            actions=(),
+            needs_context=True,
+            context_directions=("web",),
+            context_depth="shallow" if plan.context_depth == "none" else plan.context_depth,
+            queries={**dict(plan.queries or {}), "web": query},
+            context_requests=(request,),
+            priority=("web",),
+            answer_mode="direct_answer",
+            contract_mode="answer",
+            evidence_policy="source_bound",
+            risk="low",
+            needs_confirmation=False,
+            reason=(plan.reason or "web_search_action_contract_normalized")[:140],
+        )
+        return replace(arbitration, plan=normalized_plan)
+
     async def _normalize_fresh_web_context_contract(
         self,
         arbitration: AriaTurnArbitration | None,
@@ -208,8 +287,6 @@ class AgenticContextRuntimeMixin:
             return arbitration
         if not chat_freshness_candidate(message, intents=list(arbitration.plan.intents or ())):
             return arbitration
-        if any(request.surface_id == "web" for request in arbitration.plan.context_requests):
-            return arbitration
         if explicitly_requests_local_context(message):
             return arbitration
         plan = arbitration.plan
@@ -218,45 +295,78 @@ class AgenticContextRuntimeMixin:
         rss_read_only_action = bool(action_names) and action_names.issubset(rss_read_actions) and not plan.needs_confirmation
         if (plan.actions or plan.needs_confirmation or plan.answer_mode == "plan_action") and not rss_read_only_action:
             return arbitration
-        freshness_decision = await decide_chat_freshness(
-            message=message,
-            intents=list(plan.intents or ("chat",)),
-            llm_client=self.llm_client,
-            language=language,
-            source=source,
-            user_id=user_id,
-            request_id=request_id,
-        )
+        existing_web_requests = tuple(request for request in plan.context_requests if request.surface_id == "web")
+        if existing_web_requests and any(
+            isinstance((request.budget or {}).get("web_source_plan"), dict)
+            and bool((request.budget or {}).get("web_source_plan"))
+            for request in existing_web_requests
+        ):
+            return arbitration
+        try:
+            freshness_decision = await asyncio.wait_for(
+                decide_chat_freshness(
+                    message=message,
+                    intents=list(plan.intents or ("chat",)),
+                    llm_client=self.llm_client,
+                    language=language,
+                    source=source,
+                    user_id=user_id,
+                    request_id=request_id,
+                ),
+                timeout=12.0,
+            )
+        except asyncio.TimeoutError:
+            return arbitration
         if not freshness_decision.needs_fresh_context:
             return arbitration
         query = freshness_decision.query or str(message or "").strip()
-        request = ContextRequest(
-            surface_id="web",
-            mode="search",
-            query=query,
-            depth="shallow",
-            limit=8,
-            budget={
-                "freshness_contract": True,
-                "freshness_source": freshness_decision.source,
-                "freshness_reason": freshness_decision.reason,
-                "previous_surfaces": list(plan.surfaces or ()),
-                "previous_context_directions": list(plan.context_directions or ()),
-            },
-            user_id=user_id,
-            turn_id=request_id,
-        )
-        intents = tuple(dict.fromkeys([intent for intent in plan.intents if intent not in {"chat", "local_retrieval"}] + ["web_research"]))
+        freshness_budget = {
+            "freshness_contract": True,
+            "freshness_source": freshness_decision.source,
+            "freshness_reason": freshness_decision.reason,
+            "previous_surfaces": list(plan.surfaces or ()),
+            "previous_context_directions": list(plan.context_directions or ()),
+        }
+        if existing_web_requests:
+            requests = tuple(
+                replace(
+                    request,
+                    query=query,
+                    budget={
+                        **dict(request.budget or {}),
+                        **freshness_budget,
+                        "previous_query": request.query,
+                    },
+                    user_id=request.user_id or user_id,
+                    turn_id=request.turn_id or request_id,
+                )
+                if request.surface_id == "web"
+                else request
+                for request in plan.context_requests
+            )
+        else:
+            requests = (
+                ContextRequest(
+                    surface_id="web",
+                    mode="search",
+                    query=query,
+                    depth="shallow",
+                    limit=8,
+                    budget=freshness_budget,
+                    user_id=user_id,
+                    turn_id=request_id,
+                ),
+            )
         normalized_plan = replace(
             plan,
-            intents=intents,
+            intents=tuple(dict.fromkeys([intent for intent in plan.intents if intent not in {"chat", "local_retrieval"}] + ["web_research"])),
             surfaces=("web",),
             actions=(),
             needs_context=True,
             context_directions=("web",),
             context_depth="shallow" if plan.context_depth == "none" else plan.context_depth,
             queries={**dict(plan.queries or {}), "web": query},
-            context_requests=(request,),
+            context_requests=requests,
             priority=("web",),
             answer_mode="direct_answer",
             contract_mode="answer",
@@ -320,7 +430,11 @@ class AgenticContextRuntimeMixin:
             merged.append("web_search")
         if "learning_feedback" in plan.intents and "memory_recall" not in merged:
             merged.append("memory_recall")
-        if "chat" in merged and len(merged) > 1 and "local_retrieval" not in plan.intents:
+        keep_chat_intent = any(
+            bool((request.budget or {}).get("keep_chat_intent"))
+            for request in plan.context_requests
+        )
+        if "chat" in merged and len(merged) > 1 and "local_retrieval" not in plan.intents and not keep_chat_intent:
             return [intent for intent in merged if intent != "chat"] or ["chat"]
         return merged or ["chat"]
 
@@ -500,11 +614,31 @@ class AgenticContextRuntimeMixin:
         if arbitration is None:
             return {}
         plan = arbitration.plan
-        if "local_retrieval" not in plan.intents:
-            return {}
+        web_source_plan: dict[str, Any] = {}
+        for request in plan.context_requests:
+            if request.surface_id != "web":
+                continue
+            budget = dict(request.budget or {})
+            candidate = budget.get("web_source_plan")
+            if isinstance(candidate, dict) and candidate:
+                web_source_plan = candidate
+                break
+        request_surfaces = {request.surface_id for request in plan.context_requests}
+        priority_surfaces = {
+            str(item or "").strip().split("|", 2)[1]
+            for item in plan.priority
+            if str(item or "").strip().startswith("local|") and len(str(item or "").strip().split("|", 2)) == 3
+        }
+        has_local_retrieval_contract = bool(
+            "local_retrieval" in plan.intents
+            or set(plan.context_directions) & {"memory", "learning", "docs", "sessions", "notes"}
+            or request_surfaces & {"memory", "learning", "docs", "sessions", "notes"}
+            or priority_surfaces & {"memory", "docs", "notes"}
+        )
+        if not has_local_retrieval_contract:
+            return {"web_source_plan": web_source_plan} if web_source_plan else {}
         selected = [str(collection or "").strip() for collection in plan.collections if str(collection or "").strip()]
         memory_like: list[str] = []
-        request_surfaces = {request.surface_id for request in plan.context_requests}
         include_documents = "docs" in plan.context_directions or "docs" in request_surfaces
         docs_only = bool("docs" in plan.context_directions or "docs" in request_surfaces)
         document_corpus_scope = any(str(item or "").strip() == "local|docs|documents" for item in plan.priority)
@@ -537,6 +671,11 @@ class AgenticContextRuntimeMixin:
             if entity_type != "local_context":
                 continue
             ref = str(budget.get("ref", "") or "").strip()
+            if not ref:
+                catalog_id = str(budget.get("catalog_id", "") or "").strip()
+                parts = catalog_id.split("|", 2)
+                if len(parts) == 3 and parts[0] == "local" and parts[1] in {"memory", "notes", "docs"}:
+                    ref = parts[2].strip()
             if request.surface_id == "docs" or kind == "docs_family":
                 include_documents = True
                 continue
@@ -552,6 +691,15 @@ class AgenticContextRuntimeMixin:
             if "docs" in lower or "document" in lower:
                 include_documents = True
             memory_like.append(collection)
+        for surface in priority_surfaces:
+            if surface == "memory":
+                for value in plan.priority:
+                    parts = str(value or "").strip().split("|", 2)
+                    if len(parts) != 3 or parts[0] != "local" or parts[1] != "memory":
+                        continue
+                    collection = self._aria_turn_local_family_collection(parts[2], user_id=user_id)
+                    if collection and collection not in memory_like:
+                        memory_like.append(collection)
         local_memory_directions = {"memory", "learning", "docs", "sessions"}
         has_memory_direction = bool(set(plan.context_directions) & local_memory_directions or request_surfaces & local_memory_directions)
         if bound_local_collections:
@@ -667,8 +815,7 @@ class AgenticContextRuntimeMixin:
         for result in skill_results:
             meta = result.metadata or {}
             sources = meta.get("sources")
-            if isinstance(sources, list):
-                context_sources += len(sources)
+            context_sources += context_source_count(sources)
             detail_lines = meta.get("detail_lines")
             if isinstance(detail_lines, list):
                 detail_count += len([line for line in detail_lines if str(line or "").strip()])
@@ -757,8 +904,7 @@ class AgenticContextRuntimeMixin:
                     continue
                 meta = result.metadata or {}
                 sources = meta.get("sources")
-                if isinstance(sources, list):
-                    source_count += len(sources)
+                source_count += context_source_count(sources)
                 if str(result.content or "").strip():
                     has_content = True
             if source_count or has_content:
@@ -917,100 +1063,27 @@ class AgenticContextRuntimeMixin:
         query: str,
         limit: int,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        topic_terms, ignored_terms = self._aria_turn_topic_terms_for_request(query, request)
-        filtered: list[dict[str, Any]] = []
-        rejected = 0
-        for hit in hits:
-            payload = dict(hit.get("payload", {}) or {})
-            evidence_text = " ".join(
-                str(value or "")
-                for value in (
-                    payload.get("title", ""),
-                    payload.get("description", ""),
-                    payload.get("group_name", ""),
-                    " ".join(str(tag) for tag in list(payload.get("tags", []) or [])),
-                    " ".join(str(alias) for alias in list(payload.get("aliases", []) or [])),
-                )
-            )
-            if not topic_terms or self._aria_turn_text_matches_evidence(query, evidence_text, ignored_terms=ignored_terms):
-                filtered.append(hit)
-            else:
-                rejected += 1
-            if len(filtered) >= max(1, int(limit or 1)):
-                break
-        return filtered, [
-            "Routing Debug: evidence_filter "
-            f"surface={request.surface_id} kept={len(filtered)} rejected={rejected} "
-            f"terms={','.join(topic_terms) or '-'}"
+        kept = list(hits[: max(1, int(limit or 1))])
+        return kept, [
+            "Routing Debug: inventory_candidate_context "
+            f"surface={request.surface_id} kept={len(kept)} candidates={len(hits)} "
+            "deterministic_filter=disabled"
         ]
+
+    @staticmethod
+    def _aria_turn_query_requests_network_address(query: str) -> bool:
+        lower = str(query or "").strip().lower()
+        return bool(
+            re.search(
+                r"\b(?:ip|ips|ip-adresse|ip-adressen|adresse|adressen|address|addresses|host|hosts|hostname|hostnames)\b",
+                lower,
+            )
+        )
 
     def _aria_turn_format_inventory_metadata(self, surface_id: str, metadata: dict[str, Any], query: str, *, limit: int = 50) -> tuple[str, list[dict[str, Any]]]:
         if not metadata:
             return "No inventory metadata is available for the selected surface.", []
-        rows: list[str] = []
-        sources: list[dict[str, Any]] = []
-        configured = metadata.get("configured")
-        if isinstance(configured, dict):
-            request = ContextRequest(surface_id=surface_id, mode="inventory", query=query, limit=limit)
-            query_terms, _ignored_terms = self._aria_turn_topic_terms_for_request(query, request)
-            for kind in sorted(configured):
-                entry = dict(configured.get(kind) or {})
-                refs = [str(ref or "").strip() for ref in list(entry.get("configured_refs") or []) if str(ref or "").strip()]
-                summaries = [dict(item or {}) for item in list(entry.get("safe_summaries") or []) if isinstance(item, dict)]
-                kind_text = f"{kind} {entry.get('label') or ''} {entry.get('config_page') or ''}"
-                kind_only_query = bool(query_terms) and any(term in kind_text.lower() for term in query_terms)
-                matching_summaries: list[dict[str, Any]] = []
-                for summary in summaries:
-                    item_text = " ".join(
-                        str(value or "")
-                        for key, value in summary.items()
-                        if key not in {"url", "host", "password", "token", "secret", "api_key", "key_path"}
-                    )
-                    item_haystack = f"{kind} {item_text}".lower()
-                    if not query_terms or any(term in item_haystack for term in query_terms):
-                        matching_summaries.append(summary)
-                if query_terms and not kind_only_query and not matching_summaries:
-                    continue
-                visible_summaries = summaries if kind_only_query or not query_terms else matching_summaries
-                matched_refs = [
-                    str(summary.get("ref") or "").strip()
-                    for summary in visible_summaries
-                    if str(summary.get("ref") or "").strip()
-                ]
-                if query_terms and not kind_only_query:
-                    refs_for_header = matched_refs
-                    match_note = f"{len(visible_summaries)} matching of {len(summaries) or len(refs)} configured"
-                else:
-                    refs_for_header = refs
-                    match_note = f"{len(refs)} configured"
-                label = str(entry.get("label") or kind).strip() or kind
-                rows.append(f"{label} ({kind}): {match_note}; refs: {', '.join(refs_for_header[:limit]) or '-'}")
-                for summary in visible_summaries[:limit]:
-                    ref = str(summary.get("ref") or "").strip()
-                    details = ", ".join(
-                        part
-                        for part in (
-                            str(summary.get("title") or "").strip(),
-                            str(summary.get("description") or "").strip(),
-                            f"group={str(summary.get('group_name') or '').strip()}" if str(summary.get("group_name") or "").strip() else "",
-                            f"tags={','.join(str(tag) for tag in list(summary.get('tags') or [])[:6])}" if isinstance(summary.get("tags"), list) else "",
-                        )
-                        if part
-                    )
-                    if details:
-                        rows.append(f"- {kind}/{ref}: {details}")
-                truncated = max(0, len(visible_summaries) - min(len(visible_summaries), limit))
-                if truncated:
-                    rows.append(f"- {kind}: {truncated} weitere passende Eintraege nicht im Antwortkontext geladen (limit={limit}).")
-                sources.append({"surface": surface_id, "kind": kind, "refs": refs_for_header[: max(20, limit)]})
-        if not rows and not isinstance(configured, dict):
-            text = str(metadata)
-            if AgenticContextRuntimeMixin._aria_turn_inventory_matches(query, text):
-                rows.append(f"{surface_id} inventory metadata: {metadata}")
-                sources.append({"surface": surface_id})
-        if not rows:
-            return "No matching inventory metadata was found for the selected query.", []
-        return "Configured inventory:\n" + "\n".join(rows[:60]), sources
+        return "Inventory metadata exists, but no indexed or contract-bound inventory context was selected.", []
 
     async def _aria_turn_inventory_index_result(self, request: ContextRequest, query: str) -> SkillResult | None:
         return await self._agentic_context_surface_loader()._load_inventory_index_result(request, query)
@@ -1076,31 +1149,42 @@ class AgenticContextRuntimeMixin:
         content = str(result.content or "").strip()
         meta = result.metadata or {}
         sources = [dict(item) for item in list(meta.get("sources", []) or []) if isinstance(item, dict)]
-        if request.surface_id == "docs":
-            doc_sources = [
-                source
-                for source in sources
-                if str(source.get("type", "") or "").strip().lower() == "document"
-                or str(source.get("collection", "") or "").strip().lower().startswith("aria_docs_")
-            ]
+        evidence_reason = ""
+        doc_sources = [
+            source
+            for source in sources
+            if str(source.get("type", "") or "").strip().lower() == "document"
+            or str(source.get("collection", "") or "").strip().lower().startswith("aria_docs_")
+        ]
+        if bool(meta.get("document_inventory", False)) and doc_sources:
+            matched_sources, _terms, _rejected = document_inventory_sources_for_query(doc_sources, query)
+            matched = bool(matched_sources)
+            if not matched:
+                evidence_reason = "document_inventory_no_matches"
+        elif request.surface_id == "docs":
             if bool(meta.get("document_inventory", False)):
                 matched_sources, _terms, _rejected = document_inventory_sources_for_query(doc_sources, query)
                 matched = bool(matched_sources)
             else:
-                doc_text = "\n".join(
-                    [
-                        *[
-                            str(source.get("text", "") or source.get("detail", "") or source.get("source", "") or "")
-                            for source in doc_sources
-                        ],
-                        content,
-                    ]
-                )
-                matched = bool(doc_sources) and self._aria_turn_text_matches_evidence(
-                    query,
-                    doc_text,
-                    ignored_terms=ignored_terms,
-                )
+                scan_match_chunks = document_corpus_scan_match_chunks(meta)
+                if scan_match_chunks == 0:
+                    matched = False
+                    evidence_reason = "document_corpus_scan_no_matches"
+                else:
+                    doc_text = "\n".join(
+                        [
+                            *[
+                                str(source.get("text", "") or source.get("detail", "") or source.get("source", "") or "")
+                                for source in doc_sources
+                            ],
+                            content,
+                        ]
+                    )
+                    matched = bool(doc_sources) and self._aria_turn_text_matches_evidence(
+                        query,
+                        doc_text,
+                        ignored_terms=ignored_terms,
+                    )
         else:
             matched = self._aria_turn_text_matches_evidence(query, content, ignored_terms=ignored_terms)
         lines = list(meta.get("detail_lines", []) or [])
@@ -1108,6 +1192,7 @@ class AgenticContextRuntimeMixin:
             "Routing Debug: evidence_filter "
             f"surface={request.surface_id} mode={request.mode} matched={str(matched).lower()} "
             f"terms={','.join(self._aria_turn_evidence_terms(query, ignored_terms=ignored_terms)) or '-'}"
+            f"{(' reason=' + evidence_reason) if evidence_reason else ''}"
         )
         meta["detail_lines"] = lines
         result.metadata = meta
@@ -1188,12 +1273,35 @@ class AgenticContextRuntimeMixin:
         contents: list[str] = []
         sources: list[dict[str, Any]] = []
         detail_lines: list[str] = []
+        bound_refs: list[str] = []
+        has_unbound_inventory = False
+        semantic_scope_authority = "explicit_config"
+        semantic_scope_rejected_refs: list[str] = []
+        evidence_bundles: list[dict[str, Any]] = []
         source_keys: set[tuple[str, str, tuple[str, ...]]] = set()
         for result in inventory_results:
             content = str(result.content or "").strip()
             if content and content not in contents:
                 contents.append(content)
             meta = dict(result.metadata or {})
+            if str(meta.get("scope_contract", "") or "").strip() != "bound" or bool(meta.get("requires_llm_narrowing")):
+                has_unbound_inventory = True
+            semantic_authority = str(meta.get("semantic_scope_authority", "") or "").strip() or "explicit_config"
+            if semantic_authority == "candidate":
+                semantic_scope_authority = "candidate"
+            elif semantic_authority == "reviewed" and semantic_scope_authority != "candidate":
+                semantic_scope_authority = "reviewed"
+            for ref in list(meta.get("semantic_scope_rejected_refs", []) or []):
+                clean_ref = str(ref or "").strip()
+                if clean_ref and clean_ref not in semantic_scope_rejected_refs:
+                    semantic_scope_rejected_refs.append(clean_ref)
+            for ref in list(meta.get("bound_refs", []) or []):
+                clean_ref = str(ref or "").strip()
+                if clean_ref and clean_ref not in bound_refs:
+                    bound_refs.append(clean_ref)
+            bundle = meta.get("evidence_bundle")
+            if isinstance(bundle, dict) and bundle:
+                evidence_bundles.append(dict(bundle))
             for line in list(meta.get("detail_lines", []) or []):
                 clean_line = str(line or "").strip()
                 if clean_line:
@@ -1214,18 +1322,108 @@ class AgenticContextRuntimeMixin:
                     continue
                 source_keys.add(key)
                 sources.append(dict(source))
+        evidence_bundle = AgenticContextRuntimeMixin._merge_connection_evidence_bundles(evidence_bundles)
         return SkillResult(
             skill_name="context_inventory",
             success=True,
             content="\n\n".join(contents),
             metadata={
                 "sources": sources,
+                "scope_contract": "candidate_context" if has_unbound_inventory else "bound",
+                "bound_refs": bound_refs,
+                "semantic_scope_authority": semantic_scope_authority,
+                "semantic_scope_rejected_refs": semantic_scope_rejected_refs,
+                "evidence_bundle": evidence_bundle,
+                "requires_llm_narrowing": has_unbound_inventory,
                 "detail_lines": [
                     *detail_lines,
                     f"Routing Debug: inventory_merge results={len(inventory_results)} sources={len(sources)}",
+                    *(
+                        [
+                            "Routing Debug: evidence_bundle merged "
+                            f"surface={evidence_bundle.get('surface') or '-'} "
+                            f"authority={evidence_bundle.get('authority') or '-'} "
+                            f"completeness={evidence_bundle.get('completeness') or '-'} "
+                            f"rows={int(evidence_bundle.get('row_count') or 0)}"
+                        ]
+                        if evidence_bundle
+                        else []
+                    ),
                 ],
             },
         )
+
+    @staticmethod
+    def _merge_connection_evidence_bundles(bundles: list[dict[str, Any]]) -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
+        row_keys: set[tuple[str, str]] = set()
+        field_set: list[str] = []
+        selected_kinds: list[str] = []
+        selected_refs: list[str] = []
+        row_refs: list[str] = []
+        completeness_rank = {"candidate_only": 0, "semantic_subset": 1, "explicit_refs": 2, "full_kind": 3}
+        completeness = ""
+        authority = "config"
+        query = ""
+        scope_contract = "bound"
+        semantic_scope_authority = "explicit_config"
+        for bundle in bundles:
+            if str(bundle.get("surface", "") or "") != "connections":
+                continue
+            if not query:
+                query = str(bundle.get("query", "") or "").strip()
+            if str(bundle.get("authority", "") or "") != "config":
+                authority = "candidate"
+            if str(bundle.get("scope_contract", "") or "") != "bound":
+                scope_contract = "candidate_context"
+            bundle_completeness = str(bundle.get("completeness", "") or "").strip()
+            if not completeness or completeness_rank.get(bundle_completeness, -1) < completeness_rank.get(completeness, -1):
+                completeness = bundle_completeness
+            bundle_semantic = str(bundle.get("semantic_scope_authority", "") or "").strip()
+            if bundle_semantic == "candidate":
+                semantic_scope_authority = "candidate"
+            elif bundle_semantic == "reviewed" and semantic_scope_authority != "candidate":
+                semantic_scope_authority = "reviewed"
+            for field in list(bundle.get("field_set", []) or []):
+                clean = str(field or "").strip()
+                if clean and clean not in field_set:
+                    field_set.append(clean)
+            for kind in list(bundle.get("selected_kinds", []) or []):
+                clean = str(kind or "").strip()
+                if clean and clean not in selected_kinds:
+                    selected_kinds.append(clean)
+            for ref in list(bundle.get("selected_refs", []) or []):
+                clean = str(ref or "").strip()
+                if clean and clean not in selected_refs:
+                    selected_refs.append(clean)
+            for row in list(bundle.get("rows", []) or []):
+                if not isinstance(row, dict):
+                    continue
+                kind = str(row.get("kind", "") or "").strip()
+                ref = str(row.get("ref", "") or "").strip()
+                key = (kind, ref)
+                if key in row_keys:
+                    continue
+                row_keys.add(key)
+                rows.append(dict(row))
+                if ref and ref not in row_refs:
+                    row_refs.append(ref)
+        if not rows:
+            return {}
+        return {
+            "surface": "connections",
+            "authority": authority,
+            "completeness": completeness or "candidate_only",
+            "scope_contract": scope_contract,
+            "semantic_scope_authority": semantic_scope_authority,
+            "query": query,
+            "field_set": field_set,
+            "row_count": len(rows),
+            "selected_kinds": selected_kinds,
+            "selected_refs": selected_refs,
+            "row_refs": row_refs,
+            "rows": rows,
+        }
 
     async def _compose_aria_context_answer(
         self,
@@ -1329,30 +1527,41 @@ class AgenticContextRuntimeMixin:
             direct_kind = "inventory"
             content = str(inventory_result.content or "").strip()
             has_sources = self._aria_turn_result_has_sources(inventory_result)
+            inventory_meta = dict(inventory_result.metadata or {})
+            evidence_bundle = inventory_meta.get("evidence_bundle")
+            if isinstance(evidence_bundle, dict) and evidence_bundle:
+                self._remember_aria_turn_evidence_bundle(evidence_bundle, user_id=user_id)
+            scope_contract = str(inventory_meta.get("scope_contract", "") or "").strip()
+            semantic_scope_authority = str(inventory_meta.get("semantic_scope_authority", "") or "").strip()
+            requires_llm_narrowing = bool(inventory_meta.get("requires_llm_narrowing")) or scope_contract not in {"bound"}
             answer_status = "found" if has_sources else "empty"
             if not has_sources:
                 text = self._pipeline_text(language, "direct_context.inventory_empty", "I found no matching entries in the selected inventory.")
+            elif requires_llm_narrowing:
+                text = self._pipeline_text(
+                    language,
+                    "direct_context.inventory_needs_narrowing",
+                    "I loaded inventory candidates, but no contract-bound source was selected. I will not turn them into a broad deterministic list.",
+                )
+            elif semantic_scope_authority == "candidate" and str(language or "de").lower().startswith("en"):
+                text = f"I found possible matching configured sources:\n{content}"
+            elif semantic_scope_authority == "candidate":
+                text = f"Ich habe moegliche passende konfigurierte Quellen gefunden:\n{content}"
             elif str(language or "de").lower().startswith("en"):
                 text = f"I found matching configured sources:\n{content}"
             else:
                 text = f"Ich habe passende konfigurierte Quellen gefunden:\n{content}"
-            fast_inventory_text = fast_inventory_list_answer(inventory_result, language=language) if has_sources else ""
-            if fast_inventory_text:
-                text = fast_inventory_text
-                composer_usage = {}
-                composer_debug = "Routing Debug: answer_composer skipped reason=fast_inventory_list_answer"
-            else:
-                text, composer_usage, composer_debug = await self._compose_aria_context_answer(
-                    answer_mode="inventory_list" if has_sources else "inventory_empty",
-                    fallback_text=text,
-                    arbitration=arbitration,
-                    skill_result=inventory_result,
-                    status="found" if has_sources else "empty",
-                    request_id=request_id,
-                    user_id=user_id,
-                    source=source,
-                    language=language,
-                )
+            text, composer_usage, composer_debug = await self._compose_aria_context_answer(
+                answer_mode="inventory_list" if has_sources else "inventory_empty",
+                fallback_text=text,
+                arbitration=arbitration,
+                skill_result=inventory_result,
+                status="found" if has_sources else "empty",
+                request_id=request_id,
+                user_id=user_id,
+                source=source,
+                language=language,
+            )
         elif self._aria_turn_is_notes_only_context(arbitration) and "web_research" not in plan.intents:
             notes_result = next((result for result in skill_results if result.skill_name == "notes_search" and result.success), None)
             if notes_result is None:
@@ -1409,26 +1618,28 @@ class AgenticContextRuntimeMixin:
             )
         else:
             local_search_request = self._aria_turn_single_local_search_request(arbitration)
-            if local_search_request is not None and plan.answer_mode == "direct_answer":
+            if local_search_request is not None:
                 memory_result = next((result for result in skill_results if result.skill_name == "memory_recall" and result.success), None)
+                has_document_inventory = bool(memory_result and (memory_result.metadata or {}).get("document_inventory", False))
                 if (
                     memory_result is not None
+                    and (plan.answer_mode == "direct_answer" or has_document_inventory)
                     and self._aria_turn_has_loaded_local_context([memory_result])
                     and self._aria_turn_local_search_has_evidence(local_search_request, memory_result)
                 ):
-                    direct_kind = f"{local_search_request.surface_id}_search"
+                    direct_kind = "docs_search" if has_document_inventory else f"{local_search_request.surface_id}_search"
                     answer_status = "found"
                     content = str(memory_result.content or "").strip()
                     if str(language or "de").lower().startswith("en"):
-                        label = "documents" if local_search_request.surface_id == "docs" else "memory"
+                        label = "documents" if local_search_request.surface_id == "docs" or has_document_inventory else "memory"
                         text = f"I found this in your {label}:\n{content}"
-                    elif local_search_request.surface_id == "docs":
+                    elif local_search_request.surface_id == "docs" or has_document_inventory:
                         text = f"In deinen Dokumenten habe ich dazu gefunden:\n{content}"
                     else:
                         text = f"In deinem Memory habe ich dazu gefunden:\n{content}"
                     fast_docs_text = (
                         self._aria_turn_fast_docs_search_answer(arbitration, memory_result, language=language)
-                        if local_search_request.surface_id == "docs"
+                        if local_search_request.surface_id == "docs" or has_document_inventory
                         else ""
                     )
                     if fast_docs_text:
@@ -1438,7 +1649,7 @@ class AgenticContextRuntimeMixin:
                     else:
                         docs_fallback_text = (
                             self._aria_turn_docs_search_fallback_answer(arbitration, memory_result, language=language)
-                            if local_search_request.surface_id == "docs"
+                            if local_search_request.surface_id == "docs" or has_document_inventory
                             else text
                         )
                         text, composer_usage, composer_debug = await self._compose_aria_context_answer(
@@ -1459,8 +1670,7 @@ class AgenticContextRuntimeMixin:
         source_count = 0
         for result in skill_results:
             sources = (result.metadata or {}).get("sources")
-            if isinstance(sources, list):
-                source_count += len(sources)
+            source_count += context_source_count(sources)
             detail = (result.metadata or {}).get("detail_lines")
             if isinstance(detail, list):
                 result_detail_lines.extend(str(line) for line in detail if str(line or "").strip())
@@ -1508,6 +1718,17 @@ class AgenticContextRuntimeMixin:
             detail_lines=[
                 *detail_lines,
                 *result_detail_lines,
+                *(
+                    [
+                        "Routing Debug: evidence_bundle stored "
+                        f"surface={evidence_bundle.get('surface') or '-'} "
+                        f"authority={evidence_bundle.get('authority') or '-'} "
+                        f"completeness={evidence_bundle.get('completeness') or '-'} "
+                        f"rows={int(evidence_bundle.get('row_count') or 0)}"
+                    ]
+                    if "evidence_bundle" in locals() and isinstance(evidence_bundle, dict) and evidence_bundle
+                    else []
+                ),
                 *([composer_debug] if composer_debug else []),
                 self._aria_turn_answer_contract_line(
                     arbitration=arbitration,
@@ -1591,8 +1812,7 @@ class AgenticContextRuntimeMixin:
         source_count = 0
         for result in skill_results:
             sources = (result.metadata or {}).get("sources")
-            if isinstance(sources, list):
-                source_count += len(sources)
+            source_count += context_source_count(sources)
             detail = (result.metadata or {}).get("detail_lines")
             if isinstance(detail, list):
                 result_detail_lines.extend(str(line) for line in detail if str(line or "").strip())
@@ -1640,7 +1860,7 @@ class AgenticContextRuntimeMixin:
 
     @staticmethod
     def _aria_turn_uses_meta_catalog_contract(arbitration: AriaTurnArbitration | None) -> bool:
-        return arbitration is not None and arbitration.source in {META_CATALOG_ROUTING_OPERATION, "runtime_task_contract"}
+        return arbitration is not None and arbitration.source == META_CATALOG_ROUTING_OPERATION
 
     @staticmethod
     def _aria_turn_has_confident_local_context(arbitration: AriaTurnArbitration | None) -> bool:
@@ -1710,6 +1930,30 @@ class AgenticContextRuntimeMixin:
         return clean_action
 
     @staticmethod
+    def _aria_turn_file_operation_from_query(query: str) -> tuple[str, str]:
+        text = str(query or "").strip()
+        lower = text.lower()
+        path = ""
+        quoted = re.search(r"['\"](/[^'\"]+)['\"]", text)
+        if quoted:
+            path = str(quoted.group(1) or "").strip()
+        else:
+            raw = re.search(r"(^|\s)(/[^\s,;:]+)", text)
+            if raw:
+                path = str(raw.group(2) or "").strip()
+        if any(term in lower for term in ("schreib", "write", "speichere", "erstelle", "create", "upload")):
+            return "file_write", path
+        if not path and any(term in lower for term in ("hosts datei", "host datei", "hosts file", "host file")):
+            path = "/etc/hosts"
+        if any(term in lower for term in ("lies", "lese", "read", "zeige mir die datei", "open file", "oeffne datei")):
+            return "file_read", path
+        if path == "/etc/hosts":
+            return "file_read", path
+        if any(term in lower for term in ("liste", "list", "dateien", "files", "verzeichnis", "directory", "ordner")):
+            return "file_list", path or "."
+        return "file_list", path or "."
+
+    @staticmethod
     def _aria_turn_selected_connection_from_catalog(arbitration: AriaTurnArbitration | None) -> tuple[str, str]:
         if arbitration is None:
             return "", ""
@@ -1745,7 +1989,47 @@ class AgenticContextRuntimeMixin:
                 rows.append((kind, ref))
         return tuple(rows)
 
-    def _aria_turn_seed_capability_draft(self, arbitration: AriaTurnArbitration | None) -> CapabilityDraft | None:
+    def _aria_turn_connection_row(self, kind: str, ref: str) -> Any | None:
+        rows = getattr(getattr(getattr(self, "settings", object()), "connections", object()), normalize_connection_kind(kind), {})
+        if not isinstance(rows, dict):
+            return None
+        return rows.get(str(ref or "").strip())
+
+    def _aria_turn_explicit_ref_is_prompt_bound(self, query: str, *, kind: str, ref: str) -> bool:
+        clean_ref = str(ref or "").strip()
+        clean_kind = normalize_connection_kind(kind)
+        if not clean_ref or not clean_kind:
+            return False
+        row = self._aria_turn_connection_row(clean_kind, clean_ref)
+        if row is None:
+            return True
+        aliases = build_connection_aliases(clean_kind, clean_ref, row)
+        for alias in [clean_ref, *aliases]:
+            if connection_label_match_score(query, alias) > 0:
+                return True
+        return False
+
+    @staticmethod
+    def _aria_turn_requested_ref_hint_from_query(query: str) -> str:
+        text = re.sub(r"https?://\S+", " ", str(query or ""), flags=re.IGNORECASE)
+        text = re.sub(r"(?:^|\s)/(?:\S+)", " ", text)
+        patterns = (
+            r"\b[a-zA-Z][a-zA-Z0-9]*(?:[-_.][a-zA-Z0-9]+)+\b",
+            r"\b[a-zA-Z]+[0-9][a-zA-Z0-9_-]*\b",
+            r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return str(match.group(0) or "").strip()
+        return ""
+
+    def _aria_turn_seed_capability_draft(
+        self,
+        arbitration: AriaTurnArbitration | None,
+        *,
+        user_message: str = "",
+    ) -> CapabilityDraft | None:
         if arbitration is None:
             return None
         plan = arbitration.plan
@@ -1757,6 +2041,8 @@ class AgenticContextRuntimeMixin:
             or any(request.mode == "action" for request in plan.context_requests)
         ):
             return None
+        query = next((request.query for request in plan.context_requests if str(request.query or "").strip()), "")
+        raw_query = str(user_message or query or "").strip()
         selected_connections = self._aria_turn_selected_connections_from_catalog(arbitration)
         selected_by_kind: dict[str, list[str]] = {}
         for item_kind, item_ref in selected_connections:
@@ -1767,11 +2053,17 @@ class AgenticContextRuntimeMixin:
         clean_actions = [str(item or "").strip() for item in plan.actions if str(item or "").strip()]
         ssh_actions = {"ssh_run_command", "connection_action_ssh"}
         rss_actions = {"rss_read_feed", "feed_read", "connection_action_rss"}
+        target_scope_authority = str(getattr(plan, "target_scope_authority", "") or "").strip().lower()
+        full_kind_scope = target_scope_authority == "full_kind"
         if any(action_item.lower() in ssh_actions for action_item in clean_actions) and selected_by_kind.get("ssh"):
             action = next(action_item for action_item in clean_actions if action_item.lower() in ssh_actions)
             kind = "ssh"
             ref = selected_by_kind["ssh"][0]
             selected_connections = tuple(("ssh", item_ref) for item_ref in selected_by_kind["ssh"])
+        elif any(action_item.lower() in ssh_actions for action_item in clean_actions) and full_kind_scope:
+            action = next(action_item for action_item in clean_actions if action_item.lower() in ssh_actions)
+            kind = "ssh"
+            ref = ""
         elif not clean_actions and selected_by_kind.get("ssh"):
             action = "ssh_run_command"
             kind = "ssh"
@@ -1789,16 +2081,23 @@ class AgenticContextRuntimeMixin:
             kind = "rss"
             ref = selected_by_kind["rss"][0]
             selected_connections = tuple(("rss", item_ref) for item_ref in selected_by_kind["rss"])
+        elif not clean_actions and (selected_by_kind.get("sftp") or selected_by_kind.get("smb")) and (
+            plan.contract_mode == "action" or any(request.mode == "action" for request in plan.context_requests)
+        ):
+            kind = "sftp" if selected_by_kind.get("sftp") else "smb"
+            inferred_capability, _inferred_path = self._aria_turn_file_operation_from_query(query)
+            if not self._aria_turn_has_file_action_evidence(query, inferred_path=_inferred_path):
+                return None
+            action = inferred_capability or "file_list"
+            ref = selected_by_kind[kind][0]
+            selected_connections = tuple((kind, item_ref) for item_ref in selected_by_kind[kind])
         capability = self._aria_turn_action_capability(action, kind)
         if not capability:
             return None
-        if capability == "ssh_command" and selected_by_kind.get("ssh"):
-            selected_connections = tuple(("ssh", item_ref) for item_ref in selected_by_kind["ssh"])
-            kind = "ssh"
-            if len(selected_connections) > 1:
-                ref = ""
         selected_kinds = {item_kind for item_kind, _item_ref in selected_connections if item_kind}
-        multi_target = len(selected_connections) > 1 and (not selected_kinds or len(selected_kinds) == 1)
+        multi_target = (
+            len(selected_connections) > 1 and (not selected_kinds or len(selected_kinds) == 1)
+        ) or (capability == "ssh_command" and kind == "ssh" and full_kind_scope)
         connection_refs = [
             item_ref
             for item_kind, item_ref in selected_connections
@@ -1807,34 +2106,83 @@ class AgenticContextRuntimeMixin:
         if multi_target:
             kind = next(iter(selected_kinds), kind)
             ref = ""
-        query = next((request.query for request in plan.context_requests if str(request.query or "").strip()), "")
+        meta_catalog_contract = self._aria_turn_uses_meta_catalog_contract(arbitration)
+        authoritative_subset = target_scope_authority in {"explicit_refs", "semantic_group", "last_turn_scope"}
+        ignored_connection_refs: list[str] = []
+        if multi_target and not authoritative_subset:
+            ignored_connection_refs = list(connection_refs)
+            connection_refs = []
+        inferred_path = ""
+        if kind in {"sftp", "smb"} and capability in {"file_list", "file_read", "file_write"}:
+            inferred_capability, inferred_path = self._aria_turn_file_operation_from_query(query)
+            if inferred_capability:
+                capability = inferred_capability
         path = ""
         content = ""
         if capability in {"file_list", "file_read", "file_write", "calendar_read", "api_request", "mqtt_publish"}:
-            path = str(query or "").strip()
+            path = str(inferred_path if kind in {"sftp", "smb"} else query or "").strip()
         if capability in {"webhook_send", "discord_send", "email_send", "mail_search", "mqtt_publish", "file_write"}:
             content = str(query or "").strip()
         if capability in {"website_read", "feed_read"}:
             content = str(query or "").strip()
         notes = [
-            f"capability_draft_source:{'meta_catalog' if self._aria_turn_uses_meta_catalog_contract(arbitration) else 'legacy_backup'}",
+            f"capability_draft_source:{'meta_catalog' if meta_catalog_contract else 'legacy_backup'}",
             f"turn_contract_source:{arbitration.source}",
             f"turn_contract_actions:{','.join(plan.actions)}",
             f"turn_contract_priority:{','.join(plan.priority)}",
         ]
         if multi_target:
             notes.append("target_scope:multi_target")
-            notes.append(f"turn_contract_target_refs:{','.join(connection_refs)}")
+            notes.append(f"target_scope_authority:{target_scope_authority or 'priority_sample'}")
+            if full_kind_scope:
+                notes.append("turn_contract_target_refs:full_kind")
+            elif connection_refs:
+                notes.append(f"turn_contract_target_refs:{','.join(connection_refs)}")
+            elif ignored_connection_refs:
+                notes.append(f"turn_contract_priority_refs_ignored:{','.join(ignored_connection_refs)}")
+        requested_ref = ""
+        if (
+            ref
+            and not multi_target
+            and target_scope_authority == "explicit_refs"
+            and not self._aria_turn_explicit_ref_is_prompt_bound(raw_query, kind=kind, ref=ref)
+        ):
+            requested_ref = self._aria_turn_requested_ref_hint_from_query(raw_query)
+            notes.append("explicit_target_authority:blocked_unbound_ref")
+            notes.append(f"explicit_target_candidate_blocked:{kind}/{ref}")
+            ref = ""
         return CapabilityDraft(
             capability=capability,
             connection_kind=kind,
             explicit_connection_ref=ref,
+            requested_connection_ref=requested_ref,
             path=path,
             content="" if capability == "ssh_command" else content,
             confidence=max(0.62, float(plan.confidence or 0.0)),
-            connection_refs=connection_refs if multi_target else [],
+            connection_refs=connection_refs if multi_target and authoritative_subset else [],
             notes=notes,
         )
+
+    @staticmethod
+    def _aria_turn_has_file_action_evidence(query: str, *, inferred_path: str = "") -> bool:
+        if str(inferred_path or "").strip() not in {"", "."}:
+            return True
+        lower = str(query or "").strip().lower()
+        if not lower:
+            return False
+        file_scope = bool(
+            re.search(
+                r"\b(?:datei|dateien|file|files|pfad|path|verzeichnis|directory|ordner|folder)\b",
+                lower,
+            )
+        )
+        file_action = bool(
+            re.search(
+                r"\b(?:liste|list|lies|lese|read|zeige|oeffne|open|schreib|write|speichere|erstelle|create|upload)\b",
+                lower,
+            )
+        )
+        return file_scope and file_action
 
     @staticmethod
     def _aria_turn_forces_selected_context(arbitration: AriaTurnArbitration | None) -> bool:
@@ -1914,6 +2262,767 @@ class AgenticContextRuntimeMixin:
     def _aria_turn_last_frame_payload(self, user_id: str) -> dict[str, Any]:
         return self._agentic_context_runtime_state().last_frame_payload(user_id)
 
+    def _remember_aria_turn_evidence_bundle(
+        self,
+        bundle: dict[str, Any] | None,
+        *,
+        user_id: str,
+    ) -> None:
+        self._agentic_context_runtime_state().remember_evidence_bundle(bundle, user_id=user_id)
+
+    @staticmethod
+    def _connection_evidence_query_terms(message: str) -> list[str]:
+        return [
+            token
+            for token in _tokenize_inventory_scope(message)
+            if len(token) >= 3 and token not in _BROAD_ADDRESS_SCOPE_TOKENS
+        ]
+
+    @classmethod
+    def _connection_evidence_row_matches(cls, row: dict[str, Any], terms: list[str]) -> bool:
+        if not terms:
+            return True
+        haystack = " ".join(
+            str(value or "")
+            for value in (
+                row.get("kind"),
+                row.get("ref"),
+                row.get("title"),
+                row.get("host"),
+                row.get("description"),
+                row.get("group_name"),
+                " ".join(str(tag or "") for tag in list(row.get("tags", []) or [])),
+            )
+        ).lower()
+        return any(term in haystack for term in terms)
+
+    @staticmethod
+    def _connection_evidence_ref_from_catalog_id(catalog_id: str) -> str:
+        parts = [part.strip() for part in str(catalog_id or "").split("|")]
+        if len(parts) >= 3 and parts[0] == "connection":
+            return parts[2]
+        return ""
+
+    @staticmethod
+    def _connection_evidence_kind_from_catalog_id(catalog_id: str) -> str:
+        parts = [part.strip() for part in str(catalog_id or "").split("|")]
+        if len(parts) >= 2 and parts[0] == "connection":
+            return parts[1]
+        return ""
+
+    @classmethod
+    def _connection_evidence_rows_by_refs(cls, rows: list[dict[str, Any]], selected_refs: list[str]) -> list[dict[str, Any]]:
+        ref_set = {str(ref or "").strip() for ref in selected_refs if str(ref or "").strip()}
+        if not ref_set:
+            return []
+        selected: list[dict[str, Any]] = []
+        for row in rows:
+            ref = str(row.get("ref", "") or "").strip()
+            title = str(row.get("title", "") or "").strip()
+            if ref in ref_set or title in ref_set:
+                selected.append(row)
+        return selected
+
+    @classmethod
+    def _connection_evidence_rows_by_kinds(cls, rows: list[dict[str, Any]], selected_kinds: list[str]) -> list[dict[str, Any]]:
+        kind_set = {str(kind or "").strip() for kind in selected_kinds if str(kind or "").strip()}
+        if not kind_set:
+            return []
+        return [row for row in rows if str(row.get("kind", "") or "").strip() in kind_set]
+
+    @classmethod
+    def _connection_evidence_rows_excluding_refs(cls, rows: list[dict[str, Any]], selected_refs: list[str]) -> list[dict[str, Any]]:
+        ref_set = {str(ref or "").strip() for ref in selected_refs if str(ref or "").strip()}
+        if not ref_set:
+            return []
+        excluded: list[dict[str, Any]] = []
+        for row in rows:
+            ref = str(row.get("ref", "") or "").strip()
+            title = str(row.get("title", "") or "").strip()
+            if ref not in ref_set and title not in ref_set:
+                excluded.append(row)
+        return excluded
+
+    @classmethod
+    def _connection_evidence_rows_for_turn_contract(
+        cls,
+        *,
+        bundle: dict[str, Any],
+        arbitration: AriaTurnArbitration | None,
+        message: str,
+    ) -> tuple[list[dict[str, Any]], str]:
+        if arbitration is None:
+            return [], "missing_turn_contract"
+        plan = arbitration.plan
+        if plan.actions or plan.needs_confirmation or plan.contract_mode == "action":
+            return [], "action_contract"
+        selected_surfaces = {
+            str(item or "").strip()
+            for item in [*list(plan.surfaces or ()), *list(plan.context_directions or ())]
+            if str(item or "").strip() and str(item or "").strip() != "-"
+        }
+        if selected_surfaces and selected_surfaces != {"connections"}:
+            return [], "surface_change"
+
+        raw_rows = [dict(row) for row in list(bundle.get("rows", []) or []) if isinstance(row, dict)]
+        rows_with_hosts = [row for row in raw_rows if str(row.get("host", "") or "").strip()]
+        if not rows_with_hosts:
+            return [], "no_host_rows"
+
+        requests = [
+            request
+            for request in list(plan.context_requests or ())
+            if request.surface_id == "connections" and request.mode == "inventory"
+        ]
+        if any(request.surface_id != "connections" for request in list(plan.context_requests or ())):
+            return [], "mixed_surface_request"
+
+        request = requests[0] if requests else None
+        budget = dict(request.budget or {}) if request is not None else {}
+        scope_operation = str(plan.scope_operation or budget.get("scope_operation", "") or "").strip()
+        if scope_operation == "surface_change":
+            return [], "surface_change"
+        scope_authority = str(plan.target_scope_authority or "").strip()
+        if scope_authority == "last_turn_scope" and not scope_operation:
+            return [], "missing_scope_operation"
+        if (
+            not plan.needs_context
+            or "context_inventory" not in set(plan.intents or ())
+        ) and not (scope_authority == "last_turn_scope" and scope_operation == "reuse_same_set"):
+            return [], "not_inventory_contract"
+        if not requests and scope_operation not in {"reuse_same_set"}:
+            return [], "missing_connections_inventory_request"
+        requested_host_fields = _query_requests_network_address(message) or any(
+            _query_requests_network_address(str(request.query or "")) for request in requests
+        )
+        if not requested_host_fields and scope_operation not in {"narrow_subset", "exclude_subset"}:
+            return [], "field_mismatch"
+
+        selected_refs = [
+            str(ref or "").strip()
+            for ref in list(budget.get("selected_refs", []) or [])
+            if str(ref or "").strip()
+        ]
+        selected_kinds = [
+            str(kind or "").strip()
+            for kind in list(budget.get("selected_kinds", []) or [])
+            if str(kind or "").strip()
+        ]
+        for key in ("ref", "ref_hint"):
+            value = str(budget.get(key, "") or "").strip()
+            if value and value not in selected_refs:
+                selected_refs.append(value)
+        for key in ("kind", "kind_hint"):
+            value = str(budget.get(key, "") or "").strip()
+            if value and value not in selected_kinds:
+                selected_kinds.append(value)
+        for catalog_id in list(plan.priority or ()):
+            ref = cls._connection_evidence_ref_from_catalog_id(str(catalog_id or ""))
+            kind = cls._connection_evidence_kind_from_catalog_id(str(catalog_id or ""))
+            if ref and ref not in selected_refs:
+                selected_refs.append(ref)
+            if kind and kind not in selected_kinds:
+                selected_kinds.append(kind)
+
+        completeness = str(bundle.get("completeness", "") or "").strip()
+        bundle_kinds = {str(kind or "").strip() for kind in list(bundle.get("selected_kinds", []) or []) if str(kind or "").strip()}
+
+        if scope_operation == "reuse_same_set" and scope_authority == "last_turn_scope":
+            return rows_with_hosts, "reused_same_set"
+
+        if scope_operation == "exclude_subset":
+            if not selected_refs:
+                return [], "missing_subset_refs"
+            rows = cls._connection_evidence_rows_excluding_refs(rows_with_hosts, selected_refs)
+            return rows, "reused_exclude_subset" if rows else "field_miss"
+
+        if scope_operation == "narrow_subset":
+            if not selected_refs:
+                return [], "missing_subset_refs"
+            rows = cls._connection_evidence_rows_by_refs(rows_with_hosts, selected_refs)
+            return rows, "reused_narrow_subset" if rows else "field_miss"
+
+        if scope_authority == "full_kind" or scope_operation == "expand_to_kind" or bool(budget.get("bind_selected_kinds")):
+            if completeness != "full_kind":
+                return [], "scope_expand_requires_loader"
+            if not selected_kinds:
+                if scope_operation == "expand_to_kind":
+                    return rows_with_hosts, "reused_full_kind"
+                return [], "missing_kind_scope"
+            if bundle_kinds and not set(selected_kinds).issubset(bundle_kinds):
+                return [], "kind_not_in_bundle"
+            rows = cls._connection_evidence_rows_by_kinds(rows_with_hosts, selected_kinds)
+            return rows, "reused_full_kind" if rows else "field_miss"
+
+        if selected_refs and (
+            scope_authority in {"explicit_refs", "semantic_group"}
+            or bool(budget.get("bind_selected_refs"))
+        ):
+            rows = cls._connection_evidence_rows_by_refs(rows_with_hosts, selected_refs)
+            return rows, "reused_explicit_refs" if rows else "field_miss"
+
+        return [], "ambiguous_turn_scope"
+
+    @classmethod
+    def _connection_evidence_host_ip_answer(
+        cls,
+        *,
+        bundle: dict[str, Any],
+        message: str,
+        language: str | None,
+        selected_rows: list[dict[str, Any]] | None = None,
+        selected_status: str = "",
+    ) -> tuple[str, list[dict[str, Any]], str]:
+        if str(bundle.get("surface", "") or "") != "connections":
+            return "", [], "wrong_surface"
+        if str(bundle.get("authority", "") or "") != "config":
+            return "", [], "non_config_authority"
+        if "host" not in {str(field or "") for field in list(bundle.get("field_set", []) or [])}:
+            return "", [], "missing_host_field"
+        if not _query_requests_network_address(message) and selected_status not in {"reused_exclude_subset", "reused_narrow_subset"}:
+            return "", [], "query_not_host_ip"
+        raw_rows = [dict(row) for row in list(bundle.get("rows", []) or []) if isinstance(row, dict)]
+        rows_with_hosts = [row for row in raw_rows if str(row.get("host", "") or "").strip()]
+        if not rows_with_hosts:
+            return "", [], "no_host_rows"
+        if selected_rows is not None:
+            rows = [dict(row) for row in selected_rows if str(row.get("host", "") or "").strip()]
+            if not rows:
+                return "", [], selected_status or "field_miss"
+        else:
+            terms = cls._connection_evidence_query_terms(message)
+            matching = [row for row in rows_with_hosts if cls._connection_evidence_row_matches(row, terms)]
+            if not matching and terms:
+                return "", [], "field_miss"
+            rows = matching or rows_with_hosts
+        completeness = str(bundle.get("completeness", "") or "").strip()
+        if str(language or "de").lower().startswith("en"):
+            if completeness == "full_kind":
+                prefix = "From the last config-bound inventory, these entries have host/IP data:"
+            elif completeness in {"explicit_refs", "semantic_subset"}:
+                prefix = "From the matching entries in the last config-bound inventory, I can reuse this host/IP data:"
+            else:
+                prefix = "I found candidate host/IP data in the last inventory, but I will not present it as complete:"
+            row_lines = [
+                f"- **{str(row.get('ref', '') or '').strip()}** ({str(row.get('kind', '') or '').strip() or '-'})"
+                f": Host/IP `{str(row.get('host', '') or '').strip()}`"
+                + (f"; title `{str(row.get('title', '') or '').strip()}`" if str(row.get("title", "") or "").strip() else "")
+                for row in rows
+            ]
+        else:
+            if completeness == "full_kind":
+                prefix = "Aus dem letzten config-gebundenen Inventar haben diese Eintraege Host/IP-Daten:"
+            elif completeness in {"explicit_refs", "semantic_subset"}:
+                prefix = "Aus den passenden Eintraegen im letzten config-gebundenen Inventar kann ich diese Host/IP-Daten wiederverwenden:"
+            else:
+                prefix = "Ich habe Kandidaten fuer Host/IP-Daten im letzten Inventar, bezeichne sie aber nicht als vollstaendig:"
+            row_lines = [
+                f"- **{str(row.get('ref', '') or '').strip()}** ({str(row.get('kind', '') or '').strip() or '-'})"
+                f": Host/IP `{str(row.get('host', '') or '').strip()}`"
+                + (f"; Titel `{str(row.get('title', '') or '').strip()}`" if str(row.get("title", "") or "").strip() else "")
+                for row in rows
+            ]
+        if selected_rows is not None:
+            return "\n".join([prefix, *row_lines]), rows, selected_status or "reused_by_turn_contract"
+        return "\n".join([prefix, *row_lines]), rows, "reused" if matching or not terms else "all_rows"
+
+    @classmethod
+    def _connection_evidence_subset_answer(
+        cls,
+        *,
+        bundle: dict[str, Any],
+        language: str | None,
+        selected_rows: list[dict[str, Any]],
+        selected_status: str,
+    ) -> tuple[str, list[dict[str, Any]], str]:
+        if str(bundle.get("surface", "") or "") != "connections":
+            return "", [], "wrong_surface"
+        if str(bundle.get("authority", "") or "") != "config":
+            return "", [], "non_config_authority"
+        rows = [
+            dict(row)
+            for row in list(selected_rows or [])
+            if isinstance(row, dict) and str(row.get("ref", "") or "").strip()
+        ]
+        if not rows:
+            return "", [], selected_status or "field_miss"
+        is_exclusion = selected_status in {"reused_exclude_subset", "scope_review_exclude_subset"}
+        if str(language or "de").lower().startswith("en"):
+            prefix = (
+                "From the last config-bound inventory, these entries remain after the exclusion:"
+                if is_exclusion
+                else "From the last config-bound inventory, these entries match the scoped follow-up:"
+            )
+            row_lines = [
+                f"- **{str(row.get('ref', '') or '').strip()}** ({str(row.get('kind', '') or '').strip() or '-'})"
+                + (f": title `{str(row.get('title', '') or '').strip()}`" if str(row.get("title", "") or "").strip() else "")
+                + (f"; Host/IP `{str(row.get('host', '') or '').strip()}`" if str(row.get("host", "") or "").strip() else "")
+                for row in rows
+            ]
+        else:
+            prefix = (
+                "Aus dem letzten config-gebundenen Inventar bleiben nach dem Ausschluss diese Eintraege uebrig:"
+                if is_exclusion
+                else "Aus dem letzten config-gebundenen Inventar passen diese Eintraege zur eingegrenzten Folgefrage:"
+            )
+            row_lines = [
+                f"- **{str(row.get('ref', '') or '').strip()}** ({str(row.get('kind', '') or '').strip() or '-'})"
+                + (f": Titel `{str(row.get('title', '') or '').strip()}`" if str(row.get("title", "") or "").strip() else "")
+                + (f"; Host/IP `{str(row.get('host', '') or '').strip()}`" if str(row.get("host", "") or "").strip() else "")
+                for row in rows
+            ]
+        return "\n".join([prefix, *row_lines]), rows, selected_status or "reused_subset"
+
+    @staticmethod
+    def _connection_evidence_subset_bundle(
+        bundle: dict[str, Any],
+        rows: list[dict[str, Any]],
+        *,
+        status: str,
+    ) -> dict[str, Any]:
+        if not isinstance(bundle, dict) or not bundle:
+            return {}
+        selected_rows = [dict(row) for row in rows if isinstance(row, dict)]
+        if not selected_rows:
+            return {}
+        next_bundle = dict(bundle)
+        selected_refs: list[str] = []
+        selected_kinds: list[str] = []
+        field_set: list[str] = []
+        for row in selected_rows:
+            ref = str(row.get("ref", "") or "").strip()
+            kind = str(row.get("kind", "") or "").strip()
+            if ref and ref not in selected_refs:
+                selected_refs.append(ref)
+            if kind and kind not in selected_kinds:
+                selected_kinds.append(kind)
+            for field in ("kind", "ref", "title", "host", "description", "group_name", "tags"):
+                if row.get(field) and field not in field_set:
+                    field_set.append(field)
+        completeness = str(bundle.get("completeness", "") or "").strip() or "explicit_refs"
+        if status in {"reused_narrow_subset", "scope_review_narrow_subset"}:
+            completeness = "semantic_subset"
+        elif status in {"reused_exclude_subset", "scope_review_exclude_subset"}:
+            completeness = "semantic_subset"
+        next_bundle.update(
+            {
+                "rows": selected_rows,
+                "row_count": len(selected_rows),
+                "row_refs": selected_refs,
+                "selected_refs": selected_refs,
+                "selected_kinds": selected_kinds,
+                "field_set": field_set,
+                "completeness": completeness,
+                "semantic_scope_authority": "reviewed" if status.startswith("scope_review_") else bundle.get("semantic_scope_authority", "explicit_config"),
+            }
+        )
+        return next_bundle
+
+    @classmethod
+    def _connection_evidence_scope_review_needed(
+        cls,
+        *,
+        arbitration: AriaTurnArbitration | None,
+        message: str,
+        selected_status: str,
+    ) -> bool:
+        if arbitration is None:
+            return False
+        plan = arbitration.plan
+        scope_operation = str(plan.scope_operation or "").strip()
+        if selected_status == "surface_change":
+            selected_surfaces = {
+                str(item or "").strip()
+                for item in [*list(plan.surfaces or ()), *list(plan.context_directions or ())]
+                if str(item or "").strip() and str(item or "").strip() != "-"
+            }
+            if (
+                str(plan.target_scope_authority or "").strip() == "last_turn_scope"
+                and scope_operation == "surface_change"
+                and (not selected_surfaces or selected_surfaces == {"connections"})
+                and "context_inventory" in set(plan.intents or ())
+            ):
+                return True
+            return False
+        if selected_status in {"missing_subset_refs", "ambiguous_turn_scope"}:
+            return True
+        tokens = set(_tokenize_inventory_scope(message))
+        has_exclusion_cue = bool(tokens & {"ausser", "except", "exclude", "excluding", "nicht", "non", "not", "ohne"})
+        if selected_status == "reused_narrow_subset":
+            return has_exclusion_cue
+        if selected_status == "reused_exclude_subset":
+            return False
+        if scope_operation == "exclude_subset":
+            return selected_status not in {"reused_exclude_subset"}
+        if scope_operation == "narrow_subset":
+            return True
+        if scope_operation == "reuse_same_set" and (
+            _query_requests_specific_connection_scope(message)
+            or bool(cls._connection_evidence_query_terms(message))
+        ):
+            return True
+        return False
+
+    async def _review_connection_evidence_followup_scope(
+        self,
+        *,
+        bundle: dict[str, Any],
+        arbitration: AriaTurnArbitration | None,
+        message: str,
+        selected_status: str,
+        source: str,
+        user_id: str,
+        request_id: str,
+    ) -> tuple[list[dict[str, Any]], str, str]:
+        if not self._connection_evidence_scope_review_needed(
+            arbitration=arbitration,
+            message=message,
+            selected_status=selected_status,
+        ):
+            return [], "", "not_required"
+        if arbitration is None:
+            return [], "", "missing_turn_contract"
+        rows = [
+            dict(row)
+            for row in list(bundle.get("rows", []) or [])
+            if isinstance(row, dict) and str(row.get("ref", "") or "").strip()
+        ]
+        rows_with_hosts = [row for row in rows if str(row.get("host", "") or "").strip()]
+        if not rows_with_hosts:
+            return [], "", "no_host_rows"
+        plan = arbitration.plan
+        candidates = [
+            {
+                "ref": str(row.get("ref", "") or "").strip(),
+                "kind": str(row.get("kind", "") or "").strip(),
+                "title": str(row.get("title", "") or "").strip(),
+                "host": str(row.get("host", "") or "").strip(),
+                "description": str(row.get("description", "") or "").strip(),
+                "group_name": str(row.get("group_name", "") or "").strip(),
+                "tags": [str(tag) for tag in list(row.get("tags", []) or [])[:12]],
+            }
+            for row in rows_with_hosts
+        ]
+        result = await BoundedDecisionClient(getattr(self, "llm_client", None)).decide_json(
+            operation=CONNECTION_EVIDENCE_SCOPE_REVIEW_OPERATION,
+            system=(
+                "You review an inventory follow-up against the last config-bound connection evidence. "
+                "Use only the provided candidates and the user message. Decide whether the user asks for the same set, "
+                "a semantic subset, an exclusion from the current set, or needs clarification. "
+                "For subsets/exclusions, return only refs from candidates. Do not add refs. "
+                'Return JSON only: {"operation":"reuse_same_set|narrow_subset|exclude_subset|clarify",'
+                '"selected_refs":["..."],"excluded_refs":["..."],"empty_result_allowed":false,'
+                '"confidence":"high|medium|low","reason":"short"}'
+            ),
+            payload={
+                "message": str(message or "").strip(),
+                "proposed_turn_contract": {
+                    "target_scope_authority": str(plan.target_scope_authority or "").strip(),
+                    "scope_operation": str(plan.scope_operation or "").strip(),
+                    "priority": list(plan.priority or ())[:20],
+                    "context_requests": [
+                        {
+                            "surface_id": request.surface_id,
+                            "mode": request.mode,
+                            "query": request.query,
+                            "budget": dict(request.budget or {}),
+                        }
+                        for request in list(plan.context_requests or ())[:4]
+                    ],
+                },
+                "last_evidence": {
+                    "surface": str(bundle.get("surface", "") or "").strip(),
+                    "authority": str(bundle.get("authority", "") or "").strip(),
+                    "completeness": str(bundle.get("completeness", "") or "").strip(),
+                    "row_count": int(bundle.get("row_count") or len(candidates)),
+                    "candidates": candidates,
+                },
+                "rules": {
+                    "config_metadata_authority": "Config proves refs and host fields.",
+                    "scope_review_boundary": "The review may bind only a subset/exclusion of provided refs or ask for clarification.",
+                    "empty_exclusion": "If the current set already consists only of the excluded group, an empty result is allowed.",
+                },
+            },
+            source=source,
+            user_id=user_id,
+            request_id=request_id,
+        )
+        if not result.ok:
+            return [], "", f"unavailable:{result.error or 'unknown'}"
+        operation = str(result.payload.get("operation", "") or "").strip().lower()
+        if operation not in {"reuse_same_set", "narrow_subset", "exclude_subset", "clarify"}:
+            return [], "", "invalid_operation"
+        confidence = str(result.payload.get("confidence", "") or "").strip().lower()
+        if confidence not in {"high", "medium"}:
+            return [], "", f"low_confidence:{confidence or '-'}"
+        available = {str(row.get("ref", "") or "").strip(): row for row in rows_with_hosts}
+        selected_refs = [
+            str(ref or "").strip()
+            for ref in list(result.payload.get("selected_refs", []) or [])
+            if str(ref or "").strip() in available
+        ]
+        excluded_refs = [
+            str(ref or "").strip()
+            for ref in list(result.payload.get("excluded_refs", []) or [])
+            if str(ref or "").strip() in available
+        ]
+        reason = " ".join(str(result.payload.get("reason", "") or "").strip().split())[:120] or "-"
+        debug = (
+            "Routing Debug: connection_evidence_scope_review "
+            f"operation={operation} confidence={confidence} selected={','.join(selected_refs) or '-'} "
+            f"excluded={','.join(excluded_refs) or '-'} reason={reason}"
+        )
+        if operation == "reuse_same_set":
+            return rows_with_hosts, "scope_review_reuse_same_set", debug
+        if operation == "narrow_subset":
+            if not selected_refs:
+                return [], "", f"{debug} outcome=no_selected_refs"
+            return [available[ref] for ref in selected_refs], "scope_review_narrow_subset", debug
+        if operation == "exclude_subset":
+            refs_to_exclude = set(excluded_refs or selected_refs)
+            if not refs_to_exclude:
+                return [], "", f"{debug} outcome=no_excluded_refs"
+            rows_after_exclusion = [row for row in rows_with_hosts if str(row.get("ref", "") or "").strip() not in refs_to_exclude]
+            if rows_after_exclusion:
+                return rows_after_exclusion, "scope_review_exclude_subset", debug
+            if bool(result.payload.get("empty_result_allowed")):
+                return [], "scope_review_exclude_subset_empty", debug
+            return [], "", f"{debug} outcome=empty_not_allowed"
+        return [], "", f"{debug} outcome=clarify"
+
+    @staticmethod
+    def _connection_evidence_empty_exclusion_answer(*, language: str | None) -> str:
+        if str(language or "de").lower().startswith("en"):
+            return "None of the entries in the last scoped inventory remain after excluding that group."
+        return "Keine der zuletzt eingegrenzten Verbindungen bleibt uebrig, wenn ich diese Gruppe ausschliesse."
+
+    async def _aria_turn_last_evidence_followup_result(
+        self,
+        *,
+        message: str,
+        user_id: str,
+        request_id: str,
+        source: str,
+        language: str | None,
+        start: float,
+        aria_turn_arbitration: AriaTurnArbitration | None,
+        detail_lines: list[str] | None = None,
+        last_frame_payload: dict[str, Any] | None = None,
+    ) -> PipelineResult | None:
+        frame = last_frame_payload if isinstance(last_frame_payload, dict) else self._aria_turn_last_frame_payload(user_id)
+        bundle = frame.get("evidence_bundle") if isinstance(frame, dict) else None
+        if not isinstance(bundle, dict) or not bundle:
+            return None
+        selected_rows, status = self._connection_evidence_rows_for_turn_contract(
+            bundle=bundle,
+            arbitration=aria_turn_arbitration,
+            message=message,
+        )
+        review_debug = ""
+        reviewed_rows, reviewed_status, review_debug = await self._review_connection_evidence_followup_scope(
+            bundle=bundle,
+            arbitration=aria_turn_arbitration,
+            message=message,
+            selected_status=status,
+            source=source,
+            user_id=user_id,
+            request_id=request_id,
+        )
+        if reviewed_status:
+            selected_rows = reviewed_rows
+            status = reviewed_status
+        if not selected_rows:
+            if status == "scope_review_exclude_subset_empty":
+                duration_ms = int((time.perf_counter() - start) * 1000)
+                usage_snapshot = self._current_usage_snapshot()
+                usage = dict(usage_snapshot.get("usage", {}) or {})
+                await self.token_tracker.log(
+                    request_id=request_id,
+                    user_id=user_id,
+                    intents=["context_inventory"],
+                    router_level=2,
+                    usage=usage,
+                    chat_model=str(usage_snapshot.get("chat_model", "") or self.settings.llm.model),
+                    embedding_model=str(usage_snapshot.get("embedding_model", "") or self.settings.embeddings.model),
+                    embedding_usage=dict(usage_snapshot.get("embedding_usage", {}) or {}),
+                    chat_cost_usd=usage_snapshot.get("chat_cost_usd"),
+                    embedding_cost_usd=usage_snapshot.get("embedding_cost_usd"),
+                    total_cost_usd=usage_snapshot.get("total_cost_usd"),
+                    duration_ms=duration_ms,
+                    source=source,
+                    skill_errors=[],
+                    extraction_model="evidence_bundle_followup",
+                    extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                )
+                return PipelineResult(
+                    request_id=request_id,
+                    text=self._connection_evidence_empty_exclusion_answer(language=language),
+                    usage=usage,
+                    intents=["context_inventory"],
+                    skill_errors=[],
+                    router_level=2,
+                    duration_ms=duration_ms,
+                    chat_cost_usd=usage_snapshot.get("chat_cost_usd"),
+                    embedding_cost_usd=usage_snapshot.get("embedding_cost_usd"),
+                    total_cost_usd=usage_snapshot.get("total_cost_usd"),
+                    safe_fix_plan=[],
+                    detail_lines=[
+                        *list(detail_lines or []),
+                        *([review_debug] if review_debug else []),
+                        "Routing Debug: evidence_bundle reused "
+                        f"surface=connections authority={bundle.get('authority') or '-'} "
+                        f"completeness={bundle.get('completeness') or '-'} "
+                        f"fields={','.join(list(bundle.get('field_set', []) or [])) or '-'} "
+                        f"rows={int(bundle.get('row_count') or 0)} matched=0 status={status}",
+                        "Routing Debug: answerability "
+                        f"surface=connections completeness={bundle.get('completeness') or '-'} "
+                        "authority=config field=host decision=answer_from_last_evidence_bundle_empty",
+                        "Routing Debug: direct_context_answer kind=evidence_bundle_followup reason=last_turn_field_reuse",
+                    ],
+                )
+            if detail_lines is not None:
+                detail_lines.append(
+                    "Routing Debug: evidence_bundle_followup rejected "
+                    f"surface={bundle.get('surface') or '-'} completeness={bundle.get('completeness') or '-'} reason={status}"
+                )
+            plan = aria_turn_arbitration.plan if aria_turn_arbitration is not None else None
+            if (
+                plan is not None
+                and str(plan.target_scope_authority or "").strip() == "last_turn_scope"
+                and status in {"missing_scope_operation", "not_inventory_contract", "missing_connections_inventory_request"}
+            ):
+                duration_ms = int((time.perf_counter() - start) * 1000)
+                usage_snapshot = self._current_usage_snapshot()
+                usage = dict(usage_snapshot.get("usage", {}) or {})
+                await self.token_tracker.log(
+                    request_id=request_id,
+                    user_id=user_id,
+                    intents=["context_inventory"],
+                    router_level=2,
+                    usage=usage,
+                    chat_model=str(usage_snapshot.get("chat_model", "") or self.settings.llm.model),
+                    embedding_model=str(usage_snapshot.get("embedding_model", "") or self.settings.embeddings.model),
+                    embedding_usage=dict(usage_snapshot.get("embedding_usage", {}) or {}),
+                    chat_cost_usd=usage_snapshot.get("chat_cost_usd"),
+                    embedding_cost_usd=usage_snapshot.get("embedding_cost_usd"),
+                    total_cost_usd=usage_snapshot.get("total_cost_usd"),
+                    duration_ms=duration_ms,
+                    source=source,
+                    skill_errors=[],
+                    extraction_model="evidence_bundle_followup_blocked",
+                    extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                )
+                text = self._pipeline_text(
+                    language,
+                    "direct_context.evidence_followup_scope_unclear",
+                    "Ich kann diese Folgefrage nicht sauber aus dem letzten Inventar beantworten, weil der Scope-Vertrag fehlt. Bitte frage die Liste mit eindeutigem Scope erneut an.",
+                )
+                return PipelineResult(
+                    request_id=request_id,
+                    text=text,
+                    usage=usage,
+                    intents=["context_inventory"],
+                    skill_errors=[],
+                    router_level=2,
+                    duration_ms=duration_ms,
+                    chat_cost_usd=usage_snapshot.get("chat_cost_usd"),
+                    embedding_cost_usd=usage_snapshot.get("embedding_cost_usd"),
+                    total_cost_usd=usage_snapshot.get("total_cost_usd"),
+                    safe_fix_plan=[],
+                    detail_lines=[
+                        *list(detail_lines or []),
+                        "Routing Debug: evidence_bundle_followup blocked "
+                        f"surface={bundle.get('surface') or '-'} reason={status} boundary=scope_contract",
+                    ],
+                )
+            return None
+        subset_statuses = {
+            "reused_exclude_subset",
+            "scope_review_exclude_subset",
+            "reused_narrow_subset",
+            "scope_review_narrow_subset",
+        }
+        answer_field = "host"
+        answer_decision = "answer_from_last_evidence_bundle"
+        answer_reason = "last_turn_field_reuse"
+        if status in subset_statuses and not _query_requests_network_address(message):
+            text, rows, status = self._connection_evidence_subset_answer(
+                bundle=bundle,
+                language=language,
+                selected_rows=selected_rows,
+                selected_status=status,
+            )
+            answer_field = "ref"
+            answer_decision = "answer_from_last_evidence_bundle_subset"
+            answer_reason = "last_turn_scope_subset"
+        else:
+            text, rows, status = self._connection_evidence_host_ip_answer(
+                bundle=bundle,
+                message=message,
+                language=language,
+                selected_rows=selected_rows,
+                selected_status=status,
+            )
+        if not text:
+            if detail_lines is not None:
+                detail_lines.append(
+                    "Routing Debug: evidence_bundle_followup rejected "
+                    f"surface={bundle.get('surface') or '-'} completeness={bundle.get('completeness') or '-'} reason={status}"
+                )
+            return None
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        usage_snapshot = self._current_usage_snapshot()
+        usage = dict(usage_snapshot.get("usage", {}) or {})
+        next_bundle = self._connection_evidence_subset_bundle(bundle, rows, status=status) or bundle
+        self._remember_aria_turn_evidence_bundle(next_bundle, user_id=user_id)
+        await self.token_tracker.log(
+            request_id=request_id,
+            user_id=user_id,
+            intents=["context_inventory"],
+            router_level=2,
+            usage=usage,
+            chat_model=str(usage_snapshot.get("chat_model", "") or self.settings.llm.model),
+            embedding_model=str(usage_snapshot.get("embedding_model", "") or self.settings.embeddings.model),
+            embedding_usage=dict(usage_snapshot.get("embedding_usage", {}) or {}),
+            chat_cost_usd=usage_snapshot.get("chat_cost_usd"),
+            embedding_cost_usd=usage_snapshot.get("embedding_cost_usd"),
+            total_cost_usd=usage_snapshot.get("total_cost_usd"),
+            duration_ms=duration_ms,
+            source=source,
+            skill_errors=[],
+            extraction_model="evidence_bundle_followup",
+            extraction_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+        )
+        return PipelineResult(
+            request_id=request_id,
+            text=text,
+            usage=usage,
+            intents=["context_inventory"],
+            skill_errors=[],
+            router_level=2,
+            duration_ms=duration_ms,
+            chat_cost_usd=usage_snapshot.get("chat_cost_usd"),
+            embedding_cost_usd=usage_snapshot.get("embedding_cost_usd"),
+            total_cost_usd=usage_snapshot.get("total_cost_usd"),
+            safe_fix_plan=[],
+            detail_lines=[
+                *list(detail_lines or []),
+                *([review_debug] if review_debug else []),
+                "Routing Debug: evidence_bundle reused "
+                f"surface=connections authority={bundle.get('authority') or '-'} "
+                f"completeness={bundle.get('completeness') or '-'} "
+                f"fields={','.join(list(bundle.get('field_set', []) or [])) or '-'} "
+                f"rows={int(bundle.get('row_count') or 0)} matched={len(rows)} status={status}",
+                "Routing Debug: evidence_bundle stored "
+                f"surface={next_bundle.get('surface') or '-'} authority={next_bundle.get('authority') or '-'} "
+                f"completeness={next_bundle.get('completeness') or '-'} rows={int(next_bundle.get('row_count') or 0)}",
+                "Routing Debug: answerability "
+                f"surface=connections completeness={bundle.get('completeness') or '-'} "
+                f"authority=config field={answer_field} decision={answer_decision}",
+                f"Routing Debug: direct_context_answer kind=evidence_bundle_followup reason={answer_reason}",
+            ],
+        )
+
     async def _arbitrate_aria_turn(
         self,
         *,
@@ -1954,18 +3063,6 @@ class AgenticContextRuntimeMixin:
         )
         self._last_meta_catalog_fallback_debug_lines = []
         if meta_arbitration.source != "fallback":
-            override_factory = getattr(self, "_runtime_task_arbitration_override", None)
-            if callable(override_factory):
-                override = await override_factory(
-                    message=message,
-                    user_id=user_id,
-                    request_id=request_id,
-                    language=language,
-                    meta_arbitration=meta_arbitration,
-                )
-                if override is not None:
-                    self._remember_aria_turn_frame(override, user_id=user_id)
-                    return override
             self._remember_aria_turn_frame(meta_arbitration, user_id=user_id)
             return meta_arbitration
         self._last_meta_catalog_fallback_debug_lines = [
@@ -1988,7 +3085,12 @@ class AgenticContextRuntimeMixin:
         self._remember_aria_turn_frame(arbitration, user_id=user_id)
         return arbitration
 
-    def _remember_aria_turn_frame(self, arbitration: AriaTurnArbitration | None, *, user_id: str) -> None:
+    def _remember_aria_turn_frame(
+        self,
+        arbitration: AriaTurnArbitration | None,
+        *,
+        user_id: str,
+    ) -> None:
         self._agentic_context_runtime_state().remember_frame(arbitration, user_id=user_id)
 
     async def _recall_active_learning_hints(
@@ -2016,9 +3118,6 @@ class AgenticContextRuntimeMixin:
         source: str = "pipeline",
     ) -> RouterDecision:
         intents = [str(intent or "").strip().lower() for intent in list(keyword_decision.intents or [])]
-        if intents == ["recipe_status"]:
-            self._last_active_learning_hints = []
-            return keyword_decision
         active_learning_hints = []
         if "web_search" not in intents and not self._should_skip_active_learning_hints_for_turn(message):
             active_learning_hints = await self._recall_active_learning_hints(message, user_id=user_id)

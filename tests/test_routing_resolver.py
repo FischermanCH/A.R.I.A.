@@ -150,7 +150,7 @@ def test_routing_resolver_rejects_wrong_qdrant_kind_for_preferred_kind() -> None
     assert len(decision.candidates) == 2
 
 
-def test_routing_resolver_infers_ssh_kind_before_qdrant_selection() -> None:
+def test_routing_resolver_does_not_infer_kind_or_accept_qdrant_across_multiple_kinds() -> None:
     provider = FakeCandidateProvider(
         [
             {"kind": "sftp", "ref": "dns-node-01", "score": 0.91},
@@ -169,10 +169,37 @@ def test_routing_resolver_infers_ssh_kind_before_qdrant_selection() -> None:
         )
     )
 
+    assert decision.found is False
+    assert decision.kind == ""
+    assert decision.ref == ""
+    assert [(item["kind"], item["ref"]) for item in decision.candidates] == [
+        ("sftp", "dns-node-01"),
+        ("ssh", "dns-node-01"),
+    ]
+    assert provider.calls == [{"query": "Zeig mir die Laufzeit vom primären DNS Server", "limit": 5, "score_threshold": 0.0}]
+
+
+def test_routing_resolver_can_accept_qdrant_when_only_one_kind_is_configured() -> None:
+    provider = FakeCandidateProvider(
+        [
+            {"kind": "ssh", "ref": "dns-node-01", "score": 0.82},
+        ]
+    )
+    resolver = RoutingResolver(candidate_provider=provider)
+
+    decision = asyncio.run(
+        resolver.resolve_connection(
+            "Zeig mir die Laufzeit vom primären DNS Server",
+            {
+                "ssh": {"dns-node-01": {"title": "Pi-hole DNS"}},
+            },
+        )
+    )
+
     assert decision.found is True
     assert decision.kind == "ssh"
     assert decision.ref == "dns-node-01"
-    assert provider.calls == [{"query": "Zeig mir die Laufzeit vom primären DNS Server", "limit": 20, "score_threshold": 0.0}]
+    assert provider.calls == [{"query": "Zeig mir die Laufzeit vom primären DNS Server", "limit": 5, "score_threshold": 0.0}]
 
 
 def test_infer_preferred_connection_kind_maps_common_actions() -> None:

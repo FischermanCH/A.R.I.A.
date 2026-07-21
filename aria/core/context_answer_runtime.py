@@ -6,10 +6,10 @@ from typing import Any, Callable
 from aria.core.answer_composer import AnswerComposer
 from aria.core.answer_composer import AnswerComposerInput
 from aria.core.aria_turn_arbitration import AriaTurnArbitration
-from aria.core.connection_catalog import connection_kind_label
 from aria.core.context_evidence import evidence_terms
 from aria.core.context_evidence import normalized_evidence_text
 from aria.core.context_evidence import request_scope_terms
+from aria.core.context_source_counts import context_source_count
 from aria.core.context_surfaces import ContextRequest
 from aria.skills.base import SkillResult
 
@@ -65,7 +65,16 @@ async def compose_aria_context_answer(
                 "surface_directions": list(arbitration.plan.context_directions),
                 "content": content,
                 "sources": sources,
-                "source_count": len(sources),
+                "source_count": context_source_count(sources),
+                "scope_contract": str(skill_metadata.get("scope_contract", "") or ""),
+                "bound_refs": list(skill_metadata.get("bound_refs", []) or []) if isinstance(skill_metadata.get("bound_refs"), list) else [],
+                "requires_llm_narrowing": bool(skill_metadata.get("requires_llm_narrowing")),
+                "semantic_scope_authority": str(skill_metadata.get("semantic_scope_authority", "") or ""),
+                "semantic_scope_rejected_refs": (
+                    list(skill_metadata.get("semantic_scope_rejected_refs", []) or [])
+                    if isinstance(skill_metadata.get("semantic_scope_rejected_refs"), list)
+                    else []
+                ),
                 "document_corpus_scan": document_corpus_scan if isinstance(document_corpus_scan, dict) else {},
             },
             evidence={
@@ -161,35 +170,6 @@ def fast_notes_inventory_answer(
         "I found {count} matching notes:",
     ).replace("{count}", str(len(entries)))
     return "\n".join([heading, *(f"- {entry}" for entry in entries)]).strip()
-
-
-def fast_inventory_list_answer(skill_result: SkillResult, *, language: str | None) -> str:
-    content = str(skill_result.content or "").strip()
-    if not content:
-        return ""
-    sources = list(dict(skill_result.metadata or {}).get("sources") or [])
-    refs_by_kind: dict[str, list[str]] = {}
-    for source in sources:
-        if not isinstance(source, dict):
-            continue
-        kind = str(source.get("kind", "") or "").strip()
-        refs = [str(ref or "").strip() for ref in list(source.get("refs", []) or []) if str(ref or "").strip()]
-        if kind and refs:
-            refs_by_kind.setdefault(kind, []).extend(refs)
-    ref_count = sum(len(refs) for refs in refs_by_kind.values())
-    content_lines = [line.strip() for line in content.splitlines() if line.strip()]
-    if ref_count < 2 or not any(line.startswith("- ") for line in content_lines):
-        return ""
-    if len(refs_by_kind) == 1:
-        kind = next(iter(refs_by_kind))
-        source_label = f"{connection_kind_label(kind)}-Profile"
-    else:
-        source_label = "configured sources" if str(language or "de").lower().startswith("en") else "konfigurierte Quellen"
-    if str(language or "de").lower().startswith("en"):
-        heading = f"I found {ref_count} matching {source_label}:"
-    else:
-        heading = f"Ich habe {ref_count} passende {source_label} gefunden:"
-    return "\n".join([heading, *content_lines]).strip()
 
 
 def _is_document_source(source: dict[str, Any]) -> bool:
@@ -325,6 +305,34 @@ def fast_document_inventory_answer(docs_result: SkillResult, query: str, *, lang
     return "\n".join([heading, *(f"- {label}" for label in labels)]).strip()
 
 
+def document_corpus_scan_match_chunks(metadata: dict[str, Any] | None) -> int | None:
+    meta = dict(metadata or {})
+    scan = meta.get("document_corpus_scan")
+    if not isinstance(scan, dict) or not bool(scan.get("exhaustive")):
+        return None
+    for key in ("match_chunks", "matches"):
+        if key in scan:
+            try:
+                return max(0, int(scan.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                return 0
+    term_stats = scan.get("term_stats")
+    if isinstance(term_stats, dict):
+        total = 0
+        saw_stats = False
+        for value in term_stats.values():
+            if not isinstance(value, dict):
+                continue
+            saw_stats = True
+            try:
+                total += max(0, int(value.get("chunks", 0) or 0))
+            except (TypeError, ValueError):
+                continue
+        if saw_stats:
+            return total
+    return None
+
+
 def docs_search_fallback_answer(
     arbitration: AriaTurnArbitration,
     docs_result: SkillResult,
@@ -345,6 +353,8 @@ def docs_search_fallback_answer(
         or str(source.get("collection", "") or "").strip().startswith("aria_docs")
         for source in sources
     ):
+        return ""
+    if document_corpus_scan_match_chunks(docs_result.metadata) == 0:
         return ""
     corpus_scan_text = _document_corpus_scan_no_primary_match_answer(
         docs_result,
@@ -602,7 +612,11 @@ def fast_docs_search_answer(
     skill_result_sources: Callable[[SkillResult | None], list[dict[str, Any]]],
 ) -> str:
     request = single_local_search_request(arbitration)
-    if request is None or request.surface_id != "docs" or arbitration.plan.answer_mode != "direct_answer":
+    meta = dict(docs_result.metadata or {})
+    has_document_inventory = bool(meta.get("document_inventory", False))
+    if request is None or arbitration.plan.answer_mode not in {"direct_answer", "answer_from_context"}:
+        return ""
+    if request.surface_id != "docs" and not has_document_inventory:
         return ""
     sources = skill_result_sources(docs_result)
     if not sources:
@@ -610,6 +624,8 @@ def fast_docs_search_answer(
     inventory_answer = fast_document_inventory_answer(docs_result, str(request.query or ""), language=language)
     if inventory_answer:
         return inventory_answer
+    if document_corpus_scan_match_chunks(docs_result.metadata) == 0:
+        return ""
     if not all(
         str(source.get("type", "") or "").strip().lower() == "document"
         or str(source.get("collection", "") or "").strip().startswith("aria_docs")

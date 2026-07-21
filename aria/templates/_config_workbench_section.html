@@ -18,6 +18,10 @@
       <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'llm_debug.title', 'LLM Prompt Debug') }}</span><span class="submenu-desc">{{ tr(request, 'llm_debug.menu_desc', 'Inspect recent prompts, responses, source, operation, and token usage from the central LLM gateway.') }}</span></span>
     </a>
+    <a class="config-submenu-item" href="/config/prompts?file=prompts%2Fweb%2Fsearch_intent.md&return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('searxng', 'submenu-icon') }}</span>
+      <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.workbench_search_intent_title', 'Web Search Intent') }}</span><span class="submenu-desc">{{ tr(request, 'config.workbench_search_intent_desc', 'Tune how ARIA turns web questions into SearXNG search requests without a new build.') }}</span></span>
+    </a>
   </div>
 </section>
 {% else %}

@@ -417,6 +417,9 @@ def build_action_planner_input_set(
 def _heuristic_action_decision(query: str, candidates: list[ActionPlanCandidate]) -> tuple[ActionPlanCandidate | None, str, bool, str]:
     if not candidates:
         return None, "", False, ""
+    candidates = [candidate for candidate in candidates if not is_recipe_candidate_kind(candidate.candidate_kind)]
+    if not candidates:
+        return None, "low", True, "recipe_requires_llm_review"
     if len(candidates) == 1:
         return candidates[0], "high", False, "single_candidate"
 
@@ -718,128 +721,19 @@ async def debug_bounded_action_plan_decision(
     valid_by_key = {candidate.key: candidate for candidate in candidates}
     heuristic_candidate, heuristic_confidence, heuristic_ask_user, heuristic_reason = _heuristic_action_decision(clean_query, candidates)
     if llm_client is None:
-        if heuristic_candidate is not None and not heuristic_ask_user:
-            payload = _candidate_payload(heuristic_candidate)
-            missing_input = _apply_candidate_labels(
-                payload,
-                heuristic_candidate,
-                clean_query,
-                language=language,
-                target_context=target_context,
-            )
-            payload["execution_state"] = _execution_state(ask_user=bool(missing_input), missing_input=missing_input)
-            payload["execution_state_label"] = _execution_state_label(payload["execution_state"], language)
-            if missing_input:
-                payload["reason"] = _missing_required_reason(missing_input, language)
-                return _result_payload(
-                    available=False,
-                    used=False,
-                    status="warn",
-                    message=_planner_text(language, "dry_run_recommends_followup", "Action dry-run recommends asking the user before execution."),
-                    decision=payload,
-                    confidence="low",
-                    confidence_label=_confidence_label("low", language),
-                    ask_user=True,
-                    execution_state=_execution_state(ask_user=True, missing_input=missing_input),
-                    execution_state_label=_execution_state_label(_execution_state(ask_user=True, missing_input=missing_input), language),
-                    planner_source="heuristic",
-                    planner_source_label=_planner_source_label("heuristic", language),
-                    candidate_count=len(candidates),
-                    candidates=serialized_candidates,
-                    target_context=target_context,
-                    target_reason=target_reason,
-                    missing_input=missing_input,
-                    missing_input_label=_input_key_label(missing_input, language),
-                    clarifying_question=_clarifying_question(heuristic_candidate, missing_input, language),
-                    example_prompt=_suggested_follow_up_prompt(clean_query, heuristic_candidate, connection_ref=connection_ref, missing_input=missing_input, language=language),
-                )
-            effective_ask_user = routing_requires_confirmation
-            payload["reason"] = (
-                _routing_target_confirmation_reason(language)
-                if routing_requires_confirmation
-                else payload["preview"] or heuristic_candidate.title or _heuristic_reason_text(heuristic_reason, language)
-            )
-            return _result_payload(
-                available=False,
-                used=False,
-                status="warn" if effective_ask_user else "ok",
-                message=(
-                    _planner_text(
-                        language,
-                        "heuristic_target_confirmation_required",
-                        "A heuristic action candidate was inferred, but the target should be confirmed before execution.",
-                    )
-                    if effective_ask_user
-                    else _planner_text(
-                        language,
-                        "heuristic_candidate_inferred",
-                        "Heuristic {candidate_label} inferred: {candidate_id}.",
-                        candidate_label=_candidate_debug_label(heuristic_candidate, language),
-                        candidate_id=heuristic_candidate.candidate_id,
-                    )
-                ),
-                decision=payload,
-                confidence=heuristic_confidence or "medium",
-                confidence_label=_confidence_label(heuristic_confidence or "medium", language),
-                ask_user=effective_ask_user,
-                execution_state=_execution_state(ask_user=effective_ask_user),
-                execution_state_label=_execution_state_label(_execution_state(ask_user=effective_ask_user), language),
-                planner_source="heuristic",
-                planner_source_label=_planner_source_label("heuristic", language),
-                candidate_count=len(candidates),
-                candidates=serialized_candidates,
-                target_context=target_context,
-                target_reason=target_reason,
-            )
-        if heuristic_candidate is not None and heuristic_ask_user:
-            payload = _candidate_payload(heuristic_candidate)
-            missing_input = _apply_candidate_labels(
-                payload,
-                heuristic_candidate,
-                clean_query,
-                language=language,
-                target_context=target_context,
-            )
-            payload["reason"] = (
-                _missing_required_reason(missing_input, language)
-                if missing_input
-                else _routing_target_confirmation_reason(language)
-                if routing_requires_confirmation
-                else _heuristic_reason_text(heuristic_reason, language) or payload["preview"] or heuristic_candidate.title
-            )
-            payload["execution_state"] = _execution_state(ask_user=True, missing_input=missing_input)
-            payload["execution_state_label"] = _execution_state_label(payload["execution_state"], language)
-            return _result_payload(
-                available=False,
-                used=False,
-                status="warn",
-                message=_planner_text(language, "dry_run_recommends_followup", "Action dry-run recommends asking the user before execution."),
-                decision=payload,
-                confidence=heuristic_confidence or "low",
-                confidence_label=_confidence_label(heuristic_confidence or "low", language),
-                ask_user=True,
-                execution_state=_execution_state(ask_user=True, missing_input=missing_input),
-                execution_state_label=_execution_state_label(_execution_state(ask_user=True, missing_input=missing_input), language),
-                planner_source="heuristic",
-                planner_source_label=_planner_source_label("heuristic", language),
-                candidate_count=len(candidates),
-                candidates=serialized_candidates,
-                target_context=target_context,
-                target_reason=target_reason,
-                missing_input=missing_input,
-                missing_input_label=_input_key_label(missing_input, language),
-                clarifying_question=_clarifying_question(heuristic_candidate, missing_input, language),
-                example_prompt=_suggested_follow_up_prompt(clean_query, heuristic_candidate, connection_ref=connection_ref, missing_input=missing_input, language=language),
-            )
         return _result_payload(
             available=False,
             used=False,
             status="warn",
-            message=_planner_text(language, "dry_run_no_llm_client", "Action dry-run unavailable: no LLM client is configured."),
+            message=_planner_text(
+                language,
+                "dry_run_requires_llm_review",
+                "Action dry-run requires LLM review before selecting an action.",
+            ),
             execution_state="",
             execution_state_label="",
-            planner_source="heuristic",
-            planner_source_label=_planner_source_label("heuristic", language),
+            planner_source="llm_required",
+            planner_source_label=_planner_source_label("llm_required", language),
             candidate_count=len(candidates),
             candidates=serialized_candidates,
             target_context=target_context,

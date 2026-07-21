@@ -22,8 +22,10 @@ class MultiTargetSSHExecutionHooks(AgenticExecutionHooks):
     remember_action: Callable[[str, ActionPlan], None]
     remember_multi_target_action: Callable[[str, dict[str, Any], list[str], str, str], None]
     result_state: Callable[[str], str]
+    configured_connection_refs: Callable[[str], list[str]]
     extract_free_disk_threshold_gib: Callable[[str], tuple[float, str] | None]
     extract_summary_free_disk_gib: Callable[[str], tuple[float, str] | None]
+    extract_disk_measurement: Callable[[str], dict[str, Any] | None]
     operator_summary: Callable[[str, int, list[dict[str, str]]], str]
     relevant_result_texts: Callable[[list[dict[str, str]]], list[str]]
     llm_operator_summary: Callable[[str, str, list[dict[str, str]], str, str], Awaitable[tuple[str, str]]]
@@ -59,6 +61,9 @@ class MultiTargetSSHExecutionHandler:
         result_records: list[dict[str, str]] = []
         errors: list[str] = []
         success_count = 0
+        refs, full_kind_completion_line = self._complete_full_kind_refs(payload, refs)
+        if full_kind_completion_line and self._hooks.routing_debug_enabled():
+            detail_lines.append(full_kind_completion_line)
         original_count = len(refs)
         query = str(request.resolved.get("query", "") or "")
         free_disk_threshold = self._hooks.extract_free_disk_threshold_gib(query)
@@ -149,6 +154,17 @@ class MultiTargetSSHExecutionHandler:
                     "text": threshold_text or clean_text,
                     "raw_text": clean_text,
                 }
+                disk_measurement = self._hooks.extract_disk_measurement(clean_text)
+                if disk_measurement:
+                    record["disk_measurement"] = disk_measurement
+                    record.update(
+                        {
+                            "disk_mount": str(disk_measurement.get("mount", "") or ""),
+                            "disk_use_pct": disk_measurement.get("use_pct", 0.0),
+                            "disk_avail_gib": disk_measurement.get("avail_gib", 0.0),
+                            "disk_avail_label": str(disk_measurement.get("avail_label", "") or ""),
+                        }
+                    )
 
             self._hooks.remember_action(request.user_id, plan)
             self._hooks.learning_service.record_capability_success(
@@ -188,7 +204,7 @@ class MultiTargetSSHExecutionHandler:
                 record_ref = ""
                 record_state = "empty"
                 if isinstance(record, dict):
-                    result_records.append({str(key): str(value) for key, value in record.items()})
+                    result_records.append(self._clean_record(record))
                     record_ref = str(record.get("ref", "") or "").strip()
                     record_state = str(record.get("state", "") or "").strip() or record_state
                 if bool(target_result.get("success")):
@@ -277,6 +293,39 @@ class MultiTargetSSHExecutionHandler:
             }
         }
         return AgenticExecutionResult(intents=intents, text=text, detail_lines=detail_lines, errors=errors, metadata=metadata)
+
+    def _complete_full_kind_refs(self, payload: dict[str, Any], refs: list[str]) -> tuple[list[str], str]:
+        notes = [str(item or "").strip().lower() for item in list(payload.get("notes", []) or []) if str(item).strip()]
+        is_full_kind = "target_scope_authority:full_kind" in notes or "turn_contract_target_refs:full_kind" in notes
+        if not is_full_kind:
+            return refs, ""
+        configured_refs = self._hooks.configured_connection_refs("ssh")
+        if len(configured_refs) <= len(refs):
+            return refs, ""
+        completed = sorted(dict.fromkeys([*configured_refs, *refs]))
+        payload["connection_refs"] = completed
+        missing = sorted(set(completed) - set(refs))
+        return (
+            completed,
+            "Routing Debug: multi_target_ssh_full_kind_completed "
+            f"expected={len(configured_refs)} selected={len(refs)} completed={len(completed)} "
+            f"added={','.join(missing) or '-'}",
+        )
+
+    @staticmethod
+    def _clean_record(record: dict[str, Any]) -> dict[str, Any]:
+        clean: dict[str, Any] = {}
+        for key, value in dict(record or {}).items():
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            if clean_key == "disk_measurement" and isinstance(value, dict):
+                clean[clean_key] = dict(value)
+            elif isinstance(value, (int, float, bool)):
+                clean[clean_key] = value
+            else:
+                clean[clean_key] = str(value)
+        return clean
 
     @staticmethod
     def _task_intent_from_payload(payload: dict[str, Any]) -> str:
@@ -428,10 +477,16 @@ class MultiTargetSSHExecutionHandler:
             threshold_ok = 0
             threshold_below = 0
             for row in threshold_records:
-                parsed_free = self._hooks.extract_summary_free_disk_gib(str(row.get("raw_text", "") or ""))
-                if not parsed_free:
+                measurement = row.get("disk_measurement")
+                if not isinstance(measurement, dict):
+                    measurement = self._hooks.extract_disk_measurement(str(row.get("raw_text", "") or ""))
+                if not isinstance(measurement, dict):
                     continue
-                if parsed_free[0] >= threshold_gib:
+                try:
+                    free_gib = float(measurement.get("avail_gib", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if free_gib >= threshold_gib:
                     threshold_ok += 1
                 else:
                     threshold_below += 1

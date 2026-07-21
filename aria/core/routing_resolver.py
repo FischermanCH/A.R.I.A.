@@ -293,11 +293,9 @@ class RoutingResolver:
         qdrant_limit: int = 5,
         qdrant_score_threshold: float = 0.0,
     ) -> RoutingDecision:
-        effective_preferred_kind = infer_preferred_connection_kind(
-            message,
-            explicit_kind=preferred_kind,
-            available_kinds=available_connection_pools.keys(),
-        )
+        effective_preferred_kind = normalize_connection_kind(preferred_kind)
+        if effective_preferred_kind == "auto":
+            effective_preferred_kind = ""
         deterministic = self._deterministic_connection_match(
             message,
             available_connection_pools,
@@ -342,6 +340,14 @@ class RoutingResolver:
         valid_candidates.sort(key=lambda item: float(item.get("score", 0.0) or 0.0), reverse=True)
         if not valid_candidates:
             return RoutingDecision(candidates=list(candidates))
+
+        configured_kinds = {
+            normalize_connection_kind(kind)
+            for kind, pool in (available_connection_pools or {}).items()
+            if normalize_connection_kind(kind) and isinstance(pool, dict) and pool
+        }
+        if not effective_preferred_kind and len(configured_kinds) > 1:
+            return RoutingDecision(candidates=valid_candidates)
 
         winner = valid_candidates[0]
         return RoutingDecision(

@@ -706,6 +706,118 @@ def test_chat_confirm_button_can_post_signed_pending_payload_without_cookie(monk
     assert "Discord gesendet." in confirm.text
 
 
+def test_chat_confirm_button_signed_payload_confirms_without_token_text(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r1",
+            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:discord_send"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=10,
+            detail_lines=[],
+            pending_action={
+                "query": "schick eine testnachricht",
+                "candidate_kind": "template",
+                "candidate_id": "discord_send_message",
+                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
+                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
+                "payload": {
+                    "found": True,
+                    "capability": "discord_send",
+                    "connection_kind": "discord",
+                    "connection_ref": "alerts",
+                    "content": "ARIA Testnachricht",
+                    "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
+                    "missing_fields": [],
+                },
+                "safety_decision": {"action": "ask_user"},
+                "execution_decision": {"next_step": "ask_user"},
+            },
+        )
+
+    async def fake_execute_pending(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r2",
+            text="Discord gesendet.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:discord_send"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=12,
+            detail_lines=[],
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    monkeypatch.setattr(main_mod.Pipeline, "execute_pending_routed_action", fake_execute_pending)
+
+    client = _admin_client(monkeypatch)
+    preview = client.post("/chat", data={"message": "schick eine testnachricht", "csrf_token": client.headers["x-csrf-token"]})
+    payload_match = re.search(r'data-routed-action-pending="([^"]+)"', preview.text)
+    assert payload_match
+
+    fresh_client = _admin_client(monkeypatch)
+    confirm = fresh_client.post(
+        "/chat",
+        data={
+            "message": "Aktion ausführen",
+            "routed_action_pending": payload_match.group(1),
+            "csrf_token": fresh_client.headers["x-csrf-token"],
+        },
+    )
+
+    assert confirm.status_code == 200
+    assert "Discord gesendet." in confirm.text
+
+
+def test_chat_does_not_offer_confirm_button_for_empty_ssh_command_contract(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r1",
+            text="ARIA moechte diese Aktion vor der Ausfuehrung noch bestaetigen.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["capability:ssh_command"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=10,
+            detail_lines=[],
+            pending_action={
+                "query": "zeige mir den status vom monitoring server und nutze nur belegte kommandos",
+                "candidate_kind": "template",
+                "candidate_id": "ssh_run_command",
+                "routing_decision": {"found": True, "kind": "ssh", "ref": "ops-alert-01"},
+                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"},
+                "payload": {
+                    "found": True,
+                    "capability": "ssh_command",
+                    "connection_kind": "ssh",
+                    "connection_ref": "ops-alert-01",
+                    "content": "",
+                    "preview": "SSH command",
+                    "missing_fields": [],
+                },
+                "safety_decision": {"action": "ask_user"},
+                "execution_decision": {"next_step": "ask_user"},
+            },
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+
+    client = _admin_client(monkeypatch)
+    preview = client.post(
+        "/chat",
+        data={
+            "message": "zeige mir den status vom monitoring server und nutze nur belegte kommandos",
+            "csrf_token": client.headers["x-csrf-token"],
+        },
+    )
+
+    assert preview.status_code == 200
+    assert "chat-confirm-action" not in preview.text
+    assert "Action-Contract fehlt" in preview.text or "action contract is missing" in preview.text
+
+
 def test_chat_rejects_unknown_routed_action_confirm_token(monkeypatch) -> None:
     async def fake_process(*_args, **_kwargs):
         raise AssertionError("pipeline.process should not run for a bare confirm token")
@@ -921,6 +1033,46 @@ def test_chat_handles_recipe_errors_without_crashing_and_sends_alert(monkeypatch
     assert alerts[0]["category"] == "recipe_errors"
     assert "Unable to open file" in str(alerts[0]["lines"])
     assert "SMB2_COM_TREE_CONNECT" not in str(alerts[0]["lines"])
+
+
+def test_chat_routes_web_source_fail_closed_as_skill_alert(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-web-source-error",
+            text="Ich habe die Websuche ausgeführt, aber keine belastbaren Quellen zum angefragten Thema gefunden.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["web_search"],
+            skill_errors=["web_source_no_reliable_sources"],
+            router_level=1,
+            duration_ms=10,
+            detail_lines=[
+                "Routing Debug: web_source_acquisition_plan used=true planned_queries=3 required=rabbit.tech official website",
+                "Routing Debug: web_source_queries count=4 queries=site:rabbit.tech Rabbit R1 update | Rabbit R1 update",
+                "Routing Debug: web_source_contract required_domains=rabbit.tech missing_domains=rabbit.tech result_domains=hub.docker.com executed_queries=site:rabbit.tech Rabbit R1 update | Rabbit R1 update",
+                "Routing Debug: web_source_curation sufficient=false reason=different entity",
+            ],
+        )
+
+    alerts: list[dict[str, object]] = []
+
+    def fake_send_discord_alerts(settings, **kwargs):  # noqa: ARG001
+        alerts.append(dict(kwargs))
+        return []
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    monkeypatch.setattr(main_mod, "send_discord_alerts", fake_send_discord_alerts)
+
+    client = _admin_client(monkeypatch)
+    response = client.post("/chat", data={"message": "gibts vom rabbit r1 ein update?", "csrf_token": client.headers["x-csrf-token"]})
+
+    assert response.status_code == 200
+    assert "keine belastbaren Quellen" in response.text
+    assert "memory_error" not in response.text
+    assert alerts
+    assert alerts[0]["category"] == "skill_errors"
+    assert "Websuche" in str(alerts[0]["title"])
+    assert "Web-Source-Diagnose" in str(alerts[0]["lines"])
+    assert "missing_domains=rabbit.tech" in str(alerts[0]["lines"])
 
 
 def test_chat_does_not_offer_confirm_when_target_profile_is_still_missing(monkeypatch) -> None:

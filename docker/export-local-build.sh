@@ -132,6 +132,10 @@ log "Exportiere Image: $TARGET_IMAGE_REF"
 docker save -o "$TARGET_TAR_PATH" "$TARGET_IMAGE_REF"
 log "TAR geschrieben: $TARGET_TAR_PATH"
 
+ALIAS_TAR_PATH="$TARGET_DIR/aria-alpha-local.tar"
+cp -f "$TARGET_TAR_PATH" "$ALIAS_TAR_PATH"
+log "Alias aktualisiert: $ALIAS_TAR_PATH"
+
 copy_if_exists "$DOCKER_HELPER_DIR/update-local-aria.sh" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/aria-host-update.sh" "$TARGET_DIR"
 copy_if_exists "$DOCKER_HELPER_DIR/aria-host-update.env.example" "$TARGET_DIR"

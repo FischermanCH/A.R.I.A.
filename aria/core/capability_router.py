@@ -11,7 +11,6 @@ from aria.core.connection_catalog import connection_routing_spec
 from aria.core.connection_semantic_resolver import _is_generic_connection_label
 from aria.core.routing_lexicon import CapabilityRoutingLexicon
 from aria.core.routing_lexicon import get_default_capability_lexicon
-from aria.core.routing_resolver import infer_preferred_connection_kind
 
 _CAPABILITY_ROUTER_LEXICON_PATH = Path(__file__).resolve().parents[1] / "lexicons" / "capability_router.json"
 
@@ -666,25 +665,17 @@ class CapabilityRouter:
 
     def _resolve_connection_kind(
         self,
-        message: str,
         *,
         capability: str,
         explicit_kind: str,
         available_kinds: set[str],
-        lexicon: CapabilityRoutingLexicon,
     ) -> str:
         if explicit_kind:
             return explicit_kind
         candidate_kinds = [kind for kind in capability_executor_kinds(capability) if kind in available_kinds]
-        if not candidate_kinds:
-            return ""
-        inferred = infer_preferred_connection_kind(
-            message,
-            available_kinds=candidate_kinds,
-        )
-        if inferred and inferred in set(candidate_kinds):
-            return inferred
-        return self._fallback_kind_from_candidates(candidate_kinds, lexicon.connection_kind_priority)
+        if len(candidate_kinds) == 1:
+            return candidate_kinds[0]
+        return ""
 
     def _has_remote_signal(
         self,
@@ -893,11 +884,9 @@ class CapabilityRouter:
             connection_kind = "ssh"
         if not connection_kind:
             connection_kind = self._resolve_connection_kind(
-                raw,
                 capability=capability,
                 explicit_kind=explicit_kind,
                 available_kinds=allowed_kind_set or available_kinds,
-                lexicon=lexicon,
             ) or self._fallback_kind_from_candidates(allowed_kinds or executor_kinds or available_kinds, lexicon.connection_kind_priority)
 
         requested_connection_ref = ""

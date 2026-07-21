@@ -50,7 +50,7 @@ ACTION_TEMPLATE_LIBRARY: dict[str, list[dict[str, Any]]] = {
             "preview": "SSH command derived from the routed target and request",
             "base_preview_de": "SSH-Befehl aus Zielkontext und Benutzeranfrage",
             "base_preview_en": "SSH command from routed target context and request",
-            "required_inputs": [],
+            "required_inputs": ["command"],
             "router_keywords": [
                 "run command",
                 "execute",

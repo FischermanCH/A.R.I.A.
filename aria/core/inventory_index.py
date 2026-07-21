@@ -45,6 +45,7 @@ class InventoryDocument:
     ref: str
     title: str = ""
     description: str = ""
+    host: str = ""
     group_name: str = ""
     aliases: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
@@ -67,6 +68,8 @@ class InventoryDocument:
             rows.append(f"Title: {self.title}")
         if self.description:
             rows.append(f"Description: {self.description}")
+        if self.host:
+            rows.append(f"Host: {self.host}")
         if self.group_name:
             rows.append(f"Group: {self.group_name}")
         if self.aliases:
@@ -85,6 +88,7 @@ class InventoryDocument:
             "ref": self.ref,
             "title": self.title,
             "description": self.description,
+            "host": self.host,
             "group_name": self.group_name,
             "aliases": list(self.aliases),
             "tags": list(self.tags),
@@ -178,6 +182,7 @@ def build_inventory_documents(settings: Any) -> list[InventoryDocument]:
                 continue
             title = _read_text(row, "title")
             description = _read_text(row, "description")
+            host = _read_text(row, "host")
             group_name = _read_text(row, "group_name")
             aliases = _inventory_aliases(clean_ref, row)
             tags = _dedupe(_read_list(row, "tags"))
@@ -188,6 +193,7 @@ def build_inventory_documents(settings: Any) -> list[InventoryDocument]:
                 "ref": clean_ref,
                 "title": title,
                 "description": description,
+                "host": host,
                 "group_name": group_name,
                 "aliases": aliases,
                 "tags": tags,
@@ -199,6 +205,7 @@ def build_inventory_documents(settings: Any) -> list[InventoryDocument]:
                 ref=clean_ref,
                 title=title,
                 description=description,
+                host=host,
                 group_name=group_name,
                 aliases=aliases,
                 tags=tags,

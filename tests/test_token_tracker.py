@@ -91,6 +91,34 @@ def test_get_recent_activities_filters_and_summarizes(tmp_path: Path) -> None:
     assert data["rows"][2]["show_source"] is False
 
 
+def test_log_does_not_copy_generic_skill_errors_to_recipe_errors(tmp_path: Path) -> None:
+    log_path = tmp_path / "tokens.jsonl"
+    tracker = TokenTracker(str(log_path), enabled=True)
+
+    asyncio.run(
+        tracker.log(
+            request_id="r-web",
+            user_id="DemoUser",
+            intents=["web_search"],
+            router_level=1,
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            chat_model="fake",
+            embedding_model="fake",
+            embedding_usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            chat_cost_usd=None,
+            embedding_cost_usd=None,
+            total_cost_usd=None,
+            duration_ms=10,
+            source="test",
+            skill_errors=["web_source_no_reliable_sources"],
+        )
+    )
+
+    row = json.loads(log_path.read_text(encoding="utf-8").splitlines()[0])
+    assert row["skill_errors"] == ["web_source_no_reliable_sources"]
+    assert row["recipe_errors"] == []
+
+
 def test_prune_old_entries_removes_expired_rows(tmp_path: Path) -> None:
     log_path = tmp_path / "tokens.jsonl"
     old_ts = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()

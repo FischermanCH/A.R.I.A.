@@ -318,14 +318,37 @@ class PipelineTurnStagesMixin:
         language: str | None = None,
     ) -> PipelineResult | None:
         web_search_results = [result for result in skill_results if result.skill_name == "web_search"]
-        has_web_search_context = any(result.success and bool(str(result.content or "").strip()) for result in web_search_results)
+
+        def _has_web_source_context(result: SkillResult) -> bool:
+            if not result.success:
+                return False
+            if list((result.metadata or {}).get("sources") or []):
+                return True
+            detail_lines = [str(line or "") for line in list((result.metadata or {}).get("detail_lines") or [])]
+            return any(("Quelle:" in line or "Source:" in line) and "0 Treffer" not in line and "0 results" not in line for line in detail_lines)
+
+        has_web_search_context = any(
+            _has_web_source_context(result)
+            for result in web_search_results
+        )
         if "web_search" not in intents or not web_search_results or has_web_search_context:
             return None
 
+        fallback_error = "I found no reliable web sources for this question."
+        pipeline_text = getattr(self, "_pipeline_text", None)
+        if callable(pipeline_text):
+            fallback_error = pipeline_text(
+                language,
+                "web_search_no_reliable_sources",
+                fallback_error,
+            )
         primary_error = next(
             (str(result.error or "").strip() for result in web_search_results if str(result.error or "").strip()),
-            self._pipeline_text(language, "web_search_failed", "Web search failed."),
+            fallback_error,
         )
+        skill_errors = self._skill_errors(web_search_results)
+        if not skill_errors:
+            skill_errors = [primary_error]
         duration_ms = int((time.perf_counter() - start) * 1000)
         usage = dict(ZERO_USAGE)
         await self.token_tracker.log(
@@ -342,7 +365,8 @@ class PipelineTurnStagesMixin:
             total_cost_usd=None,
             duration_ms=duration_ms,
             source=source,
-            skill_errors=[primary_error],
+            skill_errors=skill_errors,
+            recipe_errors=[],
             extraction_model="web_search_precheck",
             extraction_usage=dict(ZERO_EMBEDDING_USAGE),
         )
@@ -351,7 +375,7 @@ class PipelineTurnStagesMixin:
             text=primary_error,
             usage=usage,
             intents=intents,
-            skill_errors=[primary_error],
+            skill_errors=skill_errors,
             router_level=decision.level,
             duration_ms=duration_ms,
             chat_cost_usd=None,

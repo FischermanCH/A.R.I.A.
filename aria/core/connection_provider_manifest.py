@@ -6,6 +6,8 @@ from typing import Any
 from aria.core.connection_action_contract import ConnectionActionContract
 from aria.core.connection_action_contract import connection_action_contracts
 from aria.core.connection_catalog import normalize_connection_kind
+from aria.core.agentic_execution_registry import RUNTIME_ADAPTER_STATUS_UNREGISTERED
+from aria.core.agentic_execution_registry import agentic_execution_runtime_adapter_status
 
 PROVIDER_MANIFEST_SCHEMA_VERSION = "0.2"
 
@@ -81,6 +83,24 @@ class ConnectionProviderManifest:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ConnectionProviderRuntimeAdapterAudit:
+    connection_kind: str
+    provider_id: str
+    runtime_adapter: str
+    registry_status: str
+    capabilities: tuple[str, ...] = field(default_factory=tuple)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "connection_kind": self.connection_kind,
+            "provider_id": self.provider_id,
+            "runtime_adapter": self.runtime_adapter,
+            "registry_status": self.registry_status,
+            "capabilities": list(self.capabilities),
+        }
+
+
 def _provider_display_name(connection_kind: str) -> str:
     return {
         "ssh": "SSH",
@@ -148,6 +168,40 @@ def connection_provider_manifest_rows() -> list[dict[str, Any]]:
     return [manifest.as_dict() for manifest in build_connection_provider_manifests()]
 
 
+def connection_provider_runtime_adapter_audit_rows(
+    manifests: list[ConnectionProviderManifest] | list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    source_rows: list[ConnectionProviderManifest | dict[str, Any]] = list(manifests or build_connection_provider_manifests())
+    rows: list[dict[str, Any]] = []
+    for source in source_rows:
+        if isinstance(source, ConnectionProviderManifest):
+            capabilities = tuple(capability.capability for capability in source.capabilities)
+            audit = ConnectionProviderRuntimeAdapterAudit(
+                connection_kind=source.connection_kind,
+                provider_id=source.provider_id,
+                runtime_adapter=source.runtime_adapter,
+                registry_status=agentic_execution_runtime_adapter_status(source.runtime_adapter),
+                capabilities=capabilities,
+            )
+            rows.append(audit.as_dict())
+            continue
+        manifest = dict(source or {})
+        capability_rows = [
+            str(item.get("capability", "") or "").strip()
+            for item in list(manifest.get("capabilities", []) or [])
+            if isinstance(item, dict) and str(item.get("capability", "") or "").strip()
+        ]
+        audit = ConnectionProviderRuntimeAdapterAudit(
+            connection_kind=normalize_connection_kind(str(manifest.get("connection_kind", "") or "")),
+            provider_id=str(manifest.get("provider_id", "") or "").strip(),
+            runtime_adapter=str(manifest.get("runtime_adapter", "") or "").strip(),
+            registry_status=agentic_execution_runtime_adapter_status(str(manifest.get("runtime_adapter", "") or "")),
+            capabilities=tuple(capability_rows),
+        )
+        rows.append(audit.as_dict())
+    return rows
+
+
 def validate_connection_provider_manifest(source: dict[str, Any] | None) -> list[str]:
     manifest = dict(source or {})
     errors: list[str] = []
@@ -158,8 +212,11 @@ def validate_connection_provider_manifest(source: dict[str, Any] | None) -> list
         errors.append("connection_kind")
     if not str(manifest.get("provider_id", "") or "").strip():
         errors.append("provider_id")
-    if not str(manifest.get("runtime_adapter", "") or "").strip():
+    runtime_adapter = str(manifest.get("runtime_adapter", "") or "").strip()
+    if not runtime_adapter:
         errors.append("runtime_adapter")
+    elif agentic_execution_runtime_adapter_status(runtime_adapter) == RUNTIME_ADAPTER_STATUS_UNREGISTERED:
+        errors.append("runtime_adapter_registry")
     auth_modes = manifest.get("auth_modes", [])
     if not isinstance(auth_modes, list) or not [item for item in auth_modes if str(item or "").strip()]:
         errors.append("auth_modes")

@@ -11,11 +11,9 @@ from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.connection_ref_scope import ConnectionRefScope
 from aria.core.connection_semantic_resolver import ConnectionSemanticResolver
 from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
-from aria.core.connection_semantic_resolver import build_connection_aliases
-from aria.core.connection_semantic_resolver import normalize_connection_alias
-from aria.core.connection_semantic_resolver import split_connection_tokens
 from aria.core.connection_dossiers import with_capability_draft_updates
 from aria.core.pipeline_action_flow_helpers import append_debug_detail_lines
+from aria.core.pipeline_action_flow_helpers import prune_satisfied_payload_missing_fields
 from aria.core.ssh_policy import validate_ssh_readonly_policy
 
 
@@ -57,15 +55,14 @@ class SshTargetScopePolicy:
         capability_draft: Any | None,
         looks_like_plural_target: Callable[[str, str], bool] | None,
     ) -> bool:
+        _ = (message, looks_like_plural_target)
         draft_multi_target_scope = self.capability_draft_has_multi_target_scope(capability_draft)
-        if not callable(looks_like_plural_target) and not draft_multi_target_scope:
+        resolved_multi_target_scope = any(
+            "plural_target_scope blocks_single_target_resolution" in str(line or "")
+            for line in list(resolved.get("detail_lines", []) or [])
+        )
+        if not draft_multi_target_scope and not resolved_multi_target_scope:
             return False
-        if not draft_multi_target_scope:
-            try:
-                if not bool(looks_like_plural_target(str(message or ""), "ssh")):
-                    return False
-            except Exception:
-                return False
 
         payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
         if self._payload_multi_target_refs(payload):
@@ -98,24 +95,38 @@ class SshTargetScopePolicy:
         ref_scope: ConnectionRefScope,
     ) -> SshTargetScopeDecision:
         plural_target_scope = self.capability_draft_has_multi_target_scope(working_draft)
+        explicit_ref = self._explicit_single_ref_from_scope_or_resolution(
+            ref_scope=ref_scope,
+            working_draft=working_draft,
+            resolved=resolved,
+        )
         if (
             plural_target_scope
             and effective_kind == "ssh"
-            and ref_scope.has_requested
-            and self.has_single_target_disambiguator(message)
+            and explicit_ref
         ):
             plural_target_scope = False
             resolved = append_debug_detail_lines(
                 resolved,
-                "Routing Debug: plural_target_scope disabled_by_requested_single_target "
-                f"requested_ref={ref_scope.requested_ref}",
+                "Routing Debug: plural_target_scope disabled_by_explicit_single_target "
+                f"explicit_ref={explicit_ref}",
                 routing_debug_enabled=self._routing_debug_enabled(),
             )
-        if callable(looks_like_plural_target) and not plural_target_scope and not ref_scope.has_any:
-            try:
-                plural_target_scope = bool(looks_like_plural_target(message, effective_kind))
-            except Exception:
-                plural_target_scope = False
+        requested_ref = str(ref_scope.requested_ref or "").strip()
+        if (
+            plural_target_scope
+            and effective_kind == "ssh"
+            and requested_ref
+            and requested_ref in candidate_connections
+        ):
+            plural_target_scope = False
+            resolved = append_debug_detail_lines(
+                resolved,
+                "Routing Debug: plural_target_scope disabled_by_existing_requested_target "
+                f"requested_ref={requested_ref}",
+                routing_debug_enabled=self._routing_debug_enabled(),
+            )
+        _ = (message, looks_like_plural_target)
         if plural_target_scope:
             resolved = append_debug_detail_lines(
                 resolved,
@@ -123,33 +134,40 @@ class SshTargetScopePolicy:
                 f"kind={effective_kind or '-'}",
                 routing_debug_enabled=self._routing_debug_enabled(),
             )
-        if (
-            effective_kind == "ssh"
-            and ref_scope.has_requested
-            and not ref_scope.has_explicit
-            and not plural_target_scope
-            and not self.has_single_target_disambiguator(message)
-            and len(candidate_connections) >= 2
-        ):
-            narrowing = self.narrow_plural_target_connections_by_context(
-                resolved,
-                message=message,
-                candidate_connections=candidate_connections,
-            )
-            if 1 < len(narrowing.candidate_connections) < len(candidate_connections):
-                plural_target_scope = True
-                candidate_connections = narrowing.candidate_connections
-                resolved = append_debug_detail_lines(
-                    narrowing.resolved,
-                    "Routing Debug: plural_target_scope enabled_by_requested_ref_context "
-                    f"requested_ref={ref_scope.requested_ref} refs={', '.join(candidate_connections.keys())}",
-                    routing_debug_enabled=self._routing_debug_enabled(),
-                )
         return SshTargetScopeDecision(
             resolved=resolved,
             plural_target_scope=plural_target_scope,
             candidate_connections=candidate_connections,
         )
+
+    @staticmethod
+    def _explicit_single_ref_from_scope_or_resolution(
+        *,
+        ref_scope: ConnectionRefScope,
+        working_draft: Any,
+        resolved: dict[str, Any],
+    ) -> str:
+        explicit_ref = str(ref_scope.explicit_ref or "").strip()
+        if explicit_ref:
+            return explicit_ref
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        decision = dict(resolved.get("decision", {}) or {})
+        for value in (
+            getattr(working_draft, "explicit_connection_ref", ""),
+            payload.get("connection_ref", ""),
+            decision.get("ref", ""),
+        ):
+            clean = str(value or "").strip()
+            if clean:
+                return clean
+        for line in list(resolved.get("detail_lines", []) or []):
+            match = re.search(r"\bexplicit_ref=([^\s`]+)", str(line or ""))
+            if not match:
+                continue
+            clean = str(match.group(1) or "").strip()
+            if clean and clean != "-":
+                return clean
+        return ""
 
     async def prepare_plural_multi_target_command(
         self,
@@ -291,11 +309,54 @@ class SshTargetScopePolicy:
             return resolved
 
         existing_refs = self._payload_multi_target_refs(payload)
+        if not existing_refs:
+            for item in list(getattr(capability_draft, "connection_refs", []) or []):
+                clean_ref = str(item or "").strip()
+                if clean_ref and clean_ref not in existing_refs:
+                    existing_refs.append(clean_ref)
+        draft_notes = [
+            str(item or "").strip().lower()
+            for item in list(getattr(capability_draft, "notes", []) or [])
+            if str(item or "").strip()
+        ]
+        target_scope_authority = next(
+            (
+                note.split(":", 1)[1].strip()
+                for note in draft_notes
+                if note.startswith("target_scope_authority:") and note.split(":", 1)[1].strip()
+            ),
+            "",
+        )
+        missing_contract_refs_require_skip = (
+            not existing_refs
+            and "target_scope:multi_target" in draft_notes
+            and target_scope_authority != "full_kind"
+            and (
+                "capability_draft_source:llm" in draft_notes
+                or target_scope_authority in {"", "priority_sample"}
+            )
+        )
+        if missing_contract_refs_require_skip:
+            draft_source = next(
+                (
+                    note.split(":", 1)[1].strip()
+                    for note in draft_notes
+                    if note.startswith("capability_draft_source:") and note.split(":", 1)[1].strip()
+                ),
+                "-",
+            )
+            return append_debug_detail_lines(
+                resolved,
+                "Routing Debug: plural_target_scope skipped_missing_contract_target_refs "
+                f"source={draft_source} authority={target_scope_authority or '-'}",
+                routing_debug_enabled=self._routing_debug_enabled(),
+            )
         refs = existing_refs or sorted(
             str(ref or "").strip()
             for ref in dict(candidate_connections or {}).keys()
             if str(ref or "").strip()
         )
+        refs = sorted(dict.fromkeys(refs))
         if len(refs) < 2:
             return resolved
 
@@ -317,11 +378,10 @@ class SshTargetScopePolicy:
                 routing_debug_enabled=self._routing_debug_enabled(),
             )
 
-        missing_fields = [
-            str(item or "").strip()
-            for item in list(payload.get("missing_fields", []) or [])
-            if str(item or "").strip() and str(item or "").strip() != "connection_ref"
-        ]
+        payload["connection_ref"] = ""
+        payload["connection_refs"] = refs
+        payload["content"] = command
+        missing_fields = prune_satisfied_payload_missing_fields(payload)
         notes = [
             str(item or "").strip()
             for item in list(payload.get("notes", []) or [])
@@ -427,95 +487,15 @@ class SshTargetScopePolicy:
         message: str,
         candidate_connections: dict[str, Any],
     ) -> SshTargetScopeNarrowing:
-        candidates = self._resolver.collect_connection_candidates(
-            message,
-            {"ssh": candidate_connections},
-            preferred_kind="ssh",
-        )
-        strong_candidates: list[SemanticConnectionCandidate] = []
-        seen_refs: set[str] = set()
-        for candidate in candidates:
-            ref = str(candidate.connection_ref or "").strip()
-            if candidate.connection_kind != "ssh" or ref not in candidate_connections:
-                continue
-            if int(candidate.score or 0) < 1000:
-                continue
-            if ref in seen_refs:
-                continue
-            seen_refs.add(ref)
-            strong_candidates.append(candidate)
-
-        if not strong_candidates:
-            prompt_seed_terms = self._seed_terms_from_message(message)
-            if not prompt_seed_terms:
-                return SshTargetScopeNarrowing(resolved, candidate_connections, candidates)
-            strong_candidates = self._expand_group_candidates(
-                message=message,
-                candidate_connections=candidate_connections,
-                seed_candidates=[],
-                score=1000,
-                seed_terms=prompt_seed_terms,
-            )
-            candidates = [*candidates, *strong_candidates]
-            seen_refs = {str(candidate.connection_ref or "").strip() for candidate in strong_candidates}
-            if not strong_candidates:
-                return SshTargetScopeNarrowing(resolved, candidate_connections, candidates)
-
-        top_score = max(int(candidate.score or 0) for candidate in strong_candidates)
-        strong_candidates = [
-            candidate
-            for candidate in strong_candidates
-            if int(candidate.score or 0) == top_score
-        ]
-        seen_refs = {
-            str(candidate.connection_ref or "").strip()
-            for candidate in strong_candidates
-            if str(candidate.connection_ref or "").strip()
-        }
-        if strong_candidates and (
-            not self.has_single_target_disambiguator(message)
-            or self._should_expand_role_group(message, strong_candidates)
-        ):
-            expanded_candidates = self._expand_group_candidates(
-                message=message,
-                candidate_connections=candidate_connections,
-                seed_candidates=strong_candidates,
-                score=top_score,
-            )
-            for candidate in expanded_candidates:
-                ref = str(candidate.connection_ref or "").strip()
-                if ref and ref not in seen_refs:
-                    seen_refs.add(ref)
-                    strong_candidates.append(candidate)
-
-        if self._message_requests_all_targets_without_group_scope(message):
-            resolved = append_debug_detail_lines(
-                resolved,
-                "Routing Debug: plural_target_scope kept_full_fleet_by_all_scope "
-                "kind=ssh reason=no_specific_group_scope",
-                routing_debug_enabled=self._routing_debug_enabled(),
-            )
-            return SshTargetScopeNarrowing(resolved, candidate_connections, candidates)
-
-        if not strong_candidates or len(strong_candidates) >= len(candidate_connections):
-            return SshTargetScopeNarrowing(resolved, candidate_connections, candidates)
-
-        strong_candidates.sort(key=lambda candidate: str(candidate.connection_ref or ""))
-        scoped_connections = {
-            candidate.connection_ref: candidate_connections[candidate.connection_ref]
-            for candidate in strong_candidates
-        }
-        aliases = ", ".join(
-            str(candidate.alias or candidate.note or candidate.connection_ref or "-").strip()
-            for candidate in strong_candidates
-        )
+        _ = message
         resolved = append_debug_detail_lines(
             resolved,
-            "Routing Debug: plural_target_scope narrowed_by_connection_context "
-            f"kind=ssh refs={', '.join(scoped_connections.keys())} aliases={aliases or '-'}",
+            "Routing Debug: legacy_semantic_heuristic component=ssh_target_scope_policy "
+            "decision=narrow_plural_target_connections_by_context effect=candidate_only "
+            "authority=candidate_only manifest_class=red_p0 source=disabled",
             routing_debug_enabled=self._routing_debug_enabled(),
         )
-        return SshTargetScopeNarrowing(resolved, scoped_connections, candidates)
+        return SshTargetScopeNarrowing(resolved, candidate_connections, [])
 
     @staticmethod
     def capability_draft_has_multi_target_scope(capability_draft: Any | None) -> bool:
@@ -530,324 +510,3 @@ class SshTargetScopePolicy:
             if clean and clean not in refs:
                 refs.append(clean)
         return refs
-
-    @staticmethod
-    def has_single_target_disambiguator(message: str) -> bool:
-        tokens = set(split_connection_tokens(message))
-        single_target_terms = {
-            "erster",
-            "erste",
-            "erstes",
-            "ersten",
-            "zweiter",
-            "zweite",
-            "zweites",
-            "zweiten",
-            "dritter",
-            "dritte",
-            "drittes",
-            "dritten",
-            "first",
-            "second",
-            "third",
-            "only",
-            "nur",
-            "mein",
-            "meinem",
-        }
-        if tokens & single_target_terms:
-            return True
-        if "meinen" in tokens and not (tokens & {"servern", "systemen", "hosts", "servers"}):
-            return True
-        return False
-
-    @staticmethod
-    def _should_expand_role_group(
-        message: str,
-        seed_candidates: list[SemanticConnectionCandidate],
-    ) -> bool:
-        seed_terms = SshTargetScopePolicy._seed_terms(message, seed_candidates)
-        if not (seed_terms & {"dns", "pihole", "pi-hole"}):
-            return False
-        tokens = set(split_connection_tokens(message))
-        mutating_terms = {
-            "restart",
-            "reboot",
-            "start",
-            "stop",
-            "starte",
-            "neustart",
-            "update",
-            "install",
-            "delete",
-            "remove",
-            "loesche",
-            "schreibe",
-            "write",
-        }
-        if tokens & mutating_terms:
-            return False
-        health_terms = {
-            "ok",
-            "okay",
-            "status",
-            "health",
-            "healthy",
-            "check",
-            "pruef",
-            "pruefe",
-            "fit",
-            "gesund",
-            "geht",
-            "erreichbar",
-        }
-        return bool(tokens & health_terms)
-
-    @staticmethod
-    def _seed_terms(
-        message: str,
-        seed_candidates: list[SemanticConnectionCandidate],
-    ) -> set[str]:
-        generic_terms = {
-            "server",
-            "srv",
-            "host",
-            "system",
-            "node",
-            "profile",
-            "profil",
-            "ssh",
-        }
-        message_tokens = set(split_connection_tokens(message))
-        seed_terms: set[str] = set()
-        for candidate in seed_candidates:
-            candidate_labels = [
-                str(candidate.alias or "").strip(),
-                str(candidate.note or "").strip(),
-                str(candidate.connection_ref or "").strip(),
-            ]
-            for label in candidate_labels:
-                for token in split_connection_tokens(label):
-                    if token in generic_terms or len(token) < 3:
-                        continue
-                    if token in message_tokens or any(token.startswith(message_token) for message_token in message_tokens):
-                        seed_terms.add(token)
-                    elif token.startswith("dev"):
-                        seed_terms.add("dev")
-        expanded_terms = set(seed_terms)
-        if seed_terms & {
-            "dev",
-            "developer",
-            "developers",
-            "development",
-            "entwicklungsserver",
-            "entwicklungsumgebung",
-            "entwicklung",
-        }:
-            expanded_terms.update(
-                {
-                    "dev",
-                    "devserver",
-                    "dev-server",
-                    "development",
-                    "developer",
-                    "entwicklung",
-                    "entwicklungsserver",
-                    "entwicklungsumgebung",
-                    "webentwicklung",
-                    "coding",
-                    "programming",
-                    "programmierung",
-                    "code-server",
-                    "vscode",
-                    "browser-ide",
-                }
-            )
-        return expanded_terms
-
-    @staticmethod
-    def _seed_terms_from_message(message: str) -> set[str]:
-        generic_terms = {
-            "all",
-            "alle",
-            "auf",
-            "den",
-            "der",
-            "die",
-            "ein",
-            "eine",
-            "genug",
-            "habe",
-            "haben",
-            "hat",
-            "ich",
-            "mein",
-            "meine",
-            "meinen",
-            "noch",
-            "server",
-            "servers",
-            "srv",
-            "ssh",
-            "system",
-            "systeme",
-        }
-        seed_terms = {
-            token
-            for token in split_connection_tokens(message)
-            if len(token) >= 3 and token not in generic_terms
-        }
-        if seed_terms & {"dev", "developer", "developers", "development", "entwicklung", "entwicklungsserver"}:
-            seed_terms.update(
-                {
-                    "dev",
-                    "devserver",
-                    "dev-server",
-                    "development",
-                    "developer",
-                    "entwicklung",
-                    "entwicklungsserver",
-                    "entwicklungsumgebung",
-                    "webentwicklung",
-                    "coding",
-                    "programming",
-                    "programmierung",
-                    "code-server",
-                    "vscode",
-                    "browser-ide",
-                }
-            )
-        if seed_terms & {"dns", "pihole", "pi-hole"}:
-            seed_terms.update({"dns", "pihole", "pi-hole", "adblock", "ad-blocking"})
-        return seed_terms
-
-    @staticmethod
-    def _message_requests_all_targets_without_group_scope(message: str) -> bool:
-        tokens = set(split_connection_tokens(message))
-        if not tokens & {"all", "alle", "allen", "jeder", "jeden", "every", "saemtliche"}:
-            return False
-        non_group_terms = {
-            "all",
-            "alle",
-            "allen",
-            "auf",
-            "ausreichend",
-            "bitte",
-            "capacity",
-            "check",
-            "den",
-            "der",
-            "die",
-            "disk",
-            "enough",
-            "festplatte",
-            "festplatten",
-            "festplattenplatz",
-            "frei",
-            "freie",
-            "freien",
-            "full",
-            "genug",
-            "haben",
-            "ich",
-            "jeder",
-            "jeden",
-            "linux",
-            "meine",
-            "meinen",
-            "partition",
-            "platz",
-            "pruef",
-            "pruefe",
-            "root",
-            "server",
-            "servern",
-            "servers",
-            "speicher",
-            "speicherplatz",
-            "system",
-            "systeme",
-            "usage",
-            "voll",
-            "volle",
-            "vollen",
-        }
-        scope_terms = SshTargetScopePolicy._seed_terms_from_message(message) - non_group_terms
-        return not scope_terms
-
-    @staticmethod
-    def _aliases_match_seed_terms(
-        aliases: list[str],
-        seed_terms: set[str],
-    ) -> str:
-        if not seed_terms:
-            return ""
-        alias_blob = " ".join(normalize_connection_alias(alias) for alias in aliases if str(alias or "").strip())
-        alias_tokens = set(split_connection_tokens(alias_blob))
-        for term in sorted(seed_terms):
-            clean_term = normalize_connection_alias(term)
-            if not clean_term:
-                continue
-            if clean_term == "dev":
-                if any(SshTargetScopePolicy._alias_token_matches_dev_seed(token) for token in alias_tokens):
-                    return clean_term
-                continue
-            if clean_term in alias_blob:
-                return clean_term
-            term_tokens = split_connection_tokens(clean_term)
-            if term_tokens and all(token in alias_tokens for token in term_tokens):
-                return clean_term
-        return ""
-
-    @staticmethod
-    def _alias_token_matches_dev_seed(token: str) -> bool:
-        clean_token = str(token or "").strip().lower()
-        if not clean_token:
-            return False
-        return (
-            clean_token == "dev"
-            or bool(re.fullmatch(r"dev[0-9]+", clean_token))
-            or clean_token in {
-                "devserver",
-                "development",
-                "developer",
-                "entwicklungsserver",
-                "entwicklungsumgebung",
-                "entwicklung",
-                "webentwicklung",
-            }
-        )
-
-    def _expand_group_candidates(
-        self,
-        *,
-        message: str,
-        candidate_connections: dict[str, Any],
-        seed_candidates: list[SemanticConnectionCandidate],
-        score: int,
-        seed_terms: set[str] | None = None,
-    ) -> list[SemanticConnectionCandidate]:
-        seed_refs = {str(candidate.connection_ref or "").strip() for candidate in seed_candidates}
-        effective_seed_terms = seed_terms or self._seed_terms(message, seed_candidates)
-        if not effective_seed_terms:
-            return []
-        expanded: list[SemanticConnectionCandidate] = []
-        for ref, row in candidate_connections.items():
-            clean_ref = str(ref or "").strip()
-            if not clean_ref or clean_ref in seed_refs:
-                continue
-            aliases = build_connection_aliases("ssh", clean_ref, row)
-            matched = self._aliases_match_seed_terms(aliases, effective_seed_terms)
-            if not matched:
-                continue
-            expanded.append(
-                SemanticConnectionCandidate(
-                    connection_kind="ssh",
-                    connection_ref=clean_ref,
-                    source="semantic_group_alias",
-                    note=f"group_alias:{matched}",
-                    alias=matched,
-                    score=int(score or 0),
-                )
-            )
-        return expanded

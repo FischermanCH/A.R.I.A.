@@ -36,6 +36,7 @@ def planner_source_label(source: str, language: str = "") -> str:
     mapping = {
         "heuristic": _result_state_text(language, "source_heuristic", "Heuristic"),
         "llm": "LLM",
+        "llm_required": _result_state_text(language, "source_llm_required", "LLM required"),
         "catalog": _result_state_text(language, "source_catalog", "Catalog"),
     }
     return mapping.get(clean, clean)

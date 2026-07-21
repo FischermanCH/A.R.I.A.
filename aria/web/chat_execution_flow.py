@@ -16,6 +16,7 @@ from aria.core.llm_client import LLMClientError
 from aria.core.prompt_loader import PromptLoadError
 from aria.web.chat_route_helpers import ChatPreparedState, ChatResponseState
 from aria.web.main_ui_helpers import discord_alert_error_lines
+from aria.web.main_ui_helpers import is_web_source_no_reliable_error
 from aria.web.main_ui_helpers import should_alert_recipe_errors
 
 
@@ -33,6 +34,32 @@ def _chat_execution_text(lang: str | None, key: str, default: str = "", **values
         return template.format(**values)
     except Exception:
         return template
+
+
+def _web_source_alert_diagnostics(detail_lines: list[str] | None) -> list[str]:
+    markers = (
+        "web_source_acquisition_plan",
+        "web_source_queries",
+        "web_source_contract",
+        "web_source_curation_retry",
+        "web_source_curation ",
+    )
+    rows: list[str] = []
+    seen: set[str] = set()
+    for line in list(detail_lines or []):
+        clean = " ".join(str(line or "").split())
+        if not clean or not any(marker in clean for marker in markers):
+            continue
+        clean = clean[:360]
+        if clean in seen:
+            continue
+        seen.add(clean)
+        rows.append(clean)
+        if len(rows) >= 6:
+            break
+    if not rows:
+        return []
+    return ["Web-Source-Diagnose:", *[f"- {row}" for row in rows]]
 
 
 @dataclass(frozen=True)
@@ -355,7 +382,25 @@ async def execute_chat_flow(
             response_state.assistant_text = f"{response_state.assistant_text}\n\n{_chat_execution_text(lang, 'warning_prefix', 'Note')}: {warning}"
         warning_ms = int((time.perf_counter() - warning_start) * 1000)
         alert_ms = 0
-        if should_alert_recipe_errors(result.skill_errors):
+        if is_web_source_no_reliable_error(result.skill_errors):
+            alert_start = time.perf_counter()
+            discord_error_text = discord_alert_error_lines(result.skill_errors)
+            web_source_diagnostics = _web_source_alert_diagnostics(result.detail_lines)
+            await asyncio.to_thread(
+                deps.alert_sender,
+                deps.settings,
+                category="skill_errors",
+                title=_chat_execution_text(lang, "web_search_source_error_title", "Web search found no reliable sources"),
+                lines=[
+                    f"User: {username}",
+                    f"Intents: {', '.join(result.intents) or '-'}",
+                    f"{_chat_execution_text(lang, 'error_prefix', 'Error')}: {discord_error_text or '-'}",
+                    *web_source_diagnostics,
+                ],
+                level="warn",
+            )
+            alert_ms = int((time.perf_counter() - alert_start) * 1000)
+        elif should_alert_recipe_errors(result.skill_errors):
             alert_start = time.perf_counter()
             discord_error_text = discord_alert_error_lines(result.skill_errors)
             await asyncio.to_thread(

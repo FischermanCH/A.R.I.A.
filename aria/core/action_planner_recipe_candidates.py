@@ -162,7 +162,7 @@ def build_stored_recipe_action_candidates(
                 last_success_at=str(metadata.get("last_success_at", "") or "").strip(),
                 promotion_state=str(metadata.get("promotion_state", "") or "").strip(),
                 promotion_hint=str(metadata.get("promotion_hint", "") or "").strip(),
-                score=intent_score(query, intent, keywords),
+                score=0.0,
             )
         )
     return rows
@@ -220,7 +220,7 @@ def build_learned_recipe_action_candidates(
                 last_success_at=str(metadata.get("last_success_at", "") or "").strip(),
                 promotion_state=str(metadata.get("promotion_state", "") or "").strip(),
                 promotion_hint=str(metadata.get("promotion_hint", "") or "").strip(),
-                score=intent_score(query, intent, keywords),
+                score=0.0,
             )
         )
     return rows

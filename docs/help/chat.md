@@ -46,6 +46,12 @@ Unter **Details** zeigt ARIA je nach Antwort:
 
 Diese Details sind besonders nuetzlich, wenn ARIA ein Ziel falsch verstanden hat oder eine Aktion blockiert.
 
+## Chat exportieren
+
+Mit **Chat exportieren** erstellt ARIA einen Markdown-Export des aktuell sichtbaren Chats. Der Export enthaelt User-Prompts, ARIA-Antworten, Token-/Kosten-/Laufzeit-Badges und alle Routing-/Debug-/Operator-Trace-Zeilen aus den Details, auch wenn diese im Browser eingeklappt sind.
+
+ARIA kopiert den Export zuerst in die Zwischenablage. Wenn der Browser das blockiert, wird automatisch eine `.md`-Datei heruntergeladen.
+
 ## Mobile und iOS
 
 Der Chat nutzt eine feste mobile Arbeitsflaeche mit eigener Scroll-Historie. Auf iPhone/iPad bleiben Composer, Queue und Toolbox erreichbar. Lange Prompts und Bestaetigungsbuttons duerfen umbrechen, damit sie auf schmalen Viewports nicht abgeschnitten werden.
@@ -56,4 +62,5 @@ Der Chat nutzt eine feste mobile Arbeitsflaeche mit eigener Scroll-Historie. Auf
 - zwei wartende Prompts umsortieren
 - einen wartenden Prompt bearbeiten und einen entfernen
 - eine bestaetigungspflichtige Aktion planen, aber nicht sofort ausfuehren
+- den Chat exportieren und pruefen, ob Details/Debug-Zeilen enthalten sind
 - dieselbe Ansicht auf iPhone-Breite pruefen

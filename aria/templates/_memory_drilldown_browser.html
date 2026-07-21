@@ -87,6 +87,7 @@
     "documents": tr(request, 'memories.documents_count', 'documents'),
     "empty": tr(request, 'memories.empty', 'No memory entries found.'),
     "kind": tr(request, 'memories.type', 'Type'),
+    "notes": tr(request, 'memories_browser.notes', 'Notes'),
     "points": tr(request, 'memories.health_points', 'Memory points'),
     "root": tr(request, 'memories_browser.root', 'Root'),
     "delete": tr(request, 'memories.delete', 'Delete'),
@@ -275,7 +276,7 @@
     return documents.map(documentItem => ({
       ...documentItem,
       level: documentItem.level || 'document',
-      levelLabel: documentItem.levelLabel || labels.documents || 'Documents',
+      levelLabel: documentItem.levelLabel || (documentItem.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents')),
       parentId: documentItem.parentId || collection.id || '',
       collection: documentItem.collection || collection.name || '',
     }));
@@ -330,7 +331,7 @@
         ...document,
         ...item,
         level: 'document',
-        levelLabel: item.levelLabel || labels.documents || 'Documents',
+        levelLabel: item.levelLabel || (document.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents')),
         parentId: item.parentId || document.parentId || '',
         collection: item.collection || document.collection || '',
         all_chunks: Array.isArray(item.all_chunks) && item.all_chunks.length ? item.all_chunks : document.all_chunks || [],
@@ -352,6 +353,8 @@
     levelLabel: item.levelLabel || labels.store || 'Store',
     meta: item.meta || (item.kind === 'document'
       ? `${item.document_count || 0} ${labels.documents || 'Documents'} · ${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`
+      : item.kind === 'notes'
+        ? `${item.document_count || 0} ${labels.notes || 'Notes'} · ${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`
       : `${item.points || 0} ${labels.points || 'Points'}`),
   }) : null;
   const selectedCollection = () => {
@@ -406,7 +409,7 @@
     return kind ? typeInspectorItem(typeItems().find(type => type.kind === kind) || null) : null;
   };
   const collectionSummary = collectionItem => collectionItem?.document_count
-    ? `${collectionItem.document_count} ${labels.documents || 'Documents'} · ${collectionItem.chunk_count || 0} ${labels.chunks || 'Chunks'}`
+    ? `${collectionItem.document_count} ${collectionItem.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents')} · ${collectionItem.chunk_count || 0} ${labels.chunks || 'Chunks'}`
     : `${collectionItem?.points || 0} ${labels.points || 'Memory points'}`;
   const renderCollectionSelect = collectionItem => `
     <li class="memory-drilldown-next-item">
@@ -548,11 +551,12 @@
     const meta = [item.meta, item.kindLabel, item.source].filter(Boolean).join(' · ');
     const rows = [];
     if (item.points !== undefined) rows.push([labels.points || 'Points', item.points]);
-    if (item.document_count) rows.push([labels.documents || 'Documents', item.document_count]);
+    if (item.document_count) rows.push([item.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents'), item.document_count]);
     if (item.chunk_count) rows.push([labels.chunks || 'Chunks', item.chunk_count]);
     if (item.collection) rows.push([labels.store || 'Store', item.collection]);
     const detailRows = rows.map(row => `<div><dt>${escapeHTML(row[0])}</dt><dd>${escapeHTML(row[1])}</dd></div>`).join('');
     const documents = Array.isArray(item.documents) ? item.documents : [];
+    const documentGroupLabel = item.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents');
     const collectionList = item.level === 'type'
       ? `<div class="memory-drilldown-next-level">
           <h4>${escapeHTML(labels.collections || 'Collections')}</h4>
@@ -563,7 +567,7 @@
       : '';
     const documentList = item.level === 'collection' && documents.length
       ? `<div class="memory-drilldown-next-level">
-          <h4>${escapeHTML(labels.documents || 'Documents')}</h4>
+          <h4>${escapeHTML(documentGroupLabel)}</h4>
           <ol class="memory-drilldown-next-list">
             ${documents.map(documentItem => `
               <li class="memory-drilldown-next-item">
@@ -614,7 +618,7 @@
           </ol>
         </div>`
       : '';
-    const documentDelete = canDelete && item.level === 'document' && item.collection && (item.document_id || item.document_name)
+    const documentDelete = canDelete && item.level === 'document' && item.kind !== 'notes' && item.collection && (item.document_id || item.document_name)
       ? `<div class="memory-drilldown-actions-row"><button type="button" class="memory-drilldown-delete-button danger" data-memory-browser-delete-document data-collection="${escapeAttr(item.collection)}" data-document-id="${escapeAttr(item.document_id || '')}" data-document-name="${escapeAttr(item.document_name || item.label || '')}">${escapeHTML(labels.delete_document || 'Dokument loeschen')}</button></div>`
       : '';
     const pointDelete = canDelete && ['chunk', 'entry'].includes(item.level) && item.collection && item.id
@@ -711,14 +715,16 @@
         state.chunk = '';
         state.entry = '';
       } else if (item.level === 'document') {
-        state.type = 'document';
+        const parentCollection = byId.get(item.parentId) || allCollectionItems().find(collectionItem => collectionItem.id === item.parentId);
+        state.type = parentCollection?.kind || item.kind || state.type || 'document';
         state.collection = item.parentId || state.collection;
         state.document = item.id;
         state.chunk = '';
         state.entry = '';
       } else if (item.level === 'chunk') {
-        state.type = 'document';
         const parentDocument = byId.get(item.parentId);
+        const parentCollection = byId.get(parentDocument?.parentId) || allCollectionItems().find(collectionItem => collectionItem.id === parentDocument?.parentId);
+        state.type = parentCollection?.kind || parentDocument?.kind || state.type || 'document';
         state.collection = parentDocument?.parentId || state.collection;
         state.document = item.parentId || state.document;
         state.chunk = item.id;
@@ -1812,6 +1818,8 @@
       levelLabel: labels.store || 'Store',
       meta: item.kind === 'document'
         ? `${item.document_count || 0} ${labels.documents || 'Documents'} · ${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`
+        : item.kind === 'notes'
+          ? `${item.document_count || 0} ${labels.notes || 'Notes'} · ${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`
         : `${item.points || 0} ${labels.points || 'Points'}`,
       radius: item.id === state.collection ? 21 : 18,
       active: item.id === state.collection,
@@ -1825,8 +1833,8 @@
         ...item,
         id: item.id,
         level: 'document',
-        levelLabel: labels.documents || 'Documents',
-        kind: 'document',
+        levelLabel: item.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents'),
+        kind: item.kind === 'notes' ? 'notes' : 'document',
         label: item.label || item.document_name,
       meta: `${item.chunk_count || 0} ${labels.chunks || 'Chunks'}`,
       radius: item.id === state.document ? 19 : 16,
@@ -1948,9 +1956,25 @@
     const type = typeItems().find(item => item.kind === kind);
     renderActiveMode({ focusId: type?.id || '', gentleFocus: true, preserveView: true });
   };
+  const collectionKindForSelection = (collectionId = '', documentId = '') => {
+    const cleanCollectionId = String(collectionId || '').trim();
+    const directCollection = cleanCollectionId
+      ? allCollectionItems().find(item => item.id === cleanCollectionId)
+      : null;
+    if (directCollection?.kind) return directCollection.kind;
+    const cleanDocumentId = String(documentId || '').trim();
+    const documentItem = cleanDocumentId
+      ? allDocuments().find(item => item.id === cleanDocumentId)
+      : null;
+    if (documentItem?.parentId) {
+      const parentCollection = allCollectionItems().find(item => item.id === documentItem.parentId);
+      if (parentCollection?.kind) return parentCollection.kind;
+    }
+    return state.type || 'document';
+  };
   const selectCollection = (collectionId, kind = '') => {
     if (!collectionId) return;
-    state.type = kind || state.type;
+    state.type = kind || collectionKindForSelection(collectionId) || state.type;
     state.collection = collectionId;
     state.document = '';
     state.chunk = '';
@@ -1959,7 +1983,7 @@
   };
   const selectDocument = (documentId, collectionId = '') => {
     if (!documentId) return;
-    state.type = 'document';
+    state.type = collectionKindForSelection(collectionId || state.collection, documentId);
     state.collection = collectionId || state.collection;
     state.document = documentId;
     state.chunk = '';
@@ -1968,7 +1992,7 @@
   };
   const selectChunk = (chunkId, collectionId = '', documentId = '') => {
     if (!chunkId) return;
-    state.type = 'document';
+    state.type = collectionKindForSelection(collectionId || state.collection, documentId || state.document);
     state.collection = collectionId || state.collection;
     state.document = documentId || state.document;
     state.chunk = chunkId;
@@ -1977,6 +2001,7 @@
   };
   const selectEntry = (entryId, collectionId = '') => {
     if (!entryId) return;
+    state.type = collectionKindForSelection(collectionId || state.collection);
     state.collection = collectionId || state.collection;
     state.document = '';
     state.chunk = '';

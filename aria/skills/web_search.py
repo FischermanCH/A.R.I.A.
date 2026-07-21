@@ -7,17 +7,74 @@ import inspect
 from pathlib import Path
 import re
 from typing import Any
-import unicodedata
 from urllib.parse import urldefrag, urlparse
 from urllib.request import Request, urlopen
 
 from aria.core.i18n import I18NStore
 from aria.core.notes_context import NotesContextHit, note_context_block, note_context_detail_lines
 from aria.core.config import resolve_searxng_base_url
-from aria.core.searxng_client import SearXNGClient, SearXNGClientError, SearXNGSearchResponse
+from aria.core.searxng_client import SearXNGClient, SearXNGClientError
 from aria.skills.base import BaseSkill, SkillResult
 
 _WEB_SEARCH_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
+
+
+def _profile_rows_from_settings(settings: Any) -> dict[str, Any]:
+    rows = getattr(getattr(settings, "connections", object()), "searxng", {})
+    return rows if isinstance(rows, dict) else {}
+
+
+def _profile_value(profile: Any, key: str, default: Any = "") -> Any:
+    if isinstance(profile, dict):
+        return profile.get(key, default)
+    return getattr(profile, key, default)
+
+
+def _profile_list(profile: Any, key: str, *, limit: int = 20, max_chars: int = 80) -> list[str]:
+    raw = _profile_value(profile, key, [])
+    if isinstance(raw, list):
+        values = raw
+    else:
+        values = str(raw or "").split(",")
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        text = re.sub(r"\s+", " ", str(item or "").strip())[:max_chars]
+        if not text:
+            continue
+        marker = text.lower()
+        if marker in seen:
+            continue
+        seen.add(marker)
+        rows.append(text)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def build_web_search_profile_options(settings: Any, *, limit: int = 12) -> list[dict[str, Any]]:
+    rows = _profile_rows_from_settings(settings)
+    options: list[dict[str, Any]] = []
+    for ref in sorted(str(key) for key in rows.keys() if str(key).strip()):
+        profile = rows.get(ref, {})
+        options.append(
+            {
+                "ref": ref[:120],
+                "title": str(_profile_value(profile, "title", "") or ref).strip()[:160],
+                "description": re.sub(r"\s+", " ", str(_profile_value(profile, "description", "") or "").strip())[:260],
+                "tags": _profile_list(profile, "tags", limit=12, max_chars=80),
+                "aliases": _profile_list(profile, "aliases", limit=12, max_chars=80),
+                "categories": _profile_list(profile, "categories", limit=12, max_chars=40),
+                "engines": _profile_list(profile, "engines", limit=20, max_chars=60),
+                "language": str(_profile_value(profile, "language", "") or "").strip()[:40],
+                "safe_search": str(_profile_value(profile, "safe_search", "") or "").strip()[:20],
+                "time_range": str(_profile_value(profile, "time_range", "") or "").strip()[:40],
+                "max_results": int(_profile_value(profile, "max_results", 5) or 5),
+            }
+        )
+        if len(options) >= limit:
+            break
+    return options
 
 
 class _VisibleTextParser(HTMLParser):
@@ -103,16 +160,31 @@ class WebSearchSkill(BaseSkill):
         "an",
         "and",
         "bot",
+        "comparison",
+        "current",
+        "difference",
+        "differences",
         "for",
+        "feature",
+        "features",
         "in",
         "internet",
         "last",
         "latest",
+        "model",
+        "new",
+        "newest",
         "news",
         "online",
+        "official",
+        "previous",
         "release",
         "releases",
         "search",
+        "spec",
+        "specs",
+        "specification",
+        "specifications",
         "the",
         "update",
         "updates",
@@ -132,7 +204,6 @@ class WebSearchSkill(BaseSkill):
         "newest release",
         "changelog",
         "release notes",
-        "version",
     )
 
     _REGISTRY_DOMAINS = (
@@ -158,102 +229,60 @@ class WebSearchSkill(BaseSkill):
         "bernerzeitung.ch",
     )
 
-    _DEAL_TERMS = (
-        "angebot",
-        "angebote",
-        "bundle",
+    _SOURCE_NOISE_TERMS = (
         "deal",
         "deals",
-        "discount",
-        "g" + chr(252) + "nstig",
-        "guenstig",
-        "shopping",
+        "prime day",
         "sale",
         "rabatt",
-        "1 euro",
-        "one euro",
+        "discount",
+        "coupon",
+        "shopping",
+        "geruecht",
+        "geruechte",
+        "gerücht",
+        "gerüchte",
+        "rumor",
+        "rumour",
+        "rumors",
+        "rumours",
+        "leak",
+        "leaks",
+        "expected",
+        "expectations",
     )
 
-    _TARGET_TERM_STOPWORDS = frozenset({
-        "apple",
-        "google",
-        "microsoft",
-        "samsung",
-        "sony",
-    })
-
-    _PRODUCT_LINE_SUFFIX_TERMS = frozenset({
-        "device",
-        "devices",
-        "handy",
-        "model",
-        "models",
-        "phone",
-        "phones",
-        "product",
-        "products",
-        "smartphone",
-        "smartphones",
-        "version",
-        "versions",
-    })
-
-    _PRODUCT_QUERY_FILLER_TERMS = frozenset({
-        "absolut",
-        "aktuell",
-        "aktuelle",
-        "aktuellen",
-        "aktueller",
-        "aktuellste",
-        "aktuellstes",
-        "current",
-        "das",
-        "der",
-        "die",
-        "ist",
-        "latest",
-        "neue",
-        "neuen",
-        "neuer",
-        "neuest",
-        "neueste",
-        "neuesten",
-        "neustes",
-        "newest",
-        "the",
-        "today",
-        "welche",
-        "welchen",
-        "welcher",
-        "welches",
-    })
+    _SITE_QUERY_RE = re.compile(r"(?:^|\s)site:([^\s]+)", re.IGNORECASE)
 
     @staticmethod
     def _profile_rows(settings: Any) -> dict[str, Any]:
-        rows = getattr(getattr(settings, "connections", object()), "searxng", {})
-        return rows if isinstance(rows, dict) else {}
+        return _profile_rows_from_settings(settings)
 
     @staticmethod
     def _profile_value(profile: Any, key: str, default: Any = "") -> Any:
-        if isinstance(profile, dict):
-            return profile.get(key, default)
-        return getattr(profile, key, default)
+        return _profile_value(profile, key, default)
 
     @classmethod
     def _profile_list(cls, profile: Any, key: str) -> list[str]:
-        raw = cls._profile_value(profile, key, [])
-        if isinstance(raw, list):
-            return [str(item).strip() for item in raw if str(item).strip()]
-        return [str(item).strip() for item in str(raw or "").split(",") if str(item).strip()]
+        return _profile_list(profile, key)
+
+    @classmethod
+    def _profile_by_ref(cls, rows: dict[str, Any], profile_ref: str) -> tuple[str, Any] | None:
+        clean_ref = str(profile_ref or "").strip().lower()
+        if not clean_ref:
+            return None
+        for ref, profile in rows.items():
+            if str(ref or "").strip().lower() == clean_ref:
+                return str(ref), profile
+        return None
 
     def _select_profile(self, query: str, explicit_ref: str = "") -> tuple[str, Any] | None:
         rows = self._profile_rows(self.settings)
         if not rows:
             return None
         clean_query = str(query or "").strip().lower()
-        clean_ref = str(explicit_ref or "").strip().lower()
-        if clean_ref and clean_ref in rows:
-            return clean_ref, rows[clean_ref]
+        if str(explicit_ref or "").strip():
+            return self._profile_by_ref(rows, explicit_ref)
 
         scored: list[tuple[int, str, Any]] = []
         for ref, profile in rows.items():
@@ -310,109 +339,6 @@ class WebSearchSkill(BaseSkill):
     def _is_news_query(cls, query: str) -> bool:
         text = str(query or "").strip().lower()
         return any(term in text for term in ("news", "nachrichten", "meldungen", "headlines"))
-
-    @classmethod
-    def _should_run_official_supplement(cls, query: str) -> bool:
-        if cls._is_news_query(query):
-            return False
-        return cls._is_recency_query(query) or cls._is_current_version_query(query)
-
-    @classmethod
-    def _official_supplement_query(cls, query: str) -> str:
-        clean = re.sub(r"\s+", " ", str(query or "").strip())
-        if not clean:
-            return ""
-        lowered = clean.lower()
-        if "official" in lowered or "offizielle" in lowered or "hersteller" in lowered:
-            return clean
-        return f"{clean} official manufacturer product page"
-
-    @classmethod
-    def _official_supplement_queries(cls, query: str) -> list[str]:
-        primary = cls._official_supplement_query(query)
-        queries: list[str] = []
-        seen: set[str] = set()
-
-        def add(value: str) -> None:
-            clean = re.sub(r"\s+", " ", str(value or "").strip(" .,:;!?"))
-            key = clean.lower()
-            if clean and key not in seen and key != str(query or "").strip().lower():
-                seen.add(key)
-                queries.append(clean)
-
-        add(primary)
-        for target in cls._official_product_targets(query):
-            add(f"{target} latest model official manufacturer product page")
-        return queries[:4]
-
-    @classmethod
-    def _official_product_targets(cls, query: str) -> list[str]:
-        if not cls._should_run_official_supplement(query):
-            return []
-        clean = re.sub(r"\s+", " ", str(query or "").strip())
-        if not clean:
-            return []
-        subject = clean
-        subject = re.sub(
-            r"\b(?:und|and)\s+(?:was|what)\s+.*$",
-            " ",
-            subject,
-            flags=re.IGNORECASE,
-        )
-        cleanup_patterns = (
-            r"\b(?:bitte|please)\b",
-            r"\b(?:suche|such|suchen|search|research|recherchier(?:e|en)?)\b",
-            r"\b(?:im|in dem|in|on the)\s+(?:internet|web)\b",
-            r"\b(?:online|nach|for)\b",
-            r"\b(?:der|die|das|dem|den|des|einer?|the)\b",
-            r"\b(?:neuste[ns]?|neueste[ns]?|aktuell(?:e[nsr]?)?|latest|newest|current|most recent)\b",
-            r"\b(?:modell|model|version|release)\b",
-        )
-        for pattern in cleanup_patterns:
-            subject = re.sub(pattern, " ", subject, flags=re.IGNORECASE)
-        subject = re.sub(r"\s+", " ", subject).strip(" .,:;!?")
-        if not subject:
-            return []
-        parts = [
-            re.sub(r"\s+", " ", part).strip(" .,:;!?")
-            for part in re.split(r"\s+(?:und|and|sowie|plus)\s+|[,;/]+", subject, flags=re.IGNORECASE)
-        ]
-        parts = [part for part in parts if part and len(part) >= 4]
-        if len(parts) < 2:
-            single = cls._single_official_product_target(subject)
-            return [single] if single else []
-        query_lower = clean.lower()
-        targets: list[str] = []
-        seen: set[str] = set()
-        carried_brand = ""
-        for part in parts:
-            target = part
-            tokens = re.findall(r"[A-Za-z][A-Za-z0-9-]*", target)
-            if carried_brand and tokens and tokens[0].lower() != carried_brand.lower():
-                target = f"{carried_brand} {target}"
-            elif not carried_brand and len(tokens) >= 2 and tokens[0].lower() in query_lower:
-                carried_brand = tokens[0]
-            key = target.lower()
-            if key not in seen:
-                seen.add(key)
-                targets.append(target)
-        return targets[:3]
-
-    @classmethod
-    def _single_official_product_target(cls, subject: str) -> str:
-        tokens = re.findall(r"[a-z0-9]+", str(subject or "").lower())
-        kept = [
-            token
-            for token in tokens
-            if token not in cls._PRODUCT_QUERY_FILLER_TERMS
-            and token not in cls._QUERY_STOPWORDS
-            and token not in cls._terms("query_stopwords", ())
-        ]
-        while kept and kept[-1] in cls._PRODUCT_LINE_SUFFIX_TERMS:
-            kept.pop()
-        if len(kept) >= 2:
-            return " ".join(kept[:4])
-        return ""
 
     @classmethod
     def _is_current_version_query(cls, query: str) -> bool:
@@ -488,9 +414,10 @@ class WebSearchSkill(BaseSkill):
 
     @classmethod
     def _source_quality_score(cls, query: str, result: Any) -> int:
+        if not cls._is_current_version_query(query):
+            return 0
         title = str(getattr(result, "title", "") or "").lower()
         snippet = str(getattr(result, "snippet", "") or "").lower()
-        engine = str(getattr(result, "engine", "") or "").lower()
         url = str(getattr(result, "url", "") or "").lower()
         parsed = urlparse(url)
         domain = str(parsed.netloc or "").lower()
@@ -498,19 +425,6 @@ class WebSearchSkill(BaseSkill):
         combined = " ".join(part for part in (title, snippet, url) if part)
 
         score = 0
-        terms = cls._query_terms(query)
-        meaningful_domain_terms = [term for term in terms if len(term) >= 4 and term not in {"latest", "neuste", "neueste"}]
-        if cls._should_run_official_supplement(query):
-            if any(term in domain for term in meaningful_domain_terms):
-                score += 22
-            if any(marker in domain for marker in ("official", "store.")):
-                score += 8
-            if any(marker in path for marker in ("/shop/", "/store/", "/product", "/iphone", "/watch")):
-                score += 5
-
-        if not cls._is_current_version_query(query) and not cls._should_run_official_supplement(query):
-            return score
-
         if "github.com" in domain and any(marker in path for marker in ("/releases", "/tags")):
             score += 28
         elif "github.com" in domain and any(marker in combined for marker in ("release", "changelog", "tag")):
@@ -527,134 +441,73 @@ class WebSearchSkill(BaseSkill):
         if any(marker in title for marker in ("release", "releases", "changelog", "version", "versions")):
             score += 6
 
-        news_like = "news" in engine or any(news_domain in domain for news_domain in cls._NEWS_DOMAINS)
-        if news_like:
-            score -= 28 if cls._should_run_official_supplement(query) else 12
-
-        if any(term in combined for term in cls._DEAL_TERMS):
-            score -= 18
-
-        normalized_combined = unicodedata.normalize("NFKD", combined).encode("ascii", "ignore").decode("ascii")
-        if cls._should_run_official_supplement(query) and any(
-            marker in normalized_combined
-            for marker in (
-                "rumor",
-                "rumour",
-                "geruecht",
-                "leak",
-                "leaked",
-                "leaks",
-                "release date",
-                "launch event",
-                "arrives",
-                "coming soon",
-                "kommt bald",
-                "upcoming",
-            )
-        ):
-            score -= 16
-
         if "mozilla.org" in domain and "manifest.json/version" in path:
             score -= 20
 
         return score
 
     @classmethod
-    def _filter_current_product_sources(cls, query: str, results: list[Any]) -> tuple[list[Any], dict[str, Any]]:
-        if not results or not cls._should_run_official_supplement(query):
-            return results, {
-                "applied": False,
-                "kept": len(results),
-                "rejected": 0,
-                "reason": "not_current_product_query",
-            }
-        scored = [(result, cls._source_quality_score(query, result)) for result in results]
-        primary_sources = [result for result, score in scored if score >= 16]
-        if not primary_sources:
-            return results, {
-                "applied": False,
-                "kept": len(results),
-                "rejected": 0,
-                "reason": "no_primary_sources",
-            }
-        kept = [result for result, score in scored if score >= 8]
-        if not kept:
-            kept = primary_sources
-        return kept, {
-            "applied": len(kept) < len(results),
-            "kept": len(kept),
-            "rejected": max(0, len(results) - len(kept)),
-            "reason": "current_product_primary_sources",
-        }
+    def _source_authority_label(
+        cls,
+        query: str,
+        result: Any,
+        source_plan: dict[str, Any],
+    ) -> tuple[str, str]:
+        required_sites = cls._source_plan_search_sites(source_plan)
+        if required_sites and any(cls._result_matches_site_target(result, site) for site in required_sites):
+            return "required_source", "required_site"
 
-    @staticmethod
-    def _merge_search_results(primary: list[Any], supplemental: list[Any]) -> list[Any]:
-        merged: list[Any] = []
-        seen: set[str] = set()
-        for item in [*primary, *supplemental]:
-            url = str(getattr(item, "url", "") or "").strip().lower()
-            key = url or str(getattr(item, "title", "") or "").strip().lower()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            merged.append(item)
-        return merged
+        preferred_sites = cls._source_plan_preferred_domains(source_plan)
+        if preferred_sites and any(cls._result_matches_site_target(result, site) for site in preferred_sites):
+            return "preferred_source", "preferred_domain"
+
+        score = cls._source_quality_score(query, result)
+        if score >= 18:
+            return "strong_secondary", f"quality_score={score}"
+        if cls._result_is_noise_source(result):
+            return "noise", "noise_source"
+        return "weak_secondary", f"quality_score={score}"
 
     @classmethod
-    def _target_match_terms(cls, target: str) -> list[str]:
-        terms = [
-            term
-            for term in cls._query_terms(target)
-            if term not in cls._TARGET_TERM_STOPWORDS
-        ]
-        if terms:
-            return terms
-        return cls._query_terms(target)
+    def _source_authority_summary(
+        cls,
+        query: str,
+        results: list[Any],
+        source_plan: dict[str, Any],
+    ) -> tuple[list[dict[str, str]], dict[str, Any], list[str]]:
+        labels: list[dict[str, str]] = []
+        for result in results:
+            label, reason = cls._source_authority_label(query, result, source_plan)
+            labels.append({"label": label, "reason": reason})
 
-    @classmethod
-    def _result_search_text(cls, result: Any) -> str:
-        return " ".join(
-            str(value or "").lower()
-            for value in (
-                getattr(result, "title", ""),
-                getattr(result, "snippet", ""),
-                getattr(result, "url", ""),
-                getattr(result, "engine", ""),
+        required_or_preferred = sum(1 for item in labels if item["label"] in {"required_source", "preferred_source"})
+        strong_secondary = sum(1 for item in labels if item["label"] == "strong_secondary")
+        weak_secondary = sum(1 for item in labels if item["label"] == "weak_secondary")
+        noise = sum(1 for item in labels if item["label"] == "noise")
+
+        if required_or_preferred:
+            outcome = "preferred_sources"
+            guidance = ""
+        elif strong_secondary:
+            outcome = "strong_secondary_only"
+            guidance = (
+                "Source authority: strong_secondary_only. No preferred/official source matched; "
+                "answer from secondary sources, mark exact latest/current claims as source-limited, "
+                "and avoid presenting them as official confirmation."
             )
-            if str(value or "").strip()
+        else:
+            outcome = "weak_only"
+            guidance = (
+                "Source authority: weak_only. No preferred/official or strong secondary source matched; "
+                "answer cautiously, avoid definitive latest/current claims, and state that the web evidence is weak."
+            )
+
+        detail = (
+            "Routing Debug: web_source_authority "
+            f"outcome={outcome} preferred_or_required={required_or_preferred} "
+            f"strong_secondary={strong_secondary} weak_secondary={weak_secondary} noise={noise}"
         )
-
-    @classmethod
-    def _target_coverage_rows(cls, query: str, ordered_results: list[Any]) -> list[dict[str, str]]:
-        rows: list[dict[str, str]] = []
-        for target in cls._official_product_targets(query):
-            terms = cls._target_match_terms(target)
-            if not terms:
-                continue
-            best: Any | None = None
-            best_score = -10_000
-            for index, result in enumerate(ordered_results):
-                combined = cls._result_search_text(result)
-                if not any(term in combined for term in terms):
-                    continue
-                quality = cls._source_quality_score(target, result)
-                relevance, matches = cls._result_relevance_score(target, result)
-                score = quality + relevance + matches * 8 - index
-                if score > best_score:
-                    best = result
-                    best_score = score
-            if best is None:
-                continue
-            rows.append(
-                {
-                    "target": target,
-                    "title": str(getattr(best, "title", "") or "").strip(),
-                    "url": str(getattr(best, "url", "") or "").strip(),
-                    "snippet": str(getattr(best, "snippet", "") or "").strip(),
-                    "engine": str(getattr(best, "engine", "") or "").strip(),
-                }
-            )
-        return rows
+        return labels, {"outcome": outcome, "guidance": guidance}, [detail]
 
     def _prepare_results(self, query: str, results: list[Any]) -> list[Any]:
         prepared = list(results)
@@ -680,20 +533,7 @@ class WebSearchSkill(BaseSkill):
         if has_relevant_match:
             scored = [row for row in scored if row[2] > 0]
 
-        official_supplement_query = self._should_run_official_supplement(query)
         if current_version_query:
-            scored.sort(
-                key=lambda row: (
-                    row[0] > 0,
-                    max(row[0], 0),
-                    row[2],
-                    row[1],
-                    row[3] if recency_query else 0.0,
-                    -row[4],
-                ),
-                reverse=True,
-            )
-        elif official_supplement_query:
             scored.sort(
                 key=lambda row: (
                     row[0] > 0,
@@ -858,6 +698,31 @@ class WebSearchSkill(BaseSkill):
             return ""
         return self._relevant_page_excerpt(str(html or ""), query=query, url=clean_url)
 
+    async def _fetch_page_excerpts(self, urls: list[str], *, query: str, timeout_seconds: int) -> dict[str, str]:
+        clean_urls: list[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            clean_url = self._clean_url(url)
+            if not clean_url or clean_url in seen:
+                continue
+            seen.add(clean_url)
+            clean_urls.append(clean_url)
+        if not clean_urls:
+            return {}
+
+        async def _fetch(clean_url: str) -> tuple[str, str]:
+            try:
+                excerpt = await asyncio.wait_for(
+                    self._fetch_page_excerpt(clean_url, query=query, timeout_seconds=timeout_seconds),
+                    timeout=float(timeout_seconds) + 1.0,
+                )
+            except (asyncio.TimeoutError, Exception):
+                return clean_url, ""
+            return clean_url, excerpt
+
+        fetched = await asyncio.gather(*(_fetch(url) for url in clean_urls))
+        return {url: excerpt for url, excerpt in fetched if excerpt}
+
     @staticmethod
     def _note_context_hits(params: dict[str, Any]) -> list[NotesContextHit]:
         rows = params.get("note_context_hits")
@@ -887,11 +752,600 @@ class WebSearchSkill(BaseSkill):
             )
         return hits
 
+    @staticmethod
+    def _string_list(value: Any, *, limit: int = 5, max_chars: int = 180) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        rows: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = re.sub(r"\s+", " ", str(item or "")).strip()
+            if not text:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(text[:max_chars])
+            if len(rows) >= limit:
+                break
+        return rows
+
+    @classmethod
+    def _source_plan(cls, params: dict[str, Any]) -> dict[str, Any]:
+        raw = params.get("web_source_plan")
+        if not isinstance(raw, dict):
+            return {}
+        queries = cls._string_list(raw.get("queries") or raw.get("planned_queries"), limit=3, max_chars=220)
+        if not queries:
+            return {}
+        raw_mode = re.sub(r"\s+", " ", str(raw.get("search_mode") or raw.get("mode") or "")).strip()[:40].lower()
+        search_mode = raw_mode.replace("-", "_")
+        if search_mode in {"deep_research", "curated_research", "source_audit"}:
+            search_mode = "research"
+        elif search_mode in {"ask_clarification", "clarification"}:
+            search_mode = "clarify"
+        elif search_mode != "research":
+            search_mode = "fast_answer"
+        return {
+            "goal": re.sub(r"\s+", " ", str(raw.get("goal", "") or "")).strip()[:220],
+            "queries": queries,
+            "search_mode": search_mode,
+            "must_have_domains": cls._string_list(
+                raw.get("must_have_domains") or raw.get("required_domains") or raw.get("mandatory_domains"),
+                limit=8,
+                max_chars=120,
+            ),
+            "preferred_domains": cls._string_list(
+                raw.get("preferred_domains") or raw.get("primary_domains") or raw.get("source_domains"),
+                limit=8,
+                max_chars=120,
+            ),
+            "required_sources": cls._string_list(raw.get("required_sources"), limit=8, max_chars=120),
+            "avoid_sources": cls._string_list(raw.get("avoid_sources"), limit=8, max_chars=120),
+            "search_profile_ref": re.sub(
+                r"\s+",
+                " ",
+                str(raw.get("search_profile_ref") or raw.get("profile_ref") or raw.get("connection_ref") or "").strip(),
+            )[:120],
+        }
+
+    @classmethod
+    def _source_plan_required_domains(cls, source_plan: dict[str, Any]) -> list[str]:
+        domains: list[str] = []
+        seen: set[str] = set()
+        for value in [
+            *cls._string_list(source_plan.get("must_have_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("required_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("mandatory_domains"), limit=8, max_chars=120),
+        ]:
+            for domain in cls._domains_from_text(value):
+                if domain in seen:
+                    continue
+                seen.add(domain)
+                domains.append(domain[:160])
+                if len(domains) >= 3:
+                    return domains
+        return domains
+
+    @classmethod
+    def _domains_from_text(cls, text: str) -> list[str]:
+        domains: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(r"\b(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+)\b", str(text or ""), flags=re.IGNORECASE):
+            domain = match.group(1).strip().lower().strip(".,;:!?)]}")
+            if domain.startswith("www."):
+                domain = domain[4:]
+            if "." not in domain or domain in seen:
+                continue
+            seen.add(domain)
+            domains.append(domain[:160])
+        return domains
+
+    @classmethod
+    def _site_targets_from_text(cls, text: str) -> list[str]:
+        targets: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(
+            r"\b(?:https?://)?(?:www\.)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+)((?:/[^\s,;:!?)]*)?)",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        ):
+            domain = match.group(1).strip().lower().strip(".,;:!?)]}")
+            path = str(match.group(2) or "").strip().rstrip(".,;:!?)]}")
+            if domain.startswith("www."):
+                domain = domain[4:]
+            if "." not in domain:
+                continue
+            target = f"{domain}{path}" if path and path != "/" else domain
+            if target in seen:
+                continue
+            seen.add(target)
+            targets.append(target[:180])
+            if len(targets) >= 3:
+                break
+        return targets
+
+    @classmethod
+    def _source_plan_preferred_domains(cls, source_plan: dict[str, Any]) -> list[str]:
+        values = [
+            str(source_plan.get("goal", "") or ""),
+            *cls._string_list(source_plan.get("preferred_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("primary_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("source_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("required_sources"), limit=8, max_chars=120),
+        ]
+        required_domains = set(cls._source_plan_required_domains(source_plan))
+        domains: list[str] = []
+        seen: set[str] = set()
+        for domain in cls._domains_from_text(" ".join(values)):
+            if domain in seen or domain in required_domains:
+                continue
+            seen.add(domain)
+            domains.append(domain)
+            if len(domains) >= 3:
+                break
+        return domains
+
+    @classmethod
+    def _source_plan_search_sites(cls, source_plan: dict[str, Any]) -> list[str]:
+        values = [
+            *cls._string_list(source_plan.get("must_have_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("required_domains"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("mandatory_domains"), limit=8, max_chars=120),
+        ]
+        sites: list[str] = []
+        seen: set[str] = set()
+        for site in cls._site_targets_from_text(" ".join(values)):
+            if site in seen:
+                continue
+            seen.add(site)
+            sites.append(site)
+            if len(sites) >= 3:
+                break
+        return sites
+
+    @classmethod
+    def _source_plan_search_domains(cls, source_plan: dict[str, Any]) -> list[str]:
+        domains: list[str] = []
+        seen: set[str] = set()
+        for domain in [*cls._source_plan_required_domains(source_plan), *cls._source_plan_preferred_domains(source_plan)]:
+            if domain in seen:
+                continue
+            seen.add(domain)
+            domains.append(domain)
+            if len(domains) >= 3:
+                break
+        return domains
+
+    @classmethod
+    def _query_site_domain(cls, query: str) -> str:
+        match = cls._SITE_QUERY_RE.search(str(query or ""))
+        if not match:
+            return ""
+        target = match.group(1).strip().lower().strip(".,;:!?)]}")
+        domain = target.split("/", 1)[0]
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain
+
+    @staticmethod
+    def _domain_matches(domain: str, required_domain: str) -> bool:
+        clean_domain = str(domain or "").strip().lower()
+        clean_required = str(required_domain or "").strip().lower()
+        return bool(clean_domain and clean_required and (clean_domain == clean_required or clean_domain.endswith(f".{clean_required}")))
+
+    @classmethod
+    def _result_domain(cls, result: Any) -> str:
+        domain = str(urlparse(str(getattr(result, "url", "") or "")).netloc or "").strip().lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain
+
+    @classmethod
+    def _result_matches_site_target(cls, result: Any, site_target: str) -> bool:
+        clean_target = str(site_target or "").strip().lower().strip(".,;:!?)]}")
+        if not clean_target:
+            return False
+        target_domain, _sep, target_path = clean_target.partition("/")
+        if target_domain.startswith("www."):
+            target_domain = target_domain[4:]
+        if not cls._domain_matches(cls._result_domain(result), target_domain):
+            return False
+        if not target_path:
+            return True
+        result_path = str(urlparse(str(getattr(result, "url", "") or "")).path or "").strip().lower().lstrip("/")
+        clean_target_path = target_path.strip("/")
+        return result_path == clean_target_path or result_path.startswith(f"{clean_target_path}/")
+
+    @classmethod
+    def _filter_results_for_site_query(cls, query: str, results: list[Any]) -> tuple[list[Any], str]:
+        site_domain = cls._query_site_domain(query)
+        if not site_domain:
+            return results, ""
+        filtered = [result for result in results if cls._domain_matches(cls._result_domain(result), site_domain)]
+        removed = len(results) - len(filtered)
+        if removed <= 0:
+            return results, ""
+        return (
+            filtered,
+            f"Routing Debug: web_source_provider_contract site_domain={site_domain} removed={removed} reason=site_query_domain_miss",
+        )
+
+    @classmethod
+    def _search_queries(cls, query: str, source_plan: dict[str, Any]) -> list[str]:
+        rows: list[str] = []
+        seen: set[str] = set()
+        plan_queries = cls._string_list(source_plan.get("queries"), limit=3, max_chars=220)
+        search_sites = cls._source_plan_search_sites(source_plan)
+        domain_queries: list[str] = []
+        for plan_query in plan_queries[:2] or [str(query or "").strip()]:
+            clean_plan = re.sub(r"\s+", " ", str(plan_query or "")).strip()
+            if not clean_plan:
+                continue
+            if cls._query_site_domain(clean_plan):
+                domain_queries.append(clean_plan)
+                continue
+            for site in search_sites:
+                if site:
+                    domain_queries.append(f"site:{site} {clean_plan}")
+        candidates = [*domain_queries, *plan_queries, str(query or "").strip()] if plan_queries else [*domain_queries, str(query or "").strip()]
+        search_mode = str(source_plan.get("search_mode") or "").strip().lower().replace("-", "_")
+        query_limit = 6 if search_mode != "research" else 10
+        for candidate in candidates:
+            clean = re.sub(r"\s+", " ", str(candidate or "")).strip()
+            key = clean.lower()
+            if not clean or key in seen:
+                continue
+            seen.add(key)
+            rows.append(clean)
+            if len(rows) >= query_limit:
+                break
+        return rows or [str(query or "").strip()]
+
+    @classmethod
+    def _source_plan_avoid_text(cls, source_plan: dict[str, Any]) -> str:
+        values = [
+            str(source_plan.get("goal", "") or ""),
+            *cls._string_list(source_plan.get("required_sources"), limit=8, max_chars=120),
+            *cls._string_list(source_plan.get("avoid_sources"), limit=8, max_chars=120),
+        ]
+        return " ".join(values).lower()
+
+    @classmethod
+    def _source_plan_avoids_registry_results(cls, source_plan: dict[str, Any]) -> bool:
+        text = cls._source_plan_avoid_text(source_plan)
+        if not text:
+            return False
+        markers = (
+            "package registr",
+            "paketregistr",
+            "software package",
+            "container image",
+            "container-images",
+            "docker",
+            "software repositor",
+            "code repositor",
+            "registry",
+        )
+        return any(marker in text for marker in markers)
+
+    @classmethod
+    def _is_registry_result(cls, result: Any) -> bool:
+        url = str(getattr(result, "url", "") or "").lower()
+        domain = str(urlparse(url).netloc or "").lower()
+        engine = str(getattr(result, "engine", "") or "").lower()
+        return any(registry in domain for registry in cls._REGISTRY_DOMAINS) or "docker" in engine
+
+    @classmethod
+    def _filter_results_for_source_plan(
+        cls,
+        results: list[Any],
+        source_plan: dict[str, Any],
+    ) -> tuple[list[Any], list[str]]:
+        if not source_plan or not cls._source_plan_avoids_registry_results(source_plan):
+            return results, []
+        filtered = [result for result in results if not cls._is_registry_result(result)]
+        removed = len(results) - len(filtered)
+        if removed <= 0:
+            return results, []
+        return filtered, [f"Routing Debug: web_source_filter source=source_plan removed={removed} reason=avoid_registry_sources"]
+
+    @classmethod
+    def _source_plan_anchor_terms(cls, query: str, source_plan: dict[str, Any]) -> list[str]:
+        values = [
+            str(query or ""),
+            str(source_plan.get("goal", "") or ""),
+            *cls._string_list(source_plan.get("queries"), limit=3, max_chars=220),
+        ]
+        stopwords = set(cls._QUERY_STOPWORDS)
+        counts: dict[str, int] = {}
+        for value in values:
+            tokens = {
+                token.lower()
+                for token in re.findall(r"[a-zA-Z0-9_+-]{2,}", value)
+                if token.lower() not in stopwords and not re.fullmatch(r"20\d{2}", token)
+            }
+            for token in tokens:
+                counts[token] = counts.get(token, 0) + 1
+        threshold = 2 if len(values) >= 3 else 1
+        anchors = [token for token, count in sorted(counts.items(), key=lambda item: (-item[1], item[0])) if count >= threshold]
+        return anchors[:6]
+
+    @classmethod
+    def _filter_results_for_anchor_terms(
+        cls,
+        results: list[Any],
+        *,
+        query: str,
+        source_plan: dict[str, Any],
+    ) -> tuple[list[Any], list[str]]:
+        if not source_plan or not results:
+            return results, []
+        anchors = cls._source_plan_anchor_terms(query, source_plan)
+        if len(anchors) < 2:
+            return results, []
+        kept: list[Any] = []
+        for result in results:
+            haystack = " ".join(
+                str(getattr(result, key, "") or "").lower()
+                for key in ("title", "url", "snippet")
+            )
+            matches = sum(1 for anchor in anchors if anchor in haystack)
+            if matches >= 2:
+                kept.append(result)
+        removed = len(results) - len(kept)
+        if removed <= 0:
+            return results, []
+        return kept, [
+            "Routing Debug: web_source_filter "
+            f"source=source_plan removed={removed} kept={len(kept)} reason=anchor_terms "
+            f"anchors={','.join(anchors[:4])}"
+        ]
+
+    @classmethod
+    def _source_plan_topic_terms(cls, query: str, source_plan: dict[str, Any]) -> list[str]:
+        terms: list[str] = []
+        seen: set[str] = set()
+        for value in [
+            str(query or ""),
+            str(source_plan.get("goal", "") or ""),
+            *cls._string_list(source_plan.get("queries"), limit=3, max_chars=220),
+        ]:
+            clean_value = re.sub(r"\bsite:[^\s]+\b", " ", value, flags=re.IGNORECASE)
+            for term in cls._query_terms(clean_value):
+                if re.fullmatch(r"20\d{2}", term):
+                    continue
+                if term in seen:
+                    continue
+                seen.add(term)
+                terms.append(term)
+        return terms[:8]
+
+    @classmethod
+    def _result_matches_source_plan_topic(cls, query: str, source_plan: dict[str, Any], result: Any) -> bool:
+        terms = cls._source_plan_topic_terms(query, source_plan)
+        if len(terms) < 2:
+            return True
+        haystack = " ".join(
+            str(getattr(result, key, "") or "").lower()
+            for key in ("title", "url", "snippet")
+        )
+        matches = sum(1 for term in terms if term and term in haystack)
+        return matches >= min(2, len(terms))
+
+    @classmethod
+    def _source_plan_rejects_noise_sources(cls, query: str, source_plan: dict[str, Any]) -> bool:
+        text = " ".join(
+            [
+                str(query or ""),
+                str(source_plan.get("goal", "") or ""),
+                *cls._string_list(source_plan.get("required_sources"), limit=8, max_chars=120),
+            ]
+        ).lower()
+        if any(term in text for term in ("deal", "deals", "angebot", "rabatt", "rumor", "rumour", "geruecht", "gerücht")):
+            return False
+        return cls._is_recency_query(text) or cls._is_current_version_query(text) or any(
+            marker in text for marker in ("official", "offiziell", "spec", "spezifikation", "vergleich", "comparison")
+        )
+
+    @classmethod
+    def _result_is_noise_source(cls, result: Any) -> bool:
+        haystack = " ".join(
+            str(getattr(result, key, "") or "").lower()
+            for key in ("title", "url", "snippet")
+        )
+        return any(marker in haystack for marker in cls._SOURCE_NOISE_TERMS)
+
+    @classmethod
+    def _source_plan_needs_preferred_source_gate(cls, query: str, source_plan: dict[str, Any]) -> bool:
+        if not source_plan:
+            return False
+        if cls._source_plan_required_domains(source_plan):
+            return True
+        if cls._is_recency_query(query) or cls._is_current_version_query(query):
+            return True
+        required_text = " ".join(cls._string_list(source_plan.get("required_sources"), limit=8, max_chars=120)).lower()
+        return any(marker in required_text for marker in ("official", "offiziell", "vendor", "hersteller", "release", "changelog"))
+
+    @classmethod
+    def _apply_source_quality_gate(
+        cls,
+        results: list[Any],
+        *,
+        query: str,
+        source_plan: dict[str, Any],
+    ) -> tuple[list[Any], list[str], bool]:
+        if not source_plan or not results:
+            return results, [], False
+        details: list[str] = []
+        if cls._source_plan_rejects_noise_sources(query, source_plan):
+            before_noise = len(results)
+            results = [result for result in results if not cls._result_is_noise_source(result)]
+            removed_noise = before_noise - len(results)
+            if removed_noise:
+                details.append(
+                    "Routing Debug: web_source_quality_gate "
+                    f"outcome=noise_sources_removed removed={removed_noise}"
+                )
+            if not results:
+                return (
+                    [],
+                    [
+                        *details,
+                        "Routing Debug: web_source_quality_gate "
+                        "outcome=fail_closed reason=no_reliable_non_noise_sources",
+                    ],
+                    True,
+                )
+
+        required_sites = cls._source_plan_search_sites(source_plan)
+        if required_sites:
+            required_matches: list[Any] = []
+            removed_required = 0
+            for result in results:
+                if any(cls._result_matches_site_target(result, site) for site in required_sites):
+                    required_matches.append(result)
+                else:
+                    removed_required += 1
+            relevant_required = [
+                result
+                for result in required_matches
+                if cls._result_matches_source_plan_topic(query, source_plan, result)
+            ]
+            if not relevant_required:
+                return (
+                    [],
+                    [
+                        *details,
+                        "Routing Debug: web_source_quality_gate "
+                        f"outcome=fail_closed reason=no_relevant_required_sources "
+                        f"required_sites={','.join(required_sites)}",
+                    ],
+                    True,
+                )
+            return (
+                relevant_required,
+                [
+                    *details,
+                    "Routing Debug: web_source_quality_gate "
+                    f"outcome=required_sources_kept matches={len(relevant_required)} "
+                    f"removed={removed_required + max(len(required_matches) - len(relevant_required), 0)} "
+                    f"required_sites={','.join(required_sites)}",
+                ],
+                False,
+            )
+
+        preferred_sites = cls._source_plan_preferred_domains(source_plan)
+        if not preferred_sites:
+            return results, details, False
+        preferred: list[Any] = []
+        others: list[Any] = []
+        for result in results:
+            if any(cls._result_matches_site_target(result, site) for site in preferred_sites):
+                preferred.append(result)
+            else:
+                others.append(result)
+        if preferred:
+            preferred_before = len(preferred)
+            preferred = [
+                result
+                for result in preferred
+                if cls._result_matches_source_plan_topic(query, source_plan, result)
+                and not (
+                    cls._source_plan_rejects_noise_sources(query, source_plan)
+                    and cls._result_is_noise_source(result)
+                )
+            ]
+            if not preferred and not others:
+                return (
+                    [],
+                    [
+                        *details,
+                        "Routing Debug: web_source_quality_gate "
+                        f"outcome=fail_closed reason=no_relevant_preferred_sources "
+                        f"preferred_matches={preferred_before} preferred_sites={','.join(preferred_sites)}"
+                    ],
+                    True,
+                )
+            return (
+                [*preferred, *others],
+                [
+                    *details,
+                    "Routing Debug: web_source_quality_gate "
+                    f"outcome=preferred_sources_promoted matches={len(preferred)} "
+                    f"filtered={max(preferred_before - len(preferred), 0)} "
+                    f"preferred_sites={','.join(preferred_sites)}"
+                ],
+                False,
+            )
+        return (
+            results,
+            [
+                *details,
+                "Routing Debug: web_source_quality_gate "
+                f"outcome=preferred_sources_missing_continuing preferred_sites={','.join(preferred_sites)}",
+            ],
+            False,
+        )
+
+    @classmethod
+    def _limit_results_for_source_plan(cls, results: list[Any], source_plan: dict[str, Any]) -> tuple[list[Any], list[str]]:
+        if not source_plan or not results:
+            return results, []
+        search_mode = str(source_plan.get("search_mode") or "").strip().lower().replace("-", "_")
+        if search_mode != "fast_answer":
+            return results, []
+        limit = 4
+        if len(results) <= limit:
+            return results, []
+        return results[:limit], [
+            "Routing Debug: web_source_result_budget "
+            f"search_mode=fast_answer kept={limit} removed={len(results) - limit}"
+        ]
+
+    @staticmethod
+    def _merge_search_results(results: list[Any]) -> list[Any]:
+        merged: list[Any] = []
+        seen: set[str] = set()
+        for result in results:
+            url = str(getattr(result, "url", "") or "").strip().lower()
+            title = str(getattr(result, "title", "") or "").strip().lower()
+            key = url or title
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(result)
+        return merged
+
     async def execute(self, query: str, params: dict) -> SkillResult:
         language = str(params.get("language", "") or "").strip().lower()
         note_hits = self._note_context_hits(params)
-        selected = self._select_profile(query, explicit_ref=str(params.get("connection_ref", "")))
+        source_plan = self._source_plan(params)
+        requested_profile_ref = str(params.get("connection_ref", "") or "").strip()
+        profile_source = "explicit_param" if requested_profile_ref else "auto"
+        if not requested_profile_ref and str(source_plan.get("search_profile_ref", "") or "").strip():
+            requested_profile_ref = str(source_plan.get("search_profile_ref", "") or "").strip()
+            profile_source = "source_plan"
+        selected = self._select_profile(query, explicit_ref=requested_profile_ref)
         if selected is None:
+            if requested_profile_ref and self._profile_rows(self.settings):
+                return SkillResult(
+                    skill_name=self.name,
+                    content="",
+                    success=False,
+                    error=self._text(
+                        language,
+                        "unknown_searxng_profile",
+                        "Selected SearXNG profile is not configured: {profile_ref}",
+                        profile_ref=requested_profile_ref,
+                    ),
+                    metadata={
+                        "error_code": "web_search_profile_not_found",
+                        "requested_profile_ref": requested_profile_ref,
+                        "search_profile_source": profile_source,
+                    },
+                )
             return SkillResult(
                 skill_name=self.name,
                 content="",
@@ -901,53 +1355,44 @@ class WebSearchSkill(BaseSkill):
         ref, profile = selected
         display_name = str(self._profile_value(profile, "title", "")).strip() or ref
         try:
+            categories = self._profile_list(profile, "categories")
+            if source_plan and not categories:
+                categories = ["general"]
             search_kwargs = {
                 "base_url": resolve_searxng_base_url(str(self._profile_value(profile, "base_url", "")).strip()),
                 "timeout_seconds": int(self._profile_value(profile, "timeout_seconds", 10) or 10),
                 "language": str(self._profile_value(profile, "language", "")).strip(),
                 "safe_search": int(self._profile_value(profile, "safe_search", 1) or 1),
-                "categories": self._profile_list(profile, "categories"),
+                "categories": categories,
                 "engines": self._profile_list(profile, "engines"),
                 "time_range": str(self._profile_value(profile, "time_range", "")).strip(),
-                "max_results": max(int(self._profile_value(profile, "max_results", 5) or 5), 8)
-                if self._should_run_official_supplement(query)
-                else int(self._profile_value(profile, "max_results", 5) or 5),
+                "max_results": int(self._profile_value(profile, "max_results", 5) or 5),
             }
-            supplemental_count = 0
-            supplemental_errors: list[str] = []
-            supplement_queries = self._official_supplement_queries(query) if self._should_run_official_supplement(query) else []
-            try:
-                response = await self.client.search(
-                    query=str(query or "").strip(),
-                    **search_kwargs,
+            search_queries = self._search_queries(query, source_plan)
+            if len(search_queries) > 1:
+                search_kwargs["max_results"] = max(int(search_kwargs["max_results"] or 5), 8)
+
+            async def _search_one(search_query: str) -> Any:
+                return await self.client.search(query=search_query, **search_kwargs)
+
+            responses = await asyncio.gather(*(_search_one(search_query) for search_query in search_queries), return_exceptions=True)
+            search_errors = [str(item) for item in responses if isinstance(item, SearXNGClientError)]
+            good_responses = [item for item in responses if not isinstance(item, Exception)]
+            if not good_responses:
+                error_text = search_errors[0] if search_errors else "no response"
+                raise SearXNGClientError(error_text)
+            all_results: list[Any] = []
+            provider_contract_details: list[str] = []
+            for response in good_responses:
+                response_results = list(getattr(response, "results", []) or [])
+                filtered_response_results, provider_contract_detail = self._filter_results_for_site_query(
+                    str(getattr(response, "query", "") or ""),
+                    response_results,
                 )
-            except SearXNGClientError as exc:
-                if not supplement_queries:
-                    raise
-                supplemental_errors.append(f"primary: {str(exc)[:170]}")
-                response = SearXNGSearchResponse(query=str(query or "").strip(), results=[], raw={})
-            if self._should_run_official_supplement(query):
-                if supplement_queries:
-                    supplemental_responses = await asyncio.gather(
-                        *[
-                            self.client.search(
-                                query=supplement_query,
-                                **search_kwargs,
-                            )
-                            for supplement_query in supplement_queries
-                        ],
-                        return_exceptions=True,
-                    )
-                    supplemental_results = []
-                    for supplemental_response in supplemental_responses:
-                        if isinstance(supplemental_response, Exception):
-                            supplemental_errors.append(str(supplemental_response)[:180])
-                            continue
-                        supplemental_results.extend(list(supplemental_response.results or []))
-                    response.results = self._merge_search_results(response.results, supplemental_results)
-                    supplemental_count = len(supplemental_results)
-                    if not response.results and supplemental_errors:
-                        raise SearXNGClientError("; ".join(supplemental_errors[:3]))
+                all_results.extend(filtered_response_results)
+                if provider_contract_detail:
+                    provider_contract_details.append(provider_contract_detail)
+            response_query = "; ".join(search_queries)
         except SearXNGClientError as exc:
             return SkillResult(
                 skill_name=self.name,
@@ -956,24 +1401,74 @@ class WebSearchSkill(BaseSkill):
                 error=self._text(language, "search_failed", "Web search failed: {error}", error=exc),
             )
 
-        ordered_results = self._prepare_results(query, response.results)
-        ordered_results, product_source_filter = self._filter_current_product_sources(query, ordered_results)
+        merged_results = self._merge_search_results(all_results)
+        filtered_results, source_filter_details = self._filter_results_for_source_plan(merged_results, source_plan)
+        filtered_results, anchor_filter_details = self._filter_results_for_anchor_terms(
+            filtered_results,
+            query=query,
+            source_plan=source_plan,
+        )
+        source_filter_details = [*source_filter_details, *anchor_filter_details]
+        source_filter_details = [*provider_contract_details, *source_filter_details]
+        ranking_query = "; ".join(search_queries) if source_plan else query
+        ordered_results = self._prepare_results(ranking_query, filtered_results)
+        ordered_results, quality_gate_details, quality_gate_failed = self._apply_source_quality_gate(
+            ordered_results,
+            query=ranking_query,
+            source_plan=source_plan,
+        )
+        source_filter_details = [*source_filter_details, *quality_gate_details]
+        ordered_results, result_budget_details = self._limit_results_for_source_plan(ordered_results, source_plan)
+        source_filter_details = [*source_filter_details, *result_budget_details]
+        authority_labels: list[dict[str, str]] = []
+        authority_summary: dict[str, Any] = {"outcome": "", "guidance": ""}
+        authority_details: list[str] = []
+        if ordered_results and source_plan:
+            authority_labels, authority_summary, authority_details = self._source_authority_summary(
+                ranking_query,
+                ordered_results,
+                source_plan,
+            )
+            source_filter_details = [*source_filter_details, *authority_details]
+        profile_detail = ""
+        if profile_source != "auto" or str(source_plan.get("search_profile_ref", "") or "").strip():
+            profile_detail = (
+                "Routing Debug: web_search_profile "
+                f"selected={ref} source={profile_source} "
+                f"categories={','.join(categories) or '-'} engines={','.join(self._profile_list(profile, 'engines')) or '-'}"
+            )
+        plan_detail = ""
+        query_detail = ""
+        if source_plan:
+            plan_detail = (
+                "Routing Debug: web_source_acquisition_plan "
+                f"used=true planned_queries={len(source_plan.get('queries') or [])} "
+                f"search_mode={source_plan.get('search_mode') or '-'} "
+                f"search_profile_ref={source_plan.get('search_profile_ref') or '-'} "
+                f"must_domains={', '.join(source_plan.get('must_have_domains') or []) or '-'} "
+                f"preferred_domains={', '.join(source_plan.get('preferred_domains') or []) or '-'} "
+                f"required={', '.join(source_plan.get('required_sources') or []) or '-'} "
+                f"avoid={', '.join(source_plan.get('avoid_sources') or []) or '-'}"
+            )
+            query_detail = (
+                "Routing Debug: web_source_queries "
+                f"count={len(search_queries)} queries={' | '.join(search_queries)[:700]}"
+            )
 
         explicit_urls = self._explicit_urls(query)
         if not ordered_results and explicit_urls:
-            page_excerpts: dict[str, str] = {}
-            fetch_timeout = min(max(int(self._profile_value(profile, "timeout_seconds", 10) or 10), 2), 8)
-            for url in explicit_urls[:3]:
-                excerpt = await self._fetch_page_excerpt(url, query=query, timeout_seconds=fetch_timeout)
-                if excerpt:
-                    page_excerpts[url] = excerpt
+            fetch_timeout = min(max(int(self._profile_value(profile, "timeout_seconds", 10) or 10), 2), 4)
+            page_excerpts = await self._fetch_page_excerpts(
+                explicit_urls[:3],
+                query=query,
+                timeout_seconds=fetch_timeout,
+            )
             if page_excerpts:
                 lines = [
                     f"[Web Search via {display_name}]",
-                    f"{self._text(language, 'search_label', 'Search')}: {response.query}",
+                    f"{self._text(language, 'search_label', 'Search')}: {response_query}",
                 ]
-                detail_lines = []
-                detail_lines.extend(f"Web search supplemental query failed: {error}" for error in supplemental_errors[:3])
+                detail_lines = [line for line in [profile_detail, plan_detail, query_detail, *source_filter_details] if line]
                 source_entries = []
                 for index, (url, excerpt) in enumerate(page_excerpts.items(), start=1):
                     lines.append(f"- [{index}] {url}\n  Page excerpt:\n{excerpt}")
@@ -989,6 +1484,7 @@ class WebSearchSkill(BaseSkill):
                             "published_at": "",
                             "published_label": "",
                             "page_excerpt": True,
+                            "page_excerpt_text": excerpt,
                         }
                     )
                 content, saved = self.truncate("\n".join(lines))
@@ -1002,54 +1498,90 @@ class WebSearchSkill(BaseSkill):
                         "detail_lines": detail_lines,
                         "connection_ref": ref,
                         "connection_title": display_name,
+                        "search_profile_ref": ref,
+                        "search_profile_source": profile_source,
                         "result_count": len(source_entries),
                         "explicit_url_count": len(explicit_urls),
                         "fetch_attempt_count": len(explicit_urls[:3]),
                         "page_excerpt_count": len(page_excerpts),
                         "source_quality_outcome": "explicit_url_page_fetch",
-                        "official_supplement_count": supplemental_count,
-                        "official_supplement_error_count": len(supplemental_errors),
-                        "official_supplement_errors": supplemental_errors[:3],
+                        "web_source_plan": source_plan,
+                        "executed_queries": search_queries,
+                        "planned_query_count": len(source_plan.get("queries") or []),
+                        "search_error_count": len(search_errors),
+                        "search_categories": categories,
                     },
                 )
 
-        if not ordered_results:
+        if quality_gate_failed or not ordered_results:
+            detail_lines = [
+                profile_detail,
+                *([plan_detail] if plan_detail else []),
+                *([query_detail] if query_detail else []),
+                *source_filter_details,
+                self._text(
+                    language,
+                    "zero_results_detail",
+                    "Web search via {display_name} · 0 results",
+                    display_name=display_name,
+                ),
+            ]
+            if source_plan:
+                return SkillResult(
+                    skill_name=self.name,
+                    content="",
+                    success=False,
+                    error=self._text(
+                        language,
+                        "no_reliable_sources",
+                        "I found no reliable web sources for this question.",
+                    ),
+                    metadata={
+                        "sources": [],
+                        "detail_lines": [line for line in detail_lines if line],
+                        "web_source_plan": source_plan,
+                        "executed_queries": search_queries,
+                        "planned_query_count": len(source_plan.get("queries") or []),
+                        "search_error_count": len(search_errors),
+                        "search_categories": categories,
+                        "connection_ref": ref,
+                        "connection_title": display_name,
+                        "search_profile_ref": ref,
+                        "search_profile_source": profile_source,
+                        "result_count": 0,
+                        "error_code": "web_source_no_reliable_sources",
+                    },
+                )
             return SkillResult(
                 skill_name=self.name,
                 content=self._text(language, "no_results", "[Web Search]\nNo web results found."),
                 success=True,
                 metadata={
-                    "detail_lines": [
-                        self._text(
-                            language,
-                            "zero_results_detail",
-                            "Web search via {display_name} · 0 results",
-                            display_name=display_name,
-                        )
-                    ],
-                    "official_supplement_count": supplemental_count,
-                    "official_supplement_error_count": len(supplemental_errors),
-                    "official_supplement_errors": supplemental_errors[:3],
+                    "detail_lines": [line for line in detail_lines if line],
+                    "web_source_plan": source_plan,
+                    "executed_queries": search_queries,
+                    "planned_query_count": len(source_plan.get("queries") or []),
+                    "search_error_count": len(search_errors),
+                    "search_categories": categories,
+                    "connection_ref": ref,
+                    "connection_title": display_name,
+                    "search_profile_ref": ref,
+                    "search_profile_source": profile_source,
+                    "result_count": 0,
                 },
             )
 
         lines: list[str] = []
-        detail_lines: list[str] = []
-        detail_lines.extend(f"Web search supplemental query failed: {error}" for error in supplemental_errors[:3])
-        if bool(product_source_filter.get("applied")):
-            detail_lines.append(
-                "Routing Debug: web_source_filter "
-                f"mode=official_product kept={int(product_source_filter.get('kept', 0) or 0)} "
-                f"rejected={int(product_source_filter.get('rejected', 0) or 0)} "
-                f"reason={product_source_filter.get('reason') or '-'}"
-            )
+        detail_lines: list[str] = [line for line in [profile_detail, plan_detail, query_detail, *source_filter_details] if line]
         if note_hits:
             context_block = note_context_block(note_hits, language=language)
             if context_block:
                 lines.extend(context_block.splitlines())
                 lines.append("")
             detail_lines.extend(note_context_detail_lines(note_hits, language=language))
-        lines.extend([f"[Web Search via {display_name}]", f"{self._text(language, 'search_label', 'Search')}: {response.query}"])
+        lines.extend([f"[Web Search via {display_name}]", f"{self._text(language, 'search_label', 'Search')}: {response_query}"])
+        if authority_summary.get("guidance"):
+            lines.append(str(authority_summary["guidance"]))
         if self._is_recency_query(query):
             lines.append(
                 self._text(
@@ -1058,39 +1590,35 @@ class WebSearchSkill(BaseSkill):
                     "Note: results with recognized publication dates are shown first.",
                 )
             )
-        target_coverage = self._target_coverage_rows(query, ordered_results)
-        if target_coverage:
-            lines.append("Target coverage for the answer (answer each listed target separately; do not claim a target is missing when it has a row here):")
-            for row in target_coverage:
-                entry = f"- {row['target']}: {row['title']}"
-                if row["url"]:
-                    entry += f" · {row['url']}"
-                if row["engine"]:
-                    entry += f" · {row['engine']}"
-                if row["snippet"]:
-                    entry += f"\n  Evidence snippet: {row['snippet']}"
-                lines.append(entry)
         source_entries: list[dict[str, Any]] = []
         page_excerpts: dict[str, str] = {}
         fetch_attempts: set[str] = set()
-        fetch_timeout = min(max(int(self._profile_value(profile, "timeout_seconds", 10) or 10), 2), 8)
-        fetch_candidates = self._result_fetch_candidates(query, ordered_results)
+        fetch_timeout = min(max(int(self._profile_value(profile, "timeout_seconds", 10) or 10), 2), 4)
+        fetch_candidates = self._result_fetch_candidates(ranking_query, ordered_results)
         for url in fetch_candidates:
             fetch_attempts.add(url)
             base_url, _fragment = urldefrag(url)
             if base_url:
                 fetch_attempts.add(base_url)
-            excerpt = await self._fetch_page_excerpt(url, query=query, timeout_seconds=fetch_timeout)
-            if excerpt:
-                page_excerpts[url] = excerpt
-                if base_url:
-                    page_excerpts[base_url] = excerpt
+        fetched_page_excerpts = await self._fetch_page_excerpts(
+            fetch_candidates,
+            query=ranking_query,
+            timeout_seconds=fetch_timeout,
+        )
+        for url, excerpt in fetched_page_excerpts.items():
+            page_excerpts[url] = excerpt
+            base_url, _fragment = urldefrag(url)
+            if base_url:
+                page_excerpts[base_url] = excerpt
         for index, result in enumerate(ordered_results, start=1):
+            authority = authority_labels[index - 1] if index - 1 < len(authority_labels) else {"label": "", "reason": ""}
             entry = f"- [{index}] {result.title}"
             if result.url:
                 entry += f"\n  URL: {result.url}"
             if result.engine:
                 entry += f"\n  Engine: {result.engine}"
+            if authority.get("label"):
+                entry += f"\n  Source authority: {authority['label']} ({authority.get('reason') or '-'})"
             if result.published_label:
                 entry += f"\n  {self._text(language, 'date_label', 'Date')}: {result.published_label}"
             if result.snippet:
@@ -1112,7 +1640,11 @@ class WebSearchSkill(BaseSkill):
                     "engine": result.engine,
                     "published_at": result.published_at,
                     "published_label": result.published_label,
+                    "snippet": result.snippet,
                     "page_excerpt": bool(excerpt),
+                    "page_excerpt_text": excerpt,
+                    "source_authority_label": authority.get("label") or "",
+                    "source_authority_reason": authority.get("reason") or "",
                 }
             )
 
@@ -1127,15 +1659,12 @@ class WebSearchSkill(BaseSkill):
                 "detail_lines": detail_lines,
                 "connection_ref": ref,
                 "connection_title": display_name,
+                "search_profile_ref": ref,
+                "search_profile_source": profile_source,
                 "result_count": len(ordered_results),
                 "explicit_url_count": len(explicit_urls),
                 "fetch_attempt_count": len(fetch_candidates),
                 "page_excerpt_count": len({value for value in page_excerpts.values()}),
-                "official_supplement_count": supplemental_count,
-                "official_supplement_error_count": len(supplemental_errors),
-                "official_supplement_errors": supplemental_errors[:3],
-                "target_coverage": target_coverage,
-                "web_source_filter": product_source_filter,
                 "source_quality_outcome": (
                     "explicit_url_with_page_excerpt"
                     if explicit_urls and page_excerpts
@@ -1145,5 +1674,11 @@ class WebSearchSkill(BaseSkill):
                     if page_excerpts
                     else "search_results_only"
                 ),
+                "source_authority_outcome": authority_summary.get("outcome") or "",
+                "web_source_plan": source_plan,
+                "executed_queries": search_queries,
+                "planned_query_count": len(source_plan.get("queries") or []),
+                "search_error_count": len(search_errors),
+                "search_categories": categories,
             },
         )

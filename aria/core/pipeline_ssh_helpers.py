@@ -149,14 +149,118 @@ class PipelineSSHHelpersMixin:
         return None
 
     @classmethod
+    def _parse_disk_size_label(cls, text: str) -> tuple[float, str] | None:
+        match = re.fullmatch(r"(\d+(?:[.,]\d+)?)([KMGTPE]i?B?|[kmgtpe]i?b?)", str(text or "").strip())
+        if not match:
+            return None
+        gib = cls._storage_size_to_gib(match.group(1), match.group(2))
+        if gib is None:
+            return None
+        return gib, str(text or "").strip()
+
+    @classmethod
+    def _extract_disk_measurement(cls, text: str) -> dict[str, Any] | None:
+        clean_text = str(text or "").strip()
+        if not clean_text:
+            return None
+        table_measurement = cls._extract_df_table_disk_measurement(clean_text)
+        if table_measurement:
+            return table_measurement
+        return cls._extract_summary_disk_measurement(clean_text)
+
+    @classmethod
+    def _extract_df_table_disk_measurement(cls, text: str) -> dict[str, Any] | None:
+        candidates: list[dict[str, Any]] = []
+        for line in str(text or "").splitlines():
+            parts = str(line or "").strip().split()
+            if not parts or parts[0].lower() == "filesystem" or len(parts) < 6:
+                continue
+            use_index = -1
+            use_token = ""
+            for index, part in enumerate(parts):
+                if re.fullmatch(r"\d+(?:[.,]\d+)?%", part):
+                    use_index = index
+                    use_token = part
+                    break
+            if use_index < 3 or use_index + 1 >= len(parts):
+                continue
+            avail = cls._parse_disk_size_label(parts[use_index - 1])
+            size = cls._parse_disk_size_label(parts[use_index - 3])
+            used = cls._parse_disk_size_label(parts[use_index - 2])
+            if not avail:
+                continue
+            try:
+                use_pct = float(use_token.rstrip("%").replace(",", "."))
+            except ValueError:
+                continue
+            candidates.append(
+                {
+                    "mount": parts[use_index + 1],
+                    "size_gib": size[0] if size else 0.0,
+                    "size_label": size[1] if size else "",
+                    "used_gib": used[0] if used else 0.0,
+                    "used_label": used[1] if used else "",
+                    "avail_gib": avail[0],
+                    "avail_label": avail[1],
+                    "use_pct": use_pct,
+                }
+            )
+        if not candidates:
+            return None
+        for candidate in candidates:
+            if candidate.get("mount") == "/":
+                return candidate
+        return candidates[0]
+
+    @classmethod
+    def _extract_summary_disk_measurement(cls, text: str) -> dict[str, Any] | None:
+        clean = re.sub(r"\s+", " ", str(text or "").strip())
+        if not clean:
+            return None
+        pct_match = re.search(r"(?P<pct>\d+(?:[.,]\d+)?)\s*%\s*(?:belegt|used|usage|ausgelastet)", clean, flags=re.IGNORECASE)
+        free_match = re.search(
+            r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>tib|tb|gib|gb|g|mib|mb|m)\s+(?:frei|free|available)",
+            clean,
+            flags=re.IGNORECASE,
+        )
+        if not pct_match or not free_match:
+            return None
+        try:
+            use_pct = float(pct_match.group("pct").replace(",", "."))
+        except ValueError:
+            return None
+        avail_gib = cls._storage_size_to_gib(free_match.group("value"), free_match.group("unit"))
+        if avail_gib is None:
+            return None
+        return {
+            "mount": "/",
+            "size_gib": 0.0,
+            "size_label": "",
+            "used_gib": 0.0,
+            "used_label": "",
+            "avail_gib": avail_gib,
+            "avail_label": f"{free_match.group('value')}{free_match.group('unit')}",
+            "use_pct": use_pct,
+        }
+
+    @classmethod
     def _multi_target_ssh_free_disk_measurements(cls, records: list[dict[str, str]]) -> list[dict[str, Any]]:
         measurements: list[dict[str, Any]] = []
         for row in records:
-            parsed = cls._extract_summary_free_disk_gib(str(row.get("raw_text", "") or row.get("text", "") or ""))
             ref = str(row.get("ref", "") or "").strip()
-            if not ref or not parsed:
+            measurement = row.get("disk_measurement")
+            if not isinstance(measurement, dict):
+                measurement = cls._extract_disk_measurement(str(row.get("raw_text", "") or row.get("text", "") or ""))
+            if not ref or not isinstance(measurement, dict):
                 continue
-            measurements.append({"ref": ref, "free_gib": parsed[0], "free_label": parsed[1]})
+            try:
+                free_gib = float(measurement.get("avail_gib", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            free_label = str(measurement.get("avail_label", "") or "").strip()
+            if not free_label:
+                continue
+            measurements.append({"ref": ref, "free_gib": free_gib, "free_label": free_label})
         return measurements
 
     @staticmethod
@@ -957,10 +1061,19 @@ class PipelineSSHHelpersMixin:
         resolved: dict[str, Any],
         payload: dict[str, Any],
     ) -> bool:
+        routing_decision = dict(resolved.get("decision", {}) or {})
+        action_decision = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        if (
+            normalize_connection_kind(str(routing_decision.get("kind", "") or "")) == "ssh"
+            and bool(routing_decision.get("found"))
+            and not bool(action_decision.get("found"))
+            and not str(payload.get("content", "") or "").strip()
+        ):
+            return True
         return (
-            self._payload_missing_fields(payload) == ["content"]
-            and str(payload.get("capability", "") or "").strip() == "ssh_command"
-            and normalize_connection_kind(str(dict(resolved.get("decision", {}) or {}).get("kind", "") or "")) == "ssh"
+            set(self._payload_missing_fields(payload)).issubset({"content", "command"})
+            and str(payload.get("capability", "") or "").strip() in {"", "ssh_command"}
+            and normalize_connection_kind(str(routing_decision.get("kind", "") or "")) == "ssh"
             and not str(payload.get("content", "") or "").strip()
         )
 

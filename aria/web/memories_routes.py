@@ -502,6 +502,15 @@ def _format_display_timestamp(value: str | None) -> str:
     return raw.replace("T", " ", 1)
 
 
+def _safe_browser_int(value: Any, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _slug_user_id(user_id: str) -> str:
     clean = "".join(ch.lower() if ch.isalnum() or ch in {"_", "-"} else "_" for ch in str(user_id or "").strip())
     while "__" in clean:
@@ -779,6 +788,133 @@ def _build_collection_point_entries(brain: dict[str, Any] | None) -> dict[str, l
     return entries
 
 
+def _build_collection_row_entries(
+    rows: list[dict[str, Any]],
+    *,
+    username: str,
+) -> dict[str, list[dict[str, Any]]]:
+    entries: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        collection = str(row.get("collection", "")).strip()
+        point_id = str(row.get("id", "")).strip()
+        if not collection or not point_id:
+            continue
+        memory_type = str(row.get("type", "")).strip().lower()
+        if memory_type == "document" or _is_document_collection_name(collection):
+            continue
+        if memory_type == "notes" or _is_notes_collection_name(collection, username=username):
+            continue
+        text = str(row.get("text", "")).strip()
+        entry = {
+            "id": point_id,
+            "label": str(row.get("label", "") or row.get("title", "") or memory_type or "Entry").strip(),
+            "collection": collection,
+            "kind": memory_type,
+            "source": str(row.get("source", "") or "").strip(),
+            "timestamp": str(row.get("timestamp", "") or "").strip(),
+            "preview": _memory_preview(text, limit=220),
+        }
+        entries.setdefault(collection, []).append(entry)
+    for collection_entries in entries.values():
+        collection_entries.sort(key=lambda item: str(item.get("timestamp", "")), reverse=True)
+    return entries
+
+
+def _build_note_drilldown_groups(
+    rows: list[dict[str, Any]],
+    *,
+    username: str,
+    max_chunks_per_note: int = 12,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    note_lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        collection = str(row.get("collection", "")).strip()
+        if not collection:
+            continue
+        memory_type = str(row.get("type", "")).strip().lower()
+        if memory_type != "notes" and not _is_notes_collection_name(collection, username=username):
+            continue
+        note_id = str(row.get("note_id", "")).strip()
+        note_title = str(row.get("note_title", "")).strip() or "Unbenannte Notiz"
+        note_path = str(row.get("note_path", "")).strip()
+        note_key = note_id or note_path or note_title or str(row.get("id", "")).strip()
+        if not note_key:
+            continue
+        group = grouped.setdefault(
+            collection,
+            {
+                "collection": collection,
+                "document_count": 0,
+                "chunk_count": 0,
+                "latest_timestamp": "",
+                "documents": [],
+            },
+        )
+        note = note_lookup.get((collection, note_key))
+        if note is None:
+            note = {
+                "id": f"note:{collection}:{note_key}",
+                "level": "document",
+                "kind": "notes",
+                "collection": collection,
+                "note_id": note_id,
+                "note_title": note_title,
+                "note_folder": str(row.get("note_folder", "")).strip(),
+                "note_path": note_path,
+                "note_tags": list(row.get("note_tags", []) or []) if isinstance(row.get("note_tags", []), list) else [],
+                "label": note_title,
+                "chunk_count": 0,
+                "latest_timestamp": "",
+                "preview": "",
+                "source": str(row.get("source", "")).strip() or "notes",
+                "chunks": [],
+                "all_chunks": [],
+            }
+            note_lookup[(collection, note_key)] = note
+            group["documents"].append(note)
+            group["document_count"] += 1
+        timestamp = str(row.get("timestamp", "")).strip()
+        text = str(row.get("text", "")).strip()
+        note["chunk_count"] += 1
+        group["chunk_count"] += 1
+        if timestamp and timestamp > str(note.get("latest_timestamp", "")):
+            note["latest_timestamp"] = timestamp
+        if timestamp and timestamp > str(group.get("latest_timestamp", "")):
+            group["latest_timestamp"] = timestamp
+        if text and not note.get("preview"):
+            note["preview"] = _memory_preview(text, limit=160)
+        chunk_index = _safe_browser_int(row.get("chunk_index"), note["chunk_count"])
+        chunk_entry = {
+            "id": str(row.get("id", "")).strip() or f"{note['id']}:chunk:{note['chunk_count']}",
+            "label": f"Chunk {chunk_index}",
+            "collection": collection,
+            "kind": "notes",
+            "note_id": note_id,
+            "note_title": note_title,
+            "note_path": note_path,
+            "chunk_index": chunk_index,
+            "chunk_total": _safe_browser_int(row.get("chunk_total")),
+            "preview": _memory_preview(text, limit=220),
+            "timestamp": timestamp,
+            "source": str(row.get("source", "")).strip() or "notes",
+        }
+        note["all_chunks"].append(chunk_entry)
+        if len(note["chunks"]) < max_chunks_per_note:
+            note["chunks"].append(chunk_entry)
+
+    groups = list(grouped.values())
+    groups.sort(key=lambda item: str(item.get("latest_timestamp", "")), reverse=True)
+    for group in groups:
+        group["display_timestamp"] = _format_display_timestamp(group.get("latest_timestamp"))
+        group["documents"].sort(key=lambda item: str(item.get("latest_timestamp", "")), reverse=True)
+        for note in group["documents"]:
+            note["display_timestamp"] = _format_display_timestamp(note.get("latest_timestamp"))
+            note["chunks"].sort(key=lambda item: _safe_browser_int(item.get("chunk_index")))
+            note["all_chunks"].sort(key=lambda item: _safe_browser_int(item.get("chunk_index")))
+    return groups
+
+
 def _build_memory_drilldown_browser_snapshot(
     *,
     username: str,
@@ -786,10 +922,18 @@ def _build_memory_drilldown_browser_snapshot(
     collection_stats: list[dict[str, Any]],
     all_collections: list[dict[str, Any]] | None = None,
     document_rows: list[dict[str, Any]],
+    collection_rows: list[dict[str, Any]] | None = None,
     brain: dict[str, Any] | None,
 ) -> dict[str, Any]:
     document_groups = _build_document_drilldown_groups(document_rows)
+    note_groups = _build_note_drilldown_groups(list(collection_rows or []), username=username)
+    row_entries_by_collection = _build_collection_row_entries(list(collection_rows or []), username=username)
     point_entries_by_collection = _build_collection_point_entries(brain)
+    notes_by_collection = {
+        str(group.get("collection", "")).strip(): group
+        for group in note_groups
+        if str(group.get("collection", "")).strip()
+    }
     types: dict[str, dict[str, Any]] = {}
     collections: list[dict[str, Any]] = []
     stats_by_name = {
@@ -810,6 +954,16 @@ def _build_memory_drilldown_browser_snapshot(
             kind = str(stats_row.get("kind", "") or row.get("kind", "") or "fact").strip().lower() or "fact"
         browser_kind = kind
         points = int(row.get("points", stats_row.get("points", 0)) or 0)
+        note_group = notes_by_collection.get(name) if browser_kind == "notes" else None
+        collection_documents = list((note_group or {}).get("documents", []) or [])
+        collection_entries = (
+            []
+            if browser_kind == "notes" or collection_documents
+            else row_entries_by_collection.get(name, point_entries_by_collection.get(name, []))
+        )
+        collection_document_count = int((note_group or {}).get("document_count", 0) or 0)
+        collection_chunk_count = int((note_group or {}).get("chunk_count", 0) or 0)
+        collection_preview = str((note_group or {}).get("display_timestamp", "") or "")
         types.setdefault(
             browser_kind,
             {
@@ -834,11 +988,11 @@ def _build_memory_drilldown_browser_snapshot(
                 "status": str(row.get("status", "") or stats_row.get("status", "") or ""),
                 "vectors": int(row.get("vectors", 0) or 0),
                 "indexed_vectors": int(row.get("indexed_vectors", 0) or 0),
-                "documents": [],
-                "entries": point_entries_by_collection.get(name, []),
-                "document_count": 0,
-                "chunk_count": 0,
-                "preview": "",
+                "documents": collection_documents,
+                "entries": collection_entries,
+                "document_count": collection_document_count,
+                "chunk_count": collection_chunk_count,
+                "preview": collection_preview,
                 "href": _memory_collection_link(kind=kind, collection=name),
             }
         )
@@ -887,6 +1041,54 @@ def _build_memory_drilldown_browser_snapshot(
     document_type["collection_count"] = max(
         int(document_type.get("collection_count", 0) or 0),
         len(document_groups),
+    )
+    notes_type = types.setdefault(
+        "notes",
+        {
+            "id": "type:notes",
+            "kind": "notes",
+            "label": _graph_kind_label("notes", lang),
+            "points": 0,
+            "collection_count": 0,
+        },
+    )
+    known_notes_collections = {str(item.get("name", "")).strip() for item in collections if str(item.get("kind")) == "notes"}
+    notes_chunk_total = 0
+    for group in note_groups:
+        collection = str(group.get("collection", "")).strip()
+        notes_chunk_total += int(group.get("chunk_count", 0) or 0)
+        if collection not in known_notes_collections:
+            collections.append(
+                {
+                    "id": _memory_browser_node_id("collection", collection),
+                    "kind": "notes",
+                    "original_kind": "notes",
+                    "kindLabel": _graph_kind_label("notes", lang),
+                    "label": collection,
+                    "name": collection,
+                    "points": int(group.get("chunk_count", 0) or 0),
+                    "documents": group.get("documents", []),
+                    "entries": [],
+                    "document_count": int(group.get("document_count", 0) or 0),
+                    "chunk_count": int(group.get("chunk_count", 0) or 0),
+                    "preview": str(group.get("display_timestamp", "") or ""),
+                    "href": _memory_collection_link(kind="notes", collection=collection),
+                }
+            )
+            continue
+        for item in collections:
+            if str(item.get("name", "")).strip() == collection and str(item.get("kind", "")).strip() == "notes":
+                item["documents"] = group.get("documents", [])
+                item["entries"] = []
+                item["document_count"] = int(group.get("document_count", 0) or 0)
+                item["chunk_count"] = int(group.get("chunk_count", 0) or 0)
+                item["points"] = max(int(item.get("points", 0) or 0), int(group.get("chunk_count", 0) or 0))
+                item["preview"] = str(group.get("display_timestamp", "") or "")
+                break
+    notes_type["points"] = max(int(notes_type.get("points", 0) or 0), notes_chunk_total)
+    notes_type["collection_count"] = max(
+        int(notes_type.get("collection_count", 0) or 0),
+        len(note_groups),
     )
 
     type_items = [item for item in types.values() if int(item.get("points", 0) or 0) > 0 or int(item.get("collection_count", 0) or 0) > 0]
@@ -2178,6 +2380,21 @@ def register_memories_routes(
                     type_filter="document",
                     limit=5000,
                 )
+        memory_browser_rows: list[dict[str, Any]] = []
+        if getattr(pipeline, "memory_skill", None):
+            with suppress(Exception):
+                memory_browser_rows = await pipeline.memory_skill.list_memories_global(
+                    user_id=username,
+                    type_filter="all",
+                    limit=10000,
+                )
+            if memory_browser_rows:
+                document_rows = [
+                    row
+                    for row in memory_browser_rows
+                    if str(row.get("type", "")).strip().lower() == "document"
+                    or _is_document_collection_name(str(row.get("collection", "")).strip())
+                ]
         memory_browser_collection = str(request.query_params.get("collection", "") or "").strip()
         memory_browser_document = str(request.query_params.get("document", "") or "").strip()
         memory_browser_chunk = str(request.query_params.get("chunk", "") or "").strip()
@@ -2242,6 +2459,7 @@ def register_memories_routes(
             collection_stats=collection_stats,
             all_collections=list(overview.get("collections", []) or []),
             document_rows=document_rows,
+            collection_rows=memory_browser_rows,
             brain=dict(map_snapshot.get("memory_graph", {}).get("brain", {}) or {}),
         )
         if memory_browser_collection:

@@ -31,6 +31,15 @@ _CURRENTNESS_TERMS = (
     "neuste",
     "neueste",
     "letzte version",
+    "letzten wochen",
+    "letzte wochen",
+    "rausgekommen",
+    "herausgekommen",
+    "geaendert",
+    "geändert",
+    "changed",
+    "changes",
+    "update",
     "latest",
     "current",
     "newest",
@@ -65,6 +74,7 @@ _TECH_PRODUCT_TERMS = (
 
 
 _EXPLICIT_WEB_RESEARCH_PATTERNS = (
+    r"\bwebsuche\b",
     r"\b(?:recherchier(?:e|en)?|such(?:e|en)?|suche|suchen)\b.*\b(?:internet|web|online)\b",
     r"\b(?:internet|web|online)\b.*\b(?:recherchier(?:e|en)?|such(?:e|en)?|suche|suchen)\b",
     r"\b(?:search|research|look\s+up|browse)\b.*\b(?:internet|web|online)\b",
@@ -121,28 +131,29 @@ def chat_freshness_candidate(message: str, *, intents: list[str] | None = None) 
 
 def _fallback_decision(message: str, *, reason: str = "") -> ChatFreshnessDecision:
     clean = re.sub(r"\s+", " ", str(message or "").strip())
-    lowered = clean.lower()
-    needs = chat_freshness_candidate(clean)
-    if needs:
+    if explicitly_requests_web_research(clean) or _URL_PATTERN.search(clean):
+        fallback_reason = (
+            "user explicitly requested web research"
+            if explicitly_requests_web_research(clean)
+            else "user provided an explicit URL"
+        )
         if explicitly_requests_web_research(clean):
-            fallback_reason = "user explicitly requested web research"
-        elif any(term in lowered for term in _CURRENTNESS_TERMS):
-            fallback_reason = "question asks for current version/release/status information"
+            query = _fallback_query(clean)
         else:
-            fallback_reason = "technical product/setup question may depend on current external documentation"
+            query = clean
         return ChatFreshnessDecision(
             needs_fresh_context=True,
-            query=_fallback_query(clean),
+            query=query,
             reason=reason or fallback_reason,
             confidence="medium",
-            source="heuristic",
+            source="explicit_fallback",
         )
     return ChatFreshnessDecision(
         needs_fresh_context=False,
         query="",
-        reason=reason or "no current external product information required",
+        reason=reason or "freshness arbiter unavailable; no explicit web contract",
         confidence="low",
-        source="heuristic",
+        source="none",
     )
 
 

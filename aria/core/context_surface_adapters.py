@@ -8,6 +8,8 @@ from aria.core.connection_catalog import (
     connection_routing_spec,
     ordered_connection_kinds,
 )
+from aria.core.connection_action_contract import connection_action_contracts
+from aria.core.connection_action_contract import connection_action_executor_bindings
 from aria.core.context_surfaces import ContextSurface, SurfaceRegistry
 
 
@@ -60,7 +62,7 @@ def _iter_configured_connection_rows(settings: Any) -> Iterable[tuple[str, str, 
 
 def _safe_connection_summary(row: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
-    for field in ("title", "description", "aliases", "tags", "group_name", "calendar_id", "mailbox"):
+    for field in ("title", "description", "aliases", "tags", "group_name", "host", "calendar_id", "mailbox"):
         if field in SECRET_FIELD_NAMES:
             continue
         value = row.get(field)
@@ -209,8 +211,8 @@ def build_connections_surface(settings: Any | None = None) -> ContextSurface:
         surface_id="connections",
         surface_type="inventory_and_runtime",
         display_name="Connections",
-        what_it_knows="Configured connection inventory, safe refs, non-secret metadata, service types, and available guarded runtime adapters.",
-        what_it_can_load="Connection inventory, safe metadata, related services, and candidate target context without exposing secrets.",
+        what_it_knows="Configured connection inventory, safe refs, non-secret metadata, service types, hosts, endpoints, aliases, tags, and available guarded runtime adapters.",
+        what_it_can_load="Connection inventory, safe metadata, related services, aliases, tags, and candidate target context without exposing secrets.",
         what_it_can_do="Propose or execute guarded actions only through registered connection executors, policy, confirmation, and dry-run contracts.",
         supported_modes=("answer", "inventory", "search", "action", "clarify"),
         cost_hint="free",
@@ -221,6 +223,79 @@ def build_connections_surface(settings: Any | None = None) -> ContextSurface:
         guardrail_notes=("Never expose secrets.", "Preserve configured connections and refs.", "Actions must pass guardrails before runtime."),
         routing_metadata=_connection_routing_metadata(settings),
         metadata=_connection_inventory_metadata(settings),
+    )
+
+
+def _capability_inventory_metadata(settings: Any | None = None) -> dict[str, Any]:
+    configured_kinds = set(_connection_inventory_metadata(settings).get("configured_kinds", []) or [])
+    bindings = connection_action_executor_bindings()
+    configured_bindings = [
+        {"kind": kind, "capability": capability}
+        for kind, capability in bindings
+        if not configured_kinds or kind in configured_kinds
+    ]
+    contracts = []
+    for contract in connection_action_contracts():
+        contracts.append(
+            {
+                "capability": contract.capability,
+                "family": contract.family,
+                "operation": contract.operation,
+                "executors": list(contract.executors),
+                "confirmation_required": bool(contract.confirmation_required),
+                "direct_capability_gate": bool(contract.direct_capability_gate),
+            }
+        )
+    return {
+        "configured_connection_kinds": sorted(configured_kinds),
+        "capability_count": len(contracts),
+        "configured_binding_count": len(configured_bindings),
+        "configured_bindings": configured_bindings[:120],
+        "contracts": contracts[:120],
+    }
+
+
+def build_capabilities_surface(settings: Any | None = None) -> ContextSurface:
+    metadata = _capability_inventory_metadata(settings)
+    return ContextSurface(
+        surface_id="capabilities",
+        surface_type="system_inventory",
+        display_name="Capabilities",
+        what_it_knows="ARIA's registered runtime capability contracts, executor bindings, operation names, and confirmation requirements.",
+        what_it_can_load="A source-bound system inventory of active capability contracts and configured executor bindings.",
+        what_it_can_do="Describe available capabilities; execution still goes through the guarded runtime action contract.",
+        supported_modes=("answer", "inventory", "search"),
+        cost_hint="free",
+        latency_hint="instant",
+        risk_hint="low",
+        loader_contract="Load capability inventory from registered runtime contracts, not from memory or documents.",
+        executor_contract="Capability execution remains delegated to the connection/runtime action contract.",
+        guardrail_notes=("Do not expose secrets.", "Do not infer unavailable capabilities from memory text."),
+        routing_metadata={
+            "capability_count": metadata["capability_count"],
+            "configured_connection_kinds": metadata["configured_connection_kinds"],
+        },
+        metadata=metadata,
+    )
+
+
+def build_recipes_surface(settings: Any | None = None) -> ContextSurface:
+    return ContextSurface(
+        surface_id="recipes",
+        surface_type="system_inventory",
+        display_name="Recipes",
+        what_it_knows="Stored ARIA recipe templates, runtime recipe metadata, enabled state, keywords, connected executor kinds, and step summaries.",
+        what_it_can_load="A source-bound inventory of stored recipe templates and runtime recipe availability.",
+        what_it_can_do="Describe or select recipes; execution still requires the recipe runtime contract and confirmation where needed.",
+        supported_modes=("answer", "inventory", "search", "action"),
+        cost_hint="free",
+        latency_hint="instant",
+        risk_hint="medium",
+        loader_contract="Load recipe inventory from stored recipe runtime metadata, not from memory or unrelated documents.",
+        executor_contract="Recipe execution remains delegated to the guarded recipe runtime contract.",
+        guardrail_notes=("Preserve stored recipes.", "Do not invent recipe templates when none are loaded."),
+        routing_metadata={"configured": True},
+        metadata={"configured": True},
     )
 
 
@@ -255,6 +330,8 @@ def build_builtin_surface_registry(settings: Any | None = None) -> SurfaceRegist
             build_notes_surface(settings),
             build_docs_surface(settings),
             build_connections_surface(settings),
+            build_capabilities_surface(settings),
+            build_recipes_surface(settings),
             build_web_surface(settings),
         ]
     )

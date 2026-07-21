@@ -47,6 +47,7 @@ Every new connection provider must preserve these boundaries:
 - Debug output must show enough payload to audit the action without exposing secrets.
 - Read/search actions may expose sensitive content only through bounded summaries and source-aware detail lines.
 - Send/write/publish actions must be confirmation-gated and should have a draft/review step when user-facing content is generated.
+- Runtime adapter ids must be known to the Agentic Execution Registry audit. Built-in providers may resolve through a specialized handler such as SSH/RSS or through the generic capability handler; unknown community adapters must stay invalid until an adapter boundary is registered.
 
 ## Tests To Add With A New Provider
 
@@ -54,6 +55,7 @@ Every new connection provider must preserve these boundaries:
 - `connection_action_manifest_rows()` exports the capability with policy, runtime operation and side-effect state.
 - `connection_provider_manifest_rows()` exports a provider-level row for the connection kind.
 - `validate_connection_provider_manifest()` passes for the provider row.
+- `connection_provider_runtime_adapter_audit_rows()` reports a registered runtime adapter status for the provider row.
 - Side-effect providers use a non-read-only policy family.
 - Runtime debug payload comes from the contract, not from local `if capability == ...` chains.
 - Read/search/send/write semantics come from `planner_role`, not provider-specific pipeline branches.

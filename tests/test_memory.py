@@ -106,7 +106,7 @@ async def _run_memory() -> None:
 
     skill._embed = fake_embed  # type: ignore[assignment]
 
-    await skill.execute("merk", {"action": "store", "text": "NAS 10.0.10.100", "user_id": "u1"})
+    await skill.execute("merk", {"action": "store", "text": "NAS 198.51.100.100", "user_id": "u1"})
     await skill.execute("merk", {"action": "store", "text": "anderes", "user_id": "u2"})
     pref_store = await skill.execute(
         "ich bevorzuge direkte antworten",
@@ -122,7 +122,7 @@ async def _run_memory() -> None:
 
     recalled = await skill.execute("NAS", {"action": "recall", "user_id": "u1", "top_k": 3})
     assert recalled.success is True
-    assert "10.0.10.100" in recalled.content
+    assert "198.51.100.100" in recalled.content
     assert "anderes" not in recalled.content
     assert any((p.payload or {}).get("type") == "preference" for p in skill.qdrant.points)
     assert any((p.payload or {}).get("source") == "auto" for p in skill.qdrant.points)
@@ -130,6 +130,71 @@ async def _run_memory() -> None:
 
 def test_memory_filters_by_user_id() -> None:
     asyncio.run(_run_memory())
+
+
+async def _run_list_memories_global_matches_notes_user_slug() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    skill.qdrant = fake
+    fake.collections = {
+        "aria_notes_fischerman": [
+            SimpleNamespace(
+                id="note-1",
+                payload={
+                    "text": "# Sample Project Note\n\nAlpha Level tweaks",
+                    "user_id": "Fischerman",
+                    "note_id": "death-pays-overtime",
+                    "note_title": "Sample Project Note",
+                    "note_folder": "Games",
+                    "note_path": "Games/death-pays-overtime.md",
+                    "note_tags": ["game"],
+                    "chunk_index": 1,
+                    "chunk_total": 1,
+                    "source": "notes",
+                    "updated_at": "2026-07-20T10:44:00+00:00",
+                },
+            ),
+            SimpleNamespace(
+                id="note-other-user",
+                payload={
+                    "text": "# Other note",
+                    "user_id": "OtherUser",
+                    "note_id": "other",
+                    "note_title": "Other",
+                    "source": "notes",
+                },
+            ),
+            SimpleNamespace(
+                id="note-legacy-chunk-fields",
+                payload={
+                    "text": "# Legacy note\n\nOld chunk metadata should not hide the notes collection.",
+                    "user_id": "Fischerman",
+                    "note_id": "legacy",
+                    "note_title": "Legacy",
+                    "source": "notes",
+                    "chunk_index": "1/2",
+                    "chunk_total": "two",
+                    "updated_at": "2026-07-20T10:43:00+00:00",
+                },
+            ),
+        ],
+    }
+
+    rows = await skill.list_memories_global(user_id="fischerman", type_filter="all", limit=20)
+
+    assert [row["id"] for row in rows] == ["note-1", "note-legacy-chunk-fields"]
+    assert rows[0]["type"] == "notes"
+    assert rows[0]["note_title"] == "Sample Project Note"
+    assert rows[0]["note_path"] == "Games/death-pays-overtime.md"
+    assert rows[1]["chunk_index"] == 0
+    assert rows[1]["chunk_total"] == 0
+
+
+def test_list_memories_global_matches_notes_user_slug() -> None:
+    asyncio.run(_run_list_memories_global_matches_notes_user_slug())
 
 
 async def _run_document_ingest_store() -> None:
@@ -150,7 +215,7 @@ async def _run_document_ingest_store() -> None:
 
     prepared = prepare_uploaded_document(
         filename="netzwerk-notizen.md",
-        data=("Gateway 10.0.0.1\n\n" + "Switch im Rack A.\n" * 80).encode("utf-8"),
+        data=("Gateway 192.0.2.1\n\n" + "Switch im Rack A.\n" * 80).encode("utf-8"),
         content_type="text/markdown",
         chunk_size=420,
     )
@@ -191,7 +256,7 @@ async def _run_document_ingest_store() -> None:
 
     recalled_documents = await skill.search_memories(
         user_id="u1",
-        query="Gateway 10.0.0.1",
+        query="Gateway 192.0.2.1",
         type_filter="document",
         top_k=10,
     )
@@ -200,12 +265,12 @@ async def _run_document_ingest_store() -> None:
     assert all(str(row.get("label", "")) == "DOKUMENT" for row in recalled_documents)
 
     recalled_in_chat = await skill.execute(
-        "Was sagt das Dokument über Gateway 10.0.0.1?",
+        "Was sagt das Dokument über Gateway 192.0.2.1?",
         {"action": "recall", "user_id": "u1", "top_k": 3},
     )
     assert recalled_in_chat.success is True
     assert "[DOKUMENT: netzwerk-notizen.md]" in recalled_in_chat.content
-    assert "Gateway 10.0.0.1" in recalled_in_chat.content
+    assert "Gateway 192.0.2.1" in recalled_in_chat.content
     source_lines = [str(row).strip() for row in (recalled_in_chat.metadata or {}).get("detail_lines", [])]
     assert any(line.startswith("Quelle: netzwerk-notizen.md · aria_docs_demo · Chunk ") for line in source_lines)
     sources = list((recalled_in_chat.metadata or {}).get("sources") or [])
@@ -358,7 +423,7 @@ async def _run_embedding_fingerprint_switch_hides_old_memory() -> None:
 
     skill._embed = fake_embed  # type: ignore[assignment]
 
-    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 10.0.0.1", "user_id": "u1"})
+    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 192.0.2.1", "user_id": "u1"})
     assert stored.success is True
     assert any((p.payload or {}).get("embedding_fingerprint") for p in skill.qdrant.points)
 
@@ -370,7 +435,7 @@ async def _run_embedding_fingerprint_switch_hides_old_memory() -> None:
 
     recalled = await skill.execute("Gateway", {"action": "recall", "user_id": "u1", "top_k": 3})
     assert recalled.success is True
-    assert "10.0.0.1" not in recalled.content
+    assert "192.0.2.1" not in recalled.content
 
 
 def test_embedding_fingerprint_switch_hides_old_memory() -> None:
@@ -521,13 +586,13 @@ async def _run_memory_keyword_fallback_reports_debug_line() -> None:
 
     skill._embed = fake_embed  # type: ignore[assignment]
 
-    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 10.0.0.1", "user_id": "u1"})
+    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 192.0.2.1", "user_id": "u1"})
     assert stored.success is True
 
     result = await skill._recall_keyword_fallback("Gateway", "u1", 3, collections=list(skill.qdrant.collections.keys()))
 
     assert result.success is True
-    assert "Gateway 10.0.0.1" in result.content
+    assert "Gateway 192.0.2.1" in result.content
     detail_lines = list((result.metadata or {}).get("detail_lines") or [])
     assert any("Routing Debug: memory_keyword_fallback" in str(line) for line in detail_lines)
     assert any("reason=keyword_match" in str(line) for line in detail_lines)
@@ -1028,13 +1093,13 @@ async def _run_session_vs_user_recall() -> None:
         "aria_facts_demo_user": [
             SimpleNamespace(
                 id="f1",
-                payload={"text": "mein Default Gateway Eins 10.0.3.1 ist", "user_id": user_id},
+                payload={"text": "mein Default Gateway Eins 192.0.2.1 ist", "user_id": user_id},
             ),
         ],
         f"aria_sessions_demo_user_{day}": [
             SimpleNamespace(
                 id="s1",
-                payload={"text": "Hostname: server-main, IP: 10.0.1.1", "user_id": user_id},
+                payload={"text": "Hostname: server-main, IP: 192.0.2.11", "user_id": user_id},
             ),
         ],
     }
@@ -1046,8 +1111,8 @@ async def _run_session_vs_user_recall() -> None:
         collections=list(fake.collections.keys()),
     )
     assert recalled.success is True
-    assert "10.0.3.1" in recalled.content
-    assert "10.0.1.1" in recalled.content
+    assert "192.0.2.1" in recalled.content
+    assert "192.0.2.11" in recalled.content
 
 
 def test_session_and_user_memory_recall_are_combined() -> None:
@@ -1116,7 +1181,7 @@ async def _run_empty_collection_cleanup_global() -> None:
         "aria_memory_demo_user_session_empty1": [],
         "aria_memory_demo_user_session_empty2": [],
         "aria_facts_demo_user": [
-            SimpleNamespace(id="p1", payload={"text": "gateway 10.0.3.1", "user_id": "DemoUser"})
+            SimpleNamespace(id="p1", payload={"text": "gateway 192.0.2.1", "user_id": "DemoUser"})
         ],
     }
 
@@ -1142,7 +1207,7 @@ async def _run_operational_session_cleanup() -> None:
         "aria_sessions_demo_user_260326": [
             SimpleNamespace(
                 id="keep-1",
-                payload={"text": "Hostname: server-main, IP: 10.0.1.1", "user_id": "DemoUser", "source": "auto_session"},
+                payload={"text": "Hostname: server-main, IP: 192.0.2.11", "user_id": "DemoUser", "source": "auto_session"},
             ),
             SimpleNamespace(
                 id="drop-1",

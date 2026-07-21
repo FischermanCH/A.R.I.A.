@@ -157,11 +157,18 @@ def prepare_chat_route_state(
         safe_fix_pending=safe_fix_pending,
         routed_action_pending=routed_action_pending,
     )
+    routed_action_confirm_token = chat_admin_actions._parse_routed_action_confirm_token(clean_message)
+    if (
+        routed_action_pending_override
+        and routed_action_pending
+        and not routed_action_confirm_token
+    ):
+        routed_action_confirm_token = str(routed_action_pending.get("token", "") or "").strip().lower()
     return ChatPreparedState(
         forget_decision=forget_decision,
         auth_role=auth_role,
         advanced_mode=advanced_mode,
-        routed_action_confirm_token=chat_admin_actions._parse_routed_action_confirm_token(clean_message),
+        routed_action_confirm_token=routed_action_confirm_token,
         safe_fix_confirm_token=chat_admin_actions._parse_safe_fix_confirm_token(clean_message),
         pending_state=pending_state,
         admin_pending=admin_pending,

@@ -31,6 +31,19 @@ _MAIN_UI_I18N = I18NStore(Path(__file__).resolve().parents[1] / "i18n")
 _MARKDOWN_LINK_RE = re.compile(r"\[(.+?)\]\(((?:https?://|/)[^\s)]+)\)")
 
 
+def is_web_source_no_reliable_error(errors: list[str] | None) -> bool:
+    cleaned = [str(item or "").strip().lower() for item in list(errors or []) if str(item or "").strip()]
+    localized_markers = [
+        _MAIN_UI_I18N.t("de", "pipeline.web_search_no_reliable_sources", "").strip().lower(),
+        _MAIN_UI_I18N.t("en", "pipeline.web_search_no_reliable_sources", "").strip().lower(),
+    ]
+    return any(
+        item.startswith("web_source_no_reliable_sources")
+        or any(marker and item.startswith(marker) for marker in localized_markers)
+        for item in cleaned
+    )
+
+
 def _main_ui_text(language: str | None, key: str, default: str = "", **values: Any) -> str:
     template = _MAIN_UI_I18N.t(language or "de", f"main_ui.{key}", default or key)
     if not values:
@@ -148,6 +161,8 @@ def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> 
 
     if recipe_errors:
         text = " ".join(recipe_errors).lower()
+        if is_web_source_no_reliable_error(recipe_errors):
+            return "🔎", "web_search_error"
         if "external_http_api_status" in text:
             for intent in intents:
                 if not str(intent).startswith("capability:"):
@@ -196,6 +211,8 @@ def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> 
 
 def friendly_error_text(recipe_errors: list[str] | None, *, language: str = "de") -> str:
     text = " ".join(recipe_errors or []).lower()
+    if is_web_source_no_reliable_error(recipe_errors):
+        return ""
     if "external_http_api_status" in text:
         return ""
     if "_guardrail_blocked" in text:
@@ -214,6 +231,8 @@ def friendly_error_text(recipe_errors: list[str] | None, *, language: str = "de"
 def should_alert_recipe_errors(recipe_errors: list[str] | None) -> bool:
     cleaned = [str(item or "").strip().lower() for item in list(recipe_errors or []) if str(item or "").strip()]
     if not cleaned:
+        return False
+    if is_web_source_no_reliable_error(recipe_errors):
         return False
     quiet_prefixes = ("external_http_api_status",)
     quiet_markers = ("_guardrail_blocked",)

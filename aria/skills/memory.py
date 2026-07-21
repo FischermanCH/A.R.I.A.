@@ -37,6 +37,7 @@ from aria.core.memory_recall_helpers import build_recall_source_entries
 from aria.core.memory_recall_helpers import format_recall_source_detail
 from aria.core.memory_recall_helpers import recall_source_priority
 from aria.core.qdrant_client import create_async_qdrant_client
+from aria.core.qdrant_collection_classifier import is_notes_qdrant_collection
 from aria.core.session_compression_service import SessionCompressionService
 from aria.core.usage_meter import UsageMeter
 from aria.skills.base import BaseSkill, SkillResult
@@ -207,6 +208,7 @@ class MemorySkill(BaseSkill):
             "learning_active_hint": "AKTIVER LERN-HINWEIS",
             "learning_eval": "LERN-EVAL",
             "document": "DOKUMENT",
+            "notes": "NOTIZEN",
             "session": "KONTEXT",
         }
         return mapping.get(memory_type, "MEMORY")
@@ -285,6 +287,8 @@ class MemorySkill(BaseSkill):
     def _display_memory_type(self, collection: str, payload: dict[str, Any] | None) -> str:
         if self._is_document_payload(payload) or self._is_document_collection_name(collection):
             return "document"
+        if is_notes_qdrant_collection(collection):
+            return "notes"
         return self._normalize_memory_type(collection, (payload or {}).get("type"))
 
     async def _store_rollup_summary(
@@ -407,7 +411,7 @@ class MemorySkill(BaseSkill):
     @staticmethod
     def _normalize_memory_type(collection: str, payload_type: str | None) -> str:
         raw = str(payload_type or "").strip().lower()
-        if raw in {"fact", "preference", "knowledge", "session", "learning_event", "learning_candidate", "learning_active_hint", "learning_eval"}:
+        if raw in {"fact", "preference", "knowledge", "session", "learning_event", "learning_candidate", "learning_active_hint", "learning_eval", "notes"}:
             return raw
         if raw in {"reflection", "learning"}:
             return "reflection"
@@ -430,6 +434,8 @@ class MemorySkill(BaseSkill):
             return "knowledge"
         if "context-mem" in name:
             return "knowledge"
+        if "aria_notes" in name:
+            return "notes"
         return "fact"
 
     async def _build_recall_targets(

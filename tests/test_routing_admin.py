@@ -308,7 +308,7 @@ def test_routing_admin_testbench_keeps_exact_match_first_but_lists_qdrant_candid
     assert "preferred kind ssh" in meta["qdrant"]["candidates"][0]["reject_reason"]
 
 
-def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() -> None:
+def test_routing_admin_testbench_auto_reports_inferred_kind_without_using_it_as_authority() -> None:
     settings = Settings.model_validate(
         {
             "aria": {"public_url": "http://aria.example.lan:8810"},
@@ -332,7 +332,7 @@ def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() ->
 
         async def query_points(self, *, collection_name: str, query: list[float], limit: int) -> list[object]:
             assert collection_name == collection
-            assert limit == 20
+            assert limit == 5
             return [
                 SimpleNamespace(
                     score=0.91,
@@ -369,17 +369,19 @@ def test_routing_admin_testbench_auto_infers_ssh_and_rejects_sftp_candidate() ->
         )
     )
 
-    assert meta["status"] == "ok"
-    assert meta["preferred_kind"] == "ssh"
+    assert meta["status"] == "warn"
+    assert meta["preferred_kind"] == "auto"
     assert meta["requested_preferred_kind"] == "auto"
     assert meta["inferred_preferred_kind"] == "ssh"
-    assert meta["decision"]["kind"] == "ssh"
-    assert meta["decision"]["ref"] == "dns-node-01"
-    assert meta["qdrant"]["accepted_count"] == 1
+    assert meta["inferred_preferred_kind_authority"] == "diagnostic_only"
+    assert meta["decision"]["found"] is False
+    assert meta["decision"]["kind"] == ""
+    assert meta["decision"]["ref"] == ""
+    assert meta["qdrant"]["accepted_count"] == 2
     assert meta["qdrant"]["candidate_count"] == 2
     assert meta["qdrant"]["candidates"][0]["kind"] == "sftp"
-    assert meta["qdrant"]["candidates"][0]["accepted"] is False
-    assert "preferred kind ssh" in meta["qdrant"]["candidates"][0]["reject_reason"]
+    assert meta["qdrant"]["candidates"][0]["accepted"] is True
+    assert meta["qdrant"]["candidates"][0]["reject_reason"] == ""
 
 
 def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:

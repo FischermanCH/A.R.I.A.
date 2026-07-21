@@ -7,6 +7,8 @@ from aria.core.agentic_execution import AgenticExecutionRequest
 from aria.core.agentic_execution import AgenticExecutionResult
 from aria.core.agentic_execution_learning import AgenticExecutionLearningService
 from aria.core.agentic_execution_registry import AgenticExecutionRegistry
+from aria.core.agentic_execution_registry import agentic_execution_registered_runtime_adapter_ids
+from aria.core.agentic_execution_registry import agentic_execution_runtime_adapter_status
 from aria.core.agentic_execution_learning import suppress_auto_learning
 from aria.core.agentic_capability_execution import GenericCapabilityExecutionHandler
 from aria.core.agentic_capability_execution import GenericCapabilityExecutionHooks
@@ -51,8 +53,10 @@ def _handler() -> MultiTargetSSHExecutionHandler:
             remember_action=lambda _user_id, _plan: None,
             remember_multi_target_action=lambda _user_id, _payload, _refs, _command, _summary: None,
             result_state=lambda _text: "ok",
+            configured_connection_refs=lambda _kind: [],
             extract_free_disk_threshold_gib=lambda _message: None,
             extract_summary_free_disk_gib=lambda _text: None,
+            extract_disk_measurement=lambda _text: None,
             operator_summary=lambda _language, target_count, _records: f"Overall: {target_count} targets.",
             relevant_result_texts=lambda _records: [],
             llm_operator_summary=_empty_llm_summary,
@@ -124,8 +128,10 @@ def test_multi_target_ssh_handler_executes_allowed_targets_concurrently() -> Non
             remember_action=lambda _user_id, _plan: None,
             remember_multi_target_action=lambda _user_id, _payload, _refs, _command, _summary: None,
             result_state=lambda _text: "ok",
+            configured_connection_refs=lambda _kind: [],
             extract_free_disk_threshold_gib=lambda _message: None,
             extract_summary_free_disk_gib=lambda _text: None,
+            extract_disk_measurement=lambda _text: None,
             operator_summary=lambda _language, target_count, _records: f"Overall: {target_count} targets.",
             relevant_result_texts=lambda _records: [],
             llm_operator_summary=_empty_llm_summary,
@@ -235,6 +241,19 @@ def test_agentic_execution_registry_runs_first_matching_handler() -> None:
     result = asyncio.run(_run())
     assert result is not None
     assert result.text == "handled"
+
+
+def test_agentic_execution_registry_exposes_runtime_adapter_status() -> None:
+    registered = set(agentic_execution_registered_runtime_adapter_ids())
+
+    assert "builtin.ssh" in registered
+    assert "builtin.rss" in registered
+    assert "builtin.discord" in registered
+    assert "builtin.generic_capability" in registered
+    assert agentic_execution_runtime_adapter_status("builtin.ssh") == "specialized_handler"
+    assert agentic_execution_runtime_adapter_status("builtin.rss") == "specialized_handler"
+    assert agentic_execution_runtime_adapter_status("builtin.discord") == "generic_capability_handler"
+    assert agentic_execution_runtime_adapter_status("community.todo") == "unregistered"
 
 
 def _generic_handler(

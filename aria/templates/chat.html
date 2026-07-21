@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block content %}
 {% set initial_message_count = chat_history|length if chat_history else 0 %}
 {% set initial_chat_state = 'compact' if initial_message_count <= 1 else 'expanded' %}
@@ -87,10 +88,29 @@
       </div>
       <div class="composer-side">
         <div class="chat-tools" data-open="false">
-          <button type="button" class="chat-tools-toggle" aria-expanded="false" aria-controls="chat-toolbox-panel">
-            <span class="toolbox-summary-label"><span class="toolbox-summary-icon">🧰</span>{{ tr(request, 'chat.toolbox', 'Tool-Box') }}</span>
-            {% if chat_learn_active %}<span class="toolbox-live-badge">{{ tr(request, 'chat.learn_mode_live', 'Lernen aktiv') }}</span>{% endif %}
-          </button>
+          <div class="chat-tools-head">
+            <button
+              type="button"
+              class="chat-tools-toggle"
+              aria-expanded="false"
+              aria-controls="chat-toolbox-panel"
+              aria-label="{{ tr(request, 'chat.toolbox', 'Tool-Box') }}"
+              title="{{ tr(request, 'chat.toolbox', 'Tool-Box') }}"
+            >
+              <span class="toolbox-summary-label"><span class="toolbox-summary-icon">🧰</span><span class="toolbox-summary-text">{{ tr(request, 'chat.toolbox', 'Tool-Box') }}</span></span>
+              {% if chat_learn_active %}<span class="toolbox-live-badge">{{ tr(request, 'chat.learn_mode_live', 'Lernen aktiv') }}</span>{% endif %}
+            </button>
+            <button
+              id="chat-export-button"
+              type="button"
+              class="chat-export-button"
+              title="{{ tr(request, 'chat.export_chat', 'Chat exportieren') }}"
+              aria-label="{{ tr(request, 'chat.export_chat', 'Chat exportieren') }}"
+            >
+              {{ icon('copy', 'chat-export-icon') }}
+            </button>
+            <span id="chat-export-status" class="chat-export-status" aria-live="polite"></span>
+          </div>
           <div id="chat-toolbox-panel" class="toolbox-groups" hidden>
             {% if chat_learn_active %}
             <div class="toolbox-learn-status">
@@ -145,7 +165,12 @@
     <section id="chat-queue" class="chat-queue" aria-live="polite" hidden>
       <div class="chat-queue-header">
         <strong id="chat-queue-title">{{ tr(request, 'chat.queue_title', 'Warteschlange') }}</strong>
-        <span id="chat-queue-count" class="chat-queue-count"></span>
+        <span class="chat-queue-summary">
+          <span id="chat-queue-count" class="chat-queue-count"></span>
+          <button id="chat-queue-toggle" class="chat-queue-toggle" type="button" hidden aria-expanded="false">
+            {{ tr(request, 'chat.queue_show', 'Anzeigen') }}
+          </button>
+        </span>
       </div>
       <div id="chat-queue-list" class="chat-queue-list"></div>
     </section>
@@ -163,6 +188,8 @@
       cancelled: {{ tr(request, 'chat.cancelled', 'Anfrage im Browser abgebrochen.')|tojson }},
       queued: {{ tr(request, 'chat.queued', 'Zur Warteschlange hinzugefügt.')|tojson }},
       queuedCount: {{ tr(request, 'chat.queued_count', '{count} wartet')|tojson }},
+      queueShow: {{ tr(request, 'chat.queue_show', 'Anzeigen')|tojson }},
+      queueHide: {{ tr(request, 'chat.queue_hide', 'Ausblenden')|tojson }},
       queueEdit: {{ tr(request, 'chat.queue_edit', 'Bearbeiten')|tojson }},
       queueDelete: {{ tr(request, 'chat.queue_delete', 'Entfernen')|tojson }},
       queueMoveUp: {{ tr(request, 'chat.queue_move_up', 'Nach oben')|tojson }},
@@ -176,6 +203,15 @@
       queueConfirmationDone: {{ tr(request, 'chat.queue_confirmation_done', 'Ausgeführt')|tojson }},
       queueConfirmationStatus: {{ tr(request, 'chat.queue_confirmation_status', 'wartet')|tojson }},
       queueConfirmationExpiredStatus: {{ tr(request, 'chat.queue_confirmation_expired_status', 'abgelaufen')|tojson }},
+      exportChat: {{ tr(request, 'chat.export_chat', 'Chat exportieren')|tojson }},
+      exportChatCopied: {{ tr(request, 'chat.export_chat_copied', 'Chat kopiert.')|tojson }},
+      exportChatDownloaded: {{ tr(request, 'chat.export_chat_downloaded', 'Download erstellt.')|tojson }},
+      exportChatEmpty: {{ tr(request, 'chat.export_chat_empty', 'Keine Chat-Nachrichten zum Exportieren.')|tojson }},
+      exportChatFailed: {{ tr(request, 'chat.export_chat_failed', 'Export konnte nicht erstellt werden.')|tojson }},
+      exportChatTitle: {{ tr(request, 'chat.export_chat_title', 'ARIA Chat Export')|tojson }},
+      exportChatDetails: {{ tr(request, 'chat.export_chat_details', 'Details')|tojson }},
+      exportChatQueue: {{ tr(request, 'chat.export_chat_queue', 'Warteschlange')|tojson }},
+      exportChatPendingConfirmation: {{ tr(request, 'chat.export_chat_pending_confirmation', 'Ausstehende Bestätigung')|tojson }},
       runningSkill: {{ tr(request, 'chat.running_skill', 'Rezept wird ausgeführt...')|tojson }},
       processingMessage: {{ tr(request, 'chat.processing_message', 'Nachricht wird verarbeitet...')|tojson }},
       workRouting: {{ tr(request, 'chat.work_routing', 'ARIA sortiert deine Anfrage...')|tojson }},
@@ -230,8 +266,11 @@
     const chatToolsPanel = document.getElementById("chat-toolbox-panel");
     const queuePanel = document.getElementById("chat-queue");
     const queueCount = document.getElementById("chat-queue-count");
+    const queueToggle = document.getElementById("chat-queue-toggle");
     const queueList = document.getElementById("chat-queue-list");
     const csrfMeta = document.querySelector("meta[name='csrf-token']");
+    const exportButton = document.getElementById("chat-export-button");
+    const exportStatus = document.getElementById("chat-export-status");
     let pendingStatusTimer = null;
     let pendingStatusInterval = null;
     let pendingPhaseTimers = [];
@@ -241,9 +280,132 @@
     let promptQueueId = 1;
     let pendingConfirmation = null;
     let pendingConfirmationTimer = null;
+    let queueExpanded = false;
     const pendingConfirmationMaxAgeMs = 10 * 60 * 1000;
+    const queueCollapseThreshold = 2;
 
     const draftStorageKey = "aria_chat_draft_v1";
+
+    function installChatExportControls() {
+      if (!exportButton) return;
+      exportButton.title = uiText.exportChat;
+      exportButton.setAttribute("aria-label", uiText.exportChat);
+      if (exportStatus) {
+        exportStatus.setAttribute("aria-live", "polite");
+      }
+    }
+
+    function normalizeExportText(value) {
+      return String(value || "")
+        .replace(/\r\n?/g, "\n")
+        .split("\n")
+        .map((line) => line.replace(/[ \t]+$/g, ""))
+        .join("\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    function visibleText(node) {
+      if (!node) return "";
+      return normalizeExportText(typeof node.innerText === "string" ? node.innerText : node.textContent);
+    }
+
+    function detailText(node) {
+      if (!node) return "";
+      return normalizeExportText(node.textContent);
+    }
+
+    function buildChatExportMarkdown() {
+      if (!messages) return "";
+      const articles = Array.from(messages.querySelectorAll(".msg"));
+      const lines = [
+        "# " + uiText.exportChatTitle,
+        "",
+        "- Exported: " + new Date().toISOString(),
+        "- Messages: " + String(articles.length),
+        "",
+      ];
+      let exportedMessages = 0;
+      articles.forEach((article, index) => {
+        const isUser = article.classList.contains("msg-user");
+        const isAssistant = article.classList.contains("msg-assistant");
+        if (!isUser && !isAssistant) return;
+        const role = isUser ? "User" : "ARIA";
+        const bodyNode = isAssistant ? (article.querySelector(".msg-text") || article.querySelector("p")) : article.querySelector("p");
+        const bodyText = visibleText(bodyNode);
+        const details = article.querySelector(".msg-details");
+        const metaBadge = details ? detailText(details.querySelector(".meta-badge")) : "";
+        const metaRows = details ? Array.from(details.querySelectorAll(".meta-row > div")).map(detailText).filter(Boolean) : [];
+        if (!bodyText && !metaBadge && !metaRows.length) return;
+        exportedMessages += 1;
+        lines.push("## " + String(index + 1) + ". " + role, "");
+        if (bodyText) {
+          lines.push(bodyText, "");
+        }
+        if (metaBadge || metaRows.length) {
+          lines.push("### " + uiText.exportChatDetails, "", "```text");
+          if (metaBadge) lines.push(metaBadge);
+          metaRows.forEach((row) => lines.push(row));
+          lines.push("```", "");
+        }
+      });
+      if (pendingConfirmation || promptQueue.length) {
+        lines.push("## " + uiText.exportChatQueue, "");
+        if (pendingConfirmation) {
+          lines.push(
+            "- " + uiText.exportChatPendingConfirmation + ": " +
+              normalizeExportText(pendingConfirmation.query || pendingConfirmation.label || pendingConfirmation.message || "")
+          );
+        }
+        promptQueue.forEach((item, index) => {
+          lines.push("- " + String(index + 1) + ": " + normalizeExportText(item.displayMessage || item.message));
+        });
+        lines.push("");
+      }
+      return exportedMessages ? lines.join("\n").trim() + "\n" : "";
+    }
+
+    function downloadChatExport(markdown) {
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      anchor.href = url;
+      anchor.download = "aria-chat-export-" + stamp + ".md";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 1000);
+    }
+
+    async function exportCurrentChat() {
+      const markdown = buildChatExportMarkdown();
+      if (!markdown) {
+        if (exportStatus) exportStatus.textContent = uiText.exportChatEmpty;
+        return;
+      }
+      exportButton.disabled = true;
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          await navigator.clipboard.writeText(markdown);
+          if (exportStatus) exportStatus.textContent = uiText.exportChatCopied;
+        } else {
+          downloadChatExport(markdown);
+          if (exportStatus) exportStatus.textContent = uiText.exportChatDownloaded;
+        }
+      } catch (error) {
+        try {
+          downloadChatExport(markdown);
+          if (exportStatus) exportStatus.textContent = uiText.exportChatDownloaded;
+        } catch (downloadError) {
+          if (exportStatus) exportStatus.textContent = uiText.exportChatFailed;
+        }
+      } finally {
+        exportButton.disabled = false;
+      }
+    }
 
     function shortQueueText(text) {
       const clean = String(text || "").replace(/\s+/g, " ").trim();
@@ -254,7 +416,22 @@
     function renderPromptQueue() {
       if (!queuePanel || !queueList || !queueCount) return;
       const hasPendingConfirmation = Boolean(pendingConfirmation);
-      queuePanel.hidden = promptQueue.length === 0 && !hasPendingConfirmation;
+      const queueItemCount = promptQueue.length + (hasPendingConfirmation ? 1 : 0);
+      const canCollapseQueue = queueItemCount > queueCollapseThreshold;
+      const isQueueExpanded = canCollapseQueue ? queueExpanded : true;
+      queuePanel.hidden = queueItemCount === 0;
+      queuePanel.dataset.collapsible = canCollapseQueue ? "true" : "false";
+      queuePanel.dataset.collapsed = canCollapseQueue && !isQueueExpanded ? "true" : "false";
+      queueList.hidden = canCollapseQueue && !isQueueExpanded;
+      if (queueToggle) {
+        queueToggle.hidden = !canCollapseQueue;
+        queueToggle.textContent = isQueueExpanded ? uiText.queueHide : uiText.queueShow;
+        queueToggle.setAttribute("aria-expanded", isQueueExpanded ? "true" : "false");
+        queueToggle.setAttribute("aria-controls", "chat-queue-list");
+      }
+      if (!canCollapseQueue) {
+        queueExpanded = false;
+      }
       const countParts = [];
       if (promptQueue.length) {
         countParts.push(uiText.queuedCount.replace("{count}", String(promptQueue.length)));
@@ -1031,6 +1208,7 @@
     }
 
     restoreDraft();
+    installChatExportControls();
     updateChatState();
     scrollMessagesToLatest();
     updateJumpToLatestButton();
@@ -1040,6 +1218,9 @@
     }
     if (jumpToLatestBtn) {
       jumpToLatestBtn.addEventListener("click", jumpToLatest);
+    }
+    if (exportButton) {
+      exportButton.addEventListener("click", exportCurrentChat);
     }
 
     textarea.addEventListener("input", function () {
@@ -1122,6 +1303,12 @@
         } else if (action === "delete") {
           deleteQueuedPrompt(id);
         }
+      });
+    }
+    if (queueToggle) {
+      queueToggle.addEventListener("click", function () {
+        queueExpanded = !queueExpanded;
+        renderPromptQueue();
       });
     }
 

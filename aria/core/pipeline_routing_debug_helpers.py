@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from aria.core.connection_action_contract import runtime_operation_for_capability
 from aria.core.connection_catalog import normalize_connection_kind
 from aria.core.connection_semantic_resolver import SemanticConnectionHint
 from aria.core.connection_semantic_resolver import SemanticConnectionCandidate
@@ -182,10 +183,61 @@ class RoutedActionDebugBuilder:
         self._routing_debug_enabled = routing_debug_enabled
 
     def resolved_detail_lines(self, resolved: dict[str, Any]) -> list[str]:
-        return resolved_routing_detail_lines(
+        lines = resolved_routing_detail_lines(
             resolved,
             routing_debug_enabled=self._routing_debug_enabled(),
         )
+        if not self._routing_debug_enabled():
+            return lines
+        for line in self._agentic_action_trace_lines(resolved):
+            if line not in lines:
+                lines.append(line)
+        return lines
+
+    @staticmethod
+    def _field_value(value: Any) -> str:
+        text = str(value if value is not None else "").strip()
+        if not text:
+            return "-"
+        return "_".join(text.split())[:180]
+
+    def _agentic_action_trace_lines(self, resolved: dict[str, Any]) -> list[str]:
+        action = dict((resolved.get("action_debug") or {}).get("decision", {}) or {})
+        payload = dict((resolved.get("payload_debug") or {}).get("payload", {}) or {})
+        safety = dict((resolved.get("safety_debug") or {}).get("decision", {}) or {})
+        execution = dict((resolved.get("execution_debug") or {}).get("decision", {}) or {})
+        routing = dict(resolved.get("decision", {}) or {})
+        capability = self._field_value(payload.get("capability") or action.get("capability"))
+        kind = self._field_value(payload.get("connection_kind") or routing.get("kind"))
+        ref = self._field_value(payload.get("connection_ref") or routing.get("ref"))
+        lines: list[str] = []
+        if action or payload:
+            lines.append(
+                "Routing Debug: agentic_action_contract "
+                f"candidate_kind={self._field_value(action.get('candidate_kind'))} "
+                f"candidate_id={self._field_value(action.get('candidate_id'))} "
+                f"candidate_role={self._field_value(action.get('candidate_role'))} "
+                f"capability={capability} kind={kind} ref={ref} "
+                f"execution_state={self._field_value(action.get('execution_state'))}"
+            )
+        if safety:
+            lines.append(
+                "Routing Debug: agentic_policy_decision "
+                f"action={self._field_value(safety.get('action') or safety.get('policy_action'))} "
+                f"reason={self._field_value(safety.get('reason') or safety.get('policy_reason') or safety.get('reason_label'))} "
+                f"policy={self._field_value(safety.get('policy') or safety.get('policy_family'))} "
+                f"guardrail={self._field_value(safety.get('guardrail_ref') or safety.get('guardrail_kind'))} "
+                f"capability={capability} kind={kind} ref={ref}"
+            )
+        execution_next_step = str(execution.get("next_step") or execution.get("execution_state") or "").strip().lower()
+        if execution and execution_next_step in {"allow", "run", "execute", "ready"}:
+            lines.append(
+                "Routing Debug: agentic_execution_decision "
+                f"next_step={self._field_value(execution_next_step)} "
+                f"capability={capability} kind={kind} ref={ref} "
+                f"operation={self._field_value(runtime_operation_for_capability(str(payload.get('capability', '') or action.get('capability', '') or '')))}"
+            )
+        return lines
 
     def append_routing_record(self, resolved: dict[str, Any], record: Any) -> dict[str, Any]:
         return append_routing_record_to_resolved(

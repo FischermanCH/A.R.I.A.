@@ -1211,3 +1211,34 @@ def test_recipes_learned_context_only_rows_do_not_show_stored_promote(monkeypatc
     assert "Nur Kontext" in response.text
     assert 'action="/recipes/learned/promote"' not in response.text
     assert 'action="/recipes/learned/dismiss"' in response.text
+
+
+def test_recipes_learned_side_effect_rows_do_not_show_stored_promote(monkeypatch) -> None:
+    monkeypatch.setattr(
+        recipes_routes_module,
+        "load_learned_recipe_store_entries",
+        lambda: [
+            {
+                "recipe_id": "learned-discord-send",
+                "title": "Discord status note",
+                "summary": "Repeated outgoing status note.",
+                "intent": "send_status_message",
+                "connection_kind": "discord",
+                "connection_ref": "alerts",
+                "capability": "discord_send",
+                "chosen_action": "Deployment finished",
+                "experience_count": 7,
+                "promotion_state": "review_ready",
+            }
+        ],
+    )
+    client = _build_recipes_app()
+
+    response = client.get("/recipes/learned")
+
+    assert response.status_code == 200
+    assert "Discord status note" in response.text
+    assert "Side-effect learned actions stay review-only" in response.text
+    assert "/recipes/learned/promote-preview?recipe_id=learned-discord-send" not in response.text
+    assert 'action="/recipes/learned/promote"' not in response.text
+    assert 'action="/recipes/learned/dismiss"' in response.text

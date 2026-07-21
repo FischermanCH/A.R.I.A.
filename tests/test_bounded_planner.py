@@ -153,7 +153,7 @@ def test_bounded_planner_rejects_out_of_bounds_target_choice() -> None:
     assert "outside the bounded set" in result["message"]
 
 
-def test_bounded_planner_uses_single_pair_without_llm() -> None:
+def test_bounded_planner_without_llm_does_not_select_single_pair() -> None:
     connection_input = build_connection_planner_input_set(
         query="check health auf management server",
         preferred_connection_kind="ssh",
@@ -181,11 +181,71 @@ def test_bounded_planner_uses_single_pair_without_llm() -> None:
 
     result = asyncio.run(debug_bounded_planner_decision(planner_input, llm_client=None, language="de"))
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["used"] is False
-    assert result["decision"]["target_ref"] == "mgmt-server"
-    assert result["decision"]["action_candidate_id"] == "ssh_run_command"
-    assert result["planner_source"] == "heuristic"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert "requires LLM review" in result["message"]
+
+
+def test_bounded_planner_without_llm_does_not_select_single_recipe_candidate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        action_planner_mod,
+        "_load_stored_recipe_manifests",
+        lambda: (
+            [
+                {
+                    "id": "linux-health",
+                    "name": "Linux Health",
+                    "description": "Prueft Linux Hosts.",
+                    "connections": ["ssh"],
+                    "router_keywords": ["linux health", "server check"],
+                    "enabled_default": True,
+                    "steps": [
+                        {
+                            "type": "ssh_run",
+                            "params": {"command": "uptime"},
+                        }
+                    ],
+                }
+            ],
+            [],
+        ),
+    )
+    connection_input = build_connection_planner_input_set(
+        query="mach bitte einen linux health check",
+        preferred_connection_kind="ssh",
+        connection_ref="srv-a",
+        connection_candidates=[
+            SemanticConnectionCandidate(
+                connection_kind="ssh",
+                connection_ref="srv-a",
+                source="semantic_alias",
+                note="alias:srv-a",
+                alias="srv-a",
+                score=171,
+            ),
+        ],
+    )
+    action_input = build_action_planner_input_set(
+        "mach bitte einen linux health check",
+        connection_kind="ssh",
+        connection_ref="srv-a",
+        language="de",
+    )
+    action_input.action_candidates = [
+        item
+        for item in action_input.action_candidates
+        if item.metadata.get("candidate_role") == "stored_recipe_candidate"
+    ]
+    planner_input = merge_planner_input_sets(connection_input, action_input)
+
+    result = asyncio.run(debug_bounded_planner_decision(planner_input, llm_client=None, language="de"))
+
+    assert result["status"] == "warn"
+    assert result["decision"] == {}
+    assert result["planner_source"] == "llm_required"
+    assert "requires LLM review" in result["message"]
 
 
 def test_bounded_planner_decision_exposes_recipe_candidate_metadata(monkeypatch) -> None:

@@ -10,6 +10,8 @@ from aria.core.bounded_decision import confidence_score
 from aria.core.chat_turn_context import visible_chat_context_from_turn_context
 from aria.core.context_surfaces import ContextRequest
 from aria.core.context_surfaces import SurfaceRegistry
+from aria.core.llm_input_contract import build_llm_input_contract
+from aria.core.llm_input_contract import llm_input_contract_diagnostics
 
 
 ARIA_TURN_ARBITRATION_OPERATION = "aria_turn_surface_action_arbitration"
@@ -21,6 +23,7 @@ CONTEXT_DIRECTIONS = {
     "notes",
     "docs",
     "skills",
+    "capabilities",
     "connections",
     "web",
     "workspace",
@@ -58,6 +61,14 @@ ANSWER_MODES = {
 RISK_LEVELS = {"none", "low", "medium", "high"}
 META_CONTRACT_MODES = {"answer", "action", "clarify", "empty"}
 EVIDENCE_POLICIES = {"source_bound", "allow_general"}
+SCOPE_OPERATIONS = {
+    "reuse_same_set",
+    "narrow_subset",
+    "expand_to_kind",
+    "exclude_subset",
+    "surface_change",
+    "new_scope",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +177,8 @@ class AriaTurnPlan:
     queries: dict[str, str] = field(default_factory=dict)
     context_requests: tuple[ContextRequest, ...] = ()
     priority: tuple[str, ...] = ()
+    target_scope_authority: str = ""
+    scope_operation: str = ""
     answer_mode: str = "direct_answer"
     contract_mode: str = ""
     evidence_policy: str = ""
@@ -206,6 +219,10 @@ class AriaTurnArbitration:
         ]
         if plan.priority:
             parts.append(f"priority={','.join(plan.priority)[:180]}")
+        if plan.target_scope_authority:
+            parts.append(f"target_scope_authority={plan.target_scope_authority}")
+        if plan.scope_operation:
+            parts.append(f"scope_operation={plan.scope_operation}")
         if self.diagnostics:
             payload_bytes = int(self.diagnostics.get("payload_bytes", 0) or 0)
             system_chars = int(self.diagnostics.get("system_chars", 0) or 0)
@@ -213,6 +230,13 @@ class AriaTurnArbitration:
             if payload_bytes or system_chars or payload_keys:
                 parts.append(
                     f"routing_payload_bytes={payload_bytes} routing_system_chars={system_chars} routing_payload_keys={payload_keys}"
+                )
+            if int(self.diagnostics.get("llm_input_contract_v1", 0) or 0):
+                parts.append(
+                    "llm_input_contract=v1 "
+                    f"world_surfaces={int(self.diagnostics.get('llm_input_world_surfaces', 0) or 0)} "
+                    f"world_collections={int(self.diagnostics.get('llm_input_world_collections', 0) or 0)} "
+                    f"world_actions={int(self.diagnostics.get('llm_input_world_actions', 0) or 0)}"
                 )
         if self.error:
             parts.append(f"error={self.error}")
@@ -374,6 +398,13 @@ def _clean_queries(values: Any, *, allowed_collections: set[str], default_query:
     return queries
 
 
+def _connection_answer_mode_is_inventory(surface_id: str, mode: str, query: str) -> bool:
+    if surface_id != "connections" or mode != "answer":
+        return False
+    text = str(query or "").strip().lower()
+    return any(term in text for term in ("ip", "adresse", "adressen", "address", "addresses", "host", "hostname"))
+
+
 def _clean_context_requests(values: Any, *, surface_registry: SurfaceRegistry | None, default_query: str, user_id: str, request_id: str) -> tuple[ContextRequest, ...]:
     if surface_registry is None or not isinstance(values, list):
         return ()
@@ -382,10 +413,14 @@ def _clean_context_requests(values: Any, *, surface_registry: SurfaceRegistry | 
         if not isinstance(row, dict):
             continue
         mode = str(row.get("mode") or "answer").strip()
+        surface_id = str(row.get("surface_id") or row.get("surface") or "").strip()
+        query = str(row.get("query") or default_query).strip()
+        if _connection_answer_mode_is_inventory(surface_id, mode, query):
+            mode = "inventory"
         request = ContextRequest(
-            surface_id=str(row.get("surface_id") or row.get("surface") or "").strip(),
+            surface_id=surface_id,
             mode=mode,
-            query=str(row.get("query") or default_query).strip(),
+            query=query,
             depth=str(row.get("depth") or row.get("context_depth") or "shallow").strip(),
             limit=int(row.get("limit") or (50 if mode == "inventory" else 5)),
             budget=dict(row.get("budget") or {}) if isinstance(row.get("budget"), dict) else {},
@@ -457,7 +492,27 @@ def _compact_last_turn_frame(turn_context: dict[str, Any] | None) -> dict[str, A
         "catalog_ids": list(frame.get("catalog_ids", []) or [])[:8] if isinstance(frame.get("catalog_ids"), list | tuple) else [],
         "evidence_policy": str(frame.get("evidence_policy", "") or "").strip(),
         "answer_mode": str(frame.get("answer_mode", "") or "").strip(),
+        "evidence_bundle": _compact_evidence_bundle(frame.get("evidence_bundle")),
         "confidence": frame.get("confidence", 0.0),
+    }
+
+
+def _compact_evidence_bundle(bundle: Any) -> dict[str, Any]:
+    if not isinstance(bundle, dict) or not bundle:
+        return {}
+    return {
+        "surface": str(bundle.get("surface", "") or "").strip(),
+        "authority": str(bundle.get("authority", "") or "").strip(),
+        "completeness": str(bundle.get("completeness", "") or "").strip(),
+        "scope_contract": str(bundle.get("scope_contract", "") or "").strip(),
+        "field_set": list(bundle.get("field_set", []) or [])[:12] if isinstance(bundle.get("field_set"), list | tuple) else [],
+        "row_count": int(bundle.get("row_count") or 0),
+        "selected_kinds": list(bundle.get("selected_kinds", []) or [])[:12]
+        if isinstance(bundle.get("selected_kinds"), list | tuple)
+        else [],
+        "selected_refs": list(bundle.get("selected_refs", []) or [])[:12]
+        if isinstance(bundle.get("selected_refs"), list | tuple)
+        else [],
     }
 
 
@@ -516,39 +571,62 @@ class AriaTurnArbiter:
         allowed_actions = {item.name for item in menu.actions}
 
         surface_meta_context = surface_registry.as_compact_routing_meta_context() if surface_registry is not None else {}
+        routing_meta_context = menu.as_compact_payload(include_legacy_surfaces=surface_registry is None)
+        last_turn_frame = _compact_last_turn_frame(turn_context)
+        recent_visible_chat_context = visible_chat_context_from_turn_context(turn_context)
+        llm_input_contract = build_llm_input_contract(
+            message=clean_message,
+            language=language,
+            user_id=user_id,
+            decision_task="aria_turn_select_context_action_or_chat",
+            routing_meta_context=routing_meta_context,
+            surface_meta_context=surface_meta_context,
+            last_turn_frame=last_turn_frame,
+            recent_visible_chat_context=recent_visible_chat_context,
+        )
         system = (
             "You are ARIA's single agentic turn router. Return JSON only. "
             "Select whether this turn needs context, action, recipe, learning, web, or plain chat. "
             "Use registered ContextSurfaces only. Do not answer. No word lists or trigger-phrase logic. "
+            "Use llm_input_contract as the canonical normalized world map; it is not a route decision. "
+            "The payload contains only llm_input_contract; do not rely on legacy top-level mirrors. "
             "Treat last_turn_frame only as context, not as a command: continue it only when it truly fits the new user message. "
             "Use recent_visible_chat_context as conversation evidence for elliptic follow-ups; if the user refers to the last visible action/output, route according to that referenced output before unrelated catalog topics. "
             "Do not route operational/resource health, status, update, or execution requests to memory exists; choose an action-capable surface or ask for clarification. "
             "Side effects require needs_confirmation=true. "
             "Modes: inventory=list configured/stored objects; exists=check whether selected local content contains topic; search=load relevant context. "
+            "For connections inventory, put explicit kind/ref scope in context_requests[].budget, not in free text: "
+            "use budget.selected_kinds plus bind_selected_kinds=true for a whole configured kind, or selected_refs plus bind_selected_refs=true for specific refs. "
+            "Runtime validates those scopes against configured metadata. "
+            "For runtime actions with multiple connection priorities, set target_scope_authority: "
+            "full_kind for a whole configured kind, explicit_refs for explicitly named refs, "
+            "semantic_group for a reviewed subset, last_turn_scope only for a true follow-up to the last output, "
+            "or priority_sample when priority refs are examples and not the complete target list. "
+            "Do not let priority alone define a complete runtime target set. "
+            "When a turn relates to last_turn_frame, also set scope_operation explicitly: "
+            "reuse_same_set for the same entities/fields, narrow_subset for a subset, expand_to_kind for all of a configured kind, "
+            "exclude_subset for previous set minus a named subset, surface_change for a different surface, or new_scope for unrelated context. "
+            "last_turn_scope without scope_operation is incomplete and must not be used to imply all rows. "
             "Use concise topic queries. Output keys: needs_context, context_directions, context_depth, intents, surfaces, collections, actions, "
-            "context_requests, queries, priority, answer_mode, risk, needs_confirmation, confidence, reason. Keep reason under 12 words."
+            "context_requests, queries, priority, target_scope_authority, scope_operation, answer_mode, risk, needs_confirmation, confidence, reason. Keep reason under 12 words."
         )
         result = await self.decision_client.decide_json(
             operation=ARIA_TURN_ARBITRATION_OPERATION,
             system=system,
             payload={
-                "message": clean_message,
-                "language": str(language or ""),
-                "routing_meta_context": menu.as_compact_payload(include_legacy_surfaces=surface_registry is None),
-                "surface_meta_context": surface_meta_context,
-                "last_turn_frame": _compact_last_turn_frame(turn_context),
-                "recent_visible_chat_context": visible_chat_context_from_turn_context(turn_context),
+                "llm_input_contract": llm_input_contract,
             },
             source=source,
             user_id=user_id,
             request_id=request_id,
         )
+        diagnostics = {**result.diagnostics, **llm_input_contract_diagnostics(llm_input_contract)}
         if not result.ok:
             return AriaTurnArbitration(
                 plan=_fallback_plan(clean_message, reason=result.error or "arbiter_unavailable"),
                 source="fallback",
                 usage=result.usage,
-                diagnostics=result.diagnostics,
+                diagnostics=diagnostics,
                 error=result.error,
             )
         result_payload = result.payload
@@ -560,7 +638,7 @@ class AriaTurnArbiter:
                 plan=_fallback_plan(clean_message, reason="arbiter_low_confidence"),
                 source="fallback",
                 usage=result_usage,
-                diagnostics=result.diagnostics,
+                diagnostics=diagnostics,
             )
 
         intents = _unique_clean(result_payload.get("intents") or result_payload.get("intent"), allowed=ARIA_TURN_INTENTS, fallback=("chat",))
@@ -582,6 +660,11 @@ class AriaTurnArbiter:
         risk = _unique_clean(result_payload.get("risk"), allowed=RISK_LEVELS, fallback=("none",))[0]
         context_depth = _unique_clean(result_payload.get("context_depth"), allowed=CONTEXT_DEPTHS, fallback=("none",))[0]
         priority = _unique_clean(result_payload.get("priority"))
+        target_scope_authority = _unique_clean(
+            result_payload.get("target_scope_authority"),
+            allowed=("full_kind", "explicit_refs", "semantic_group", "last_turn_scope", "priority_sample"),
+        )
+        scope_operation = _unique_clean(result_payload.get("scope_operation"), allowed=SCOPE_OPERATIONS)
         raw_needs_confirmation = bool(result_payload.get("needs_confirmation", False))
         preserved_followup_surface = False
         queries = _clean_queries(result_payload.get("queries"), allowed_collections=allowed_collections, default_query=clean_message)
@@ -677,6 +760,8 @@ class AriaTurnArbiter:
             queries=queries,
             context_requests=context_requests,
             priority=priority,
+            target_scope_authority=target_scope_authority[0] if target_scope_authority else "",
+            scope_operation=scope_operation[0] if scope_operation else "",
             answer_mode=answer_mode,
             contract_mode=contract_mode,
             evidence_policy=evidence_policy,
@@ -685,4 +770,4 @@ class AriaTurnArbiter:
             confidence=confidence,
             reason=" ".join(str(result_payload.get("reason") or "").strip().split())[:160],
         )
-        return AriaTurnArbitration(plan=plan, source=result_source, usage=result_usage, diagnostics=result.diagnostics, rejected=rejected)
+        return AriaTurnArbitration(plan=plan, source=result_source, usage=result_usage, diagnostics=diagnostics, rejected=rejected)

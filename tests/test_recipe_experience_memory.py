@@ -340,3 +340,8 @@ def test_recipe_experience_promotion_builds_review_candidate_without_executor() 
     assert web_entry["policy_result"] == "context_only"
     assert web_entry["inputs"]["source_url"] == "https://example.test/pricing"
     assert is_stored_recipe_promotable_capability(web_entry["capability"]) is False
+    assert is_stored_recipe_promotable_capability("discord_send") is False
+    assert is_stored_recipe_promotable_capability("webhook_send") is False
+    assert is_stored_recipe_promotable_capability("email_send") is False
+    assert is_stored_recipe_promotable_capability("mqtt_publish") is False
+    assert is_stored_recipe_promotable_capability("file_write") is False

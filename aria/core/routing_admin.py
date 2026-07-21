@@ -731,7 +731,7 @@ async def resolve_connection_routing_chain(
         explicit_kind=clean_preferred,
         available_kinds=available_pools.keys(),
     )
-    effective_preferred = inferred_preferred or clean_preferred
+    effective_preferred = clean_preferred
     available_counts = {kind: len(rows) for kind, rows in sorted(available_pools.items())}
     deterministic = RoutingResolver._deterministic_connection_match(
         clean_query,
@@ -812,7 +812,10 @@ async def resolve_connection_routing_chain(
     elif default_single.found:
         decision = default_single
         message = f"Single configured profile selected {default_single.kind}/{default_single.ref}."
-    elif accepted_candidates:
+    elif accepted_candidates and (
+        effective_preferred
+        or sum(1 for rows in available_pools.values() if isinstance(rows, dict) and rows) <= 1
+    ):
         winner = accepted_candidates[0]
         decision = RoutingDecision(
             kind=str(winner.get("kind", "") or ""),
@@ -872,6 +875,7 @@ async def resolve_connection_routing_chain(
         "preferred_kind": effective_preferred or "auto",
         "requested_preferred_kind": requested_preferred,
         "inferred_preferred_kind": inferred_preferred,
+        "inferred_preferred_kind_authority": "diagnostic_only",
         "available_counts": available_counts,
         "llm_ignore_deterministic": llm_qdrant_only,
         "deterministic": _decision_payload(deterministic),

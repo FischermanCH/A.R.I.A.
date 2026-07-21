@@ -4,10 +4,21 @@ import asyncio
 from datetime import timezone
 from typing import Any
 
+from aria.core.qdrant_collection_classifier import is_notes_qdrant_collection
+
 
 class MemoryAdminQueryService:
     def __init__(self, skill: Any) -> None:
         self.skill = skill
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        if value is None or value == "":
+            return default
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _timestamp_sort_key(self, item: dict[str, Any]) -> float:
         parsed = self.skill._parse_timestamp(item.get("timestamp"))
@@ -107,11 +118,13 @@ class MemoryAdminQueryService:
                 exists = await self.skill.qdrant.collection_exists(collection_name=collection)
                 if not exists:
                     continue
+                notes_collection = is_notes_qdrant_collection(collection, username=user_id)
+                scroll_filter = None if notes_collection else self.skill._user_filter(user_id)
                 offset = None
                 while True:
                     points, next_offset = await self.skill.qdrant.scroll(
                         collection_name=collection,
-                        scroll_filter=self.skill._user_filter(user_id),
+                        scroll_filter=scroll_filter,
                         limit=min(200, max(20, limit)),
                         offset=offset,
                         with_payload=True,
@@ -119,6 +132,8 @@ class MemoryAdminQueryService:
                     )
                     for point in points:
                         payload = point.payload or {}
+                        if notes_collection and not self.skill._payload_user_matches(payload.get("user_id"), user_id):
+                            continue
                         text = self.skill._clean_fact_text(str(payload.get("text", "")).strip())
                         if not text:
                             continue
@@ -131,6 +146,12 @@ class MemoryAdminQueryService:
                             or str(payload.get("created_at", "")).strip()
                             or str(payload.get("timestamp", "")).strip()
                         )
+                        note_tags_raw = payload.get("note_tags", [])
+                        note_tags = [
+                            str(tag).strip()
+                            for tag in note_tags_raw
+                            if str(tag).strip()
+                        ] if isinstance(note_tags_raw, list) else []
                         rows.append(
                             {
                                 "id": str(getattr(point, "id", "")),
@@ -147,11 +168,16 @@ class MemoryAdminQueryService:
                                 "rollup_period_start": str(payload.get("rollup_period_start", "")).strip(),
                                 "rollup_period_end": str(payload.get("rollup_period_end", "")).strip(),
                                 "rollup_source_kind": str(payload.get("rollup_source_kind", "")).strip(),
-                                "rollup_source_count": int(payload.get("rollup_source_count", 0) or 0),
+                                "rollup_source_count": self._safe_int(payload.get("rollup_source_count")),
                                 "document_id": str(payload.get("document_id", "")).strip(),
                                 "document_name": str(payload.get("document_name", "")).strip(),
-                                "chunk_index": int(payload.get("chunk_index", 0) or 0),
-                                "chunk_total": int(payload.get("chunk_total", 0) or 0),
+                                "note_id": str(payload.get("note_id", "")).strip(),
+                                "note_title": str(payload.get("note_title", "")).strip(),
+                                "note_folder": str(payload.get("note_folder", "")).strip(),
+                                "note_path": str(payload.get("note_path", "")).strip(),
+                                "note_tags": note_tags,
+                                "chunk_index": self._safe_int(payload.get("chunk_index")),
+                                "chunk_total": self._safe_int(payload.get("chunk_total")),
                                 "candidate_status": str(payload.get("candidate_status", "")).strip(),
                                 "promotion_state": str(payload.get("promotion_state", "")).strip(),
                                 "promotion_gate_result": str(payload.get("promotion_gate_result", "")).strip(),
@@ -279,8 +305,8 @@ class MemoryAdminQueryService:
                         "source": str(payload.get("source", "")).strip() or "n/a",
                         "document_id": str(payload.get("document_id", "")).strip(),
                         "document_name": str(payload.get("document_name", "")).strip(),
-                        "chunk_index": int(payload.get("chunk_index", 0) or 0),
-                        "chunk_total": int(payload.get("chunk_total", 0) or 0),
+                        "chunk_index": self._safe_int(payload.get("chunk_index")),
+                        "chunk_total": self._safe_int(payload.get("chunk_total")),
                         "note_title": str(payload.get("note_title", "")).strip(),
                         "note_folder": str(payload.get("note_folder", "")).strip(),
                         "rollup_level": str(payload.get("rollup_level", "")).strip(),
@@ -354,11 +380,11 @@ class MemoryAdminQueryService:
                         "rollup_period_start": str(row.get("rollup_period_start", "")),
                         "rollup_period_end": str(row.get("rollup_period_end", "")),
                         "rollup_source_kind": str(row.get("rollup_source_kind", "")),
-                        "rollup_source_count": int(row.get("rollup_source_count", 0) or 0),
+                        "rollup_source_count": self._safe_int(row.get("rollup_source_count")),
                         "document_id": str(row.get("document_id", "")),
                         "document_name": str(row.get("document_name", "")),
-                        "chunk_index": int(row.get("chunk_index", 0) or 0),
-                        "chunk_total": int(row.get("chunk_total", 0) or 0),
+                        "chunk_index": self._safe_int(row.get("chunk_index")),
+                        "chunk_total": self._safe_int(row.get("chunk_total")),
                     }
                 )
         rows.sort(key=lambda value: float(value.get("score", 0.0)), reverse=True)

@@ -4,6 +4,7 @@ import hashlib
 import re
 from typing import Any
 
+from aria.core.connection_action_contract import connection_action_contract
 from aria.core.learned_recipe_store import save_learned_recipe_store_entry
 from aria.core.recipe_experience_memory import normalize_recipe_experience_memory_entry
 from aria.core.recipe_promotion_contract import PROMOTION_STATE_REVIEW_READY
@@ -11,7 +12,6 @@ from aria.core.recipe_promotion_contract import PROMOTION_STATE_REVIEW_READY
 PROMOTABLE_RECIPE_CAPABILITIES = {
     "ssh_command",
     "feed_read",
-    "discord_send",
     "file_read",
     "file_write",
 }
@@ -37,7 +37,11 @@ def _clean_dict(value: Any) -> dict[str, Any]:
 
 
 def is_stored_recipe_promotable_capability(capability: str) -> bool:
-    return str(capability or "").strip().lower() in PROMOTABLE_RECIPE_CAPABILITIES
+    clean = str(capability or "").strip().lower()
+    if clean not in PROMOTABLE_RECIPE_CAPABILITIES:
+        return False
+    contract = connection_action_contract(clean)
+    return not bool(getattr(contract, "side_effect", False))
 
 
 def _review_recipe_id(prefix: str, source: dict[str, Any]) -> str:

@@ -112,7 +112,7 @@ def test_routed_action_resolver_delegates_request_to_unified_callback() -> None:
     ]
 
 
-def test_routed_action_resolver_prepares_rss_without_llm_and_creates_empty_draft() -> None:
+def test_routed_action_resolver_prepares_rss_without_llm_from_explicit_draft() -> None:
     llm_client = object()
     resolver = _resolver(
         connection_pools={"rss": {"heise-security-alerts": {"title": "Heise Security"}}},
@@ -128,10 +128,19 @@ def test_routed_action_resolver_prepares_rss_without_llm_and_creates_empty_draft
     )
 
     assert prelude.effective_kind == "rss"
+    assert prelude.effective_kind_source == "draft"
     assert prelude.candidate_connections == {"heise-security-alerts": {"title": "Heise Security"}}
     assert prelude.effective_llm_client is None
     assert prelude.semantic_llm_client is None
     assert prelude.ref_scope.has_any is False
+
+
+def test_routed_action_resolver_does_not_authorize_kind_from_free_text() -> None:
+    llm_client = object()
+    resolver = _resolver(
+        connection_pools={"rss": {"heise-security-alerts": {"title": "Heise Security"}}},
+        default_llm_client=llm_client,
+    )
 
     empty_draft_prelude = resolver.prepare_request(
         RoutedActionResolverRequest(
@@ -140,7 +149,52 @@ def test_routed_action_resolver_prepares_rss_without_llm_and_creates_empty_draft
         )
     )
     assert isinstance(empty_draft_prelude.working_draft, CapabilityDraft)
-    assert empty_draft_prelude.working_draft.connection_kind == "rss"
+    assert empty_draft_prelude.effective_kind == ""
+    assert empty_draft_prelude.effective_kind_source == "missing_contract"
+    assert empty_draft_prelude.legacy_inferred_kind == "rss"
+    assert empty_draft_prelude.candidate_connections == {}
+    assert empty_draft_prelude.working_draft.connection_kind == ""
+
+
+def test_routed_action_resolver_completes_kind_from_single_executor_capability_contract() -> None:
+    llm_client = object()
+    resolver = _resolver(
+        connection_pools={"rss": {"heise-security-alerts": {"title": "Heise Security"}}},
+        default_llm_client=llm_client,
+    )
+
+    prelude = resolver.prepare_request(
+        RoutedActionResolverRequest(
+            message="lies den feed heise-security-alerts",
+            user_id="u1",
+            capability_draft=CapabilityDraft(capability="feed_read", connection_kind=""),
+        )
+    )
+
+    assert prelude.effective_kind == "rss"
+    assert prelude.effective_kind_source == "capability_contract"
+    assert prelude.legacy_inferred_kind == "rss"
+    assert prelude.working_draft.connection_kind == "rss"
+    assert prelude.effective_llm_client is None
+    assert prelude.semantic_llm_client is None
+
+
+def test_routed_action_resolver_completes_dict_draft_from_single_executor_contract() -> None:
+    resolver = _resolver(
+        connection_pools={"ssh": {"srv-a": {}, "srv-b": {}}},
+    )
+
+    prelude = resolver.prepare_request(
+        RoutedActionResolverRequest(
+            message="server status",
+            user_id="u1",
+            capability_draft={"capability": "ssh_command", "connection_kind": ""},
+        )
+    )
+
+    assert prelude.effective_kind == "ssh"
+    assert prelude.effective_kind_source == "capability_contract"
+    assert prelude.working_draft["connection_kind"] == "ssh"
 
 
 def test_routed_action_resolver_prepares_semantic_llm_for_non_rss_multi_candidate() -> None:
@@ -222,6 +276,27 @@ def test_routed_action_resolver_initial_chain_uses_no_llm_fallback_with_signal()
     assert chain.chain_complete is True
 
 
+def test_routed_action_resolver_initial_chain_traces_disabled_legacy_kind_inference() -> None:
+    resolver = _resolver(
+        connection_pools={"rss": {"heise-security-alerts": {"title": "Heise Security"}}},
+    )
+    request = RoutedActionResolverRequest(
+        message="was habe ich fuer news feed fuer it security?",
+        user_id="u1",
+    )
+    prelude = resolver.prepare_request(request)
+
+    chain = asyncio.run(resolver.resolve_initial_chain(request, prelude))
+
+    assert any(
+        "Routing Debug: legacy_kind_inference component=routed_action_resolver" in line
+        and "legacy_inferred_kind=rss" in line
+        and "authority=none" in line
+        and "effect=observability_only" in line
+        for line in chain.resolved["detail_lines"]
+    )
+
+
 def test_routed_action_resolver_candidate_pool_outcome_guards_complete_chain_without_pool() -> None:
     resolver = _resolver(connection_pools={})
     request = RoutedActionResolverRequest(message="status", user_id="u1")
@@ -262,7 +337,7 @@ def test_routed_action_resolver_candidate_pool_outcome_returns_none_for_incomple
     assert outcome.resolved is None
 
 
-def test_routed_action_resolver_strong_semantic_candidate_overrides_stale_memory_hint() -> None:
+def test_routed_action_resolver_strong_semantic_candidate_replaces_stale_memory_without_explicit_ref() -> None:
     resolver = _resolver(connection_pools={"ssh": {"srv-a": {}, "srv-b": {}}})
     resolved = {"detail_lines": []}
 
@@ -284,13 +359,39 @@ def test_routed_action_resolver_strong_semantic_candidate_overrides_stale_memory
     )
 
     assert update.hints.connection_ref == "srv-b"
-    assert update.hints.source == "explicit_ref"
+    assert update.hints.source == "semantic_alias"
+    assert update.hints.matched_text == "explicit target"
     assert update.semantic_record is not None
-    assert update.semantic_record.stage == "explicit_connection_resolution"
+    assert update.semantic_record.stage == "semantic_candidate_resolution"
     assert update.resolved["detail_lines"] == [
-        "Routing Debug: memory_hint ignored_by_explicit_target ref=srv-a explicit_ref=srv-b",
-        "Routing Debug: explicit_ref selected ref=srv-b",
+        "Routing Debug: memory_hint ignored_by_semantic_candidate ref=srv-a candidate_ref=srv-b authority=candidate_only",
     ]
+
+
+def test_routed_action_resolver_strong_semantic_candidate_respects_explicit_ref() -> None:
+    resolver = _resolver(connection_pools={"ssh": {"srv-a": {}, "srv-b": {}}})
+
+    update = resolver.resolve_strong_semantic_candidate_override(
+        resolved={"detail_lines": []},
+        hints=MemoryHints(connection_kind="ssh", connection_ref="srv-a", source="memory_hint"),
+        semantic_candidates=[
+            SemanticConnectionCandidate(
+                connection_kind="ssh",
+                connection_ref="srv-b",
+                source="semantic_alias",
+                note="other target",
+                score=1000,
+            )
+        ],
+        ref_scope=ConnectionRefScope(explicit_ref="srv-a"),
+        plural_target_scope=False,
+        effective_kind="ssh",
+    )
+
+    assert update.hints.connection_ref == "srv-a"
+    assert update.hints.source == "memory_hint"
+    assert update.semantic_record is None
+    assert update.resolved["detail_lines"] == []
 
 
 def test_routed_action_resolver_semantic_candidate_respects_requested_ref_guard() -> None:
@@ -378,6 +479,37 @@ def test_routed_action_resolver_blocks_requested_ref_memory_hint_mismatch() -> N
     ]
 
 
+def test_routed_action_resolver_blocks_default_single_profile_for_requested_ref() -> None:
+    resolver = _resolver(connection_pools={"sftp": {"srv-a": {}}})
+
+    update = resolver.bind_forced_ref_from_resolved_decision(
+        resolved={
+            "detail_lines": [],
+            "decision": {
+                "found": True,
+                "kind": "sftp",
+                "ref": "srv-a",
+                "source": "default_single_profile",
+            },
+        },
+        working_draft=CapabilityDraft(
+            capability="file_list",
+            connection_kind="sftp",
+            requested_connection_ref="missing-node-01",
+            path=".",
+        ),
+        hints=MemoryHints(connection_kind="sftp", connection_ref="", source=""),
+        effective_kind="sftp",
+        candidate_connections={"srv-a": {}},
+    )
+
+    assert update.forced_ref == ""
+    assert update.hints.connection_ref == ""
+    assert update.resolved["detail_lines"] == [
+        "Routing Debug: default_single_profile blocked_by_requested_ref requested_ref=missing-node-01 ref=srv-a"
+    ]
+
+
 def test_routed_action_resolver_binds_requested_ref_from_semantic_candidate() -> None:
     resolver = _resolver(connection_pools={"ssh": {"srv-a": {}, "srv-b": {}}})
     semantic_resolver = SimpleNamespace(
@@ -446,6 +578,23 @@ def test_routed_action_resolver_refines_rss_forced_ref() -> None:
     assert update.hints.connection_ref == "security-feed"
     assert update.semantic_record is not None
     assert update.semantic_record.stage == "rss_semantic_refine"
+
+
+def test_routed_action_resolver_default_single_profile_respects_unmatched_requested_ref() -> None:
+    update = RoutedActionResolver.apply_default_single_profile(
+        working_draft=CapabilityDraft(
+            capability="file_list",
+            connection_kind="sftp",
+            requested_connection_ref="dev-node-01",
+        ),
+        hints=MemoryHints(connection_kind="sftp", connection_ref="", source=""),
+        candidate_connections={"ops-mgmt-01": {}},
+        ref_scope=ConnectionRefScope(requested_ref="dev-node-01"),
+    )
+
+    assert update.forced_ref == ""
+    assert update.hints.connection_ref == ""
+    assert update.hints.source == ""
 
 
 def test_routed_action_resolver_kind_only_path_uses_callback_bundles() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,12 +41,6 @@ def _candidate_detail_text(language: str | None, key: str, default: str = "", **
         return template
 
 
-def _candidate_detail_terms(language: str | None, key: str, defaults: tuple[str, ...]) -> tuple[str, ...]:
-    localized = _candidate_detail_text(language, key, "")
-    terms = [item.strip().lower() for item in localized.split(",") if item.strip()]
-    return tuple(dict.fromkeys([*terms, *defaults]))
-
-
 def _localized_text(language: str, *, de: str, en: str) -> str:
     return de if is_german(language) else en
 
@@ -53,16 +48,17 @@ def _localized_text(language: str, *, de: str, en: str) -> str:
 def _default_ssh_template_command(candidate: Any, query: str = "") -> str:
     intent = str(getattr(candidate, "intent", "") or "").strip().lower()
     candidate_id = str(getattr(candidate, "candidate_id", "") or "").strip().lower()
-    lower_query = str(query or "").strip().lower()
+    lower_query = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", str(query or "").strip().lower())
+        if not unicodedata.combining(char)
+    )
     if intent == "health_check" or candidate_id == "ssh_run_command":
         if any(token in lower_query for token in ("festplatte", "disk", "filesystem", "dateisystem", "speicherplatz", "platz frei", "df ")):
             return "df -h"
         if any(token in lower_query for token in ("ram", "memory", "speicher", "arbeitsspeicher", "free -h")):
             return "free -h"
-        if any(
-            token in lower_query
-            for token in _candidate_detail_terms("", "default_ssh_health_terms", ("health", "status", "uptime", "server", "host", "check"))
-        ):
+        if any(token in lower_query for token in ("uptime", "laufzeit", "laeuft", "lauft")):
             return "uptime"
         if not lower_query:
             return "uptime"

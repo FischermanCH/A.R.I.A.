@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from aria.core.learning_promotion import learning_active_hints_collection_for_user
-from aria.core.routing_resolver import infer_preferred_connection_kind
 
 
 def should_skip_active_learning_hints_for_turn(
@@ -11,11 +10,8 @@ def should_skip_active_learning_hints_for_turn(
     *,
     available_connection_kinds: Iterable[str],
 ) -> bool:
-    kinds = {str(kind or "").strip().lower() for kind in available_connection_kinds if str(kind or "").strip()}
-    if not kinds:
-        return False
-    preferred_kind = infer_preferred_connection_kind(message, available_kinds=kinds)
-    return bool(preferred_kind)
+    _ = (message, available_connection_kinds)
+    return False
 
 
 async def recall_active_learning_hints(

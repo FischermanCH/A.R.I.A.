@@ -17,7 +17,7 @@ def _settings_with_connections() -> Settings:
         connections=ConnectionsConfig(
             ssh={
                 "dns-node-01": SSHConnectionConfig(
-                    host="10.0.0.53",
+                    host="192.0.2.53",
                     user="admin",
                     key_path="/home/example/.ssh/id_ed25519",
                     title="DNS Node",
@@ -67,7 +67,7 @@ def test_connections_surface_preserves_compact_stage_one_metadata_without_secret
     assert "dns-node-01" not in flattened
     assert "sports-watch" not in flattened
     assert "Sport" not in flattened
-    assert "10.0.0.53" not in flattened
+    assert "192.0.2.53" not in flattened
     assert "id_ed25519" not in flattened
     assert "https://example.invalid/sports" not in flattened
     assert "https://example.invalid/feed.xml" not in flattened
@@ -81,10 +81,10 @@ def test_connections_surface_keeps_deep_inventory_for_selected_loader() -> None:
     assert metadata["configured_total"] == 3
     assert set(metadata["configured_kinds"]) == {"rss", "ssh", "website"}
     assert metadata["configured"]["ssh"]["configured_refs"] == ["dns-node-01"]
+    assert metadata["configured"]["ssh"]["safe_summaries"][0]["host"] == "192.0.2.53"
     assert metadata["configured"]["website"]["safe_summaries"][0]["group_name"] == "Sport"
 
     flattened = str(metadata)
-    assert "10.0.0.53" not in flattened
     assert "id_ed25519" not in flattened
     assert "https://example.invalid/sports" not in flattened
     assert "https://example.invalid/feed.xml" not in flattened

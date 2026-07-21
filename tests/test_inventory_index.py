@@ -90,6 +90,15 @@ def _settings() -> Settings:
                         "tags": ["Sport"],
                     }
                 },
+                "ssh": {
+                    "dev-node-02": {
+                        "host": "192.0.2.32",
+                        "user": "root",
+                        "title": "Development Server",
+                        "description": "VS Code remote development host",
+                        "tags": ["development", "dev-server"],
+                    }
+                },
             },
         }
     )
@@ -104,6 +113,7 @@ def test_inventory_documents_keep_safe_metadata_and_exclude_urls() -> None:
     assert "InfoGuard Labs Pentest Archiv" in text
     assert "Security" in text
     assert "IT-Sicherheit" in text
+    assert "192.0.2.32" in text
     assert "https://labs.infoguard.ch" not in text
     assert "example.invalid" not in text
 

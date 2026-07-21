@@ -144,6 +144,16 @@ class TokenTracker:
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
 
+        if recipe_errors is None:
+            recipe_error_rows = [
+                str(error).strip()
+                for error in list(skill_errors or [])
+                if str(error).strip().lower().startswith("recipe_")
+            ]
+        else:
+            recipe_error_rows = list(recipe_errors or [])
+        skill_error_rows = skill_errors if skill_errors is not None else recipe_error_rows
+
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_id": request_id,
@@ -164,8 +174,8 @@ class TokenTracker:
             "chat_cost_usd": chat_cost_usd,
             "embedding_cost_usd": embedding_cost_usd,
             "total_cost_usd": total_cost_usd,
-            "recipe_errors": recipe_errors if recipe_errors is not None else (skill_errors or []),
-            "skill_errors": skill_errors if skill_errors is not None else (recipe_errors or []),
+            "recipe_errors": recipe_error_rows,
+            "skill_errors": skill_error_rows,
             "extraction_model": extraction_model,
             "extraction_prompt_tokens": int((extraction_usage or {}).get("prompt_tokens", 0) or 0),
             "extraction_completion_tokens": int((extraction_usage or {}).get("completion_tokens", 0) or 0),

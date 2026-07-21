@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from pathlib import Path
 from typing import Any, Callable
@@ -33,6 +34,8 @@ _GENERIC_STATUS_COMMANDS = {
     "uptime",
     "uptime -p",
 }
+
+_GENERIC_HOST_STATUS_COMMAND = "uptime -p && df -h / && free -h"
 
 def _text_blob(*values: Any) -> str:
     parts: list[str] = []
@@ -76,6 +79,97 @@ def _is_generic_status_command(command: str) -> bool:
     return str(command or "").strip().lower() in _GENERIC_STATUS_COMMANDS
 
 
+def _normalize_command_text(command: str) -> str:
+    return re.sub(r"\s+", " ", str(command or "").strip()).lower()
+
+
+def _command_is_service_status_probe(command: str) -> bool:
+    clean = str(command or "").strip().lower()
+    return bool(
+        clean.startswith("systemctl status ")
+        or clean.startswith("systemctl is-active ")
+        or " systemctl status " in clean
+        or " systemctl is-active " in clean
+    )
+
+
+def _service_probe_has_evidence(command: str, *, dossier: dict[str, Any]) -> bool:
+    clean_command = _normalize_command_text(command)
+    if not clean_command:
+        return False
+    allow_commands = dossier_ssh_allow_commands(dossier)
+    if any(clean_command == _normalize_command_text(item) for item in allow_commands):
+        return True
+    command_text = _text_blob(command)
+    service_tokens = [
+        token
+        for token in re.findall(r"[a-z0-9][a-z0-9_.@-]*", command_text)
+        if token
+        and token
+        not in {
+            "systemctl",
+            "status",
+            "is-active",
+            "no-pager",
+            "service",
+            "sudo",
+            "user",
+            "failed",
+        }
+    ]
+    if not service_tokens:
+        return False
+    evidence = _text_blob(
+        dossier.get("allow_commands", []),
+        dossier.get("guardrail_allow_terms", []),
+    )
+    return any(token and token in evidence for token in service_tokens)
+
+
+def _should_replace_ungrounded_service_status_probe(command: str, *, dossier: dict[str, Any]) -> bool:
+    return (
+        _command_is_service_status_probe(command)
+        and not _service_probe_has_evidence(command, dossier=dossier)
+    )
+
+
+def _generic_host_status_fallback_command(dossier: dict[str, Any]) -> str:
+    allow_commands = dossier_ssh_allow_commands(dossier)
+    if allow_commands:
+        selected = []
+        for command in allow_commands:
+            clean = str(command or "").strip()
+            if clean and clean in {
+                "uptime",
+                "uptime -p",
+                "df -h",
+                "df -h /",
+                "free -h",
+                "systemctl --failed --no-pager",
+            }:
+                selected.append(clean)
+        if selected:
+            return " && ".join(selected[:4])
+    return _GENERIC_HOST_STATUS_COMMAND
+
+
+def _existing_status_contract_command(command: str, *, dossier: dict[str, Any]) -> tuple[str, list[str]]:
+    if not _is_generic_status_command(command):
+        return "", []
+    guardrail_commands = _guardrail_healthcheck_commands(dossier)
+    if guardrail_commands:
+        candidate = " && ".join(guardrail_commands)
+        policy = validate_ssh_readonly_policy(candidate, allow_commands=guardrail_commands)
+        if policy.action == "allow":
+            return candidate, guardrail_commands
+    candidate = _generic_host_status_fallback_command(dossier)
+    allow_commands = dossier_ssh_allow_commands(dossier)
+    policy = validate_ssh_readonly_policy(candidate, allow_commands=allow_commands or None)
+    if policy.action == "allow":
+        return candidate, allow_commands
+    return "", []
+
+
 def _message_mentions_command(message: str, command: str) -> bool:
     clean_command = str(command or "").strip().lower()
     if not clean_command:
@@ -112,6 +206,22 @@ def _runtime_effect_is_mutating(effect: dict[str, str] | str | None) -> bool:
         confidence = str(effect.get("confidence", "") or "").strip().lower()
         return clean == "mutating" and confidence not in {"", "low"}
     return str(effect or "").strip().lower() == "mutating"
+
+
+def _runtime_effect_allows_status_contract(effect: dict[str, str] | str | None) -> bool:
+    if isinstance(effect, dict):
+        clean = str(effect.get("runtime_effect", "") or "").strip().lower()
+        confidence = str(effect.get("confidence", "") or "").strip().lower()
+        return clean == "read_only" and confidence in {"high", "medium"}
+    return str(effect or "").strip().lower() == "read_only"
+
+
+def _intent_allows_status_contract(intent: dict[str, str] | None) -> bool:
+    if not isinstance(intent, dict):
+        return False
+    clean = str(intent.get("intent", "") or "").strip().lower()
+    confidence = str(intent.get("confidence", "") or "").strip().lower()
+    return clean in {"health_check", "status_check"} and confidence in {"high", "medium"}
 
 
 def _command_policy_is_mutating(command: str) -> bool:
@@ -167,6 +277,8 @@ async def classify_ssh_requested_runtime_effect(
         user_id=user_id,
     )
     payload = extract_json_object(getattr(response, "content", "") or "")
+    if not payload:
+        return {}
     effect = str(payload.get("runtime_effect", "") or "").strip().lower() if payload else ""
     if effect not in {"read_only", "mutating", "unknown"}:
         effect = "unknown"
@@ -230,6 +342,72 @@ async def classify_ssh_guardrail_intent(
     return {
         "intent": intent,
         "confidence": str(payload.get("confidence", "") or "").strip().lower() if payload else "",
+        "reason": str(payload.get("reason", "") or "").strip() if payload else "",
+    }
+
+
+async def classify_ssh_status_contract_decision(
+    *,
+    client: Any | None,
+    message: str,
+    connection_ref: str,
+    user_id: str = "",
+    language: str | None = None,
+    dossier: dict[str, Any] | None = None,
+    build_ssh_target_dossier: Callable[..., dict[str, Any]],
+    extract_json_object: Callable[[str], dict[str, Any]],
+) -> dict[str, str]:
+    if client is None or not str(connection_ref or "").strip():
+        return {}
+    clean_dossier = dict(dossier or build_ssh_target_dossier(connection_ref, user_id=user_id) or {})
+    response = await client.chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You classify whether an already selected SSH target should use ARIA's generic host status contract. "
+                    "Decide both the requested runtime effect and the semantic status-contract intent in one pass. "
+                    "Do not choose commands and do not answer the user. "
+                    "Use mutating for requests that would change state, restart/stop/start services, install/update/remove packages, "
+                    "delete/write files, change configuration, send data, or otherwise alter the target. "
+                    "Use read_only for inspection, listing, status, health, log viewing, or reporting. "
+                    "Use unknown when the requested effect is ambiguous. "
+                    "Use health_check/status_check only for host/service health, reachability, status, or how-is-it "
+                    "inspection requests. Use other for logs, file reads, package checks, configuration inspection, "
+                    "or any request that needs a more specific command. "
+                    "Execution is still controlled by ARIA policy and guardrails. "
+                    "Return JSON only with this shape: "
+                    '{"runtime_effect":"read_only|mutating|unknown","intent":"health_check|status_check|other",'
+                    '"confidence":"high|medium|low","reason":"short explanation"}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Language: {str(language or 'de').strip() or 'de'}\n"
+                    f"User request: {str(message or '').strip()}\n"
+                    f"Target dossier: {json.dumps(clean_dossier, ensure_ascii=False)}"
+                ),
+            },
+        ],
+        source="routing",
+        operation="ssh_status_contract_decision",
+        user_id=user_id,
+    )
+    payload = extract_json_object(getattr(response, "content", "") or "")
+    effect = str(payload.get("runtime_effect", "") or "").strip().lower() if payload else ""
+    if effect not in {"read_only", "mutating", "unknown"}:
+        effect = "unknown"
+    intent = str(payload.get("intent", "") or "").strip().lower() if payload else ""
+    if intent not in {"health_check", "status_check", "other"}:
+        intent = "other"
+    confidence = str(payload.get("confidence", "") or "").strip().lower() if payload else ""
+    if confidence not in {"high", "medium", "low"}:
+        confidence = "low"
+    return {
+        "runtime_effect": effect,
+        "intent": intent,
+        "confidence": confidence,
         "reason": str(payload.get("reason", "") or "").strip() if payload else "",
     }
 
@@ -562,10 +740,23 @@ async def apply_agentic_ssh_command_resolution(
     routing = dict(routing_decision or {})
     if str(routing.get("kind", "") or "").strip().lower() != "ssh":
         return action_payload, capability_draft, ""
-    if str(decision.get("candidate_kind", "") or "").strip().lower() != "template":
+    draft_capability = str(getattr(capability_draft, "capability", "") or "").strip()
+    decision_candidate_kind = str(decision.get("candidate_kind", "") or "").strip().lower()
+    decision_candidate_id = str(decision.get("candidate_id", "") or "").strip()
+    template_selected = decision_candidate_kind == "template" and decision_candidate_id == "ssh_run_command"
+    draft_selected = draft_capability == "ssh_command"
+    if not template_selected and not draft_selected:
         return action_payload, capability_draft, ""
-    if str(decision.get("candidate_id", "") or "").strip() != "ssh_run_command":
-        return action_payload, capability_draft, ""
+    if draft_selected and not template_selected:
+        decision.update(
+            {
+                "found": True,
+                "candidate_kind": "capability_draft",
+                "candidate_id": "ssh_command",
+                "capability": "ssh_command",
+                "reason": str(decision.get("reason", "") or "capability_draft_contract"),
+            }
+        )
 
     connection_ref = str(routing.get("ref", "") or "").strip()
     if not connection_ref:
@@ -611,13 +802,56 @@ async def apply_agentic_ssh_command_resolution(
         existing_command
         and _message_explicitly_requests_existing_command(str(message or "").strip(), existing_command)
     )
+    existing_status_contract_from = ""
+    existing_status_contract_commands: list[str] = []
+    status_contract_decision: dict[str, str] = {}
     if (
         existing_command
         and not existing_command_explicit
         and _is_generic_status_command(existing_command)
-        and _runtime_effect_is_mutating(await _requested_effect(existing_command))
     ):
-        existing_command = ""
+        existing_effect = await _requested_effect(existing_command)
+        if _runtime_effect_is_mutating(existing_effect):
+            existing_command = ""
+        elif _runtime_effect_allows_status_contract(existing_effect):
+            existing_dossier = build_ssh_target_dossier(connection_ref, user_id=user_id)
+            contract_command, contract_commands = _existing_status_contract_command(
+                existing_command,
+                dossier=existing_dossier,
+            )
+            if contract_command:
+                existing_status_contract_from = existing_command
+                existing_status_contract_commands = contract_commands
+                existing_command = contract_command
+    if not existing_command:
+        status_dossier = build_ssh_target_dossier(connection_ref, user_id=user_id)
+        status_contract_decision = await classify_ssh_status_contract_decision(
+            client=client,
+            message=str(message or "").strip(),
+            connection_ref=connection_ref,
+            user_id=user_id,
+            language=language,
+            dossier=status_dossier,
+            build_ssh_target_dossier=build_ssh_target_dossier,
+            extract_json_object=extract_json_object,
+        )
+        requested_effect = {
+            "runtime_effect": str(status_contract_decision.get("runtime_effect", "") or "unknown"),
+            "confidence": str(status_contract_decision.get("confidence", "") or "low"),
+            "reason": str(status_contract_decision.get("reason", "") or ""),
+        }
+        if (
+            _runtime_effect_allows_status_contract(status_contract_decision)
+            and _intent_allows_status_contract(status_contract_decision)
+        ):
+            contract_command, contract_commands = _existing_status_contract_command(
+                "uptime",
+                dossier=status_dossier,
+            )
+            if contract_command:
+                existing_status_contract_from = "missing_command"
+                existing_status_contract_commands = contract_commands
+                existing_command = contract_command
     pre_resolved: dict[str, Any] = {}
     if existing_command and _should_reconsider_existing_command_with_llm(message, existing_command):
         pre_resolved = await resolve_ssh_command_from_dossier(
@@ -641,13 +875,26 @@ async def apply_agentic_ssh_command_resolution(
         dossier = build_ssh_target_dossier(connection_ref, user_id=user_id)
         allow_commands = dossier_ssh_allow_commands(dossier)
         policy = validate_ssh_readonly_policy(command, allow_commands=allow_commands)
+        if policy.action != "allow" and existing_status_contract_commands:
+            policy = validate_ssh_readonly_policy(command, allow_commands=existing_status_contract_commands)
+        draft_source = "guardrail_fallback" if existing_status_contract_from else "existing_draft"
+        draft_reason = (
+            "guardrail_allowed_healthcheck"
+            if existing_status_contract_from
+            else str(decision.get("reason", "") or "")
+        )
         agentic_draft = action_draft_from_ssh_command(
             connection_ref=connection_ref,
             command=command,
-            source="existing_draft",
-            reason=str(decision.get("reason", "") or ""),
+            source=draft_source,
+            reason=draft_reason,
         )
         agentic_policy = ssh_policy_result_from_decision(policy)
+        if existing_status_contract_from:
+            decision["guardrail_fallback_from"] = existing_status_contract_from
+            decision["reason"] = "guardrail_allowed_healthcheck"
+        if existing_status_contract_from == "missing_command":
+            decision.pop("guardrail_fallback_from", None)
         requested_effect_payload = (
             {
                 "runtime_effect": "read_only",
@@ -759,6 +1006,21 @@ async def apply_agentic_ssh_command_resolution(
                 f"reason={guardrail_selection.get('reason', '-') or '-'}"
             )
             debug_line = f"{debug_line}\n{selection_line}".strip() if debug_line else selection_line
+        if routing_debug_enabled() and existing_status_contract_from:
+            fast_path_line = (
+                "Routing Debug: ssh_status_contract_fast_path "
+                f"ref={connection_ref} from={existing_status_contract_from} command={command}"
+            )
+            debug_line = f"{debug_line}\n{fast_path_line}".strip() if debug_line else fast_path_line
+        if routing_debug_enabled() and status_contract_decision:
+            intent_line = (
+                "Routing Debug: ssh_status_contract_decision "
+                f"ref={connection_ref} runtime_effect={status_contract_decision.get('runtime_effect', '-') or '-'} "
+                f"intent={status_contract_decision.get('intent', '-') or '-'} "
+                f"confidence={status_contract_decision.get('confidence', '-') or '-'} "
+                f"reason={status_contract_decision.get('reason', '-') or '-'}"
+            )
+            debug_line = f"{debug_line}\n{intent_line}".strip() if debug_line else intent_line
         if routing_debug_enabled() and decision.get("guardrail_fallback_from"):
             fallback_line = (
                 "Routing Debug: ssh_command_guardrail_fallback "
@@ -817,7 +1079,26 @@ async def apply_agentic_ssh_command_resolution(
         review_issues=review_issues,
     )
     review_debug_line = ""
-    dossier = dict(resolved.get("dossier", {}) or {})
+    dossier = dict(resolved.get("dossier", {}) or {}) or dict(build_ssh_target_dossier(connection_ref, user_id=user_id) or {})
+    if command and dossier and _should_replace_ungrounded_service_status_probe(
+        command,
+        dossier=dossier,
+    ):
+        original_command = command
+        command = _generic_host_status_fallback_command(dossier)
+        confidence = confidence or "high"
+        reason = "ungrounded_service_status_probe_replaced_by_host_status"
+        resolved["command"] = command
+        decision["guardrail_fallback_from"] = original_command
+        agentic_draft = action_draft_from_ssh_command(
+            connection_ref=connection_ref,
+            command=command,
+            source="host_status_fallback",
+            confidence=confidence,
+            reason=reason,
+            ask_user=bool(resolved.get("ask_user")),
+            review_issues=review_issues,
+        )
     if command and review_issues:
         reviewed = await review_ssh_command_candidate(
             client=client,

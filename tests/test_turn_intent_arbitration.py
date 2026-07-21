@@ -75,7 +75,7 @@ def test_turn_intent_arbitration_can_override_keyword_signal_to_chat() -> None:
     assert llm.operations == ["turn_intent_arbitration"]
 
 
-def test_turn_intent_arbitration_falls_back_on_low_confidence() -> None:
+def test_turn_intent_arbitration_falls_back_to_chat_on_low_confidence() -> None:
     llm = _IntentLLM({"intents": ["chat"], "confidence": "low", "reason": "unsure"})
 
     result = asyncio.run(
@@ -86,9 +86,23 @@ def test_turn_intent_arbitration_falls_back_on_low_confidence() -> None:
         )
     )
 
-    assert result.decision.intents == ["web_search"]
-    assert result.source == "keyword_router"
+    assert result.decision.intents == ["chat"]
+    assert result.source == "safe_fallback"
     assert result.reason == "arbiter_low_confidence"
+
+
+def test_turn_intent_arbitration_falls_back_to_chat_without_llm() -> None:
+    result = asyncio.run(
+        TurnIntentArbiter(None).arbitrate(
+            message="Websuche Mill WiFi Anleitung",
+            keyword_decision=RouterDecision(intents=["web_search"], level=1),
+            available_intents={"chat", "web_search"},
+        )
+    )
+
+    assert result.decision.intents == ["chat"]
+    assert result.source == "safe_fallback"
+    assert result.reason == "no_llm_client"
 
 
 def test_turn_intent_arbitration_passes_active_learning_hints_as_weak_signals() -> None:
@@ -114,6 +128,43 @@ def test_turn_intent_arbitration_passes_active_learning_hints_as_weak_signals() 
     assert llm.last_payload is not None
     assert llm.last_payload["active_learning_hints"][0]["collection"] == "aria_learning_active_hints_u1"
     assert llm.last_payload["active_learning_hints"][0]["runtime_effect"] == "weak_signal_only"
+
+
+def test_turn_intent_arbitration_can_select_recipe_status_from_keyword_signal() -> None:
+    llm = _IntentLLM(
+        {
+            "intents": ["recipe_status"],
+            "confidence": "high",
+            "reason": "The user asks which ARIA skills are active.",
+        }
+    )
+
+    result = asyncio.run(
+        TurnIntentArbiter(llm).arbitrate(
+            message="Welche Skills sind aktiv?",
+            keyword_decision=RouterDecision(intents=["recipe_status"], level=1),
+            available_intents={"chat", "recipe_status"},
+            user_id="u1",
+            request_id="req-1",
+        )
+    )
+
+    assert result.decision.intents == ["recipe_status"]
+    assert result.decision.level == 2
+    assert result.source == "turn_intent_arbitration"
+
+
+def test_turn_intent_arbitration_does_not_fallback_to_recipe_status_without_llm() -> None:
+    result = asyncio.run(
+        TurnIntentArbiter(None).arbitrate(
+            message="Welche Skills sind aktiv?",
+            keyword_decision=RouterDecision(intents=["recipe_status"], level=1),
+            available_intents={"chat", "recipe_status"},
+        )
+    )
+
+    assert result.decision.intents == ["chat"]
+    assert result.source == "safe_fallback"
 
 
 def test_pipeline_agentic_routing_uses_turn_intent_arbitration() -> None:

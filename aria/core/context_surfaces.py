@@ -239,6 +239,7 @@ class TurnFrame:
     answer_mode: str = ""
     source_scope: str = ""
     answer_contract: str = ""
+    evidence_bundle: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
 
     def __post_init__(self) -> None:
@@ -250,6 +251,7 @@ class TurnFrame:
         object.__setattr__(self, "answer_mode", _clean_text(self.answer_mode, limit=80))
         object.__setattr__(self, "source_scope", _clean_text(self.source_scope, limit=160))
         object.__setattr__(self, "answer_contract", _clean_text(self.answer_contract, limit=240))
+        object.__setattr__(self, "evidence_bundle", _clean_metadata(self.evidence_bundle, depth=4, list_limit=80))
         object.__setattr__(self, "confidence", max(0.0, min(1.0, float(self.confidence or 0.0))))
 
     def as_payload(self) -> dict[str, Any]:
@@ -264,6 +266,7 @@ class TurnFrame:
             "answer_mode": self.answer_mode,
             "source_scope": self.source_scope,
             "answer_contract": self.answer_contract,
+            "evidence_bundle": self.evidence_bundle,
             "confidence": self.confidence,
         }
 
@@ -297,14 +300,26 @@ class RuntimeOutcomeFrame:
         for row in list(self.records or [])[:80]:
             if not isinstance(row, dict):
                 continue
-            clean_records.append(
-                {
-                    "ref": _clean_text(row.get("ref", ""), limit=120),
-                    "state": _clean_text(row.get("state", ""), limit=80),
-                    "text": _clean_text(row.get("text", ""), limit=2400),
-                    "raw_text": _clean_text(row.get("raw_text", ""), limit=4000),
-                }
-            )
+            clean_row: dict[str, Any] = {
+                "ref": _clean_text(row.get("ref", ""), limit=120),
+                "state": _clean_text(row.get("state", ""), limit=80),
+                "text": _clean_text(row.get("text", ""), limit=2400),
+                "raw_text": _clean_text(row.get("raw_text", ""), limit=4000),
+            }
+            disk_measurement = row.get("disk_measurement")
+            if isinstance(disk_measurement, dict):
+                clean_row["disk_measurement"] = _clean_metadata(disk_measurement, depth=2, list_limit=8)
+            for key in ("disk_mount", "disk_avail_label"):
+                if key in row:
+                    clean_row[key] = _clean_text(row.get(key, ""), limit=80)
+            for key in ("disk_use_pct", "disk_avail_gib"):
+                if key not in row:
+                    continue
+                try:
+                    clean_row[key] = float(row.get(key, 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    clean_row[key] = 0.0
+            clean_records.append(clean_row)
         object.__setattr__(self, "records", tuple(clean_records))
 
     def as_payload(self) -> dict[str, Any]:

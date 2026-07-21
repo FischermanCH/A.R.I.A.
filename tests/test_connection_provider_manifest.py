@@ -4,6 +4,7 @@ from aria.core.connection_action_contract import connection_action_contracts
 from aria.core.connection_action_contract import connection_action_executor_kinds
 from aria.core.connection_provider_manifest import build_connection_provider_manifests
 from aria.core.connection_provider_manifest import connection_provider_manifest_rows
+from aria.core.connection_provider_manifest import connection_provider_runtime_adapter_audit_rows
 from aria.core.connection_provider_manifest import validate_connection_provider_manifest
 
 
@@ -57,6 +58,17 @@ def test_provider_manifest_rows_validate_against_manifest_contract() -> None:
     assert [validate_connection_provider_manifest(row) for row in rows] == [[] for _row in rows]
 
 
+def test_provider_runtime_adapter_audit_reports_registry_status() -> None:
+    rows = {row["connection_kind"]: row for row in connection_provider_runtime_adapter_audit_rows()}
+
+    assert rows["ssh"]["runtime_adapter"] == "builtin.ssh"
+    assert rows["ssh"]["registry_status"] == "specialized_handler"
+    assert rows["rss"]["registry_status"] == "specialized_handler"
+    assert rows["discord"]["runtime_adapter"] == "builtin.discord"
+    assert rows["discord"]["registry_status"] == "generic_capability_handler"
+    assert "discord_send" in rows["discord"]["capabilities"]
+
+
 def test_provider_manifest_rows_mirror_action_contracts() -> None:
     manifest_pairs = {
         (row["connection_kind"], capability["capability"])
@@ -99,10 +111,36 @@ def test_validate_connection_provider_manifest_reports_contract_errors() -> None
     )
 
     assert errors == [
+        "runtime_adapter_registry",
         "capabilities[0].required_fields",
         "capabilities[0].payload_fields[0]",
         "capabilities[0].sensitive_content",
         "capabilities[0].direct_capability_gate",
         "capabilities[0].side_effect_policy",
         "capabilities[0].side_effect_confirmation",
+    ]
+
+
+def test_provider_runtime_adapter_audit_marks_unknown_adapter_unregistered() -> None:
+    rows = connection_provider_runtime_adapter_audit_rows(
+        [
+            {
+                "schema_version": "0.2",
+                "provider_id": "community.todo",
+                "connection_kind": "todo",
+                "runtime_adapter": "community.todo",
+                "auth_modes": ["api_key"],
+                "capabilities": [{"capability": "todo_create"}],
+            }
+        ]
+    )
+
+    assert rows == [
+        {
+            "connection_kind": "todo",
+            "provider_id": "community.todo",
+            "runtime_adapter": "community.todo",
+            "registry_status": "unregistered",
+            "capabilities": ["todo_create"],
+        }
     ]
