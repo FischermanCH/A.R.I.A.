@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TARGET_IMAGE="${1:-}"
 PUBLIC_IMAGE="fischermanch/aria:0.1.0-alpha.604"
 if [[ -z "${TARGET_IMAGE}" ]]; then
-  echo "usage: scripts/e2e/upgrade_604.sh <alpha982-image>" >&2
+  echo "usage: scripts/e2e/upgrade_604.sh <alpha983-image>" >&2
   exit 2
 fi
 for image in "${PUBLIC_IMAGE}" "${TARGET_IMAGE}" "qdrant/qdrant:latest"; do
@@ -24,7 +24,7 @@ FAKE_NAME="${PREFIX}-provider"
 QDRANT_NAME="${PREFIX}-qdrant"
 STACK_DIR="$(mktemp -d "/tmp/${PREFIX}.XXXXXX")"
 ARTIFACT_DIR="${ARIA_E2E_ARTIFACT_DIR:-${ROOT_DIR}/test-results/e2e-upgrade/${RUN_ID}}"
-EVIDENCE="${ARTIFACT_DIR}/upgrade-604-to-982.json"
+EVIDENCE="${ARTIFACT_DIR}/upgrade-604-to-983.json"
 CLEANED_UP=0
 mkdir -p "${STACK_DIR}/config" "${STACK_DIR}/data" "${STACK_DIR}/qdrant" "${ARTIFACT_DIR}"
 
@@ -198,7 +198,7 @@ start_aria "${PUBLIC_IMAGE}"
 docker logs "${ARIA_NAME}" >"${ARTIFACT_DIR}/alpha604.log" 2>&1 || true
 docker rm -f "${ARIA_NAME}" >/dev/null
 start_aria "${TARGET_IMAGE}"
-"${E2E_PYTHON}" "${ROOT_DIR}/tests/e2e/upgrade_604.py" verify982 \
+"${E2E_PYTHON}" "${ROOT_DIR}/tests/e2e/upgrade_604.py" verify_target \
   --base-url "${ARIA_BASE_URL}" --fake-url "${FAKE_URL}" --qdrant-url "${QDRANT_URL}" --evidence "${EVIDENCE}"
 
-echo "Upgrade Alpha604 -> Alpha982 passed. Evidence: ${EVIDENCE}"
+echo "Upgrade Alpha604 -> Alpha983 passed. Evidence: ${EVIDENCE}"

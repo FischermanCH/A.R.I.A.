@@ -8,9 +8,11 @@ import pytest
 
 from aria.modules import MODULE_MANIFESTS
 from aria.modules.configuration_foundations.config import LLMConfig
+from aria.modules.document_memory import native_tools as document_native_tools
 from aria.modules.native_agent.handler import MAX_TOOL_RESULT_CHARS, run_native_agent_turn
 from aria.modules.native_agent.tool_registry import assemble_native_tools, select_relevant_native_tools
 from aria.modules.sdk import NativeToolBinding, NativeToolContract, NativeToolResult
+from aria.modules.skill_contracts.contracts import SkillResult
 
 
 def _response(*, content: str = "", tool_name: str = "", arguments: dict | None = None):
@@ -66,7 +68,7 @@ def _tools(owner=None):  # noqa: ANN001
 @pytest.mark.parametrize(("tool_name", "arguments", "needle", "forbidden"), (
     ("memory_context_read", {"query": "preferences"}, "prefers concise answers", "embedding_fingerprint"),
     ("notes_read_search_inventory", {"action": "open", "note_id": "note-1"}, "Restart safely", "relative_path"),
-    ("documents_read_search_inventory", {"action": "answer", "query": "procedure"}, "safe procedure", "internal-collection"),
+    ("documents_read_search_inventory", {"action": "answer", "query": "procedure"}, "safe procedure", "embedding_fingerprint"),
 ))
 def test_native_read_tool_roundtrip_is_source_bound_and_allowlisted(
     tmp_path, tool_name: str, arguments: dict, needle: str, forbidden: str,
@@ -311,6 +313,159 @@ def test_multi_document_query_uses_one_compact_tool_result_then_answers(tmp_path
     assert outcome.kind == "final_answer"
     assert outcome.provider_calls == 2
     assert outcome.used_tool_names == ("documents_read_search_inventory",)
+
+
+def _document_fallback_binding(memory_skill):  # noqa: ANN001
+    owner = SimpleNamespace(memory_skill=memory_skill)
+    return document_native_tools.native_tool_contributions(owner)[0]
+
+
+def _inventory_source(index: int, *, collection: str = "aria_docs_u1_medikamente") -> dict:
+    return {
+        "type": "document",
+        "source_type": "document",
+        "document_id": f"doc-{index}",
+        "document_name": f"Beipackzettel {index}.pdf",
+        "collection": collection,
+        "chunk_total": index + 2,
+        "detail": f"Quelle: Beipackzettel {index}.pdf · {collection}",
+    }
+
+
+def test_document_inventory_fallback_maps_real_skill_sources_instead_of_dropping_listing() -> None:
+    sources = tuple(
+        [_inventory_source(index) for index in range(5)]
+        + [_inventory_source(5, collection="aria_docs_u1_reisen")]
+    )
+    listing = "\n".join(
+        f"- [Dokument: {source['document_name']}] Collection: {source['collection']}"
+        for source in sources
+    )
+
+    class FakeMemorySkill:
+        def __init__(self) -> None:
+            self.params: list[dict] = []
+
+        async def execute(self, *, query, params):  # noqa: ANN001
+            self.params.append(dict(params))
+            return SkillResult(
+                skill_name="memory",
+                content=listing,
+                success=True,
+                metadata={"document_inventory": True, "sources": list(sources)},
+            )
+
+    skill = FakeMemorySkill()
+    binding = _document_fallback_binding(skill)
+
+    # This is the exact Alpha982 failure shape: the listing-as-one-blob is blanked
+    # by inventory sanitization and therefore looks empty.
+    legacy_items = ({
+        "source_authority": document_native_tools.DOCUMENT_SOURCE_AUTHORITY,
+        "scope_user_id": "u1",
+        "document_id": "",
+        "document_name": "",
+        "excerpt": listing,
+        "answer": "",
+    },)
+    assert document_native_tools._safe_rows(legacy_items, user_id="u1", action="inventory") == ([], False)
+
+    result = asyncio.run(binding.handler(SimpleNamespace(user_id="u1"), {"action": "inventory"}))
+    payload = json.loads(result.content)
+    assert payload["status"] == "ok"
+    assert len(payload["documents"]) == 6
+    assert [row["document_name"] for row in payload["documents"]] == [
+        f"Beipackzettel {index}.pdf" for index in range(6)
+    ]
+    assert payload["documents"][0]["collection"] == "aria_docs_u1_medikamente"
+    assert payload["documents"][0]["chunk_count"] == "2"
+    assert skill.params == [{
+        "action": "recall",
+        "user_id": "u1",
+        "collection": "",
+        "top_k": 200,
+        "include_documents": True,
+        "docs_only": True,
+        "document_inventory": True,
+        "document_corpus_scan": True,
+    }]
+
+    narrowed = asyncio.run(binding.handler(
+        SimpleNamespace(user_id="u1"),
+        {"action": "inventory", "query": "medikamente"},
+    ))
+    narrowed_payload = json.loads(narrowed.content)
+    assert len(narrowed_payload["documents"]) == 5
+    assert {row["collection"] for row in narrowed_payload["documents"]} == {"aria_docs_u1_medikamente"}
+
+
+def test_document_inventory_fallback_explicit_cap_avoids_skill_default_twelve() -> None:
+    class FakeMemorySkill:
+        async def execute(self, *, query, params):  # noqa: ANN001
+            assert params["top_k"] == 200
+            sources = [_inventory_source(index) for index in range(15)]
+            return SkillResult(
+                skill_name="memory",
+                content="inventory",
+                success=True,
+                metadata={"document_inventory": True, "sources": sources},
+            )
+
+    binding = _document_fallback_binding(FakeMemorySkill())
+    result = asyncio.run(binding.handler(SimpleNamespace(user_id="u1"), {"action": "inventory"}))
+    payload = json.loads(result.content)
+    assert len(payload["documents"]) == 15
+    assert payload["selection"] == {
+        "shown": 15,
+        "available": 15,
+        "truncated": False,
+        "notice": "alle ausgewaehlten Treffer sind enthalten",
+    }
+
+
+def test_document_search_fallback_maps_named_source_rows_and_keeps_blob_fallback() -> None:
+    class FakeMemorySkill:
+        def __init__(self) -> None:
+            self.with_sources = True
+
+        async def execute(self, *, query, params):  # noqa: ANN001
+            if not self.with_sources:
+                return SkillResult(skill_name="memory", content="single legacy excerpt", success=True)
+            return SkillResult(
+                skill_name="memory",
+                content="- [DOKUMENT: Leaflet A] dosage A\n- [DOKUMENT: Leaflet B] dosage B",
+                success=True,
+                metadata={"sources": [
+                    {"document_id": "a", "document_name": "Leaflet A", "collection": "meds", "excerpt": "dosage A"},
+                    {"document_id": "b", "document_name": "Leaflet B", "collection": "meds", "excerpt": "dosage B"},
+                ]},
+            )
+
+    skill = FakeMemorySkill()
+    binding = _document_fallback_binding(skill)
+    named = asyncio.run(binding.handler(
+        SimpleNamespace(user_id="u1"), {"action": "search", "query": "dosage"},
+    ))
+    named_payload = json.loads(named.content)
+    assert [(row["document_name"], row["collection"], row["excerpt"]) for row in named_payload["documents"]] == [
+        ("Leaflet A", "meds", "dosage A"),
+        ("Leaflet B", "meds", "dosage B"),
+    ]
+
+    skill.with_sources = False
+    legacy = asyncio.run(binding.handler(
+        SimpleNamespace(user_id="u1"), {"action": "search", "query": "legacy"},
+    ))
+    legacy_payload = json.loads(legacy.content)
+    assert legacy_payload["documents"][0]["excerpt"] == "single legacy excerpt"
+
+
+def test_document_tool_description_distinguishes_inventory_completeness_from_content_search() -> None:
+    description = _document_fallback_binding(object()).contract.description.lower()
+    assert "inventory" in description
+    assert "which documents" in description
+    assert "never answers content questions" in description
+    assert "search never proves completeness" in description
 
 
 @pytest.mark.parametrize(("tool_name", "loader_name", "arguments", "content_key"), (

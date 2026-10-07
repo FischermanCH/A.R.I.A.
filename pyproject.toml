@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-agent"
-version = "0.1.0-alpha982"
+version = "0.1.0-alpha983"
 description = "ARIA - Adaptive Reasoning & Intelligence Agent"
 readme = "README.md"
 requires-python = ">=3.12"

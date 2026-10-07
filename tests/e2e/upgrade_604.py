@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser/data assertions for the isolated Alpha604 -> Alpha982 release test."""
+"""Browser/data assertions for the isolated Alpha604 -> current release test."""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def seed_604(browser: Browser, base_url: str, fake_url: str, qdrant_url: str, ev
     page.close()
 
 
-def verify_982(browser: Browser, base_url: str, fake_url: str, qdrant_url: str, evidence: Path) -> None:
+def verify_target(browser: Browser, base_url: str, fake_url: str, qdrant_url: str, evidence: Path) -> None:
     before = set(json.loads(evidence.read_text(encoding="utf-8"))["collections_before"])
     page = browser.new_page()
     _login(page, base_url, ADMIN)
@@ -180,7 +180,7 @@ def verify_982(browser: Browser, base_url: str, fake_url: str, qdrant_url: str, 
     page.goto(f"{base_url}/recipes/mine", wait_until="domcontentloaded")
     assert RECIPE_NAME in page.locator("body").inner_text()
 
-    # Recall the preserved personal memory in a real Alpha982 native chat turn.
+    # Recall the preserved personal memory in a real current-release native chat turn.
     _script(fake_url, "upgrade-memory-recall", [
         {"type": "tool_use", "name": "memory_context_read", "input": {"query": "launch color", "memory_type": "all"}},
         {"type": "text", "text": f"UPGRADE_RECALL_OK: {FACT_TEXT}"},
@@ -247,7 +247,7 @@ def verify_fresh(browser: Browser, base_url: str, fake_url: str, evidence: Path)
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("stage", choices=("seed604", "verify982", "fresh"))
+    parser.add_argument("stage", choices=("seed604", "verify_target", "fresh"))
     parser.add_argument("--base-url", default=os.environ.get("ARIA_E2E_BASE_URL", ""))
     parser.add_argument("--fake-url", default=os.environ.get("ARIA_E2E_FAKE_URL", ""))
     parser.add_argument("--qdrant-url", default=os.environ.get("ARIA_E2E_QDRANT_URL", ""))
@@ -259,8 +259,8 @@ def main() -> None:
         browser = playwright.chromium.launch(headless=True)
         if args.stage == "seed604":
             seed_604(browser, args.base_url, args.fake_url, args.qdrant_url, args.evidence)
-        elif args.stage == "verify982":
-            verify_982(browser, args.base_url, args.fake_url, args.qdrant_url, args.evidence)
+        elif args.stage == "verify_target":
+            verify_target(browser, args.base_url, args.fake_url, args.qdrant_url, args.evidence)
         else:
             verify_fresh(browser, args.base_url, args.fake_url, args.evidence)
         browser.close()

@@ -54,6 +54,16 @@ docker push fischermanch/aria:latest
 
 If a multi-architecture publication process is introduced later, reproduce the accepted image inputs with `docker buildx` and verify every platform before moving `alpha` or `latest`; do not improvise that change during this release.
 
+## 4b. Update the Docker Hub overview page
+
+`docker push` does NOT update the text on hub.docker.com — the repository overview is maintained separately and otherwise keeps showing the old Alpha511 text.
+
+1. Open `https://hub.docker.com/r/fischermanch/aria` while logged in as the repository owner.
+2. In the **Overview** section, choose **Edit**.
+3. Replace the entire content with the content of `docs/release/docker-hub-overview.md` (about 11 KB; Docker Hub allows up to 25,000 characters) and save.
+4. Optionally update the short description (max. 100 characters), e.g.: `Self-hosted modular AI assistant: memory, recipes, MCP tool agent, background jobs.`
+5. Reload the page and confirm it shows `ARIA 0.1.0-alpha982` and no SearXNG service.
+
 ## 5. Post-publish verification
 
 ```bash

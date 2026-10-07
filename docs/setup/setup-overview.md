@@ -193,9 +193,9 @@ Use it before larger upgrades or before experimenting with a manual configuratio
 
 ## 7. Update paths
 
-### Upgrade from public Alpha604 to Alpha982
+### Upgrade from public Alpha604 to Alpha983
 
-Alpha982 is an architecture migration, not a small patch. Before upgrading, back up the ARIA config/data storage and the Qdrant volume. Reuse those exact mounts with the new image: users, authentication, connection configuration, chat history, memories, personal facts/preferences and recipes migrate in place and are verified by the isolated release upgrade test.
+Alpha983 contains the Alpha982 architecture migration plus a document-inventory hotfix. Before upgrading, back up the ARIA config/data storage and the Qdrant volume. Reuse those exact mounts with the new image: users, authentication, connection configuration, chat history, memories, personal facts/preferences and recipes migrate in place and are verified by the isolated release upgrade test.
 
 Obsolete learning collections are preserved rather than deleted automatically. After verifying the upgrade, each user can open **Memories → Maintenance → Clean up old learning collections**; it removes only legacy learning candidate/evaluation/event/hint/reflection collections for that user and leaves personal memories, facts, preferences, documents and recipe experience intact. Old SearXNG and Valkey containers can be removed manually after backup and verification; see `docs/release/alpha981-upgrade-note.md`.
 

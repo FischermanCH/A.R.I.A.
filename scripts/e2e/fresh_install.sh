@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TARGET_IMAGE="${1:-}"
 if [[ -z "${TARGET_IMAGE}" ]]; then
-  echo "usage: scripts/e2e/fresh_install.sh <alpha982-image>" >&2
+  echo "usage: scripts/e2e/fresh_install.sh <alpha983-image>" >&2
   exit 2
 fi
 docker image inspect "${TARGET_IMAGE}" >/dev/null
@@ -117,4 +117,4 @@ wait_url "${ARIA_URL}/health"
   --base-url "${ARIA_URL}" --fake-url "${FAKE_URL}" \
   --evidence "${ARTIFACT_DIR}/fresh-install.json"
 
-echo "Fresh Alpha982 install passed. Evidence: ${ARTIFACT_DIR}/fresh-install.json"
+echo "Fresh Alpha983 install passed. Evidence: ${ARTIFACT_DIR}/fresh-install.json"

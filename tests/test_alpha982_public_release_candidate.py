@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import tomllib
-
 import aria.modules.release_update.update_check as update_check
-from aria.modules.release_update.release_meta import DEFAULT_RELEASE_LABEL
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,10 +16,11 @@ def _top_release_section(path: str) -> str:
     return section
 
 
-def test_alpha982_release_metadata_is_consistent() -> None:
-    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    assert project["version"] == TARGET
-    assert DEFAULT_RELEASE_LABEL == TARGET
+def test_alpha982_release_metadata_remains_in_history() -> None:
+    assert f"## {TARGET}" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert f"## {TARGET}" in (ROOT / "CHANGELOG.de.md").read_text(encoding="utf-8")
+    assert (ROOT / "docs/release/github-release-v0.1.0-alpha.982.md").is_file()
+    assert (ROOT / "docs/release/publish-runbook-alpha982.md").is_file()
 
 
 def test_public_changelogs_have_complete_bilingual_rollup() -> None:

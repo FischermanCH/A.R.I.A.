@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha983
+
+### Behoben
+
+- Den in `0.1.0-alpha982` eingefuehrten Dokumentinventar-Fallback repariert: Fragen wie „Welche Dokumente, PDFs oder Beipackzettel hast du?“ liefern wieder eine benannte, collection-gebundene Zeile pro importiertem Dokument, statt keine Dokumente oder eine unvollstaendige Liste aus Suchauszuegen zu melden.
+- Das Inventar fordert jetzt explizit bis zu 200 Dokumenteintraege an und faellt nicht mehr still auf das MemorySkill-Defaultlimit 12 zurueck. Search- und Answer-Ergebnisse behalten bei vorhandenen Metadaten ebenfalls Dokumentname und Collection.
+- **Es gingen keine Daten verloren.** Die importierten Dokumente waren durchgehend gespeichert; defekt war nur die vollstaendige Inventardarstellung des nativen Tools.
+
 ## 0.1.0-alpha982
 
 > **Zu den Versionsnummern:** Die Versionsnummern von ARIA zaehlen bewusst die Entwicklungs-Iterationen. Alpha604 bis Alpha982 sind 378 Iterationen, in denen ARIA gemeinsam mit KI gebaut wurde – die Zahl bleibt absichtlich transparent und zaehlt weiter, notfalls auch ueber 1000.

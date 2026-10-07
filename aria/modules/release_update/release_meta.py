@@ -7,7 +7,7 @@ import os
 import tomllib
 from pathlib import Path
 
-DEFAULT_RELEASE_LABEL = "0.1.0-alpha982"
+DEFAULT_RELEASE_LABEL = "0.1.0-alpha983"
 
 
 def _read_installed_package_version(default: str = "0.1.0") -> str:

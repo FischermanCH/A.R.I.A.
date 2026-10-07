@@ -1,10 +1,14 @@
 # ARIA on Docker
 
-ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first UI.
+ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, a native tool-calling agent with MCP and controllable background jobs, and a browser-first UI.
 
-## ARIA 0.1.0-alpha982: a major ARIA architecture upgrade
+## ARIA 0.1.0-alpha983: document-inventory hotfix for the modular release
 
-ARIA Alpha982 is not the same internal shape as the last public Docker Hub alpha, Alpha604.
+ARIA Alpha983 includes a focused public hotfix on top of the Alpha982 modular release. Document inventory questions now list every imported document with its name and collection instead of returning no documents or an incomplete search-derived list. No document data was lost in Alpha982; only the inventory presentation was affected.
+
+It retains the major ARIA architecture upgrade introduced by Alpha982.
+
+ARIA Alpha983 is not the same internal shape as the older public Docker Hub alpha, Alpha604.
 
 The project has moved from the older monolith-style alpha line to a modular ARIA runtime with clearer owners for chat routing, recipes, memory, documents, notes, web/public facts, runtime actions, release/update handling, and UI composition. This is meant to make ARIA easier to maintain and safer to operate, but it also means operators should treat the next public image as an architecture migration from `0.1.0-alpha604`, not as a tiny patch update.
 
@@ -32,10 +36,12 @@ Repository and full documentation:
 
 ## Current alpha highlights
 
-Release candidate and publication tags:
+Image tags:
 
-- immutable: `fischermanch/aria:0.1.0-alpha.982`
-- moving channels after approval: `fischermanch/aria:alpha`, `fischermanch/aria:latest`
+- immutable: `fischermanch/aria:0.1.0-alpha.983`
+- moving channels: `fischermanch/aria:alpha`, `fischermanch/aria:latest`
+
+> **About the version numbers:** ARIA's version numbers deliberately count development iterations. Alpha604 to Alpha983 are 379 iterations of building ARIA together with AI — kept transparent on purpose, and it will keep counting.
 
 Release highlights:
 

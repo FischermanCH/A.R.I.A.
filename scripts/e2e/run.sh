@@ -11,6 +11,10 @@ if ! docker image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
   echo "E2E image not found: ${IMAGE_TAG}" >&2
   exit 2
 fi
+if ! docker image inspect qdrant/qdrant:latest >/dev/null 2>&1; then
+  echo "E2E Qdrant image not found: qdrant/qdrant:latest" >&2
+  exit 2
+fi
 
 E2E_PYTHON="${ARIA_E2E_PYTHON:-${ROOT_DIR}/.venv/bin/python}"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${ROOT_DIR}/.cache/ms-playwright}"
@@ -28,10 +32,11 @@ PREFIX="aria-e2e-${RUN_ID}"
 NETWORK_NAME="${PREFIX}-net"
 ANTHROPIC_NAME="${PREFIX}-anthropic"
 MCP_NAME="${PREFIX}-mcp"
+QDRANT_NAME="${PREFIX}-qdrant"
 ARIA_NAME="${PREFIX}-aria"
 STACK_DIR="$(mktemp -d "/tmp/${PREFIX}.XXXXXX")"
 ARTIFACT_DIR="${ARIA_E2E_ARTIFACT_DIR:-${ROOT_DIR}/test-results/e2e/${RUN_ID}}"
-mkdir -p "${ARTIFACT_DIR}" "${STACK_DIR}/config" "${STACK_DIR}/data"
+mkdir -p "${ARTIFACT_DIR}" "${STACK_DIR}/config" "${STACK_DIR}/data" "${STACK_DIR}/qdrant"
 
 E2E_USERNAME="e2e-admin"
 E2E_PASSWORD="e2e-only-password-975"
@@ -73,7 +78,10 @@ cleanup() {
     # the trap can always delete the isolated stack directory.
     docker exec "${ARIA_NAME}" chmod -R a+rwX /app/data >/dev/null 2>&1 || true
   fi
-  for name in "${ARIA_NAME}" "${MCP_NAME}" "${ANTHROPIC_NAME}"; do
+  if [[ "${QDRANT_NAME}" == aria-e2e-* ]] && docker container inspect "${QDRANT_NAME}" >/dev/null 2>&1; then
+    docker exec "${QDRANT_NAME}" chmod -R a+rwX /qdrant/storage >/dev/null 2>&1 || true
+  fi
+  for name in "${ARIA_NAME}" "${MCP_NAME}" "${ANTHROPIC_NAME}" "${QDRANT_NAME}"; do
     if [[ "${name}" == aria-e2e-* ]] && docker container inspect "${name}" >/dev/null 2>&1; then
       docker logs --tail 500 "${name}" >"${ARTIFACT_DIR}/${name##${PREFIX}-}.log" 2>&1 || true
       docker rm -fv "${name}" >/dev/null 2>&1 || true
@@ -120,19 +128,20 @@ profiles:
       timeout_seconds: 20
   embeddings:
     default:
-      model: ""
-      api_base: "http://${ANTHROPIC_NAME}:9000"
-      api_key: ""
-      timeout_seconds: 2
+      model: "openai/text-embedding-3-small"
+      api_base: "http://${ANTHROPIC_NAME}:9000/v1"
+      api_key: "e2e-fake-key"
+      timeout_seconds: 10
 embeddings:
-  model: ""
-  api_base: "http://${ANTHROPIC_NAME}:9000"
-  api_key: ""
-  timeout_seconds: 2
+  model: "openai/text-embedding-3-small"
+  api_base: "http://${ANTHROPIC_NAME}:9000/v1"
+  api_key: "e2e-fake-key"
+  timeout_seconds: 10
 memory:
-  enabled: false
+  enabled: true
   backend: "qdrant"
-  qdrant_url: "http://127.0.0.1:1"
+  qdrant_url: "http://${QDRANT_NAME}:6333"
+  qdrant_api_key: ""
 inventory_index:
   enabled: false
   run_on_startup: false
@@ -140,7 +149,7 @@ routing:
   qdrant_connection_routing_enabled: false
 agentic_loop:
   enabled: true
-  native_agent_memory_enabled: false
+  native_agent_memory_enabled: true
   native_agent_memory_learn_enabled: false
   native_agent_connections_enabled: false
   native_agent_admin_enabled: false
@@ -154,7 +163,7 @@ agentic_loop:
   native_agent_recipe_learn_enabled: false
   native_agent_mcp_enabled: true
   native_agent_mcp_vision_enabled: true
-  native_tool_selector_top_k: 16
+  native_tool_selector_top_k: 128
   native_agent_max_steps: 32
   native_agent_max_provider_calls: 36
   async_agent_job_sync_budget_seconds: 3
@@ -194,6 +203,9 @@ docker network create --internal "${NETWORK_NAME}" >/dev/null
 
 CONTAINER_USER="$(id -u):$(id -g)"
 
+docker run -d --name "${QDRANT_NAME}" --network "${NETWORK_NAME}" \
+  -v "${STACK_DIR}/qdrant:/qdrant/storage:rw" qdrant/qdrant:latest >/dev/null
+
 docker run -d --name "${ANTHROPIC_NAME}" --network "${NETWORK_NAME}" \
   --user "${CONTAINER_USER}" \
   --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
@@ -225,8 +237,9 @@ container_ip() {
 }
 ANTHROPIC_IP="$(container_ip "${ANTHROPIC_NAME}")"
 MCP_IP="$(container_ip "${MCP_NAME}")"
+QDRANT_IP="$(container_ip "${QDRANT_NAME}")"
 ARIA_IP="$(container_ip "${ARIA_NAME}")"
-if [[ -z "${ANTHROPIC_IP}" || -z "${MCP_IP}" || -z "${ARIA_IP}" ]]; then
+if [[ -z "${ANTHROPIC_IP}" || -z "${MCP_IP}" || -z "${QDRANT_IP}" || -z "${ARIA_IP}" ]]; then
   echo "One or more isolated E2E containers exited before network setup" >&2
   exit 1
 fi
@@ -254,6 +267,7 @@ PY
 }
 wait_url "${ANTHROPIC_CONTROL_URL}/health"
 wait_url "${MCP_CONTROL_URL}/health"
+wait_url "http://${QDRANT_IP}:6333/healthz"
 wait_url "${ARIA_BASE_URL}/health"
 # The production image runs as root and preserves the repository's restrictive
 # source permissions. Keep that production execution shape, but make this

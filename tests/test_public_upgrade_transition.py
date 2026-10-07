@@ -37,7 +37,7 @@ def test_public_upgrade_docs_describe_provider_web_tooling_transition() -> None:
     assert "0.1.0-alpha808" in changelog
     assert "major architecture upgrade" in changelog
     assert "major ARIA architecture upgrade" in docker_hub_overview
-    assert "not the same internal shape as the last public Docker Hub alpha" in docker_hub_overview
+    assert "not the same internal shape as the older public Docker Hub alpha" in docker_hub_overview
     assert "monolith-style alpha line to a modular ARIA runtime" in docker_hub_overview
     assert "provider web tooling or managed web-search capability" in setup_overview
     assert "provider-native Web-LLM" in readme

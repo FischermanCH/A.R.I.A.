@@ -771,3 +771,41 @@ def test_s23_truncated_response_retries_once_with_finish_reason(
     expect(bubble.locator("details.msg-details")).to_contain_text("native_finish_reason=")
     assert not logs["violations"]
     aria_browser.assert_clean_js()
+
+
+def test_s24_document_inventory_lists_all_five_imported_documents(
+    aria_browser: AriaBrowser, controls: HarnessControl,
+) -> None:
+    names = [f"s24-beipackzettel-{index}.txt" for index in range(1, 6)]
+    for index, name in enumerate(names, start=1):
+        aria_browser.page.goto(f"{aria_browser.base_url}/memories/import", wait_until="domcontentloaded")
+        aria_browser.page.locator("#import_document_file").set_input_files({
+            "name": name,
+            "mimeType": "text/plain",
+            "buffer": f"S24 Dokument {index}: deterministischer Testinhalt.".encode(),
+        })
+        aria_browser.page.locator("#import_document_new_collection").fill("s24_leaflets")
+        aria_browser.page.locator("form.memory-upload-form button[type='submit']").click()
+        aria_browser.page.wait_for_url(
+            lambda url: "/memories/import" in url and "info=" in url,
+            timeout=30_000,
+        )
+        expect(aria_browser.page.locator("body")).to_contain_text(name)
+
+    controls.script("S24", [
+        _tool("documents_read_search_inventory", {"action": "inventory"}),
+        _text("S24 Inventar enthält alle fünf Beipackzettel."),
+    ])
+    aria_browser.open_chat()
+    bubble = aria_browser.send_chat(
+        "Welche Dokumente hast du in deinem Gedächtnis?",
+        timeout_ms=30_000,
+    )
+    expect(bubble).to_contain_text("alle fünf Beipackzettel")
+    logs = controls.anthropic_logs()
+    assert len(logs["requests"]) == 2
+    tool_result_request = str(logs["requests"][1]["payload"])
+    assert all(name in tool_result_request for name in names), tool_result_request
+    assert '"shown": 5' in tool_result_request or "'shown': 5" in tool_result_request
+    assert not logs["violations"]
+    aria_browser.assert_clean_js()

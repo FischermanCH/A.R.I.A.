@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-alpha983
+
+### Fixed
+
+- Fixed the document inventory fallback introduced in `0.1.0-alpha982`: questions such as “Which documents, PDFs or leaflets do you have?” now return one named, collection-bound row for every imported document instead of reporting no documents or deriving an incomplete list from search excerpts.
+- Inventory now explicitly requests up to 200 document records instead of silently inheriting the MemorySkill default of 12. Content search and answer results also retain their source document names and collections when that metadata is available.
+- **No data was lost.** Imported documents remained stored throughout; only the native Tool's completeness-preserving inventory presentation was broken.
+
 ## 0.1.0-alpha982
 
 > **About the version numbers:** ARIA's version numbers deliberately count development iterations. Alpha604 to Alpha982 are 378 iterations of building ARIA together with AI — the number is kept transparent on purpose and will keep counting, past 1000 if need be.

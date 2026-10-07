@@ -607,7 +607,7 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Release candidate: `0.1.0-alpha982`
+- Current public hotfix candidate: `0.1.0-alpha983`
 - Existing public installations on `0.1.0-alpha604` should follow the backup and migration notes in `CHANGELOG.md` before replacing the image.
 
 ## One-line summary
@@ -938,7 +938,7 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Release Candidate: `0.1.0-alpha982`. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
+Aktueller Public-Hotfix-Kandidat: `0.1.0-alpha983`. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
 
 ## Ein-Satz-Zusammenfassung
 
