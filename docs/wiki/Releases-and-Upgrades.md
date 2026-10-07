@@ -1,6 +1,6 @@
 # Releases and Upgrades
 
-Current public alpha: `0.1.0-alpha437`.
+Current public alpha: `0.1.0-alpha604`.
 
 ARIA has three update stories. Keep them separate.
 
@@ -17,7 +17,7 @@ cd /opt/aria/aria
 ./aria-stack.sh logs
 ```
 
-Normal `aria-stack.sh update` refreshes/recreates only the `aria` service. It intentionally leaves Qdrant, SearXNG, Valkey, and volumes alone.
+Normal `aria-stack.sh update` recreates only `aria`. Qdrant and all volumes remain untouched.
 After ARIA is healthy again, managed/internal helpers remove dangling Docker image layers and unused old ARIA Docker images. They do not prune containers, volumes, sidecars, or tagged non-ARIA images.
 
 ARIA can show a third-party sidecar inventory on `/stats#runtime-health` when Docker container metadata is available to the runtime. If the runtime cannot see Docker, that is informational; normal updates still leave sidecars unchanged.
@@ -34,7 +34,7 @@ After a deliberate sidecar/full-stack update, verify:
 
 1. `/health` and `/stats#runtime-health`
 2. `Memory / Qdrant` plus one memory-backed chat or notes lookup
-3. one web search, which exercises SearXNG and Valkey
+3. provider/web-tooling readiness if web answers are enabled
 4. `/updates`, so the controlled update path is still reachable
 
 Managed installs can also expose the browser update page under `/updates`.
@@ -77,8 +77,8 @@ Main commands:
 
 Safety behavior:
 
-- updates only the selected `aria` service
-- leaves Qdrant, SearXNG, Valkey, and volumes untouched
+- recreates the selected `aria` service only
+- leaves Qdrant and all volumes untouched
 - refreshes managed helper files from the target image before recreating ARIA
 - preflights the intended host port before recreating ARIA
 - prunes dangling layers and unused old ARIA images only after a successful health check

@@ -1,6 +1,6 @@
 # Releases and Upgrades
 
-Aktuelle Public Alpha: `0.1.0-alpha437`.
+Aktuelle Public Alpha: `0.1.0-alpha604`.
 
 ARIA hat drei Update-Wege. Diese sollten sauber getrennt bleiben.
 
@@ -17,7 +17,7 @@ cd /opt/aria/aria
 ./aria-stack.sh logs
 ```
 
-Der normale `aria-stack.sh update` aktualisiert/recreatet nur den `aria` Service. Qdrant, SearXNG, Valkey und Volumes bleiben bewusst unangetastet.
+Der normale `aria-stack.sh update` erzeugt nur `aria` neu. Qdrant und alle Volumes bleiben unangetastet.
 Sobald ARIA danach wieder gesund ist, entfernen managed/interne Helper dangling Docker-Image-Layer und alte ungenutzte ARIA-Docker-Images. Container, Volumes, Sidecars und getaggte fremde Images werden nicht bereinigt.
 
 ARIA kann unter `/stats#runtime-health` ein Third-party-Sidecar-Inventar anzeigen, wenn die Runtime Docker-Container-Metadaten sehen darf. Wenn die Runtime Docker nicht sieht, ist das nur informativ; normale Updates lassen Sidecars trotzdem unveraendert.
@@ -34,7 +34,7 @@ Nach einem bewussten Sidecar-/Full-Stack-Update kurz pruefen:
 
 1. `/health` und `/stats#runtime-health`
 2. `Memory / Qdrant` plus eine Memory- oder Notes-gestuetzte Chatfrage
-3. eine Websuche, damit SearXNG und Valkey wirklich benutzt werden
+3. Provider-/Web-Tooling-Bereitschaft, falls Webantworten aktiviert sind
 4. `/updates`, damit der kontrollierte Update-Pfad weiter erreichbar ist
 
 Managed Installs koennen auch die Browser-Update-Seite unter `/updates` anbieten.
@@ -77,8 +77,8 @@ Wichtige Befehle:
 
 Sicherheitsverhalten:
 
-- aktualisiert nur den ausgewaehlten `aria` Service
-- laesst Qdrant, SearXNG, Valkey und Volumes unangetastet
+- erzeugt nur den ausgewaehlten `aria` Service neu
+- laesst Qdrant und alle Volumes unangetastet
 - aktualisiert Managed-Helper-Dateien aus dem Ziel-Image vor dem ARIA-Recreate
 - prueft den geplanten Host-Port vor dem ARIA-Recreate
 - bereinigt dangling Layer und alte ungenutzte ARIA-Images erst nach erfolgreichem Healthcheck

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set stats_ui_reset_path = module_route_path('stats_ui', '/stats/reset') %}
 <main class="stats-layout stats-clean-layout">
   <section class="stat-card stats-domain-intro">
     <div class="page-title-row"><span>{{ icon('stats', 'page-title-icon') }}</span><h2>{{ tr(request, 'stats.title', 'Statistiken') }}</h2></div>
@@ -110,81 +111,9 @@
     </div>
   </section>
 
-  <section class="stat-card stats-diagnostic-card" id="learning-worker">
-    <div class="stats-health-head">
-      <div>
-        <h2>{{ tr(request, 'stats.learning_worker_title', 'Learning Worker') }}</h2>
-        <p class="stat-sub">{{ tr(request, 'stats.learning_worker_subtitle', 'Runtime status for background learning captures, retries and budget gates.') }}</p>
-      </div>
-      <span class="health-meter status-{{ learning_worker.status }}">
-        <span class="health-lamp status-{{ learning_worker.status }}"></span>
-        <span>
-          {% if learning_worker.status == 'ok' %}
-            {{ tr(request, 'stats.health_ok', 'OK') }}
-          {% elif learning_worker.status == 'warn' %}
-            {{ tr(request, 'stats.health_warn', 'Warn') }}
-          {% else %}
-            {{ tr(request, 'stats.health_error', 'Error') }}
-          {% endif %}
-        </span>
-      </span>
-    </div>
-    <div class="stats-health-grid stats-activity-kpi-grid">
-      <article class="stats-health-card status-{{ 'warn' if learning_worker.running else 'ok' }}">
-        <div class="stats-health-title">
-          <span class="health-lamp status-{{ 'warn' if learning_worker.running else 'ok' }}"></span>
-          <strong>{{ tr(request, 'stats.learning_worker_running', 'Laufend') }}</strong>
-        </div>
-        <p class="stats-health-summary">{{ learning_worker.running }}</p>
-        <small class="stats-health-detail">max {{ learning_worker.max_running }}</small>
-      </article>
-      <article class="stats-health-card status-ok">
-        <div class="stats-health-title">
-          <span class="health-lamp status-ok"></span>
-          <strong>{{ tr(request, 'stats.learning_worker_done', 'Fertig') }}</strong>
-        </div>
-        <p class="stats-health-summary">{{ learning_worker.completed }}</p>
-        <small class="stats-health-detail">max attempts {{ learning_worker.max_attempts }}</small>
-      </article>
-      <article class="stats-health-card status-{{ 'warn' if learning_worker.failed or learning_worker.rejected else 'ok' }}">
-        <div class="stats-health-title">
-          <span class="health-lamp status-{{ 'warn' if learning_worker.failed or learning_worker.rejected else 'ok' }}"></span>
-          <strong>{{ tr(request, 'stats.learning_worker_errors', 'Fehler') }}</strong>
-        </div>
-        <p class="stats-health-summary">{{ learning_worker.failed }} / {{ learning_worker.rejected }}</p>
-        <small class="stats-health-detail">failed / rejected</small>
-      </article>
-      <article class="stats-health-card status-{{ 'warn' if learning_worker.budget_state != 'ok' else 'ok' }}">
-        <div class="stats-health-title">
-          <span class="health-lamp status-{{ 'warn' if learning_worker.budget_state != 'ok' else 'ok' }}"></span>
-          <strong>{{ tr(request, 'stats.learning_worker_budget', 'Budget') }}</strong>
-        </div>
-        <p class="stats-health-summary">{{ learning_worker.budget.used_tokens }} / {{ learning_worker.budget.max_runtime_tokens }}</p>
-        <small class="stats-health-detail">${{ '%.6f'|format(learning_worker.budget.used_cost_usd) }} / ${{ '%.2f'|format(learning_worker.budget.max_runtime_cost_usd) }}</small>
-      </article>
-    </div>
-    {% if learning_worker.recent %}
-    {% set latest_learning_job = learning_worker.recent[0] %}
-    <p class="stats-health-summary">
-      {{ tr(request, 'stats.learning_worker_latest', 'Letzter Job') }}:
-      <a href="/memories/learning-worker/job/{{ latest_learning_job.job_id|urlencode }}">{{ latest_learning_job.status }} · {{ latest_learning_job.source }}</a>
-      {% if latest_learning_job.artifact_type %} · {{ latest_learning_job.artifact_type }}{% endif %}
-    </p>
-    {% endif %}
-    {% if learning_worker.audit.count %}
-    <p class="stats-health-summary">
-      {{ tr(request, 'stats.learning_worker_audit', 'Audit') }}:
-      {{ learning_worker.audit.count }} records ·
-      {% for category, count in learning_worker.failure_categories.items() %}
-        {{ category }} {{ count }}{% if not loop.last %} · {% endif %}
-      {% endfor %}
-    </p>
-    {% endif %}
-  </section>
-
   {% if reset_done is not none %}
   <div class="alert ok">
-    {{ tr(request, 'stats.reset_done', 'Statistiken und Aktivitäten wurden zurückgesetzt. Eine neue Abrechnungsperiode wurde gestartet.') }}
+    {{ tr(request, 'stats.reset_done', 'Statistiken und Ausführungs-Historie wurden zurückgesetzt. Eine neue Abrechnungsperiode wurde gestartet.') }}
     {{ tr(request, 'config_logs.pruned_info', 'Entfernt') }}:
     <strong>{{ reset_done }}</strong>
     {{ tr(request, 'config_logs.rows', 'Zeilen') }}
@@ -272,7 +201,7 @@
         <details class="stats-inline-reset">
           <summary>{{ tr(request, 'stats.reset_period_title', 'Abrechnungsperiode zurücksetzen') }}</summary>
           <p class="hint-text">{{ tr(request, 'stats.reset_period_hint', 'Der aktuelle Usage-Log wird archiviert, der sichtbare Kosten-/Tokenzaehler startet wieder bei 0. Memories, Rezepte und Verbindungen bleiben erhalten.') }}</p>
-          <form method="post" action="/stats/reset" class="config-form-grid">
+          <form method="post" action="{{ stats_ui_reset_path }}" class="config-form-grid">
             <label for="stats-reset-confirm-inline">{{ tr(request, 'config_logs.reset_confirm_label', 'Bestätigung') }}</label>
             <input id="stats-reset-confirm-inline" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
             <div class="config-actions">
@@ -405,23 +334,6 @@
         <li>
           <span>{{ row.title }} · {{ row.target }}</span>
           <strong>{{ row.action }}</strong>
-          {% if request.state.can_access_advanced_config %}
-          <form method="post" action="/stats/recipe-experience/review" class="inline-danger-form">
-            <input type="hidden" name="recipe_id" value="{{ row.recipe_id }}">
-            <input type="hidden" name="title" value="{{ row.title }}">
-            <input type="hidden" name="intent" value="{{ row.intent }}">
-            <input type="hidden" name="connection_kind" value="{{ row.connection_kind }}">
-            <input type="hidden" name="connection_ref" value="{{ row.connection_ref }}">
-            <input type="hidden" name="capability" value="{{ row.capability }}">
-            <input type="hidden" name="action" value="{{ row.action }}">
-            <input type="hidden" name="summary" value="{{ row.summary }}">
-            <input type="hidden" name="user_message" value="{{ row.user_message }}">
-            <input type="hidden" name="experience_count" value="{{ row.experience_count }}">
-            <input type="hidden" name="origin" value="{{ row.origin }}">
-            <input type="hidden" name="updated_at" value="{{ row.updated_at }}">
-            <button type="submit" class="button-like">{{ tr(request, 'stats.recipe_experience_review_button', 'Review as learned recipe') }}</button>
-          </form>
-          {% endif %}
         </li>
         {% endfor %}
       </ul>
@@ -597,7 +509,6 @@
         <h2>{{ tr(request, 'stats.routing_index_title', 'Routing Index') }}</h2>
         <p class="stat-sub">{{ tr(request, 'stats.routing_index_subtitle', 'Admin/debug status for the generated Qdrant routing collection. Not active in chat routing yet.') }}</p>
       </div>
-      <a class="button-like ui-action-link" href="/config/routing">{{ icon('routing', 'ui-action-icon') }}{{ tr(request, 'stats.routing_index_open', 'Open routing admin') }}</a>
     </div>
     <div class="stats-health-grid">
       <article class="stats-health-card status-{{ routing_index.visual_status or 'warn' }}">
@@ -656,7 +567,7 @@
   <section class="stat-card">
     <div class="stats-health-head">
       <div>
-        <h2>{{ tr(request, 'activities.title', 'Aktivitäten & Runs') }}</h2>
+        <h2>{{ tr(request, 'activities.title', 'Ausführungs-Historie') }}</h2>
         <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Rezept-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
       </div>
     </div>
@@ -666,8 +577,8 @@
         <div class="stats-health-title">
           <span class="health-lamp status-ok"></span>
           <div>
-            <strong>{{ tr(request, 'activities.total', 'Aktivitäten') }}</strong>
-            <small class="stats-health-state">{{ tr(request, 'activities.total', 'Aktivitäten') }}</small>
+            <strong>{{ tr(request, 'activities.total', 'Ausführungs-Historie') }}</strong>
+            <small class="stats-health-state">{{ tr(request, 'activities.total', 'Ausführungs-Historie') }}</small>
           </div>
         </div>
         <p class="stats-health-summary">{{ activities.summary.count }}</p>
@@ -755,7 +666,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="stat-sub">{{ tr(request, 'activities.empty', 'Noch keine Aktivitäten vorhanden.') }}</p>
+    <p class="stat-sub">{{ tr(request, 'activities.empty', 'Noch keine Einträge in der Ausführungs-Historie.') }}</p>
     {% endif %}
   </section>
 
@@ -820,6 +731,19 @@
         {% else %}
           <p>{{ tr(request, 'stats.no_data', 'No data yet.') }}</p>
         {% endif %}
+      </section>
+
+      <section class="stat-card">
+        <h2>{{ tr(request, 'stats.web_llm_usage', 'Web-LLM & native search') }}</h2>
+        <ul class="stats-list">
+          <li><span>{{ tr(request, 'stats.llm_requests_main', 'Main-LLM requests') }}</span><strong>{{ stats.get('llm_requests_by_role', {}).get('main', 0) }}</strong></li>
+          <li><span>{{ tr(request, 'stats.llm_requests_web', 'Web-LLM requests') }}</span><strong>{{ stats.get('llm_requests_by_role', {}).get('web', 0) }}</strong></li>
+          <li><span>{{ tr(request, 'stats.native_search_uses', 'Native search uses') }}</span><strong>{{ stats.get('native_web_search_uses', 0) }}</strong></li>
+          <li><span>{{ tr(request, 'stats.native_search_cost', 'Native search cost') }}</span><strong>${{ '%.6f'|format(stats.get('native_web_search_cost_usd', 0.0)) }}</strong></li>
+          {% if stats.get('native_web_search_unpriced_requests', 0) %}
+          <li><span>{{ tr(request, 'stats.native_search_unpriced', 'Unpriced Web-LLM requests') }}</span><strong>{{ stats.get('native_web_search_unpriced_requests', 0) }}</strong></li>
+          {% endif %}
+        </ul>
       </section>
 
       <section class="stat-card">

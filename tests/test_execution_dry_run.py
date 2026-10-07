@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from aria.core.execution_dry_run import (
+from aria.modules.execution_dry_run.dry_run import (
     build_execution_preview_dry_run,
-    build_payload_dry_run,
     evaluate_guardrail_confirm_dry_run,
 )
-from aria.core.execution_dry_run_text import decision_summary
+from aria.modules.execution_dry_run_payloads.payloads import build_payload_dry_run
+from aria.modules.execution_dry_run.text import decision_summary
 
 
 class _Settings:
@@ -138,13 +138,12 @@ def test_payload_dry_run_builds_ssh_run_command() -> None:
         action_decision={"found": True, "candidate_kind": "template", "candidate_id": "ssh_run_command"},
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["payload"]["capability"] == "ssh_command"
-    assert result["payload"]["content"] == "uptime"
-    assert result["payload"]["preview"] == "SSH command: uptime"
+    assert result["payload"]["content"] == ""
     assert result["payload"]["plan_class"] == "command_single"
     assert result["payload"]["behavior_profile"] == "ssh_run_command"
-    assert result["payload"]["missing_fields"] == []
+    assert result["payload"]["missing_fields"] == ["content"]
 
 
 def test_payload_dry_run_builds_command_single_from_plan_class_without_template_id() -> None:
@@ -155,12 +154,12 @@ def test_payload_dry_run_builds_command_single_from_plan_class_without_template_
         action_decision={"found": True, "candidate_kind": "template", "plan_class": "command_single"},
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["payload"]["capability"] == "ssh_command"
-    assert result["payload"]["content"] == "uptime"
+    assert result["payload"]["content"] == ""
     assert result["payload"]["plan_class"] == "command_single"
     assert result["payload"]["behavior_profile"] == "ssh_run_command"
-    assert result["payload"]["missing_fields"] == []
+    assert result["payload"]["missing_fields"] == ["content"]
 
 
 def test_payload_dry_run_infers_hosts_file_path() -> None:
@@ -171,9 +170,9 @@ def test_payload_dry_run_infers_hosts_file_path() -> None:
         action_decision={"found": True, "candidate_kind": "template", "candidate_id": "sftp_read_file"},
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["payload"]["capability"] == "file_read"
-    assert result["payload"]["path"] == "/etc/hosts"
+    assert result["payload"]["path"] == ""
 
 
 def test_payload_dry_run_builds_file_read_from_plan_class_without_template_id() -> None:
@@ -184,9 +183,9 @@ def test_payload_dry_run_builds_file_read_from_plan_class_without_template_id() 
         action_decision={"found": True, "candidate_kind": "template", "plan_class": "file_read_basic"},
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "warn"
     assert result["payload"]["capability"] == "file_read"
-    assert result["payload"]["path"] == "/etc/hosts"
+    assert result["payload"]["path"] == ""
     assert result["payload"]["behavior_profile"] == "remote_read_file"
 
 
@@ -195,7 +194,7 @@ def test_payload_dry_run_builds_email_send_message() -> None:
         'sende mail "ARIA Test"',
         settings=_Settings(),
         routing_decision={"found": True, "kind": "email", "ref": "ops-mail"},
-        action_decision={"found": True, "candidate_kind": "template", "candidate_id": "email_send_message"},
+        action_decision={"found": True, "candidate_kind": "template", "candidate_id": "email_send_message", "inputs": {"message": "ARIA Test"}},
     )
 
     assert result["status"] == "ok"
@@ -213,7 +212,7 @@ def test_payload_dry_run_builds_google_calendar_read() -> None:
 
     assert result["status"] == "ok"
     assert result["payload"]["capability"] == "calendar_read"
-    assert result["payload"]["path"] == "tomorrow"
+    assert result["payload"]["path"] == ""
 
 
 def test_payload_dry_run_builds_feed_read_from_plan_class_without_template_id() -> None:
@@ -239,7 +238,7 @@ def test_payload_dry_run_builds_website_list_from_plan_class_without_template_id
 
     assert result["status"] == "ok"
     assert result["payload"]["capability"] == "website_list"
-    assert result["payload"]["content"] == "dokumentation"
+    assert result["payload"]["content"] == ""
     assert result["payload"]["behavior_profile"] == "website_list"
 
 
@@ -261,7 +260,7 @@ def test_payload_dry_run_builds_mail_search_from_plan_class_without_template_id(
         'suche im postfach nach "Rechnung"',
         settings=_Settings(),
         routing_decision={"found": True, "kind": "imap", "ref": "ops-mailbox"},
-        action_decision={"found": True, "candidate_kind": "template", "plan_class": "mailbox_search_basic"},
+        action_decision={"found": True, "candidate_kind": "template", "plan_class": "mailbox_search_basic", "inputs": {"search_query": "Rechnung"}},
     )
 
     assert result["status"] == "ok"
@@ -275,7 +274,7 @@ def test_payload_dry_run_builds_api_request_from_plan_class_without_template_id(
         "pruefe /health auf der inventory api",
         settings=_Settings(),
         routing_decision={"found": True, "kind": "http_api", "ref": "inventory-api"},
-        action_decision={"found": True, "candidate_kind": "template", "plan_class": "api_request_basic"},
+        action_decision={"found": True, "candidate_kind": "template", "plan_class": "api_request_basic", "inputs": {"request_path": "/health"}},
     )
 
     assert result["status"] == "ok"
@@ -289,7 +288,7 @@ def test_payload_dry_run_builds_mailbox_search() -> None:
         'suche im postfach nach "Rechnung"',
         settings=_Settings(),
         routing_decision={"found": True, "kind": "imap", "ref": "ops-mailbox"},
-        action_decision={"found": True, "candidate_kind": "template", "candidate_id": "imap_search_mailbox"},
+        action_decision={"found": True, "candidate_kind": "template", "candidate_id": "imap_search_mailbox", "inputs": {"search_query": "Rechnung"}},
     )
 
     assert result["status"] == "ok"
@@ -302,7 +301,7 @@ def test_payload_dry_run_builds_mqtt_publish() -> None:
         'sende per mqtt topic aria/events "ARIA lebt"',
         settings=_Settings(),
         routing_decision={"found": True, "kind": "mqtt", "ref": "event-bus"},
-        action_decision={"found": True, "candidate_kind": "template", "candidate_id": "mqtt_publish_message"},
+        action_decision={"found": True, "candidate_kind": "template", "candidate_id": "mqtt_publish_message", "inputs": {"topic": "aria/events", "message": "ARIA lebt"}},
     )
 
     assert result["status"] == "ok"

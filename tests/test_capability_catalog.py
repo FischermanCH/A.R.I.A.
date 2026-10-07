@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from aria.core.action_plan import ActionPlan
-from aria.core.capability_catalog import build_capability_detail_lines, capability_executor_bindings
+from aria.modules.action_contracts.plan import ActionPlan
+from aria.modules.action_contracts.capabilities import build_capability_detail_lines, capability_executor_bindings
 
 
 def test_capability_executor_bindings_cover_expected_pairs() -> None:

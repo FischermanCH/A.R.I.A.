@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aria.core.http_api_policy import validate_http_api_request_policy
+from aria.modules.http_api_policy.policy import validate_http_api_request_policy
 
 
 def test_http_api_policy_allows_simple_health_get() -> None:

@@ -12,6 +12,29 @@ llm:
   max_tokens: 4096
   timeout_seconds: 60
 
+web_llm:
+  enabled: false
+  profile: ""
+  model: ""
+  api_base: null
+  api_key: ""
+  transport: "openai_responses"
+  temperature: 0.4
+  max_tokens: 4096
+  timeout_seconds: 60
+  search_context_size: "low"
+  max_search_uses: 3
+  max_output_tokens: 1200
+  allowed_domains: []
+  required_url_prefixes: []
+  capability_verified_at: ""
+
+web_evidence:
+  enabled: true
+  collection: "aria_web_evidence"
+  read_timeout_ms: 200
+  ttl_hours: 24
+
 embeddings:
   model: "ollama/nomic-embed-text"
   api_base: "http://localhost:11434"
@@ -21,6 +44,8 @@ embeddings:
 profiles:
   active:
     llm: "default"
+    main_llm: "default"
+    web_llm: ""
     embeddings: "default"
   llm:
     default:
@@ -69,13 +94,6 @@ memory:
       top_k: 2
       dedup_threshold: 0.90
 
-auto_memory:
-  enabled: true
-  agentic_extraction_enabled: true
-  session_recall_top_k: 4
-  user_recall_top_k: 3
-  max_facts_per_message: 3
-
 inventory_index:
   enabled: true
   cron: "17 */6 * * *"
@@ -91,47 +109,25 @@ routing:
   qdrant_candidate_limit: 5
   qdrant_ask_on_low_confidence: true
   meta_catalog_strict_contract_enabled: false
-  memory_store_keywords:
-    - "merk"
-    - "speicher"
-    - "vergiss nicht"
-    - "notier"
-  memory_recall_keywords:
-    - "erinnerst"
-    - "weisst du noch"
-    - "weißt du noch"
-    - "was weisst du"
-    - "was weißt du"
-    - "letztes mal"
-    - "gespeichert"
-    - "was weisst du über"
-    - "was weißt du über"
-  memory_store_prefixes:
-    - "merk dir, dass "
-    - "merk dir dass "
-    - "merk dir "
-    - "speichere, dass "
-    - "speichere dass "
-    - "speichere "
-    - "notier dir, dass "
-    - "notier dir dass "
-    - "notier dir "
-    - "vergiss nicht, dass "
-    - "vergiss nicht dass "
-    - "vergiss nicht "
-  memory_recall_cleanup_keywords:
-    - "erinnerst du dich"
-    - "weisst du noch"
-    - "weißt du noch"
-    - "gespeichert"
-    - "letztes mal"
-  memory_forget_keywords:
-    - "vergiss"
-    - "loesch"
-    - "lösch"
-    - "entfern"
-    - "delete"
-    - "remove"
+
+agentic_loop:
+  # MCP is an explicit external read boundary and remains opt-in.
+  native_agent_mcp_enabled: false
+  # Attach bounded MCP image results only to vision-capable native-agent turns.
+  native_agent_mcp_vision_enabled: true
+  native_agent_mcp_vision_max_live_images: 4
+  native_agent_mcp_vision_max_lifetime_images: 24
+  # Large catalogs keep all Core Tools plus this many semantically selected MCP Tools.
+  native_tool_selector_top_k: 16
+  # Native agent loop headroom; provider retries consume this bounded call budget.
+  native_agent_max_steps: 32
+  native_agent_max_provider_calls: 32
+  # Long native-agent turns detach before the browser's 90-second request limit.
+  async_agent_job_sync_budget_seconds: 25
+  native_agent_budget_extension_steps: 32
+  native_agent_budget_max_total: 160
+  agent_job_retention_days: 14
+  agent_job_stale_paused_days: 7
 
 prompts:
   persona: "prompts/persona.md"
@@ -148,11 +144,17 @@ connections:
   sftp: {}
   smb: {}
   webhook: {}
+  # Machine-to-machine event ingress. Authentication tokens belong in Secure Store.
+  inbound_webhook: {}
   smtp: {}
   imap: {}
   http_api: {}
   rss: {}
   mqtt: {}
+
+# Optional generic Model Context Protocol clients. Server enablement and the
+# native_agent_mcp_enabled flag must both be true before ARIA connects.
+mcp_servers: {}
 
 rss:
   poll_interval_minutes: 60

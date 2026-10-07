@@ -2,9 +2,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
+import pytest
+from starlette.requests import Request
+
+import aria.modules.navigation_shell.ui_helpers as main_ui_helpers
 from aria.main import (
     _build_client_recipe_progress_hints,
-    _discord_alert_error_lines,
     _enable_bootstrap_admin_mode_in_raw_config,
     _is_allowed_edit_path,
     _list_file_editor_entries,
@@ -13,22 +16,89 @@ from aria.main import (
     _render_assistant_message_html,
     _resolve_edit_file,
     _replace_agent_name,
-    _validate_stored_recipe_manifest,
 )
-from aria.core.access import can_access_settings, is_advanced_config_path
-from aria.core.config import normalize_ui_background, normalize_ui_theme
-from aria.core.connection_runtime import friendly_discord_test_error_message
-from aria.core.action_plan import ActionPlan
-from aria.core.pipeline_capability_messages import capability_execution_error_code
-from aria.core.pipeline_capability_messages import format_capability_execution_error
-from aria.core.recipe_runtime import RecipeRuntime
-from aria.web.config_routes import _apply_factory_reset_to_raw_config
-from aria.web.config_routes import _friendly_ssh_setup_error_impl
-from aria.web.config_routes import _read_ssh_connections_impl
-from aria.web.main_ui_helpers import should_alert_recipe_errors
-from aria.web.recipes_routes import _is_admin_mode_request
-from aria.web.recipes_routes import _is_valid_csrf_submission
-from aria.web.recipes_routes import _remove_custom_skill_config
+from aria.modules.auth_policy.access_policy import can_access_settings, is_advanced_config_path
+from aria.modules.configuration_foundations.config import (
+    discover_ui_background_files,
+    load_settings,
+    normalize_ui_background,
+    normalize_ui_theme,
+    resolve_ui_background_asset_url,
+)
+from aria.modules.connections_runtime_status.runtime import friendly_discord_test_error_message
+from aria.modules.action_contracts.plan import ActionPlan
+from aria.modules.capability_error_messages.messages import capability_execution_error_code
+from aria.modules.capability_error_messages.messages import format_capability_execution_error
+from aria.modules.recipe_runtime.runtime import RecipeRuntime
+from aria.modules.recipe_store.manifests import _validate_stored_recipe_manifest
+from aria.modules.config_ui.routes import _apply_factory_reset_to_raw_config
+from aria.modules.config_ui.routes import _friendly_ssh_setup_error_impl
+from aria.modules.config_ui.routes import _read_ssh_connections_impl
+from aria.modules.navigation_shell.ui_helpers import exception_response, should_alert_recipe_errors
+from aria.modules.navigation_shell.ui_helpers import discord_alert_error_lines as _discord_alert_error_lines
+from aria.modules.recipes_ui.routes import _is_admin_mode_request
+from aria.modules.recipes_ui.routes import _is_valid_csrf_submission
+from aria.modules.recipes_ui.routes import _remove_custom_skill_config
+
+
+def _html_error_request(path: str = "/broken") -> Request:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "raw_path": path.encode("ascii"),
+            "root_path": "",
+            "scheme": "http",
+            "query_string": b"",
+            "headers": [(b"host", b"testserver"), (b"accept", b"text/html")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+    )
+    request.state.lang = "de"
+    request.state.agent_name = "ARIA"
+    return request
+
+
+def test_exception_html_response_uses_module_readpoints(monkeypatch) -> None:
+    route_calls: list[tuple[str, str]] = []
+    asset_calls: list[tuple[str, str]] = []
+
+    def tracking_route_path(module_id: str, route_path: str) -> str | None:
+        route_calls.append((module_id, route_path))
+        return route_path
+
+    def tracking_static_asset_path(module_id: str, asset_name: str, base_dir: Path) -> Path | None:
+        asset_calls.append((module_id, asset_name))
+        return base_dir / "aria" / "static" / asset_name
+
+    monkeypatch.setattr(main_ui_helpers, "module_route_path", tracking_route_path)
+    monkeypatch.setattr(main_ui_helpers, "module_static_asset_path", tracking_static_asset_path)
+
+    response = exception_response(_html_error_request(), detail="kaputt", status_code=500)
+    body = response.body.decode("utf-8")
+
+    assert response.status_code == 500
+    assert "kaputt" in body
+    assert "href='/static/style.css'" in body
+    assert "class='nav-link' href='/'" in body
+    assert ("navigation_shell", "style.css") in asset_calls
+    assert ("chat_surface", "/") in route_calls
+
+
+def test_exception_html_response_fails_closed_without_navigation_shell_asset(monkeypatch) -> None:
+    monkeypatch.setattr(main_ui_helpers, "module_static_asset_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="navigation_shell static asset is not registered: style.css"):
+        exception_response(_html_error_request(), detail="kaputt", status_code=500)
+
+
+def test_exception_html_response_fails_closed_without_chat_surface_route(monkeypatch) -> None:
+    monkeypatch.setattr(main_ui_helpers, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match=r"chat_surface route is not registered: /"):
+        exception_response(_html_error_request(), detail="kaputt", status_code=500)
 
 
 def test_friendly_memory_unavailable_message() -> None:
@@ -72,6 +142,12 @@ def test_intent_badge_uses_notes_search_before_memory_recall() -> None:
     icon, label = _intent_badge(["notes_search"], [])
     assert icon == "📝"
     assert label == "notes_search"
+
+
+def test_intent_badge_uses_docs_search_before_memory_recall() -> None:
+    icon, label = _intent_badge(["memory_recall", "docs_search"], [])
+    assert icon == "📄"
+    assert label == "docs_search"
 
 
 def test_intent_badge_keeps_capability_category_for_partial_action_errors() -> None:
@@ -251,7 +327,10 @@ def test_file_editor_allows_only_catalog_edit_targets() -> None:
 def test_file_editor_catalog_lists_help_files_as_readonly() -> None:
     rows = {row["path"]: row for row in _list_file_editor_entries()}
     assert rows["docs/help/memory.md"]["mode"] == "readonly"
+    assert rows["docs/help/pricing.md"]["mode"] == "readonly"
+    assert rows["docs/help/security.md"]["mode"] == "readonly"
     assert rows["prompts/persona.md"]["mode"] == "edit"
+    assert rows["docs/help/memory.md"]["group"] == "help"
 
 
 def test_file_editor_rejects_writing_readonly_help_file() -> None:
@@ -263,7 +342,7 @@ def test_file_editor_rejects_writing_readonly_help_file() -> None:
         raise AssertionError("readonly help file unexpectedly resolved as editable")
 
 
-def test_build_client_recipe_progress_hints_includes_triggers_and_steps() -> None:
+def test_build_client_recipe_progress_hints_includes_steps_without_keyword_prediction() -> None:
     rows = _build_client_recipe_progress_hints(
         [
             {
@@ -279,7 +358,7 @@ def test_build_client_recipe_progress_hints_includes_triggers_and_steps() -> Non
         ]
     )
     assert rows[0]["id"] == "server-update-2nodes"
-    assert "server update" in rows[0]["triggers"]
+    assert "triggers" not in rows[0]
     assert rows[0]["steps"] == ["Update Server 1", "Update Server 2", "Zusammenfassen"]
     assert rows[0]["candidate_role"] == "stored_recipe_candidate"
     assert rows[0]["recipe_origin"] == "stored_recipe_manifest"
@@ -366,7 +445,7 @@ def test_normalize_ui_background_falls_back_to_grid() -> None:
 def test_normalize_ui_background_maps_legacy_alias_when_matching_file_exists(tmp_path: Path) -> None:
     static_dir = tmp_path / "aria" / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
-    (static_dir / "background-aurora-glow.png").write_bytes(b"png")
+    (static_dir / "background-aurora-glow.webp").write_bytes(b"webp")
 
     assert normalize_ui_background("aurora", static_dir=static_dir) == "aurora-glow"
 
@@ -374,9 +453,70 @@ def test_normalize_ui_background_maps_legacy_alias_when_matching_file_exists(tmp
 def test_normalize_ui_background_accepts_dynamic_background_files(tmp_path: Path) -> None:
     static_dir = tmp_path / "aria" / "static"
     static_dir.mkdir(parents=True, exist_ok=True)
-    (static_dir / "background-8-bit-arcade.png").write_bytes(b"png")
+    (static_dir / "background-8-bit-arcade.webp").write_bytes(b"webp")
 
     assert normalize_ui_background("8-bit-arcade", static_dir=static_dir) == "8-bit-arcade"
+
+
+def test_default_ui_background_discovery_resolves_every_shipped_asset() -> None:
+    shipped = {
+        path.stem.removeprefix("background-")
+        for path in Path("aria/static").glob("background-*.webp")
+    }
+    rows = discover_ui_background_files()
+
+    assert len(shipped) == 8
+    assert len(rows) == 8
+    assert {row["value"] for row in rows} == shipped
+    assert all(str(row["asset_url"]).endswith(".webp") for row in rows)
+    for row in rows:
+        assert normalize_ui_background(row["value"]) == row["value"]
+        assert resolve_ui_background_asset_url(row["value"]) == row["asset_url"]
+
+
+def test_runtime_settings_reload_preserves_a_selected_shipped_background(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "llm:\n  model: openai/test\n  api_base: http://localhost:4000\n  api_key: ''\n"
+        "ui:\n  background: aria-thinking\n",
+        encoding="utf-8",
+    )
+
+    settings = load_settings(config_path)
+
+    assert settings.ui.background == "aria-thinking"
+    assert resolve_ui_background_asset_url(settings.ui.background) == "/static/background-aria-thinking.webp"
+    assert resolve_ui_background_asset_url("space-station") == "/static/background-space-station.webp"
+
+
+def test_ui_background_files_use_navigation_shell_static_prefix_readpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    static_dir = tmp_path / "aria" / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    (static_dir / "background-grid-signal.webp").write_bytes(b"webp")
+    calls: list[tuple[str, str, Path]] = []
+
+    def tracking_static_prefix_path(module_id: str, asset_name: str, base_dir: Path, **kwargs: object) -> Path | None:
+        calls.append((module_id, asset_name, base_dir))
+        return base_dir / "aria" / "static" / asset_name
+
+    monkeypatch.setattr("aria.modules.configuration_foundations.config.module_static_asset_prefix_path", tracking_static_prefix_path)
+
+    rows = discover_ui_background_files(static_dir)
+
+    assert rows[0]["asset_url"] == "/static/background-grid-signal.webp"
+    assert ("navigation_shell", "background-grid-signal.webp", tmp_path) in calls
+
+
+def test_ui_background_files_fail_closed_without_navigation_shell_static_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    static_dir = tmp_path / "aria" / "static"
+    static_dir.mkdir(parents=True, exist_ok=True)
+    (static_dir / "background-grid-signal.webp").write_bytes(b"webp")
+    monkeypatch.setattr("aria.modules.configuration_foundations.config.module_static_asset_prefix_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="navigation_shell static asset prefix is not registered: background-grid-signal.webp"):
+        discover_ui_background_files(static_dir)
 
 
 def test_read_ssh_connections_impl_keeps_connection_metadata() -> None:

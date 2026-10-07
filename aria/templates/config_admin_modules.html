@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-surface-layout config-admin-modules-layout">
+  {% include "_admin_section_nav.html" %}
+  {% include "_config_page_header.html" %}
+  <section class="config-card floating-card config-domain-section">
+    <div class="memory-health-grid">
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.total', 'Modules') }}</h3>
+        </div>
+        <p>{{ module_status_total }}</p>
+        <small>{{ tr(request, 'config_modules.total_hint', 'Read from the declarative module registry.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.build_allowed', 'Build allowed') }}</h3>
+        </div>
+        <p>{{ module_status_build_allowed_count }}</p>
+        <small>{{ tr(request, 'config_modules.build_allowed_hint', 'Current module acceptances that explicitly allow build/export.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.runtime_allowed', 'Runtime access') }}</h3>
+        </div>
+        <p>{{ module_status_runtime_allowed_count }}</p>
+        <small>{{ tr(request, 'config_modules.runtime_allowed_hint', 'Current module acceptances that explicitly allow runtime access.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.validation', 'Validation issues') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.validation_issue_count }}</p>
+        <small>{{ tr(request, 'config_modules.validation_hint', 'Fail-closed manifest contract findings.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.internal_dependencies', 'Internal dependencies') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.internal_dependency_count }}</p>
+        <small>{{ tr(request, 'config_modules.internal_dependencies_hint', 'Links to registered ARIA modules.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.external_dependencies', 'External boundaries') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.external_dependency_count }}</p>
+        <small>{{ tr(request, 'config_modules.external_dependencies_hint', 'Validated durable and transitional contracts.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.durable_boundaries', 'Durable boundaries') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.external_boundary_disposition_counts.get('durable', 0) }}</p>
+        <small>{{ tr(request, 'config_modules.durable_boundaries_hint', 'External contracts intentionally retained as architecture boundaries.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp{% if module_registry_diagnostics.external_boundary_disposition_counts.get('transitional', 0) %} status-warn{% else %} status-ok{% endif %}"></span>
+          <h3>{{ tr(request, 'config_modules.migration_candidates', 'Migration candidates') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.external_boundary_disposition_counts.get('transitional', 0) }}</p>
+        <small>{{ tr(request, 'config_modules.migration_candidates_hint', 'Explicit remaining boundaries for later owner convergence.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp{% if module_registry_diagnostics.duplicate_python_owner_count or module_registry_diagnostics.invalid_python_claim_count %} status-warn{% else %} status-ok{% endif %}"></span>
+          <h3>{{ tr(request, 'config_modules.python_owners', 'Python owners') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.python_file_claim_count }}</p>
+        <small>{{ tr(request, 'config_modules.python_owners_hint', 'Exact files with one declarative module owner.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp{% if module_registry_diagnostics.invalid_integration_point_count %} status-warn{% else %} status-ok{% endif %}"></span>
+          <h3>{{ tr(request, 'config_modules.integration_points', 'Integration points') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.integration_point_count }}</p>
+        <small>{{ tr(request, 'config_modules.integration_points_hint', 'Cross-module references that do not claim file ownership.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp{% if module_registry_diagnostics.external_boundary_unclassified_count %} status-warn{% else %} status-ok{% endif %}"></span>
+          <h3>{{ tr(request, 'config_modules.external_classes', 'External classes') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.external_boundary_category_counts|length }}</p>
+        <small>{{ tr(request, 'config_modules.external_classes_hint', 'All external boundaries are assigned to a derived category.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp{% if module_registry_diagnostics.dependency_cycle_count %} status-warn{% else %} status-ok{% endif %}"></span>
+          <h3>{{ tr(request, 'config_modules.dependency_cycles', 'Dependency cycles') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.dependency_cycle_count }}</p>
+        <small>{{ tr(request, 'config_modules.dependency_cycles_hint', 'Transitional internal architecture groups.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.lifecycle_classes', 'Lifecycle classes') }}</h3>
+        </div>
+        <p>{{ module_lifecycle_diagnostics.bootstrap_owned_count }} / {{ module_lifecycle_diagnostics.contract_only_count }} / {{ module_lifecycle_diagnostics.declarative_activation_count }}</p>
+        <small>{{ tr(request, 'config_modules.lifecycle_classes_hint', 'Static / contract / declarative') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp status-ok"></span>
+          <h3>{{ tr(request, 'config_modules.legacy_aliases', 'Legacy aliases') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.legacy_alias_durable_count }} / {{ module_registry_diagnostics.legacy_alias_migration_candidate_count }}</p>
+        <small>{{ tr(request, 'config_modules.legacy_aliases_hint', 'Durable extension names / migration candidates.') }}</small>
+      </article>
+      <article class="memory-health-card">
+        <div class="memory-health-head">
+          <span class="health-lamp{% if module_registry_diagnostics.legacy_manifest_reference_count %} status-warn{% else %} status-ok{% endif %}"></span>
+          <h3>{{ tr(request, 'config_modules.legacy_manifest_references', 'Legacy manifest references') }}</h3>
+        </div>
+        <p>{{ module_registry_diagnostics.legacy_manifest_reference_count }}</p>
+        <small>{{ tr(request, 'config_modules.legacy_manifest_references_hint', 'Old core/web file references still present in module manifests.') }}</small>
+      </article>
+    </div>
+  </section>
+  <section class="config-card floating-card config-domain-section">
+    <div class="module-registry-list" role="list">
+      {% for row in module_status_rows %}
+      <article class="module-registry-row" role="listitem">
+        <div class="module-registry-main">
+          <strong class="module-registry-name">{{ row.name }}</strong>
+          <code class="module-registry-id">{{ row.id }}</code>
+        </div>
+        <div class="module-registry-meta" aria-label="{{ tr(request, 'config_modules.status', 'Status') }}">
+          <span class="module-registry-badge module-registry-badge-status">{{ row.status }}</span>
+          <span class="module-registry-badge module-registry-badge-status">{{ row.lifecycle.lifecycle }}</span>
+          <span class="module-registry-badge module-registry-badge-risk">{{ row.risk }}</span>
+          {% if row.parent %}
+          <span class="module-registry-badge module-registry-badge-parent">{{ row.parent }}</span>
+          {% endif %}
+          {% if row.dependency_cycle %}
+          <span class="module-registry-badge module-registry-badge-cycle">{{ tr(request, 'config_modules.in_cycle', 'Cycle') }}</span>
+          {% endif %}
+        </div>
+        <div class="module-registry-flags">
+          <span class="module-registry-flag{% if row.build_allowed %} is-enabled{% endif %}">
+            {{ tr(request, 'config_modules.build', 'Build') }}:
+            {{ tr(request, 'common.yes', 'yes') if row.build_allowed else tr(request, 'common.no', 'no') }}
+          </span>
+          <span class="module-registry-flag{% if row.runtime_access_allowed %} is-enabled{% endif %}">
+            {{ tr(request, 'config_modules.runtime', 'Runtime') }}:
+            {{ tr(request, 'common.yes', 'yes') if row.runtime_access_allowed else tr(request, 'common.no', 'no') }}
+          </span>
+          <span class="module-registry-flag">
+            {{ tr(request, 'config_modules.activation', 'Activation') }}:
+            {{ row.lifecycle.activation_owner }}
+          </span>
+        </div>
+        <div class="module-registry-dependencies">
+          <span>{{ tr(request, 'config_modules.depends_on', 'Modules') }}: {{ row.depends_on|join(', ') if row.depends_on else '-' }}</span>
+          <span>{{ tr(request, 'config_modules.used_by', 'Consumers') }}: {{ row.used_by|join(', ') if row.used_by else '-' }}</span>
+          <span>{{ tr(request, 'config_modules.external', 'External') }}: {{ row.external_dependencies|join(', ') if row.external_dependencies else '-' }}</span>
+          <span>{{ tr(request, 'config_modules.external_classes', 'External classes') }}: {% if row.external_boundary_categories %}{% for category, count in row.external_boundary_categories %}{{ category }} ({{ count }}){% if not loop.last %}, {% endif %}{% endfor %}{% else %}-{% endif %}</span>
+          <span>{{ tr(request, 'config_modules.external_dispositions', 'Boundary disposition') }}: {% if row.external_boundary_dispositions %}{% for disposition, count in row.external_boundary_dispositions %}{{ disposition }} ({{ count }}){% if not loop.last %}, {% endif %}{% endfor %}{% else %}-{% endif %}</span>
+          <span>{{ tr(request, 'config_modules.python_owners', 'Python owners') }}: {{ row.python|length }}</span>
+          <span>{{ tr(request, 'config_modules.integration_points', 'Integration points') }}: {{ row.integration_points|length }}</span>
+        </div>
+        <code class="module-registry-acceptance" title="{{ row.acceptance }}">{{ row.acceptance }}</code>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}

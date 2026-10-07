@@ -18,7 +18,7 @@ def test_host_update_supports_safe_target_image_refresh() -> None:
     assert "setup-compose-stack.sh --install-dir /managed --upgrade-existing --force --no-start" in script
     assert "chown ${owner}" in script
     assert "run_compose_recreate" in script
-    assert "Qdrant, SearXNG und Volumes bleiben unberuehrt" in script
+    assert "Qdrant und Volumes bleiben unberuehrt" in script
 
 
 def test_host_update_lock_cleanup_uses_global_lock_path() -> None:

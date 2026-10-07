@@ -1,7 +1,7 @@
 from pathlib import Path
 import tempfile
 
-from aria.core.error_interpreter import ErrorInterpreter
+from aria.modules.integration_support.error_interpreter import ErrorInterpreter
 
 
 def test_error_interpreter_matches_sudo_rule() -> None:

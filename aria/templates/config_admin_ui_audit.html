@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout config-domain-layout config-domain-surface-layout ui-audit-layout">
+  {% include "_admin_section_nav.html" %}
+  {% include "_config_page_header.html" %}
+
+  <form method="post" action="{{ module_route_path('config_ui', '/config/admin/ui-audit/save-all') }}">
+  <section class="config-card floating-card config-domain-section ui-audit-toolbar">
+    <div class="ui-audit-controls">
+      <label>
+        <span>{{ tr(request, 'config_ui_audit.search', 'Search routes') }}</span>
+        <input id="ui-audit-search" type="search" placeholder="/config, recipes, owner..." autocomplete="off">
+      </label>
+      <label>
+        <span>{{ tr(request, 'config_ui_audit.filter_status', 'Filter status') }}</span>
+        <select id="ui-audit-status-filter">
+          <option value="">{{ tr(request, 'config_ui_audit.all_statuses', 'All statuses') }}</option>
+          {% for status in ui_audit_statuses %}
+          <option value="{{ status }}">{{ status }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <a class="button" href="{{ module_route_path('config_ui', '/config/admin/ui-audit/export') }}">
+        {{ tr(request, 'config_ui_audit.export', 'Export JSON') }}
+      </a>
+      <button class="button primary" type="submit">&#128190; {{ tr(request, 'config_ui_audit.save_all', 'Save all') }}</button>
+    </div>
+    <div class="ui-audit-counts" aria-live="polite">
+      <span>{{ tr(request, 'config_ui_audit.total', 'Total') }}: <strong data-audit-count="total">0</strong></span>
+      {% for status in ui_audit_statuses %}
+      <span>{{ status }}: <strong data-audit-count="{{ status }}">0</strong></span>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% for section, section_rows in ui_audit_rows|groupby('nav_section') %}
+  <section class="config-card floating-card config-domain-section ui-audit-group" data-audit-group>
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">{{ tr(request, 'config_ui_audit.nav_area', 'Navigation area') }}</p>
+        <h2>{{ section }}</h2>
+      </div>
+    </div>
+    <div class="ui-audit-list">
+      {% for row in section_rows %}
+      <div class="ui-audit-row" data-audit-row data-status="{{ row.status }}" data-route-key="{{ row.key }}"
+           data-search-base="{{ row.method }} {{ row.path }} {{ row.owner_module }} {{ row.nav_parent }}">
+        <input type="hidden" name="route_key" value="{{ row.key }}">
+        <div class="ui-audit-route">
+          <a href="{{ row.path }}" target="_blank" rel="noopener"><code>{{ row.method }} {{ row.path }}</code></a>
+          <span>{{ row.owner_module }}</span>
+        </div>
+        <div class="ui-audit-meta">
+          <span>{{ tr(request, 'config_ui_audit.nav_reachable', 'In navigation') }}: {{ tr(request, 'common.yes', 'yes') if row.nav_reachable else tr(request, 'common.no', 'no') }}</span>
+          <span>{{ tr(request, 'config_ui_audit.visibility', 'Visibility') }}: {{ row.visibility }}</span>
+          <span>{{ tr(request, 'config_ui_audit.parent', 'Parent') }}: {{ row.nav_parent or '-' }}</span>
+        </div>
+        <label>
+          <span>{{ tr(request, 'config_ui_audit.status', 'Status') }}</span>
+          <select name="status" data-audit-status>
+            {% for status in ui_audit_statuses %}
+            <option value="{{ status }}" {% if row.status == status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="ui-audit-note">
+          <span>{{ tr(request, 'config_ui_audit.note', 'Note') }}</span>
+          <input name="note" data-audit-note maxlength="1000" value="{{ row.note }}" placeholder="{{ tr(request, 'config_ui_audit.note_placeholder', 'Reason or regroup target') }}">
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  </form>
+</main>
+
+<script>
+  (function () {
+    const rows = Array.from(document.querySelectorAll("[data-audit-row]"));
+    const search = document.getElementById("ui-audit-search");
+    const statusFilter = document.getElementById("ui-audit-status-filter");
+
+    function refresh() {
+      const query = (search.value || "").trim().toLowerCase();
+      const selectedStatus = statusFilter.value || "";
+      const counts = {total: rows.length, keep: 0, verify: 0, cut: 0, regroup: 0};
+      rows.forEach(function (row) {
+        const statusSelect = row.querySelector("[data-audit-status]");
+        const status = statusSelect.value;
+        row.dataset.status = status;
+        counts[status] = (counts[status] || 0) + 1;
+        const note = row.querySelector("[data-audit-note]").value;
+        const searchable = (row.dataset.searchBase || "") + " " + note;
+        const matchesText = !query || searchable.toLowerCase().includes(query);
+        const matchesStatus = !selectedStatus || status === selectedStatus;
+        row.hidden = !(matchesText && matchesStatus);
+      });
+      document.querySelectorAll("[data-audit-count]").forEach(function (node) {
+        node.textContent = String(counts[node.dataset.auditCount] || 0);
+      });
+      document.querySelectorAll("[data-audit-group]").forEach(function (group) {
+        group.hidden = !group.querySelector("[data-audit-row]:not([hidden])");
+      });
+    }
+
+    search.addEventListener("input", refresh);
+    statusFilter.addEventListener("change", refresh);
+    rows.forEach(function (row) {
+      row.querySelector("[data-audit-status]").addEventListener("change", function () {
+        refresh();
+      });
+      const note = row.querySelector("[data-audit-note]");
+      note.addEventListener("input", function () {
+        refresh();
+      });
+    });
+    refresh();
+  }());
+</script>
+{% endblock %}

@@ -1,0 +1,14 @@
+{
+  "contract": "notes_command_v1",
+  "owner": "notes_action_arbitration",
+  "patterns": {
+    "open_notes": ["^open notes$"],
+    "search_notes": ["^search notes: (?P<query>.+)$"],
+    "list_note_folders": ["^list note folders$"],
+    "list_notes_in_folder": ["^list notes in folder: (?P<folder>.+)$"],
+    "open_note": ["^open note: (?P<query>.+)$"],
+    "create_note": ["^create note: (?P<title>[^:\\n]{2,140})\\n(?P<body>.+)$"],
+    "web_search_with_notes": ["^web search with notes: (?P<query>[^\\n]+)\\ncontext: (?P<topic>.+)$"],
+    "save_web_source": ["^save web source: (?P<url>https?://\\S+)$"]
+  }
+}

@@ -3,21 +3,15 @@
 {% block content %}
 {% set initial_message_count = chat_history|length if chat_history else 0 %}
 {% set initial_chat_state = 'compact' if initial_message_count <= 1 else 'expanded' %}
+{% set chat_submit_path = module_route_path('chat_execution_composition', '/chat') %}
+{% set chat_progress_path = module_route_path('chat_execution_composition', '/chat/progress') %}
+{% set chat_history_clear_path = module_route_path('chat_execution_composition', '/chat/history/clear') %}
 <main class="chat-layout chat-layout-fill" data-chat-state="{{ initial_chat_state }}">
   {% if debug_mode %}
   <div class="chat-meta-header">
     <div class="chat-status-cluster">
       <span class="chat-status">🗓 {{ tr(request, 'chat.debug_day_context', 'Tages-Kontext') }} <code>{{ active_session_collection }}</code></span>
       <span class="chat-status">🧷 {{ tr(request, 'chat.debug_login_session', 'Login-Session') }} <code>{{ active_session_id }}</code></span>
-      <a
-        href="/memories/auto-memory"
-        class="chat-status auto-memory-indicator {% if auto_memory_enabled %}is-on{% else %}is-off{% endif %}"
-        title="{{ tr(request, 'chat.debug_auto_memory_learning', 'Auto-Memory & Lernen') }} {% if auto_memory_enabled %}{{ tr(request, 'chat.debug_active', 'aktiv') }}{% else %}{{ tr(request, 'chat.debug_inactive', 'deaktiviert') }}{% endif %}"
-        aria-label="{{ tr(request, 'chat.debug_auto_memory_learning_settings', 'Auto-Memory & Lernen Einstellungen') }}"
-      >
-        <span class="status-lamp" aria-hidden="true"></span>
-        <span>{{ tr(request, 'chat.debug_auto_memory_learning', 'Auto-Memory & Lernen') }}</span>
-      </a>
     </div>
     <small class="hint-text">{{ tr(request, 'chat.debug_day', 'Tag') }}: <code>{{ active_memory_day }}</code> · {{ tr(request, 'chat.debug_role', 'Rolle') }}: <code>{{ auth_role }}</code></small>
   </div>
@@ -26,11 +20,39 @@
     <section class="chat-box" id="messages">
       {% if chat_history %}
         {% for item in chat_history %}
-        <article class="msg msg-{{ item.role }}">
+        <article class="msg msg-{{ item.role }}"{% if item.agent_job_id %} data-agent-job-id="{{ item.agent_job_id }}" data-agent-job-notice="{{ 'true' if item.agent_job_notice else 'false' }}" data-agent-job-state="{{ item.badge_intent|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}"{% endif %}>
           {% if item.role == "assistant" %}
           <div class="msg-text">{{ render_assistant_message_html(item.text) }}</div>
           {% else %}
           <p>{{ item.text }}</p>
+          {% endif %}
+          {% if item.role == "assistant" and item.agent_job_id and not item.agent_job_notice %}
+          <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}">
+            <button type="button" class="js-agent-job-action" data-agent-job-action="pause">⏸ {{ tr(request, 'agent_jobs.pause', 'Pausieren') }}</button>
+            <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+            <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+            <span class="stat-sub" data-agent-job-control-status aria-live="polite"></span>
+          </div>
+          {% elif item.role == "assistant" and item.agent_job_id and item.badge_intent == 'agent_job_budget_reached' %}
+          <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}" data-agent-job-event-key="{{ (item.agent_job_event_key or '')|e }}">
+            <button type="button" class="js-agent-job-action" data-agent-job-action="extend">▶ {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte').replace('{count}', '32') }}</button>
+            <button type="button" class="js-agent-job-action" data-agent-job-action="finish">✅ {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen') }}</button>
+            <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+            <span class="stat-sub" data-agent-job-control-status aria-live="polite"></span>
+          </div>
+          {% elif item.role == "assistant" and item.agent_job_id and item.badge_intent == 'agent_job_paused' %}
+          <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}">
+            <button type="button" class="js-agent-job-action" data-agent-job-action="resume">▶ {{ tr(request, 'agent_jobs.resume', 'Fortsetzen') }}</button>
+            <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+            <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+          </div>
+          {% elif item.role == "assistant" and item.agent_job_id and item.badge_intent == 'agent_job_awaiting_confirmation' %}
+          <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ item.agent_job_id|e }}">
+            <button type="button" class="js-agent-job-action" data-agent-job-action="confirm">✅ {{ tr(request, 'agent_jobs.confirm', 'Ausführen') }}</button>
+            <button type="button" class="js-agent-job-action" data-agent-job-action="decline">✖ {{ tr(request, 'agent_jobs.decline', 'Ablehnen') }}</button>
+            <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+            <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+          </div>
           {% endif %}
           {% if item.role == "assistant" %}
           <details class="msg-details">
@@ -77,7 +99,7 @@
   <form
     id="chat-form"
     class="chat-form"
-    action="/chat"
+    action="{{ chat_submit_path }}"
     method="post"
   >
     <label class="sr-only" for="message">{{ tr(request, 'chat.message_label', 'Nachricht') }}</label>
@@ -98,7 +120,6 @@
               title="{{ tr(request, 'chat.toolbox', 'Tool-Box') }}"
             >
               <span class="toolbox-summary-label"><span class="toolbox-summary-icon">🧰</span><span class="toolbox-summary-text">{{ tr(request, 'chat.toolbox', 'Tool-Box') }}</span></span>
-              {% if chat_learn_active %}<span class="toolbox-live-badge">{{ tr(request, 'chat.learn_mode_live', 'Lernen aktiv') }}</span>{% endif %}
             </button>
             <button
               id="chat-export-button"
@@ -112,13 +133,6 @@
             <span id="chat-export-status" class="chat-export-status" aria-live="polite"></span>
           </div>
           <div id="chat-toolbox-panel" class="toolbox-groups" hidden>
-            {% if chat_learn_active %}
-            <div class="toolbox-learn-status">
-              <strong>{{ tr(request, 'chat.learn_mode_live', 'Lernen aktiv') }}</strong>
-              <span>{{ tr(request, 'chat.learn_mode_status', 'ARIA sammelt beobachtete Chat-Schritte fuer einen spaeteren Review-Kandidaten.') }}</span>
-              <small>{{ tr(request, 'chat.learn_mode_events', 'Beobachtete Schritte') }}: {{ chat_learn_event_count }}</small>
-            </div>
-            {% endif %}
             {% for group in chat_toolbox_groups %}
             <details class="toolbox-group" {% if group["key"] == "suggested" %}open{% endif %}>
               <summary class="toolbox-group-title"><span class="toolbox-group-title-main"><span class="toolbox-group-icon">{{ group.get("icon", "•") }}</span>{{ group["title"] }}</span></summary>
@@ -176,6 +190,7 @@
     </section>
   </form>
 </main>
+<script src="/static/chat-request-deadline.js?v={{ request.state.release_meta.label|urlencode }}"></script>
 <script>
   (function () {
     const uiText = {
@@ -186,6 +201,27 @@
       cancel: {{ tr(request, 'chat.cancel', 'Abbrechen')|tojson }},
       cancelling: {{ tr(request, 'chat.cancelling', 'Wird abgebrochen...')|tojson }},
       cancelled: {{ tr(request, 'chat.cancelled', 'Anfrage im Browser abgebrochen.')|tojson }},
+      requestTimeout: {{ tr(request, 'chat.request_timeout', 'ARIA hat innerhalb von 90 Sekunden keine Browserantwort erhalten. Die Anfrage wurde beendet. Bei einer Aktion bitte zuerst den Status pruefen, bevor du sie erneut sendest.')|tojson }},
+      agentJobPause: {{ tr(request, 'agent_jobs.pause', 'Pausieren')|tojson }},
+      agentJobResume: {{ tr(request, 'agent_jobs.resume', 'Fortsetzen')|tojson }},
+      agentJobCancel: {{ tr(request, 'agent_jobs.cancel', 'Abbrechen')|tojson }},
+      agentJobCorrect: {{ tr(request, 'agent_jobs.correct', 'Korrigieren')|tojson }},
+      agentJobCorrectSend: {{ tr(request, 'agent_jobs.correct_send', 'Korrektur senden')|tojson }},
+      agentJobCorrectionQueued: {{ tr(request, 'agent_jobs.correction_queued', 'Korrektur übernommen; sie gilt an der nächsten Schrittgrenze.')|tojson }},
+      agentJobConfirm: {{ tr(request, 'agent_jobs.confirm', 'Ausführen')|tojson }},
+      agentJobDecline: {{ tr(request, 'agent_jobs.decline', 'Ablehnen')|tojson }},
+      agentJobExtend: {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte')|tojson }},
+      agentJobFinish: {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen')|tojson }},
+      agentJobExtended: {{ tr(request, 'agent_jobs.extended', 'Fortgesetzt – das Schritt-Budget wurde einmal erweitert.')|tojson }},
+      agentJobFinishing: {{ tr(request, 'agent_jobs.finishing', 'Wird abgeschlossen …')|tojson }},
+      agentJobAlreadyHandled: {{ tr(request, 'agent_jobs.pause_event_already_handled', 'Dieses Pause-Ereignis wurde bereits bearbeitet.')|tojson }},
+      agentJobPauseWaiting: {{ tr(request, 'agent_jobs.pause_requested', 'Pause angefordert. Sie erfolgt an der nächsten sauberen Schrittgrenze.')|tojson }},
+      agentJobResumeStarted: {{ tr(request, 'agent_jobs.resume_started', 'Der Auftrag wird im Hintergrund fortgesetzt.')|tojson }},
+      agentJobResumed: {{ tr(request, 'agent_jobs.resumed', 'Fortgesetzt – der Auftrag läuft wieder im Hintergrund.')|tojson }},
+      agentJobCancelWaiting: {{ tr(request, 'agent_jobs.cancel_requested', 'Abbruch angefordert. Er erfolgt nach dem aktuell laufenden Schritt.')|tojson }},
+      agentJobControlFailed: {{ tr(request, 'agent_jobs.control_failed', 'Die Job-Aktion ist fehlgeschlagen.')|tojson }},
+      agentJobRecovered: {{ tr(request, 'chat.agent_job_recovered', 'Der Auftrag läuft im Hintergrund weiter.')|tojson }},
+      agentJobView: {{ tr(request, 'chat.agent_job_view', 'Job ansehen →')|tojson }},
       queued: {{ tr(request, 'chat.queued', 'Zur Warteschlange hinzugefügt.')|tojson }},
       queuedCount: {{ tr(request, 'chat.queued_count', '{count} wartet')|tojson }},
       queueShow: {{ tr(request, 'chat.queue_show', 'Anzeigen')|tojson }},
@@ -236,6 +272,9 @@
       stillWorking: {{ tr(request, 'chat.still_working', 'ARIA arbeitet noch...')|tojson }},
       longRunningSkill: {{ tr(request, 'chat.long_running_skill', 'Längeres Rezept läuft noch. Das kann 30-60 Sekunden dauern...')|tojson }},
       skillPhase: {{ tr(request, 'chat.skill_phase', 'Aktueller Schritt')|tojson }},
+      progressHost: {{ tr(request, 'chat.progress_host', 'Host')|tojson }},
+      progressOk: {{ tr(request, 'chat.progress_ok', 'ok')|tojson }},
+      progressErrors: {{ tr(request, 'chat.progress_errors', 'Fehler')|tojson }},
       parseError: {{ tr(request, 'chat.response_parse_error', 'Antwort konnte nicht verarbeitet werden.')|tojson }},
       unknownError: {{ tr(request, 'chat.unknown_error', 'Unbekannter Fehler.')|tojson }},
       serverError: {{ tr(request, 'chat.server_send_error', 'Serverfehler beim Senden.')|tojson }},
@@ -244,12 +283,9 @@
       slashStoreCmd: {{ tr(request, 'chat.slash_store_cmd', '/merken')|tojson }},
       slashRecipeCmd: {{ tr(request, 'chat.slash_skill_cmd', '/recipe')|tojson }}
     };
-    const recipeTriggerHints = {{ (recipe_trigger_hints or skill_trigger_hints or [])|tojson }};
-    const recipeProgressHints = {{ (recipe_progress_hints or skill_progress_hints or [])|tojson }};
-    const skillTriggerHints = recipeTriggerHints;
-    const skillProgressHints = recipeProgressHints;
     const chatCommandEntries = {{ (chat_command_entries or [])|tojson }};
     const chatCommandGroupTitles = {{ (chat_command_group_titles or {})|tojson }};
+    const chatBusyOwner = "chat-request";
 
     const form = document.getElementById("chat-form");
     const textarea = document.getElementById("message");
@@ -283,8 +319,342 @@
     let queueExpanded = false;
     const pendingConfirmationMaxAgeMs = 10 * 60 * 1000;
     const queueCollapseThreshold = 2;
+    const agentJobPollIntervalMs = 3000;
+    const agentJobPausedPollIntervalMs = 15000;
+    const agentJobPollMaxMs = 30 * 60 * 1000;
+    const agentJobPollStartedAt = Date.now();
+    const agentJobActionPaths = {
+      pause: "/pause", resume: "/resume", cancel: "/cancel",
+      correct: "/correct", confirm: "/confirm", decline: "/decline",
+      extend: "/extend", finish: "/finish"
+    };
+    let agentJobPollTimer = null;
 
     const draftStorageKey = "aria_chat_draft_v1";
+
+    function noticeStateExists(jobId, state) {
+      return Array.from(messages.querySelectorAll(".msg-assistant[data-agent-job-notice='true']"))
+        .some((node) => String(node.dataset.agentJobId || "") === jobId
+          && String(node.dataset.agentJobState || "") === state);
+    }
+
+    function noticeEventExists(jobId, eventKey) {
+      if (!eventKey) return false;
+      return Array.from(messages.querySelectorAll(".msg-assistant[data-agent-job-notice='true']"))
+        .some((node) => String(node.dataset.agentJobId || "") === String(jobId || "")
+          && String(node.dataset.agentJobEventKey || "") === String(eventKey));
+    }
+
+    function completionNoticeExists(jobId) {
+      return ["agent_job_done", "agent_job_error", "agent_job_cancelled"]
+        .some((state) => noticeStateExists(jobId, state));
+    }
+
+    function pendingAgentJobIds() {
+      const ids = new Set();
+      messages.querySelectorAll(".msg-assistant[data-agent-job-id][data-agent-job-notice='false']")
+        .forEach((node) => {
+          const jobId = String(node.dataset.agentJobId || "").trim();
+          if (jobId && !completionNoticeExists(jobId)) ids.add(jobId);
+        });
+      return Array.from(ids);
+    }
+
+    function agentJobBubbleNodes(jobId) {
+      return Array.from(messages.querySelectorAll(".msg-assistant[data-agent-job-id][data-agent-job-notice='false']"))
+        .filter((node) => String(node.dataset.agentJobId || "") === String(jobId || ""));
+    }
+
+    function agentJobNoticeNodes(jobId) {
+      return Array.from(messages.querySelectorAll(".msg-assistant[data-agent-job-id][data-agent-job-notice='true']"))
+        .filter((node) => String(node.dataset.agentJobId || "") === String(jobId || ""));
+    }
+
+    function jobActionButton(jobId, action, label, icon, danger) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "js-agent-job-action" + (danger ? " danger-button" : "");
+      button.dataset.agentJobId = jobId;
+      button.dataset.agentJobAction = action;
+      button.textContent = icon + " " + label;
+      return button;
+    }
+
+    function renderAgentJobControls(job) {
+      const jobId = String(job && job.job_id || "").trim();
+      const status = String(job && job.status || "");
+      if (!jobId) return;
+      agentJobBubbleNodes(jobId).forEach((bubble) => {
+        const usage = job && job.usage || {};
+        const totalTokens = Number(usage.total_tokens || 0);
+        const inputTokens = Number(usage.input_tokens || 0);
+        const cacheRead = Number(usage.cache_read_tokens || 0);
+        let usageText = totalTokens > 0 ? "≈ " + totalTokens.toLocaleString() + " Tokens" : "";
+        if (usageText && inputTokens > 0) usageText += " (" + Math.round(cacheRead * 100 / inputTokens) + " % aus Cache)";
+        if (usage.cost_usd !== undefined && usage.cost_usd !== null) usageText += (usageText ? " · " : "") + "≈ $" + Number(usage.cost_usd).toFixed(4);
+        let usageNode = bubble.querySelector("[data-agent-job-usage]");
+        if (!usageNode && usageText) {
+          usageNode = document.createElement("div");
+          usageNode.className = "stat-sub";
+          usageNode.dataset.agentJobUsage = "";
+          bubble.appendChild(usageNode);
+        }
+        if (usageNode) {
+          usageNode.textContent = usageText;
+          usageNode.hidden = !usageText;
+        }
+        let controls = bubble.querySelector("[data-agent-job-controls]");
+        if (!controls) {
+          controls = document.createElement("div");
+          controls.className = "msg-actions agent-job-inline-controls";
+          controls.dataset.agentJobControls = "";
+          controls.dataset.agentJobId = jobId;
+          const details = bubble.querySelector(".msg-details");
+          bubble.insertBefore(controls, details || null);
+        }
+        const signature = [status, job.pause_reason, !!job.budget_can_extend, !!job.pause_requested, !!job.cancel_requested].join(":");
+        if (controls.dataset.inflight === "true" || controls.dataset.state === signature) return;
+        controls.dataset.state = signature;
+        controls.dataset.agentJobEventKey = String(job.event_key || "");
+        controls.replaceChildren();
+        if (["running", "detached"].includes(status)) {
+          if (job.pause_requested) {
+            const waiting = document.createElement("span");
+            waiting.className = "stat-sub";
+            waiting.textContent = uiText.agentJobPauseWaiting;
+            controls.appendChild(waiting);
+          } else {
+            controls.appendChild(jobActionButton(jobId, "pause", uiText.agentJobPause, "⏸", false));
+          }
+          if (job.cancel_requested) {
+            const waiting = document.createElement("span");
+            waiting.className = "stat-sub";
+            waiting.textContent = uiText.agentJobCancelWaiting;
+            controls.appendChild(waiting);
+          } else {
+            controls.appendChild(jobActionButton(jobId, "cancel", uiText.agentJobCancel, "⏹", true));
+          }
+        } else if (status === "paused") {
+          if (job.pause_reason === "budget_reached") {
+            if (job.budget_can_extend) controls.appendChild(jobActionButton(jobId, "extend", uiText.agentJobExtend.replace("{count}", String(job.budget_extension_steps || 32)), "▶", false));
+            controls.appendChild(jobActionButton(jobId, "finish", uiText.agentJobFinish, "✅", false));
+          } else {
+            controls.appendChild(jobActionButton(jobId, "resume", uiText.agentJobResume, "▶", false));
+          }
+          controls.appendChild(jobActionButton(jobId, "cancel", uiText.agentJobCancel, "⏹", true));
+        } else if (status === "awaiting_confirmation") {
+          controls.appendChild(jobActionButton(jobId, "confirm", uiText.agentJobConfirm, "✅", false));
+          controls.appendChild(jobActionButton(jobId, "decline", uiText.agentJobDecline, "✖", false));
+          controls.appendChild(jobActionButton(jobId, "cancel", uiText.agentJobCancel, "⏹", true));
+        }
+        if (["running", "detached", "paused", "awaiting_confirmation"].includes(status)) {
+          controls.appendChild(jobActionButton(jobId, "correct", uiText.agentJobCorrect, "✏️", false));
+        }
+        if (["done", "error", "cancelled"].includes(status)) controls.remove();
+      });
+      agentJobNoticeNodes(jobId).forEach((notice) => {
+        if (["agent_job_paused", "agent_job_budget_reached"].includes(notice.dataset.agentJobState) && status !== "paused") {
+          const controls = notice.querySelector("[data-agent-job-controls]");
+          if (controls) {
+            if (controls.dataset.inflight === "true") return;
+            notice.dataset.agentJobState = "agent_job_resumed";
+            controls.replaceChildren();
+            const resumed = document.createElement("span");
+            resumed.className = "stat-sub";
+            resumed.textContent = uiText.agentJobResumed;
+            controls.appendChild(resumed);
+          }
+        }
+      });
+    }
+
+    function setAgentJobControlStatus(jobId, message) {
+      [...agentJobBubbleNodes(jobId), ...agentJobNoticeNodes(jobId)].forEach((bubble) => {
+        const controls = bubble.querySelector("[data-agent-job-controls]");
+        if (!controls) return;
+        let status = controls.querySelector("[data-agent-job-control-status]");
+        if (!status) {
+          status = document.createElement("span");
+          status.className = "stat-sub";
+          status.dataset.agentJobControlStatus = "";
+          status.setAttribute("aria-live", "polite");
+          controls.appendChild(status);
+        }
+        status.textContent = message;
+      });
+    }
+
+    function openAgentJobCorrection(jobId, controls) {
+      if (!controls || controls.querySelector("[data-agent-job-correction]")) return;
+      const editor = document.createElement("span");
+      editor.dataset.agentJobCorrection = "";
+      const input = document.createElement("textarea");
+      input.maxLength = 1000;
+      input.required = true;
+      input.rows = 2;
+      input.setAttribute("aria-label", uiText.agentJobCorrect);
+      const send = document.createElement("button");
+      send.type = "button";
+      send.className = "js-agent-job-correction-submit";
+      send.dataset.agentJobId = jobId;
+      send.textContent = uiText.agentJobCorrectSend;
+      editor.append(input, send);
+      controls.appendChild(editor);
+      input.focus();
+    }
+
+    async function postAgentJobAction(jobId, action, correction, sourceControls) {
+      const eventKey = String(sourceControls && sourceControls.dataset.agentJobEventKey || "");
+      const relatedControls = Array.from(messages.querySelectorAll("[data-agent-job-controls]"))
+        .filter((node) => String(node.dataset.agentJobId || "") === String(jobId || "")
+          && (!eventKey || String(node.dataset.agentJobEventKey || "") === eventKey));
+      relatedControls.forEach((node) => {
+        node.dataset.inflight = "true";
+        node.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      });
+      setAgentJobControlStatus(jobId, action === "pause" ? uiText.agentJobPauseWaiting : action === "resume" ? uiText.agentJobResumeStarted : uiText.agentJobCancelWaiting);
+      let succeeded = false;
+      try {
+        const actionPath = agentJobActionPaths[action];
+        if (!actionPath) throw new Error("job_control_invalid");
+        const options = {
+          method: "POST",
+          headers: { "X-CSRF-Token": csrfToken(), "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
+          credentials: "same-origin",
+        };
+        const headers = options.headers;
+        if (action === "correct") {
+          headers["Content-Type"] = "application/json";
+          options.body = JSON.stringify({ correction: String(correction || "").slice(0, 1000) });
+        } else if (eventKey) {
+          headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+          options.body = new URLSearchParams({ event_key: eventKey }).toString();
+        }
+        const response = await fetch("/jobs/" + encodeURIComponent(jobId) + actionPath, options);
+        if (!response.ok) throw new Error("job_control_failed");
+        const payload = await response.json();
+        succeeded = true;
+        if (payload.notice === "pause_requested") setAgentJobControlStatus(jobId, uiText.agentJobPauseWaiting);
+        if (payload.notice === "resume_started") setAgentJobControlStatus(jobId, uiText.agentJobResumeStarted);
+        if (payload.notice === "requested" && action === "cancel") setAgentJobControlStatus(jobId, uiText.agentJobCancelWaiting);
+        if (payload.notice === "correction_queued") setAgentJobControlStatus(jobId, uiText.agentJobCorrectionQueued);
+        if (payload.outcome === "already_handled") setAgentJobControlStatus(jobId, uiText.agentJobAlreadyHandled);
+        if (action === "extend" && payload.outcome === "started") setAgentJobControlStatus(jobId, uiText.agentJobExtended);
+        if (action === "finish" && payload.outcome === "started") setAgentJobControlStatus(jobId, uiText.agentJobFinishing);
+        if (agentJobPollTimer) {
+          window.clearTimeout(agentJobPollTimer);
+          agentJobPollTimer = null;
+        }
+        await pollAgentJobs();
+        if (action === "resume") setAgentJobControlStatus(jobId, uiText.agentJobResumeStarted);
+        if (action === "cancel") setAgentJobControlStatus(jobId, uiText.agentJobCancelWaiting);
+        if (["resume", "cancel"].includes(action)) {
+          window.setTimeout(function () { setAgentJobControlStatus(jobId, ""); }, 3000);
+        }
+      } catch (error) {
+        setAgentJobControlStatus(jobId, uiText.agentJobControlFailed);
+      } finally {
+        relatedControls.forEach((node) => {
+          node.dataset.inflight = "false";
+          if (!succeeded || action === "correct") {
+            node.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+          }
+        });
+      }
+    }
+
+    function appendRecoveredAgentJob(job) {
+      const jobId = String(job && job.job_id || "").trim();
+      if (!jobId || agentJobBubbleNodes(jobId).length) return;
+      const article = document.createElement("article");
+      article.className = "msg msg-assistant";
+      article.dataset.agentJobId = jobId;
+      article.dataset.agentJobNotice = "false";
+      article.dataset.agentJobState = "agent_job_detached";
+      const body = document.createElement("div");
+      body.className = "msg-text";
+      body.appendChild(document.createTextNode(uiText.agentJobRecovered + " "));
+      const link = document.createElement("a");
+      link.href = "/jobs/panel#job-" + encodeURIComponent(jobId);
+      link.textContent = uiText.agentJobView;
+      body.appendChild(link);
+      const controls = document.createElement("div");
+      controls.className = "msg-actions agent-job-inline-controls";
+      controls.dataset.agentJobControls = "";
+      controls.dataset.agentJobId = jobId;
+      article.append(body, controls);
+      messages.appendChild(article);
+      renderAgentJobControls(job);
+      updateChatState();
+      scrollMessagesToLatest();
+    }
+
+    async function recoverDetachedAgentJob(message, submittedAtSeconds) {
+      try {
+        const response = await fetch("/jobs", { credentials: "same-origin", cache: "no-store" });
+        if (!response.ok) return false;
+        const payload = await response.json();
+        const job = window.AriaChatRequestDeadline.matchRecentAgentJob(
+          Array.isArray(payload.jobs) ? payload.jobs : [], message, submittedAtSeconds,
+        );
+        if (!job) return false;
+        appendRecoveredAgentJob(job);
+        scheduleAgentJobPoll();
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function scheduleAgentJobPoll() {
+      if (agentJobPollTimer || !pendingAgentJobIds().length) return;
+      if (Date.now() - agentJobPollStartedAt >= agentJobPollMaxMs) return;
+      const hasPaused = pendingAgentJobIds().some((jobId) => noticeStateExists(jobId, "agent_job_paused"));
+      agentJobPollTimer = window.setTimeout(
+        pollAgentJobs,
+        hasPaused ? agentJobPausedPollIntervalMs : agentJobPollIntervalMs,
+      );
+    }
+
+    async function pollAgentJobs() {
+      agentJobPollTimer = null;
+      const pendingIds = pendingAgentJobIds();
+      if (!pendingIds.length || Date.now() - agentJobPollStartedAt >= agentJobPollMaxMs) return;
+      try {
+        const statusResponse = await fetch("/jobs", { credentials: "same-origin" });
+        if (statusResponse.ok) {
+          const payload = await statusResponse.json();
+          const statusByJob = new Map(
+            (Array.isArray(payload.jobs) ? payload.jobs : [])
+              .map((job) => [String(job.job_id || ""), job])
+          );
+          for (const jobId of pendingIds) {
+            const job = statusByJob.get(jobId) || {};
+            const status = String(job.status || "");
+            renderAgentJobControls(job);
+            if (!["paused", "awaiting_confirmation", "done", "error", "cancelled"].includes(status)) continue;
+            const noticeState = status === "paused" && String(job.pause_reason || "") === "budget_reached"
+              ? "agent_job_budget_reached" : "agent_job_" + status;
+            const eventKey = String(job.event_key || "");
+            if (noticeEventExists(jobId, eventKey) || noticeStateExists(jobId, noticeState)) continue;
+            const noticeResponse = await fetch("/jobs/" + encodeURIComponent(jobId) + "/notice", {
+              credentials: "same-origin",
+            });
+            if (noticeResponse.ok && noticeResponse.status !== 204) {
+              const noticeHtml = await noticeResponse.text();
+              if (noticeHtml.trim() && !noticeEventExists(jobId, eventKey) && !noticeStateExists(jobId, noticeState)) {
+                messages.insertAdjacentHTML("beforeend", noticeHtml);
+                updateChatState();
+                scrollMessagesToLatest();
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // A transient polling failure must not disturb the chat surface.
+      }
+      scheduleAgentJobPoll();
+    }
 
     function installChatExportControls() {
       if (!exportButton) return;
@@ -583,7 +953,9 @@
     function syncPendingConfirmationFromDom() {
       if (!messages) return;
       const buttons = Array.from(messages.querySelectorAll(".msg-actions .js-chat-send-message[data-routed-action-pending]"));
-      const activeButtons = buttons.filter((button) => String(button.getAttribute("data-routed-action-pending") || "").trim());
+      const activeButtons = buttons.filter(
+        (button) => !button.disabled && String(button.getAttribute("data-routed-action-pending") || "").trim()
+      );
       if (!activeButtons.length) return;
       setPendingConfirmationFromButton(activeButtons[activeButtons.length - 1]);
     }
@@ -595,6 +967,7 @@
       buttons.forEach((button) => {
         button.disabled = true;
         button.textContent = label;
+        button.removeAttribute("data-routed-action-pending");
       });
     }
 
@@ -793,7 +1166,9 @@
       form.classList.toggle("is-busy", isBusy);
       indicator.classList.toggle("htmx-request", isBusy);
       indicator.hidden = !isBusy;
-      if (isBusy) {
+      if (window.ariaSetBusyOwner) {
+        window.ariaSetBusyOwner(chatBusyOwner, isBusy, false);
+      } else if (isBusy) {
         if (window.ariaBeginBusy) window.ariaBeginBusy();
       } else {
         if (window.ariaEndBusy) window.ariaEndBusy();
@@ -808,6 +1183,7 @@
     }
 
     function clearPendingStatusTimers() {
+      clearProgressPolling();
       if (pendingStatusTimer) {
         window.clearTimeout(pendingStatusTimer);
         pendingStatusTimer = null;
@@ -820,87 +1196,55 @@
       pendingPhaseTimers = [];
     }
 
-    function messageHasAny(text, terms) {
-      return terms.some((term) => text.includes(term));
+    let progressPollTimer = null;
+
+    function clearProgressPolling() {
+      if (progressPollTimer) {
+        window.clearInterval(progressPollTimer);
+        progressPollTimer = null;
+      }
     }
 
-    function resolveWorkStatusInfo(message, likelyRecipe) {
-      if (likelyRecipe) {
-        return {
-          initial: uiText.runningSkill,
-          phases: [uiText.workPlanning, uiText.workRuntime, uiText.workSummary],
-          waiting: uiText.longRunningSkill,
-        };
+    function formatRecipeProgress(progress, elapsedSeconds, fallbackText) {
+      if (!progress || !Number(progress.step_total || 0)) {
+        return fallbackText + " (" + elapsedSeconds + "s)";
       }
-      const text = String(message || "").trim().toLowerCase();
-      if (messageHasAny(text, ["server", "dns", "pihole", "ssh", "kapaz", "speicherplatz", "festplatte", "harddisk", "uptime", "health"])) {
-        return {
-          initial: uiText.workServers,
-          phases: [uiText.workRouting, uiText.workAction, uiText.workSummary],
-          waiting: uiText.workWaitingServers,
-        };
+      let text = fallbackText + " " + uiText.skillPhase + " " +
+        String(progress.step_index || 0) + "/" + String(progress.step_total || 0);
+      if (progress.step_type) text += " (" + String(progress.step_type) + ")";
+      if (Number(progress.host_total || 0)) {
+        text += " · " + uiText.progressHost + " " + String(progress.host_index || 0) + "/" + String(progress.host_total || 0);
+        if (progress.host_ref) text += " (" + String(progress.host_ref) + ")";
+        text += " · " + String(progress.ok_count || 0) + " " + uiText.progressOk + ", " +
+          String(progress.error_count || 0) + " " + uiText.progressErrors;
       }
-      if (messageHasAny(text, ["rss", "feed", "news", "meldungen", "artikel", "cve", "security"])) {
-        return {
-          initial: uiText.workFeeds,
-          phases: [uiText.workRouting, uiText.workRuntime, uiText.workSummary],
-          waiting: uiText.workWaitingFeeds,
-        };
-      }
-      if (messageHasAny(text, ["file", "datei", "folder", "ordner", "share", "smb", "sftp", "pdf", "dokument"])) {
-        return {
-          initial: uiText.workFiles,
-          phases: [uiText.workRouting, uiText.workRuntime, uiText.workSummary],
-          waiting: uiText.workWaitingFiles,
-        };
-      }
-      if (messageHasAny(text, ["mail", "e-mail", "email", "imap", "smtp", "nachricht schreiben", "antworte"])) {
-        return {
-          initial: uiText.workMessage,
-          phases: [uiText.workPlanning, uiText.workAction, uiText.workSummary],
-          waiting: uiText.workWaitingMessage,
-        };
-      }
-      if (messageHasAny(text, ["web", "suche", "such", "internet", "website", "url", "http"])) {
-        return {
-          initial: uiText.workWeb,
-          phases: [uiText.workRouting, uiText.workRuntime, uiText.workSummary],
-          waiting: uiText.workWaitingWeb,
-        };
-      }
-      if (messageHasAny(text, ["merk", "memory", "erinner", "notiz", "wissen"])) {
-        return {
-          initial: uiText.workMemory,
-          phases: [uiText.workRouting, uiText.workPlanning, uiText.workSummary],
-          waiting: uiText.workWaitingMemory,
-        };
-      }
+      return text + " · " + elapsedSeconds + "s";
+    }
+
+    function startProgressPolling(textNode, startedAt, fallbackText) {
+      clearProgressPolling();
+      const poll = async function () {
+        if (!isChatBusy) return;
+        try {
+          const response = await fetch({{ chat_progress_path|tojson }}, { credentials: "same-origin" });
+          if (response.status !== 200) return;
+          const progress = await response.json();
+          const elapsed = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+          textNode.textContent = formatRecipeProgress(progress, elapsed, fallbackText);
+          if (thinkingText) thinkingText.textContent = textNode.textContent;
+        } catch (error) {
+          // Progress is display-only; the normal elapsed indicator remains authoritative.
+        }
+      };
+      progressPollTimer = window.setInterval(poll, 1500);
+    }
+
+    function resolveWorkStatusInfo() {
       return {
         initial: uiText.workRouting,
         phases: [uiText.workPlanning, uiText.workRuntime, uiText.workSummary],
         waiting: uiText.workWaitingGeneric,
       };
-    }
-
-    function resolveLikelyRecipeInfo(message) {
-      const text = String(message || "").trim().toLowerCase();
-      if (!text) return null;
-      let best = null;
-      let bestScore = 0;
-      for (const recipe of recipeProgressHints) {
-        const triggers = Array.isArray(recipe && recipe.triggers)  ? recipe.triggers : [];
-        let score = 0;
-        for (const hint of triggers) {
-          const item = String(hint || "").trim().toLowerCase();
-          if (!item || !text.includes(item)) continue;
-          score += Math.max(1, item.length);
-        }
-        if (score > bestScore) {
-          bestScore = score;
-          best = recipe;
-        }
-      }
-      return bestScore > 0 ? best : null;
     }
 
     function buildPendingRecipeText(baseText, skillInfo, elapsedSeconds) {
@@ -921,6 +1265,7 @@
       const startedAt = Date.now();
       const phases = Array.isArray(workStatus && workStatus.phases) ? workStatus.phases : [];
       const waitingText = String((workStatus && workStatus.waiting) || uiText.workWaitingGeneric || uiText.stillWorking || "").trim();
+      startProgressPolling(textNode, startedAt, waitingText || uiText.stillWorking);
       phases.forEach((phaseText, index) => {
         const timer = window.setTimeout(function () {
           const cleanText = String(phaseText || "").trim();
@@ -1087,7 +1432,7 @@
     async function clearChatHistory() {
       const token = csrfToken();
       try {
-        await fetch("/chat/history/clear", {
+        await fetch({{ chat_history_clear_path|tojson }}, {
           method: "POST",
           headers: {
             "X-CSRF-Token": token || "",
@@ -1145,34 +1490,6 @@
       currentRequestController.abort();
     }
 
-    function isLearnModeCommand(message) {
-      const text = String(message || "").trim().toLowerCase().replace(/\s+/g, " ");
-      return [
-        "/lernen start",
-        "/learn start",
-        "/rezept lernen",
-        "/recipe learn",
-        "/lernen stop",
-        "/learn stop",
-        "/rezept fertig",
-        "/recipe done",
-        "/lernen abbrechen",
-        "/learn cancel",
-        "/rezept abbrechen",
-        "/recipe cancel"
-      ].includes(text);
-    }
-
-    function looksLikeRecipeExecution(message) {
-      const text = String(message || "").trim().toLowerCase();
-      if (!text) return false;
-      for (const hint of skillTriggerHints) {
-        const item = String(hint || "").trim().toLowerCase();
-        if (item && text.includes(item)) return true;
-      }
-      return false;
-    }
-
     function extractAssistantFromHtml(html) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
@@ -1181,8 +1498,7 @@
       return assistants[assistants.length - 1].outerHTML;
     }
 
-    function appendClientWallTime(startedAt) {
-      const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
+    function appendClientRequestTiming(timing) {
       const assistantMessages = messages.querySelectorAll(".msg-assistant");
       if (!assistantMessages.length) return;
       const latest = assistantMessages[assistantMessages.length - 1];
@@ -1195,8 +1511,14 @@
         details.appendChild(rows);
       }
       const row = document.createElement("div");
-      row.textContent = "Routing Debug: browser_wall_time total_ms=" + elapsedMs + " source=browser boundary=submit_to_dom";
+      row.textContent = "Routing Debug: browser_request_timing headers_ms=" + String(timing.headersMs) +
+        " body_ms=" + String(timing.bodyMs) + " dom_ms=" + String(timing.domMs) +
+        " total_ms=" + String(timing.totalMs) + " deadline_ms=" + String(timing.deadlineMs) +
+        " timed_out=" + String(timing.timedOut) + " source=browser";
       rows.appendChild(row);
+      const wallRow = document.createElement("div");
+      wallRow.textContent = "Routing Debug: browser_wall_time total_ms=" + String(timing.totalMs) + " source=browser boundary=submit_to_dom";
+      rows.appendChild(wallRow);
     }
 
     updateVisualViewportHeight();
@@ -1336,21 +1658,27 @@
         await clearChatHistory();
         return;
       }
-      let shouldRefreshToolbox = false;
       isChatBusy = true;
 
+      const submittedAtSeconds = Date.now() / 1000;
       const pendingUserNode = appendUserMessage(displayMessage || message);
-      const requestStartedAt = performance.now();
+      const chatRequestDeadlineMs = 90000;
       if (clearComposer) {
         textarea.value = "";
         localStorage.removeItem(draftStorageKey);
       }
-      const likelyRecipe = resolveLikelyRecipeInfo(message) || (looksLikeRecipeExecution(message) ? { id: "recipe", name: "recipe", steps: [] } : null);
-      const workStatus = resolveWorkStatusInfo(message, likelyRecipe);
+      const likelyRecipe = null;
+      const workStatus = resolveWorkStatusInfo();
       const pendingAssistantNode = appendPendingAssistant(workStatus.initial || uiText.processingMessage);
       setBusy(true, workStatus.initial || uiText.processingMessage);
       startPendingStatusTimers(pendingAssistantNode, likelyRecipe, workStatus);
       currentRequestController = new AbortController();
+      const requestLifecycle = window.AriaChatRequestDeadline.createRequestDeadline({
+        controller: currentRequestController,
+        timeoutMs: chatRequestDeadlineMs,
+      });
+      let requestTimedOut = false;
+      let responseReceived = false;
 
       try {
         const formData = new URLSearchParams();
@@ -1364,7 +1692,7 @@
           formData.set("routed_action_pending", routedActionPending);
         }
 
-        const response = await fetch("/chat", {
+        const response = await fetch({{ chat_submit_path|tojson }}, {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
@@ -1374,6 +1702,10 @@
           signal: currentRequestController.signal,
           credentials: "same-origin",
         });
+        responseReceived = true;
+        if (!requestLifecycle.checkpoint("headers")) {
+          throw new Error(uiText.requestTimeout);
+        }
 
         if (!response.ok) {
           let message = uiText.serverError;
@@ -1397,11 +1729,17 @@
         }
 
         const html = await response.text();
+        if (!requestLifecycle.checkpoint("body")) {
+          throw new Error(uiText.requestTimeout);
+        }
         const assistantHtml = extractAssistantFromHtml(html);
+        if (!requestLifecycle.checkpoint("dom")) {
+          throw new Error(uiText.requestTimeout);
+        }
         pendingUserNode.classList.remove("pending-user");
-        pendingAssistantNode.remove();
         if (assistantHtml) {
-          messages.insertAdjacentHTML("beforeend", assistantHtml);
+          pendingAssistantNode.insertAdjacentHTML("beforebegin", assistantHtml);
+          pendingAssistantNode.remove();
           if (options && options.routedActionPending) {
             if (assistantHtml.indexOf("routed_action_invalid_token") >= 0) {
               markPendingConfirmationExpired(String(options.routedActionPending || ""));
@@ -1411,21 +1749,32 @@
           } else {
             syncPendingConfirmationFromDom();
           }
-          appendClientWallTime(requestStartedAt);
+          appendClientRequestTiming(requestLifecycle.snapshot());
+          scheduleAgentJobPoll();
         } else {
+          pendingAssistantNode.remove();
           appendErrorMessage(uiText.parseError);
         }
         updateChatState();
-        shouldRefreshToolbox = isLearnModeCommand(message);
       } catch (err) {
+        requestTimedOut = requestLifecycle.timedOut();
         pendingAssistantNode.remove();
         pendingUserNode.classList.remove("pending-user");
-        if (err && err.name === "AbortError") {
+        const userCancelled = err && err.name === "AbortError" && !requestTimedOut;
+        const recovered = !userCancelled && (requestTimedOut || !responseReceived)
+          ? await recoverDetachedAgentJob(message, submittedAtSeconds)
+          : false;
+        if (recovered) {
+          // The server owns history; this local recovery bubble disappears on reload.
+        } else if (requestTimedOut) {
+          appendErrorMessage(uiText.requestTimeout);
+        } else if (err && err.name === "AbortError") {
           appendErrorMessage(uiText.cancelled);
         } else {
           appendErrorMessage(err.message || uiText.unknownError);
         }
       } finally {
+        requestLifecycle.finish();
         currentRequestController = null;
         isChatBusy = false;
         clearPendingStatusTimers();
@@ -1434,11 +1783,7 @@
         scrollMessagesToLatest();
         textarea.focus();
         hideSlashMenu();
-        if (shouldRefreshToolbox) {
-          window.setTimeout(function () {
-            window.location.reload();
-          }, 450);
-        } else {
+        if (!requestTimedOut) {
           startNextQueuedPrompt();
         }
       }
@@ -1450,6 +1795,37 @@
     });
 
     document.addEventListener("click", async function (event) {
+      const correctionSend = event.target && event.target.closest ? event.target.closest(".js-agent-job-correction-submit") : null;
+      if (correctionSend) {
+        event.preventDefault();
+        const editor = correctionSend.closest("[data-agent-job-correction]");
+        const input = editor && editor.querySelector("textarea");
+        const jobId = String(correctionSend.dataset.agentJobId || "").trim();
+        const correction = String(input && input.value || "").trim();
+        if (jobId && correction) {
+          correctionSend.disabled = true;
+          await postAgentJobAction(jobId, "correct", correction, correctionSend.closest("[data-agent-job-controls]"));
+          if (editor) editor.remove();
+        }
+        return;
+      }
+      const jobButton = event.target && event.target.closest ? event.target.closest(".js-agent-job-action") : null;
+      if (jobButton) {
+        event.preventDefault();
+        const controls = jobButton.closest("[data-agent-job-controls]");
+        const bubble = jobButton.closest("[data-agent-job-id]");
+        const jobId = String(jobButton.dataset.agentJobId || controls && controls.dataset.agentJobId || bubble && bubble.dataset.agentJobId || "").trim();
+        const action = String(jobButton.dataset.agentJobAction || "").trim();
+        if (jobId && action) {
+          if (action === "correct") {
+            openAgentJobCorrection(jobId, controls);
+            return;
+          }
+          jobButton.disabled = true;
+          await postAgentJobAction(jobId, action, "", controls);
+        }
+        return;
+      }
       const button = event.target && event.target.closest ? event.target.closest(".js-chat-send-message") : null;
       if (!button) {
         return;
@@ -1460,6 +1836,7 @@
         return;
       }
       const routedActionPending = String(button.getAttribute("data-routed-action-pending") || "").trim();
+      const singleUseConfirmation = button.getAttribute("data-single-use-confirmation") === "true";
       if (routedActionPending) {
         setPendingConfirmationFromButton(button);
       }
@@ -1471,7 +1848,7 @@
         routedActionPending,
         displayMessage: String(button.textContent || "").trim() || message,
       });
-      if (!isChatBusy && !routedActionPending) {
+      if (!isChatBusy && !routedActionPending && !singleUseConfirmation) {
         button.disabled = false;
       }
     });
@@ -1483,6 +1860,9 @@
     }
 
     syncPendingConfirmationFromDom();
+    if (pendingAgentJobIds().length) {
+      void pollAgentJobs();
+    }
   })();
 </script>
 {% endblock %}

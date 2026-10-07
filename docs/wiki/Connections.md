@@ -11,7 +11,6 @@ Supported families include:
 - Watched Websites
 - Discord
 - HTTP API
-- SearXNG
 - Google Calendar
 - Webhook
 - SMTP
@@ -41,7 +40,6 @@ For action prompts, ARIA can combine connection metadata, Qdrant candidates, rec
 - HTTP API: configured health endpoint checks
 - Discord/Webhook: outgoing messages with confirmation
 - RSS: digests with title, source, date, summary, and link
-- SearXNG: open web search via the separate stack service
 - Google Calendar: read-only event queries via the secret iCal address from Google Calendar; no Google Cloud/OAuth setup in the current alpha end-user path
 
 Useful references:

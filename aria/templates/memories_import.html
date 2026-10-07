@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set memory_upload_path = module_route_path('memory_admin_ui', '/memories/upload') %}
 <main class="config-layout memory-import-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
   {% if error_message %}
@@ -22,7 +23,7 @@
   <section id="document-import-form" class="floating-card config-domain-section">
     <div class="page-title-row"><span>{{ icon('upload', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.upload_title', 'Dokumente importieren') }}</h3></div>
     <p class="hint-text">{{ tr(request, 'memories.upload_subtitle', 'Lade Textdateien oder PDFs mit eingebettetem Text in eine bestehende oder neue Qdrant-Collection. RAG v1 unterstützt TXT, Markdown und Text-PDFs.') }}</p>
-    <form method="post" action="/memories/upload" class="editor-form memory-upload-form" enctype="multipart/form-data" data-busy-immediate="true">
+    <form method="post" action="{{ memory_upload_path }}" class="editor-form memory-upload-form" enctype="multipart/form-data" data-busy-immediate="true">
       <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <input type="hidden" name="source_view" value="import">
       <label for="import_document_file">{{ tr(request, 'memories.upload_file', 'Datei') }}</label>

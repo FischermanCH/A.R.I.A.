@@ -17,7 +17,7 @@ The largest user-facing changes are easier Guardrail creation, a much simpler Go
 - Guardrail AI drafts turn a plain-language safety intent into a reviewable, editable Guardrail proposal.
 - Guardrails can be tested with example requests before being attached to live connections.
 - Google Calendar read-only access now uses the secret iCal URL from Google Calendar settings instead of Google Cloud OAuth/device-code setup.
-- Connection detail pages now follow the same general edit/create/advanced pattern across SSH, SFTP, SMB, Webhook, HTTP API, Discord, mail, RSS, MQTT, Calendar, SearXNG, and websites.
+- Connection detail pages now follow the same general edit/create/advanced pattern across SSH, SFTP, SMB, Webhook, HTTP API, Discord, mail, RSS, MQTT, Calendar, and websites.
 - Guardrail selection is scoped by compatible connection kind, reducing accidental cross-application of file/web/API policies.
 - File, Webhook, and HTTP API Guardrail checks receive structured operation context, making read-only/status policies much more useful.
 - Runtime Guardrail blocks are explained as intentional safety decisions with direct Guardrail review links.
@@ -63,7 +63,7 @@ The largest user-facing changes are easier Guardrail creation, a much simpler Go
 - Guardrail execution remains deterministic.
 - Side effects still require explicit confirmation unless a profile policy intentionally says otherwise.
 - Expected policy/Guardrail blocks do not create noisy Discord recipe-error alerts.
-- Normal managed updates recreate only `aria` and keep Qdrant/SearXNG/Valkey/volumes untouched.
+- Normal managed updates recreate only `aria` and keep Qdrant and volumes untouched.
 
 ## Upgrade Notes
 

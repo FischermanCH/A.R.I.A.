@@ -1,0 +1,397 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import RedirectResponse, Response
+
+from aria.modules.sftp_admin_ui.mutations import register_sftp_mutation_route
+from aria.modules.ssh_admin_ui.mutations import register_ssh_mutation_routes
+
+
+@dataclass(frozen=True)
+class ConnectionMutationRouteDeps:
+    rss_poll_interval_save: Any
+    connection_delete: Any
+    ssh_save: Any
+    discord_save: Any
+    sftp_save: Any
+    smb_save: Any
+    webhook_save: Any
+    smtp_save: Any
+    imap_save: Any
+    http_api_save: Any
+    google_calendar_save: Any
+    rss_save: Any
+    website_save: Any
+    rss_export_opml: Any
+    rss_import_opml: Any
+    rss_ping_now: Any
+    mqtt_save: Any
+    ssh_keygen: Any
+    ssh_key_exchange: Any
+    ssh_test: Any
+
+
+def register_connection_mutation_routes(app: FastAPI, deps: ConnectionMutationRouteDeps) -> None:
+    @app.post("/config/connections/rss/poll-interval/save")
+    async def config_connections_rss_poll_interval_save(
+        request: Request,
+        poll_interval_minutes: int = Form(60),
+    ) -> RedirectResponse:
+        return await deps.rss_poll_interval_save(request, poll_interval_minutes)
+
+    @app.post("/config/connections/delete")
+    async def config_connections_delete(
+        request: Request,
+        kind: str = Form(...),
+        connection_ref: str = Form(...),
+    ) -> RedirectResponse:
+        return await deps.connection_delete(request, kind, connection_ref)
+
+    register_ssh_mutation_routes(
+        app,
+        ssh_save=deps.ssh_save,
+        ssh_keygen=deps.ssh_keygen,
+        ssh_key_exchange=deps.ssh_key_exchange,
+        ssh_test=deps.ssh_test,
+    )
+
+    @app.post("/config/connections/discord/save")
+    async def config_discord_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        webhook_url: str = Form(""),
+        timeout_seconds: int = Form(10),
+        send_test_messages: str = Form("0"),
+        allow_skill_messages: str = Form("0"),
+        alert_skill_errors: str = Form("0"),
+        alert_connection_changes: str = Form("0"),
+        alert_system_events: str = Form("0"),
+    ) -> RedirectResponse:
+        return await deps.discord_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            webhook_url,
+            timeout_seconds,
+            send_test_messages,
+            allow_skill_messages,
+            alert_skill_errors,
+            alert_connection_changes,
+            alert_system_events,
+        )
+
+    register_sftp_mutation_route(app, sftp_save=deps.sftp_save)
+
+    @app.post("/config/connections/smb/save")
+    async def config_smb_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        host: str = Form(""),
+        share: str = Form(""),
+        port: int = Form(445),
+        user: str = Form(""),
+        password: str = Form(""),
+        timeout_seconds: int = Form(10),
+        root_path: str = Form(""),
+        guardrail_ref: str = Form(""),
+    ) -> RedirectResponse:
+        return await deps.smb_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            host,
+            share,
+            port,
+            user,
+            password,
+            timeout_seconds,
+            root_path,
+            guardrail_ref,
+        )
+
+    @app.post("/config/connections/webhook/save")
+    async def config_webhook_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        url: str = Form(""),
+        timeout_seconds: int = Form(10),
+        method: str = Form("POST"),
+        content_type: str = Form("application/json"),
+        guardrail_ref: str = Form(""),
+    ) -> RedirectResponse:
+        return await deps.webhook_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            url,
+            timeout_seconds,
+            method,
+            content_type,
+            guardrail_ref,
+        )
+
+    @app.post("/config/connections/smtp/save")
+    async def config_smtp_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        smtp_host: str = Form(""),
+        port: int = Form(587),
+        user: str = Form(""),
+        password: str = Form(""),
+        from_email: str = Form(""),
+        to_email: str = Form(""),
+        timeout_seconds: int = Form(10),
+        starttls: str = Form("1"),
+        use_ssl: str = Form("0"),
+    ) -> RedirectResponse:
+        return await deps.smtp_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            smtp_host,
+            port,
+            user,
+            password,
+            from_email,
+            to_email,
+            timeout_seconds,
+            starttls,
+            use_ssl,
+        )
+
+    @app.post("/config/connections/imap/save")
+    async def config_imap_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        host: str = Form(""),
+        port: int = Form(993),
+        user: str = Form(""),
+        password: str = Form(""),
+        mailbox: str = Form("INBOX"),
+        timeout_seconds: int = Form(10),
+        use_ssl: str = Form("1"),
+    ) -> RedirectResponse:
+        return await deps.imap_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            host,
+            port,
+            user,
+            password,
+            mailbox,
+            timeout_seconds,
+            use_ssl,
+        )
+
+    @app.post("/config/connections/http-api/save")
+    async def config_http_api_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        base_url: str = Form(""),
+        auth_token: str = Form(""),
+        timeout_seconds: int = Form(10),
+        health_path: str = Form("/"),
+        method: str = Form("GET"),
+        guardrail_ref: str = Form(""),
+    ) -> RedirectResponse:
+        return await deps.http_api_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            base_url,
+            auth_token,
+            timeout_seconds,
+            health_path,
+            method,
+            guardrail_ref,
+        )
+
+    @app.post("/config/connections/google-calendar/save")
+    async def config_google_calendar_connections_save(
+        request: Request,
+        connection_ref: str = Form(""),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        ical_url: str = Form(""),
+        timeout_seconds: int = Form(10),
+    ) -> RedirectResponse:
+        return await deps.google_calendar_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            ical_url,
+            timeout_seconds,
+        )
+
+    @app.post("/config/connections/rss/save")
+    async def config_rss_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        feed_url: str = Form(""),
+        group_name: str = Form(""),
+        timeout_seconds: int = Form(10),
+        poll_interval_minutes: int = Form(60),
+    ) -> RedirectResponse:
+        return await deps.rss_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            feed_url,
+            group_name,
+            timeout_seconds,
+            poll_interval_minutes,
+        )
+
+    @app.post("/config/connections/websites/save")
+    async def config_website_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        url: str = Form(""),
+        group_name: str = Form(""),
+        timeout_seconds: int = Form(10),
+    ) -> RedirectResponse:
+        return await deps.website_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            url,
+            group_name,
+            timeout_seconds,
+        )
+
+    @app.get("/config/connections/rss/export-opml")
+    async def config_rss_connections_export_opml() -> Response:
+        return await deps.rss_export_opml()
+
+    @app.post("/config/connections/rss/import-opml")
+    async def config_rss_connections_import_opml(
+        request: Request,
+        opml_file: UploadFile = File(...),
+        poll_interval_minutes: int = Form(60),
+        csrf_token: str = Form(""),
+    ) -> RedirectResponse:
+        return await deps.rss_import_opml(request, opml_file, poll_interval_minutes, csrf_token)
+
+    @app.post("/config/connections/rss/ping-now")
+    async def config_rss_connections_ping_now(
+        request: Request,
+        rss_ref: str = Form(...),
+    ) -> RedirectResponse:
+        return await deps.rss_ping_now(request, rss_ref)
+
+    @app.post("/config/connections/mqtt/save")
+    async def config_mqtt_connections_save(
+        request: Request,
+        connection_ref: str = Form(...),
+        original_ref: str = Form(""),
+        connection_title: str = Form(""),
+        connection_description: str = Form(""),
+        connection_aliases: str = Form(""),
+        connection_tags: str = Form(""),
+        host: str = Form(""),
+        port: int = Form(1883),
+        user: str = Form(""),
+        password: str = Form(""),
+        topic: str = Form(""),
+        timeout_seconds: int = Form(10),
+        use_tls: str = Form("0"),
+    ) -> RedirectResponse:
+        return await deps.mqtt_save(
+            request,
+            connection_ref,
+            original_ref,
+            connection_title,
+            connection_description,
+            connection_aliases,
+            connection_tags,
+            host,
+            port,
+            user,
+            password,
+            topic,
+            timeout_seconds,
+            use_tls,
+        )

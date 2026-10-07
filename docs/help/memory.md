@@ -70,6 +70,34 @@ Chat-Details zeigen Quellen, Collection und Chunk-Referenzen, wenn Dokument-Reca
 
 Auto-Memory kann dauerhafte Fakten und Praeferenzen speichern, wenn ARIA genug Sicherheit hat. Agentisches Lernen kann ausserdem reviewbare Konventionen aus User-Feedback und erfolgreichen sicheren Laeufen extrahieren. Lernartefakte sind Kontext und Review-Material; sie umgehen keine Policy, Guardrails oder Bestaetigungen.
 
+Der Learning Governor begrenzt neue Events, Candidates und Evals pro Quelle und Tag/Session nach FIFO. Inhalts-Fingerprints verhindern gleiche Candidate-/Eval-Inhalte auch dann, wenn Event- oder Candidate-IDs wechseln. Evals werden nur gespeichert, wenn die LLM sie als review-wuerdig einstuft und ihre Wichtigkeit den konfigurierten Mindestwert erreicht.
+
+Im Browser bleiben alle vorhandenen Punkte ohne versteckte Filter sichtbar. `aktiv wirksam` bezeichnet explizit aktivierte Learning Hints, `nur Review` bezeichnet Candidates und `nur Audit` bezeichnet Events/Evals. ARIA bereinigt die internen Event-, Candidate- und Eval-Sammlungen automatisch beim Start und nach neuen Learning-Eintraegen. Die Retention behaelt pro Learning-Sammlung die wichtigsten und quellen-diversen Punkte; manuell reviewte/vorbereitete, aktivierte, promotete, regression-gepruefte oder explizit geschuetzte Punkte bleiben erhalten. Das Alter entscheidet nicht ueber das Behalten.
+
+Die Auto-Memory-Seite listet alle Learning Events, Candidates, Evals und aktiven Hinweise des aktuellen Users vollstaendig auf. Eintraege koennen aufgeklappt, anhand ihrer Wirkung, Quelle, Wichtigkeit und ihres Synthesezustands geprueft und einzeln geloescht werden. Das Loeschen betrifft nur den ausgewaehlten Learning-Punkt.
+
+Die Zusammenfassung trennt `Review-Warteschlange` von `Roh-Evidenz`. Alle Punkte bleiben sichtbar, aber nur kanonische, durch `learning_synthesis` aus mindestens zwei echten Quellpunkten verdichtete Candidates werden zur menschlichen Review-Aufgabe und erhalten Aktionsbuttons. Roh-Candidates bleiben als automatische Synthese-Evidenz sichtbar und einzeln loeschbar; sie muessen nicht manuell akzeptiert werden.
+
+Review-Kandidaten werden direkt in ihrem aufgeklappten Eintrag geprueft. `Akzeptieren` markiert den Kandidaten als menschlich geprueft und fuehrt das Promotion Gate aus; es aktiviert noch nichts. `Ablehnen` schliesst ihn von einer Promotion aus. Nur geeignete Low-Risk-Kandidaten werden `eligible` und koennen mit `Apply vorbereiten` in die weiterhin inaktive Pruefstufe wechseln. `Gate & Regression` oeffnet die Detailpruefung fuer Regression, Preflight und die abschliessende explizite Aktivierung als schwachen Learning Hint. Nicht geeignete Typen bleiben sichtbar als `reviewed_blocked`.
+
+Die automatische Learning-Synthese verdichtet zusammengehoerige, review-wuerdige Candidates zu wenigen kanonischen Review-Kandidaten. Sie bewahrt die Quell-IDs und Quellauszuege, ersetzt Roh-Candidates erst nach erfolgreichem Speichern und aktiviert nichts automatisch. Ueber `Jetzt synthetisieren` kann ein Admin denselben begrenzten Lauf manuell anstossen; ansonsten laeuft er beim Start.
+
+Explizit aktivierte Learning Hints werden als schwache Signale in den bevorzugten LLM-first Turn-Plan geladen. Sie koennen weder Safety, Konfiguration, explizite Ziele noch belegte Quellen ueberstimmen. ARIA unterscheidet einen semantischen Treffer von einer tatsaechlichen Nutzung und zaehlt beides getrennt. Zeitnahes User-Feedback wird nur an wirklich benutzte Hinweise gebunden; wiederholt negatives Feedback suspendiert den Hinweis automatisch.
+
+Explizit bestaetigte Schreibweisen koennen als strukturierter Entity-Alias gelernt werden, zum Beispiel `"Simpoini" bedeutet "Simponi 50 mg"`. Ein einzelner Tippfehler reicht nicht. Vor einer Aktivierung muss die kanonische Form in einem vorhandenen, nicht zu `aria_learning_*` gehoerenden Memory-Punkt exakt belegbar sein. Review und Aktivierung zeigen beobachtete Form, kanonische Form und Quell-Memory; der aktive Hint hilft der LLM nur bei der Kontextauflösung und darf Fakten, Dosierung oder den aktuellen User-Auftrag nicht veraendern.
+
+Explizite dauerhafte User-Aussagen werden als strukturierte persönliche Claims mit Typ, Scope, Autorität und Status gespeichert. Nur aktive Claims gehen in den kleinen persönlichen Turn-Kontext; ersetzte, suspendierte oder strittige Claims bleiben sichtbar, wirken aber nicht normal. Rohe Learning Events, Candidates und Evals sind kein normaler Antwortkontext.
+
+Der Bereich `Persönliches Modell` auf `/memories/auto-memory` zeigt aktuelle und historische Claims sowie getrennte Zähler für Bereitstellung, echte LLM-geprüfte Nutzung, geänderte Outcomes und Feedback. Claims können dort suspendiert, konfliktgeprüft reaktiviert oder punktgenau gelöscht werden. Der aktuelle User-Auftrag, Safety, Konfiguration, explizite Ziele und belegte Quellen bleiben immer stärker als der persönliche Kontext.
+
+Zeitlich begrenzte Claims verwalten sich selbst: Zukünftige Angaben erscheinen als `geplant`, aktuell gültige als `wirksam`, und nach `Gültig bis` als `abgelaufen`. Geplante und abgelaufene Claims bleiben zur Kontrolle sichtbar, beeinflussen ARIA aber nicht.
+
+Eine Korrektur erzeugt eine neue aktuelle Version und bewahrt den bisherigen Claim als Historie. Ziele und Projekte können pausiert, fortgesetzt, abgeschlossen und wieder geöffnet werden. Angaben mit Session-Scope bleiben in der vorhandenen Session-Memory-Schicht und werden nicht zu dauerhafter persönlicher Wahrheit.
+
+Passen mehr als zwölf wirksame Claims in das persönliche Modell, wählt die LLM turnbezogen die relevanten Claims für die begrenzte Capsule. Ein erreichtes `Review ab` wird sichtbar markiert, deaktiviert den Claim aber nicht automatisch.
+
+`/memories/auto-memory` zeigt das vollstaendige ungefilterte Inventar in drei Arbeitsbereichen: kanonische Kandidaten `Zu pruefen`, aktive oder suspendierte Hinweise und `Roh-Evidenz & Audit`. Bei aktiven Hinweisen zeigt die Seite Status, Version, Treffer, Nutzungen, positives/negatives Feedback und letzte Nutzung. Der User kann jeden Hinweis suspendieren, reaktivieren oder endgueltig loeschen. Zurueckgestellte Roh-Evidenz wird begrenzt erneut betrachtet, sobald neue Evidenz eintrifft.
+
 ### Gedaechtnis-Browser
 
 Der Gedaechtnis-Browser ist die grafische Pflege- und Debug-Ansicht fuer ARIAs Qdrant-/Memory-Daten. Er zeigt dieselben Daten in zwei zusammenhaengenden Formen:

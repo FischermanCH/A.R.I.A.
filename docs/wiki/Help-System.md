@@ -31,7 +31,6 @@ Seit `0.1.0-alpha266` muessen Hilfe und Wiki klar abbilden:
 - Releases und Upgrades
 - Pricing
 - Qdrant
-- SearXNG
 - Security und Guardrails
 
 Quellen liegen in:
@@ -78,7 +77,7 @@ Kosten werden zentral gemessen. Wenn ein LLM-Aufruf fuer Routing oder Guardrails
 
 ### Updates
 
-Managed Updates duerfen Qdrant, SearXNG, Valkey und Volumes nicht unnoetig recreaten. Der Host-Update-Helper prueft Portkonflikte vor dem ARIA-Recreate.
+Managed Updates duerfen Qdrant und Volumes nicht unnoetig recreaten. Der Host-Update-Helper prueft Portkonflikte vor dem ARIA-Recreate.
 
 ## Umsetzung
 

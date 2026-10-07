@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from aria.core.guardrails import (
+from aria.modules.runtime_guardrails.guardrails import (
     evaluate_guardrail,
     guardrail_applies_to_connection,
     guardrail_is_compatible,

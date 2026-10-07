@@ -70,6 +70,34 @@ Chat details show sources, collection, and chunk references when document recall
 
 Auto-memory can store durable facts and preferences when ARIA has enough confidence. Agentic learning can also extract reviewable conventions from user feedback and successful safe runs. Learning artifacts are context and review material; they do not bypass policy, guardrails, or confirmation.
 
+The Learning Governor bounds new events, candidates, and evals per source and day/session using FIFO admission. Content fingerprints deduplicate equivalent candidate/eval content even when event or candidate IDs change. Evals are stored only when the LLM marks them review-worthy and their importance reaches the configured threshold.
+
+The browser continues to show every retained point without hidden filters. `active effective` identifies explicitly activated Learning Hints, `review only` identifies candidates, and `audit only` identifies events/evals. ARIA automatically cleans internal event, candidate, and eval collections at startup and after new learning writes. Retention keeps the most important and source-diverse points per learning collection; manually reviewed/prepared, activated, promoted, regression-passed, or explicitly protected points remain. Age does not decide what is kept.
+
+The Auto-memory page lists all learning events, candidates, evals, and active hints for the current user without sampling. Entries can be expanded, reviewed by effect, source, importance, and synthesis state, and deleted individually. Deletion affects only the selected learning point.
+
+The summary separates the `Review queue` from `Raw evidence`. Every point remains visible, but only canonical candidates consolidated by `learning_synthesis` from at least two real source points become human review tasks and receive action controls. Raw candidates remain visible and individually deletable as automatic synthesis evidence; they do not require manual acceptance.
+
+Review candidates are handled directly in their expanded entry. `Accept` marks a candidate as human-reviewed and evaluates the promotion gate; it does not activate anything. `Reject` excludes it from promotion. Only eligible low-risk candidates can move into the still-inactive preparation stage with `Prepare apply`. `Gate & regression` opens the detailed regression, preflight, and final explicit activation flow for a weak Learning Hint. Unsupported candidate types remain visible as `reviewed_blocked`.
+
+Automatic Learning Synthesis consolidates related review-worthy candidates into a few canonical review candidates. It preserves source IDs and excerpts, replaces raw candidates only after a successful store, and never activates runtime behavior automatically. An admin can trigger the same bounded run with `Synthesize now`; otherwise it runs at startup.
+
+Explicitly activated Learning Hints enter the preferred LLM-first turn plan as weak signals. They cannot override safety, configuration, explicit targets, or source evidence. ARIA tracks a semantic match separately from actual use. Recent user feedback is linked only to hints that were actually used; repeated negative feedback automatically suspends the hint.
+
+Explicitly confirmed spellings can be learned as a structured entity alias, for example `"Simpoini" means "Simponi 50 mg"`. A typo alone is not enough. Before activation, the canonical form must be linked exactly to an existing Memory point outside `aria_learning_*`. Review and activation show the observed form, canonical form, and source Memory; the active hint only helps the LLM resolve context and cannot alter facts, dosage, or the current user request.
+
+Explicit durable user statements are stored as structured personal claims with type, scope, authority, and status. Only active claims enter the small personal turn context; superseded, suspended, or disputed claims remain visible but do not affect normal behavior. Raw learning events, candidates, and evals are not normal answer context.
+
+The `Personal model` area on `/memories/auto-memory` shows current and historical claims with separate counters for presentation, actual LLM-reviewed use, changed outcomes, and feedback. Claims can be suspended, conflict-checked before reactivation, or deleted point by point. The current user request, safety, configuration, explicit targets, and source evidence always remain stronger than personal context.
+
+Time-bounded claims manage their own runtime state: future claims are `scheduled`, currently valid claims are `effective`, and claims past `Valid until` are `expired`. Scheduled and expired claims remain visible for control but do not influence ARIA.
+
+A correction creates a new current version while preserving the previous claim as history. Goals and projects can be paused, resumed, completed, and reopened. Session-scoped statements remain in the existing session-memory layer instead of becoming durable personal truth.
+
+When more than twelve effective claims exist, the LLM selects the turn-relevant claims for the bounded capsule. A reached `Review after` timestamp is shown as due but does not silently deactivate the claim.
+
+For active hints, `/memories/auto-memory` shows lifecycle state, version, matches, uses, positive/negative feedback, and last use. The user can suspend, reactivate, or permanently delete each hint. Deferred raw evidence is reconsidered in bounded batches when new evidence arrives.
+
 ### Memory browser
 
 The Memory browser is the graphical maintenance and debug view for ARIA's Qdrant/Memory data. It presents the same data in two connected ways:

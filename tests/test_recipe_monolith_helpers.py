@@ -3,16 +3,16 @@ from types import SimpleNamespace
 
 from fastapi.responses import JSONResponse, Response
 
-from aria.core import recipe_manifests
-from aria.core.recipe_runtime_status import build_recipe_status_text
-from aria.web.recipes_manifest_actions import delete_stored_recipe_and_config
-from aria.web.recipes_manifest_actions import stored_recipe_export_response
+import aria.modules.recipe_store.manifests as recipe_manifests
+from aria.modules.recipe_runtime.status import build_recipe_status_text
+from aria.modules.recipe_store.manifest_actions import delete_stored_recipe_and_config
+from aria.modules.recipe_store.manifest_actions import stored_recipe_export_response
 
 
 def test_build_recipe_status_text_groups_core_and_custom_recipes() -> None:
     settings = SimpleNamespace(
         memory=SimpleNamespace(enabled=True),
-        connections=SimpleNamespace(searxng={"main": {}}),
+        connections=SimpleNamespace(),
     )
 
     text = build_recipe_status_text(
@@ -26,13 +26,12 @@ def test_build_recipe_status_text_groups_core_and_custom_recipes() -> None:
                 "connections": ["ssh/dns-node-01"],
             }
         ],
-        auto_memory_enabled=True,
         language="en",
     )
 
     assert "Recipes (Runtime status):" in text
     assert "[Core] Memory" in text
-    assert "[Core] Auto-Memory" in text
+    assert "[Core] Auto-Memory" not in text
     assert "[Core] Web Search" in text
     assert "[Custom] DNS Health" in text
     assert "Connections: ssh/dns-node-01" in text

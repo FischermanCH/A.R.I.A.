@@ -4,16 +4,17 @@ import html
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlparse
-from urllib.parse import parse_qs
+from urllib.parse import unquote_plus
 
 import pytest
 
-import aria.core.learning_worker as learning_worker
-from aria.web.memories_routes import (
+from aria.modules import module_route_path, module_static_asset_path
+import aria.modules.memory_admin_ui.routes as memories_routes
+from aria.modules.memory_admin_ui.routes import (
     _document_matches_filter,
     _memory_collection_link,
     _memory_document_link,
+    _routing_graph_link,
     _build_notes_collection_rows,
     _build_routing_collection_rows,
     _build_system_collection_rows,
@@ -30,24 +31,23 @@ from aria.web.memories_routes import (
     _is_uploaded_file,
     _memories_redirect,
     _memories_map_redirect,
+    _memories_create_redirect,
+    _memories_import_redirect,
+    _memories_maintenance_redirect,
+    _memories_overview_redirect,
     _normalize_document_collection_name,
     _resolve_document_target_collection,
 )
-from aria.core.qdrant_collection_classifier import classify_qdrant_collection
+from aria.modules.system_diagnostics.qdrant_collection_classifier import classify_qdrant_collection
 from aria.skills.base import SkillResult
 from aria.skills.memory import MemorySkill
-from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+from aria.modules.navigation_shell.navigation import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 from fastapi import UploadFile as FastAPIUploadFile
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from types import SimpleNamespace
-
-
-@pytest.fixture(autouse=True)
-def _isolated_learning_worker_audit(monkeypatch, tmp_path):
-    monkeypatch.setattr(learning_worker, "_AUDIT_PATH", tmp_path / "learning_worker_audit.jsonl")
 
 
 def _sanitize_collection_name(value: str | None) -> str:
@@ -80,15 +80,45 @@ def _first_memory_subnav(page: str) -> str:
     return page[start : end + len("</nav>")] if end >= 0 else page[start:]
 
 
+def _maintenance_section(page: str, focus: str) -> str:
+    start = page.find(f'id="maint-{focus}"')
+    assert start >= 0
+    section_start = page.rfind("<section", 0, start)
+    end = page.find("</section>", start)
+    assert section_start >= 0 and end >= 0
+    return page[section_start : end + len("</section>")]
+
+
 def _build_memories_app(
     memory_graph_points: list[dict[str, object]] | None = None,
     *,
     advanced_mode: bool = True,
+    auth_role: str = "admin",
+    memory_skill_enabled: bool = True,
+    authenticated: bool = True,
+    observed_claim_store: object | None = None,
+    observed_sequence_store: object | None = None,
+    project_root: Path | None = None,
+    include_observed_store_attributes: bool = True,
+    qdrant: object | None = None,
+    username: str = "tester",
 ) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    import aria.modules.memory_admin_ui.routes as memories_routes_module
+
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault(
+        "module_route_path",
+        lambda module_id, route_path: memories_routes_module.module_route_path(module_id, route_path) or "",
+    )
+    templates.env.globals.setdefault(
+        "module_static_asset_url",
+        lambda module_id, asset_name: f"/static/{asset_name}"
+        if module_static_asset_path(module_id, asset_name, Path(__file__).resolve().parents[1])
+        else "",
+    )
     templates.env.globals.setdefault("nav_section_items", nav_section_items)
     templates.env.globals.setdefault("context_nav_items", context_nav_items)
     templates.env.globals.setdefault("context_nav_context", context_nav_context)
@@ -96,7 +126,17 @@ def _build_memories_app(
     templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
 
     settings = SimpleNamespace(
+        aria=SimpleNamespace(public_url="https://aria.test"),
         ui=SimpleNamespace(title="Memories Test"),
+        inventory_index=SimpleNamespace(
+            enabled=True,
+            run_on_startup=True,
+            keep_backup=True,
+            cron="17 */6 * * *",
+            timezone="Europe/Zurich",
+            score_threshold=0.35,
+            candidate_limit=12,
+        ),
         memory=SimpleNamespace(
             backend="qdrant",
             enabled=True,
@@ -110,20 +150,102 @@ def _build_memories_app(
                 )
             ),
         ),
-        auto_memory=SimpleNamespace(
-            enabled=True,
-            session_recall_top_k=4,
-            user_recall_top_k=4,
-            max_facts_per_message=3,
-        ),
-    )
+        )
 
     class _MemorySkill:
         def __init__(self) -> None:
+            self.text_updates: list[dict[str, object]] = []
             self.payload_updates: list[dict[str, object]] = []
             self.execute_calls: list[dict[str, object]] = []
+            self.list_calls: list[dict[str, object]] = []
+            self.search_calls: list[dict[str, object]] = []
             self.deleted_points: list[dict[str, object]] = []
             self.deleted_documents: list[dict[str, object]] = []
+            self.stored_personal_claims: list[dict[str, object]] = []
+            self.learning_point: dict[str, object] = {
+                "id": "candidate-point-1",
+                "collection": "aria_learning_candidates_tester",
+                "type": "learning_candidate",
+                "label": "Learning candidate",
+                "text": "Learning Candidate: durable source rule\nType: source_rule_candidate\nRisk: low",
+                "timestamp": "2026-07-23T00:00:00+00:00",
+                "source": "learning_synthesis",
+                "learning_effect": "review_only",
+                "learning_purpose": "synthesis_review",
+                "importance_score": 0.8,
+                "review_worthy": True,
+                "synthesis_target": "source_rule_candidate",
+                "synthesis_state": "canonical",
+                "candidate_status": "proposed",
+                "artifact_type": "source_rule_candidate",
+                "risk": "low",
+                "promotion_state": "",
+                "promotion_gate_result": "",
+                "promotion_gate_reason": "",
+                "apply_state": "",
+                "regression_status": "",
+                "regression_ref": "",
+                "regression_verify_result": "",
+                "activation_state": "",
+                "title": "Durable test procedure",
+                "summary": "A complete learning point shown on the page.",
+                "source_point_ids": ["raw-point-1", "raw-point-2"],
+                "review_queue": True,
+                "user_id": "tester",
+            }
+            self.raw_learning_point: dict[str, object] = {
+                **self.learning_point,
+                "id": "raw-candidate-point-1",
+                "source": "learning_classifier",
+                "synthesis_state": "",
+                "source_point_ids": [],
+                "review_queue": False,
+                "title": "Raw learning evidence",
+                "summary": "Visible evidence that is not a manual review task.",
+            }
+            self.personal_claim_point: dict[str, object] = {
+                "id": "personal-claim-point-1",
+                "collection": "aria_preferences_tester",
+                "type": "preference",
+                "text": "short answers",
+                "user_id": "tester",
+                "personal_claim_contract": "personal_claim_v1",
+                "claim_id": "personal-claim-1",
+                "claim_key": "personal-claim-key-1",
+                "claim_kind": "preference",
+                "claim_subject": "user",
+                "claim_predicate": "preferred answer detail",
+                "claim_value": "short answers",
+                "claim_scope": "global",
+                "claim_scope_ref": "",
+                "claim_confidence": 0.9,
+                "claim_authority": "explicit_user",
+                "claim_risk": "low",
+                "claim_status": "active",
+                "claim_presented_count": 4,
+                "claim_used_count": 3,
+                "claim_changed_outcome_count": 2,
+                "claim_positive_feedback_count": 1,
+                "claim_negative_feedback_count": 0,
+                "claim_last_used_at": "2026-07-23T02:00:00+00:00",
+            }
+
+        async def update_memory_point(
+            self,
+            user_id: str,
+            collection: str,
+            point_id: str,
+            text: str,
+        ) -> bool:
+            self.text_updates.append(
+                {
+                    "user_id": user_id,
+                    "collection": collection,
+                    "point_id": point_id,
+                    "text": text,
+                }
+            )
+            return True
 
         async def get_user_collection_stats(self, _username: str) -> list[dict[str, object]]:
             return [
@@ -134,6 +256,33 @@ def _build_memories_app(
                 {"name": "aria_learning_active_hints_tester", "points": 1, "kind": "learning_active_hint"},
                 {"name": "aria_learning_evals_tester", "points": 1, "kind": "learning_eval"},
             ]
+
+        async def list_learning_points_global(self, _username: str) -> list[dict[str, object]]:
+            return [dict(self.learning_point), dict(self.raw_learning_point)]
+
+        async def list_personal_claims(self, *, user_id: str, limit: int = 500) -> list[dict[str, object]]:
+            assert user_id == "tester"
+            return [dict(self.personal_claim_point), *[dict(row) for row in self.stored_personal_claims]][:limit]
+
+        async def get_memory_point(
+            self,
+            user_id: str,
+            collection: str,
+            point_id: str,
+        ) -> dict[str, object] | None:
+            if (
+                user_id == self.learning_point["user_id"]
+                and collection == self.learning_point["collection"]
+                and point_id == self.learning_point["id"]
+            ):
+                return dict(self.learning_point)
+            if (
+                user_id == self.personal_claim_point["user_id"]
+                and collection == self.personal_claim_point["collection"]
+                and point_id == self.personal_claim_point["id"]
+            ):
+                return dict(self.personal_claim_point)
+            return None
 
         async def list_memory_graph_points(
             self,
@@ -223,6 +372,14 @@ def _build_memories_app(
             limit: int = 200,
             collection_filter: str = "",
         ) -> list[dict[str, object]]:
+            self.list_calls.append(
+                {
+                    "user_id": user_id,
+                    "type_filter": type_filter,
+                    "limit": limit,
+                    "collection_filter": collection_filter,
+                }
+            )
             _ = (user_id, limit)
             rows = [
                 {
@@ -350,6 +507,34 @@ def _build_memories_app(
                 rows = [row for row in rows if str(row.get("collection", "")).strip() == clean_collection]
             return rows
 
+        async def search_memories(
+            self,
+            user_id: str,
+            query: str,
+            type_filter: str = "all",
+            top_k: int = 200,
+        ) -> list[dict[str, object]]:
+            self.search_calls.append(
+                {
+                    "user_id": user_id,
+                    "query": query,
+                    "type_filter": type_filter,
+                    "top_k": top_k,
+                }
+            )
+            rows = await self.list_memories_global(user_id=user_id, type_filter=type_filter, limit=top_k)
+            clean_query = str(query or "").strip().lower()
+            if not clean_query:
+                return rows
+            return [
+                row
+                for row in rows
+                if clean_query in str(row.get("text", "")).lower()
+                or clean_query in str(row.get("label", "")).lower()
+                or clean_query in str(row.get("document_name", "")).lower()
+                or clean_query in str(row.get("note_title", "")).lower()
+            ]
+
         async def update_memory_point_payload(
             self,
             user_id: str,
@@ -365,6 +550,10 @@ def _build_memories_app(
                     "payload_updates": dict(payload_updates),
                 }
             )
+            if collection == self.learning_point["collection"] and point_id == self.learning_point["id"]:
+                self.learning_point.update(payload_updates)
+            if collection == self.personal_claim_point["collection"] and point_id == self.personal_claim_point["id"]:
+                self.personal_claim_point.update(payload_updates)
             return True
 
         async def delete_memory_point(
@@ -402,17 +591,53 @@ def _build_memories_app(
 
         async def execute(self, query: str, params: dict) -> SkillResult:
             self.execute_calls.append({"query": query, "params": dict(params)})
+            if params.get("source") == "personal_claim":
+                point_id = f"manual-claim-{len(self.stored_personal_claims) + 1}"
+                collection = str(params.get("collection") or "")
+                payload = dict(params.get("payload_metadata") or {})
+                self.stored_personal_claims.append(
+                    {
+                        "id": point_id,
+                        "point_id": point_id,
+                        "collection": collection,
+                        "type": str(params.get("memory_type") or "fact"),
+                        "text": str(params.get("text") or query),
+                        "user_id": "tester",
+                        **payload,
+                    }
+                )
+                return SkillResult(
+                    skill_name="memory",
+                    content="Speicheraktion erfolgreich.",
+                    success=True,
+                    metadata={"point_id": point_id, "collection": collection},
+                )
             return SkillResult(skill_name="memory", content="Speicheraktion erfolgreich.", success=True)
 
-    memory_skill = _MemorySkill()
-    pipeline = SimpleNamespace(memory_skill=memory_skill)
-    app.state.memory_skill = memory_skill
+    memory_skill = _MemorySkill() if memory_skill_enabled else None
+    if memory_skill is not None and qdrant is not None:
+        memory_skill.qdrant = qdrant
+    pipeline_attributes: dict[str, object] = {
+        "memory_skill": memory_skill,
+        "_facts_collection_for_user": lambda user_id: f"aria_facts_{str(user_id).lower()}",
+        "_preferences_collection_for_user": lambda user_id: f"aria_preferences_{str(user_id).lower()}",
+    }
+    if project_root is not None:
+        pipeline_attributes["_project_root"] = project_root
+    if include_observed_store_attributes:
+        pipeline_attributes.update(
+            _native_observed_claim_store=observed_claim_store,
+            _native_observed_sequence_store=observed_sequence_store,
+        )
+    pipeline = SimpleNamespace(**pipeline_attributes)
+    if memory_skill is not None:
+        app.state.memory_skill = memory_skill
 
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
-        request.state.authenticated = True
-        request.state.auth_user = "tester"
-        request.state.auth_role = "admin"
+        request.state.authenticated = authenticated
+        request.state.auth_user = username if authenticated else ""
+        request.state.auth_role = auth_role
         request.state.can_access_users = False
         request.state.can_access_advanced_config = advanced_mode
         request.state.debug_mode = True
@@ -426,7 +651,7 @@ def _build_memories_app(
         request.state.logical_back_url = ""
         return await call_next(request)
 
-    from aria.web.memories_routes import register_memories_routes
+    from aria.modules.memory_admin_ui.routes import register_memories_routes
 
     async def _qdrant_overview(_request: Request) -> dict[str, object]:
         return {
@@ -446,13 +671,30 @@ def _build_memories_app(
             "collection_count": 10,
         }
 
+    async def _inventory_index_status(_settings: object) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "message": "Inventory index ready: 2/2 items indexed.",
+            "collection_name": "aria_inventory_test",
+            "backup_collection_name": "aria_inventory_test__backup",
+            "document_count": 2,
+            "indexed_count": 2,
+            "meta_collection_name": "aria_meta_catalog_test",
+            "meta_document_count": 3,
+            "meta_indexed_count": 3,
+            "backup_count": 2,
+            "indexed_config_hash": "abcdef1234567890",
+            "indexed_meta_catalog_hash": "fedcba0987654321",
+            "detail": "",
+        }
+
     register_memories_routes(
         app,
         templates=templates,
         get_settings=lambda: settings,
         get_pipeline=lambda: pipeline,
-        get_username_from_request=lambda _request: "tester",
-        get_auth_session_from_request=lambda _request: {"role": "admin"},
+        get_username_from_request=lambda _request: username if authenticated else "",
+        get_auth_session_from_request=lambda _request: {"role": auth_role} if authenticated else None,
         sanitize_role=lambda value: str(value or "").strip().lower(),
         qdrant_overview=_qdrant_overview,
         qdrant_dashboard_url=lambda _request: "http://qdrant.local:6333/dashboard",
@@ -460,34 +702,470 @@ def _build_memories_app(
         sanitize_collection_name=_sanitize_collection_name,
         default_memory_collection_for_user=lambda username: f"aria_facts_{username.lower()}",
         get_effective_memory_collection=lambda _request, username: f"aria_facts_{username.lower()}",
-        is_auto_memory_enabled=lambda _request: True,
         read_raw_config=lambda: {},
         write_raw_config=lambda _raw: None,
         reload_runtime=lambda: None,
         resolve_prompt_file=lambda value: Path("/tmp") / value,
         get_secure_store=lambda _raw=None: None,
         memory_collection_cookie="aria_memory_collection",
-        auto_memory_cookie="aria_auto_memory",
+        inventory_index_status_builder=_inventory_index_status,
     )
     return TestClient(app)
 
 
-def _app_learning_candidate_text(*, target_file: str = "tests/test_app_plan_generated.py") -> str:
-    return (
-        "Learning Candidate: Compose install plan\n"
-        "Type: install_plan_candidate\n"
-        "Status: proposed\n"
-        "Risk: medium\n"
-        "Summary: Review-only install plan from app identity.\n"
-        'App identity hypothesis: {"runtime_kind":"docker_compose","app_root":"/srv/aria","entry_artifacts":["/srv/aria/docker-compose.yml"],"confidence":"medium"}\n'
-        'Install/update plan draft: {"plan_kind":"install_update_plan_draft","runtime_kind":"docker_compose","app_root":"/srv/aria","preflight_checks":["confirm app identity hypothesis with operator"],"backup_targets":["/srv/aria/docker-compose.yml"],"proposed_steps":["run docker compose up -d only after explicit confirmation"],"rollback_steps":["restore backed up config/artifact files"],"requires_confirmation":true,"runtime_activation_allowed":false}\n'
-        'Install/update plan validation: {"validation_state":"review_required","risk_level":"medium","missing_gates":[],"mutating_steps":["run docker compose up -d only after explicit confirmation"],"required_confirmations":["operator_review","explicit_execute_confirmation","mutating_step_confirmation"],"runtime_activation_allowed":false,"promotion_allowed":false}\n'
-        'Health check drafts: [{"check_kind":"tcp_port","target":"8080","command_preview":"ss -ltn | grep \\u0027:8080 \\u0027","mutating":false}]\n'
-        'Regression drafts: [{"test_kind":"plan_preview","name":"test_install_update_plan_renders_without_execution","expected":"plan renders preview"}]\n'
-        'Pytest skeleton proposal: {"proposal_kind":"pytest_skeleton_proposal","target_file":"'
-        + target_file
-        + '","test_functions":[{"name":"test_install_update_plan_renders_without_execution","test_kind":"plan_preview","act":"call the draft/validation helper under test"}],"safety_notes":["proposal only, do not write files automatically"],"write_allowed":false,"runtime_activation_allowed":false}'
+class _FakeLegacyLearningQdrant:
+    def __init__(self, names: list[str], *, fail_delete: str = "") -> None:
+        self.names = set(names)
+        self.deleted: list[str] = []
+        self.fail_delete = fail_delete
+        self.get_calls = 0
+
+    async def get_collections(self) -> object:
+        self.get_calls += 1
+        return SimpleNamespace(
+            collections=[SimpleNamespace(name=name) for name in sorted(self.names)]
+        )
+
+    async def collection_exists(self, collection_name: str) -> bool:
+        return collection_name in self.names
+
+    async def delete_collection(self, collection_name: str) -> None:
+        if collection_name == self.fail_delete:
+            raise RuntimeError("delete unavailable")
+        self.deleted.append(collection_name)
+        self.names.remove(collection_name)
+
+
+def _write_observed_runtime(project_root: Path, *, include_other_user: bool = False) -> tuple[Path, Path]:
+    runtime_root = project_root / "data" / "runtime"
+    runtime_root.mkdir(parents=True)
+    claim_users = {"tester": {"claim-a": {"count": 6}, "claim-b": {"count": 2}}}
+    sequence_users = {"tester": {"sequence-a": {"count": 3}}}
+    cross_host_offers = {"tester": ["recipe-a\u0000new-host"]}
+    if include_other_user:
+        claim_users["other"] = {"claim-other": {"count": 4}}
+        sequence_users["other"] = {"sequence-other": {"count": 5}}
+        cross_host_offers["other"] = ["recipe-other\u0000other-host"]
+    claims_path = runtime_root / "observed_claims.json"
+    sequences_path = runtime_root / "observed_sequences.json"
+    claims_path.write_text(json.dumps({"users": claim_users}), encoding="utf-8")
+    sequences_path.write_text(
+        json.dumps({"users": sequence_users, "cross_host_offers": cross_host_offers}),
+        encoding="utf-8",
     )
+    return claims_path, sequences_path
+
+
+def test_reset_learning_suggestions_works_without_prior_native_turn(tmp_path: Path) -> None:
+    claims_path, sequences_path = _write_observed_runtime(tmp_path)
+    client = _build_memories_app(
+        project_root=tmp_path,
+        include_observed_store_attributes=False,
+    )
+
+    response = client.post(
+        "/memories/maintenance/reset-learning-suggestions",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/memories/maintenance?info=Learning+suggestions+reset%3A+3."
+        "&focus=reset#maint-reset"
+    )
+    assert "tester" not in json.loads(claims_path.read_text(encoding="utf-8"))["users"]
+    sequences = json.loads(sequences_path.read_text(encoding="utf-8"))
+    assert "tester" not in sequences["users"]
+    assert "tester" not in sequences["cross_host_offers"]
+
+
+def test_reset_learning_suggestions_is_strictly_user_scoped(tmp_path: Path) -> None:
+    claims_path, sequences_path = _write_observed_runtime(tmp_path, include_other_user=True)
+    client = _build_memories_app(
+        project_root=tmp_path,
+        include_observed_store_attributes=False,
+    )
+
+    response = client.post(
+        "/memories/maintenance/reset-learning-suggestions",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/memories/maintenance?info=Learning+suggestions+reset%3A+3."
+        "&focus=reset#maint-reset"
+    )
+    claims = json.loads(claims_path.read_text(encoding="utf-8"))
+    sequences = json.loads(sequences_path.read_text(encoding="utf-8"))
+    assert claims["users"] == {"other": {"claim-other": {"count": 4}}}
+    assert sequences["users"] == {"other": {"sequence-other": {"count": 5}}}
+    assert sequences["cross_host_offers"] == {"other": ["recipe-other\u0000other-host"]}
+
+
+@pytest.mark.parametrize("file_state", ["missing", "empty"])
+def test_reset_learning_suggestions_missing_or_empty_files_is_a_safe_noop(
+    tmp_path: Path,
+    file_state: str,
+) -> None:
+    if file_state == "empty":
+        runtime_root = tmp_path / "data" / "runtime"
+        runtime_root.mkdir(parents=True)
+        (runtime_root / "observed_claims.json").write_text("", encoding="utf-8")
+        (runtime_root / "observed_sequences.json").write_text("", encoding="utf-8")
+    client = _build_memories_app(
+        project_root=tmp_path,
+        include_observed_store_attributes=False,
+    )
+
+    response = client.post(
+        "/memories/maintenance/reset-learning-suggestions",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/memories/maintenance?info=Nothing+to+reset."
+        "&focus=reset#maint-reset"
+    )
+
+
+def test_reset_learning_suggestions_rejects_unauthenticated_request() -> None:
+    client = _build_memories_app(authenticated=False)
+
+    response = client.post(
+        "/memories/maintenance/reset-learning-suggestions",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401
+
+
+def test_memories_maintenance_renders_confirmed_learning_suggestions_reset() -> None:
+    response = _build_memories_app().get("/memories/maintenance")
+
+    assert response.status_code == 200
+    assert "Lern-Vorschläge zurücksetzen" in response.text
+    assert "Wiederholungs-Zähler dieses Nutzers" in response.text
+    assert "KEINE gespeicherten Erinnerungen oder Rezepte" in response.text
+    assert 'action="/memories/maintenance/reset-learning-suggestions"' in response.text
+    assert 'name="csrf_token" value="test-csrf"' in response.text
+    assert "return window.confirm(" in response.text
+
+
+def test_cleanup_legacy_learning_collections_is_user_scoped_and_idempotent() -> None:
+    protected = {
+        "aria_facts_fischerman",
+        "aria_preferences_fischerman",
+        "aria_recipe_experience_fischerman",
+        "aria_docs_fischerman",
+        "aria_doc_guides_fischerman",
+        "aria_doc_meta_fischerman",
+        "aria_notes_fischerman",
+        "aria_sessions_fischerman",
+        "aria_context-mem_fischerman",
+        "aria_routing_fischerman",
+        "aria_meta_catalog_fischerman",
+        "aria_inventory_fischerman",
+        "aria_learning_candidates_fischerman__backup",
+        "aria_learning_other",
+        "external_fischerman",
+    }
+    removable = {
+        "aria_learning_candidates_fischerman",
+        "aria_learning_evals_fischerman",
+        "aria_learning_events_fischerman",
+    }
+    qdrant = _FakeLegacyLearningQdrant(sorted(protected | removable))
+    client = _build_memories_app(qdrant=qdrant, username="fischerman")
+
+    first = client.post(
+        "/memories/maintenance/cleanup-legacy-learning",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert first.status_code == 303
+    assert "removed%3A+3." in first.headers["location"]
+    assert all(name in first.headers["location"] for name in removable)
+    assert set(qdrant.deleted) == removable
+    assert qdrant.names == protected
+
+    second = client.post(
+        "/memories/maintenance/cleanup-legacy-learning",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert second.status_code == 303
+    assert "Nothing+to+clean+up" in second.headers["location"]
+    assert set(qdrant.deleted) == removable
+    assert qdrant.names == protected
+
+
+def test_cleanup_legacy_learning_collections_rejects_unauthenticated_request() -> None:
+    client = _build_memories_app(authenticated=False)
+
+    response = client.post(
+        "/memories/maintenance/cleanup-legacy-learning",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401
+
+
+def test_cleanup_legacy_learning_collections_contains_per_collection_failures() -> None:
+    failed = "aria_learning_candidates_fischerman"
+    removable = {
+        failed,
+        "aria_learning_evals_fischerman",
+        "aria_learning_events_fischerman",
+    }
+    qdrant = _FakeLegacyLearningQdrant(sorted(removable), fail_delete=failed)
+    client = _build_memories_app(qdrant=qdrant, username="fischerman")
+
+    response = client.post(
+        "/memories/maintenance/cleanup-legacy-learning",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "removed%3A+2." in response.headers["location"]
+    assert set(qdrant.deleted) == removable - {failed}
+    assert qdrant.names == {failed}
+
+
+def test_memories_maintenance_renders_confirmed_legacy_learning_cleanup() -> None:
+    qdrant = _FakeLegacyLearningQdrant(["aria_learning_candidates_tester"])
+    client = _build_memories_app(qdrant=qdrant)
+    response = client.get("/memories/maintenance")
+
+    assert response.status_code == 200
+    assert "Alte Lern-Collections aufräumen" in response.text
+    assert "Gespeicherte Erinnerungen" in response.text
+    assert "Recipe Experience" in response.text
+    assert 'action="/memories/maintenance/cleanup-legacy-learning"' in response.text
+    assert 'name="csrf_token" value="test-csrf"' in response.text
+    assert "return window.confirm(" in response.text
+    assert qdrant.get_calls == 0
+
+    memory_browser = client.get("/memories")
+    assert memory_browser.status_code == 200
+    assert "/memories/maintenance/cleanup-legacy-learning" not in memory_browser.text
+
+
+def test_maintenance_cleanup_feedback_redirects_and_renders_inside_cleanup_card() -> None:
+    qdrant = _FakeLegacyLearningQdrant(["aria_learning_candidates_fischerman"])
+    client = _build_memories_app(qdrant=qdrant, username="fischerman")
+
+    response = client.post(
+        "/memories/maintenance/cleanup-legacy-learning",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=True,
+    )
+
+    assert response.history[0].headers["location"].endswith(
+        "&focus=cleanup#maint-cleanup"
+    )
+    cleanup = _maintenance_section(response.text, "cleanup")
+    assert "Legacy learning collections removed: 1." in cleanup
+    assert response.text.count("Legacy learning collections removed: 1.") == 1
+
+
+def test_maintenance_feedback_focus_contract_covers_all_three_actions() -> None:
+    client = _build_memories_app()
+
+    rollup = client.post(
+        "/memories/maintenance",
+        data={"source_view": "maintenance"},
+        follow_redirects=False,
+    )
+    reset = client.post(
+        "/memories/maintenance/reset-learning-suggestions",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+    cleanup = client.post(
+        "/memories/maintenance/cleanup-legacy-learning",
+        data={"csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+    non_maintenance_rollup = client.post(
+        "/memories/maintenance",
+        data={"source_view": ""},
+        follow_redirects=False,
+    )
+
+    assert rollup.headers["location"].endswith("&focus=rollup#maint-rollup")
+    assert reset.headers["location"].endswith("&focus=reset#maint-reset")
+    assert cleanup.headers["location"].endswith("&focus=cleanup#maint-cleanup")
+    assert non_maintenance_rollup.headers["location"].startswith("/memories?")
+    assert "focus=" not in non_maintenance_rollup.headers["location"]
+    assert "#maint-" not in non_maintenance_rollup.headers["location"]
+
+
+def test_maintenance_unknown_focus_keeps_single_top_feedback_fallback() -> None:
+    response = _build_memories_app().get(
+        "/memories/maintenance?info=Fallback+feedback&focus=unknown"
+    )
+
+    assert response.status_code == 200
+    assert response.text.count("Fallback feedback") == 1
+    assert "Fallback feedback" not in _maintenance_section(response.text, "cleanup")
+
+
+def test_maintenance_reindex_feedback_renders_once_inside_reindex_card() -> None:
+    response = _build_memories_app().get(
+        "/memories/maintenance?info=Inventory+index+rebuilt.&focus=reindex"
+    )
+
+    assert response.status_code == 200
+    reindex = _maintenance_section(response.text, "reindex")
+    assert "Inventory index rebuilt." in reindex
+    assert response.text.count("Inventory index rebuilt.") == 1
+
+
+def test_maintenance_reindex_card_is_hidden_without_advanced_access() -> None:
+    response = _build_memories_app(advanced_mode=False).get("/memories/maintenance")
+
+    assert response.status_code == 200
+    assert 'id="maint-reindex"' not in response.text
+    assert 'action="/memories/reindex/run"' not in response.text
+
+
+def test_maintenance_setup_wording_no_longer_mentions_auto_memory() -> None:
+    response = _build_memories_app().get("/memories/maintenance")
+    de = json.loads((Path(__file__).resolve().parents[1] / "aria" / "i18n" / "de.json").read_text(encoding="utf-8"))
+    en = json.loads((Path(__file__).resolve().parents[1] / "aria" / "i18n" / "en.json").read_text(encoding="utf-8"))
+
+    assert "Auto-Memory" not in response.text
+    assert "auto-memory" not in de["memories_maintenance"]["setup_desc"].lower()
+    assert "auto-memory" not in de["memories_overview"]["setup_desc"].lower()
+    assert "auto-memory" not in en["memories_maintenance"]["setup_desc"].lower()
+    assert "auto-memory" not in en["memories_overview"]["setup_desc"].lower()
+
+
+def test_memories_export_returns_readable_json_attachment_contract() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/export?type=all&sort=updated_desc")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert re.fullmatch(
+        r'attachment; filename="aria-memory-tester-all-all-\d{8}-\d{6}\.json"',
+        response.headers["content-disposition"],
+    )
+    payload = response.json()
+    assert payload["schema_version"] == "1.0"
+    assert payload["user_id"] == "tester"
+    assert payload["filter"] == {"type": "all", "query": "", "sort": "updated_desc"}
+    assert payload["count"] == len(payload["items"])
+    assert payload["count"] > 0
+    assert json.loads(response.text) == payload
+    assert client.app.state.memory_skill.list_calls[-1] == {
+        "user_id": "tester",
+        "type_filter": "all",
+        "limit": 10000,
+        "collection_filter": "",
+    }
+
+
+def test_memory_edit_success_uses_request_language_and_updates_once() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/edit",
+        data={
+            "collection": "aria_facts_tester",
+            "point_id": "fact-1",
+            "text": "Updated fact",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "info=Entry+updated" in response.headers["location"]
+    assert client.app.state.memory_skill.text_updates == [
+        {
+            "user_id": "tester",
+            "collection": "aria_facts_tester",
+            "point_id": "fact-1",
+            "text": "Updated fact",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("path", "data", "expected_location", "cookie_name", "cookie_value"),
+    [
+        (
+            "/memories/config/select",
+            {"collection": "aria_facts_tester"},
+            "/memories/config?",
+            "aria_memory_collection",
+            "aria_facts_tester",
+        ),
+        (
+            "/memories/config/create",
+            {"collection_name": "new facts"},
+            "/memories/config?",
+            "aria_memory_collection",
+            "new_facts",
+        ),
+    ],
+)
+def test_memory_config_cookie_mutations_use_current_settings(
+    path: str,
+    data: dict[str, str],
+    expected_location: str,
+    cookie_name: str,
+    cookie_value: str,
+) -> None:
+    client = _build_memories_app()
+
+    response = client.post(path, data=data, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith(expected_location)
+    assert f"{cookie_name}={cookie_value}" in response.headers["set-cookie"]
+
+
+def test_memories_export_search_uses_search_filename_and_filters_collection() -> None:
+    client = _build_memories_app()
+
+    response = client.get(
+        "/memories/export",
+        params={
+            "type": "document",
+            "q": "setup",
+            "collection_filter": "aria_docs_tester_manuals",
+            "sort": "updated_asc",
+        },
+    )
+
+    assert response.status_code == 200
+    assert re.fullmatch(
+        r'attachment; filename="aria-memory-tester-document-search-\d{8}-\d{6}\.json"',
+        response.headers["content-disposition"],
+    )
+    payload = response.json()
+    assert payload["filter"] == {"type": "document", "query": "setup", "sort": "updated_asc"}
+    assert payload["count"] == 2
+    assert {item["id"] for item in payload["items"]} == {"doc-1-chunk-1", "doc-1-chunk-2"}
+    assert {item["collection"] for item in payload["items"]} == {"aria_docs_tester_manuals"}
+    assert client.app.state.memory_skill.search_calls[-1] == {
+        "user_id": "tester",
+        "query": "setup",
+        "type_filter": "document",
+        "top_k": 5000,
+    }
 
 
 def test_default_document_collection_for_user_uses_docs_prefix() -> None:
@@ -539,6 +1217,44 @@ def test_build_notes_collection_rows_keeps_only_active_user_notes_collection() -
     assert rows[0]["browse_url"] == "/notes"
 
 
+def test_build_notes_collection_rows_uses_registry_route_readpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+    real_route_path = memories_routes.module_route_path
+
+    def tracking_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", tracking_route_path)
+
+    rows = _build_notes_collection_rows(
+        [
+            {"name": "aria_notes_tester", "points": 6, "status": "ok"},
+        ],
+        username="tester",
+    )
+
+    assert rows[0]["browse_url"] == "/notes"
+    assert ("notes", "/notes") in calls
+
+
+def test_build_notes_collection_rows_fails_closed_without_route_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing_notes_route(module_id: str, route_path: str) -> str | None:
+        if module_id == "notes" and route_path == "/notes":
+            return None
+        return module_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", missing_notes_route)
+
+    with pytest.raises(RuntimeError, match="notes route is not registered: /notes"):
+        _build_notes_collection_rows(
+            [
+                {"name": "aria_notes_tester", "points": 6, "status": "ok"},
+            ],
+            username="tester",
+        )
+
+
 def test_build_system_collection_rows_includes_recipe_experience_and_future_aria_collections() -> None:
     rows = _build_system_collection_rows(
         [
@@ -554,9 +1270,50 @@ def test_build_system_collection_rows_includes_recipe_experience_and_future_aria
 
     assert [row["name"] for row in rows] == ["aria_recipe_experience_tester", "aria_future_signal_tester"]
     assert rows[0]["kind"] == "recipe_experience"
-    assert rows[0]["browse_url"] == "/recipes/learned"
+    assert rows[0]["browse_url"] == "/recipes/mine"
     assert rows[1]["kind"] == "system"
     assert rows[1]["browse_url"] == "/memories/config#qdrant-access"
+
+
+def test_build_system_collection_rows_uses_registry_route_readpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+    real_route_path = memories_routes.module_route_path
+
+    def tracking_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", tracking_route_path)
+
+    rows = _build_system_collection_rows(
+        [
+            {"name": "aria_recipe_experience_tester", "points": 0, "status": "ok"},
+            {"name": "aria_future_signal_tester", "points": 2, "status": "yellow"},
+        ],
+    )
+
+    assert [row["browse_url"] for row in rows] == [
+        "/recipes/mine",
+        "/memories/config#qdrant-access",
+    ]
+    assert ("recipes_ui", "/recipes/mine") in calls
+    assert ("memory_admin_ui", "/memories/config") in calls
+
+
+def test_build_system_collection_rows_fails_closed_without_route_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing_recipe_route(module_id: str, route_path: str) -> str | None:
+        if module_id == "recipes_ui" and route_path == "/recipes/mine":
+            return None
+        return module_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", missing_recipe_route)
+
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes/mine"):
+        _build_system_collection_rows(
+            [
+                {"name": "aria_recipe_experience_tester", "points": 0, "status": "ok"},
+            ],
+        )
 
 
 def test_qdrant_collection_classifier_keeps_learning_collections_as_user_memory() -> None:
@@ -581,6 +1338,44 @@ def test_qdrant_collection_classifier_keeps_learning_collections_as_user_memory(
     assert eval_collection.kind == "learning_eval"
     assert eval_collection.is_user_memory is True
     assert eval_collection.is_system is False
+
+
+def test_memory_browser_keeps_all_learning_entries_and_exposes_effect_metadata() -> None:
+    browser = _build_memory_drilldown_browser_snapshot(
+        username="tester",
+        lang="de",
+        collection_stats=[{"name": "aria_learning_evals_tester", "points": 2, "kind": "learning_eval"}],
+        all_collections=[{"name": "aria_learning_evals_tester", "points": 2}],
+        document_rows=[],
+        collection_rows=[
+            {
+                "id": "eval-1",
+                "collection": "aria_learning_evals_tester",
+                "type": "learning_eval",
+                "label": "LERN-EVAL",
+                "text": "first eval",
+                "learning_effect": "audit_only",
+                "importance_score": 0.8,
+                "synthesis_target": "regression",
+            },
+            {
+                "id": "eval-2",
+                "collection": "aria_learning_evals_tester",
+                "type": "learning_eval",
+                "label": "LERN-EVAL",
+                "text": "second eval",
+                "learning_effect": "audit_only",
+                "importance_score": 0.6,
+                "synthesis_target": "regression",
+            },
+        ],
+        brain=None,
+    )
+
+    collection = next(item for item in browser["collections"] if item["name"] == "aria_learning_evals_tester")
+    assert len(collection["entries"]) == 2
+    assert collection["entries"][0]["learning_effect"] == "audit_only"
+    assert collection["entries"][0]["importance_score"] in {0.6, 0.8}
 
 
 def test_normalize_document_collection_name_adds_docs_prefix() -> None:
@@ -755,6 +1550,13 @@ def test_memories_page_is_view_only_memory_area() -> None:
     assert "data-brain-delete-point" in response.text
     assert "/memories/browser/delete-point" in response.text
     assert "/memories/browser/delete-document" in response.text
+    assert "const memoryBrowserFullscreenPath = \"/memories\";" in response.text
+    assert "const memoryBrowserDeletePointPath = \"/memories/browser/delete-point\";" in response.text
+    assert "const memoryBrowserDeleteDocumentPath = \"/memories/browser/delete-document\";" in response.text
+    assert "const memoryGraphDeletePointPath = \"/memories/browser/delete-point\";" in response.text
+    assert "postBrowserDelete('/memories/browser/delete-point'" not in response.text
+    assert "postBrowserDelete('/memories/browser/delete-document'" not in response.text
+    assert "fetch('/memories/browser/delete-point'" not in response.text
     assert "csrfToken" in response.text
     assert '"can_delete": true' in response.text
     assert "centerStructureView" in response.text
@@ -818,11 +1620,122 @@ def test_memories_page_is_view_only_memory_area() -> None:
     assert "/memories#memories-actions" not in response.text
     assert 'href="/memories/import"' in response.text
     assert 'href="/memories/create"' in response.text
+    assert 'href="/memories/auto-memory"' in response.text
     assert 'href="/memories/maintenance"' in response.text
     assert "Dokumente importieren" not in response.text
     assert 'name="source_view" value="import"' not in response.text
     assert 'id="memory-create"' not in response.text
     assert "/memories/config#qdrant-access" not in response.text
+
+
+def test_memory_admin_pages_use_registry_template_readpoints(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_template_name = memories_routes.module_template_name
+    calls: list[tuple[str, str]] = []
+
+    def _module_template_name(module_id: str, template_name: str) -> str | None:
+        calls.append((module_id, template_name))
+        return real_template_name(module_id, template_name)
+
+    monkeypatch.setattr(memories_routes, "module_template_name", _module_template_name)
+    client = _build_memories_app()
+
+    pages = [
+        "/memories",
+        "/memories/import",
+        "/memories/create",
+        "/memories/maintenance",
+        "/memories/config",
+        "/memories/auto-memory",
+    ]
+    for page in pages:
+        response = client.get(page)
+        assert response.status_code == 200
+
+    assert {
+        ("memory_admin_ui", "memories_overview.html"),
+        ("memory_admin_ui", "memories_import.html"),
+        ("memory_admin_ui", "memories_create.html"),
+        ("memory_admin_ui", "memories_maintenance.html"),
+        ("memory_admin_ui", "config_memory.html"),
+        ("memory_admin_ui", "memories_auto_memory.html"),
+    }.issubset(set(calls))
+
+
+def test_memory_admin_template_readpoint_fails_closed_for_unregistered_template(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    monkeypatch.setattr(memories_routes, "module_template_name", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui template is not registered: memories_overview.html"):
+        memories_routes._memory_admin_template("memories_overview.html")
+
+
+def test_memory_admin_route_readpoints_fail_closed_without_route_owner(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    monkeypatch.setattr(memories_routes, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories"):
+        memories_routes._memory_admin_route("/memories")
+    with pytest.raises(RuntimeError, match="notes route is not registered: /notes"):
+        memories_routes._documents_route("/notes")
+    with pytest.raises(RuntimeError, match="config_ui route is not registered: /config/routing"):
+        memories_routes._config_ui_route("/config/routing")
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes/mine"):
+        memories_routes._recipes_ui_route("/recipes/mine")
+
+
+def test_memory_admin_visible_urls_use_registry_route_readpoints(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+    client = _build_memories_app()
+
+    for page in (
+        "/memories",
+        "/memories/import",
+        "/memories/create",
+        "/memories/maintenance",
+        "/memories/auto-memory",
+        "/memories/config",
+    ):
+        response = client.get(page)
+        assert response.status_code == 200
+
+    assert {
+        ("memory_admin_ui", "/memories"),
+        ("memory_admin_ui", "/memories/import"),
+        ("memory_admin_ui", "/memories/create"),
+        ("memory_admin_ui", "/memories/upload"),
+        ("memory_admin_ui", "/memories/maintenance"),
+        ("memory_admin_ui", "/memories/config"),
+        ("memory_admin_ui", "/memories/config/backend-save"),
+        ("memory_admin_ui", "/memories/config/select"),
+        ("memory_admin_ui", "/memories/config/create"),
+        ("memory_admin_ui", "/memories/config/compression-save"),
+        ("memory_admin_ui", "/memories/config/compress"),
+        ("memory_admin_ui", "/memories/browser/delete-point"),
+        ("memory_admin_ui", "/memories/browser/delete-document"),
+        ("memory_admin_ui", "/memories/auto-memory/claim-action"),
+        ("memory_admin_ui", "/memories/auto-memory/correct-claim"),
+        ("memory_admin_ui", "/memories/auto-memory/delete-claim"),
+        ("notes", "/notes"),
+        ("recipes_ui", "/recipes/mine"),
+        ("ops_config_backup", "/memories/reindex/run"),
+        ("ops_config_backup", "/memories/reindex/save"),
+        ("static_help_docs", "/help"),
+            ("memory_admin_ui", "/memories"),
+        ("config_ui", "/config/prompts"),
+    }.issubset(set(calls))
 
 
 def test_memories_nav_hides_admin_tools_when_admin_mode_is_off() -> None:
@@ -836,6 +1749,7 @@ def test_memories_nav_hides_admin_tools_when_admin_mode_is_off() -> None:
     assert 'href="/config/users?return_to=/config/access#admin-mode"' not in response.text
     assert 'href="/memories/import"' in response.text
     assert 'href="/memories/create"' in response.text
+    assert 'href="/memories/auto-memory"' not in response.text
     assert 'href="/memories/maintenance"' not in response.text
 
 
@@ -854,6 +1768,14 @@ def test_memories_fullscreen_semantic_request_without_point_stays_in_structure_b
     assert 'data-memory-browser-mode="semantic" aria-pressed="false" hidden disabled aria-disabled="true"' in response.text
     assert "data-memory-browser-semantic-panel hidden" in response.text
     assert "memory-browser-fullscreen-brand" in response.text
+    assert "module_static_asset_url('navigation_shell', 'logo-aria-v01.png')" in Path(
+        "aria/templates/_memory_drilldown_browser.html"
+    ).read_text(encoding="utf-8")
+    assert "module_route_path('chat_surface', '/')" in Path("aria/templates/_memory_drilldown_browser.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'class="memory-browser-fullscreen-brand brand brand-home" href="/"' in response.text
+    assert 'src="/static/logo-aria-v01.png?v=' in response.text
     assert 'class="brand-logo">' in response.text
     assert 'class="brand-logo-rotate"' in response.text
     assert 'href="/memories?fullscreen=1"' not in response.text
@@ -1082,7 +2004,122 @@ def test_memories_create_page_contains_manual_memory_form() -> None:
     assert 'id="memory-create"' in response.text
     assert 'name="source_view" value="create"' in response.text
     assert 'action="/memories/create"' in response.text
+    assert 'name="kind"' in response.text
+    assert 'name="subject"' in response.text
+    assert 'name="predicate"' in response.text
+    assert 'name="value"' in response.text
+    assert 'value="ich"' in response.text
+    assert 'maxlength="700"' in response.text
+    assert 'value="knowledge"' not in response.text
+    assert 'name="memory_type"' not in response.text
+    assert 'name="text"' not in response.text
     assert "Dokumente importieren" not in response.text
+
+
+def test_memories_create_stores_and_lists_structured_preference_claim() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/create",
+        data={
+            "source_view": "create",
+            "kind": "preference",
+            "subject": "ich",
+            "predicate": "bevorzugt",
+            "value": "grünen Tee",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/memories/create?info=")
+    stored = client.app.state.memory_skill.stored_personal_claims
+    assert len(stored) == 1
+    assert stored[0]["collection"] == "aria_preferences_tester"
+    assert stored[0]["claim_kind"] == "preference"
+    assert stored[0]["claim_subject"] == "ich"
+    assert stored[0]["claim_predicate"] == "bevorzugt"
+    assert stored[0]["claim_value"] == "grünen Tee"
+    assert stored[0]["claim_authority"] == "explicit_user"
+    assert stored[0]["claim_status"] == "active"
+    assert stored[0]["claim_id"]
+    assert stored[0]["claim_key"]
+    assert client.app.state.memory_skill.execute_calls[-1]["params"]["source"] == "personal_claim"
+    personal_model = client.get("/memories/auto-memory")
+    assert personal_model.status_code == 200
+    assert "grünen Tee" in personal_model.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("subject", ""), ("predicate", ""), ("value", "")),
+)
+def test_memories_create_rejects_empty_structured_claim_field(field: str, value: str) -> None:
+    client = _build_memories_app()
+    payload = {
+        "source_view": "create",
+        "kind": "fact",
+        "subject": "ich",
+        "predicate": "nutzt",
+        "value": "Linux",
+    }
+    payload[field] = value
+
+    response = client.post("/memories/create", data=payload, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/memories/create?error=")
+    assert client.app.state.memory_skill.execute_calls == []
+
+
+def test_memories_create_rejects_legacy_knowledge_kind() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/create",
+        data={
+            "source_view": "create",
+            "kind": "knowledge",
+            "subject": "ich",
+            "predicate": "kennt",
+            "value": "Legacy-Wissen",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/memories/create?error=")
+    assert client.app.state.memory_skill.execute_calls == []
+
+
+def test_memories_create_surfaces_bounded_personal_claim_store_error(monkeypatch) -> None:
+    async def failed_store(**_kwargs: object) -> dict[str, object]:
+        return {
+            "stored": False,
+            "reason": "claim_store_failed",
+            "store_error": "embedding_error: boom",
+        }
+
+    monkeypatch.setattr(memories_routes, "store_personal_claim", failed_store)
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/create",
+        data={
+            "source_view": "create",
+            "kind": "fact",
+            "subject": "ich",
+            "predicate": "spielt",
+            "value": "No Man's Sky",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = unquote_plus(response.headers["location"])
+    assert location.startswith("/memories/create?error=")
+    assert "claim_store_failed" in location
+    assert "embedding_error: boom" in location
 
 
 def test_memories_maintenance_page_groups_admin_tools() -> None:
@@ -1094,21 +2131,48 @@ def test_memories_maintenance_page_groups_admin_tools() -> None:
     assert "Wartung" in response.text
     assert "Kontext-Rollup" in response.text
     assert "Memory Reindex" in response.text
+    assert 'id="maint-reindex"' in response.text
+    assert 'action="/memories/reindex/run"' in response.text
+    assert "Inventory index ready: 2/2 items indexed." in response.text
+    assert "aria_inventory_test" in response.text
+    assert 'href="/memories/reindex"' not in response.text
     assert "Memory-Setup" in response.text
     assert 'config-admin-return-link" href="/config/admin"' not in response.text
     assert 'href="/memories/maintenance"' in response.text
-    assert "Self-Learning" in response.text
-    assert "aria_learning_candidates_tester" in response.text
-    assert "Learning Candidate: Official page excerpts first" in response.text
-    assert "Regression" in response.text
+    assert "Learning Worker" not in response.text
+    assert "Self-Learning" not in response.text
+    assert "aria_learning_candidates_tester" not in response.text
+    assert "Learning Candidate: Official page excerpts first" not in response.text
+    assert 'action="/memories/maintenance/reset-learning-suggestions"' in response.text
     assert 'name="source_view" value="maintenance"' in response.text
     assert "Dokumente importieren" not in response.text
 
 
-def test_memories_map_page_shows_notes_and_routing_collections() -> None:
+def test_memory_config_page_contains_reindex_scheduler() -> None:
     client = _build_memories_app()
 
-    response = client.get("/memories/map")
+    response = client.get("/memories/config")
+
+    assert response.status_code == 200
+    assert "Reindex-Scheduler" in response.text
+    assert 'id="reindex-scheduler"' in response.text
+    assert 'action="/memories/reindex/save"' in response.text
+    for field_name in (
+        "enabled",
+        "run_on_startup",
+        "keep_backup",
+        "cron",
+        "timezone",
+        "score_threshold",
+        "candidate_limit",
+    ):
+        assert f'name="{field_name}"' in response.text
+
+
+def test_memories_page_shows_notes_and_routing_collections() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories")
 
     assert response.status_code == 200
     assert "aria_notes_tester" in response.text
@@ -1117,33 +2181,45 @@ def test_memories_map_page_shows_notes_and_routing_collections() -> None:
     assert "aria_learning_candidates_tester" in response.text
     assert "aria_learning_evals_tester" in response.text
     assert "aria_recipe_experience_tester" in response.text
-    assert "Notes-Collections" in response.text
-    assert "Routing-Collections" in response.text
-    assert "System-Collections" in response.text
-    assert 'href="/notes"' in response.text
-    assert "/config/routing" in response.text
-    assert "/recipes/learned" in response.text
     assert 'href="/memories"' in response.text
-    assert 'href="/memories/config#rollup"' in response.text
-    assert "Komprimierung im Memory-Setup öffnen" in response.text
     assert "Qdrant Brain" in response.text
     assert "data-memory-brain" in response.text
     assert "data-brain-touch-toggle" in response.text
     assert "memory-map-frame-wrap memory-graph-wrap" not in response.text
-    assert "memory-legacy-graph-scroll" in response.text
+    assert "data-memory-browser" in response.text
+    assert "data-memory-browser-payload" in response.text
+    assert 'href="/notes"' in response.text
     assert "SSH server context" in response.text
     assert "[1.0, 0.0, 0.0]" not in response.text
+    payload = _extract_memory_browser_payload(response.text)
+    collections = [
+        collection for collection in payload.get("collections", []) if isinstance(collection, dict)
+    ]
+    collection_names = {
+        str(collection.get("name") or collection.get("id") or "")
+        for collection in collections
+    }
+    assert "aria_notes_tester" in collection_names
+    assert "aria_learning_tester" in collection_names
+    assert "aria_recipe_experience_tester" in collection_names
+    browser_hrefs = {
+        str(collection.get("name") or collection.get("id") or ""): collection.get("href")
+        for collection in collections
+    }
+    assert browser_hrefs["aria_notes_tester"] == "/notes"
+    assert browser_hrefs["aria_routing_connections_aria_8800"] == "/memories"
 
 
-def test_memories_map_page_shows_brain_empty_state_when_no_vectors() -> None:
+def test_memories_page_shows_brain_empty_state_when_no_vectors() -> None:
     client = _build_memories_app(memory_graph_points=[])
 
-    response = client.get("/memories/map")
+    response = client.get("/memories")
 
     assert response.status_code == 200
     assert "Qdrant Brain" in response.text
     assert "data-memory-brain" in response.text
     assert "No visualizable Qdrant points found yet" in response.text
+    assert "data-memory-browser" in response.text
 
 
 def test_memories_explorer_stays_focused_on_browsing_not_creation() -> None:
@@ -1168,104 +2244,24 @@ def test_memories_explorer_does_not_duplicate_memory_browser_or_maintenance() ->
     assert "/memories/learning-worker/flush" not in response.text
 
 
-def test_memories_learning_worker_detail_route_returns_job_snapshot() -> None:
-    import asyncio
-
-    from aria.core.learning_worker import enqueue_learning_job
-    from aria.core.learning_worker import reset_learning_worker_state
-
-    async def _run() -> str:
-        reset_learning_worker_state()
-
-        async def job() -> dict[str, object]:
-            raise RuntimeError("detail route failure")
-
-        result = enqueue_learning_job(
-            job_type="runtime_outcome",
-            user_id="tester",
-            source="test",
-            artifact_type="routing_hint",
-            factory=job,
-        )
-        await asyncio.sleep(0)
-        return str(result["job_id"])
-
-    job_id = asyncio.run(_run())
+@pytest.mark.parametrize(
+    ("method", "path", "data"),
+    [
+        ("get", "/memories/learning-worker/job/dead-job", None),
+        ("post", "/memories/learning-worker/retry", {"job_id": "dead-job", "force": "1"}),
+        ("post", "/memories/learning-worker/flush", {"scope": "finished"}),
+    ],
+)
+def test_memories_learning_worker_admin_routes_are_removed(
+    method: str,
+    path: str,
+    data: dict[str, str] | None,
+) -> None:
     client = _build_memories_app()
 
-    response = client.get(f"/memories/learning-worker/job/{job_id}")
+    response = client.request(method, path, data=data, follow_redirects=False)
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["job"]["job_id"] == job_id
-    assert payload["job"]["status"] == "failed"
-    assert payload["job"]["retryable"] is True
-
-
-def test_memories_learning_worker_flush_route_clears_finished_jobs() -> None:
-    import asyncio
-
-    from aria.core.learning_worker import enqueue_learning_job
-    from aria.core.learning_worker import reset_learning_worker_state
-
-    async def _run() -> None:
-        reset_learning_worker_state()
-
-        async def job() -> dict[str, object]:
-            return {"captured": True}
-
-        enqueue_learning_job(job_type="runtime_outcome", user_id="tester", source="test", factory=job)
-        await asyncio.sleep(0)
-
-    asyncio.run(_run())
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-worker/flush",
-        data={"scope": "finished"},
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "learning_worker_flushed_finished_1" in response.headers["location"]
-
-
-def test_memories_learning_worker_retry_route_requeues_failed_job() -> None:
-    import asyncio
-
-    from aria.core.learning_worker import enqueue_learning_job
-    from aria.core.learning_worker import get_learning_worker_job
-    from aria.core.learning_worker import reset_learning_worker_state
-
-    async def _run() -> str:
-        reset_learning_worker_state()
-        attempts = {"count": 0}
-
-        async def job() -> dict[str, object]:
-            attempts["count"] += 1
-            if attempts["count"] == 1:
-                raise RuntimeError("retry route first failure")
-            return {"captured": True}
-
-        result = enqueue_learning_job(job_type="runtime_outcome", user_id="tester", source="test", factory=job)
-        await asyncio.sleep(0)
-        return str(result["job_id"])
-
-    job_id = asyncio.run(_run())
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-worker/retry",
-        data={"job_id": job_id, "force": "1"},
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "learning_worker_retry_queued" in response.headers["location"]
-    detail = get_learning_worker_job(job_id)
-    assert detail is not None
-    assert detail["status"] in {"queued", "running", "completed"}
+    assert response.status_code == 404
 
 
 def test_memories_explorer_learning_candidate_filter_redirects_to_memory_browser() -> None:
@@ -1277,14 +2273,16 @@ def test_memories_explorer_learning_candidate_filter_redirects_to_memory_browser
     assert response.headers["location"] == "/memories"
 
 
-def test_memories_maintenance_shows_learning_worker_summary() -> None:
+def test_memories_maintenance_omits_legacy_worker_and_keeps_native_reset() -> None:
     client = _build_memories_app()
 
     response = client.get("/memories/maintenance")
 
     assert response.status_code == 200
-    assert "Learning Worker" in response.text
-    assert "/memories/learning-worker/flush" in response.text
+    assert "Learning Worker" not in response.text
+    assert "Self-Learning" not in response.text
+    assert "/memories/learning-worker/flush" not in response.text
+    assert 'action="/memories/maintenance/reset-learning-suggestions"' in response.text
 
 
 def test_memories_explorer_app_learning_filter_redirects_to_memory_browser() -> None:
@@ -1305,670 +2303,24 @@ def test_memories_explorer_learning_eval_filter_redirects_to_memory_browser() ->
     assert response.headers["location"] == "/memories"
 
 
-def test_learning_candidate_status_route_updates_qdrant_payload() -> None:
+def test_learning_candidate_admin_routes_are_not_registered() -> None:
     client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/status",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "decision": "review",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
+    retired = (
+        ("post", "/memories/learning-candidate/status"),
+        ("post", "/memories/learning-candidate/apply"),
+        ("get", "/memories/learning-candidate/apply-preview"),
+        ("post", "/memories/learning-candidate/regression"),
+        ("post", "/memories/learning-candidate/pytest/prepare-write"),
+        ("post", "/memories/learning-candidate/artifact/review"),
+        ("post", "/memories/learning-candidate/regression/verify"),
+        ("post", "/memories/learning-candidate/regression/run"),
+        ("post", "/memories/learning-candidate/activation-preflight"),
+        ("post", "/memories/learning-candidate/activate"),
     )
 
-    assert response.status_code == 303
-    memory_skill = client.app.state.memory_skill
-    assert memory_skill.payload_updates[-1]["collection"] == "aria_learning_candidates_tester"
-    assert memory_skill.payload_updates[-1]["point_id"] == "candidate-1"
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["candidate_status"] == "reviewed"
-    assert payload["review_decision"] == "review"
-    assert payload["promotion_state"] == "eligible"
-    assert payload["promotion_gate_result"] == "eligible"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_status_route_blocks_higher_risk_candidate_promotion() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/status",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "decision": "review",
-            "artifact_type": "procedure_candidate",
-            "risk": "medium",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["candidate_status"] == "reviewed"
-    assert payload["promotion_state"] == "reviewed_blocked"
-    assert payload["promotion_gate_result"] == "blocked"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_apply_route_prepares_qdrant_payload() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/apply",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "promotion_state": "eligible",
-            "candidate_text": "Learning Candidate: Official page excerpts first",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["apply_state"] == "prepared"
-    assert payload["apply_gate_result"] == "prepared"
-    assert payload["apply_requires_regression"] is True
-    assert payload["regression_status"] == "missing"
-    assert payload["apply_runtime_effect"] == "none"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_apply_route_blocks_non_eligible_candidate() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/apply",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "procedure_candidate",
-            "risk": "medium",
-            "promotion_state": "reviewed_blocked",
-            "candidate_text": "Learning Candidate: Procedure",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["apply_state"] == "blocked"
-    assert payload["apply_gate_result"] == "blocked"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_apply_preview_renders_read_only_admin_preview() -> None:
-    client = _build_memories_app()
-
-    response = client.get(
-        "/memories/learning-candidate/apply-preview",
-        params={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_status": "missing",
-            "candidate_text": (
-                "Learning Candidate: Official page excerpts first\n"
-                "Type: source_rule_candidate\n"
-                "Summary: Prefer official page excerpts."
-            ),
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "Apply-Vorschau" in response.text
-    assert "source_rule_candidate" in response.text
-    assert "source_rule" in response.text
-    assert "/memories/learning-candidate/regression" in response.text
-    assert "Regressionstest verlinken" in response.text
-    assert "Pflicht vor jeder Aktivierung" in response.text
-    assert "Regression missing" in response.text
-    assert "regression_missing" in response.text
-    assert "disabled" in response.text
-    assert "prefer official page excerpts" in response.text
-
-
-def test_learning_candidate_apply_preview_renders_app_learning_sections() -> None:
-    client = _build_memories_app()
-    candidate_text = (
-        "Learning Candidate: Compose install plan\n"
-        "Type: install_plan_candidate\n"
-        "Status: proposed\n"
-        "Risk: medium\n"
-        "Summary: Review-only install plan from app identity.\n"
-        'App identity hypothesis: {"runtime_kind":"docker_compose","app_root":"/srv/aria","entry_artifacts":["/srv/aria/docker-compose.yml"],"confidence":"medium"}\n'
-        'Install/update plan draft: {"plan_kind":"install_update_plan_draft","runtime_kind":"docker_compose","app_root":"/srv/aria","preflight_checks":["confirm app identity hypothesis with operator"],"backup_targets":["/srv/aria/docker-compose.yml"],"proposed_steps":["run docker compose up -d only after explicit confirmation"],"rollback_steps":["restore backed up config/artifact files"],"requires_confirmation":true,"runtime_activation_allowed":false}\n'
-        'Install/update plan validation: {"validation_state":"review_required","risk_level":"medium","missing_gates":[],"mutating_steps":["run docker compose up -d only after explicit confirmation"],"required_confirmations":["operator_review","explicit_execute_confirmation","mutating_step_confirmation"],"runtime_activation_allowed":false,"promotion_allowed":false}\n'
-        'Health check drafts: [{"check_kind":"tcp_port","target":"8080","command_preview":"ss -ltn | grep \\u0027:8080 \\u0027","mutating":false}]\n'
-        'Regression drafts: [{"test_kind":"plan_preview","name":"test_install_update_plan_renders_without_execution","expected":"plan renders preview"}]\n'
-        'Pytest skeleton proposal: {"proposal_kind":"pytest_skeleton_proposal","target_file":"tests/test_app_plan_generated.py","test_functions":[{"name":"test_install_update_plan_renders_without_execution","test_kind":"plan_preview","act":"call the draft/validation helper under test"}],"safety_notes":["proposal only, do not write files automatically"],"write_allowed":false,"runtime_activation_allowed":false}'
-    )
-
-    response = client.get(
-        "/memories/learning-candidate/apply-preview",
-        params={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-app-1",
-            "artifact_type": "install_plan_candidate",
-            "risk": "medium",
-            "apply_state": "",
-            "regression_status": "missing",
-            "candidate_text": candidate_text,
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "App Identity" in response.text
-    assert "Plan Draft" in response.text
-    assert "Validation / Gates" in response.text
-    assert "Health Drafts" in response.text
-    assert "Regression Drafts" in response.text
-    assert "Pytest Skeleton Proposal" in response.text
-    assert "docker_compose" in response.text
-    assert "/srv/aria/docker-compose.yml" in response.text
-    assert "run docker compose up -d only after explicit confirmation" in response.text
-    assert "test_install_update_plan_renders_without_execution" in response.text
-    assert "tests/test_app_plan_generated.py" in response.text
-    assert "write: False" in response.text
-    assert "preview_ready" in response.text
-    assert "target exists: False" in response.text
-    assert "Code Preview" in response.text
-    assert "/memories/learning-candidate/pytest/prepare-write" in response.text
-    assert "Write vorbereiten" in response.text
-    assert "def test_install_update_plan_renders_without_execution()" in response.text
-    assert "runtime: False" in response.text
-
-
-def test_learning_candidate_apply_preview_renders_prepared_artifact_review_actions() -> None:
-    client = _build_memories_app()
-
-    response = client.get(
-        "/memories/learning-candidate/apply-preview",
-        params={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-app-1",
-            "artifact_type": "install_plan_candidate",
-            "risk": "medium",
-            "apply_state": "",
-            "regression_status": "missing",
-            "pytest_write_state": "prepared",
-            "pytest_write_gate_result": "prepared",
-            "pytest_target_file": "tests/test_app_plan_generated.py",
-            "pytest_code_preview_sha256": "abcdef1234567890",
-            "candidate_text": _app_learning_candidate_text(),
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "Prepared Artifact Review" in response.text
-    assert "/memories/learning-candidate/artifact/review" in response.text
-    assert "sha256: abcdef123456" in response.text
-    assert "Akzeptieren" in response.text
-    assert "Änderungen nötig" in response.text
-    assert "Verwerfen" in response.text
-
-
-def test_learning_candidate_pytest_prepare_write_route_stores_prepared_payload_without_writing() -> None:
-    client = _build_memories_app()
-    candidate_text = _app_learning_candidate_text()
-    target = Path(__file__).resolve().parents[1] / "tests" / "test_app_plan_generated.py"
-
-    response = client.post(
-        "/memories/learning-candidate/pytest/prepare-write",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-app-1",
-            "artifact_type": "install_plan_candidate",
-            "risk": "medium",
-            "apply_state": "",
-            "regression_status": "missing",
-            "candidate_text": candidate_text,
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "info=pytest_write_prepared" in response.headers["location"]
-    assert "pytest_write_state=prepared" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["pytest_write_state"] == "prepared"
-    assert payload["pytest_write_gate_result"] == "prepared"
-    assert payload["pytest_write_requires_review"] is True
-    assert payload["pytest_write_allowed"] is False
-    assert payload["runtime_activation_allowed"] is False
-    assert payload["pytest_target_file"] == "tests/test_app_plan_generated.py"
-    assert payload["pytest_test_functions"] == ["test_install_update_plan_renders_without_execution"]
-    assert "def test_install_update_plan_renders_without_execution()" in payload["pytest_code_preview"]
-    assert len(payload["pytest_code_preview_sha256"]) == 64
-    assert target.exists() is False
-
-
-def test_learning_candidate_pytest_prepare_write_route_stores_blocked_payload_for_bad_target() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/pytest/prepare-write",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-app-1",
-            "artifact_type": "install_plan_candidate",
-            "risk": "medium",
-            "apply_state": "",
-            "regression_status": "missing",
-            "candidate_text": _app_learning_candidate_text(target_file="aria/test_bad.py"),
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "info=pytest_write_blocked" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["pytest_write_state"] == "blocked"
-    assert payload["pytest_write_gate_result"] == "blocked"
-    assert payload["pytest_write_allowed"] is False
-    assert payload["runtime_activation_allowed"] is False
-    assert "target_outside_tests" in payload["pytest_write_blockers"]
-    assert "pytest_code_preview" not in payload
-
-
-def test_learning_candidate_artifact_review_route_stores_accepted_outcome_in_qdrant() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/artifact/review",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-app-1",
-            "artifact_kind": "pytest_skeleton_write",
-            "decision": "accepted",
-            "review_notes": "Useful skeleton.",
-            "artifact_type": "install_plan_candidate",
-            "risk": "medium",
-            "apply_state": "",
-            "regression_status": "missing",
-            "pytest_write_state": "prepared",
-            "pytest_write_gate_result": "prepared",
-            "pytest_target_file": "tests/test_app_plan_generated.py",
-            "pytest_code_preview_sha256": "abcdef1234567890",
-            "candidate_text": _app_learning_candidate_text(),
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "info=artifact_review_reviewed" in response.headers["location"]
-    assert "pytest_write_review_decision=accepted" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["prepared_artifact_kind"] == "pytest_skeleton_write"
-    assert payload["prepared_artifact_review_state"] == "reviewed"
-    assert payload["prepared_artifact_review_decision"] == "accepted"
-    assert payload["prepared_artifact_review_signal"] == "positive"
-    assert payload["pytest_write_review_state"] == "reviewed"
-    assert payload["pytest_write_review_notes"] == "Useful skeleton."
-    assert payload["pytest_write_allowed"] is False
-    assert payload["runtime_activation_allowed"] is False
-    assert [call["params"]["memory_type"] for call in memory_skill.execute_calls[-3:]] == [
-        "learning_event",
-        "learning_candidate",
-        "learning_eval",
-    ]
-    assert memory_skill.execute_calls[-2]["params"]["collection"] == "aria_learning_candidates_tester"
-    assert "artifact_pattern_candidate" in memory_skill.execute_calls[-2]["query"]
-
-
-def test_learning_candidate_artifact_review_route_blocks_unprepared_artifact() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/artifact/review",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-app-1",
-            "artifact_kind": "pytest_skeleton_write",
-            "decision": "accepted",
-            "artifact_type": "install_plan_candidate",
-            "risk": "medium",
-            "apply_state": "",
-            "regression_status": "missing",
-            "pytest_write_state": "blocked",
-            "pytest_write_gate_result": "blocked",
-            "candidate_text": _app_learning_candidate_text(target_file="aria/test_bad.py"),
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "info=artifact_review_blocked" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["prepared_artifact_review_state"] == "blocked"
-    assert "artifact_not_prepared" in payload["prepared_artifact_review_blockers"]
-    assert payload["pytest_write_allowed"] is False
-    assert payload["runtime_activation_allowed"] is False
-    assert memory_skill.execute_calls == []
-
-
-def test_learning_candidate_apply_preview_shows_linked_regression_ref() -> None:
-    client = _build_memories_app()
-
-    response = client.get(
-        "/memories/learning-candidate/apply-preview",
-        params={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "routing_hint",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_status": "linked",
-            "regression_ref": "tests/test_pipeline.py::test_explicit_recall_uses_memory",
-            "candidate_text": "Learning Candidate: Route explicit recall to memory\nType: routing_hint",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "linked" in response.text
-    assert "tests/test_pipeline.py::test_explicit_recall_uses_memory" in response.text
-    assert "/memories/learning-candidate/regression/verify" in response.text
-    assert "Regression prüfen" in response.text
-    assert "regression_missing" not in response.text
-
-
-def test_learning_candidate_regression_route_links_valid_test_ref() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/regression",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_ref": "tests/test_pipeline.py::test_explicit_recall_uses_memory",
-            "candidate_text": "Learning Candidate: Official page excerpts first",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "regression_status=linked" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["regression_status"] == "linked"
-    assert payload["regression_ref"] == "tests/test_pipeline.py::test_explicit_recall_uses_memory"
-    assert payload["regression_link_result"] == "linked"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_regression_route_rejects_invalid_test_ref() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/regression",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_ref": "docs/manual-check.md",
-            "candidate_text": "Learning Candidate: Official page excerpts first",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "regression_status=missing" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["regression_status"] == "missing"
-    assert payload["regression_ref"] == ""
-    assert payload["regression_link_result"] == "invalid"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_regression_verify_route_marks_existing_test_ref() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/regression/verify",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_ref": "tests/test_memories_routes.py::test_learning_candidate_regression_verify_route_marks_existing_test_ref",
-            "candidate_text": "Learning Candidate: Official page excerpts first",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "regression_verified=true" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["regression_status"] == "linked"
-    assert payload["regression_verified"] is True
-    assert payload["regression_test_exists"] is True
-    assert payload["regression_verify_result"] == "not_run"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_regression_verify_route_marks_missing_test_ref() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/regression/verify",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_ref": "tests/test_memories_routes.py::test_missing_case",
-            "candidate_text": "Learning Candidate: Official page excerpts first",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "regression_verified=false" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["regression_verified"] is False
-    assert payload["regression_verify_result"] == "missing"
-    assert payload["regression_verify_reason"] == "test_name_missing"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_apply_preview_shows_run_button_after_verification() -> None:
-    client = _build_memories_app()
-
-    response = client.get(
-        "/memories/learning-candidate/apply-preview",
-        params={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "routing_hint",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_status": "linked",
-            "regression_ref": "tests/test_pipeline.py::test_explicit_recall_uses_memory",
-            "regression_verified": "true",
-            "regression_verify_result": "not_run",
-            "candidate_text": "Learning Candidate: Route explicit recall to memory\nType: routing_hint",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-    )
-
-    assert response.status_code == 200
-    assert "/memories/learning-candidate/regression/run" in response.text
-    assert "Regression ausführen" in response.text
-    assert "regression_not_passed" in response.text
-
-
-def test_learning_candidate_regression_run_route_records_passed_result(monkeypatch) -> None:
-    import aria.web.memories_routes as memories_routes
-
-    client = _build_memories_app()
-
-    def fake_run_learning_candidate_regression_payload(**kwargs):
-        assert kwargs["regression_ref"] == "tests/test_pipeline.py::test_existing"
-        return {
-            "regression_required": True,
-            "regression_status": "linked",
-            "regression_ref": kwargs["regression_ref"],
-            "regression_verified": True,
-            "regression_test_exists": True,
-            "regression_verify_result": "passed",
-            "regression_verify_reason": "pytest_passed",
-            "regression_last_run_output": "1 passed",
-            "regression_run_returncode": 0,
-            "runtime_activation_allowed": False,
-        }
-
-    monkeypatch.setattr(memories_routes, "run_learning_candidate_regression_payload", fake_run_learning_candidate_regression_payload)
-
-    response = client.post(
-        "/memories/learning-candidate/regression/run",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "source_rule_candidate",
-            "risk": "low",
-            "apply_state": "prepared",
-            "regression_ref": "tests/test_pipeline.py::test_existing",
-            "candidate_text": "Learning Candidate: Official page excerpts first",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "regression_verify_result=passed" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["regression_verify_result"] == "passed"
-    assert payload["regression_run_returncode"] == 0
-    assert payload["regression_last_run_output"] == "1 passed"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_activation_preflight_route_marks_candidate_ready() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/activation-preflight",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "routing_hint",
-            "risk": "low",
-            "promotion_state": "eligible",
-            "apply_state": "prepared",
-            "regression_status": "linked",
-            "regression_ref": "tests/test_pipeline.py::test_existing",
-            "regression_verified": "true",
-            "regression_verify_result": "passed",
-            "candidate_text": "Learning Candidate: URL source questions\nType: routing_hint",
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    assert "activation_preflight_state=passed" in response.headers["location"]
-    memory_skill = client.app.state.memory_skill
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["activation_preflight_state"] == "passed"
-    assert payload["activation_runtime_effect"] == "weak_signal_only"
-    assert payload["runtime_activation_allowed"] is False
-
-
-def test_learning_candidate_activate_route_stores_active_hint_in_qdrant() -> None:
-    client = _build_memories_app()
-
-    response = client.post(
-        "/memories/learning-candidate/activate",
-        data={
-            "collection": "aria_learning_candidates_tester",
-            "point_id": "candidate-1",
-            "artifact_type": "routing_hint",
-            "risk": "low",
-            "regression_ref": "tests/test_pipeline.py::test_existing",
-            "activation_preflight_state": "passed",
-            "candidate_text": (
-                "Learning Candidate: URL source questions\n"
-                "Type: routing_hint\n"
-                "Summary: Concrete source URLs should bias toward web_search."
-            ),
-            "type": "learning_candidate",
-            "collection_filter": "aria_learning_candidates_tester",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    memory_skill = client.app.state.memory_skill
-    assert memory_skill.execute_calls[-1]["params"]["action"] == "store"
-    assert memory_skill.execute_calls[-1]["params"]["collection"] == "aria_learning_active_hints_tester"
-    assert memory_skill.execute_calls[-1]["params"]["memory_type"] == "learning_active_hint"
-    payload = memory_skill.payload_updates[-1]["payload_updates"]
-    assert payload["activation_state"] == "active_hint_stored"
-    assert payload["active_hint_collection"] == "aria_learning_active_hints_tester"
-    assert payload["runtime_activation_allowed"] is False
-
+    for method, path in retired:
+        response = client.request(method, path, follow_redirects=False)
+        assert response.status_code == 404
 
 def test_memories_root_ignores_legacy_explorer_query_and_renders_browser() -> None:
     client = _build_memories_app()
@@ -2273,7 +2625,7 @@ def test_memory_setup_page_keeps_qdrant_access_in_one_place() -> None:
     assert "Memory backend enabled" not in response.text
 
 
-def test_auto_memory_page_explains_agentic_extraction() -> None:
+def test_auto_memory_page_renders_only_the_personal_model() -> None:
     client = _build_memories_app()
 
     setup_response = client.get("/memories/config")
@@ -2283,18 +2635,322 @@ def test_auto_memory_page_explains_agentic_extraction() -> None:
     assert 'id="auto-memory"' not in setup_response.text
     assert response.status_code == 200
     nav = _first_memory_subnav(response.text)
-    assert 'href="/config/admin/memory"' in nav
-    assert 'class="memory-subnav-item active" href="/config/admin/memory"' in nav
-    assert 'id="auto-memory"' in response.text
-    assert 'id="auto_memory_enabled"' in response.text
-    assert "Auto-memory &amp; agentic learning" in response.text
-    assert "Agentic extraction" in response.text
-    assert "aria_learning_*" in response.text
-    assert "Advanced extraction details" in response.text
+    assert 'href="/config/admin/memory"' not in nav
+    assert 'class="memory-subnav-item active" href="/memories/auto-memory"' in nav
+    assert 'id="auto-memory"' not in response.text
+    assert 'id="auto_memory_enabled"' not in response.text
+    assert "Auto-memory &amp; learning" not in response.text
+    assert "Personal model" in response.text
     assert "/help?doc=memory" in response.text
+    assert "short answers" in response.text
+    assert "Presented / used" in response.text
+    assert "4 / 3" in response.text
+    assert "Feedback +1/-0" in response.text
+    assert 'action="/memories/auto-memory/claim-action"' in response.text
+    assert 'action="/memories/auto-memory/delete-claim"' in response.text
+    assert "Learning inventory" not in response.text
+    assert "Synthesize now" not in response.text
+    assert "To review" not in response.text
+    assert "Durable test procedure" not in response.text
+    assert "Raw learning evidence" not in response.text
+    assert 'action="/memories/auto-memory/delete-point"' not in response.text
+    assert 'action="/memories/auto-memory/candidate-action"' not in response.text
+    assert 'action="/memories/auto-memory/hint-action"' not in response.text
 
 
-def test_memory_backend_save_always_keeps_backend_enabled() -> None:
+def test_memories_auto_memory_page_uses_registry_action_readpoints(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+    client = _build_memories_app()
+
+    response = client.get("/memories/auto-memory")
+
+    assert response.status_code == 200
+    assert 'action="/memories/auto-memory/claim-action"' in response.text
+    assert 'action="/memories/auto-memory/correct-claim"' in response.text
+    assert 'action="/memories/auto-memory/delete-claim"' in response.text
+    assert {
+        ("memory_admin_ui", "/memories/auto-memory/claim-action"),
+        ("memory_admin_ui", "/memories/auto-memory/correct-claim"),
+        ("memory_admin_ui", "/memories/auto-memory/delete-claim"),
+    }.issubset(set(calls))
+
+
+def test_personal_model_page_does_not_collect_legacy_learning_data() -> None:
+    client = _build_memories_app()
+
+    async def _unexpected_learning_read(_username: str) -> list[dict[str, object]]:
+        raise AssertionError("Legacy Learning inventory must not be read")
+
+    client.app.state.memory_skill.list_learning_points_global = _unexpected_learning_read
+
+    response = client.get("/memories/auto-memory")
+
+    assert response.status_code == 200
+    assert "Personal model" in response.text
+    assert "short answers" in response.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/memories/auto-memory/synthesize",
+        "/memories/config/auto-save",
+        "/config/memory/auto-save",
+        "/memories/auto-memory/hint-action",
+        "/memories/auto-memory/candidate-action",
+    ),
+)
+def test_retired_auto_memory_post_routes_are_absent(path: str) -> None:
+    client = _build_memories_app()
+
+    response = client.post(path, follow_redirects=False)
+
+    assert response.status_code == 404
+
+
+def test_auto_memory_personal_claim_can_be_suspended_reactivated_and_deleted() -> None:
+    client = _build_memories_app()
+    data = {
+        "csrf_token": "test-csrf",
+        "collection": "aria_preferences_tester",
+        "point_id": "personal-claim-point-1",
+        "decision": "suspend",
+    }
+
+    suspended = client.post("/memories/auto-memory/claim-action", data=data, follow_redirects=False)
+
+    assert suspended.headers["location"] == "/memories/auto-memory?saved=1"
+    assert client.app.state.memory_skill.personal_claim_point["claim_status"] == "suspended"
+
+    data["decision"] = "reactivate"
+    reactivated = client.post("/memories/auto-memory/claim-action", data=data, follow_redirects=False)
+
+    assert reactivated.headers["location"] == "/memories/auto-memory?saved=1"
+    assert client.app.state.memory_skill.personal_claim_point["claim_status"] == "active"
+
+    deleted = client.post(
+        "/memories/auto-memory/delete-claim",
+        data={
+            "csrf_token": "test-csrf",
+            "collection": "aria_preferences_tester",
+            "point_id": "personal-claim-point-1",
+        },
+        follow_redirects=False,
+    )
+
+    assert deleted.headers["location"] == "/memories/auto-memory?saved=1"
+    assert client.app.state.memory_skill.deleted_points[-1]["point_id"] == "personal-claim-point-1"
+
+
+def test_auto_memory_feedback_redirects_use_registry_route_readpoints(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+    client = _build_memories_app()
+
+    csrf_error = client.post(
+        "/memories/auto-memory/claim-action",
+        data={
+            "csrf_token": "wrong",
+            "collection": "aria_preferences_tester",
+            "point_id": "personal-claim-point-1",
+            "decision": "suspend",
+        },
+        follow_redirects=False,
+    )
+    saved = client.post(
+        "/memories/auto-memory/claim-action",
+        data={
+            "csrf_token": "test-csrf",
+            "collection": "aria_preferences_tester",
+            "point_id": "personal-claim-point-1",
+            "decision": "suspend",
+        },
+        follow_redirects=False,
+    )
+
+    assert csrf_error.status_code == 303
+    assert csrf_error.headers["location"] == "/memories/auto-memory?error=csrf_failed"
+    assert saved.status_code == 303
+    assert saved.headers["location"] == "/memories/auto-memory?saved=1"
+    assert ("memory_admin_ui", "/memories/auto-memory") in calls
+
+
+def test_auto_memory_feedback_redirects_fail_closed_without_route_owner(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    monkeypatch.setattr(
+        memories_routes,
+        "module_route_path",
+        lambda module_id, route_path: None
+        if module_id == "memory_admin_ui" and route_path == "/memories/auto-memory"
+        else real_route_path(module_id, route_path),
+    )
+    client = _build_memories_app()
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/auto-memory"):
+        client.post(
+            "/memories/auto-memory/claim-action",
+            data={
+                "csrf_token": "wrong",
+                "collection": "aria_preferences_tester",
+                "point_id": "personal-claim-point-1",
+                "decision": "suspend",
+            },
+            follow_redirects=False,
+        )
+
+
+def test_auto_memory_expired_personal_claim_cannot_be_reactivated() -> None:
+    client = _build_memories_app()
+    point = client.app.state.memory_skill.personal_claim_point
+    point["claim_status"] = "suspended"
+    point["claim_valid_until"] = "2020-01-01T00:00:00+00:00"
+
+    response = client.post(
+        "/memories/auto-memory/claim-action",
+        data={
+            "csrf_token": "test-csrf",
+            "collection": "aria_preferences_tester",
+            "point_id": "personal-claim-point-1",
+            "decision": "reactivate",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.headers["location"] == "/memories/auto-memory?error=personal_claim_expired"
+    assert point["claim_status"] == "suspended"
+
+
+def test_auto_memory_goal_claim_supports_pause_resume_and_complete() -> None:
+    client = _build_memories_app()
+    point = client.app.state.memory_skill.personal_claim_point
+    point["claim_kind"] = "goal"
+    data = {
+        "csrf_token": "test-csrf",
+        "collection": "aria_preferences_tester",
+        "point_id": "personal-claim-point-1",
+    }
+
+    paused = client.post(
+        "/memories/auto-memory/claim-action",
+        data={**data, "decision": "pause"},
+        follow_redirects=False,
+    )
+    assert paused.headers["location"] == "/memories/auto-memory?saved=1"
+    assert point["claim_status"] == "paused"
+
+    resumed = client.post(
+        "/memories/auto-memory/claim-action",
+        data={**data, "decision": "resume"},
+        follow_redirects=False,
+    )
+    assert resumed.headers["location"] == "/memories/auto-memory?saved=1"
+    assert point["claim_status"] == "active"
+
+    completed = client.post(
+        "/memories/auto-memory/claim-action",
+        data={**data, "decision": "complete"},
+        follow_redirects=False,
+    )
+    assert completed.headers["location"] == "/memories/auto-memory?saved=1"
+    assert point["claim_status"] == "completed"
+
+
+def test_auto_memory_personal_claim_correction_uses_explicit_supersession(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    captured: dict[str, object] = {}
+
+    async def fake_store_personal_claim(**kwargs):
+        captured.update(kwargs)
+        return {"stored": True, "reason": "claim_superseded"}
+
+    monkeypatch.setattr(memories_routes, "store_personal_claim", fake_store_personal_claim)
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/auto-memory/correct-claim",
+        data={
+            "csrf_token": "test-csrf",
+            "collection": "aria_preferences_tester",
+            "point_id": "personal-claim-point-1",
+            "corrected_value": "detailed answers",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.headers["location"] == "/memories/auto-memory?saved=1"
+    assert captured["explicit_supersedes_claim_id"] == "personal-claim-1"
+    assert captured["claim"]["value"] == "detailed answers"
+    assert captured["claim"]["authority"] == "user_correction"
+
+
+def test_auto_memory_learning_point_delete_is_scoped_to_learning_collections() -> None:
+    client = _build_memories_app()
+
+    response = client.post(
+        "/memories/auto-memory/delete-point",
+        data={
+            "csrf_token": "test-csrf",
+            "collection": "aria_learning_candidates_tester",
+            "point_id": "candidate-point-1",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories/auto-memory?saved=1"
+
+    rejected = client.post(
+        "/memories/auto-memory/delete-point",
+        data={
+            "csrf_token": "test-csrf",
+            "collection": "aria_notes_tester",
+            "point_id": "note-point-1",
+        },
+        follow_redirects=False,
+    )
+
+    assert rejected.status_code == 303
+    assert rejected.headers["location"] == "/memories/auto-memory?error=invalid_learning_point"
+    assert client.app.state.memory_skill.deleted_points == [
+        {
+            "user_id": "tester",
+            "collection": "aria_learning_candidates_tester",
+            "point_id": "candidate-point-1",
+        }
+    ]
+
+
+def test_memory_backend_save_always_keeps_backend_enabled(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
@@ -2349,7 +3005,7 @@ def test_memory_backend_save_always_keeps_backend_enabled() -> None:
         request.state.logical_back_url = ""
         return await call_next(request)
 
-    from aria.web.memories_routes import register_memories_routes
+    from aria.modules.memory_admin_ui.routes import register_memories_routes
 
     async def _qdrant_overview(_request: Request) -> dict[str, object]:
         return {"reachable": True, "collections": [], "collection_count": 0}
@@ -2377,14 +3033,12 @@ def test_memory_backend_save_always_keeps_backend_enabled() -> None:
         sanitize_collection_name=_sanitize_collection_name,
         default_memory_collection_for_user=lambda username: f"aria_facts_{username.lower()}",
         get_effective_memory_collection=lambda _request, username: f"aria_facts_{username.lower()}",
-        is_auto_memory_enabled=lambda _request: True,
         read_raw_config=_read_raw_config,
         write_raw_config=_write_raw_config,
         reload_runtime=_reload_runtime,
         resolve_prompt_file=lambda value: Path("/tmp") / value,
         get_secure_store=lambda _raw=None: None,
         memory_collection_cookie="aria_memory_collection",
-        auto_memory_cookie="aria_auto_memory",
     )
 
     client = TestClient(app)
@@ -2395,10 +3049,27 @@ def test_memory_backend_save_always_keeps_backend_enabled() -> None:
     )
 
     assert response.status_code == 303
-    assert urlparse(response.headers["location"]).path == "/memories/config"
+    assert response.headers["location"] == "/memories/config?saved=1"
+    assert ("memory_admin_ui", "/memories/config") in calls
     assert runtime_reloaded["called"] is True
     assert writes
     assert writes[0]["memory"]["enabled"] is True
+
+
+def test_memory_config_feedback_redirects_fail_closed_without_route_owner(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    monkeypatch.setattr(
+        memories_routes,
+        "module_route_path",
+        lambda module_id, route_path: None
+        if module_id == "memory_admin_ui" and route_path == "/memories/config"
+        else real_route_path(module_id, route_path),
+    )
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/config"):
+        memories_routes._memories_config_redirect(saved=True)
 
 
 def test_build_document_collection_groups_summarizes_per_collection() -> None:
@@ -2441,7 +3112,121 @@ def test_memories_map_redirect_keeps_feedback_on_map() -> None:
     response = _memories_map_redirect(info="ok", error="problem")
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/memories/map?info=ok&error=problem"
+    assert response.headers["location"] == "/memories?info=ok&error=problem"
+
+
+def test_memory_admin_redirect_helpers_use_registry_route_readpoints(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return route_path
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+
+    responses = [
+        _memories_redirect(
+            filter_type="all",
+            query="atlas",
+            collection_filter="",
+            page=1,
+            limit=50,
+            sort="updated_desc",
+            info="ok",
+        ),
+        _memories_map_redirect(error="map problem"),
+        _memories_overview_redirect(info="overview ok"),
+        _memories_import_redirect(info="import ok"),
+        _memories_create_redirect(error="create problem"),
+        _memories_maintenance_redirect(info="maintenance ok"),
+    ]
+
+    assert [response.headers["location"] for response in responses] == [
+        "/memories?info=ok",
+        "/memories?error=map+problem",
+        "/memories?info=overview+ok",
+        "/memories/import?info=import+ok",
+        "/memories/create?error=create+problem",
+        "/memories/maintenance?info=maintenance+ok",
+    ]
+    assert calls == [
+        ("memory_admin_ui", "/memories"),
+        ("memory_admin_ui", "/memories"),
+        ("memory_admin_ui", "/memories"),
+        ("memory_admin_ui", "/memories/import"),
+        ("memory_admin_ui", "/memories/create"),
+        ("memory_admin_ui", "/memories/maintenance"),
+    ]
+
+
+def test_memory_admin_redirect_helpers_fail_closed_without_route_owner(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    monkeypatch.setattr(memories_routes, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories"):
+        _memories_map_redirect(info="ok")
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/import"):
+        _memories_import_redirect(info="ok")
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/create"):
+        _memories_create_redirect(info="ok")
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/maintenance"):
+        _memories_maintenance_redirect(info="ok")
+
+
+def test_memory_overview_guard_redirects_use_registry_route_readpoints(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+
+    inactive_client = _build_memories_app(memory_skill_enabled=False)
+    inactive_response = inactive_client.post(
+        "/memories/delete",
+        data={"collection": "aria_facts_tester", "point_id": "point-1"},
+        follow_redirects=False,
+    )
+    assert inactive_response.status_code == 303
+    assert inactive_response.headers["location"] == "/memories?error=Memory+nicht+aktiv"
+    assert ("memory_admin_ui", "/memories") in calls
+
+
+def test_memory_overview_guard_redirects_fail_closed_without_route_owner(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    real_route_path = memories_routes.module_route_path
+    monkeypatch.setattr(
+        memories_routes,
+        "module_route_path",
+        lambda module_id, route_path: None
+        if module_id == "memory_admin_ui" and route_path == "/memories"
+        else real_route_path(module_id, route_path),
+    )
+    client = _build_memories_app(memory_skill_enabled=False)
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories"):
+        client.post(
+            "/memories/delete",
+            data={"collection": "aria_facts_tester", "point_id": "point-1"},
+            follow_redirects=False,
+        )
+
+
+def test_memories_map_route_redirects_to_canonical_memories_page() -> None:
+    client = _build_memories_app()
+
+    response = client.get("/memories/map?info=ok&error=problem", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/memories?info=ok&error=problem"
 
 
 def test_memories_redirect_keeps_collection_filter() -> None:
@@ -2458,10 +3243,21 @@ def test_memories_redirect_keeps_collection_filter() -> None:
     assert response.headers["location"] == "/memories"
 
 
-def test_memory_collection_link_uses_matching_type_for_document_collections() -> None:
+def test_memory_collection_link_uses_matching_type_for_document_collections(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return route_path
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+
     url = _memory_collection_link(kind="document", collection="aria_docs_demo_user_manuals")
 
     assert url == "/memories"
+    assert calls == [("memory_admin_ui", "/memories")]
 
 
 def test_memory_collection_link_uses_learning_event_type() -> None:
@@ -2480,6 +3276,51 @@ def test_memory_collection_link_uses_learning_eval_type() -> None:
     url = _memory_collection_link(kind="learning_eval", collection="aria_learning_evals_tester")
 
     assert url == "/memories"
+
+
+def test_memory_collection_link_uses_notes_readpoint(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return route_path
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+
+    assert _memory_collection_link(kind="notes", collection="aria_notes_tester") == "/notes"
+    assert calls == [("notes", "/notes")]
+
+
+def test_memory_document_link_uses_registry_route_readpoint(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return route_path
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+
+    assert _memory_document_link(collection="aria_docs_demo_user", document_id="doc-42") == "/memories"
+    assert calls == [("memory_admin_ui", "/memories")]
+
+
+def test_routing_graph_link_uses_registry_route_readpoint(monkeypatch) -> None:
+    import aria.modules.memory_admin_ui.routes as memories_routes
+
+    calls: list[tuple[str, str]] = []
+
+    def _module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return route_path
+
+    monkeypatch.setattr(memories_routes, "module_route_path", _module_route_path)
+
+    assert _routing_graph_link() == "/memories"
+    assert calls == [("memory_admin_ui", "/memories")]
 
 
 def test_memory_document_link_points_to_document_chunks_view() -> None:
@@ -2593,7 +3434,7 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
                 "kind": "routing",
                 "points": 116,
                 "share_pct": 100,
-                "browse_url": "/config/routing",
+                "browse_url": "/memories",
             }
         ],
         system_rows=[
@@ -2602,7 +3443,7 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
                 "kind": "recipe_experience",
                 "points": 0,
                 "share_pct": 0,
-                "browse_url": "/recipes/learned",
+                "browse_url": "/recipes/mine",
             }
         ],
     )
@@ -2624,10 +3465,10 @@ def test_build_memory_graph_includes_root_kinds_and_detail_nodes() -> None:
     assert hrefs.get("aria_docs_neo_manuals", "") == "/memories"
     assert hrefs.get("Notizen", "") == "/notes"
     assert hrefs.get("aria_notes_neo", "") == "/notes"
-    assert hrefs.get("Routing", "") == "/config/routing"
-    assert hrefs.get("aria_routing_connections_neo_8800", "") == "/config/routing"
-    assert hrefs.get("Recipe Experience", "") == "/recipes/learned"
-    assert hrefs.get("aria_recipe_experience_neo", "") == "/recipes/learned"
+    assert hrefs.get("Routing", "") == "/memories"
+    assert hrefs.get("aria_routing_connections_neo_8800", "") == "/memories"
+    assert hrefs.get("Recipe Experience", "") == "/recipes/mine"
+    assert hrefs.get("aria_recipe_experience_neo", "") == "/recipes/mine"
     icons = {node["label"]: node.get("icon", "") for node in graph["nodes"]}
     assert icons.get("aria_docs_neo_manuals") == "files"
     assert icons.get("WOCHE") == "llm"

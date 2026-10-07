@@ -4,8 +4,8 @@
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
   <section class="floating-card config-domain-section">
-    {% set picker_action = '/config/prompts' %}
-    {% set save_action = '/config/prompts/save' %}
+    {% set picker_action = module_route_path('config_ui', '/config/prompts') %}
+    {% set save_action = module_route_path('config_ui', '/config/prompts/save') %}
     {% set picker_id = 'prompt-file' %}
     {% set textarea_id = 'prompt-content' %}
     {% set picker_label_key = 'config_prompts.col_file' %}

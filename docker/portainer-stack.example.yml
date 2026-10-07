@@ -7,27 +7,7 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
-  searxng-valkey:
-    image: valkey/valkey:8-alpine
-    restart: unless-stopped
-    volumes:
-      - searxng_valkey:/data
 
-  searxng:
-    image: searxng/searxng:latest
-    restart: unless-stopped
-    depends_on:
-      - searxng-valkey
-    environment:
-      FORCE_OWNERSHIP: "false"
-      SEARXNG_SECRET: "${SEARXNG_SECRET:-CHANGE-ME-LONG-RANDOM-SEARXNG-SECRET}"
-      SEARXNG_LIMITER: "false"
-      SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
-    configs:
-      - source: searxng_settings
-        target: /etc/searxng/settings.yml
-    volumes:
-      - searxng_cache:/var/cache/searxng
 
   aria:
     image: fischermanch/aria:alpha
@@ -53,31 +33,9 @@ services:
       - qdrant_storage:/qdrant/storage:ro
     depends_on:
       - qdrant
-      - searxng
 
 volumes:
   qdrant_storage:
-  searxng_cache:
-  searxng_valkey:
   aria_config:
   aria_prompts:
   aria_data:
-
-configs:
-  searxng_settings:
-    content: |
-      use_default_settings: true
-      general:
-        instance_name: "ARIA Search"
-      search:
-        safe_search: 1
-        autocomplete: ""
-        formats:
-          - html
-          - json
-      server:
-        secret_key: "ultrasecretkey"
-        limiter: false
-        image_proxy: true
-      valkey:
-        url: valkey://searxng-valkey:6379/0

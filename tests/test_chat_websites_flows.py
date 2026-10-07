@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from aria.web.chat_websites_flows import handle_chat_websites_flow
+from aria.modules.website_runtime.chat_flows import handle_chat_websites_flow
 
 
 def _write_websites_config(tmp_path: Path) -> None:
@@ -49,34 +49,51 @@ def test_chat_websites_flow_can_open_websites(tmp_path: Path):
     assert "2" in outcome.assistant_text
 
 
-def test_chat_websites_flow_leaves_website_list_queries_for_unified_routing(tmp_path: Path):
+def test_chat_websites_flow_uses_website_route_readpoint(monkeypatch, tmp_path: Path):
+    import asyncio
+    import aria.modules.website_runtime.chat_flows as chat_websites_flows
+
+    _write_websites_config(tmp_path)
+    monkeypatch.setattr(chat_websites_flows, "websites_config_path", lambda: "/admin/websites")
+
+    outcome = asyncio.run(handle_chat_websites_flow(clean_message="öffne beobachtete webseiten", base_dir=tmp_path))
+
+    assert outcome is not None
+    assert "`/admin/websites`" in outcome.assistant_text
+    assert "/config/connections/websites" not in outcome.assistant_text
+
+
+def test_selected_chat_websites_flow_opens_overview_for_list_request(tmp_path: Path):
     import asyncio
 
     _write_websites_config(tmp_path)
     outcome = asyncio.run(handle_chat_websites_flow(clean_message="zeige beobachtete webseiten", base_dir=tmp_path))
 
-    assert outcome is None
+    assert outcome is not None
+    assert "Aktuell vorhanden: 2" in outcome.assistant_text
 
 
-def test_chat_websites_flow_leaves_website_group_queries_for_unified_routing(tmp_path: Path):
+def test_selected_chat_websites_flow_does_not_reparse_group_semantics(tmp_path: Path):
     import asyncio
 
     _write_websites_config(tmp_path)
     outcome = asyncio.run(handle_chat_websites_flow(clean_message="zeige beobachtete webseiten in Docs", base_dir=tmp_path))
 
-    assert outcome is None
+    assert outcome is not None
+    assert "Aktuell vorhanden: 2" in outcome.assistant_text
 
 
-def test_chat_websites_flow_leaves_single_website_queries_for_unified_routing(tmp_path: Path):
+def test_selected_chat_websites_flow_does_not_reparse_single_target_semantics(tmp_path: Path):
     import asyncio
 
     _write_websites_config(tmp_path)
     outcome = asyncio.run(handle_chat_websites_flow(clean_message="öffne beobachtete webseite aria-docs", base_dir=tmp_path))
 
-    assert outcome is None
+    assert outcome is not None
+    assert "Aktuell vorhanden: 2" in outcome.assistant_text
 
 
-def test_chat_websites_flow_leaves_ambiguous_website_queries_for_unified_routing(tmp_path: Path):
+def test_selected_chat_websites_flow_does_not_reparse_ambiguous_semantics(tmp_path: Path):
     import asyncio
 
     _write_websites_config(tmp_path)
@@ -92,13 +109,15 @@ def test_chat_websites_flow_leaves_ambiguous_website_queries_for_unified_routing
 
     outcome = asyncio.run(handle_chat_websites_flow(clean_message="öffne beobachtete webseite docs", base_dir=tmp_path))
 
-    assert outcome is None
+    assert outcome is not None
+    assert "Aktuell vorhanden: 3" in outcome.assistant_text
 
 
-def test_chat_websites_flow_leaves_semantic_group_queries_for_unified_routing(tmp_path: Path):
+def test_selected_chat_websites_flow_has_no_semantic_group_wordlist(tmp_path: Path):
     import asyncio
 
     _write_websites_config(tmp_path)
     outcome = asyncio.run(handle_chat_websites_flow(clean_message="zeige beobachtete webseiten in dokumentation", base_dir=tmp_path))
 
-    assert outcome is None
+    assert outcome is not None
+    assert "Aktuell vorhanden: 2" in outcome.assistant_text

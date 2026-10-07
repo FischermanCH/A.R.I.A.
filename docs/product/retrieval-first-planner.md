@@ -1,10 +1,10 @@
 # Retrieval-First Planner
 
-Stand: 2026-04-26
+Stand: 2026-09-04
 
 ## Ziel
 
-ARIA soll sich von keywordlastigem If-Then-Routing zu einem kontrollierten, intelligenten Planner entwickeln:
+ARIA verwendet einen kontrollierten, intelligenten Planner statt keywordlastigem If-Then-Routing:
 
 1. deterministische Schichten sammeln nur den sicheren Handlungsraum
 2. Retrieval schlaegt passende Ziele, Rezepte, Templates und Kontexte vor
@@ -15,13 +15,7 @@ Nicht das LLM soll "alles frei entscheiden". Es soll innerhalb eines sauber eing
 
 ## Warum
 
-Das aktuelle Muster ist noch zu stark:
-
-- Intent / Routing ueber Keywords und Heuristiken
-- spaeter kleine bounded LLM-Korrekturen
-- viele Sonderregeln pro Produktpfad
-
-Das fuehrt langfristig zu:
+Das abgeloeste Muster aus Keyword-Routing, spaeten LLM-Korrekturen und Sonderregeln pro Produktpfad fuehrte zu:
 
 - staendigem Routing-Tuning
 - spröder Mixed-Language-Erkennung
@@ -235,8 +229,8 @@ Guardrail-Check:
 
 ### Phase 5
 
-- alte Heuristiken schrittweise abbauen
-- harte Keyword-Mappings nur noch fuer grobe Safety-/Fallback-Faelle behalten
+- abgeschlossen: freie Sprache wird semantisch durch bounded LLM-Entscheidungen aufgeloest
+- deterministische Logik bleibt auf Schemas, exakte IDs, Berechtigungen, Bestaetigung, Budgets, Security, Protokolle und Output-Parsing begrenzt
 
 ## Nicht-Ziele
 

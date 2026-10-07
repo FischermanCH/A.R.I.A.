@@ -1,24 +1,25 @@
 from __future__ import annotations
 
-from aria.core.action_plan import ActionPlan
-from aria.core.capability_catalog import capability_executor_bindings
-from aria.core.connection_action_contract import connection_action_capabilities_by_family
-from aria.core.connection_action_contract import connection_action_capabilities_by_planner_role
-from aria.core.connection_action_contract import connection_action_capability_for_executor_family
-from aria.core.connection_action_contract import connection_action_contract
-from aria.core.connection_action_contract import connection_action_binding_is_supported
-from aria.core.connection_action_contract import connection_action_direct_gate_executor_kinds
-from aria.core.connection_action_contract import connection_action_executor_bindings
-from aria.core.connection_action_contract import connection_action_executor_kinds
-from aria.core.connection_action_contract import connection_action_contracts
-from aria.core.connection_action_contract import connection_action_manifest_rows
-from aria.core.connection_action_contract import confirmation_required_for_capability
-from aria.core.connection_action_contract import draft_capability_for_capability
-from aria.core.connection_action_contract import guardrail_kind_for_capability
-from aria.core.connection_action_contract import runtime_operation_for_capability
-from aria.core.connection_action_contract import runtime_payload_for_action_plan
-from aria.core.connection_action_contract import sensitive_content_for_capability
-from aria.core.pipeline_capability_execution import PipelineCapabilityExecutor
+from aria.modules.action_contracts.plan import ActionPlan
+from aria.modules.action_contracts.capabilities import capability_executor_bindings
+from aria.modules.action_contracts.connection import connection_action_capabilities_by_family
+from aria.modules.action_contracts.connection import connection_action_capabilities_by_planner_role
+from aria.modules.action_contracts.connection import connection_action_capabilities_for_executor
+from aria.modules.action_contracts.connection import connection_action_capability_for_executor_family
+from aria.modules.action_contracts.connection import connection_action_contract
+from aria.modules.action_contracts.connection import connection_action_binding_is_supported
+from aria.modules.action_contracts.connection import connection_action_direct_gate_executor_kinds
+from aria.modules.action_contracts.connection import connection_action_executor_bindings
+from aria.modules.action_contracts.connection import connection_action_executor_kinds
+from aria.modules.action_contracts.connection import connection_action_contracts
+from aria.modules.action_contracts.connection import connection_action_manifest_rows
+from aria.modules.action_contracts.connection import confirmation_required_for_capability
+from aria.modules.action_contracts.connection import draft_capability_for_capability
+from aria.modules.action_contracts.connection import guardrail_kind_for_capability
+from aria.modules.action_contracts.connection import runtime_operation_for_capability
+from aria.modules.action_contracts.connection import runtime_payload_for_action_plan
+from aria.modules.action_contracts.connection import sensitive_content_for_capability
+from aria.modules.pipeline_capability_execution.executor import PipelineCapabilityExecutor
 
 
 def test_every_executor_binding_has_a_connection_action_contract() -> None:
@@ -65,6 +66,7 @@ def test_connection_action_contract_exposes_family_lookups_for_agentic_resolvers
     assert connection_action_capability_for_executor_family("email", "message") == "email_send"
     assert connection_action_capability_for_executor_family("mqtt", "message") == "mqtt_publish"
     assert connection_action_capability_for_executor_family("rss", "message") == ""
+    assert connection_action_capabilities_for_executor("webhook") == ("webhook_send",)
 
 
 def test_connection_action_contract_exposes_provider_planner_boundaries() -> None:

@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from aria.core.config import Settings
-from aria.core.inventory_index import InventoryIndexStore, build_inventory_documents, inventory_collection_name, inventory_documents_fingerprint
+from aria.modules.configuration_foundations.config import Settings
+from aria.modules.system_inventory.index import InventoryIndexStore, build_inventory_documents, inventory_collection_name, inventory_documents_fingerprint
 
 
 class FakeEmbeddingResponse:

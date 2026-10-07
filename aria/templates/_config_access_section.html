@@ -1,12 +1,14 @@
 {% from "_icons.html" import icon %}
+{% set config_ui_security_path = module_route_path('config_ui', '/config/security') %}
+{% set config_ui_users_path = module_route_path('config_ui', '/config/users') %}
 {% if request.state.can_access_advanced_config %}
 <section class="floating-card config-domain-section">
   <div class="config-submenu">
-    <a class="config-submenu-item" href="/config/users?return_to={{ page_return_to | urlencode }}">
+    <a class="config-submenu-item" href="{{ config_ui_users_path }}?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Users') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Manage user accounts and roles from one place.') }}</span></span>
     </a>
-    <a class="config-submenu-item" href="/config/security?return_to={{ page_return_to | urlencode }}">
+    <a class="config-submenu-item" href="{{ config_ui_security_path }}?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
       <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
     </a>

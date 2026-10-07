@@ -1,0 +1,118 @@
+{% from "_icons.html" import icon %}
+{% set memory_claim_correct_path = module_route_path('memory_admin_ui', '/memories/auto-memory/correct-claim') %}
+{% set memory_claim_action_path = module_route_path('memory_admin_ui', '/memories/auto-memory/claim-action') %}
+{% set memory_claim_delete_path = module_route_path('memory_admin_ui', '/memories/auto-memory/delete-claim') %}
+<article class="learning-ledger-item">
+  <details>
+    <summary>
+      <span class="learning-ledger-main">
+        <strong>{{ claim.claim_predicate or claim.claim_kind }}</strong>
+        <span>{{ claim.claim_value or claim.text }}</span>
+      </span>
+      <span class="learning-ledger-badges">
+        <span class="meta-badge">{{ claim.claim_kind }}</span>
+        <span class="meta-badge {% if claim.runtime_state == 'effective' %}is-active{% endif %}">
+          {% if claim.runtime_state == 'effective' %}{{ 'wirksam' if memory_lang_de else 'effective' }}
+          {% elif claim.runtime_state == 'scheduled' %}{{ 'geplant' if memory_lang_de else 'scheduled' }}
+          {% elif claim.runtime_state == 'expired' %}{{ 'abgelaufen' if memory_lang_de else 'expired' }}
+          {% else %}{{ claim.claim_status }}{% endif %}
+        </span>
+        <span class="meta-badge">{{ claim.claim_scope }}{% if claim.claim_scope_ref %} · {{ claim.claim_scope_ref }}{% endif %}</span>
+        <span class="meta-badge">
+          {{ 'Bereitgestellt / benutzt' if memory_lang_de else 'Presented / used' }}:
+          {{ claim.claim_presented_count|default(0, true) }}/{{ claim.claim_used_count|default(0, true) }}
+        </span>
+        <span class="meta-badge">
+          Feedback +{{ claim.claim_positive_feedback_count|default(0, true) }}/-{{ claim.claim_negative_feedback_count|default(0, true) }}
+        </span>
+        {% if claim.review_due %}<span class="meta-badge">{{ 'Review fällig' if memory_lang_de else 'Review due' }}</span>{% endif %}
+      </span>
+    </summary>
+    <div class="learning-ledger-detail">
+      <dl>
+        <div><dt>{{ 'Subjekt' if memory_lang_de else 'Subject' }}</dt><dd>{{ claim.claim_subject }}</dd></div>
+        <div><dt>{{ 'Prädikat' if memory_lang_de else 'Predicate' }}</dt><dd>{{ claim.claim_predicate }}</dd></div>
+        <div><dt>{{ 'Wert' if memory_lang_de else 'Value' }}</dt><dd>{{ claim.claim_value }}</dd></div>
+        <div><dt>{{ 'Autorität' if memory_lang_de else 'Authority' }}</dt><dd>{{ claim.claim_authority }}</dd></div>
+        <div><dt>{{ 'Konfidenz' if memory_lang_de else 'Confidence' }}</dt><dd>{{ '%.2f'|format(claim.claim_confidence|float) }}</dd></div>
+        <div><dt>{{ 'Bereitgestellt / benutzt' if memory_lang_de else 'Presented / used' }}</dt><dd>{{ claim.claim_presented_count|default(0, true) }} / {{ claim.claim_used_count|default(0, true) }}</dd></div>
+        <div><dt>{{ 'Bestätigungen' if memory_lang_de else 'Confirmations' }}</dt><dd>{{ claim.get('claim_support_count') or 1 }} · {{ claim.get('claim_last_supported_at') or 'n/a' }}</dd></div>
+        <div><dt>{{ 'Outcome geändert' if memory_lang_de else 'Changed outcome' }}</dt><dd>{{ claim.claim_changed_outcome_count|default(0, true) }}</dd></div>
+        <div><dt>{{ 'Positives / negatives Feedback' if memory_lang_de else 'Positive / negative feedback' }}</dt><dd>{{ claim.claim_positive_feedback_count|default(0, true) }} / {{ claim.claim_negative_feedback_count|default(0, true) }}</dd></div>
+        <div><dt>{{ 'Zuletzt benutzt' if memory_lang_de else 'Last used' }}</dt><dd>{{ claim.claim_last_used_at or 'n/a' }}</dd></div>
+        {% if claim.claim_valid_from %}<div><dt>{{ 'Gültig seit' if memory_lang_de else 'Valid from' }}</dt><dd>{{ claim.claim_valid_from }}</dd></div>{% endif %}
+        {% if claim.claim_valid_until %}<div><dt>{{ 'Gültig bis' if memory_lang_de else 'Valid until' }}</dt><dd>{{ claim.claim_valid_until }}</dd></div>{% endif %}
+        {% if claim.claim_review_after %}<div><dt>{{ 'Review ab' if memory_lang_de else 'Review after' }}</dt><dd>{{ claim.claim_review_after }}</dd></div>{% endif %}
+        {% if claim.claim_supersedes %}<div><dt>{{ 'Ersetzt' if memory_lang_de else 'Supersedes' }}</dt><dd>{{ claim.claim_supersedes }}</dd></div>{% endif %}
+        {% if claim.claim_superseded_by %}<div><dt>{{ 'Ersetzt durch' if memory_lang_de else 'Superseded by' }}</dt><dd>{{ claim.claim_superseded_by }}</dd></div>{% endif %}
+        <div><dt>Collection</dt><dd>{{ claim.collection }}</dd></div>
+        <div><dt>Point ID</dt><dd>{{ claim.id }}</dd></div>
+      </dl>
+      {% if claim.claim_status in ['active', 'suspended', 'paused', 'completed'] %}
+      <div class="learning-candidate-controls">
+        {% if claim.claim_status == 'active' and claim.runtime_state != 'expired' %}
+        <form method="post" action="{{ memory_claim_correct_path }}">
+          <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+          <input type="hidden" name="collection" value="{{ claim.collection }}">
+          <input type="hidden" name="point_id" value="{{ claim.id }}">
+          <label>
+            <span>{{ 'Korrigierter Wert' if memory_lang_de else 'Corrected value' }}</span>
+            <input type="text" name="corrected_value" value="{{ claim.claim_value }}" maxlength="700" required>
+          </label>
+          <button type="submit" class="ui-action-button">{{ icon('edit', 'ui-action-icon') }}{{ 'Korrigieren' if memory_lang_de else 'Correct' }}</button>
+        </form>
+        {% endif %}
+        {% if claim.claim_kind in ['goal', 'project'] %}
+          {% if claim.claim_status == 'active' %}
+          <form method="post" action="{{ memory_claim_action_path }}">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+            <input type="hidden" name="collection" value="{{ claim.collection }}">
+            <input type="hidden" name="point_id" value="{{ claim.id }}">
+            <button type="submit" name="decision" value="pause" class="ui-action-button">{{ icon('pause', 'ui-action-icon') }}{{ 'Pausieren' if memory_lang_de else 'Pause' }}</button>
+            <button type="submit" name="decision" value="complete" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ 'Abschließen' if memory_lang_de else 'Complete' }}</button>
+          </form>
+          {% elif claim.claim_status == 'paused' %}
+          <form method="post" action="{{ memory_claim_action_path }}">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+            <input type="hidden" name="collection" value="{{ claim.collection }}">
+            <input type="hidden" name="point_id" value="{{ claim.id }}">
+            <button type="submit" name="decision" value="resume" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ 'Fortsetzen' if memory_lang_de else 'Resume' }}</button>
+            <button type="submit" name="decision" value="complete" class="ui-action-button">{{ icon('check', 'ui-action-icon') }}{{ 'Abschließen' if memory_lang_de else 'Complete' }}</button>
+          </form>
+          {% elif claim.claim_status == 'completed' %}
+          <form method="post" action="{{ memory_claim_action_path }}">
+            <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+            <input type="hidden" name="collection" value="{{ claim.collection }}">
+            <input type="hidden" name="point_id" value="{{ claim.id }}">
+            <button type="submit" name="decision" value="reopen" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ 'Wieder öffnen' if memory_lang_de else 'Reopen' }}</button>
+          </form>
+          {% endif %}
+        {% endif %}
+        {% if claim.claim_status in ['active', 'suspended'] %}
+        <form method="post" action="{{ memory_claim_action_path }}">
+          <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+          <input type="hidden" name="collection" value="{{ claim.collection }}">
+          <input type="hidden" name="point_id" value="{{ claim.id }}">
+          {% if claim.claim_status == 'suspended' %}
+          <input type="hidden" name="decision" value="reactivate">
+          <button type="submit" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ 'Reaktivieren' if memory_lang_de else 'Reactivate' }}</button>
+          {% else %}
+          <input type="hidden" name="decision" value="suspend">
+          <button type="submit" class="ui-action-button">{{ icon('pause', 'ui-action-icon') }}{{ 'Suspendieren' if memory_lang_de else 'Suspend' }}</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+      <form method="post" action="{{ memory_claim_delete_path }}" onsubmit="return window.confirm('{{ 'Diesen persönlichen Claim endgültig löschen?' if memory_lang_de else 'Permanently delete this personal claim?' }}');">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <input type="hidden" name="collection" value="{{ claim.collection }}">
+        <input type="hidden" name="point_id" value="{{ claim.id }}">
+        <button type="submit" class="memory-learning-delete" title="{{ 'Persönlichen Claim löschen' if memory_lang_de else 'Delete personal claim' }}">
+          {{ icon('trash', 'ui-action-icon') }}
+          {{ 'Löschen' if memory_lang_de else 'Delete' }}
+        </button>
+      </form>
+    </div>
+  </details>
+</article>

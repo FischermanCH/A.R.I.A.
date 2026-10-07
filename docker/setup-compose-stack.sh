@@ -17,7 +17,6 @@ LLM_MODEL=""
 EMBEDDINGS_API_BASE=""
 EMBEDDINGS_MODEL=""
 ARIA_QDRANT_API_KEY=""
-SEARXNG_SECRET=""
 ARIA_UPDATER_TOKEN=""
 ARIA_COOKIE_NAMESPACE=""
 START_STACK="true"
@@ -34,7 +33,6 @@ LLM_MODEL_EXPLICIT="false"
 EMBEDDINGS_API_BASE_EXPLICIT="false"
 EMBEDDINGS_MODEL_EXPLICIT="false"
 ARIA_QDRANT_API_KEY_EXPLICIT="false"
-SEARXNG_SECRET_EXPLICIT="false"
 ARIA_UPDATER_TOKEN_EXPLICIT="false"
 ARIA_COOKIE_NAMESPACE_EXPLICIT="false"
 
@@ -54,7 +52,7 @@ Usage:
 
 What it does:
   - creates a managed ARIA docker-compose installation under one directory
-  - keeps config, prompts, data, qdrant and searxng storage in visible bind mounts
+  - keeps config, prompts, data and qdrant storage in visible bind mounts
   - writes a local helper ./aria-stack.sh for start/status/update operations
   - serves as the lower-level automation helper behind aria-setup
 
@@ -69,7 +67,6 @@ Options:
   --embeddings-api-base URL   Default embeddings base URL inside the container
   --embeddings-model MODEL    Default embeddings model
   --qdrant-key VALUE          Explicit Qdrant API key. Default: generated
-  --searxng-secret VALUE      Explicit SearXNG secret. Default: generated
   --updater-token VALUE       Explicit token for the managed GUI update helper. Default: generated
   --cookie-namespace VALUE    Explicit browser-cookie namespace. Default: managed:<stack-name>:<port>
   --upgrade-existing          Reuse an existing install dir and keep its current env values unless explicitly overridden
@@ -174,10 +171,6 @@ load_existing_env_defaults() {
     value="$(read_env_value "$env_file" "ARIA_QDRANT_API_KEY")"
     [[ -n "$value" ]] && ARIA_QDRANT_API_KEY="$value"
   fi
-  if [[ "$SEARXNG_SECRET_EXPLICIT" != "true" ]]; then
-    value="$(read_env_value "$env_file" "SEARXNG_SECRET")"
-    [[ -n "$value" ]] && SEARXNG_SECRET="$value"
-  fi
   if [[ "$ARIA_UPDATER_TOKEN_EXPLICIT" != "true" ]]; then
     value="$(read_env_value "$env_file" "ARIA_UPDATER_TOKEN")"
     [[ -n "$value" ]] && ARIA_UPDATER_TOKEN="$value"
@@ -202,69 +195,12 @@ services:
     volumes:
       - ./storage/qdrant-storage:/qdrant/storage
 
-  searxng-valkey:
-    image: valkey/valkey:8-alpine
-    restart: unless-stopped
-    volumes:
-      - ./storage/searxng-valkey:/data
-
-  searxng:
-    image: searxng/searxng:latest
-    restart: unless-stopped
-    depends_on:
-      - searxng-valkey
-    environment:
-      FORCE_OWNERSHIP: "false"
-      SEARXNG_SECRET: ${SEARXNG_SECRET}
-      SEARXNG_LIMITER: "false"
-      SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
-    entrypoint:
-      - /bin/sh
-      - -lc
-      - |
-        umask 077
-        mkdir -p /etc/searxng
-        python - <<'PY'
-        import json
-        import os
-        from pathlib import Path
-
-        secret = os.environ.get("SEARXNG_SECRET", "ultrasecretkey")
-        valkey_url = os.environ.get("SEARXNG_VALKEY_URL", "valkey://searxng-valkey:6379/0")
-        lines = [
-            "use_default_settings: true",
-            "",
-            "general:",
-            '  instance_name: "ARIA Search"',
-            "",
-            "search:",
-            "  safe_search: 1",
-            '  autocomplete: ""',
-            "  formats:",
-            "    - html",
-            "    - json",
-            "",
-            "server:",
-            f"  secret_key: {json.dumps(secret)}",
-            "  limiter: false",
-            "  image_proxy: true",
-            "",
-            "valkey:",
-            f"  url: {json.dumps(valkey_url)}",
-            "",
-        ]
-        Path("/etc/searxng/settings.yml").write_text("\n".join(lines), encoding="utf-8")
-        PY
-        exec /usr/local/searxng/entrypoint.sh
-    volumes:
-      - ./storage/searxng-cache:/var/cache/searxng
 
   aria:
     image: ${ARIA_IMAGE:-fischermanch/aria:alpha}
     restart: unless-stopped
     depends_on:
       - qdrant
-      - searxng
     ports:
       - "${ARIA_HTTP_PORT:-8800}:8800"
     extra_hosts:
@@ -326,7 +262,6 @@ write_env_file() {
 ARIA_STACK_NAME=$STACK_NAME
 ARIA_IMAGE=$ARIA_IMAGE
 ARIA_QDRANT_API_KEY=$ARIA_QDRANT_API_KEY
-SEARXNG_SECRET=$SEARXNG_SECRET
 ARIA_UPDATE_MODE=managed-helper
 ARIA_UPDATER_URL=http://aria-updater:8094
 ARIA_UPDATER_TOKEN=$ARIA_UPDATER_TOKEN
@@ -733,7 +668,7 @@ validate_runtime() {
 }
 
 runtime_update_services() {
-  local preferred_services=("qdrant" "searxng-valkey" "searxng" "aria" "aria-updater")
+  local preferred_services=("qdrant" "aria" "aria-updater")
   local configured_services=()
   local selected_services=()
   local line=""
@@ -847,7 +782,7 @@ main() {
     update)
       pull_aria_image
       refresh_stack_files_from_image
-      # Normal updates must not recreate stateful sidecars. Use update-all/repair for full-stack work.
+      # Normal public architecture upgrades must not surprise users with sidecar churn.
       run_compose pull aria
       run_compose up -d --no-deps --force-recreate aria
       validate_runtime
@@ -958,11 +893,6 @@ while [[ $# -gt 0 ]]; do
       ARIA_QDRANT_API_KEY_EXPLICIT="true"
       shift 2
       ;;
-    --searxng-secret)
-      SEARXNG_SECRET="${2:-}"
-      SEARXNG_SECRET_EXPLICIT="true"
-      shift 2
-      ;;
     --updater-token)
       ARIA_UPDATER_TOKEN="${2:-}"
       ARIA_UPDATER_TOKEN_EXPLICIT="true"
@@ -1014,9 +944,6 @@ fi
 if [[ -z "$ARIA_QDRANT_API_KEY" ]]; then
   ARIA_QDRANT_API_KEY="$(generate_secret)"
 fi
-if [[ -z "$SEARXNG_SECRET" ]]; then
-  SEARXNG_SECRET="$(generate_secret)"
-fi
 if [[ -z "$ARIA_UPDATER_TOKEN" ]]; then
   ARIA_UPDATER_TOKEN="$(generate_secret)"
 fi
@@ -1045,9 +972,7 @@ mkdir -p \
   "$INSTALL_DIR/storage/aria-config" \
   "$INSTALL_DIR/storage/aria-prompts" \
   "$INSTALL_DIR/storage/aria-data" \
-  "$INSTALL_DIR/storage/qdrant-storage" \
-  "$INSTALL_DIR/storage/searxng-cache" \
-  "$INSTALL_DIR/storage/searxng-valkey"
+  "$INSTALL_DIR/storage/qdrant-storage"
 
 if [[ "$FORCE" == "true" || "$UPGRADE_EXISTING" == "true" ]]; then
   backup_if_exists "$INSTALL_DIR/docker-compose.yml"

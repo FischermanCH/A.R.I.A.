@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from aria.core.prompt_loader import PromptLoader
+from aria.modules.platform_primitives.prompt_loader import PromptLoader
 
 
 def test_prompt_loader_extracts_persona_name(tmp_path: Path) -> None:

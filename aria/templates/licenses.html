@@ -1,33 +1,16 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set static_help_docs_help_path = module_route_path('static_help_docs', '/help') %}
 <section class="panel docs-clean-layout licenses-layout">
-  <nav class="help-doc-inline-nav" aria-label="{{ tr(request, 'help.toc_label', 'Inhaltsverzeichnis') }}">
-    <div class="help-doc-pill-row">
-      {% for help_doc in help_docs %}
-      {% if help_doc.id not in ['qdrant', 'searxng'] %}
-      <a
-        href="/help?doc={{ help_doc.id }}"
-        class="help-doc-pill"
-        aria-current="false"
-      >
-        <span class="help-doc-pill-icon">{{ icon(help_doc.icon) }}</span>
-        <span>{{ tr(request, help_doc.label_i18n, help_doc.label_default) }}</span>
-      </a>
-      {% endif %}
-      {% endfor %}
-      <a href="/licenses" class="help-doc-pill is-active" aria-current="page">
-        <span class="help-doc-pill-icon">{{ icon('files') }}</span>
-        <span>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</span>
-      </a>
-    </div>
-  </nav>
-
   <div class="page-head">
     <div>
       <p class="section-kicker">{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</p>
       <h2>{{ tr(request, 'licenses.title', 'Lizenzen & Drittanbieter') }}</h2>
     </div>
+    <a class="ui-action-link" href="{{ static_help_docs_help_path }}">
+      {{ icon('help', 'ui-action-icon') }}{{ tr(request, 'licenses.help_link', 'Hilfe-System') }}
+    </a>
   </div>
 
   <div class="licenses-grid docs-clean-grid">
@@ -60,6 +43,7 @@
     {% endfor %}
   </div>
 
+  {% if aria_license_text %}
   <details class="stats-details licenses-details" id="aria-license-text" open>
     <summary>{{ tr(request, 'licenses.aria_full_text', 'ARIA Lizenztext anzeigen') }}</summary>
     <div class="stats-details-content">
@@ -71,5 +55,6 @@
       <pre class="help-document docs-content-surface">{{ aria_license_text }}</pre>
     </div>
   </details>
+  {% endif %}
 </section>
 {% endblock %}

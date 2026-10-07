@@ -4,21 +4,22 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from aria.core.config import Settings
-from aria.core import connection_runtime
-import aria.core.learned_recipe_store as learned_store
-from aria.web.activities_routes import register_activities_routes
-from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
-import aria.web.stats_routes as stats_routes
-from aria.web.stats_routes import (
+from aria.modules.configuration_foundations.config import Settings
+import aria.modules.connections_runtime_status.runtime as connection_runtime
+import aria.modules.sftp.status as sftp_status
+from aria.modules import module_route_path
+from aria.modules.stats_ui.activities import register_activities_routes
+from aria.modules.navigation_shell.navigation import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+import aria.modules.stats_ui.routes as stats_routes
+from aria.modules.stats_ui.routes import (
     OPERATOR_GUARDRAIL_ROW_KEYS,
     _attach_connection_edit_urls,
     _build_model_gateway_meta,
-    _build_learning_worker_meta,
     _build_operator_guardrail_meta,
     _build_preflight_meta,
     _build_pricing_meta,
@@ -49,6 +50,7 @@ def test_activities_page_uses_admin_navigation() -> None:
     templates.env.globals["context_nav_context"] = context_nav_context
     templates.env.globals["admin_nav_groups"] = admin_nav_groups
     templates.env.globals["settings_nav_groups"] = settings_nav_groups
+    templates.env.globals["module_route_path"] = lambda module_id, route_path: module_route_path(module_id, route_path) or ""
 
     @app.middleware("http")
     async def inject_state(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -77,20 +79,110 @@ def test_activities_page_uses_admin_navigation() -> None:
     response = TestClient(app).get("/activities")
 
     assert response.status_code == 200
-    assert 'href="/config/admin"' in response.text
-    assert 'aria-label="Admin navigation"' in response.text
-    assert 'href="/config/admin/operations"' in response.text
-    assert 'class="memory-subnav-item active" href="/config/admin/operations"' in response.text
+    assert 'href="/config"' in response.text
+    assert 'aria-label="Settings navigation"' in response.text
+    assert 'class="memory-subnav-item active" href="/config"' in response.text
+
+
+def test_activities_page_uses_stats_ui_template_readpoint(monkeypatch) -> None:
+    app = FastAPI()
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
+    templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
+    templates.env.globals["nav_section_items"] = nav_section_items
+    templates.env.globals["context_nav_items"] = context_nav_items
+    templates.env.globals["context_nav_context"] = context_nav_context
+    templates.env.globals["admin_nav_groups"] = admin_nav_groups
+    templates.env.globals["settings_nav_groups"] = settings_nav_groups
+    route_calls: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str) -> str:
+        route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    templates.env.globals["module_route_path"] = tracking_module_route_path
+    calls: list[tuple[str, str]] = []
+    real_template_name = stats_routes.module_template_name
+
+    def tracking_template_name(module_id: str, template_name: str) -> str | None:
+        calls.append((module_id, template_name))
+        return real_template_name(module_id, template_name)
+
+    monkeypatch.setattr("aria.modules.stats_ui.activities.module_template_name", tracking_template_name)
+
+    @app.middleware("http")
+    async def inject_state(request: Request, call_next):  # type: ignore[no-untyped-def]
+        request.state.can_access_advanced_config = True
+        request.state.lang = "de"
+        request.state.release_meta = {}
+        request.state.update_status = {}
+        request.state.auth_role = "admin"
+        request.state.authenticated = True
+        return await call_next(request)
+
+    class FakeTokenTracker:
+        async def get_recent_activities(self, **_kwargs: object) -> dict[str, object]:
+            return {"summary": {"count": 0, "success": 0, "errors": 0, "avg_duration_ms": 0}, "rows": []}
+
+    pipeline = SimpleNamespace(token_tracker=FakeTokenTracker())
+    settings = SimpleNamespace(ui=SimpleNamespace(title="Activities Test"))
+    register_activities_routes(
+        app,
+        templates=templates,
+        get_pipeline=lambda: pipeline,
+        get_settings=lambda: settings,
+        get_username_from_request=lambda _request: "neo",
+    )
+
+    response = TestClient(app).get("/activities")
+
+    assert response.status_code == 200
+    assert ("stats_ui", "activities.html") in calls
+    assert ("stats_ui", "/activities") in route_calls
+    assert 'action="/activities"' in response.text
+
+
+def test_activities_page_fails_when_stats_ui_template_is_not_registered(monkeypatch) -> None:
+    app = FastAPI()
+    templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
+    monkeypatch.setattr("aria.modules.stats_ui.activities.module_template_name", lambda *_args, **_kwargs: None)
+
+    class FakeTokenTracker:
+        async def get_recent_activities(self, **_kwargs: object) -> dict[str, object]:
+            return {"summary": {"count": 0, "success": 0, "errors": 0, "avg_duration_ms": 0}, "rows": []}
+
+    pipeline = SimpleNamespace(token_tracker=FakeTokenTracker())
+    settings = SimpleNamespace(ui=SimpleNamespace(title="Activities Test"))
+    register_activities_routes(
+        app,
+        templates=templates,
+        get_pipeline=lambda: pipeline,
+        get_settings=lambda: settings,
+        get_username_from_request=lambda _request: "neo",
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).get("/activities")
+
+    assert response.status_code == 500
 
 
 def test_build_sidecar_inventory_meta_reads_visible_docker_sidecars(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = stats_routes.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id in {"release_update", "stats_ui"}:
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(stats_routes, "module_route_path", tracking_module_route_path)
+
     class Result:
         returncode = 0
         stdout = "\n".join(
             [
                 "aria-qdrant\tqdrant/qdrant:latest\tUp 2 hours",
-                "aria-searxng\tsearxng/searxng:latest\tUp 2 hours",
-                "aria-searxng-valkey\tvalkey/valkey:8-alpine\tUp 2 hours",
             ]
         )
 
@@ -100,12 +192,11 @@ def test_build_sidecar_inventory_meta_reads_visible_docker_sidecars(monkeypatch)
 
     assert row["status"] == "ok"
     assert "qdrant/qdrant:latest" in row["detail"]
-    assert "searxng/searxng:latest" in row["detail"]
-    assert "valkey/valkey:8-alpine" in row["detail"]
     assert row["url"] == "/updates"
+    assert ("release_update", "/updates") in seen
 
 
-def test_build_sidecar_inventory_meta_warns_for_partial_visible_sidecars(monkeypatch) -> None:
+def test_build_sidecar_inventory_meta_accepts_qdrant_only(monkeypatch) -> None:
     class Result:
         returncode = 0
         stdout = "aria-qdrant\tqdrant/qdrant:latest\tUp 2 hours\n"
@@ -114,8 +205,8 @@ def test_build_sidecar_inventory_meta_warns_for_partial_visible_sidecars(monkeyp
 
     row = _build_sidecar_inventory_meta("en")
 
-    assert row["status"] == "warn"
-    assert "Missing: searxng, valkey" in row["detail"]
+    assert row["status"] == "ok"
+    assert "qdrant/qdrant:latest" in row["detail"]
 
 
 def test_build_sidecar_inventory_meta_stays_ok_when_docker_is_not_exposed(monkeypatch) -> None:
@@ -128,7 +219,7 @@ def test_build_sidecar_inventory_meta_stays_ok_when_docker_is_not_exposed(monkey
 
     assert row["status"] == "ok"
     assert "not exposed" in row["summary"]
-    assert "update-all/repair" in row["detail"]
+    assert "Qdrant" in row["detail"]
 
 
 def test_build_settings_connection_status_rows_supports_sftp_key_profiles(monkeypatch, tmp_path) -> None:
@@ -163,7 +254,7 @@ def test_build_settings_connection_status_rows_supports_sftp_key_profiles(monkey
     key_path.parent.mkdir(parents=True, exist_ok=True)
     key_path.write_text("private-key", encoding="utf-8")
 
-    monkeypatch.setattr(connection_runtime, "_project_root", lambda: tmp_path)
+    monkeypatch.setattr(sftp_status, "_project_root", lambda: tmp_path)
     monkeypatch.setitem(__import__("sys").modules, "paramiko", fake_paramiko)
 
     settings = Settings.model_validate(
@@ -531,7 +622,7 @@ def test_build_pricing_meta_prices_embedding_deployment_aliases() -> None:
 
 
 def test_build_pricing_meta_uses_bundled_fallback_for_non_openai_providers(monkeypatch) -> None:
-    import aria.core.pricing_catalog as pricing_catalog
+    import aria.modules.model_usage_observability.pricing_catalog as pricing_catalog
 
     monkeypatch.setattr(
         pricing_catalog,
@@ -717,7 +808,17 @@ def test_build_model_gateway_meta_flags_split_usage_meter() -> None:
     assert [row["status"] for row in meta["rows"]] == ["error", "error", "warn", "warn"]
 
 
-def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updates() -> None:
+def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updates(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = stats_routes.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id in {"release_update", "stats_ui", "config_ui"}:
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(stats_routes, "module_route_path", tracking_module_route_path)
     meta = _build_operator_guardrail_meta(
         release_meta={"label": "0.1.0-alpha251", "version": "0.1.0"},
         pricing_meta={
@@ -740,12 +841,6 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
         health_meta={"overall_status": "warn", "ok_count": 6, "warn_count": 1, "error_count": 0},
         update_status={"current_label": "0.1.0-alpha251", "latest_label": "0.1.0-alpha252", "update_available": True},
         recipe_experience_memory={"enabled": True, "status": "ok", "collection_count": 1, "point_count": 4},
-        learning_worker={
-            "status": "ok",
-            "running": 0,
-            "counts": {"completed": 2, "failed": 0, "rejected": 0},
-            "budget": {"rejected_count": 0, "used_tokens": 18, "max_runtime_tokens": 120000},
-        },
         language="en",
     )
 
@@ -753,46 +848,91 @@ def test_build_operator_guardrail_meta_combines_gateway_pricing_health_and_updat
     assert meta["ok_count"] == 6
     assert meta["warn_count"] == 3
     assert meta["error_count"] == 0
-    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "warn", "ok", "ok", "ok", "ok", "warn", "warn"]
+    assert [row["status"] for row in meta["rows"]] == ["ok", "ok", "ok", "warn", "ok", "ok", "ok", "warn", "warn"]
     assert [row["key"] for row in meta["rows"]] == list(OPERATOR_GUARDRAIL_ROW_KEYS)
     assert meta["rows"][0]["fallback"] == "Release metadata"
-    assert meta["rows"][2]["summary"] == "42 model tokens are still unpriced."
-    assert meta["rows"][3]["fallback"] == "Cost tracking"
-    assert meta["rows"][4]["fallback"] == "Recipe Experience Memory"
-    assert meta["rows"][4]["detail"] == "1 collections · 4 points"
-    assert meta["rows"][5]["fallback"] == "Learning Worker"
-    assert meta["rows"][5]["url"] == "/stats#learning-worker"
+    assert meta["rows"][1]["fallback"] == "Module Registry"
+    assert meta["rows"][1]["detail"] == "106 modules · 416 internal dependencies · 62 external boundaries · 0 migration candidates"
+    assert meta["rows"][1]["url"] == "/config/admin/modules"
+    assert meta["rows"][3]["summary"] == "42 model tokens are still unpriced."
+    assert meta["rows"][4]["fallback"] == "Cost tracking"
+    assert meta["rows"][5]["fallback"] == "Recipe Experience Memory"
+    assert meta["rows"][5]["detail"] == "1 collections · 4 points"
     assert meta["rows"][6]["url"] == "/stats#startup-preflight"
     assert meta["rows"][7]["url"] == "/stats#runtime-health"
     assert meta["rows"][8]["url"] == "/updates"
+    assert ("release_update", "/updates") in seen
+    assert ("config_ui", "/config/admin/modules") in seen
+    assert seen.count(("stats_ui", "/stats")) >= 5
 
 
-def test_build_learning_worker_meta_warns_on_failed_or_budget_rejected_jobs() -> None:
-    meta = _build_learning_worker_meta(
-        {
-            "enabled": True,
-            "max_running": 32,
-            "max_attempts": 3,
-            "running": 1,
-            "counts": {"completed": 4, "failed": 1, "rejected": 0},
-            "budget": {
-                "used_tokens": 1200,
-                "max_runtime_tokens": 120000,
-                "used_cost_usd": 0.01,
-                "max_runtime_cost_usd": 2.0,
-                "rejected_count": 2,
+@pytest.mark.parametrize(
+    ("module_registry", "expected_summary"),
+    [
+        (
+            {
+                "module_count": 0,
+                "validation_issue_count": 0,
+                "internal_dependency_count": 0,
+                "external_dependency_count": 0,
+                "dependency_cycle_count": 0,
             },
-            "audit": {"count": 3, "by_failure_category": {"qdrant": 2, "budget": 1}},
-            "recent": [{"job_id": "job-1", "status": "failed", "source": "test"}],
-        }
+            "Module registry has 0 validation issues and 0 dependency cycles.",
+        ),
+        (
+            {
+                "module_count": 113,
+                "validation_issue_count": 2,
+                "internal_dependency_count": 311,
+                "external_dependency_count": 148,
+                "dependency_cycle_count": 0,
+            },
+            "Module registry has 2 validation issues and 0 dependency cycles.",
+        ),
+        (
+            {
+                "module_count": 113,
+                "validation_issue_count": 0,
+                "internal_dependency_count": 311,
+                "external_dependency_count": 148,
+                "dependency_cycle_count": 1,
+            },
+            "Module registry has 0 validation issues and 1 dependency cycles.",
+        ),
+    ],
+)
+def test_build_operator_guardrail_meta_escalates_module_registry_structure_errors(
+    module_registry: dict[str, int],
+    expected_summary: str,
+) -> None:
+    meta = _build_operator_guardrail_meta(
+        release_meta={"label": "0.1.0-alpha738", "version": "0.1.0"},
+        pricing_meta={"has_unpriced_usage": False, "unpriced_model_tokens": 0},
+        model_gateway={
+            "status": "ok",
+            "chat_model": "x",
+            "embedding_model": "y",
+            "usage_meter_shared": True,
+            "token_tracking_enabled": True,
+        },
+        preflight_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        health_meta={"overall_status": "ok", "ok_count": 1, "warn_count": 0, "error_count": 0},
+        update_status={
+            "current_label": "0.1.0-alpha738",
+            "latest_label": "0.1.0-alpha738",
+            "update_available": False,
+        },
+        module_registry=module_registry,
+        language="en",
     )
 
-    assert meta["status"] == "warn"
-    assert meta["budget_state"] == "rejecting"
-    assert meta["failed"] == 1
-    assert meta["budget"]["rejected_count"] == 2
-    assert meta["audit"]["count"] == 3
-    assert meta["failure_categories"]["qdrant"] == 2
+    module_row = meta["rows"][1]
+    assert meta["overall_status"] == "error"
+    assert meta["error_count"] == 1
+    assert module_row["key"] == "module_registry"
+    assert module_row["status"] == "error"
+    assert module_row["summary"] == expected_summary
+    assert module_row["url"] == "/config/admin/modules"
 
 
 def test_operator_guardrail_rows_are_machine_addressable_without_recipe_memory() -> None:
@@ -807,9 +947,7 @@ def test_operator_guardrail_rows_are_machine_addressable_without_recipe_memory()
         language="en",
     )
 
-    expected_without_optional_memory = [
-        key for key in OPERATOR_GUARDRAIL_ROW_KEYS if key not in {"recipe_memory", "learning_worker"}
-    ]
+    expected_without_optional_memory = [key for key in OPERATOR_GUARDRAIL_ROW_KEYS if key != "recipe_memory"]
     assert [row["key"] for row in meta["rows"]] == expected_without_optional_memory
     assert all(row["label_key"] == f"stats.operator_guardrail_{row['key']}" for row in meta["rows"])
 
@@ -853,7 +991,7 @@ def test_build_operator_guardrail_meta_treats_disabled_token_tracking_as_error()
         language="de",
     )
 
-    cost_row = meta["rows"][3]
+    cost_row = meta["rows"][4]
     assert meta["overall_status"] == "error"
     assert cost_row["status"] == "error"
     assert cost_row["summary"] == "Token-Tracking ist deaktiviert."
@@ -883,7 +1021,7 @@ def test_build_operator_guardrail_meta_warns_on_estimated_cost_gap() -> None:
         language="en",
     )
 
-    cost_row = meta["rows"][3]
+    cost_row = meta["rows"][4]
     assert meta["overall_status"] == "warn"
     assert cost_row["status"] == "warn"
     assert cost_row["summary"] == "Estimated costs are higher than logged costs."
@@ -918,7 +1056,7 @@ def test_build_operator_guardrail_meta_warns_on_recipe_memory_errors() -> None:
         language="de",
     )
 
-    memory_row = meta["rows"][4]
+    memory_row = meta["rows"][5]
     assert meta["overall_status"] == "warn"
     assert memory_row["fallback"] == "Recipe Experience Memory"
     assert memory_row["status"] == "warn"
@@ -1021,6 +1159,13 @@ def test_build_preflight_meta_localizes_summaries_for_english() -> None:
     assert meta["checks"][1]["summary"] == "Qdrant reachable (0 collections)."
     assert meta["checks"][2]["summary"] == "LLM reachable."
     assert meta["checks"][3]["summary"] == "Embeddings reachable."
+
+
+def test_stats_ui_anchor_fails_closed_without_stats_route_owner(monkeypatch) -> None:
+    monkeypatch.setattr(stats_routes, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="stats_ui route is not registered: /stats"):
+        stats_routes._stats_ui_anchor("learning-worker")
 
 
 def test_build_preflight_meta_includes_active_profile_names() -> None:
@@ -1362,6 +1507,21 @@ def test_stats_pricing_refresh_htmx_returns_fragment(monkeypatch, tmp_path) -> N
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
+    module_route_calls: list[tuple[str, str]] = []
+
+    def tracking_global_route_path(module_id: str, route_path: str) -> str:
+        module_route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    templates.env.globals["module_route_path"] = tracking_global_route_path
+    calls: list[tuple[str, str]] = []
+    real_template_name = stats_routes.module_template_name
+
+    def tracking_template_name(module_id: str, template_name: str) -> str | None:
+        calls.append((module_id, template_name))
+        return real_template_name(module_id, template_name)
+
+    monkeypatch.setattr(stats_routes, "module_template_name", tracking_template_name)
 
     app = FastAPI()
 
@@ -1431,12 +1591,25 @@ def test_stats_pricing_refresh_htmx_returns_fragment(monkeypatch, tmp_path) -> N
     assert "1 chat models" in response.text
     assert "2 embedding models" in response.text
     assert "rss_metadata" in response.text
+    assert ("stats_ui", "_stats_pricing_panel.html") in calls
+    assert 'action="/stats/pricing/refresh"' in response.text
+    assert 'hx-post="/stats/pricing/refresh"' in response.text
+    assert ("stats_ui", "/stats/pricing/refresh") in module_route_calls
+    assert ("stats_ui", "/stats/pricing/alias") in module_route_calls
+    assert ("stats_ui", "/stats/pricing/manual") in module_route_calls
 
 
 def test_stats_pricing_admin_htmx_saves_alias_and_manual_price(monkeypatch, tmp_path) -> None:
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
+    module_route_calls: list[tuple[str, str]] = []
+
+    def tracking_global_route_path(module_id: str, route_path: str) -> str:
+        module_route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    templates.env.globals["module_route_path"] = tracking_global_route_path
 
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -1501,17 +1674,37 @@ def test_stats_pricing_admin_htmx_saves_alias_and_manual_price(monkeypatch, tmp_
     assert price_response.status_code == 200
     assert "Manual pricing saved." in price_response.text
     assert "company/private-chat" in price_response.text
+    assert 'action="/stats/pricing/alias"' in alias_response.text
+    assert 'hx-post="/stats/pricing/manual"' in price_response.text
+    assert 'action="/stats/pricing/manual/delete"' in price_response.text
+    assert ("stats_ui", "/stats/pricing/refresh") in module_route_calls
+    assert ("stats_ui", "/stats/pricing/alias") in module_route_calls
+    assert ("stats_ui", "/stats/pricing/alias/delete") in module_route_calls
+    assert ("stats_ui", "/stats/pricing/manual") in module_route_calls
+    assert ("stats_ui", "/stats/pricing/manual/delete") in module_route_calls
     assert settings.pricing.model_aliases["company/embed-small"] == "openai/text-embedding-3-small"
     assert settings.pricing.chat_models["company/private-chat"].input_per_million == 1.25
 
 
 def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
-    from aria.core.learning_worker import reset_learning_worker_state
-
-    reset_learning_worker_state()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
+    module_route_calls: list[tuple[str, str]] = []
+
+    def tracking_global_route_path(module_id: str, route_path: str) -> str:
+        module_route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    templates.env.globals["module_route_path"] = tracking_global_route_path
+    calls: list[tuple[str, str]] = []
+    real_template_name = stats_routes.module_template_name
+
+    def tracking_template_name(module_id: str, template_name: str) -> str | None:
+        calls.append((module_id, template_name))
+        return real_template_name(module_id, template_name)
+
+    monkeypatch.setattr(stats_routes, "module_template_name", tracking_template_name)
 
     app = FastAPI()
 
@@ -1521,6 +1714,9 @@ def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
         request.state.lang = "de"
         request.state.release_meta = {"label": "test", "version": "0.1.0"}
         request.state.update_status = {}
+        request.state.authenticated = True
+        request.state.auth_user = "neo"
+        request.state.auth_role = "admin"
         return await call_next(request)
 
     settings = Settings.model_validate(
@@ -1617,26 +1813,80 @@ def test_stats_page_renders_model_gateway_audit(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 200
     assert "Model Gateway Audit" in response.text
-    assert "Learning Worker" in response.text
+    assert "Modul-Registry" in response.text
+    assert "106 Module · 416 interne Abhaengigkeiten · 62 externe Grenzen · 0 Migrationskandidaten" in response.text
+    assert "Learning Worker" not in response.text
     assert "Recipe Experience Memory" in response.text
     assert "aria_recipe_experience_neo" in response.text
     assert "anthropic/claude-sonnet-4-5" in response.text
     assert "openai/text-embedding-3-small" in response.text
+    assert ("stats_ui", "stats.html") in calls
+    assert 'href="/stats" data-busy-immediate="true"' in response.text
+    assert 'href="/config/routing"' not in response.text
+    assert 'href="/config/admin/modules"' in response.text
+    assert ("config_ui", "/config/routing") not in module_route_calls
+    assert ("memory_admin_ui", "/memories/learning-worker/job/{job_id}") not in module_route_calls
+    assert ("stats_ui", "/stats/reset") in module_route_calls
+    assert ("stats_ui", "/stats/recipe-experience/review") not in module_route_calls
+    assert 'action="/stats/reset"' in response.text
 
 
-def test_stats_recipe_experience_review_promotes_context_candidate(monkeypatch, tmp_path) -> None:
+def test_stats_redirect_readpoint_helpers_use_registry(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path)
+
+    monkeypatch.setattr(stats_routes, "module_route_path", tracking_module_route_path)
+
+    assert stats_routes._stats_ui_anchor("stats-pricing-details") == "/stats#stats-pricing-details"
+    assert stats_routes._stats_ui_query(reset_error="bad") == "/stats?reset_error=bad"
+    assert ("stats_ui", "/stats") in calls
+
+
+def test_stats_redirect_readpoint_helpers_fail_closed(monkeypatch) -> None:
+    monkeypatch.setattr(stats_routes, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="stats_ui route is not registered: /stats"):
+        stats_routes._stats_ui_route("/stats")
+    with pytest.raises(RuntimeError, match="stats_ui route is not registered: /stats"):
+        stats_routes._stats_ui_anchor("stats-pricing-details")
+
+
+def test_stats_routes_do_not_keep_hardcoded_stats_redirect_targets() -> None:
+    source = Path("aria/modules/stats_ui/routes.py").read_text(encoding="utf-8")
+    blocked = (
+        'RedirectResponse("/stats',
+        "RedirectResponse('/stats",
+        'RedirectResponse(f"/stats',
+        "RedirectResponse(f'/stats",
+        'RedirectResponse("/recipes',
+        "RedirectResponse('/recipes",
+        'RedirectResponse(f"/recipes',
+        "RedirectResponse(f'/recipes",
+    )
+
+    assert [snippet for snippet in blocked if snippet in source] == []
+
+
+def test_stats_pricing_redirect_uses_stats_route_readpoint(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+    real_module_route_path = stats_routes.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_module_route_path(module_id, route_path)
+
+    monkeypatch.setattr(stats_routes, "module_route_path", tracking_module_route_path)
+    app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals["tr"] = lambda _request, _key, fallback="": fallback
     templates.env.globals["agent_name"] = lambda _request, title="": title or "ARIA"
 
-    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
-    learned_store.invalidate_learned_recipe_store_cache()
-
-    app = FastAPI()
-
     @app.middleware("http")
     async def inject_state(request, call_next):  # type: ignore[no-untyped-def]
-        request.state.can_access_advanced_config = True
+        request.state.can_access_advanced_config = False
         request.state.lang = "en"
         request.state.release_meta = {}
         request.state.update_status = {}
@@ -1649,41 +1899,18 @@ def test_stats_recipe_experience_review_promotes_context_candidate(monkeypatch, 
         async def get_recent_activities(self, **_kwargs: object) -> dict[str, object]:
             return {"rows": []}
 
-    pipeline = SimpleNamespace(token_tracker=FakeTokenTracker())
-    settings = Settings.model_validate({"llm": {"model": "fake"}})
     register_stats_routes(
         app,
         templates=templates,
-        get_pipeline=lambda: pipeline,
-        get_settings=lambda: settings,
+        get_pipeline=lambda: SimpleNamespace(token_tracker=FakeTokenTracker()),
+        get_settings=lambda: Settings.model_validate({"llm": {"model": "fake"}}),
         get_username_from_request=lambda _request: "neo",
         resolve_pricing_entry=lambda entries, model: entries.get(model),
         get_runtime_preflight=lambda: {},
     )
 
-    response = TestClient(app).post(
-        "/stats/recipe-experience/review",
-        data={
-            "recipe_id": "learned-dns-health",
-            "title": "DNS health",
-            "intent": "health_check",
-            "connection_kind": "ssh",
-            "connection_ref": "dns-node-01",
-            "capability": "ssh_command",
-            "action": "uptime -p && df -h",
-            "summary": "Looks healthy.",
-            "user_message": "check dns",
-            "experience_count": "3",
-            "origin": "guardrail_healthcheck_fallback",
-            "updated_at": "2026-05-08T00:00:00Z",
-        },
-        follow_redirects=False,
-    )
+    response = TestClient(app).post("/stats/pricing/alias", follow_redirects=False)
 
-    rows = learned_store.load_learned_recipe_store_entries()
     assert response.status_code == 303
-    assert response.headers["location"].startswith("/recipes/learned?saved=1")
-    assert rows[0]["recipe_id"] == "learned-dns-health"
-    assert rows[0]["promotion_state"] == "review_ready"
-    assert rows[0]["policy_result"] == "context_only"
-    assert rows[0]["recipe_scope"]["learning_origin"] == "guardrail_healthcheck_fallback"
+    assert response.headers["location"] == "/stats#stats-pricing-details"
+    assert ("stats_ui", "/stats") in calls

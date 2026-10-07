@@ -1,6 +1,7 @@
 {% from "_icons.html" import icon %}
 {% if help_doc %}
 <aside class="context-help-card">
-  <a href="/help?doc={{ help_doc }}" class="context-help-link ui-action-link">{{ icon('help', 'ui-action-icon') }}{{ tr(request, 'context_help.open', 'Hilfe öffnen') }}</a>
+  {% set static_help_docs_help_path = module_route_path('static_help_docs', '/help') %}
+  <a href="{{ static_help_docs_help_path }}?doc={{ help_doc }}" class="context-help-link ui-action-link">{{ icon('help', 'ui-action-icon') }}{{ tr(request, 'context_help.open', 'Hilfe öffnen') }}</a>
 </aside>
 {% endif %}

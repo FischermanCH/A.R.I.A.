@@ -7,8 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from aria.core.notes_store import NotesStore
-from aria.web.notes_routes import NotesRouteDeps, register_notes_routes
+from aria.modules.notes.store import NotesStore
+from aria.modules import module_route_path, module_static_asset_path
+import aria.modules.notes.routes as notes_routes_module
+from aria.modules.notes.routes import NotesRouteDeps, register_notes_routes
 
 
 class _FakeNotesIndex:
@@ -45,11 +47,35 @@ class _FakeNotesIndex:
         ]
 
 
-def _build_notes_app(tmp_path: Path) -> tuple[TestClient, _FakeNotesIndex]:
+def _build_notes_app(
+    tmp_path: Path,
+    *,
+    module_route_calls: list[tuple[str, str]] | None = None,
+    module_route_prefix_calls: list[tuple[str, str]] | None = None,
+) -> tuple[TestClient, _FakeNotesIndex]:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
+
+    def _module_route_path(module_id: str, route_path: str) -> str:
+        if module_route_calls is not None:
+            module_route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    def _module_route_prefix_path(module_id: str, route_path: str) -> str:
+        if module_route_prefix_calls is not None:
+            module_route_prefix_calls.append((module_id, route_path))
+        return route_path
+
+    templates.env.globals.setdefault("module_route_path", _module_route_path)
+    templates.env.globals.setdefault("module_route_prefix_path", _module_route_prefix_path)
+    templates.env.globals.setdefault(
+        "module_static_asset_url",
+        lambda module_id, asset_name: f"/static/{asset_name}"
+        if module_static_asset_path(module_id, asset_name, Path(__file__).resolve().parents[1])
+        else "",
+    )
     fake_index = _FakeNotesIndex()
 
     @app.middleware("http")
@@ -103,6 +129,72 @@ def test_notes_page_renders_empty_state(tmp_path: Path) -> None:
     assert "Qdrant-Index" not in response.text
 
 
+def test_notes_page_uses_notes_template_readpoint(monkeypatch, tmp_path: Path) -> None:
+    seen: list[tuple[str, str]] = []
+    real_template_name = notes_routes_module.module_template_name
+
+    def tracking_template_name(module_id: str, template_name: str) -> str | None:
+        seen.append((module_id, template_name))
+        return real_template_name(module_id, template_name)
+
+    monkeypatch.setattr(notes_routes_module, "module_template_name", tracking_template_name)
+    client, _index = _build_notes_app(tmp_path)
+
+    response = client.get("/notes")
+
+    assert response.status_code == 200
+    assert ("notes", "notes.html") in seen
+
+
+def test_notes_template_readpoint_fails_closed_for_unregistered_template(monkeypatch) -> None:
+    monkeypatch.setattr(notes_routes_module, "module_template_name", lambda *_args, **_kwargs: None)
+
+    try:
+        notes_routes_module._documents_template_name("notes.html")
+    except RuntimeError as exc:
+        assert "notes template is not registered: notes.html" in str(exc)
+    else:  # pragma: no cover - assertion clarity
+        raise AssertionError("notes template helper must fail closed when the registry has no owner")
+
+
+def test_notes_redirect_readpoint_helpers_use_documents_registry(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    real_route_path = notes_routes_module.module_route_path
+
+    def tracking_route_path(module_id: str, route_path: str) -> str | None:
+        seen.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(notes_routes_module, "module_route_path", tracking_route_path)
+
+    assert notes_routes_module._documents_route("/notes") == "/notes"
+    assert notes_routes_module._notes_redirect_url(folder="Projekte%2FARIA", view="list") == "/notes?folder=Projekte%2FARIA&view=list"
+    assert ("notes", "/notes") in seen
+
+
+def test_notes_redirect_readpoint_fails_closed_for_unregistered_route(monkeypatch) -> None:
+    monkeypatch.setattr(notes_routes_module, "module_route_path", lambda *_args, **_kwargs: None)
+
+    try:
+        notes_routes_module._documents_route("/notes")
+    except RuntimeError as exc:
+        assert "notes route is not registered: /notes" in str(exc)
+    else:  # pragma: no cover - assertion clarity
+        raise AssertionError("notes route helper must fail closed when the registry has no owner")
+
+
+def test_notes_routes_do_not_keep_hardcoded_notes_redirect_targets() -> None:
+    source = Path("aria/modules/notes/routes.py").read_text(encoding="utf-8")
+    blocked = (
+        'RedirectResponse(url="/notes',
+        "RedirectResponse(url='/notes",
+        'RedirectResponse(url=f"/notes',
+        "RedirectResponse(url=f'/notes",
+    )
+
+    assert [snippet for snippet in blocked if snippet in source] == []
+
+
 def test_notes_page_opens_editor_only_when_requested(tmp_path: Path) -> None:
     client, _index = _build_notes_app(tmp_path)
     store = NotesStore(tmp_path / "data" / "notes")
@@ -125,7 +217,15 @@ def test_notes_page_opens_editor_only_when_requested(tmp_path: Path) -> None:
     assert 'class="notes-editor-form"' in create_response.text
 
 
-def test_notes_save_persists_markdown_and_reindexes(tmp_path: Path) -> None:
+def test_notes_save_persists_markdown_reindexes_and_uses_notes_redirect_readpoint(monkeypatch, tmp_path: Path) -> None:
+    seen: list[tuple[str, str]] = []
+    real_route_path = notes_routes_module.module_route_path
+
+    def tracking_route_path(module_id: str, route_path: str) -> str | None:
+        seen.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(notes_routes_module, "module_route_path", tracking_route_path)
     client, index = _build_notes_app(tmp_path)
 
     response = client.post(
@@ -144,6 +244,7 @@ def test_notes_save_persists_markdown_and_reindexes(tmp_path: Path) -> None:
     assert "folder: Projekte/ARIA" in raw
     assert "Erste Idee" in raw
     assert len(index.reindexed) == 1
+    assert ("notes", "/notes") in seen
 
 
 def test_notes_delete_removes_file_and_index_entry(tmp_path: Path) -> None:
@@ -314,7 +415,8 @@ def test_notes_bulk_move_updates_selected_notes_and_reindexes(tmp_path: Path) ->
 
 
 def test_notes_page_resolves_folder_case_insensitively(tmp_path: Path) -> None:
-    client, _index = _build_notes_app(tmp_path)
+    module_route_calls: list[tuple[str, str]] = []
+    client, _index = _build_notes_app(tmp_path, module_route_calls=module_route_calls)
     store = NotesStore(tmp_path / "data" / "notes")
     store.save_note("tester", title="Area 41 Plan", folder="Area41", body="Ordnerpfad aktualisieren")
 
@@ -323,6 +425,47 @@ def test_notes_page_resolves_folder_case_insensitively(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Area 41 Plan" in response.text
     assert 'href="/notes?folder=Area41&view=cards"' in response.text
+    assert ("notes", "/notes") in module_route_calls
+
+
+def test_notes_visible_navigation_uses_notes_route_readpoint(tmp_path: Path) -> None:
+    module_route_calls: list[tuple[str, str]] = []
+    module_route_prefix_calls: list[tuple[str, str]] = []
+    client, _index = _build_notes_app(
+        tmp_path,
+        module_route_calls=module_route_calls,
+        module_route_prefix_calls=module_route_prefix_calls,
+    )
+    store = NotesStore(tmp_path / "data" / "notes")
+    note = store.save_note("tester", title="Readpoint Note", folder="Projekte/ARIA", body="Navigation bleibt passiv.")
+
+    board = client.get("/notes?folder=Projekte%2FARIA")
+    editor = client.get(f"/notes?note={note.note_id}&folder=Projekte%2FARIA")
+    list_view = client.get("/notes?view=list&folder=Projekte%2FARIA")
+
+    assert board.status_code == 200
+    assert editor.status_code == 200
+    assert list_view.status_code == 200
+    assert 'action="/notes"' in board.text
+    assert 'href="/notes?folder=Projekte/ARIA&view=cards"' in board.text
+    assert 'href="/notes?folder=Projekte/ARIA&view=list"' in board.text
+    assert 'href="/notes?folder=Projekte/ARIA&view=cards&new=1"' in board.text
+    assert f'href="/notes?folder=Projekte/ARIA&note={note.note_id}"' in board.text
+    assert f'href="/notes/export/{note.note_id}.md"' in editor.text
+    assert 'action="/notes/save"' in editor.text
+    assert 'action="/notes/move"' in editor.text
+    assert 'action="/notes/delete"' in editor.text
+    assert 'action="/notes/bulk/move"' in list_view.text
+    assert module_route_calls.count(("notes", "/notes")) >= 3
+    assert {
+        ("notes", "/notes/save"),
+        ("notes", "/notes/delete"),
+        ("notes", "/notes/move"),
+        ("notes", "/notes/bulk/move"),
+        ("notes", "/notes/folders/create"),
+        ("notes", "/notes/folders/rename"),
+    }.issubset(set(module_route_calls))
+    assert ("notes", "/notes/export") in module_route_prefix_calls
 
 
 def test_notes_store_preview_listing_does_not_load_full_large_body(tmp_path: Path) -> None:

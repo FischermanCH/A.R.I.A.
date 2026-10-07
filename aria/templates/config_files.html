@@ -4,8 +4,8 @@
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
   <section class="floating-card config-domain-section">
-    {% set picker_action = '/config/files' %}
-    {% set save_action = '/config/files/save' %}
+    {% set picker_action = module_route_path('config_ui', '/config/files') %}
+    {% set save_action = module_route_path('config_ui', '/config/files/save') %}
     {% set picker_id = 'editable-file' %}
     {% set textarea_id = 'editable-content' %}
     {% set picker_label_key = 'config_files.file' %}

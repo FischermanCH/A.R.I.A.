@@ -1,9 +1,11 @@
 {% from "_icons.html" import icon %}
+{% set config_ui_admin_mode_path = module_route_path('config_ui', '/config/admin-mode') %}
+{% set config_ui_mcp_path = module_route_path('config_ui', '/config/connections/mcp') %}
 <section class="floating-card connections-section">
   {% if request.state.can_access_advanced_config %}
   <h3>{{ tr(request, 'connections_overview.section_types_title', 'Verbindungstypen') }}</h3>
   <p class="hint-text">{{ tr(request, 'connections_overview.section_types_desc', 'Jeder Typ hat seine eigene Hauptseite zum Verwalten, Testen und Pflegen von Profilen.') }}</p>
-  <p class="hint-text">{{ tr(request, 'connections_overview.section_types_hint', 'SearXNG, RSS und beobachtete Webseiten sind gute Quellenpfade fuer laufende Recherche und Sammlung.') }}</p>
+  <p class="hint-text">{{ tr(request, 'connections_overview.section_types_hint', 'RSS und beobachtete Webseiten sind gute Verbindungen fuer laufende Recherche und Sammlung. Die allgemeine Websuche wird von ARIA verwaltet.') }}</p>
   <div class="config-submenu">
     {% for row in connection_menu_rows %}
     {% if row.disabled %}
@@ -37,12 +39,21 @@
     </a>
     {% endif %}
     {% endfor %}
+    {% if config_ui_mcp_path %}
+    <a class="config-submenu-item" href="{{ config_ui_mcp_path }}?return_to={{ page_return_to | urlencode }}">
+      <span class="submenu-icon-wrap">{{ icon('connections', 'submenu-icon') }}</span>
+      <span class="submenu-copy">
+        <span class="submenu-title">{{ tr(request, 'mcp_admin.nav_title', 'MCP') }}</span>
+        <span class="submenu-desc">{{ tr(request, 'mcp_admin.nav_desc', 'Externe MCP-Tools über SSE oder HTTP konfigurieren.') }}</span>
+      </span>
+    </a>
+    {% endif %}
   </div>
   {% else %}
   <h3>{{ tr(request, 'connections_overview.admin_off_title', 'Verbindungen brauchen gerade die erweiterte Ansicht') }}</h3>
   <p class="hint-text">{{ tr(request, 'connections_overview.admin_off_desc', 'Verbindungsprofile sind Teil der Systemkonfiguration. Mit aktivierter erweiterter Ansicht wird dieser Bereich sichtbar.') }}</p>
   <div class="config-submenu">
-    <a class="config-submenu-item" href="/config/admin-mode?return_to={{ page_return_to | urlencode }}">
+    <a class="config-submenu-item" href="{{ config_ui_admin_mode_path }}?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
       <span class="submenu-copy">
         <span class="submenu-title">{{ tr(request, 'connections_overview.admin_off_link_title', 'Open Extended view') }}</span>

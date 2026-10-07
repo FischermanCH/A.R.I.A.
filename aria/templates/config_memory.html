@@ -2,6 +2,13 @@
 {% from "_icons.html" import icon %}
 {% block content %}
 {% set memory_lang_de = request and request.state and (request.state.lang|string).lower().startswith('de') %}
+{% set config_ui_prompts_path = module_route_path('config_ui', '/config/prompts') %}
+{% set memory_config_backend_save_path = module_route_path('memory_admin_ui', '/memories/config/backend-save') %}
+{% set memory_config_select_path = module_route_path('memory_admin_ui', '/memories/config/select') %}
+{% set memory_config_create_path = module_route_path('memory_admin_ui', '/memories/config/create') %}
+{% set memory_config_compression_save_path = module_route_path('memory_admin_ui', '/memories/config/compression-save') %}
+{% set memory_config_compress_path = module_route_path('memory_admin_ui', '/memories/config/compress') %}
+{% set ops_memory_reindex_save_path = module_route_path('ops_config_backup', '/memories/reindex/save') %}
 <main class="config-layout memory-config-layout memory-domain-shell">
   {% include "_memories_nav.html" %}
   <section class="config-card">
@@ -115,7 +122,7 @@
       </div>
     </section>
 
-    <form method="post" action="/memories/config/backend-save" class="editor-form">
+    <form method="post" action="{{ memory_config_backend_save_path }}" class="editor-form">
       <label for="memory_backend">{{ tr(request, 'config_memory.backend', 'Backend') }}</label>
       <select id="memory_backend" name="backend">
         <option value="qdrant" selected>Qdrant</option>
@@ -151,7 +158,7 @@
       <button type="submit">{{ tr(request, 'config_memory.save_backend', 'Save memory backend') }}</button>
     </form>
 
-    <form method="post" action="/memories/config/select" class="editor-form">
+    <form method="post" action="{{ memory_config_select_path }}" class="editor-form">
       <label for="collection">{{ tr(request, 'config_memory.select_collection', 'Select collection') }}</label>
       <select id="collection" name="collection">
         <option value="">{{ tr(request, 'config_memory.use_default_user_collection', 'Use default per user') }}</option>
@@ -162,7 +169,7 @@
       <button type="submit">{{ tr(request, 'config_memory.set_active_collection', 'Set active collection') }}</button>
     </form>
 
-    <form method="post" action="/memories/config/create" class="editor-form">
+    <form method="post" action="{{ memory_config_create_path }}" class="editor-form">
       <label for="collection_name">{{ tr(request, 'config_memory.new_collection_name', 'New collection (name)') }}</label>
       <input id="collection_name" name="collection_name" type="text" placeholder="{{ tr(request, 'config_memory.new_collection_placeholder', 'e.g. aria_memory_demo_lab') }}" required>
       <small class="hint-text">{{ tr(request, 'config_memory.new_collection_hint', 'Will be created in Qdrant on first store with matching embedding dimension.') }}</small>
@@ -207,12 +214,12 @@
     <h2 id="rollup">{{ tr(request, 'config_memory.rollup_title', 'Kontext-Rollup (Qdrant)' if memory_lang_de else 'Context rollup (Qdrant)') }}</h2>
     <p>{{ tr(request, 'config_memory.rollup_desc_plain', 'Verschiebt alten Tageskontext automatisch in' if memory_lang_de else 'Moves old day context automatically into') }} <code>aria_context-mem_{{ username|lower }}</code> {{ tr(request, 'config_memory.rollup_desc_plain_after', 'und löscht danach die alten Tageskontext-Sammlungen.' if memory_lang_de else 'and deletes the old day-context collections afterwards.') }}</p>
     <div class="inline-actions">
-      <a class="nav-link" href="/config/prompts?file={{ memory_cfg.compression_summary_prompt|urlencode }}&return_to=%2Fmemories%2Fconfig">
+      <a class="nav-link" href="{{ config_ui_prompts_path }}?file={{ memory_cfg.compression_summary_prompt|urlencode }}&return_to=%2Fmemories%2Fconfig">
         {{ tr(request, 'config_memory.edit_summary_prompt_label', 'Zusammenfassungs-Prompt bearbeiten' if memory_lang_de else 'Edit summary prompt') }}
       </a>
       <span class="hint-text">{{ tr(request, 'config_memory.summary_prompt_hint_plain', 'Der Prompt-Text wird im Prompt Studio gepflegt, nicht als Dateipfad in der Benutzeroberfläche.' if memory_lang_de else 'Prompt text is managed in Prompt Studio, not as a file path in the user interface.') }}</span>
     </div>
-    <form method="post" action="/memories/config/compression-save" class="editor-form">
+    <form method="post" action="{{ memory_config_compression_save_path }}" class="editor-form">
       <label for="compress_after_days">{{ tr(request, 'config_memory.compress_after_days_plain', 'Nach wie vielen Tagen Tageskontext ins Rollup verschieben?' if memory_lang_de else 'Move day context to rollup after how many days?') }}</label>
       <input
         id="compress_after_days"
@@ -233,12 +240,31 @@
       >
       <button type="submit">{{ tr(request, 'config_memory.save_settings', 'Save settings') }}</button>
     </form>
-    <form method="post" action="/memories/config/compress" class="editor-form memory-config-secondary-action">
+    <form method="post" action="{{ memory_config_compress_path }}" class="editor-form memory-config-secondary-action">
       <button type="submit">{{ tr(request, 'config_memory.move_now', 'Move now') }}</button>
       <small class="hint-text">{{ tr(request, 'config_memory.move_now_hint', 'Processes only day-context collections that are older than the configured threshold.') }}</small>
     </form>
     {% if compress_result %}
     <div class="alert ok">{{ compress_result }}</div>
+    {% endif %}
+
+    <hr class="config-divider">
+
+    {% if request.state.can_access_advanced_config %}
+    <section id="reindex-scheduler" class="config-domain-section">
+      <div class="page-title-row"><span>{{ icon('updates', 'page-title-icon') }}</span><h2>{{ tr(request, 'config.reindex_scheduler_title', 'Reindex-Scheduler') }}</h2></div>
+      <form method="post" action="{{ ops_memory_reindex_save_path }}" class="editor-form" data-busy-immediate="true">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token or '' }}">
+        <label class="checkbox-row"><input type="checkbox" name="enabled" value="1" {% if index_cfg and index_cfg.enabled %}checked{% endif %}> <span>{{ tr(request, 'config.reindex_enabled', 'Automatischen Reindex aktivieren') }}</span></label>
+        <label class="checkbox-row"><input type="checkbox" name="run_on_startup" value="1" {% if index_cfg and index_cfg.run_on_startup %}checked{% endif %}> <span>{{ tr(request, 'config.reindex_startup', 'Beim Start prüfen/ausführen') }}</span></label>
+        <label class="checkbox-row"><input type="checkbox" name="keep_backup" value="1" {% if not index_cfg or index_cfg.keep_backup %}checked{% endif %}> <span>{{ tr(request, 'config.reindex_keep_backup', 'Rollback-Backup behalten') }}</span></label>
+        <label>{{ tr(request, 'config.reindex_cron', 'Cron') }}<input type="text" name="cron" value="{{ index_cfg.cron if index_cfg else '17 */6 * * *' }}"></label>
+        <label>{{ tr(request, 'config.reindex_timezone', 'Zeitzone') }}<input type="text" name="timezone" value="{{ index_cfg.timezone if index_cfg else 'Europe/Zurich' }}"></label>
+        <label>{{ tr(request, 'config.reindex_threshold', 'Score-Schwelle') }}<input type="number" name="score_threshold" min="0" max="1" step="0.01" value="{{ index_cfg.score_threshold if index_cfg else 0.35 }}"></label>
+        <label>{{ tr(request, 'config.reindex_limit', 'Kandidatenlimit') }}<input type="number" name="candidate_limit" min="1" max="50" step="1" value="{{ index_cfg.candidate_limit if index_cfg else 12 }}"></label>
+        <button type="submit">{{ tr(request, 'config.save', 'Speichern') }}</button>
+      </form>
+    </section>
     {% endif %}
 
   </section>

@@ -18,6 +18,9 @@ QDRANT_SERVICE_NAME="${QDRANT_SERVICE_NAME:-aria-qdrant}"
 UPDATER_SERVICE_NAME="${UPDATER_SERVICE_NAME:-aria-updater}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1/health}"
 CONTAINER_HEALTH_URL="${CONTAINER_HEALTH_URL:-http://127.0.0.1:8800/health}"
+HEALTH_TIMEOUT_SECONDS="${ARIA_UPDATE_HEALTH_TIMEOUT_SECONDS:-300}"
+HEALTH_POLL_SECONDS="${ARIA_UPDATE_HEALTH_POLL_SECONDS:-2}"
+HEALTH_PROGRESS_SECONDS="${ARIA_UPDATE_HEALTH_PROGRESS_SECONDS:-10}"
 COMPOSE_PROJECT_NAME_OVERRIDE="${COMPOSE_PROJECT_NAME_OVERRIDE:-}"
 
 log() {
@@ -66,32 +69,76 @@ read_env_from_file() {
   sed -n "s/^${key}=//p" "$env_file" | head -n1
 }
 
-wait_for_host_health() {
-  local attempts="${1:-30}"
-  local delay_seconds="${2:-2}"
-  local idx
-
-  for idx in $(seq 1 "$attempts"); do
-    if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep "$delay_seconds"
-  done
-  return 1
+host_health_ok() {
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -fsS "$HEALTH_URL" >/dev/null 2>&1
 }
 
-wait_for_container_health() {
-  local attempts="${1:-30}"
-  local delay_seconds="${2:-2}"
-  local idx
+container_health_ok() {
+  docker exec "$SERVICE_NAME" python -c "import urllib.request; r=urllib.request.urlopen('$CONTAINER_HEALTH_URL', timeout=3); body=r.read().decode('utf-8','replace'); raise SystemExit(0 if r.status == 200 and 'ok' in body.lower() else 1)" >/dev/null 2>&1
+}
 
-  for idx in $(seq 1 "$attempts"); do
-    if docker exec "$SERVICE_NAME" python -c "import urllib.request; r=urllib.request.urlopen('$CONTAINER_HEALTH_URL', timeout=3); body=r.read().decode('utf-8','replace'); raise SystemExit(0 if r.status == 200 and 'ok' in body.lower() else 1)" >/dev/null 2>&1; then
+container_state_snapshot() {
+  docker inspect "$SERVICE_NAME" \
+    --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.RestartCount}}' \
+    2>/dev/null || true
+}
+
+wait_for_aria_health() {
+  local timeout_seconds="${1:-$HEALTH_TIMEOUT_SECONDS}"
+  local delay_seconds="${2:-$HEALTH_POLL_SECONDS}"
+  local progress_seconds="${3:-$HEALTH_PROGRESS_SECONDS}"
+  local started_at now elapsed next_progress snapshot state health restart_count
+  local restarting_checks=0
+
+  started_at="$(date +%s)"
+  next_progress=0
+  while true; do
+    if container_health_ok || host_health_ok; then
       return 0
+    fi
+
+    now="$(date +%s)"
+    elapsed=$((now - started_at))
+    snapshot="$(container_state_snapshot)"
+    read -r state health restart_count <<<"${snapshot:-missing unknown 0}"
+
+    case "$state" in
+      exited|dead|missing)
+        log "ARIA-Container ist vor dem Healthcheck beendet: state=$state health=$health restarts=$restart_count"
+        return 2
+        ;;
+      restarting)
+        restarting_checks=$((restarting_checks + 1))
+        if (( restarting_checks >= 5 )); then
+          log "ARIA-Container bleibt im Restart-Loop: health=$health restarts=$restart_count"
+          return 2
+        fi
+        ;;
+      *)
+        restarting_checks=0
+        ;;
+    esac
+
+    if (( elapsed >= timeout_seconds )); then
+      log "ARIA-Healthcheck-Deadline erreicht: ${elapsed}s state=$state health=$health restarts=$restart_count"
+      return 1
+    fi
+    if (( elapsed >= next_progress )); then
+      log "Warte auf ARIA-Health: ${elapsed}s/${timeout_seconds}s state=$state health=$health restarts=$restart_count"
+      next_progress=$((elapsed + progress_seconds))
     fi
     sleep "$delay_seconds"
   done
-  return 1
+}
+
+print_aria_failure_context() {
+  log "Containerstatus nach fehlgeschlagenem Healthcheck:"
+  docker inspect "$SERVICE_NAME" \
+    --format 'state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} exit={{.State.ExitCode}} restarts={{.RestartCount}} error={{.State.Error}}' \
+    2>/dev/null || true
+  log "Letzte ARIA-Logs:"
+  docker logs --tail 120 "$SERVICE_NAME" 2>&1 || true
 }
 
 cleanup_unused_aria_images() {
@@ -261,23 +308,15 @@ else
   log "Kein bestehendes Compose-Projektlabel gefunden, nutze Standardprojekt aus aktuellem Pfad"
 fi
 
-log "Erstelle nur den Service '$SERVICE_NAME' neu. Qdrant und Volumes bleiben unberuehrt."
+log "Erstelle den Service '$SERVICE_NAME' neu. Qdrant und Volumes bleiben unberuehrt."
 compose_cmd "${COMPOSE_ARGS[@]}" -f "$STACK_FILE" up -d --no-deps --force-recreate "$SERVICE_NAME"
 
-log "Pruefe Health auf $HEALTH_URL"
-if command -v curl >/dev/null 2>&1; then
-  if wait_for_host_health 30 2; then
-    log "Healthcheck ok"
-    cleanup_unused_aria_images "$IMAGE_REF" "$NEW_IMAGE_ID"
-    exit 0
-  fi
-  log "Host-Healthcheck ueber curl nicht erfolgreich, pruefe direkt im Container weiter"
-fi
-
-if wait_for_container_health 30 2; then
+log "Pruefe ARIA-Health gemeinsam ueber Container und Host (Deadline ${HEALTH_TIMEOUT_SECONDS}s)"
+if wait_for_aria_health "$HEALTH_TIMEOUT_SECONDS" "$HEALTH_POLL_SECONDS" "$HEALTH_PROGRESS_SECONDS"; then
   log "Container-Healthcheck ok"
   cleanup_unused_aria_images "$IMAGE_REF" "$NEW_IMAGE_ID"
   exit 0
 fi
 
+print_aria_failure_context
 die "Healthcheck nicht erfolgreich. Bitte 'docker compose -f $STACK_FILE logs $SERVICE_NAME' pruefen."

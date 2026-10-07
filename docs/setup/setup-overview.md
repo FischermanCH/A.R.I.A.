@@ -1,6 +1,6 @@
 # ARIA Setup Overview
 
-Updated: 2026-04-09
+Updated: 2026-10-07
 
 This document explains the current ARIA installation and update paths in plain English.
 
@@ -16,7 +16,7 @@ For the current alpha stage, ARIA works best like this:
 - one Docker host or homelab server
 - LAN or VPN access
 - persistent storage for config, prompts, data, and Qdrant
-- SearXNG included as a separate in-stack search service
+- provider web tooling or managed web-search capability for current web answers
 - no direct public internet exposure without an additional protection layer
 
 ARIA is still an alpha product. It is best treated as:
@@ -68,8 +68,6 @@ The managed stack includes:
 
 - `aria`
 - `qdrant`
-- `searxng`
-- `searxng-valkey`
 - `aria-updater`
 
 Useful commands afterwards:
@@ -112,7 +110,6 @@ Minimum `.env` values:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
-SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
@@ -135,8 +132,6 @@ No matter which Docker path you choose, these are the important persistent paths
 - ARIA prompts
 - ARIA runtime data
 - Qdrant storage
-- SearXNG cache
-- Valkey data
 
 Managed installs store them as visible bind mounts under:
 
@@ -162,25 +157,15 @@ After the stack starts:
 7. verify that the startup preflight is clean
 8. run the first chat prompt
 
-## 5. SearXNG and web search
+## 5. Web search and provider tooling
 
-ARIA now expects SearXNG inside the stack.
+Current ARIA WebSearch uses configured provider web tooling as its public operating model.
 
 That means:
 
-- ARIA talks to `http://searxng:8080` internally
-- both supported Docker paths already include the SearXNG service
-- the official stack files write the SearXNG settings inside the container at startup
-- you do not need to create a separate host-side `searxng.settings.yml` for the normal public install paths
+- current-fact and web answers require a configured LLM/provider setup with web tooling or a managed web-search capability
+- without that capability, ARIA should answer current-fact and web questions in a limited or fail-closed way
 
-Inside ARIA, SearXNG profiles only need search behavior and routing metadata, for example:
-
-- engines
-- categories
-- language
-- safe search
-- max results
-- tags and aliases for routing
 
 ## 6. Backups
 
@@ -208,6 +193,19 @@ Use it before larger upgrades or before experimenting with a manual configuratio
 
 ## 7. Update paths
 
+### Upgrade from public Alpha604 to Alpha982
+
+Alpha982 is an architecture migration, not a small patch. Before upgrading, back up the ARIA config/data storage and the Qdrant volume. Reuse those exact mounts with the new image: users, authentication, connection configuration, chat history, memories, personal facts/preferences and recipes migrate in place and are verified by the isolated release upgrade test.
+
+Obsolete learning collections are preserved rather than deleted automatically. After verifying the upgrade, each user can open **Memories → Maintenance → Clean up old learning collections**; it removes only legacy learning candidate/evaluation/event/hint/reflection collections for that user and leaves personal memories, facts, preferences, documents and recipe experience intact. Old SearXNG and Valkey containers can be removed manually after backup and verification; see `docs/release/alpha981-upgrade-note.md`.
+
+Useful new configuration choices:
+
+- leave per-model `temperature` empty when a newer model rejects it (an explicit `0.0` remains valid)
+- for long Agent or Blender work, begin around `16000` maximum output tokens and `300` seconds model timeout, then tune for model and cost
+- configure MCP call timeout per server; setup and Blender notes are in `docs/setup/mcp-and-blender.md`
+- LiteLLM proxies no longer receive the unsupported `tool_choice=none` value
+
 ### Managed install update
 
 For a normal release update:
@@ -217,7 +215,7 @@ cd /opt/aria/aria
 ./aria-stack.sh update
 ```
 
-This normal path refreshes/recreates only the `aria` service. It deliberately leaves stateful sidecars such as Qdrant and SearXNG alone.
+This normal path recreates only `aria`. Qdrant and all volumes remain untouched.
 After ARIA is healthy again, the helper removes dangling Docker image layers and unused old ARIA Docker images so repeated updates do not slowly fill Docker storage. It does not prune containers, volumes or tagged non-ARIA images.
 
 ARIA may show a third-party sidecar inventory on `/stats#runtime-health` when the runtime can inspect Docker containers. If Docker access is not exposed to the ARIA container, this is informational and not a health problem.
@@ -235,7 +233,7 @@ After a deliberate full-stack sidecar update, run a short smoke check before tru
 1. open `/health` and `/stats#runtime-health`
 2. verify `Memory / Qdrant` is green and learned/notes memory still works
 3. run one normal chat question that uses memory or notes
-4. run one web search so SearXNG and Valkey are exercised
+4. verify provider/web-tooling readiness if web answers are enabled
 5. verify `/updates` still shows the controlled update path
 
 Managed installs also expose a browser update button on:
@@ -289,7 +287,7 @@ That path uses:
 - the local helper-enabled stack files
 
 It also supports the `/updates` button when the local stack includes the `aria-updater` helper sidecar.
-After a successful health check, the local helper removes dangling Docker image layers and unused old ARIA images while keeping Qdrant/SearXNG/Valkey containers and volumes untouched.
+After a successful health check, the local helper removes dangling Docker image layers and unused old ARIA images while keeping Qdrant containers and volumes untouched.
 
 ## 8. Useful chat actions
 

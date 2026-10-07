@@ -1,21 +1,21 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set config_ui_llm_test_path = module_route_path('config_ui', '/config/llm/test') %}
+{% set config_ui_llm_models_path = module_route_path('config_ui', '/config/llm/models') %}
+{% set config_ui_llm_profile_delete_path = module_route_path('config_ui', '/config/llm/profile/delete') %}
+{% set config_ui_llm_profile_save_path = module_route_path('config_ui', '/config/llm/profile/save') %}
+{% set config_ui_llm_roles_path = module_route_path('config_ui', '/config/llm/roles') %}
+{% set config_ui_web_llm_test_path = module_route_path('config_ui', '/config/llm/web/test') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-llm-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
+  {% with help_doc='pricing' %}{% include "_context_help.html" %}{% endwith %}
 
-  <section class="floating-card config-domain-section">
-    {% with
-      heading=tr(request, 'context_help.llm_title', 'Kurz erklärt'),
-      body=tr(request, 'context_help.llm_body', 'Hier legst du API Base, Modell, Timeout und Limits für das Chat-Gehirn fest. Wenn Antworten abgeschnitten sind oder Modell-Loads scheitern, ist diese Seite der erste Prüfpunkt.'),
-      help_doc='pricing'
-    %}
-      {% include "_context_help.html" %}
-    {% endwith %}
-
-    <div class="meta-row">
-      <span class="meta-badge">{{ tr(request, 'config_llm.active_profile', 'Active profile') }}: {{ active_llm_profile }}</span>
+  <section class="floating-card config-domain-section llm-assignment-section">
+    <div>
+      <h2>{{ tr(request, 'config_llm.assignment_title', 'Model assignment') }}</h2>
+      <p class="hint-text">{{ tr(request, 'config_llm.assignment_intro', 'Both roles use ordinary saved LLM profiles. The Main model handles normal conversations; the Web model answers current public questions with native Web search.') }}</p>
     </div>
 
     {% if test_status == 'ok' or test_status == 'error' %}
@@ -28,114 +28,196 @@
     </article>
     {% endif %}
 
-    <div class="config-group-grid config-llm-overview-grid">
-      <article class="config-group-card">
-        <h3>{{ tr(request, 'config_llm.active_profile', 'Active profile') }}</h3>
-        <p><code>{{ active_llm_meta.active_name }}</code></p>
-        <small class="hint-text">{{ tr(request, 'config_llm.save_help', 'Save updates the active profile. To create or overwrite a named profile, enter a profile name below and use "Save as profile".') }}</small>
-      </article>
-      <article class="config-group-card">
-        <h3>Runtime</h3>
-        <p><strong>Model:</strong> <code>{{ active_llm_meta.model or '-' }}</code></p>
-        <p><strong>API Base:</strong> <code>{{ active_llm_meta.api_base or '-' }}</code></p>
-      </article>
+    <form method="post" action="{{ config_ui_llm_roles_path }}" class="editor-form llm-assignment-form">
+      <div class="config-group-grid config-llm-overview-grid">
+        <div>
+          <label for="main_profile">{{ tr(request, 'config_llm.main_role', 'Main model') }}</label>
+          <select id="main_profile" name="main_profile" required>
+            {% for p in llm_profiles %}
+            <option value="{{ p }}" {% if p == main_llm_profile %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint-text">{{ tr(request, 'config_llm.main_role_hint', 'Used for conversations, reasoning and actions that do not require current public Web information.') }}</small>
+        </div>
+        <div>
+          <label for="web_profile">{{ tr(request, 'config_llm.web_role', 'Web model') }}</label>
+          <select id="web_profile" name="web_profile">
+            <option value="">{{ tr(request, 'config_llm.web_role_disabled', 'Not assigned') }}</option>
+            {% for p in llm_profiles %}
+            <option value="{{ p }}" {% if p == web_llm_profile %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+          <small class="hint-text">{{ tr(request, 'config_llm.web_role_hint', 'Must be a normal saved profile whose provider and model support native Web search.') }}</small>
+        </div>
+      </div>
+      <details class="llm-advanced-settings">
+        <summary>{{ tr(request, 'config_llm.advanced_web', 'Advanced Web settings') }}</summary>
+        <label for="web_transport">{{ tr(request, 'config_llm.web_transport', 'Provider transport') }}</label>
+        <select id="web_transport" name="web_transport">
+          <option value="openai_responses" {% if web_llm.transport == 'openai_responses' %}selected{% endif %}>OpenAI Responses</option>
+          <option value="anthropic_native" {% if web_llm.transport == 'anthropic_native' %}selected{% endif %}>Anthropic Messages</option>
+          <option value="openai_web_search_options" {% if web_llm.transport == 'openai_web_search_options' %}selected{% endif %}>OpenAI Chat Search</option>
+        </select>
+      </details>
+      <div class="inline-actions">
+        <button type="submit">{{ tr(request, 'config_llm.roles_save', 'Save model assignment') }}</button>
+      </div>
+    </form>
+
+    <div>
+      <h3>{{ tr(request, 'config_llm.runtime_title', 'Currently used models') }}</h3>
+      <div class="config-group-grid config-llm-runtime-grid">
+        <article class="config-group-card llm-runtime-card">
+          <div class="llm-card-heading">
+            <strong>{{ tr(request, 'config_llm.main_role', 'Main model') }}</strong>
+            <span class="meta-badge">{{ main_llm_runtime.profile or '-' }}</span>
+          </div>
+          <dl class="llm-fact-list">
+            <div><dt>{{ tr(request, 'config_llm.model_label', 'Model') }}</dt><dd><code>{{ main_llm_runtime.model or '-' }}</code></dd></div>
+            <div><dt>{{ tr(request, 'config_llm.api_base_label', 'API base') }}</dt><dd><code>{{ main_llm_runtime.api_base or '-' }}</code></dd></div>
+          </dl>
+        </article>
+        <article class="config-group-card llm-runtime-card">
+          <div class="llm-card-heading">
+            <strong>{{ tr(request, 'config_llm.web_role', 'Web model') }}</strong>
+            <span class="meta-badge">{{ web_llm_runtime.profile or tr(request, 'config_llm.web_role_disabled', 'Not assigned') }}</span>
+          </div>
+          <dl class="llm-fact-list">
+            <div><dt>{{ tr(request, 'config_llm.model_label', 'Model') }}</dt><dd><code>{{ web_llm_runtime.model or '-' }}</code></dd></div>
+            <div><dt>{{ tr(request, 'config_llm.api_base_label', 'API base') }}</dt><dd><code>{{ web_llm_runtime.api_base or '-' }}</code></dd></div>
+          </dl>
+          <div class="meta-row">
+            <span class="meta-badge">{{ tr(request, 'config_llm.web_status', 'Web search status') }}: {% if web_llm.enabled and web_llm.capability_verified_at %}{{ tr(request, 'config_llm.web_verified', 'verified') }}{% else %}{{ tr(request, 'config_llm.web_unverified', 'not verified') }}{% endif %}</span>
+            <span class="meta-badge">{{ tr(request, 'config_llm.web_budget', 'Search budget') }}: 1-{{ web_llm.max_search_uses }}</span>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <div class="llm-paid-test">
+      <h3>{{ tr(request, 'config_llm.web_test_title', 'Paid Web search test') }}</h3>
+      <p class="hint-text">{{ tr(request, 'config_llm.web_test_hint', 'Checks the assigned Web profile with exactly one provider request, no Main-model call and no automatic retry.') }}</p>
+      <form method="post" action="{{ config_ui_web_llm_test_path }}" class="editor-form compact-form">
+        <label class="checkbox-row">
+          <input type="checkbox" name="confirm_paid" value="1" required>
+          <span>{{ tr(request, 'config_llm.web_test_paid_confirm', 'I confirm one paid native Web request.') }}</span>
+        </label>
+        <div class="inline-actions">
+          <button type="submit">{{ tr(request, 'config_llm.web_test', 'Run Web search test') }}</button>
+        </div>
+      </form>
     </div>
   </section>
 
-  <section class="floating-card config-domain-section">
-    <div class="config-group-grid config-llm-profile-grid">
-      <article class="config-group-card">
-        <h3>{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</h3>
-        <p>{{ tr(request, 'config_llm.test_hint', 'Prüfe zuerst den aktiven Chat-Provider, bevor du Profile umstellst oder speicherst.') }}</p>
-        <form method="post" action="/config/llm/test" class="editor-form compact-form">
-          <div class="inline-actions">
-            <button type="submit">{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</button>
-          </div>
-        </form>
-      </article>
+  <section class="floating-card config-domain-section llm-profiles-section">
+    <div>
+      <h2>{{ tr(request, 'config_llm.profiles_title', 'Manage profiles') }}</h2>
+      <p class="hint-text">{{ tr(request, 'config_llm.profiles_intro', 'A profile stores provider access and model parameters. Editing or saving a profile does not change the Main or Web assignment above.') }}</p>
+    </div>
 
-      <article class="config-group-card">
-        <h3>{{ tr(request, 'config_llm.load_profile', 'Load profile') }}</h3>
-        <form method="post" action="/config/llm/profile/load" class="editor-form compact-form">
-          <label for="profile_name_load">{{ tr(request, 'config_llm.load_profile', 'Load profile') }}</label>
-          <div class="inline-actions">
-            <select id="profile_name_load" name="profile_name">
-              {% for p in llm_profiles %}
-              <option value="{{ p }}" {% if p == active_llm_profile %}selected{% endif %}>{{ p }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit">{{ tr(request, 'config_llm.load_profile_btn', 'Load profile') }}</button>
-          </div>
-        </form>
-      </article>
-
-      <article class="config-group-card">
-        <h3>{{ tr(request, 'config_llm.delete_profile', 'Delete profile') }}</h3>
-        <form method="post" action="/config/llm/profile/delete" class="editor-form compact-form">
-          <label for="profile_name_delete">{{ tr(request, 'config_llm.delete_profile', 'Delete profile') }}</label>
-          <div class="inline-actions">
-            <select id="profile_name_delete" name="profile_name">
-              {% for p in llm_profiles %}
-              <option value="{{ p }}" {% if p == active_llm_profile %}selected{% endif %}>{{ p }}</option>
-              {% endfor %}
-            </select>
+    <div class="llm-profile-list" aria-label="{{ tr(request, 'config_llm.profile_list', 'Saved LLM profiles') }}">
+      {% for profile in profile_rows %}
+      <article class="llm-profile-row{% if profile.name == edit_llm_profile %} is-selected{% endif %}">
+        <div class="llm-profile-summary">
+          <strong>{{ profile.name }}</strong>
+          <code>{{ profile.model or '-' }}</code>
+          <span class="hint-text">{{ profile.api_base or '-' }}</span>
+        </div>
+        <div class="meta-row llm-profile-roles">
+          {% if profile.is_main %}<span class="meta-badge">{{ tr(request, 'config_llm.main_role', 'Main model') }}</span>{% endif %}
+          {% if profile.is_web %}<span class="meta-badge">{{ tr(request, 'config_llm.web_role', 'Web model') }}</span>{% endif %}
+          {% if not profile.is_assigned %}<span class="meta-badge">{{ tr(request, 'config_llm.not_assigned', 'Not assigned') }}</span>{% endif %}
+        </div>
+        <div class="inline-actions llm-profile-actions">
+          <a class="ui-action-link" href="?edit_profile={{ profile.name|urlencode }}">{{ tr(request, 'config_llm.edit_profile', 'Edit profile') }}</a>
+          {% if not profile.is_assigned %}
+          <form method="post" action="{{ config_ui_llm_profile_delete_path }}">
+            <input type="hidden" name="profile_name" value="{{ profile.name }}">
             <button type="submit" class="danger-btn">{{ tr(request, 'config_llm.delete_profile_btn', 'Delete profile') }}</button>
-          </div>
-          <small class="hint-text">{{ tr(request, 'config_llm.delete_profile_hint', 'Active profile cannot be deleted.') }}</small>
-        </form>
+          </form>
+          {% endif %}
+        </div>
       </article>
+      {% endfor %}
     </div>
-  </section>
 
-  <section class="floating-card config-domain-section">
-    <form method="post" action="/config/llm/save" class="editor-form">
+    <div class="llm-editor-heading">
+      <div>
+        <h3>{{ tr(request, 'config_llm.editing_profile', 'Profile selected for editing') }}</h3>
+        <p><code>{{ edit_llm_profile }}</code></p>
+      </div>
+      <form method="get" action="" class="editor-form compact-form llm-edit-selector">
+        <label for="edit_profile">{{ tr(request, 'config_llm.choose_edit_profile', 'Choose profile') }}</label>
+        <div class="inline-actions">
+          <select id="edit_profile" name="edit_profile">
+            {% for p in llm_profiles %}
+            <option value="{{ p }}" {% if p == edit_llm_profile %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit">{{ tr(request, 'config_llm.edit_profile', 'Edit profile') }}</button>
+        </div>
+      </form>
+    </div>
+
+    <form method="post" action="{{ config_ui_llm_profile_save_path }}" class="editor-form llm-profile-editor">
+      <input type="hidden" name="activate_main" value="0">
       <label for="provider-preset">{{ tr(request, 'config_llm.provider_preset', 'Provider preset') }}</label>
       <select id="provider-preset">
         <option value="">{{ tr(request, 'config_llm.preset_choose', '-- Choose preset --') }}</option>
         {% for p in providers %}
-        <option value="{{ p.key }}" data-model="{{ p.default_model }}" data-api-base="{{ p.default_api_base }}">
-          {{ p.label }} ({{ p.default_model }})
-        </option>
+        <option value="{{ p.key }}" data-model="{{ p.default_model }}" data-api-base="{{ p.default_api_base }}">{{ p.label }} ({{ p.default_model }})</option>
         {% endfor %}
       </select>
 
-      <label for="api_base">API Base</label>
-      <input id="api_base" name="api_base" type="text" value="{{ llm.api_base or '' }}" placeholder="http://localhost:11434">
-
-      <label for="api_key">API Key</label>
-      <input id="api_key" name="api_key" type="password" value="{{ llm.api_key or '' }}" placeholder="{{ tr(request, 'config_llm.api_key_hint', 'Required for non-Ollama providers') }}">
-
-      <div class="inline-actions">
-        <button type="button" id="load-models-btn">{{ tr(request, 'config_llm.load_models_btn', 'Load models') }}</button>
+      <div class="config-group-grid config-llm-editor-grid">
+        <div>
+          <label for="api_base">{{ tr(request, 'config_llm.api_base_label', 'API base') }}</label>
+          <input id="api_base" name="api_base" type="text" value="{{ llm.api_base or '' }}" placeholder="http://localhost:11434">
+        </div>
+        <div>
+          <label for="api_key">{{ tr(request, 'config_llm.api_key_label', 'API key') }}</label>
+          <input id="api_key" name="api_key" type="password" value="{{ llm.api_key or '' }}" placeholder="{{ tr(request, 'config_llm.api_key_hint', 'Required for non-Ollama providers') }}">
+        </div>
       </div>
 
+      <div class="inline-actions"><button type="button" id="load-models-btn">{{ tr(request, 'config_llm.load_models_btn', 'Load models') }}</button></div>
       <label for="model-select">{{ tr(request, 'config_llm.models_from_api', 'Models from API base') }}</label>
-      <select id="model-select">
-        <option value="">{{ tr(request, 'config_llm.model_choose', '-- Select model --') }}</option>
-      </select>
+      <select id="model-select"><option value="">{{ tr(request, 'config_llm.model_choose', '-- Select model --') }}</option></select>
       <small id="models-hint" class="hint-text">{{ tr(request, 'config_llm.models_hint', 'Loads models from') }} <code>/v1/models</code> {{ tr(request, 'config_llm.models_hint_fallback', '(fallback:') }} <code>/api/tags</code>).</small>
 
-      <label for="model">Model</label>
+      <label for="model">{{ tr(request, 'config_llm.model_label', 'Model') }}</label>
       <input id="model" name="model" type="text" value="{{ llm.model }}" required>
 
-      <label for="temperature">Temperature (0.0 - 2.0)</label>
-      <input id="temperature" name="temperature" type="number" step="0.1" min="0" max="2" value="{{ llm.temperature }}" required>
-
-      <label for="max_tokens">Max Tokens</label>
-      <input id="max_tokens" name="max_tokens" type="number" min="1" value="{{ llm.max_tokens }}" required>
-
-      <label for="timeout_seconds">{{ tr(request, 'config_llm.timeout_seconds', 'Timeout (seconds)') }}</label>
-      <input id="timeout_seconds" name="timeout_seconds" type="number" min="1" value="{{ llm.timeout_seconds }}" required>
-
-      <label for="profile_name_save">{{ tr(request, 'config_llm.profile_name', 'Profile name (for save as profile)') }}</label>
-      <input id="profile_name_save" name="profile_name" type="text" value="{{ active_llm_profile }}" maxlength="48">
-      <small class="hint-text">{{ tr(request, 'config_llm.profile_name_hint', 'Example: litellm-main. The normal Save button keeps the current active profile and only updates its values.') }}</small>
-
-      <div class="inline-actions">
-        <button type="submit">{{ tr(request, 'config_llm.save', 'Save') }}</button>
-        <button type="submit" formaction="/config/llm/profile/save">{{ tr(request, 'config_llm.save_as_profile', 'Save as profile') }}</button>
+      <div class="config-group-grid config-llm-editor-grid">
+        <div>
+          <label for="temperature">{{ tr(request, 'config_llm.temperature_label', 'Temperature (0.0 - 2.0)') }}</label>
+          <input id="temperature" name="temperature" type="number" step="0.1" min="0" max="2" value="{{ '' if llm.temperature is none else llm.temperature }}">
+          <small class="hint-text">{{ tr(request, 'config_llm.temperature_hint', 'Leave empty for models that do not accept temperature.') }}</small>
+        </div>
+        <div>
+          <label for="max_tokens">{{ tr(request, 'config_llm.max_tokens_label', 'Maximum output tokens') }}</label>
+          <input id="max_tokens" name="max_tokens" type="number" min="1" value="{{ llm.max_tokens }}" required>
+        </div>
+        <div>
+          <label for="timeout_seconds">{{ tr(request, 'config_llm.timeout_seconds', 'Timeout (seconds)') }}</label>
+          <input id="timeout_seconds" name="timeout_seconds" type="number" min="1" value="{{ llm.timeout_seconds }}" required>
+        </div>
       </div>
+
+      <label for="profile_name_save">{{ tr(request, 'config_llm.profile_name', 'Profile name') }}</label>
+      <input id="profile_name_save" name="profile_name" type="text" value="{{ edit_llm_profile }}" maxlength="48" required>
+      <small class="hint-text">{{ tr(request, 'config_llm.profile_name_hint', 'Use a new name to create a copy. Saving does not change the model assignment.') }}</small>
+      <div class="inline-actions"><button type="submit">{{ tr(request, 'config_llm.save_profile', 'Save profile') }}</button></div>
     </form>
+
+    <div class="llm-connection-test">
+      <h3>{{ tr(request, 'config_llm.connection_test_title', 'Test profile connection') }}</h3>
+      <p class="hint-text">{{ tr(request, 'config_llm.connection_test_hint', 'Runs one normal model probe for the selected profile. It does not verify native Web search.') }}</p>
+      <form method="post" action="{{ config_ui_llm_test_path }}" class="editor-form compact-form">
+        <input type="hidden" name="profile_name" value="{{ edit_llm_profile }}">
+        <div class="inline-actions"><button type="submit">{{ tr(request, 'config_llm.connection_test', 'Test connection') }}</button></div>
+      </form>
+    </div>
   </section>
 </main>
 <script>
@@ -147,7 +229,6 @@
     const tModelsLoaded = {{ tr(request, 'config_llm.js_models_loaded', 'Models loaded. Selection will update the model value.')|tojson }};
     const tNoModels = {{ tr(request, 'config_llm.js_no_models', 'No models found.')|tojson }};
     const tErrorPrefix = {{ tr(request, 'config_llm.js_error_prefix', 'Error:')|tojson }};
-
     const preset = document.getElementById("provider-preset");
     const apiBase = document.getElementById("api_base");
     const model = document.getElementById("model");
@@ -161,9 +242,7 @@
       const parts = document.cookie.split(";");
       for (let i = 0; i < parts.length; i += 1) {
         const part = parts[i].trim();
-        if (part.startsWith(key)) {
-          return decodeURIComponent(part.substring(key.length));
-        }
+        if (part.startsWith(key)) return decodeURIComponent(part.substring(key.length));
       }
       return "";
     }
@@ -178,18 +257,12 @@
       const selected = preset.options[preset.selectedIndex];
       const presetModel = selected.getAttribute("data-model") || "";
       const presetApiBase = selected.getAttribute("data-api-base") || "";
-      if (presetApiBase && !apiBase.value.trim()) {
-        apiBase.value = presetApiBase;
-      }
-      if (!model.value.trim() || model.value.includes("<modellname>")) {
-        model.value = presetModel;
-      }
+      if (presetApiBase && !apiBase.value.trim()) apiBase.value = presetApiBase;
+      if (!model.value.trim() || model.value.includes("<modellname>")) model.value = presetModel;
     });
 
     modelSelect.addEventListener("change", function () {
-      if (modelSelect.value) {
-        model.value = modelSelect.value;
-      }
+      if (modelSelect.value) model.value = modelSelect.value;
     });
 
     loadBtn.addEventListener("click", async function () {
@@ -204,7 +277,7 @@
         const form = new URLSearchParams();
         form.set("api_base", base);
         form.set("api_key", apiKey.value || "");
-        const res = await fetch("/config/llm/models", {
+        const res = await fetch({{ config_ui_llm_models_path|tojson }}, {
           method: "POST",
           credentials: "same-origin",
           headers: {
@@ -222,18 +295,14 @@
         } catch (parseErr) {
           throw new Error(raw || tLoadError);
         }
-        if (!res.ok) {
-          throw new Error(payload.detail || tLoadError);
-        }
+        if (!res.ok) throw new Error(payload.detail || tLoadError);
         (payload.models || []).forEach(function (name) {
           const opt = document.createElement("option");
           opt.value = name;
           opt.textContent = name;
           modelSelect.appendChild(opt);
         });
-        hint.textContent = (payload.models || []).length
-          ? tModelsLoaded
-          : tNoModels;
+        hint.textContent = (payload.models || []).length ? tModelsLoaded : tNoModels;
       } catch (err) {
         hint.textContent = tErrorPrefix + " " + err.message;
       }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from aria.web.main_request_helpers import MainRequestHelperDeps
-from aria.web.main_request_helpers import build_main_request_helpers
+from aria.modules.navigation_shell.request_helpers import MainRequestHelperDeps
+from aria.modules.navigation_shell.request_helpers import build_main_request_helpers
 
 
 def test_recipe_routing_info_uses_recipe_first_learned_i18n_keys() -> None:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from aria.core.agentic_operator_trace import OPERATOR_TRACE_PREFIX
-from aria.core.agentic_operator_trace import append_operator_trace_detail_lines
-from aria.core.agentic_operator_trace import build_operator_trace_lines
-from aria.core.agentic_operator_trace import operator_trace_line_from_debug_line
+from aria.modules.operator_trace_boundary.operator_trace import OPERATOR_TRACE_PREFIX
+from aria.modules.operator_trace_boundary.operator_trace import append_operator_trace_detail_lines
+from aria.modules.operator_trace_boundary.operator_trace import build_operator_trace_lines
+from aria.modules.operator_trace_boundary.operator_trace import operator_trace_line_from_debug_line
 
 
 def test_operator_trace_maps_turn_plan_to_understanding_without_new_semantics() -> None:
@@ -88,19 +88,6 @@ def test_operator_trace_maps_context_packet_and_answer_contract() -> None:
     assert any("requests=docs:search" in line and "loaded=docs:2" in line for line in traces)
     assert any("phase=result" in line and "source=answer_contract" in line for line in traces)
     assert any("status=found" in line and "source_bound=true" in line for line in traces)
-
-
-def test_operator_trace_maps_meta_catalog_surface_contract_review() -> None:
-    traces = build_operator_trace_lines(
-        [
-            "Routing Debug: meta_catalog_surface_contract_review "
-            "from=docs to=connections mode=inventory selected=connection|sftp|sync-node-01 "
-            "confidence=0.94 reason=configured_connection_profile_question",
-        ]
-    )
-
-    assert any("phase=context" in line and "source=meta_catalog_surface_contract_review" in line for line in traces)
-    assert any("from=docs" in line and "to=connections" in line and "selected=connection|sftp|sync-node-01" in line for line in traces)
 
 
 def test_operator_trace_maps_agentic_action_policy_and_execution_contracts() -> None:

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+  {% set google_calendar_save_path = required_module_route_path('google_calendar_ui', '/config/connections/google-calendar/save') %}
 <main class="config-layout">
   {% set google_calendar_settings_url = "https://calendar.google.com/calendar/u/0/r/settings" %}
   {% include "_connection_page_intro.html" %}
@@ -17,7 +18,7 @@
       <small>{% if google_calendar_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
     </article>
     {% endif %}
-    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ google_calendar_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_google_calendar_ref }}">
       {% set schema_fields = google_calendar_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
@@ -93,7 +94,7 @@
         <div class="note">Dieser Alpha-Pfad ist read-only. Termine erstellen oder bearbeiten kommt spaeter ueber einen separaten OAuth-/Provider-Pfad.</div>
       </div>
     </section>
-    <form method="post" action="/config/connections/google-calendar/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ google_calendar_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
       {% set schema_fields = google_calendar_new_form_fields %}
       {% include "_connection_schema_fields.html" %}

@@ -4,21 +4,24 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from fastapi.templating import Jinja2Templates
 
-from aria.core.config_backup import (
+from aria.modules.config_backup.backup import (
     BACKUP_SCHEMA_VERSION,
     build_config_backup_payload,
     parse_config_backup_payload,
     restore_config_backup_payload,
 )
-from aria.core.secure_store import SecureConfigStore, SecureStoreConfig, generate_master_key_b64
-from aria.core.secure_store import decode_master_key
-from aria.web.config_routes import ConfigRouteDeps, register_config_routes
-from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+from aria.modules.security_storage.secure_store import SecureConfigStore, SecureStoreConfig, generate_master_key_b64
+from aria.modules.security_storage.secure_store import decode_master_key
+from aria.modules.config_ui.routes import ConfigRouteDeps, register_config_routes
+import aria.modules.ops_config_backup.detail_routes as config_ops_detail_routes
+from aria.modules import module_route_path
+from aria.modules.navigation_shell.navigation import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
 
 
 def _write_yaml(path: Path, data: dict) -> None:
@@ -175,6 +178,7 @@ def _build_test_config_app(base_dir: Path) -> FastAPI:
     templates.env.globals.setdefault("tr", lambda _request, _key, fallback="": fallback)
     templates.env.globals.setdefault("agent_name", lambda _request, fallback="ARIA": fallback)
     templates.env.globals.setdefault("agent_text", lambda _request, fallback="ARIA": fallback)
+    templates.env.globals.setdefault("module_route_path", lambda module_id, route_path: module_route_path(module_id, route_path) or "")
     templates.env.globals.setdefault("nav_section_items", nav_section_items)
     templates.env.globals.setdefault("context_nav_items", context_nav_items)
     templates.env.globals.setdefault("context_nav_context", context_nav_context)
@@ -258,7 +262,6 @@ def _build_test_config_app(base_dir: Path) -> FastAPI:
         save_stored_recipe_manifest=lambda raw: raw,
         refresh_skill_trigger_index=lambda: {},
         format_recipe_routing_info=lambda ref, kind: f"{ref}:{kind}",
-        suggest_skill_keywords_with_llm=_keyword_stub,
     )
     register_config_routes(app, deps)
     return app
@@ -286,6 +289,11 @@ def test_config_backup_page_includes_memory_export_hub_entry(tmp_path: Path) -> 
     assert "Import / Export" in response.text
     assert "/memories/export?type=all&amp;sort=updated_desc" in response.text
     assert "Download memory export" in response.text
+    assert 'href="/config/backup/export' in response.text
+    assert 'action="/config/backup/import"' in response.text
+    template = Path("aria/templates/config_backup.html").read_text(encoding="utf-8")
+    assert "module_route_path('config_backup', '/config/backup/export')" in template
+    assert "module_route_path('config_backup', '/config/backup/import')" in template
 
 
 def test_config_backup_import_route_restores_backup_and_redirects(tmp_path: Path) -> None:
@@ -322,3 +330,66 @@ def test_config_backup_import_route_restores_backup_and_redirects(tmp_path: Path
     restored = yaml.safe_load((tmp_path / "config" / "config.yaml").read_text(encoding="utf-8"))
     assert restored["ui"]["title"] == "Imported Config"
     assert (tmp_path / "prompts" / "persona.md").read_text(encoding="utf-8") == "Imported persona\n"
+
+
+def test_config_backup_import_redirect_fallbacks_use_registry_route_readpoints(monkeypatch, tmp_path: Path) -> None:
+    route_calls: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs: object) -> str | None:
+        route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(config_ops_detail_routes, "module_route_path", tracking_module_route_path)
+    app = _build_test_config_app(tmp_path)
+    client = TestClient(app)
+
+    payload = {
+        "schema_version": BACKUP_SCHEMA_VERSION,
+        "exported_at": "2026-04-09T00:00:00Z",
+        "aria": {"version": "0.1.0", "label": "0.1.0-alpha77"},
+        "config": {
+            "aria": {"host": "0.0.0.0", "port": 8801},
+            "ui": {"title": "Imported Config"},
+            "security": {"enabled": True, "db_path": "data/auth/aria_secure.sqlite"},
+        },
+        "secure_store": {"enabled": True, "secrets": {}, "users": []},
+        "stored_recipes": [],
+        "prompt_files": {},
+        "support_files": {},
+    }
+
+    success = client.post(
+        "/config/backup/import",
+        files={"backup_file": ("aria-config-backup.json", json.dumps(payload).encode("utf-8"), "application/json")},
+        follow_redirects=False,
+    )
+    error = client.post(
+        "/config/backup/import",
+        files={"backup_file": ("aria-config-backup.json", b"", "application/json")},
+        follow_redirects=False,
+    )
+
+    assert success.status_code == 303
+    assert success.headers["location"].startswith("/config/backup?saved=1&info=backup_imported")
+    assert error.status_code == 303
+    assert error.headers["location"].startswith("/config/backup?error=")
+    assert route_calls.count(("config_backup", "/config/backup")) >= 2
+    assert route_calls.count(("config_ui", "/config")) >= 2
+
+
+def test_config_backup_import_redirect_fallback_fails_closed_without_config_owner(monkeypatch, tmp_path: Path) -> None:
+    def missing_config_route(module_id: str, route_path: str, **kwargs: object) -> str | None:  # noqa: ARG001
+        if module_id == "config_ui" and route_path == "/config":
+            return None
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(config_ops_detail_routes, "module_route_path", missing_config_route)
+    app = _build_test_config_app(tmp_path)
+    client = TestClient(app)
+
+    with pytest.raises(RuntimeError, match="config_ui route is not registered: /config"):
+        client.post(
+            "/config/backup/import",
+            files={"backup_file": ("aria-config-backup.json", b"", "application/json")},
+            follow_redirects=False,
+        )

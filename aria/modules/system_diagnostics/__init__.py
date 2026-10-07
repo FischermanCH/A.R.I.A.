@@ -1,0 +1,1 @@
+"""System diagnostics module boundary."""

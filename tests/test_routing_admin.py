@@ -3,16 +3,16 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from aria.core.config import Settings
-from aria.core.routing_admin import (
+from aria.modules.configuration_foundations.config import Settings
+from aria.modules.connection_routing.admin import (
     build_connection_routing_index_status,
     ensure_connection_routing_index_ready,
     rebuild_connection_routing_index,
     routing_connections_collection_name,
     test_connection_routing_query as run_connection_routing_query,
 )
-from aria.core.routing_index import build_connection_routing_documents
-from aria.core.routing_index import routing_documents_fingerprint
+from aria.modules.connection_routing.index import build_connection_routing_documents
+from aria.modules.connection_routing.index import routing_documents_fingerprint
 
 
 def _settings() -> Settings:
@@ -255,14 +255,13 @@ def test_routing_admin_testbench_uses_qdrant_after_deterministic_miss() -> None:
 
     assert meta["status"] == "ok"
     assert meta["executed"] is False
-    assert meta["deterministic"]["found"] is False
-    assert meta["decision"]["source"] == "default_single_profile"
+    assert meta["decision"]["source"] == "connection_kind_contract"
     assert meta["decision"]["kind"] == "ssh"
     assert meta["decision"]["ref"] == "dns-node-01"
     assert meta["qdrant"]["accepted_count"] == 1
 
 
-def test_routing_admin_testbench_keeps_exact_match_first_but_lists_qdrant_candidates() -> None:
+def test_routing_admin_testbench_uses_bound_kind_not_free_text_exact_match() -> None:
     settings = _settings()
     collection = routing_connections_collection_name(settings)
 
@@ -301,7 +300,7 @@ def test_routing_admin_testbench_keeps_exact_match_first_but_lists_qdrant_candid
     )
 
     assert meta["status"] == "ok"
-    assert meta["decision"]["source"] == "exact_ref"
+    assert meta["decision"]["source"] == "connection_kind_contract"
     assert meta["decision"]["ref"] == "dns-node-01"
     assert meta["qdrant"]["candidate_count"] == 1
     assert meta["qdrant"]["candidates"][0]["accepted"] is False
@@ -372,8 +371,8 @@ def test_routing_admin_testbench_auto_reports_inferred_kind_without_using_it_as_
     assert meta["status"] == "warn"
     assert meta["preferred_kind"] == "auto"
     assert meta["requested_preferred_kind"] == "auto"
-    assert meta["inferred_preferred_kind"] == "ssh"
-    assert meta["inferred_preferred_kind_authority"] == "diagnostic_only"
+    assert meta["inferred_preferred_kind"] == ""
+    assert meta["inferred_preferred_kind_authority"] == "removed"
     assert meta["decision"]["found"] is False
     assert meta["decision"]["kind"] == ""
     assert meta["decision"]["ref"] == ""
@@ -478,7 +477,7 @@ def test_routing_admin_testbench_includes_llm_router_dry_run() -> None:
     assert "ssh/dns-node-02" in llm_messages[1]["content"]
 
 
-def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
+def test_routing_admin_llm_dry_run_uses_only_bounded_candidates() -> None:
     settings = Settings.model_validate(
         {
             "aria": {"public_url": "http://aria.example.lan:8810"},
@@ -566,7 +565,6 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
             settings,
             "Run uptime on dns-node-01",
             preferred_kind="ssh",
-            llm_ignore_deterministic=True,
             qdrant_client=FakeQdrant(),
             embedding_client=FakeEmbedder(),
             llm_client=FakeLLMClient(),
@@ -574,13 +572,9 @@ def test_routing_admin_llm_dry_run_can_ignore_deterministic_hint() -> None:
         )
     )
 
-    assert meta["deterministic"]["found"] is True
     assert meta["decision"]["kind"] == "ssh"
     assert meta["decision"]["ref"] == "dns-node-01"
-    assert meta["llm_ignore_deterministic"] is True
-    assert meta["llm_debug"]["mode"] == "qdrant_only"
-    assert meta["llm_debug"]["deterministic_hint_used"] is False
-    assert "Deterministic hint: -" in llm_messages[1]["content"]
+    assert meta["llm_debug"]["mode"] == "llm_bounded"
     assert "source=exact_ref" not in llm_messages[1]["content"]
     assert "source=qdrant_routing" in llm_messages[1]["content"]
 
@@ -666,7 +660,7 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
 
     assert meta["action_debug"]["available"] is True
     assert meta["action_debug"]["used"] is True
-    assert meta["action_debug"]["status"] == "ok"
+    assert meta["action_debug"]["status"] == "warn"
     assert meta["action_debug"]["decision"]["candidate_kind"] == "template"
     assert meta["action_debug"]["decision"]["candidate_kind_label"] == "Template"
     assert meta["action_debug"]["decision"]["candidate_id"] == "ssh_run_command"
@@ -674,24 +668,26 @@ def test_routing_admin_includes_action_planner_dry_run() -> None:
     assert meta["action_debug"]["decision"]["capability"] == "ssh_command"
     assert meta["action_debug"]["decision"]["capability_label"] == "SSH-Befehl"
     assert meta["action_debug"]["decision"]["summary_line"] == "Template: Gesundheitscheck via SSH-Befehl auf ssh/dns-node-01"
-    assert meta["action_debug"]["decision"]["inputs"] == {"command": "uptime"}
-    assert meta["action_debug"]["decision"]["input_items"] == [{"key": "command", "key_label": "Befehl", "value": "uptime"}]
-    assert meta["action_debug"]["decision"]["execution_state"] == "ready"
-    assert meta["action_debug"]["decision"]["execution_state_label"] == "Bereit"
-    assert meta["action_debug"]["decision"]["preview"] == "SSH-Befehl: uptime"
-    assert meta["action_debug"]["confidence_label"] == "Hoch"
+    assert meta["action_debug"]["decision"]["inputs"] == {}
+    assert meta["action_debug"]["decision"]["input_items"] == []
+    assert meta["action_debug"]["decision"]["missing_input"] == "command"
+    assert meta["action_debug"]["decision"]["execution_state"] == "needs_input"
+    assert meta["action_debug"]["decision"]["execution_state_label"] == "Braucht Eingabe"
+    assert meta["action_debug"]["decision"]["preview"] == "SSH-Befehl aus Zielkontext und Benutzeranfrage"
+    assert meta["action_debug"]["confidence_label"] == "Niedrig"
     assert meta["action_debug"]["planner_source"] == "llm"
     assert meta["action_debug"]["planner_source_label"] == "LLM"
-    assert meta["action_debug"]["execution_state"] == "ready"
-    assert meta["action_debug"]["execution_state_label"] == "Bereit"
+    assert meta["action_debug"]["execution_state"] == "needs_input"
+    assert meta["action_debug"]["execution_state_label"] == "Braucht Eingabe"
     assert meta["action_debug"]["target_context"] == "ssh/dns-node-01"
-    assert meta["action_debug"]["target_reason"] == "single configured profile"
+    assert meta["action_debug"]["target_reason"] == "single configured profile within the contract-bound connection kind"
     assert meta["payload_debug"]["used"] is True
-    assert meta["payload_debug"]["status"] == "ok"
+    assert meta["payload_debug"]["status"] == "warn"
     assert meta["payload_debug"]["payload"]["capability"] == "ssh_command"
-    assert meta["payload_debug"]["payload"]["content"] == "uptime"
+    assert meta["payload_debug"]["payload"]["content"] == ""
+    assert meta["payload_debug"]["payload"]["missing_fields"] == ["command"]
     assert meta["safety_debug"]["used"] is True
-    assert meta["safety_debug"]["decision"]["action"] == "allow"
+    assert meta["safety_debug"]["decision"]["action"] == "ask_user"
     assert meta["execution_debug"]["used"] is True
-    assert meta["execution_debug"]["decision"]["next_step"] == "allow"
+    assert meta["execution_debug"]["decision"]["next_step"] == "ask_user"
     assert meta["decision"]["ref"] == "dns-node-01"

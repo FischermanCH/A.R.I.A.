@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import Request
+
+
+Translator = Callable[[str, str, str], str]
+AuthSessionResolver = Callable[[Request], dict[str, Any] | None]
+CookieValueResolver = Callable[[Request, str], str]
+
+
+@dataclass(frozen=True)
+class MainRequestHelperDeps:
+    translate: Translator
+    stored_recipe_desc_i18n_fallbacks: dict[str, dict[str, str]]
+    get_auth_session_from_request: AuthSessionResolver
+    request_cookie_value: CookieValueResolver
+    username_cookie: str
+
+
+@dataclass(frozen=True)
+class MainRequestHelpers:
+    format_recipe_routing_info: Callable[[str, str], str]
+    localize_stored_recipe_description: Callable[[dict[str, Any], str], str]
+    sanitize_username: Callable[[str | None], str]
+    get_username_from_request: Callable[[Request], str]
+    sanitize_role: Callable[[str | None], str]
+    sanitize_collection_name: Callable[[str | None], str]
+    sanitize_session_id: Callable[[str | None], str]
+    sanitize_csrf_token: Callable[[str | None], str]
+
+
+def build_main_request_helpers(deps: MainRequestHelperDeps) -> MainRequestHelpers:
+    def _format_recipe_routing_info(lang: str, raw_info: str) -> str:
+        value = str(raw_info or "").strip()
+        if not value:
+            return ""
+        if value.startswith("deleted:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "skills.deleted_info", "Stored recipe deleted: {skill}.")
+            return text.format(skill=skill_id)
+        if value.startswith("imported:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "skills.imported_info", "Stored recipe imported: {skill}.")
+            return text.format(skill=skill_id)
+        if value.startswith("learned_promoted:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "learned_recipes.info_promoted", "Learned recipe promoted into stored recipe: {skill}.")
+            return text.format(skill=skill_id)
+        if value.startswith("learned_dismissed:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "learned_recipes.info_dismissed", "Learned recipe kept for observation: {skill}.")
+            return text.format(skill=skill_id)
+        if value.startswith("learned_deleted:"):
+            skill_id = value.split(":", 1)[1]
+            text = deps.translate(lang, "learned_recipes.info_deleted", "Learned recipe deleted: {skill}.")
+            return text.format(skill=skill_id)
+        return value
+
+    def _localize_stored_recipe_description(manifest: dict[str, Any], lang: str) -> str:
+        lang_code = str(lang or "de").strip().lower() or "de"
+        i18n_map = manifest.get("description_i18n", {})
+        if isinstance(i18n_map, dict):
+            value = str(i18n_map.get(lang_code, "")).strip()
+            if value:
+                return value
+        fallback = str(manifest.get("description", "")).strip()
+        if lang_code == "de":
+            return fallback
+        mapped = deps.stored_recipe_desc_i18n_fallbacks.get(fallback, {}).get(lang_code, "")
+        return str(mapped or fallback)
+
+    def _sanitize_username(value: str | None) -> str:
+        if not value:
+            return ""
+        clean = re.sub(r"\s+", " ", value).strip()
+        clean = re.sub(r"[^\w .-]", "", clean, flags=re.UNICODE)
+        return clean[:40].strip()
+
+    def _get_username_from_request(request: Request) -> str:
+        auth_session = deps.get_auth_session_from_request(request)
+        if auth_session:
+            return _sanitize_username(auth_session.get("username"))
+        return _sanitize_username(deps.request_cookie_value(request, deps.username_cookie))
+
+    def _sanitize_role(value: str | None) -> str:
+        role = str(value or "").strip().lower()
+        if role not in {"admin", "user"}:
+            return "user"
+        return role
+
+    def _sanitize_collection_name(value: str | None) -> str:
+        if not value:
+            return ""
+        clean = re.sub(r"[^a-zA-Z0-9_-]", "_", value).strip("_")
+        clean = re.sub(r"_+", "_", clean)
+        return clean[:64]
+
+    def _sanitize_session_id(value: str | None) -> str:
+        if not value:
+            return ""
+        clean = re.sub(r"[^a-zA-Z0-9_-]", "", value)
+        return clean[:32]
+
+    def _sanitize_csrf_token(value: str | None) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        if not re.fullmatch(r"[A-Za-z0-9_\-]{20,128}", raw):
+            return ""
+        return raw
+
+    return MainRequestHelpers(
+        format_recipe_routing_info=_format_recipe_routing_info,
+        localize_stored_recipe_description=_localize_stored_recipe_description,
+        sanitize_username=_sanitize_username,
+        get_username_from_request=_get_username_from_request,
+        sanitize_role=_sanitize_role,
+        sanitize_collection_name=_sanitize_collection_name,
+        sanitize_session_id=_sanitize_session_id,
+        sanitize_csrf_token=_sanitize_csrf_token,
+    )

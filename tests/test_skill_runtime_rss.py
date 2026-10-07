@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
-from aria.core.recipe_runtime import RecipeRuntime
+from aria.modules.recipe_runtime.runtime import RecipeRuntime
 
 
 def test_clean_feed_url_removes_tracking_parameters() -> None:
@@ -172,11 +172,9 @@ def _build_runtime(*, truncate_text=None) -> RecipeRuntime:
         settings=settings,
         llm_client=None,
         memory_skill_getter=lambda: None,
-        web_search_skill_getter=lambda: None,
         execute_custom_ssh_command=lambda *args, **kwargs: None,
         extract_memory_store_text=lambda *args, **kwargs: "",
         extract_memory_recall_query=lambda *args, **kwargs: "",
-        extract_web_search_query=lambda *args, **kwargs: "",
         facts_collection_for_user=lambda _user: "",
         preferences_collection_for_user=lambda _user: "",
         normalize_spaces=lambda text: text,
@@ -233,7 +231,7 @@ def test_execute_google_calendar_read_formats_events(monkeypatch) -> None:
             "END:VCALENDAR\n"
         )
 
-    monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
+    monkeypatch.setattr("aria.modules.recipe_runtime.runtime.urlopen", fake_urlopen)
 
     result = runtime.execute_google_calendar_read("primary-calendar", "today", language="de")
 
@@ -277,7 +275,7 @@ def test_execute_google_calendar_read_next_lists_only_first_event(monkeypatch) -
             "END:VCALENDAR\n"
         )
 
-    monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
+    monkeypatch.setattr("aria.modules.recipe_runtime.runtime.urlopen", fake_urlopen)
 
     result = runtime.execute_google_calendar_read("primary-calendar", "next", language="de")
 
@@ -319,7 +317,7 @@ def test_execute_google_calendar_read_passes_search_query_to_google(monkeypatch)
             "END:VCALENDAR\n"
         )
 
-    monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
+    monkeypatch.setattr("aria.modules.recipe_runtime.runtime.urlopen", fake_urlopen)
 
     result = runtime.execute_google_calendar_read("primary-calendar", "next_week", "Zahnarzt", language="de")
 
@@ -342,7 +340,7 @@ def test_execute_google_calendar_read_surfaces_unreachable_ical_feed_helpfully(m
         _ = timeout
         raise _IcalError()
 
-    monkeypatch.setattr("aria.core.recipe_runtime.urlopen", fake_urlopen)
+    monkeypatch.setattr("aria.modules.recipe_runtime.runtime.urlopen", fake_urlopen)
 
     try:
         runtime.execute_google_calendar_read("primary-calendar", "today", language="de")

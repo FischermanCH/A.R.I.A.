@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aria.core.guardrail_drafts import (
+from aria.modules.action_draft_policy.guardrail_drafts import (
     build_guardrail_draft_context,
     normalize_guardrail_draft,
     suggest_guardrail_with_llm,

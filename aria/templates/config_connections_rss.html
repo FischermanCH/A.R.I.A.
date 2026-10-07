@@ -2,6 +2,13 @@
 {% from "_icons.html" import icon %}
 {% block content %}
 <main class="config-layout">
+  {% set rss_ui_page_path = required_module_route_path('rss_ui', '/config/connections/rss') %}
+  {% set rss_ui_poll_interval_save_path = required_module_route_path('rss_ui', '/config/connections/rss/poll-interval/save') %}
+  {% set rss_ui_export_opml_path = required_module_route_path('rss_ui', '/config/connections/rss/export-opml') %}
+  {% set rss_ui_import_opml_path = required_module_route_path('rss_ui', '/config/connections/rss/import-opml') %}
+  {% set rss_ui_ping_now_path = required_module_route_path('rss_ui', '/config/connections/rss/ping-now') %}
+  {% set rss_ui_save_path = required_module_route_path('rss_ui', '/config/connections/rss/save') %}
+  {% set rss_ui_suggest_metadata_path = required_module_route_path('rss_ui', '/config/connections/rss/suggest-metadata') %}
   {% include "_connection_page_intro.html" %}
   {% include "_connection_mode_nav.html" %}
 
@@ -15,7 +22,7 @@
     %}
       {% include "_context_help.html" %}
     {% endwith %}
-    <form method="post" action="/config/connections/rss/poll-interval/save" class="editor-form">
+    <form method="post" action="{{ rss_ui_poll_interval_save_path }}" class="editor-form">
       <label for="rss_global_poll_interval_minutes">{{ tr(request,'config_conn.rss_poll_interval_minutes','Ping-Intervall (Minuten)') }}</label>
       <input
         id="rss_global_poll_interval_minutes"
@@ -38,9 +45,9 @@
           <small>{{ tr(request,'config_conn.rss_opml_hint','Importiere viele Feeds aus einer OPML-Datei oder exportiere deine aktuelle RSS-Sammlung wieder als OPML.') }}</small>
         </div>
         <div class="inline-actions">
-          <a class="button-link subtle-link ui-action-link" href="/config/connections/rss/export-opml">{{ icon('download', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_export_opml','OPML exportieren') }}</a>
+          <a class="button-link subtle-link ui-action-link" href="{{ rss_ui_export_opml_path }}">{{ icon('download', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_export_opml','OPML exportieren') }}</a>
         </div>
-        <form method="post" action="/config/connections/rss/import-opml" class="editor-form" enctype="multipart/form-data">
+        <form method="post" action="{{ rss_ui_import_opml_path }}" class="editor-form" enctype="multipart/form-data">
           <label for="opml_file">{{ tr(request,'config_conn.rss_opml_file','OPML-Datei') }}</label>
           <input id="opml_file" type="file" name="opml_file" accept=".opml,.xml,text/xml,application/xml" required>
 
@@ -60,7 +67,7 @@
       </div>
       {% if not rss_selected_explicit %}
       <div class="inline-actions">
-        <form method="get" action="/config/connections/rss" class="inline-form" data-busy-immediate="true">
+        <form method="get" action="{{ rss_ui_page_path }}" class="inline-form" data-busy-immediate="true">
           <input type="hidden" name="refresh_groups" value="1">
           <input type="hidden" name="mode" value="edit">
           <button type="submit" class="ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_refresh_groups','Kategorien mit LLM aktualisieren') }}</button>
@@ -92,7 +99,7 @@
           {% if item.tags %}<div class="status-badge-row compact">{% for tag in item.tags %}<span class="status-badge">{{ tag }}</span>{% endfor %}</div>{% endif %}
           {% if item.last_success_at %}<small class="connection-status-target">{{ tr(request,'config_conn.last_success','Last success') }}: {{ item.last_success_at|replace('T',' ') }}</small>{% endif %}
           <small>{{ item.message }}</small>
-          <form method="post" action="/config/connections/rss/ping-now" class="inline-form" data-busy-immediate="true">
+          <form method="post" action="{{ rss_ui_ping_now_path }}" class="inline-form" data-busy-immediate="true">
             <input type="hidden" name="rss_ref" value="{{ item.ref }}">
             <button type="submit" class="button-link subtle-link ui-action-button">{{ icon('refresh', 'ui-action-icon') }}{{ tr(request,'config_conn.rss_ping_now','Jetzt pingen') }}</button>
           </form>
@@ -114,7 +121,7 @@
           <div class="skill-details-content connection-status-grid">
             {% for item in group.rows %}
             <a
-              href="/config/connections/rss?mode=edit&rss_ref={{ item.ref|urlencode }}"
+              href="{{ rss_ui_page_path }}?mode=edit&rss_ref={{ item.ref|urlencode }}"
               class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}"
               data-rss-feed-card
               data-rss-search-text="{{ (item.display_name ~ ' ' ~ item.ref ~ ' ' ~ item.target ~ ' ' ~ group.name ~ ' ' ~ (item.tags or [])|join(' '))|lower|e }}"
@@ -147,13 +154,13 @@
     </article>
     {% endif %}
 
-    <form method="post" action="/config/connections/rss/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ rss_ui_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_rss_ref }}">
       {% set schema_fields = rss_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'rss_edit' %}
       {% set meta_llm_kind = 'rss' %}
-      {% set meta_llm_endpoint = '/config/connections/rss/suggest-metadata' %}
+      {% set meta_llm_endpoint = rss_ui_suggest_metadata_path %}
       {% set meta_llm_source_fields = ['feed_url', 'group_name'] %}
       {% set meta_values = selected_rss %}
 
@@ -183,13 +190,13 @@
       <span>{{ tr(request,'config_conn.rss_recommended_flow_text','1) RSS-Profil mit Feed-URL speichern. 2) Speichern. 3) ARIA testet den Feed automatisch.') }}</span>
     </div>
 
-    <form method="post" action="/config/connections/rss/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ rss_ui_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
       {% set schema_fields = rss_new_form_fields %}
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'rss_new' %}
       {% set meta_llm_kind = 'rss' %}
-      {% set meta_llm_endpoint = '/config/connections/rss/suggest-metadata' %}
+      {% set meta_llm_endpoint = rss_ui_suggest_metadata_path %}
       {% set meta_llm_source_fields = ['feed_url', 'group_name'] %}
       {% set meta_values = {} %}
 

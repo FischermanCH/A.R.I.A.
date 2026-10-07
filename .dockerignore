@@ -1,6 +1,10 @@
 .git
 .gitignore
 .env
+.codex/
+.claude/
+.cache/
+test-results/
 .pytest_cache/
 .venv/
 __pycache__/
@@ -30,7 +34,8 @@ docs/local/
 docs/AI_CONTEXT.md
 docs/backlog/
 docs/internal/
-docs/release/
+docs/release/*
+!docs/release/docker-hub-overview.md
 docs/product/agentic-context-performance-plan.md
 docs/product/agentic-context-routing-dev-plan.md
 docs/product/agentic-context-runtime-v2.md
@@ -39,3 +44,4 @@ docs/product/deterministic-meaning-audit.md
 docs/product/llm-first-local-context-routing.md
 docs/product/qdrant-collections.md
 docs/product/qdrant-meta-catalog-redesign.md
+docs/product/websearch-alpha759-live-postmortem-2026-09-01.md

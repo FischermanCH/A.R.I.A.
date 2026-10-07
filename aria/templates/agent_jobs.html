@@ -1,0 +1,500 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block content %}
+{% set jobs_json_path = module_route_path('chat_execution_composition', '/jobs') %}
+{% macro job_controls(job) -%}
+<div class="agent-job-controls" data-agent-job-controls="true" data-agent-job-event-key="{{ (job.event_key or '')|e }}">
+  {% if job.status in ['running', 'detached'] %}
+    {% if job.pause_requested %}
+    <span class="stat-sub">{{ tr(request, 'agent_jobs.pause_waiting', 'Pause angefordert; sie erfolgt nach dem aktuellen vollständigen Schritt.') }}</span>
+    {% else %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/pause" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit">{{ tr(request, 'agent_jobs.pause', 'Pausieren') }}</button>
+    </form>
+    {% endif %}
+    {% if job.cancel_requested %}
+    <span class="stat-sub">{{ tr(request, 'agent_jobs.cancel_waiting', 'Abbruch vorgemerkt; der aktuelle Tool-Aufruf wird noch beendet.') }}</span>
+    {% else %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/cancel" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="danger-button">{{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    </form>
+    {% endif %}
+  {% elif job.status == 'paused' %}
+    {% if job.pause_reason == 'budget_reached' %}
+    {% if job.budget_can_extend %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/extend" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="event_key" value="{{ (job.event_key or '')|e }}">
+      <button type="submit">▶ {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte').replace('{count}', job.budget_extension_steps|string) }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/finish" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="event_key" value="{{ (job.event_key or '')|e }}">
+      <button type="submit">✅ {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen') }}</button>
+    </form>
+    {% else %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/resume" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit">{{ tr(request, 'agent_jobs.resume', 'Fortsetzen') }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/cancel" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="event_key" value="{{ (job.event_key or '')|e }}">
+      <button type="submit" class="danger-button">{{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    </form>
+  {% elif job.status == 'awaiting_confirmation' %}
+    <form method="post" action="/jobs/{{ job.job_id|e }}/confirm" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit">✅ {{ tr(request, 'agent_jobs.confirm', 'Ausführen') }}</button>
+    </form>
+    <form method="post" action="/jobs/{{ job.job_id|e }}/decline" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit">✖ {{ tr(request, 'agent_jobs.decline', 'Ablehnen') }}</button>
+    </form>
+    <form method="post" action="/jobs/{{ job.job_id|e }}/cancel" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="danger-button">{{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    </form>
+  {% endif %}
+  {% if job.status in ['done', 'error', 'cancelled'] %}
+  <form method="post" action="/jobs/{{ job.job_id|e }}/delete" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+    <button type="submit" class="danger-button" title="{{ tr(request, 'agent_jobs.delete', 'Auftrag löschen') }}">🗑</button>
+  </form>
+  {% endif %}
+  {% if job.status in ['running', 'detached', 'paused', 'awaiting_confirmation'] %}
+  <details class="agent-job-correction">
+    <summary>✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</summary>
+    <form method="post" action="/jobs/{{ job.job_id|e }}/correct" class="editor-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <textarea name="correction" maxlength="1000" required></textarea>
+      <button type="submit">{{ tr(request, 'agent_jobs.correct_send', 'Korrektur senden') }}</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
+{%- endmacro %}
+<style>
+  .agent-job-card-header { align-items: flex-start; justify-content: space-between; }
+  .agent-job-header-actions,
+  .agent-job-controls { display: flex; align-items: center; justify-content: flex-end; gap: 0.45rem; flex-wrap: wrap; }
+  .agent-job-steps { margin-top: 0.7rem; }
+  .agent-job-steps > summary { cursor: pointer; color: var(--muted); }
+  .agent-job-correction { min-width: 9rem; }
+  .agent-job-correction > summary { cursor: pointer; }
+  .agent-job-correction textarea { min-width: min(24rem, 70vw); min-height: 4rem; }
+</style>
+<main class="stats-layout stats-clean-layout">
+  <section class="stat-card stats-domain-intro">
+    <div class="page-title-row">
+      <span>{{ icon('activities', 'page-title-icon') }}</span>
+      <h2>{{ tr(request, 'agent_jobs.title', 'Agent-Aufträge') }}</h2>
+    </div>
+    <p class="stat-sub">{{ tr(request, 'agent_jobs.subtitle', 'Laufende und zuletzt abgeschlossene mehrstufige Aufgaben dieses Nutzers.') }}</p>
+    <form method="post" action="/jobs/clear-completed" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit">{{ tr(request, 'agent_jobs.clear_completed', 'Erledigte entfernen') }}</button>
+    </form>
+  </section>
+
+  {% if jobs_notice %}
+  <div class="alert {{ 'ok' if jobs_notice in ['requested', 'pause_requested', 'resume_started', 'correction_queued', 'confirm_started', 'decline_started'] else 'note' if jobs_notice in ['not_running', 'pause_not_running', 'resume_not_running', 'correction_not_running', 'already_handled', 'budget_extend_already_handled', 'budget_finish_already_handled'] else 'err' }}">
+    {% if jobs_notice == 'requested' %}
+      {{ tr(request, 'agent_jobs.cancel_requested', 'Abbruch angefordert. Er erfolgt nach dem aktuell laufenden Schritt.') }}
+    {% elif jobs_notice == 'not_running' %}
+      {{ tr(request, 'agent_jobs.cancel_not_running', 'Der Auftrag läuft nicht mehr; es wurde nichts geändert.') }}
+    {% elif jobs_notice == 'not_found' %}
+      {{ tr(request, 'agent_jobs.cancel_not_found', 'Der Auftrag wurde für diesen Nutzer nicht gefunden.') }}
+    {% elif jobs_notice == 'pause_requested' %}
+      {{ tr(request, 'agent_jobs.pause_requested', 'Pause angefordert. Sie erfolgt an der nächsten sauberen Schrittgrenze.') }}
+    {% elif jobs_notice == 'pause_not_running' %}
+      {{ tr(request, 'agent_jobs.pause_not_running', 'Der Auftrag läuft nicht mehr und kann nicht pausiert werden.') }}
+    {% elif jobs_notice == 'pause_not_found' %}
+      {{ tr(request, 'agent_jobs.pause_not_found', 'Der Auftrag wurde für diesen Nutzer nicht gefunden.') }}
+    {% elif jobs_notice == 'resume_started' %}
+      {{ tr(request, 'agent_jobs.resume_started', 'Der Auftrag wird im Hintergrund fortgesetzt.') }}
+    {% elif jobs_notice == 'resume_not_running' %}
+      {{ tr(request, 'agent_jobs.resume_not_running', 'Der Auftrag ist nicht pausiert oder wurde bereits fortgesetzt.') }}
+    {% elif jobs_notice == 'resume_not_found' %}
+      {{ tr(request, 'agent_jobs.resume_not_found', 'Der Auftrag wurde für diesen Nutzer nicht gefunden.') }}
+    {% elif jobs_notice == 'correction_queued' %}
+      {{ tr(request, 'agent_jobs.correction_queued', 'Korrektur übernommen; sie gilt an der nächsten Schrittgrenze.') }}
+    {% elif jobs_notice == 'correction_not_running' %}
+      {{ tr(request, 'agent_jobs.correction_not_running', 'Dieser Auftrag ist bereits beendet. Bitte starte für die Änderung eine neue Anfrage.') }}
+    {% elif jobs_notice in ['confirm_started', 'decline_started'] %}
+      {{ tr(request, 'agent_jobs.confirm_resolution_started', 'Die Entscheidung wurde übernommen; der Auftrag läuft im Hintergrund weiter.') }}
+    {% elif jobs_notice == 'pause_error' %}
+      {{ tr(request, 'agent_jobs.pause_error', 'Die Pause konnte nicht angefordert werden.') }}
+    {% elif jobs_notice == 'resume_error' %}
+      {{ tr(request, 'agent_jobs.resume_error', 'Der Auftrag konnte nicht fortgesetzt werden.') }}
+    {% elif jobs_notice == 'job_not_found' %}
+      {{ tr(request, 'agent_jobs.job_not_found', 'Job nicht mehr vorhanden.') }}
+    {% elif jobs_notice == 'cleared' %}
+      {{ tr(request, 'agent_jobs.cleared', 'Erledigte Aufträge wurden entfernt.') }}
+    {% elif jobs_notice in ['budget_extend_started', 'budget_finish_started'] %}
+      {{ tr(request, 'agent_jobs.resume_started', 'Der Auftrag wird im Hintergrund fortgesetzt.') }}
+    {% elif jobs_notice in ['already_handled', 'budget_extend_already_handled', 'budget_finish_already_handled'] %}
+      {{ tr(request, 'agent_jobs.pause_event_already_handled', 'Dieses Pause-Ereignis wurde bereits bearbeitet; es wurde nichts doppelt ausgeführt.') }}
+    {% elif jobs_notice == 'delete_deleted' %}
+      {{ tr(request, 'agent_jobs.deleted', 'Der Auftrag wurde entfernt.') }}
+    {% else %}
+      {{ tr(request, 'agent_jobs.cancel_error', 'Der Abbruch konnte nicht angefordert werden.') }}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <section class="stats-details-content" id="agent-jobs-list">
+    {% for job in jobs %}
+    <article class="memory-card activity-card" id="job-{{ job.job_id|e }}" data-agent-job-card="true" data-agent-job-id="{{ job.job_id|e }}">
+      <div class="memory-card-body">
+        <div class="page-title-row agent-job-card-header" data-agent-job-header="true">
+          <div>
+            <strong data-agent-job-goal>{{ job.goal or tr(request, 'agent_jobs.untitled', 'Auftrag ohne Beschreibung') }}</strong>
+            <div><code data-agent-job-code>{{ job.job_id }}</code></div>
+          </div>
+          <div class="agent-job-header-actions">
+            <span data-agent-job-status class="meta-badge status-{{ 'warn' if job.has_warning or job.display_status in ['running', 'detached', 'paused', 'awaiting_confirmation'] else 'ok' if job.display_status == 'done' else 'error' }}">
+              {% if job.has_warning %}
+                {% if job.is_partial %}{{ tr(request, 'agent_jobs.status_partial', 'Teilweise erledigt') }}{% else %}{{ tr(request, 'agent_jobs.status_done_warning', 'Fertig mit Hinweis') }}{% endif %}
+              {% else %}
+                {{ tr(request, 'agent_jobs.status_' ~ job.display_status, job.display_status) }}
+              {% endif %}
+            </span>
+            {{ job_controls(job) }}
+          </div>
+        </div>
+        <p class="stat-sub" data-agent-job-times>
+          {{ tr(request, 'agent_jobs.created', 'Erstellt') }}: {{ job.created_at_text }} ·
+          {{ tr(request, 'agent_jobs.updated', 'Aktualisiert') }}: {{ job.updated_at_text }}
+        </p>
+        <p class="stat-sub" data-agent-job-usage{% if not job.usage_summary %} hidden{% endif %}>{{ job.usage_summary }}</p>
+
+        <div class="alert note" data-agent-job-warning{% if not job.has_warning and job.warning != 'pause_state_too_large' %} hidden{% endif %}>
+          {% if job.warning == 'native_agent_summary_unavailable' %}{{ tr(request, 'agent_jobs.summary_warning', 'Die natürliche Abschlusszusammenfassung war nicht verfügbar; angezeigt werden ausschließlich aufgezeichnete Tool-Rückmeldungen.') }}{% elif job.is_partial %}{{ tr(request, 'agent_jobs.partial_warning', 'Der Auftrag hat sein Schritt-Budget erreicht. Bereits erfolgreiche Schritte bleiben erhalten.') }}{% elif job.has_warning %}{{ tr(request, 'agent_jobs.summary_warning', 'Die natürliche Abschlusszusammenfassung war nicht verfügbar; angezeigt werden ausschließlich aufgezeichnete Tool-Rückmeldungen.') }}{% elif job.warning == 'pause_state_too_large' %}{{ tr(request, 'agent_jobs.pause_state_too_large', 'Dieser Auftrag kann nicht pausiert werden: Der fortsetzbare Zustand ist zu groß. Der Auftrag läuft weiter.') }}{% endif %}
+        </div>
+
+        <details class="agent-job-steps" data-agent-job-steps="true"{% if job.step_log|length <= 3 %} open{% endif %}>
+          <summary data-agent-job-step-summary>
+            {% set step_count = job.step_count if job.step_count is defined else job.step_log|length %}{{ tr(request, 'agent_jobs.steps_summary', 'Schritte: {count}').replace('{count}', step_count|string) }}{% if job.step_log %} · {{ tr(request, 'agent_jobs.steps_latest', 'zuletzt') }}: {{ job.step_log[-1].tool_names|join(', ') }} {{ job.step_log[-1].outcome_summary }}{% endif %}
+          </summary>
+          <ol class="stats-list" data-agent-job-step-list>
+          {% for step in job.step_log|reverse %}
+          <li>
+            <span>#{{ step.step_index }} · {{ step.tool_names|join(', ') }}</span>
+            <strong>{{ step.outcome_summary }}</strong>
+          </li>
+          {% endfor %}
+          </ol>
+        </details>
+
+        <div data-agent-job-result{% if not job.result %} hidden{% endif %}>
+          <h3>{{ tr(request, 'agent_jobs.result', 'Ergebnis') }}</h3>
+          <pre class="stats-code" data-agent-job-result-text>{{ job.result }}</pre>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+  <section class="stat-card" id="agent-jobs-empty"{% if jobs %} hidden{% endif %}>
+    <p>{{ tr(request, 'agent_jobs.empty', 'Noch keine Hintergrund-Aufträge vorhanden.') }}</p>
+  </section>
+  <template id="agent-job-card-template">
+    <article class="memory-card activity-card" data-agent-job-card="true">
+      <div class="memory-card-body">
+        <div class="page-title-row agent-job-card-header" data-agent-job-header="true">
+          <div><strong data-agent-job-goal></strong><div><code data-agent-job-code></code></div></div>
+          <div class="agent-job-header-actions"><span data-agent-job-status class="meta-badge"></span><div class="agent-job-controls" data-agent-job-controls="true"></div></div>
+        </div>
+        <p class="stat-sub" data-agent-job-times></p>
+        <p class="stat-sub" data-agent-job-usage hidden></p>
+        <div class="alert note" data-agent-job-warning hidden></div>
+        <details class="agent-job-steps" data-agent-job-steps="true"><summary data-agent-job-step-summary></summary><ol class="stats-list" data-agent-job-step-list></ol></details>
+        <div data-agent-job-result hidden><h3>{{ tr(request, 'agent_jobs.result', 'Ergebnis') }}</h3><pre class="stats-code" data-agent-job-result-text></pre></div>
+      </div>
+    </article>
+  </template>
+  <div id="agent-jobs-scroll-compensation" aria-hidden="true"></div>
+</main>
+<script>
+  (function () {
+    const list = document.getElementById("agent-jobs-list");
+    const empty = document.getElementById("agent-jobs-empty");
+    const cardTemplate = document.getElementById("agent-job-card-template");
+    const csrf = {{ request.state.csrf_token|tojson }};
+    const text = {
+      untitled: {{ tr(request, 'agent_jobs.untitled', 'Auftrag ohne Beschreibung')|tojson }},
+      created: {{ tr(request, 'agent_jobs.created', 'Erstellt')|tojson }},
+      updated: {{ tr(request, 'agent_jobs.updated', 'Aktualisiert')|tojson }},
+      pause: {{ tr(request, 'agent_jobs.pause', 'Pausieren')|tojson }},
+      resume: {{ tr(request, 'agent_jobs.resume', 'Fortsetzen')|tojson }},
+      cancel: {{ tr(request, 'agent_jobs.cancel', 'Abbrechen')|tojson }},
+      correct: {{ tr(request, 'agent_jobs.correct', 'Korrigieren')|tojson }},
+      correctSend: {{ tr(request, 'agent_jobs.correct_send', 'Korrektur senden')|tojson }},
+      confirm: {{ tr(request, 'agent_jobs.confirm', 'Ausführen')|tojson }},
+      decline: {{ tr(request, 'agent_jobs.decline', 'Ablehnen')|tojson }},
+      extend: {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte')|tojson }},
+      finish: {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen')|tojson }},
+      delete: {{ tr(request, 'agent_jobs.delete', 'Auftrag löschen')|tojson }},
+      pauseWaiting: {{ tr(request, 'agent_jobs.pause_waiting', 'Pause angefordert; sie erfolgt nach dem aktuellen vollständigen Schritt.')|tojson }},
+      cancelWaiting: {{ tr(request, 'agent_jobs.cancel_waiting', 'Abbruch vorgemerkt; der aktuelle Tool-Aufruf wird noch beendet.')|tojson }},
+      warning: {{ tr(request, 'agent_jobs.summary_warning', 'Die natürliche Abschlusszusammenfassung war nicht verfügbar; angezeigt werden ausschließlich aufgezeichnete Tool-Rückmeldungen.')|tojson }},
+      partialWarning: {{ tr(request, 'agent_jobs.partial_warning', 'Der Auftrag hat sein Schritt-Budget erreicht. Bereits erfolgreiche Schritte bleiben erhalten.')|tojson }},
+      pauseTooLarge: {{ tr(request, 'agent_jobs.pause_state_too_large', 'Dieser Auftrag kann nicht pausiert werden: Der fortsetzbare Zustand ist zu groß. Der Auftrag läuft weiter.')|tojson }},
+      steps: {{ tr(request, 'agent_jobs.steps_summary', 'Schritte: {count}')|tojson }},
+      latest: {{ tr(request, 'agent_jobs.steps_latest', 'zuletzt')|tojson }},
+      status: {
+        running: {{ tr(request, 'agent_jobs.status_running', 'Läuft')|tojson }},
+        detached: {{ tr(request, 'agent_jobs.status_detached', 'Im Hintergrund')|tojson }},
+        paused: {{ tr(request, 'agent_jobs.status_paused', 'Pausiert')|tojson }},
+        awaiting_confirmation: {{ tr(request, 'agent_jobs.status_awaiting_confirmation', 'Wartet auf Bestätigung')|tojson }},
+        done: {{ tr(request, 'agent_jobs.status_done', 'Fertig')|tojson }},
+        error: {{ tr(request, 'agent_jobs.status_error', 'Fehler')|tojson }},
+        cancelled: {{ tr(request, 'agent_jobs.status_cancelled', 'Abgebrochen')|tojson }},
+        interrupted: {{ tr(request, 'agent_jobs.status_interrupted', 'Unterbrochen')|tojson }},
+        doneWarning: {{ tr(request, 'agent_jobs.status_done_warning', 'Fertig mit Hinweis')|tojson }}
+        ,partial: {{ tr(request, 'agent_jobs.status_partial', 'Teilweise erledigt')|tojson }}
+      }
+    };
+
+    function cleanJobId(value) {
+      return String(value || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+    }
+
+    function displayStatus(job) {
+      return job.status === "error" && job.result === "worker_restart" ? "interrupted" : String(job.status || "error");
+    }
+
+    function formatTime(value) {
+      const date = new Date(Number(value || 0) * 1000);
+      return Number.isNaN(date.getTime()) ? "-" : date.toISOString().replace(".000Z", "Z");
+    }
+
+    function controlForm(jobId, action, label, danger, eventKey) {
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = "/jobs/" + encodeURIComponent(jobId) + "/" + action;
+      form.className = "inline-form";
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "csrf_token";
+      input.value = csrf;
+      const button = document.createElement("button");
+      button.type = "submit";
+      button.textContent = label;
+      if (danger) button.className = "danger-button";
+      form.append(input, button);
+      if (eventKey) {
+        const eventInput = document.createElement("input");
+        eventInput.type = "hidden";
+        eventInput.name = "event_key";
+        eventInput.value = String(eventKey);
+        form.insertBefore(eventInput, button);
+      }
+      return form;
+    }
+
+    function correctionControl(jobId) {
+      const details = document.createElement("details");
+      details.className = "agent-job-correction";
+      const summary = document.createElement("summary");
+      summary.textContent = "✏️ " + text.correct;
+      const form = controlForm(jobId, "correct", text.correctSend, false);
+      form.className = "editor-form";
+      const area = document.createElement("textarea");
+      area.name = "correction";
+      area.maxLength = 1000;
+      area.required = true;
+      form.insertBefore(area, form.lastElementChild);
+      details.append(summary, form);
+      return details;
+    }
+
+    function updateControls(card, job) {
+      const controls = card.querySelector("[data-agent-job-controls]");
+      if (!controls) return;
+      const signature = [job.status, job.pause_reason, !!job.budget_can_extend, !!job.pause_requested, !!job.cancel_requested].join(":");
+      if (controls.dataset.inflight === "true" || controls.dataset.state === signature) return;
+      controls.dataset.state = signature;
+      controls.dataset.agentJobEventKey = String(job.event_key || "");
+      controls.replaceChildren();
+      const jobId = cleanJobId(job.job_id);
+      if (["running", "detached"].includes(job.status)) {
+        if (job.pause_requested) {
+          const waiting = document.createElement("span");
+          waiting.className = "stat-sub";
+          waiting.textContent = text.pauseWaiting;
+          controls.appendChild(waiting);
+        } else {
+          controls.appendChild(controlForm(jobId, "pause", text.pause, false));
+        }
+        if (job.cancel_requested) {
+          const waiting = document.createElement("span");
+          waiting.className = "stat-sub";
+          waiting.textContent = text.cancelWaiting;
+          controls.appendChild(waiting);
+        } else {
+          controls.appendChild(controlForm(jobId, "cancel", text.cancel, true));
+        }
+      } else if (job.status === "paused") {
+        if (job.pause_reason === "budget_reached") {
+          if (job.budget_can_extend) controls.appendChild(controlForm(jobId, "extend", "▶ " + text.extend.replace("{count}", String(job.budget_extension_steps || 32)), false, job.event_key));
+          controls.appendChild(controlForm(jobId, "finish", "✅ " + text.finish, false, job.event_key));
+        } else {
+          controls.appendChild(controlForm(jobId, "resume", text.resume, false));
+        }
+        controls.appendChild(controlForm(jobId, "cancel", text.cancel, true, job.pause_reason === "budget_reached" ? job.event_key : ""));
+      } else if (job.status === "awaiting_confirmation") {
+        controls.appendChild(controlForm(jobId, "confirm", "✅ " + text.confirm, false));
+        controls.appendChild(controlForm(jobId, "decline", "✖ " + text.decline, false));
+        controls.appendChild(controlForm(jobId, "cancel", text.cancel, true));
+      }
+      if (["running", "detached", "paused", "awaiting_confirmation"].includes(job.status)) {
+        controls.appendChild(correctionControl(jobId));
+      }
+      if (["done", "error", "cancelled"].includes(job.status)) {
+        controls.appendChild(controlForm(jobId, "delete", "🗑 " + text.delete, true));
+      }
+    }
+
+    function updateSteps(card, job) {
+      const details = card.querySelector("[data-agent-job-steps]");
+      const summary = card.querySelector("[data-agent-job-step-summary]");
+      const listNode = card.querySelector("[data-agent-job-step-list]");
+      if (!details || !summary || !listNode) return;
+      const steps = Array.isArray(job.step_log) ? job.step_log : [];
+      const stepCount = Number.isFinite(Number(job.step_count)) ? Number(job.step_count) : steps.length;
+      const signature = JSON.stringify(steps);
+      if (details.dataset.stepSignature === signature) return;
+      const wasOpen = details.open;
+      details.dataset.stepSignature = signature;
+      const latest = steps.length ? steps[steps.length - 1] : null;
+      const latestTools = latest && Array.isArray(latest.tool_names) ? latest.tool_names.join(", ") : "";
+      summary.textContent = text.steps.replace("{count}", String(stepCount)) +
+        (latest ? " · " + text.latest + ": " + latestTools + " " + String(latest.outcome_summary || "") : "");
+      listNode.replaceChildren();
+      steps.slice().reverse().forEach((step) => {
+        const item = document.createElement("li");
+        const heading = document.createElement("span");
+        const names = Array.isArray(step.tool_names) ? step.tool_names.join(", ") : "";
+        heading.textContent = "#" + String(step.step_index || 0) + " · " + names;
+        const outcome = document.createElement("strong");
+        outcome.textContent = String(step.outcome_summary || "");
+        item.append(heading, outcome);
+        listNode.appendChild(item);
+      });
+      if (details.dataset.agentJobUserToggled === "true") {
+        details.open = wasOpen;
+      } else {
+        details.open = stepCount <= 3;
+      }
+    }
+
+    function updateAgentJobCard(card, job) {
+      const jobId = cleanJobId(job.job_id);
+      card.id = "job-" + jobId;
+      card.dataset.agentJobId = jobId;
+      card.querySelector("[data-agent-job-goal]").textContent = String(job.goal || text.untitled);
+      card.querySelector("[data-agent-job-code]").textContent = jobId;
+      const status = displayStatus(job);
+      const hasWarning = status === "done" && !!String(job.warning || "").trim();
+      const isPartial = status === "done" && ["native_agent_budget_incomplete", "native_agent_summary_unavailable"].includes(job.warning);
+      const badge = card.querySelector("[data-agent-job-status]");
+      badge.className = "meta-badge status-" + (hasWarning || ["running", "detached", "paused", "awaiting_confirmation"].includes(status) ? "warn" : status === "done" ? "ok" : "error");
+      badge.textContent = isPartial ? text.status.partial : hasWarning ? text.status.doneWarning : (text.status[status] || status);
+      card.querySelector("[data-agent-job-times]").textContent = text.created + ": " + formatTime(job.created_at) + " · " + text.updated + ": " + formatTime(job.updated_at);
+      const usageNode = card.querySelector("[data-agent-job-usage]");
+      const usage = job && job.usage || {};
+      const totalTokens = Number(usage.total_tokens || 0);
+      const inputTokens = Number(usage.input_tokens || 0);
+      const cacheRead = Number(usage.cache_read_tokens || 0);
+      let usageText = totalTokens > 0 ? "≈ " + totalTokens.toLocaleString() + " Tokens" : "";
+      if (usageText && inputTokens > 0) usageText += " (" + Math.round(cacheRead * 100 / inputTokens) + " % aus Cache)";
+      if (usage.cost_usd !== undefined && usage.cost_usd !== null) usageText += (usageText ? " · " : "") + "≈ $" + Number(usage.cost_usd).toFixed(4);
+      usageNode.textContent = usageText;
+      usageNode.hidden = !usageText;
+      const warning = card.querySelector("[data-agent-job-warning]");
+      warning.hidden = !hasWarning && job.warning !== "pause_state_too_large";
+      warning.textContent = job.warning === "native_agent_summary_unavailable" ? text.warning : isPartial ? text.partialWarning : hasWarning ? text.warning : job.warning === "pause_state_too_large" ? text.pauseTooLarge : "";
+      const resultBox = card.querySelector("[data-agent-job-result]");
+      resultBox.hidden = !job.result;
+      card.querySelector("[data-agent-job-result-text]").textContent = String(job.result || "");
+      updateControls(card, job);
+      updateSteps(card, job);
+    }
+
+    function createAgentJobCard(job) {
+      const card = cardTemplate.content.firstElementChild.cloneNode(true);
+      const details = card.querySelector("[data-agent-job-steps]");
+      details.addEventListener("toggle", function () {
+        details.dataset.agentJobUserToggled = "true";
+      });
+      updateAgentJobCard(card, job);
+      return card;
+    }
+
+    list.querySelectorAll("[data-agent-job-steps]").forEach((details) => {
+      details.addEventListener("toggle", function () {
+        details.dataset.agentJobUserToggled = "true";
+      });
+    });
+
+    function updateAgentJobs(rows) {
+      const scrollYBefore = window.scrollY;
+      const heightBefore = document.documentElement.scrollHeight;
+      const jobs = Array.isArray(rows) ? rows : [];
+      const seen = new Set();
+      jobs.forEach((job) => {
+        const jobId = cleanJobId(job.job_id);
+        if (!jobId) return;
+        seen.add(jobId);
+        let card = document.getElementById("job-" + jobId);
+        if (!card) {
+          card = createAgentJobCard(job);
+          list.appendChild(card);
+        } else {
+          updateAgentJobCard(card, job);
+        }
+      });
+      list.querySelectorAll("[data-agent-job-card]").forEach((card) => {
+        if (!seen.has(String(card.dataset.agentJobId || ""))) card.remove();
+      });
+      empty.hidden = jobs.length > 0;
+      const compensation = document.getElementById("agent-jobs-scroll-compensation");
+      const heightAfter = document.documentElement.scrollHeight;
+      if (compensation && scrollYBefore > 0 && heightAfter < heightBefore) {
+        compensation.style.height = String(
+          Number.parseFloat(compensation.style.height || "0") + (heightBefore - heightAfter)
+        ) + "px";
+      }
+      window.scrollTo(0, scrollYBefore);
+    }
+
+    list.addEventListener("submit", function (event) {
+      const form = event.target && event.target.closest ? event.target.closest("form") : null;
+      const controls = form && form.closest("[data-agent-job-controls]");
+      if (!form || !controls || controls.dataset.inflight === "true") {
+        if (controls && controls.dataset.inflight === "true") event.preventDefault();
+        return;
+      }
+      controls.dataset.inflight = "true";
+      controls.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      const button = form.querySelector("button[type='submit']");
+      if (button) button.textContent = "…";
+    });
+
+    window.setInterval(function () {
+      fetch({{ jobs_json_path|tojson }}, { credentials: "same-origin", cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null)
+        .then((payload) => {
+          if (!payload || !Array.isArray(payload.jobs)) return;
+          updateAgentJobs(payload.jobs);
+        })
+        .catch(function () {});
+    }, 2500);
+  })();
+</script>
+{% endblock %}

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from aria.core.recipe_runtime import RecipeRuntime
+from aria.modules.recipe_runtime.runtime import RecipeRuntime
 
 
 class _DummyResponse:
@@ -37,11 +37,9 @@ def _runtime(*, webhook: object | None = None, http_api: object | None = None, g
         settings=settings,
         llm_client=None,
         memory_skill_getter=lambda: None,
-        web_search_skill_getter=lambda: None,
         execute_custom_ssh_command=lambda **_: None,
         extract_memory_store_text=lambda *args, **kwargs: "",
         extract_memory_recall_query=lambda *args, **kwargs: "",
-        extract_web_search_query=lambda *args, **kwargs: "",
         facts_collection_for_user=lambda user: f"facts-{user}",
         preferences_collection_for_user=lambda user: f"prefs-{user}",
         normalize_spaces=lambda text: " ".join(str(text or "").split()),
@@ -129,7 +127,7 @@ def test_execute_http_api_request_allows_compatible_guardrail() -> None:
         content_type="application/json",
     )
 
-    with patch("aria.core.recipe_runtime.urlopen", return_value=response):
+    with patch("aria.modules.recipe_runtime.runtime.urlopen", return_value=response):
         result = runtime.execute_http_api_request("inventory-api", "/health", "")
 
     assert '"status": "ok"' in result
@@ -197,7 +195,7 @@ def test_execute_http_api_request_reports_404_with_health_path_hint() -> None:
         fp=io.BytesIO(b'{"error":"missing route"}'),
     )
 
-    with patch("aria.core.recipe_runtime.urlopen", side_effect=error):
+    with patch("aria.modules.recipe_runtime.runtime.urlopen", side_effect=error):
         try:
             runtime.execute_http_api_request("inventory-api", "/health", "")
         except ValueError as exc:

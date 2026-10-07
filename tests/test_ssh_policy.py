@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aria.core.ssh_policy import command_matches_allow_commands, validate_ssh_readonly_policy
+from aria.modules.ssh_policy.policy import command_matches_allow_commands, validate_ssh_readonly_policy
 
 
 def test_validate_ssh_readonly_policy_allows_simple_readonly_command() -> None:

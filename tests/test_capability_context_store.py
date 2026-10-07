@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aria.core.capability_context import CapabilityContextStore
+from aria.modules.capability_context.store import CapabilityContextStore
 
 
 def test_capability_context_cache_refreshes_after_external_change(tmp_path: Path) -> None:
@@ -13,8 +13,8 @@ def test_capability_context_cache_refreshes_after_external_change(tmp_path: Path
             {
                 "demo": {
                     "capability": "search",
-                    "connection_kind": "searxng",
-                    "connection_ref": "web",
+                    "connection_kind": "website",
+                    "connection_ref": "docs",
                     "path": "/updates",
                 }
             }
@@ -50,8 +50,8 @@ def test_capability_context_load_recent_returns_copy(tmp_path: Path) -> None:
     store.remember_action(
         "demo",
         capability="search",
-        connection_kind="searxng",
-        connection_ref="web",
+        connection_kind="website",
+        connection_ref="docs",
         path="/updates",
     )
 

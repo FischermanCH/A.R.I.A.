@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Sequence
 
-from aria.core.release_meta import read_release_meta
-from aria.core.update_check import get_update_status
+from aria.modules.release_update.release_meta import read_release_meta
+from aria.modules.release_update.update_check import get_update_status
 
 
 def _base_dir() -> Path:

@@ -3,9 +3,9 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from aria.core.recipe_runtime_contract import RECIPE_STATUS_INTENT
-from aria.core.recipe_runtime_contract import build_recipe_intent
-from aria.core.token_tracker import TokenTracker
+from aria.modules.recipe_runtime.contracts import RECIPE_STATUS_INTENT
+from aria.modules.recipe_runtime.contracts import build_recipe_intent
+from aria.modules.model_usage_observability.token_tracker import TokenTracker
 
 
 def test_get_recent_activities_filters_and_summarizes(tmp_path: Path) -> None:
@@ -231,6 +231,81 @@ def test_get_recent_activities_includes_capability_runs(tmp_path: Path) -> None:
     assert data["rows"][0]["intent"] == "capability:file_list"
     assert data["rows"][0]["kind"] == "system"
     assert data["rows"][0]["title"] == "File List"
+
+
+def test_get_recent_activities_includes_native_recipe_system_and_memory_runs(tmp_path: Path) -> None:
+    log_path = tmp_path / "tokens.jsonl"
+    entries = [
+        {
+            "timestamp": "2026-09-26T10:00:00+00:00",
+            "user_id": "DemoUser",
+            "intents": ["native_agent", "recipes_execute"],
+            "duration_ms": 4200,
+            "skill_errors": [],
+            "activity": {"title": "SSH Update", "target": "srv-dev02", "success": True},
+        },
+        {
+            "timestamp": "2026-09-26T09:00:00+00:00",
+            "user_id": "DemoUser",
+            "intents": ["native_agent", "ssh_read"],
+            "duration_ms": 800,
+            "skill_errors": ["ssh_transport_failed"],
+        },
+        {
+            "timestamp": "2026-09-26T08:00:00+00:00",
+            "user_id": "DemoUser",
+            "intents": ["native_agent", "memory_capture"],
+            "duration_ms": 1000,
+            "skill_errors": [],
+        },
+        {
+            "timestamp": "2026-09-26T07:00:00+00:00",
+            "user_id": "OtherUser",
+            "intents": ["native_agent", "recipes_execute"],
+            "duration_ms": 9000,
+            "skill_errors": [],
+        },
+    ]
+    with log_path.open("w", encoding="utf-8") as file:
+        for entry in entries:
+            file.write(json.dumps(entry) + "\n")
+
+    tracker = TokenTracker(str(log_path), enabled=True)
+    data = asyncio.run(tracker.get_recent_activities(user_id="DemoUser", limit=10))
+
+    assert [row["kind"] for row in data["rows"]] == ["recipe", "system", "memory"]
+    assert [row["intent"] for row in data["rows"]] == ["recipes_execute", "ssh_read", "memory_capture"]
+    assert data["rows"][0]["title"] == "SSH Update"
+    assert data["rows"][0]["target"] == "srv-dev02"
+    assert [row["success"] for row in data["rows"]] == [True, False, True]
+    assert data["summary"] == {"count": 3, "success": 2, "errors": 1, "avg_duration_ms": 2000}
+
+
+def test_get_recent_activities_includes_native_web_pipeline_intent_once(tmp_path: Path) -> None:
+    log_path = tmp_path / "tokens.jsonl"
+    log_path.write_text(
+        json.dumps(
+            {
+                "timestamp": "2026-09-26T11:00:00+00:00",
+                "user_id": "DemoUser",
+                "intents": ["web_search"],
+                "duration_ms": 1450,
+                "total_tokens": 321,
+                "native_web_search_uses": 1,
+                "skill_errors": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    tracker = TokenTracker(str(log_path), enabled=True)
+    data = asyncio.run(tracker.get_recent_activities(user_id="DemoUser", limit=10))
+
+    assert data["summary"] == {"count": 1, "success": 1, "errors": 0, "avg_duration_ms": 1450}
+    assert len(data["rows"]) == 1
+    assert data["rows"][0]["intent"] == "web_search"
+    assert data["rows"][0]["kind"] == "system"
 
 
 def test_clear_log_removes_all_entries_and_file(tmp_path: Path) -> None:

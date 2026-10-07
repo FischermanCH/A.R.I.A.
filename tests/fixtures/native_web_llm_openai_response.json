@@ -1,0 +1,41 @@
+{
+  "_probe_duration_ms": 4210,
+  "id": "resp_fixture_openai_web",
+  "model": "openai/web-capable-fixture",
+  "status": "completed",
+  "output": [
+    {
+      "type": "web_search_call",
+      "id": "ws_fixture_1",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "n8n latest release official"
+      }
+    },
+    {
+      "type": "message",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Die Fixture-Version wird durch die offizielle n8n-Releasequelle belegt.",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://github.com/n8n-io/n8n/releases/latest",
+              "title": "n8n latest release",
+              "start_index": 4,
+              "end_index": 19
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 420,
+    "output_tokens": 80,
+    "total_tokens": 500
+  }
+}

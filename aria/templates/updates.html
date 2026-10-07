@@ -67,7 +67,7 @@
     </div>
     {% endif %}
 
-    <form method="post" action="/updates/run" class="connection-test-form" id="update-run-form" data-status-url="/updates/status" data-reload-url="/updates/relogin?next=%2Fupdates">
+    <form method="post" action="{{ release_update_urls.run }}" class="connection-test-form" id="update-run-form" data-status-url="{{ release_update_urls.status }}" data-reload-url="{{ release_update_urls.relogin_updates }}">
       <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
       <button type="submit" class="btn-primary" id="update-run-button" {% if update_control.running %}disabled{% endif %}>
         {{ tr(request, 'updates.run_button', 'Update starten') }}
@@ -167,7 +167,7 @@
   </div>
 
   {% if update_control.visible %}
-  <div class="update-live-card{% if not update_control.running and update_notice != 'update_started' %} is-hidden{% endif %}" id="update-live-card" data-health-url="/health" data-reload-url="/updates/relogin?next=%2Fupdates" data-status-url="/updates/status" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
+  <div class="update-live-card{% if not update_control.running and update_notice != 'update_started' %} is-hidden{% endif %}" id="update-live-card" data-health-url="{{ release_update_urls.health }}" data-reload-url="{{ release_update_urls.relogin_updates }}" data-status-url="{{ release_update_urls.status }}" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
     <div class="update-live-card__panel">
       <div class="update-live-card__head">
         <span class="health-lamp status-warn update-live-card__lamp"></span>
@@ -260,9 +260,9 @@
     const form = document.getElementById('update-run-form');
     const submitButton = document.getElementById('update-run-button');
     const detailsBlock = document.getElementById('updates-primary');
-    const healthUrl = liveCard ? liveCard.dataset.healthUrl : '/health';
-    const reloadUrl = form ? form.dataset.reloadUrl : (liveCard ? liveCard.dataset.reloadUrl : '/updates');
-    const statusUrl = form ? form.dataset.statusUrl : (liveCard ? liveCard.dataset.statusUrl : '/updates/status');
+    const healthUrl = liveCard ? liveCard.dataset.healthUrl : {{ release_update_urls.health|tojson }};
+    const reloadUrl = form ? form.dataset.reloadUrl : (liveCard ? liveCard.dataset.reloadUrl : {{ release_update_urls.updates|tojson }});
+    const statusUrl = form ? form.dataset.statusUrl : (liveCard ? liveCard.dataset.statusUrl : {{ release_update_urls.status|tojson }});
     let activationStartedAt = liveCard ? String(liveCard.dataset.startedAt || '') : '';
     let statusTimer = null;
     let healthTimer = null;

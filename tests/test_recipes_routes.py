@@ -1,16 +1,20 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from aria.core import recipe_manifests
-import aria.core.learned_recipe_store as learned_store
-import aria.web.recipes_routes as recipes_routes_module
-from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
-from aria.web.recipes_routes import register_recipe_routes
+from aria.modules import module_route_path, module_route_prefix_path
+import aria.modules.recipe_store.manifests as recipe_manifests
+import aria.modules.recipes_ui.routes as recipes_routes_module
+import aria.modules.recipes_ui.route_support as recipes_route_support
+import aria.modules.recipes_ui.surface_context as recipes_surface_context
+from aria.modules.navigation_shell.navigation import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+from aria.modules.recipes_ui.routes import register_recipe_routes
 
 
 def _first_memory_subnav(html: str) -> str:
@@ -22,7 +26,12 @@ def _first_memory_subnav(html: str) -> str:
 
 
 def _build_recipes_app(
-    *, language: str = "de", get_pipeline=None, advanced_mode: bool = True, update_available: bool = False
+    *,
+    language: str = "de",
+    advanced_mode: bool = True,
+    update_available: bool = False,
+    module_route_path_resolver=None,
+    auth_session=None,
 ) -> TestClient:
     app = FastAPI()
     templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "aria" / "templates"))
@@ -34,6 +43,10 @@ def _build_recipes_app(
     templates.env.globals.setdefault("context_nav_context", context_nav_context)
     templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
     templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
+    templates.env.globals.setdefault(
+        "module_route_path",
+        module_route_path_resolver or (lambda module_id, route_path: module_route_path(module_id, route_path) or ""),
+    )
 
     raw_config: dict = {}
 
@@ -70,7 +83,7 @@ def _build_recipes_app(
         templates=templates,
         get_settings=lambda: settings,
         get_username_from_request=lambda request: "neo",
-        get_auth_session_from_request=lambda request: {"username": "neo", "role": "admin"},
+        get_auth_session_from_request=auth_session or (lambda request: {"username": "neo", "role": "admin"}),
         sanitize_role=lambda value: str(value or "").strip().lower(),
         read_raw_config=lambda: raw_config,
         write_raw_config=lambda data: raw_config.update(data),
@@ -78,12 +91,156 @@ def _build_recipes_app(
         translate=lambda _lang, _key, fallback="": fallback,
         localize_stored_recipe_description=lambda manifest, _lang: str(manifest.get("description", "")),
         format_recipe_routing_info=lambda _lang, info: info,
-        suggest_skill_keywords_with_llm=_suggest_recipe_keywords_with_llm,
         daily_time_to_cron=lambda value: value,
         daily_time_from_cron=lambda value: value,
-        get_pipeline=get_pipeline,
     )
     return TestClient(app)
+
+
+def _seed_duplicate_recipe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[TestClient, Path]:
+    recipes_dir = tmp_path / "data" / "recipes"
+    recipes_dir.mkdir(parents=True)
+    monkeypatch.setattr(recipe_manifests, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(recipe_manifests, "SKILLS_STORE_DIR", recipes_dir)
+    monkeypatch.setattr(recipe_manifests, "LEGACY_SKILLS_STORE_DIR", tmp_path / "data" / "skills")
+    monkeypatch.setattr(recipe_manifests, "SKILL_TRIGGER_INDEX_FILE", recipes_dir / "_trigger_index.json")
+    monkeypatch.setattr(recipes_routes_module, "_load_stored_recipe_manifests", recipe_manifests._load_stored_recipe_manifests)
+    monkeypatch.setattr(recipes_routes_module, "_save_stored_recipe_manifest", recipe_manifests._save_stored_recipe_manifest)
+    recipe_manifests._invalidate_stored_recipe_manifest_cache()
+    recipe_manifests._save_stored_recipe_manifest(
+        {
+            "id": "daily-check",
+            "name": "Daily Check",
+            "description": "Checks one target.",
+            "enabled_default": True,
+            "steps": [{"id": "s1", "type": "ssh_run", "params": {"connection_ref": "srv-1", "command": "uptime"}}],
+        }
+    )
+    return _build_recipes_app(language="de"), recipes_dir
+
+
+def test_duplicate_creates_inactive_copy_with_same_steps(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    client, recipes_dir = _seed_duplicate_recipe(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/recipes/duplicate",
+        data={"recipe_id": "daily-check", "csrf_token": "test-csrf"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert "/recipes/mine?" in response.headers["location"]
+    copied = json.loads((recipes_dir / "daily-check-copy.json").read_text(encoding="utf-8"))
+    original = json.loads((recipes_dir / "daily-check.json").read_text(encoding="utf-8"))
+    assert copied["id"] == "daily-check-copy"
+    assert copied["name"] == "Daily Check (Kopie)"
+    assert copied["enabled_default"] is False
+    assert copied["steps"] == original["steps"]
+
+
+def test_duplicate_allocates_unique_id_after_collision(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    client, recipes_dir = _seed_duplicate_recipe(monkeypatch, tmp_path)
+
+    for _ in range(2):
+        response = client.post(
+            "/recipes/duplicate",
+            data={"recipe_id": "daily-check", "csrf_token": "test-csrf"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+    assert (recipes_dir / "daily-check-copy.json").exists()
+    second = json.loads((recipes_dir / "daily-check-copy-2.json").read_text(encoding="utf-8"))
+    assert second["id"] == "daily-check-copy-2"
+    assert second["enabled_default"] is False
+
+
+def test_recipe_duplicate_button_is_rendered(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    client, _recipes_dir = _seed_duplicate_recipe(monkeypatch, tmp_path)
+
+    response = client.get("/recipes/mine")
+
+    assert response.status_code == 200
+    assert 'formaction="/recipes/duplicate"' in response.text
+    assert 'name="recipe_id"' in response.text
+    assert 'value="daily-check"' in response.text
+    assert 'aria-label="Duplizieren"' in response.text
+
+
+def test_recipes_return_to_invalid_fallback_uses_chat_surface_readpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+    real_route_path = recipes_route_support.module_route_path
+
+    def tracking_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        return real_route_path(module_id, route_path)
+
+    monkeypatch.setattr(recipes_route_support, "module_route_path", tracking_route_path)
+    request = SimpleNamespace(url=SimpleNamespace(path="/recipes"), query_params={}, headers={})
+
+    assert recipes_route_support.resolve_return_to(request, fallback="") == "/"
+    assert ("chat_surface", "/") in calls
+
+
+def test_recipes_return_to_invalid_fallback_fails_closed_without_chat_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        recipes_route_support,
+        "module_route_path",
+        lambda module_id, route_path: None
+        if module_id == "chat_surface" and route_path == "/"
+        else module_route_path(module_id, route_path),
+    )
+    request = SimpleNamespace(url=SimpleNamespace(path="/recipes"), query_params={}, headers={})
+
+    with pytest.raises(RuntimeError, match="chat_surface route is not registered: /"):
+        recipes_route_support.resolve_return_to(request, fallback="")
+
+
+def test_recipes_legacy_skills_return_to_uses_recipes_ui_readpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    route_calls: list[tuple[str, str]] = []
+    prefix_calls: list[tuple[str, str]] = []
+
+    def tracking_route_path(module_id: str, route_path: str, **kwargs: object) -> str | None:
+        route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path, **kwargs)
+
+    def tracking_route_prefix_path(module_id: str, route_path: str, **kwargs: object) -> str | None:
+        prefix_calls.append((module_id, route_path))
+        return module_route_prefix_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_route_support, "module_route_path", tracking_route_path)
+    monkeypatch.setattr(recipes_route_support, "module_route_prefix_path", tracking_route_prefix_path)
+
+    assert recipes_route_support.canonical_recipe_surface_return_to("/skills?tab=mine") == "/recipes?tab=mine"
+    assert recipes_route_support.canonical_recipe_surface_return_to("/skills/mine?tab=own") == "/recipes/mine?tab=own"
+    assert ("recipes_ui", "/recipes") in route_calls
+    assert ("recipes_ui", "/recipes/mine") in prefix_calls
+
+
+def test_recipes_legacy_skills_return_to_fails_closed_without_recipes_ui_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        recipes_route_support,
+        "module_route_path",
+        lambda module_id, route_path: None
+        if module_id == "recipes_ui" and route_path == "/recipes"
+        else module_route_path(module_id, route_path),
+    )
+
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes"):
+        recipes_route_support.canonical_recipe_surface_return_to("/skills")
+
+
+def test_recipes_legacy_skills_return_to_fails_closed_without_recipes_ui_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        recipes_route_support,
+        "module_route_prefix_path",
+        lambda module_id, route_path: None
+        if module_id == "recipes_ui" and route_path == "/recipes/mine"
+        else module_route_prefix_path(module_id, route_path),
+    )
+
+    with pytest.raises(RuntimeError, match="recipes_ui route prefix is not registered: /recipes/mine"):
+        recipes_route_support.canonical_recipe_surface_return_to("/skills/mine")
 
 
 def test_recipes_page_sets_logical_back_url() -> None:
@@ -101,7 +258,6 @@ def test_recipes_page_sets_logical_back_url() -> None:
     assert 'id="skills-custom"' not in response.text
     assert "Einstellungen" in response.text or "Settings" in response.text
     assert "Meine Rezepte" in response.text or "My recipes" in response.text
-    assert "Gelernte Rezepte" in response.text or "Learned recipes" in response.text
     assert "Neu / Vorlagen" in response.text or "New / templates" in response.text
     assert "Zurück zu Einstellungen" not in response.text
     assert "Back to settings" not in response.text
@@ -114,7 +270,6 @@ def test_recipes_page_sets_logical_back_url() -> None:
     assert 'href="/recipes/start"' in response.text
     assert 'href="/recipes/mine"' in response.text
     assert 'href="/recipes"' in response.text
-    assert 'href="/recipes/learned"' in response.text
     assert 'href="/config"' in response.text
     assert 'memory-subnav-item' in response.text
     assert 'href="/recipes/system"' not in response.text
@@ -122,8 +277,22 @@ def test_recipes_page_sets_logical_back_url() -> None:
 
 
 def test_global_menu_groups_admin_links_by_admin_mode() -> None:
-    admin_client = _build_recipes_app(advanced_mode=True, update_available=True)
-    user_client = _build_recipes_app(advanced_mode=False, update_available=True)
+    module_route_calls: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str) -> str:
+        module_route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    admin_client = _build_recipes_app(
+        advanced_mode=True,
+        update_available=True,
+        module_route_path_resolver=tracking_module_route_path,
+    )
+    user_client = _build_recipes_app(
+        advanced_mode=False,
+        update_available=True,
+        module_route_path_resolver=tracking_module_route_path,
+    )
 
     admin_response = admin_client.get("/recipes")
     user_response = user_client.get("/recipes")
@@ -134,25 +303,21 @@ def test_global_menu_groups_admin_links_by_admin_mode() -> None:
     assert 'href="/notes"' in admin_response.text
     assert 'href="/recipes" class="user-menu-link user-menu-link-icon' not in admin_response.text
     assert 'href="/config"' in admin_response.text
-    assert 'user-menu-admin-summary is-active' in admin_response.text
+    assert 'href="/config"' in admin_response.text
     assert 'href="/stats"' in admin_response.text
     assert 'href="/help"' in admin_response.text
     assert 'href="/config/admin-mode"' in admin_response.text
     assert "Erweiterte Ansicht" in admin_response.text or "Extended view" in admin_response.text
     assert 'href="/config/users?return_to=/config/access#admin-mode"' not in admin_response.text
-    assert 'class="user-menu-admin-details user-menu-settings-details"' in admin_response.text
-    assert 'class="user-menu-admin-links user-menu-settings-links"' in admin_response.text
-    settings_menu = admin_response.text.split('class="user-menu-admin-links user-menu-settings-links"', 1)[1].split("</div>", 1)[0]
-    assert "Übersicht" in settings_menu or "Overview" in settings_menu
-    assert settings_menu.count("Einstellungen") == 0
-    assert 'href="/config/admin"' in admin_response.text
+    assert 'class="user-menu-admin-details user-menu-settings-details"' not in admin_response.text
+    assert 'class="user-menu-admin-links user-menu-settings-links"' not in admin_response.text
+    assert 'href="/config/admin"' not in admin_response.text
     assert "Admin-Übersicht" not in admin_response.text
     assert "Admin overview" not in admin_response.text
     assert 'user-menu-section-label">Admin<' not in admin_response.text
     assert 'href="/config/intelligence"' not in admin_response.text
     assert 'href="/config/operations"' not in admin_response.text
     assert 'href="/config/workbench"' not in admin_response.text
-    assert 'href="/recipes/learned"' in admin_response.text
     assert 'href="/memories/import"' not in admin_response.text
     assert 'href="/memories/maintenance"' not in admin_response.text
     assert 'href="/connections"' in admin_response.text
@@ -183,6 +348,7 @@ def test_global_menu_groups_admin_links_by_admin_mode() -> None:
     assert 'href="/memories/import"' not in user_response.text
     assert 'href="/memories/maintenance"' not in user_response.text
     assert 'href="/connections"' in user_response.text
+    assert ("notes", "/notes") in module_route_calls
     assert 'href="/activities"' not in user_response.text
 
 
@@ -204,44 +370,10 @@ def test_recipes_subpages_render_with_page_specific_actions() -> None:
     assert 'id="skills-custom"' in mine_response.text
     assert "Meine Rezepte / Skills" not in mine_response.text
 
-    learned_response = client.get("/recipes/learned")
-    assert learned_response.status_code == 200
-    assert 'aria-label="Settings navigation"' in learned_response.text or 'aria-label="Einstellungen Navigation"' in learned_response.text
-    assert 'href="/config"' in learned_response.text
-    assert 'href="/recipes"' in learned_response.text
-    assert 'href="/config/persona"' in learned_response.text
-    assert 'href="/connections"' in learned_response.text
-    assert 'class="memory-subnav-item active" href="/recipes"' in learned_response.text
-    assert 'href="/recipes/mine"' not in _first_memory_subnav(learned_response.text)
-    assert 'href="/recipes/start"' not in _first_memory_subnav(learned_response.text)
-    assert 'href="/recipes/learned"' not in _first_memory_subnav(learned_response.text)
-    assert 'href="/recipes/system"' not in learned_response.text
-    assert 'href="/recipes/learned/maintenance"' not in learned_response.text
-    assert 'id="skills-learned"' in learned_response.text
-    assert 'class="learned-summary-strip"' in learned_response.text
-    assert 'class="recipe-filter-disclosure"' in learned_response.text
-    assert "Woher gelernt?" in learned_response.text
-    assert "data/runtime/learned_recipes.json" in learned_response.text
-    assert "Wie abgerufen?" in learned_response.text
-    assert "Policy und Guardrails bleiben immer davor" in learned_response.text
-
-    learned_maintenance_response = client.get("/recipes/learned/maintenance")
-    assert learned_maintenance_response.status_code == 200
-    assert 'aria-label="Admin-Übersicht"' in learned_maintenance_response.text or 'aria-label="Admin navigation"' in learned_maintenance_response.text
-    learned_maintenance_nav = _first_memory_subnav(learned_maintenance_response.text)
-    assert 'href="/config/admin/recipes"' in learned_maintenance_nav
-    assert 'class="memory-subnav-item active" href="/config/admin/recipes"' in learned_maintenance_nav
-    assert learned_maintenance_response.text.count(
-        'class="memory-subnav-item active" href="/recipes/learned/maintenance"'
-    ) == 0
-    assert 'href="/recipes/system"' not in learned_maintenance_nav
-    assert 'href="/recipes/start"' not in learned_maintenance_response.text
-    assert 'id="skills-learned"' in learned_maintenance_response.text
-
     system_response = client.get("/recipes/system")
     assert system_response.status_code == 200
     system_nav = _first_memory_subnav(system_response.text)
-    assert 'class="memory-subnav-item active" href="/config/admin/recipes"' in system_nav
+    assert 'class="memory-subnav-item active" href="/config"' in system_nav
     assert 'href="/recipes/system"' not in system_nav
     assert 'href="/recipes/start"' not in system_response.text
     assert 'name="return_to" value="/recipes/system"' in system_response.text
@@ -254,493 +386,155 @@ def test_recipes_subpages_render_with_page_specific_actions() -> None:
     assert 'sample-skill-card" data-sample-skill open' not in templates_response.text
     assert "Schritte:" in templates_response.text
     assert "Verbindungen:" in templates_response.text or "Connections:" in templates_response.text
-    assert "Trigger:" in templates_response.text
+    assert "Trigger:" not in templates_response.text
     assert "Step-Typen:" in templates_response.text
     assert "Read-only / Chat" in templates_response.text
-    assert "Side-Effect / Bestaetigung" in templates_response.text
+    assert "Side-Effect / Bestaetigung" not in templates_response.text
     assert "Beispielskill" not in templates_response.text
     assert "Demo-Skill" not in templates_response.text
 
 
-def test_recipes_learned_page_renders_store_rows(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "Monitoring Quick Check",
-                "summary": "Kurzcheck fuer uptime und Speicher.",
-                "preview": "uptime && df -h /",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "connection_ref": "ops-monitor-01",
-                "capability": "ssh_command",
-                "chosen_action": "uptime && df -h /",
-                "user_message": "wie geht es dem monitoring server",
-                "experience_count": 5,
-                "last_success_at": "2026-05-03T11:00:00Z",
-                "promotion_state": "eligible",
-                "promotion_hint": "Repeated successful runs make this learned recipe eligible for promotion.",
-                "router_keywords": ["monitoring server", "health"],
-                "recipe_scope": {"learning_origin": "guardrail_healthcheck_fallback"},
-                "confidence": 0.84,
-                "risk_level": "low",
-                "generalization_hint": "Useful for read-only Linux host health checks.",
-                "suggested_triggers": ["ist mein monitoring server ok"],
-                "promotion_reason": "Repeated successful bounded checks.",
-                "limits": ["Do not use for restarts."],
-                "curation_source": "llm_curator",
-                "curation_policy": "context_only_not_executable",
-                "curation_status": "ok",
-                "curated_at": "2026-05-03T12:00:00Z",
-                "learning_signal": "wording_variant",
-                "learning_signal_reason": "Same learned pattern matched a different user wording.",
-                "learning_weight": 0.75,
-                "learning_evidence": 5.75,
-                "variant_count": 2,
-                "scope_variant_count": 1,
-                "action_variant_count": 0,
-            }
-        ],
-    )
+def test_recipes_ui_surfaces_use_registry_template_readpoints(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    real_template_name = recipes_routes_module.module_template_name
+
+    def tracking_template_name(module_id: str, template_name: str):
+        seen.append((module_id, template_name))
+        return real_template_name(module_id, template_name)
+
+    monkeypatch.setattr(recipes_routes_module, "module_template_name", tracking_template_name)
     client = _build_recipes_app()
 
-    response = client.get("/recipes/learned")
+    for path in ("/recipes", "/recipes/start", "/recipes/mine", "/recipes/system"):
+        response = client.get(path)
+        assert response.status_code == 200
 
-    assert response.status_code == 200
-    assert "Monitoring Quick Check" in response.text
-    assert 'class="learned-review-list"' in response.text
-    assert "learned-review-grid" not in response.text
-    assert "Promotion fällig" in response.text
-    assert "Runs: 5" in response.text
-    assert "ops-monitor-01" in response.text
-    assert "User sagte" in response.text
-    assert "wie geht es dem monitoring server" in response.text
-    assert "ssh/ops-monitor-01" in response.text
-    assert "Hat funktioniert" in response.text
-    assert "uptime &amp;&amp; df -h /" in response.text
-    assert "Nur Kontext: nicht direkt ausführbar" in response.text
-    assert "Reviewen und promoten, wenn weiterhin korrekt" in response.text
-    assert "/recipes/learned/promote-preview?recipe_id=learned-ssh-server-health-check" in response.text
-    assert "Promotion prüfen" in response.text
-    assert "Action Contract" in response.text
-    assert "Contract: command · Policy ssh_readonly · Runtime run_command · read-only/bounded" in response.text
-    assert "LLM-kuratiert" in response.text
-    assert "Confidence: 0.84" in response.text
-    assert "Learning-Signal: Formulierungsvariante" in response.text
-    assert "Lern-Evidenz: Score 5.75" in response.text
-    assert "Formulierungen 2" in response.text
-    assert "Curator-Debug" in response.text
-    assert "Quelle llm_curator" in response.text
-    assert "Policy context_only_not_executable" in response.text
-    assert "kuratiert 2026-05-03 12:00:00 UTC" in response.text
-    assert "Lernsignal-Grund" in response.text
-    assert "Same learned pattern matched a different user wording." in response.text
-    assert "Generalisiert als" in response.text
-    assert "Useful for read-only Linux host health checks." in response.text
-    assert "Vorgeschlagene Trigger" in response.text
-    assert "Do not use for restarts." in response.text
-    assert "Review-Reife" in response.text
-    assert "Starke Evidenz: 5 Runs, Ziel und Aktion sind bekannt." in response.text
+    assert ("recipes_ui", "recipes_overview.html") in seen
+    assert ("recipes_ui", "recipes_start.html") in seen
+    assert ("recipes_ui", "recipes_mine.html") in seen
+    assert ("recipes_ui", "recipes_system.html") in seen
 
 
-def test_recipes_learned_page_hides_admin_details_when_admin_mode_is_off(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "Monitoring Quick Check",
-                "summary": "Kurzcheck fuer uptime und Speicher.",
-                "preview": "uptime && df -h /",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "connection_ref": "ops-monitor-01",
-                "capability": "ssh_command",
-                "chosen_action": "uptime && df -h /",
-                "user_message": "wie geht es dem monitoring server",
-                "experience_count": 5,
-                "last_success_at": "2026-05-03T11:00:00Z",
-                "promotion_state": "eligible",
-                "promotion_hint": "Repeated successful runs make this learned recipe eligible for promotion.",
-                "router_keywords": ["monitoring server", "health"],
-                "recipe_scope": {"learning_origin": "guardrail_healthcheck_fallback"},
-                "confidence": 0.84,
-                "risk_level": "low",
-                "curation_source": "llm_curator",
-                "curation_policy": "context_only_not_executable",
-                "curation_status": "ok",
-                "learning_signal": "wording_variant",
-                "learning_signal_reason": "Same learned pattern matched a different user wording.",
-                "learning_weight": 0.75,
-                "learning_evidence": 5.75,
-            }
-        ],
-    )
-    client = _build_recipes_app(advanced_mode=False)
+def test_recipes_ui_template_readpoint_fails_closed_for_unregistered_template(monkeypatch) -> None:
+    monkeypatch.setattr(recipes_routes_module, "module_template_name", lambda *_args, **_kwargs: None)
 
-    response = client.get("/recipes/learned")
-
-    assert response.status_code == 200
-    assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
-    assert 'href="/config"' in response.text
-    assert 'class="memory-subnav-item active" href="/recipes"' in response.text
-    assert 'href="/recipes/start"' not in _first_memory_subnav(response.text)
-    assert 'href="/recipes/learned"' not in _first_memory_subnav(response.text)
-    assert 'href="/config/admin"' not in response.text
-    assert "Admin-Übersicht" not in response.text
-    assert "Admin overview" not in response.text
-    assert "Monitoring Quick Check" in response.text
-    assert 'class="learned-summary-strip"' in response.text
-    assert 'class="recipe-filter-disclosure"' in response.text
-    assert 'class="learned-review-list"' in response.text
-    assert "User sagte" in response.text
-    assert "wie geht es dem monitoring server" in response.text
-    assert "ops-monitor-01" in response.text
-    assert "uptime &amp;&amp; df -h /" in response.text
-    assert "Woher gelernt?" not in response.text
-    assert "data/runtime/learned_recipes.json" not in response.text
-    assert 'class="skill-details"' not in response.text
-    assert "Action Contract" not in response.text
-    assert "Curator-Debug" not in response.text
-    assert "Learning-Signal" not in response.text
-    assert "Promotion prüfen" not in response.text
-    assert 'action="/recipes/learned/dismiss"' not in response.text
-    assert 'action="/recipes/learned/delete"' not in response.text
+    try:
+        recipes_routes_module._recipes_ui_template_name("recipes_overview.html")
+    except RuntimeError as exc:
+        assert "recipes_ui template is not registered: recipes_overview.html" in str(exc)
+    else:  # pragma: no cover - assertion clarity
+        raise AssertionError("recipes_ui template helper must fail closed when the registry has no owner")
 
 
-def test_recipes_learned_page_keeps_long_curator_fields_contained(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "SMB Read File",
-                "summary": "Dateiliste fuer einen Share.",
-                "intent": "read_file",
-                "connection_kind": "smb",
-                "connection_ref": "example_share",
-                "capability": "file_list",
-                "chosen_action": ".",
-                "user_message": "zeige mir die folder auf dem share Example Share",
-                "experience_count": 4,
-                "last_success_at": "2026-05-15T09:37:20Z",
-                "promotion_state": "observed",
-                "promotion_reason": "Single successful execution demonstrates that the list pattern works, but it should stay context-only until more usage proves the target scope and wording are stable.",
-                "suggested_triggers": ["zeige mir die folder", "liste den share", "was liegt auf dem share"],
-                "limits": [
-                    "Only list directories or files, never read file contents.",
-                    "Do not use for write or delete operations.",
-                ],
-                "curation_source": "llm_curator",
-                "curation_policy": "context_only_not_executable",
-                "curation_status": "ok",
-                "confidence": 0.75,
-                "risk_level": "low",
-            }
-        ],
-    )
+def test_recipes_ui_visible_urls_use_registry_route_readpoints(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str) -> str:
+        seen.append((module_id, route_path))
+        return module_route_path(module_id, route_path) or ""
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", tracking_module_route_path)
+    monkeypatch.setattr(recipes_surface_context, "module_route_path", tracking_module_route_path)
+    client = _build_recipes_app(module_route_path_resolver=tracking_module_route_path)
+
+    overview_response = client.get("/recipes")
+    start_response = client.get("/recipes/start")
+    mine_response = client.get("/recipes/mine")
+    system_response = client.get("/recipes/system")
+    templates_response = client.get("/recipes/templates")
+    wizard_response = client.get("/recipes/wizard?return_to=/recipes")
+
+    assert overview_response.status_code == 200
+    assert start_response.status_code == 200
+    assert mine_response.status_code == 200
+    assert system_response.status_code == 200
+    assert templates_response.status_code == 200
+    assert wizard_response.status_code == 200
+    assert 'href="/recipes/wizard?return_to=/recipes/start"' in start_response.text
+    assert 'action="/recipes/import"' in start_response.text
+    assert 'action="/recipes/save"' in mine_response.text
+    assert 'href="/recipes/start"' in mine_response.text
+    assert 'href="/recipes/system"' in system_response.text
+    assert 'href="/connections"' in wizard_response.text
+    assert ("recipes_ui", "/recipes/wizard") in seen
+    assert ("recipes_ui", "/recipes/import") in seen
+    assert ("recipes_ui", "/recipes/save") in seen
+    assert ("memory_admin_ui", "/memories") in seen
+    assert ("recipes_ui", "/recipes/start") in seen
+    assert ("recipes_ui", "/recipes/mine") in seen
+    assert ("recipes_ui", "/recipes/system") in seen
+    assert ("recipes_ui", "/recipes/templates") in seen
+    assert seen.count(("recipes_ui", "/recipes")) >= 6
+    assert ("chat_surface", "/") in seen
+    assert ("config_ui", "/config") in seen
+    assert ("connections_ui_readonly", "/connections") in seen
+
+
+def test_recipes_surface_route_readpoints_fail_closed_without_owner(monkeypatch) -> None:
+    def missing_recipes_route(module_id: str, route_path: str, **kwargs: object) -> str | None:  # noqa: ARG001
+        if module_id == "recipes_ui":
+            return None
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", missing_recipes_route)
     client = _build_recipes_app()
 
-    response = client.get("/recipes/learned")
-
-    assert response.status_code == 200
-    assert "learned-recipe-grid" in response.text
-    assert "learned-detail-list" in response.text
-    assert "learned-token-list" in response.text
-    assert "learned-plain-list" in response.text
-    assert "SMB List Files" in response.text
-    assert "list_files" in response.text
-    assert "Only list directories or files" in response.text
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes"):
+        client.get("/recipes")
 
 
-def test_recipes_learned_page_localizes_review_row_labels(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "Monitoring Quick Check",
-                "summary": "Short check.",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "connection_ref": "ops-monitor-01",
-                "capability": "ssh_command",
-                "chosen_action": "uptime && df -h /",
-                "experience_count": 5,
-                "promotion_state": "eligible",
-            }
-        ],
-    )
-    client = _build_recipes_app(language="en")
+def test_recipes_home_route_readpoint_fails_closed_without_owner(monkeypatch) -> None:
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", lambda *_args, **_kwargs: None)
 
-    response = client.get("/recipes/learned")
-
-    assert response.status_code == 200
-    assert "Promotion due" in response.text
-    assert "Review and promote if still correct" in response.text
-    assert "Context only: not directly executable" in response.text
-    assert "Review-Reife" in response.text
-    assert "Strong evidence: 5 runs, target and action are known." in response.text
+    with pytest.raises(RuntimeError, match="chat_surface route is not registered: /"):
+        recipes_routes_module._chat_surface_route_path("/")
 
 
-def test_recipes_learned_page_links_to_promoted_stored_recipe(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "Monitoring Quick Check",
-                "summary": "Kurzcheck fuer uptime und Speicher.",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "connection_ref": "ops-monitor-01",
-                "capability": "ssh_command",
-                "experience_count": 7,
-                "promotion_state": "promoted",
-                "stored_recipe_id": "ssh-health-check",
-            }
-        ],
-    )
+def test_recipes_surface_context_path_fails_closed_without_route_owner(monkeypatch) -> None:
+    monkeypatch.setattr(recipes_surface_context, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes/mine"):
+        recipes_surface_context.build_recipes_overview_checks(
+            lang="de",
+            core_recipe_rows=[],
+            custom_rows=[],
+            sample_recipe_rows=[],
+            advanced_mode=False,
+            translate=lambda _lang, _key, fallback="": fallback,
+        )
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    (
+        ("get", "/recipes/learned"),
+        ("get", "/recipes/learned/maintenance"),
+        ("get", "/recipes/learned/promote-preview?recipe_id=learned-example"),
+        ("post", "/recipes/learned/promote"),
+        ("post", "/recipes/learned/dismiss"),
+        ("post", "/recipes/learned/delete"),
+    ),
+)
+def test_learned_recipe_ui_routes_are_removed(method: str, path: str) -> None:
     client = _build_recipes_app()
 
-    response = client.get("/recipes/learned?state=promoted&kind=ssh")
+    response = client.request(method, path, data={"recipe_id": "learned-example"})
 
-    assert response.status_code == 200
-    assert "Gespeichertes Rezept" in response.text
-    assert "/recipes/wizard?skill_id=ssh-health-check" in response.text
-    assert "return_to=/recipes/learned%3Fstate%3Dpromoted%26kind%3Dssh" in response.text
+    assert response.status_code == 404
 
 
-def test_recipes_learned_page_filters_by_promotion_state(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "Review Candidate",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "capability": "ssh_command",
-                "experience_count": 3,
-                "promotion_state": "review_ready",
-            },
-            {
-                "title": "Promoted Candidate",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "capability": "ssh_command",
-                "experience_count": 8,
-                "promotion_state": "promoted",
-            },
-        ],
-    )
+def test_normal_recipe_surfaces_remain_without_learned_navigation() -> None:
     client = _build_recipes_app()
 
-    response = client.get("/recipes/learned?state=promoted")
+    overview = client.get("/recipes")
+    mine = client.get("/recipes/mine")
 
-    assert response.status_code == 200
-    assert "Promoted Candidate" in response.text
-    assert "Review Candidate" not in response.text
-    assert "Alle: 2" in response.text
-    assert "Promoted: 1" in response.text
-
-
-def test_recipes_learned_page_filters_by_connection_kind(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "SSH Candidate",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "capability": "ssh_command",
-                "experience_count": 3,
-                "promotion_state": "review_ready",
-            },
-            {
-                "title": "RSS Candidate",
-                "intent": "read_feed",
-                "connection_kind": "rss",
-                "capability": "feed_read",
-                "experience_count": 4,
-                "promotion_state": "eligible",
-            },
-        ],
-    )
-    client = _build_recipes_app()
-
-    response = client.get("/recipes/learned?kind=rss")
-
-    assert response.status_code == 200
-    assert "RSS Candidate" in response.text
-    assert "SSH Candidate" not in response.text
-    assert "Alle Typen: 2" in response.text
-    assert "rss: 1" in response.text
-
-
-def test_recipes_learned_page_sorts_by_experience(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "title": "Lower Experience",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "capability": "ssh_command",
-                "experience_count": 2,
-                "promotion_state": "observed",
-            },
-            {
-                "title": "Higher Experience",
-                "intent": "server_health_check",
-                "connection_kind": "ssh",
-                "capability": "ssh_command",
-                "experience_count": 9,
-                "promotion_state": "eligible",
-            },
-        ],
-    )
-    client = _build_recipes_app()
-
-    response = client.get("/recipes/learned?sort=experience")
-
-    assert response.status_code == 200
-    assert response.text.index("Higher Experience") < response.text.index("Lower Experience")
-    assert "Sortierung" in response.text
-
-
-def test_recipes_learned_admin_actions_update_store(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
-    monkeypatch.setattr(recipe_manifests, "BASE_DIR", tmp_path)
-    monkeypatch.setattr(recipe_manifests, "SKILLS_STORE_DIR", tmp_path / "data" / "recipes")
-    monkeypatch.setattr(recipe_manifests, "SKILL_TRIGGER_INDEX_FILE", tmp_path / "data" / "recipes" / "_trigger_index.json")
-    (tmp_path / "data" / "recipes").mkdir(parents=True, exist_ok=True)
-    learned_store.invalidate_learned_recipe_store_cache()
-    recipe_manifests._invalidate_stored_recipe_manifest_cache()
-    purged: list[tuple[str, str, str]] = []
-
-    async def _delete_recipe_experience_memory(memory_skill, *, user_id: str, recipe_id: str):
-        purged.append((str(memory_skill), user_id, recipe_id))
-        return {"deleted": True, "deleted_points": 1, "collections": ["aria_recipe_experience_neo"]}
-
-    monkeypatch.setattr(recipes_routes_module, "delete_recipe_experience_memory", _delete_recipe_experience_memory)
-    learned_store.save_learned_recipe_store_entry(
-        {
-            "recipe_id": "learned-ssh-health-check",
-            "intent": "health_check",
-            "connection_kind": "ssh",
-            "capability": "ssh_command",
-            "chosen_action": "uptime",
-            "experience_count": 5,
-            "connection_ref": "srv-a",
-            "title": "Linux Health",
-            "summary": "Checks a Linux host.",
-            "router_keywords": ["linux health", "server check"],
-            "suggested_triggers": ["host ok"],
-            "promotion_reason": "Repeated safe status checks.",
-            "limits": ["Do not use for restarts."],
-            "confidence": 0.91,
-            "risk_level": "low",
-            "curation_policy": "context_only_not_executable",
-        }
-    )
-
-    client = _build_recipes_app(get_pipeline=lambda: SimpleNamespace(memory_skill="fake-memory"))
-
-    preview = client.get(
-        "/recipes/learned/promote-preview?recipe_id=learned-ssh-health-check&return_to=/recipes/learned"
-    )
-    assert preview.status_code == 200
-    assert "Promotion Preview" in preview.text
-    assert "Geplantes Rezept" in preview.text
-    assert "Linux Health" in preview.text
-    assert "Read-only / bounded" in preview.text
-    assert "Repeated safe status checks." in preview.text
-    assert "Do not use for restarts." in preview.text
-    assert "linux health" in preview.text
-    assert "host ok" in preview.text
-    assert "Jetzt als gespeichertes Rezept übernehmen" in preview.text
-
-    promote = client.post(
-        "/recipes/learned/promote",
-        data={
-            "recipe_id": "learned-ssh-health-check",
-            "csrf_token": "test-csrf",
-            "return_to": "/recipes/learned",
-        },
-        follow_redirects=False,
-    )
-    assert promote.status_code == 303
-    rows = learned_store.load_learned_recipe_store_entries()
-    assert rows[0]["promotion_state"] == "promoted"
-    stored_recipe = json.loads((tmp_path / "data" / "recipes" / "ssh-health-check.json").read_text(encoding="utf-8"))
-    assert stored_recipe["name"] == "Linux Health"
-    assert stored_recipe["connections"] == ["ssh"]
-    assert stored_recipe["steps"][0]["type"] == "ssh_run"
-    assert stored_recipe["steps"][0]["params"]["command"] == "uptime"
-
-    dismiss = client.post(
-        "/recipes/learned/dismiss",
-        data={
-            "recipe_id": "learned-ssh-health-check",
-            "csrf_token": "test-csrf",
-            "return_to": "/recipes/learned",
-        },
-        follow_redirects=False,
-    )
-    assert dismiss.status_code == 303
-    rows = learned_store.load_learned_recipe_store_entries()
-    assert rows[0]["promotion_state"] == "observed"
-    assert str(rows[0]["promotion_hint"]).startswith("admin:")
-
-    delete = client.post(
-        "/recipes/learned/delete",
-        data={
-            "recipe_id": "learned-ssh-health-check",
-            "csrf_token": "test-csrf",
-            "return_to": "/recipes/learned",
-        },
-        follow_redirects=False,
-    )
-    assert delete.status_code == 303
-    assert learned_store.load_learned_recipe_store_entries() == []
-    assert purged == [("fake-memory", "neo", "learned-ssh-health-check")]
-
-
-def test_recipes_learned_admin_action_preserves_filtered_return_to(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(learned_store, "_learned_recipe_store_path", lambda: tmp_path / "learned_recipes.json")
-    learned_store.invalidate_learned_recipe_store_cache()
-    learned_store.save_learned_recipe_store_entry(
-        {
-            "recipe_id": "learned-ssh-health-check",
-            "intent": "health_check",
-            "connection_kind": "ssh",
-            "capability": "ssh_command",
-            "chosen_action": "uptime",
-            "experience_count": 5,
-            "promotion_state": "eligible",
-        }
-    )
-    client = _build_recipes_app()
-
-    response = client.post(
-        "/recipes/learned/dismiss",
-        data={
-            "recipe_id": "learned-ssh-health-check",
-            "csrf_token": "test-csrf",
-            "return_to": "/recipes/learned?state=eligible&kind=ssh&sort=experience",
-        },
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303
-    location = response.headers["location"]
-    assert location.startswith("/recipes/learned?state=eligible&kind=ssh&sort=experience&saved=1&info=")
-    assert location.count("?") == 1
-    assert "return_to=%2Frecipes%2Flearned%3Fstate%3Deligible%26kind%3Dssh%26sort%3Dexperience" in location
+    assert overview.status_code == 200
+    assert mine.status_code == 200
+    assert "/recipes/learned" not in overview.text
+    assert "/recipes/learned" not in mine.text
+    assert 'href="/recipes/mine"' in overview.text
+    assert 'action="/recipes/duplicate"' in mine.text
 
 
 def test_recipes_save_preserves_return_to() -> None:
@@ -750,7 +544,6 @@ def test_recipes_save_preserves_return_to() -> None:
         "/recipes/save",
         data={
             "memory_enabled": "1",
-            "auto_memory_enabled": "0",
             "return_to": "/recipes/system",
         },
         follow_redirects=False,
@@ -758,6 +551,81 @@ def test_recipes_save_preserves_return_to() -> None:
 
     assert response.status_code == 303
     assert response.headers["location"] == "/recipes/system?saved=1&return_to=%2Frecipes%2Fsystem"
+
+
+def test_recipes_post_redirect_fallbacks_use_registry_route_readpoints(monkeypatch) -> None:
+    route_calls: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs: object) -> str | None:
+        route_calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", tracking_module_route_path)
+    readonly_client = _build_recipes_app(
+        advanced_mode=False,
+        auth_session=lambda _request: {"username": "neo", "role": "user"},
+    )
+    admin_client = _build_recipes_app()
+
+    save_readonly = readonly_client.post("/recipes/save", data={"return_to": ""}, follow_redirects=False)
+    wizard_readonly = readonly_client.post(
+        "/recipes/wizard/save",
+        data={"skill_id": "demo", "skill_name": "Demo", "return_to": ""},
+        follow_redirects=False,
+    )
+    import_sample_csrf = admin_client.post(
+        "/recipes/import-sample",
+        data={"sample_file": "missing.json", "csrf_token": "wrong", "return_to": ""},
+        follow_redirects=False,
+    )
+    delete_csrf = admin_client.post(
+        "/recipes/delete",
+        data={"skill_id": "demo", "csrf_token": "wrong", "return_to": ""},
+        follow_redirects=False,
+    )
+
+    assert save_readonly.status_code == 303
+    assert save_readonly.headers["location"].startswith("/recipes?error=readonly")
+    assert wizard_readonly.status_code == 303
+    assert wizard_readonly.headers["location"].startswith("/recipes?error=readonly")
+    assert import_sample_csrf.status_code == 303
+    assert import_sample_csrf.headers["location"].startswith("/recipes?error=csrf_failed")
+    assert delete_csrf.status_code == 303
+    assert delete_csrf.headers["location"].startswith("/recipes?error=csrf_failed")
+    assert ("recipes_ui", "/recipes") in route_calls
+    assert ("chat_surface", "/") in route_calls
+
+
+def test_recipes_post_redirect_fallbacks_fail_closed_without_recipes_owner(monkeypatch) -> None:
+    def missing_recipes_route(module_id: str, route_path: str, **kwargs: object) -> str | None:  # noqa: ARG001
+        if module_id == "recipes_ui" and route_path == "/recipes":
+            return None
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", missing_recipes_route)
+    readonly_client = _build_recipes_app(
+        advanced_mode=False,
+        auth_session=lambda _request: {"username": "neo", "role": "user"},
+    )
+
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes"):
+        readonly_client.post("/recipes/save", data={"return_to": ""}, follow_redirects=False)
+
+
+def test_recipes_post_redirect_fallbacks_fail_closed_without_home_owner(monkeypatch) -> None:
+    def missing_home_route(module_id: str, route_path: str, **kwargs: object) -> str | None:  # noqa: ARG001
+        if module_id == "chat_surface" and route_path == "/":
+            return None
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", missing_home_route)
+    readonly_client = _build_recipes_app(
+        advanced_mode=False,
+        auth_session=lambda _request: {"username": "neo", "role": "user"},
+    )
+
+    with pytest.raises(RuntimeError, match="chat_surface route is not registered: /"):
+        readonly_client.post("/recipes/save", data={"return_to": ""}, follow_redirects=False)
 
 
 def test_recipes_save_custom_toggle_preserves_core_toggles(monkeypatch, tmp_path) -> None:
@@ -797,6 +665,7 @@ def test_recipes_save_custom_toggle_preserves_core_toggles(monkeypatch, tmp_path
     templates.env.globals.setdefault("context_nav_context", context_nav_context)
     templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
     templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
+    templates.env.globals.setdefault("module_route_path", lambda module_id, route_path: module_route_path(module_id, route_path) or "")
 
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
@@ -810,7 +679,6 @@ def test_recipes_save_custom_toggle_preserves_core_toggles(monkeypatch, tmp_path
     settings = SimpleNamespace(
         ui=SimpleNamespace(title="Recipes Test"),
         memory=SimpleNamespace(enabled=True),
-        auto_memory=SimpleNamespace(enabled=False),
         connections=SimpleNamespace(ssh={}, sftp={}, smb={}, rss={}, discord={}),
     )
 
@@ -830,7 +698,6 @@ def test_recipes_save_custom_toggle_preserves_core_toggles(monkeypatch, tmp_path
         translate=lambda _lang, _key, fallback="": fallback,
         localize_stored_recipe_description=lambda manifest, _lang: str(manifest.get("description", "")),
         format_recipe_routing_info=lambda _lang, info: info,
-        suggest_skill_keywords_with_llm=_suggest_recipe_keywords_with_llm,
         daily_time_to_cron=lambda value: value,
         daily_time_from_cron=lambda value: value,
     )
@@ -905,6 +772,7 @@ def test_recipes_save_custom_toggle_can_disable_recipe(monkeypatch, tmp_path) ->
     templates.env.globals.setdefault("context_nav_context", context_nav_context)
     templates.env.globals.setdefault("admin_nav_groups", admin_nav_groups)
     templates.env.globals.setdefault("settings_nav_groups", settings_nav_groups)
+    templates.env.globals.setdefault("module_route_path", lambda module_id, route_path: module_route_path(module_id, route_path) or "")
 
     @app.middleware("http")
     async def _inject_state(request: Request, call_next):
@@ -938,7 +806,6 @@ def test_recipes_save_custom_toggle_can_disable_recipe(monkeypatch, tmp_path) ->
         translate=lambda _lang, _key, fallback="": fallback,
         localize_stored_recipe_description=lambda manifest, _lang: str(manifest.get("description", "")),
         format_recipe_routing_info=lambda _lang, info: info,
-        suggest_skill_keywords_with_llm=_suggest_recipe_keywords_with_llm,
         daily_time_to_cron=lambda value: value,
         daily_time_from_cron=lambda value: value,
     )
@@ -1021,7 +888,6 @@ def test_recipes_save_core_toggle_preserves_custom_toggles(monkeypatch, tmp_path
         translate=lambda _lang, _key, fallback="": fallback,
         localize_stored_recipe_description=lambda manifest, _lang: str(manifest.get("description", "")),
         format_recipe_routing_info=lambda _lang, info: info,
-        suggest_skill_keywords_with_llm=_suggest_recipe_keywords_with_llm,
         daily_time_to_cron=lambda value: value,
         daily_time_from_cron=lambda value: value,
     )
@@ -1031,7 +897,6 @@ def test_recipes_save_core_toggle_preserves_custom_toggles(monkeypatch, tmp_path
         "/recipes/save",
         data={
             "memory_enabled": "1",
-            "auto_memory_enabled": "1",
             "return_to": "/recipes/system",
         },
         follow_redirects=False,
@@ -1039,7 +904,7 @@ def test_recipes_save_core_toggle_preserves_custom_toggles(monkeypatch, tmp_path
 
     assert response.status_code == 303
     assert target_raw["memory"]["enabled"] is True
-    assert target_raw["auto_memory"]["enabled"] is True
+    assert target_raw["auto_memory"]["enabled"] is False
     assert target_raw["skills"]["custom"]["linux-health"]["enabled"] is True
 
 
@@ -1052,6 +917,51 @@ def test_recipes_wizard_page_sets_logical_back_url() -> None:
     assert "const logical='/recipes';" in response.text
     assert 'aria-label="Settings navigation"' in response.text or 'aria-label="Einstellungen Navigation"' in response.text
     assert "Create new recipe" in response.text
+    assert 'const configUiOverviewPath = "/config";' in response.text
+    assert 'link.href = "/config";' not in response.text
+
+
+def test_recipes_wizard_get_defaults_use_registry_route_readpoints(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs: object) -> str | None:
+        seen.append((module_id, route_path))
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", tracking_module_route_path)
+
+    admin_client = _build_recipes_app()
+    admin_response = admin_client.get("/recipes/wizard")
+    readonly_client = _build_recipes_app(
+        advanced_mode=False,
+        auth_session=lambda _request: {"username": "neo", "role": "user"},
+    )
+    readonly_response = readonly_client.get("/recipes/wizard", follow_redirects=False)
+
+    assert admin_response.status_code == 200
+    assert readonly_response.status_code == 303
+    assert readonly_response.headers["location"] == "/recipes?error=readonly&return_to=%2Frecipes"
+    assert seen.count(("recipes_ui", "/recipes")) >= 2
+
+
+def test_recipes_wizard_get_defaults_fail_closed_without_route_owner(monkeypatch) -> None:
+    def missing_recipes_route(module_id: str, route_path: str, **kwargs: object) -> str | None:  # noqa: ARG001
+        if module_id == "recipes_ui" and route_path == "/recipes":
+            return None
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_routes_module, "module_route_path", missing_recipes_route)
+
+    admin_client = _build_recipes_app()
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes"):
+        admin_client.get("/recipes/wizard")
+
+    readonly_client = _build_recipes_app(
+        advanced_mode=False,
+        auth_session=lambda _request: {"username": "neo", "role": "user"},
+    )
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes"):
+        readonly_client.get("/recipes/wizard", follow_redirects=False)
 
 
 def test_recipes_wizard_defaults_to_simple_mode() -> None:
@@ -1061,6 +971,7 @@ def test_recipes_wizard_defaults_to_simple_mode() -> None:
 
     assert response.status_code == 200
     assert 'data-wizard-mode="simple"' in response.text
+    assert "prompts/recipes/&lt;recipe-id&gt;.md" in response.text
     assert 'name="wizard_mode" id="wizard-mode-input" value="simple"' in response.text
     assert 'name="skill_type" id="skill-type-select"' in response.text
     assert '<option value="health_check" selected>Health Check</option>' in response.text
@@ -1127,6 +1038,86 @@ def test_recipes_wizard_save_preserves_selected_mode(monkeypatch, tmp_path) -> N
     assert "mode=advanced" in response.headers["location"]
 
 
+def _ssh_timeout_recipe_form(*, name: str, timeout: str) -> dict[str, str]:
+    return {
+        "skill_name": name,
+        "skill_type": "health_check",
+        "wizard_mode": "advanced",
+        "schedule_enabled": "0",
+        "enabled_default": "0",
+        "step_1_enabled": "1",
+        "step_1_id": "s1",
+        "step_1_name": "Upgrade",
+        "step_1_type": "ssh_run",
+        "step_1_on_error": "stop",
+        "step_1_connection_ref": "srv-1",
+        "step_1_command": "apt update && apt upgrade -y",
+        "step_1_timeout_seconds": timeout,
+    }
+
+
+def _prepare_ssh_timeout_recipe_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    recipes_dir = tmp_path / "data" / "recipes"
+    recipes_dir.mkdir(parents=True)
+    monkeypatch.setattr(recipe_manifests, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(recipe_manifests, "SKILLS_STORE_DIR", recipes_dir)
+    monkeypatch.setattr(recipe_manifests, "LEGACY_SKILLS_STORE_DIR", tmp_path / "data" / "skills")
+    monkeypatch.setattr(recipe_manifests, "SKILL_TRIGGER_INDEX_FILE", recipes_dir / "_trigger_index.json")
+    recipe_manifests._invalidate_stored_recipe_manifest_cache()
+    return recipes_dir
+
+
+def test_recipes_wizard_renders_ssh_timeout_field_only_for_ssh() -> None:
+    response = _build_recipes_app().get("/recipes/wizard")
+
+    assert response.status_code == 200
+    assert 'name="step_1_timeout_seconds"' in response.text
+    timeout_control = response.text.split('name="step_1_timeout_seconds"', 1)[0].rsplit("<label", 1)[1]
+    assert 'data-step-types="ssh_run"' in timeout_control
+    assert 'type="number"' in response.text
+    assert 'min="5"' in response.text
+    assert "300" in response.text
+
+
+def test_recipes_wizard_ssh_timeout_persists_and_reloads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    recipes_dir = _prepare_ssh_timeout_recipe_store(monkeypatch, tmp_path)
+    client = _build_recipes_app()
+
+    saved_response = client.post(
+        "/recipes/wizard/save",
+        data=_ssh_timeout_recipe_form(name="Long Upgrade", timeout="300"),
+        follow_redirects=False,
+    )
+
+    assert saved_response.status_code == 303
+    saved = json.loads((recipes_dir / "long-upgrade.json").read_text(encoding="utf-8"))
+    assert saved["steps"][0]["params"]["timeout_seconds"] == 300
+    reloaded = client.get("/recipes/wizard?skill_id=long-upgrade")
+    assert reloaded.status_code == 200
+    assert 'name="step_1_timeout_seconds"' in reloaded.text
+    assert 'value="300"' in reloaded.text
+
+
+@pytest.mark.parametrize("timeout", ["", "0", "-5", "invalid"])
+def test_recipes_wizard_ssh_timeout_omits_non_positive_or_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    timeout: str,
+) -> None:
+    recipes_dir = _prepare_ssh_timeout_recipe_store(monkeypatch, tmp_path)
+    client = _build_recipes_app()
+
+    response = client.post(
+        "/recipes/wizard/save",
+        data=_ssh_timeout_recipe_form(name="Default Timeout", timeout=timeout),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    saved = json.loads((recipes_dir / "default-timeout.json").read_text(encoding="utf-8"))
+    assert "timeout_seconds" not in saved["steps"][0]["params"]
+
+
 def test_recipes_wizard_health_check_defaults_apply_in_simple_mode(monkeypatch, tmp_path) -> None:
     base_dir = tmp_path
     recipes_dir = base_dir / "data" / "recipes"
@@ -1180,65 +1171,3 @@ def test_recipes_wizard_health_check_defaults_apply_in_simple_mode(monkeypatch, 
     assert saved["steps"][0]["type"] == "ssh_run"
     assert saved["steps"][0]["name"] == "Health Check"
     assert saved["steps"][0]["params"]["command"] == "uptime"
-
-
-def test_recipes_learned_context_only_rows_do_not_show_stored_promote(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "recipe_id": "learned-web-search-pricing",
-                "title": "Pricing source",
-                "summary": "Useful pricing context.",
-                "intent": "research_context",
-                "connection_kind": "web",
-                "connection_ref": "web_search",
-                "capability": "web_search",
-                "chosen_action": "aria pricing",
-                "experience_count": 1,
-                "promotion_state": "review_ready",
-                "promotion_hint": "admin:Promoted from web/search result into review; context only and not directly executable.",
-            }
-        ],
-    )
-    client = _build_recipes_app()
-
-    response = client.get("/recipes/learned")
-
-    assert response.status_code == 200
-    assert "Pricing source" in response.text
-    assert "Nur Kontext" in response.text
-    assert 'action="/recipes/learned/promote"' not in response.text
-    assert 'action="/recipes/learned/dismiss"' in response.text
-
-
-def test_recipes_learned_side_effect_rows_do_not_show_stored_promote(monkeypatch) -> None:
-    monkeypatch.setattr(
-        recipes_routes_module,
-        "load_learned_recipe_store_entries",
-        lambda: [
-            {
-                "recipe_id": "learned-discord-send",
-                "title": "Discord status note",
-                "summary": "Repeated outgoing status note.",
-                "intent": "send_status_message",
-                "connection_kind": "discord",
-                "connection_ref": "alerts",
-                "capability": "discord_send",
-                "chosen_action": "Deployment finished",
-                "experience_count": 7,
-                "promotion_state": "review_ready",
-            }
-        ],
-    )
-    client = _build_recipes_app()
-
-    response = client.get("/recipes/learned")
-
-    assert response.status_code == 200
-    assert "Discord status note" in response.text
-    assert "Side-effect learned actions stay review-only" in response.text
-    assert "/recipes/learned/promote-preview?recipe_id=learned-discord-send" not in response.text
-    assert 'action="/recipes/learned/promote"' not in response.text
-    assert 'action="/recipes/learned/dismiss"' in response.text

@@ -1,0 +1,68 @@
+[
+  {
+    "prompt": "welches ist die neuste version von n8n",
+    "expected_surface": "web",
+    "raw_response": "```json\n{\n  \"decision_kind\": \"context\",\n  \"needs_context\": true,\n  \"intents\": [\"web_research\"],\n  \"surfaces\": [\"web\"],\n  \"catalog_ids\": [],\n  \"context_requests\": [\n    {\n      \"surface_id\": \"web\",\n      \"mode\": \"search\",\n      \"query\": \"n8n latest version release\",\n      \"depth\": \"shallow\"\n    }\n  ],\n  \"answer_mode\": \"answer_from_context\",\n  \"context_depth\": \"shallow\",\n  \"contract\": {\n    \"mode\": \"answer\",\n    \"evidence_policy\": \"source_bound\"\n  },\n  \"personal_context_resolution\": {\n    \"status\": \"independent_context\",\n    \"reason\": \"Question about public n8n release version requires external web context; local ssh connection 'dev-n8n' represents installed instance, not authoritative public release information\"\n  },\n  \"turn_semantics\": {\n    \"primary\": \"ordinary\",\n    \"confidence\": \"high\",\n    \"reason\": \"Straightforward public product version inquiry requiring current web search\"\n  },\n  \"confidence\": \"high\",\n  \"reason\": \"User asks for newest n8n version; this is public release information requiring web search, not local installation state from configured ssh connection\"\n}\n```",
+    "ms": 7344,
+    "usage": {
+      "prompt_tokens": 2181,
+      "completion_tokens": 317,
+      "total_tokens": 2498
+    }
+  },
+  {
+    "prompt": "welche Version ist aktuell bei Home Assistant",
+    "expected_surface": "web",
+    "raw_response": "```json\n{\n  \"decision_kind\": \"context\",\n  \"needs_context\": true,\n  \"intents\": [\"web_research\"],\n  \"surfaces\": [\"web\"],\n  \"catalog_ids\": [],\n  \"context_requests\": [\n    {\n      \"surface_id\": \"web\",\n      \"mode\": \"search\",\n      \"query\": \"Home Assistant current version latest release 2026\",\n      \"depth\": \"shallow\"\n    }\n  ],\n  \"answer_mode\": \"answer_from_context\",\n  \"context_depth\": \"shallow\",\n  \"contract\": {\n    \"mode\": \"answer\",\n    \"evidence_policy\": \"source_bound\"\n  },\n  \"personal_context_resolution\": {\n    \"status\": \"independent_context\",\n    \"reason\": \"Public product release information requires external web context; local ssh connection 'dev-ha' describes availability but not installed version or public release authority\"\n  },\n  \"turn_semantics\": {\n    \"primary\": \"ordinary\",\n    \"confidence\": \"high\",\n    \"reason\": \"User asks about current Home Assistant version; public release facts require web search despite local connection existence\"\n  },\n  \"confidence\": \"high\",\n  \"reason\": \"Clear version inquiry for public software product; web context needed for current release information\"\n}\n```",
+    "ms": 6349,
+    "usage": {
+      "prompt_tokens": 2180,
+      "completion_tokens": 310,
+      "total_tokens": 2490
+    }
+  },
+  {
+    "prompt": "was ist die aktuelle Qdrant Version",
+    "expected_surface": "web",
+    "raw_response": "```json\n{\n  \"decision_kind\": \"context\",\n  \"needs_context\": true,\n  \"catalog_ids\": [],\n  \"context_requests\": [\n    {\n      \"surface_id\": \"web\",\n      \"mode\": \"search\",\n      \"query\": \"Qdrant aktuelle Version 2026\",\n      \"depth\": \"shallow\"\n    }\n  ],\n  \"intents\": [\"web_research\"],\n  \"surfaces\": [\"web\"],\n  \"answer_mode\": \"answer_from_context\",\n  \"context_depth\": \"shallow\",\n  \"risk\": \"low\",\n  \"needs_confirmation\": false,\n  \"confidence\": \"high\",\n  \"reason\": \"User asks about current Qdrant version. This is a public product release fact requiring external web context. Although connection|ssh|dev-qdrant exists locally, it represents an installed instance, not authoritative public release information. Public version facts require web search, not local connection state.\",\n  \"contract\": {\n    \"mode\": \"answer\",\n    \"evidence_policy\": \"source_bound\"\n  },\n  \"personal_context_resolution\": {\n    \"status\": \"independent_context\",\n    \"reason\": \"Public product version information is independent from any personal context\"\n  },\n  \"turn_semantics\": {\n    \"primary\": \"ordinary\",\n    \"confidence\": \"high\",\n    \"reason\": \"Standard factual query about public software version\"\n  }\n}\n```",
+    "ms": 7270,
+    "usage": {
+      "prompt_tokens": 2180,
+      "completion_tokens": 344,
+      "total_tokens": 2524
+    }
+  },
+  {
+    "prompt": "was ist das neueste iPhone",
+    "expected_surface": "web",
+    "raw_response": "```json\n{\n  \"decision_kind\": \"context\",\n  \"needs_context\": true,\n  \"intents\": [\"web_research\"],\n  \"surfaces\": [\"web\"],\n  \"catalog_ids\": [],\n  \"context_requests\": [\n    {\n      \"surface_id\": \"web\",\n      \"mode\": \"search\",\n      \"query\": \"neuestes iPhone 2026\",\n      \"depth\": \"shallow\"\n    }\n  ],\n  \"answer_mode\": \"answer_from_context\",\n  \"context_depth\": \"shallow\",\n  \"contract\": {\n    \"mode\": \"answer\",\n    \"evidence_policy\": \"allow_general\"\n  },\n  \"personal_context_resolution\": {\n    \"status\": \"independent_context\",\n    \"reason\": \"Public product release information requires external web context; no personal context applicable\"\n  },\n  \"turn_semantics\": {\n    \"primary\": \"ordinary\",\n    \"confidence\": \"high\",\n    \"reason\": \"Straightforward factual query about current iPhone model requiring fresh public web context\"\n  },\n  \"confidence\": \"high\",\n  \"reason\": \"Clear product information request requiring public web search; no local/personal context needed\"\n}\n```",
+    "ms": 5930,
+    "usage": {
+      "prompt_tokens": 2176,
+      "completion_tokens": 289,
+      "total_tokens": 2465
+    }
+  },
+  {
+    "prompt": "Welche SSH-Ziele kennst du?",
+    "expected_surface": "connections",
+    "raw_response": "```json\n{\n  \"decision_kind\": \"context\",\n  \"needs_context\": true,\n  \"intents\": [\"context_inventory\"],\n  \"surfaces\": [\"connections\"],\n  \"catalog_ids\": [],\n  \"context_requests\": [\n    {\n      \"surface_id\": \"connections\",\n      \"mode\": \"inventory\",\n      \"depth\": \"shallow\"\n    }\n  ],\n  \"target_scope_authority\": \"full_kind\",\n  \"scope_operation\": \"new_scope\",\n  \"answer_mode\": \"answer_from_context\",\n  \"context_depth\": \"shallow\",\n  \"risk\": \"low\",\n  \"needs_confirmation\": false,\n  \"confidence\": 0.95,\n  \"reason\": \"User asks 'Welche SSH-Ziele kennst du?' (Which SSH targets do you know?) - requesting inventory of configured SSH connections. Connections surface configured with 4 total connections, all kind=ssh. Requires inventory mode context to enumerate all SSH connection refs and metadata.\",\n  \"contract\": {\n    \"mode\": \"answer\",\n    \"evidence_policy\": \"source_bound\"\n  },\n  \"personal_context_resolution\": {\n    \"status\": \"not_applicable\",\n    \"reason\": \"System inventory query for configured SSH connections, not personal context\"\n  },\n  \"turn_semantics\": {\n    \"primary\": \"ordinary\",\n    \"confidence\": 0.95,\n    \"reason\": \"Standard inventory query for system-configured SSH connections\"\n  }\n}\n```",
+    "ms": 7295,
+    "usage": {
+      "prompt_tokens": 2182,
+      "completion_tokens": 361,
+      "total_tokens": 2543
+    }
+  },
+  {
+    "prompt": "Welche Notizen habe ich gespeichert?",
+    "expected_surface": "notes",
+    "raw_response": "```json\n{\n  \"decision_kind\": \"context\",\n  \"needs_context\": true,\n  \"catalog_ids\": [],\n  \"context_requests\": [\n    {\n      \"surface_id\": \"notes\",\n      \"mode\": \"inventory\",\n      \"depth\": \"shallow\"\n    }\n  ],\n  \"intents\": [\"context_inventory\"],\n  \"surfaces\": [\"notes\"],\n  \"target_scope_authority\": \"full_kind\",\n  \"scope_operation\": \"new_scope\",\n  \"answer_mode\": \"answer_from_context\",\n  \"context_depth\": \"shallow\",\n  \"risk\": \"low\",\n  \"needs_confirmation\": false,\n  \"confidence\": \"high\",\n  \"reason\": \"User asks for stored notes inventory in German. Notes surface supports inventory mode. Requesting full-kind notes inventory to list all stored notes.\",\n  \"contract\": {\n    \"mode\": \"answer\",\n    \"evidence_policy\": \"source_bound\"\n  },\n  \"personal_context_resolution\": {\n    \"status\": \"not_applicable\",\n    \"reason\": \"No personal context capsule claims provided; inventory request targets notes surface directly\"\n  },\n  \"turn_semantics\": {\n    \"primary\": \"ordinary\",\n    \"confidence\": \"high\",\n    \"reason\": \"Standard inventory query for user's stored notes\"\n  }\n}\n```",
+    "ms": 6330,
+    "usage": {
+      "prompt_tokens": 2184,
+      "completion_tokens": 325,
+      "total_tokens": 2509
+    }
+  }
+]

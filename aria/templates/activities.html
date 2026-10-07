@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
+{% set stats_ui_activities_path = module_route_path('stats_ui', '/activities') %}
 <main class="stats-layout">
   {% set admin_current_nav_id = 'admin.activities' %}
   {% include "_admin_section_nav.html" %}
 
   <section class="stats-grid">
     <article class="stat-card">
-      <h2>{{ tr(request, 'activities.total', 'Aktivitäten') }}</h2>
+      <h2>{{ tr(request, 'activities.total', 'Ausführungs-Historie') }}</h2>
       <p class="stat-value">{{ activities.summary.count }}</p>
     </article>
     <article class="stat-card">
@@ -24,12 +25,12 @@
   </section>
 
   <section class="stat-card">
-    <h2>{{ tr(request, 'activities.title', 'Aktivitäten & Runs') }}</h2>
+    <h2>{{ tr(request, 'activities.title', 'Ausführungs-Historie') }}</h2>
     <p class="stat-sub">{{ tr(request, 'activities.subtitle', 'Operative Rezept-Läufe und Systemaktionen aus den Logs, getrennt vom semantischen Memory.') }}</p>
   </section>
 
   <section class="stat-card">
-    <form method="get" action="/activities" class="memories-filter-form">
+    <form method="get" action="{{ stats_ui_activities_path }}" class="memories-filter-form">
       <label for="kind">{{ tr(request, 'activities.filter_label', 'Bereich') }}</label>
       <select id="kind" name="kind">
         <option value="all" {% if activity_kind == "all" %}selected{% endif %}>{{ tr(request, 'activities.filter_all', 'Alle') }}</option>
@@ -93,7 +94,7 @@
     </section>
   {% else %}
     <section class="stat-card">
-      <p>{{ tr(request, 'activities.empty', 'Noch keine Aktivitäten vorhanden.') }}</p>
+      <p>{{ tr(request, 'activities.empty', 'Noch keine Einträge in der Ausführungs-Historie.') }}</p>
     </section>
   {% endif %}
 </main>

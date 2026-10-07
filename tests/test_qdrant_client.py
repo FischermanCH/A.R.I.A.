@@ -1,4 +1,4 @@
-from aria.core.qdrant_client import qdrant_url_is_private_http
+from aria.modules.qdrant_gateway.client import qdrant_url_is_private_http
 
 
 def test_qdrant_url_is_private_http_detects_local_and_private_hosts() -> None:

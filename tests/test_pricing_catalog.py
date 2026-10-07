@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-import aria.core.pricing_catalog as pricing_catalog
+import aria.modules.model_usage_observability.pricing_catalog as pricing_catalog
 
 
 def test_resolve_bundled_pricing_entry_accepts_claude_family_alias(monkeypatch) -> None:

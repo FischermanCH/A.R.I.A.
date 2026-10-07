@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from aria.core import connection_health
-from aria.core.secure_store import SecureConfigStore, SecureStoreConfig, decode_master_key, generate_master_key_b64
+import aria.modules.connections_health_cache.health as connection_health
+from aria.modules.security_storage.secure_store import SecureConfigStore, SecureStoreConfig, decode_master_key, generate_master_key_b64
 
 
 def test_secure_store_delete_secret_removes_value(tmp_path) -> None:

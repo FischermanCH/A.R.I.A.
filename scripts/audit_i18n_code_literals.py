@@ -101,6 +101,30 @@ def enclosing_call(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.Call |
     return None
 
 
+def enclosing_function(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    cursor = node
+    while parent := parents.get(cursor):
+        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return parent
+        cursor = parent
+    return None
+
+
+def is_confirmation_contract_literal(path: Path, node: ast.Constant, parents: dict[ast.AST, ast.AST]) -> bool:
+    if path.relative_to(ROOT).as_posix() != "aria/modules/chat_admin_composition/actions.py":
+        return False
+    function = enclosing_function(node, parents)
+    if function is not None:
+        return function.name.startswith("_parse_") and function.name.endswith("_confirm_token")
+    parent = parents.get(node)
+    if not isinstance(parent, ast.Assign):
+        return False
+    return any(
+        isinstance(target, ast.Name) and target.id in {"_CONFIRM_TOKEN", "_CONFIRM_PREFIX"}
+        for target in parent.targets
+    )
+
+
 def has_german_marker(value: str) -> bool:
     return any(marker in value for marker in GERMAN_MARKERS)
 
@@ -137,6 +161,8 @@ def audit_python_files(files: Iterable[Path] | None = None) -> list[AuditRow]:
                 continue
             value = node.value.strip()
             if not value or not has_german_marker(value):
+                continue
+            if is_confirmation_contract_literal(path, node, parents):
                 continue
             rel = path.relative_to(ROOT).as_posix()
             line = int(getattr(node, "lineno", 0) or 0)

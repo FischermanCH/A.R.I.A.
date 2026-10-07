@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import aria.main as main_mod
+import aria.modules.config_ui.main_helpers as main_config_helpers
 
 
 def test_read_raw_config_uses_cache_and_returns_isolated_copies(monkeypatch, tmp_path) -> None:
@@ -10,14 +11,14 @@ def test_read_raw_config_uses_cache_and_returns_isolated_copies(monkeypatch, tmp
     monkeypatch.setattr(main_mod, "CONFIG_PATH", config_path)
     main_mod._clear_raw_config_cache()
 
-    original_safe_load = main_mod.yaml.safe_load
+    original_safe_load = main_config_helpers.yaml.safe_load
     call_count = {"value": 0}
 
     def _counting_safe_load(stream):  # type: ignore[no-untyped-def]
         call_count["value"] += 1
         return original_safe_load(stream)
 
-    monkeypatch.setattr(main_mod.yaml, "safe_load", _counting_safe_load)
+    monkeypatch.setattr(main_config_helpers.yaml, "safe_load", _counting_safe_load)
 
     first = main_mod._read_raw_config()
     second = main_mod._read_raw_config()
@@ -47,14 +48,14 @@ def test_write_raw_config_refreshes_cache_without_extra_reload(monkeypatch, tmp_
     payload = {"ui": {"title": "After Write"}}
     main_mod._write_raw_config(payload)
 
-    original_safe_load = main_mod.yaml.safe_load
+    original_safe_load = main_config_helpers.yaml.safe_load
     call_count = {"value": 0}
 
     def _counting_safe_load(stream):  # type: ignore[no-untyped-def]
         call_count["value"] += 1
         return original_safe_load(stream)
 
-    monkeypatch.setattr(main_mod.yaml, "safe_load", _counting_safe_load)
+    monkeypatch.setattr(main_config_helpers.yaml, "safe_load", _counting_safe_load)
 
     data = main_mod._read_raw_config()
 

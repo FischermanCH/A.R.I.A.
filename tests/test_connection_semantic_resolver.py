@@ -1,13 +1,12 @@
 import asyncio
 
-from aria.core.connection_catalog import connection_insert_template, connection_kind_label, connection_toolbox_keywords
-from aria.core.connection_semantic_resolver import (
+from aria.modules.connections_catalog.catalog import connection_insert_template, connection_kind_label
+from aria.modules.connections_semantic.resolver import (
     ConnectionSemanticResolver,
     SemanticConnectionCandidate,
     SemanticConnectionHint,
     build_connection_aliases,
     build_routing_decision_record,
-    connection_label_match_score,
     format_routing_decision_record,
 )
 
@@ -48,9 +47,9 @@ def test_build_connection_aliases_extracts_short_host_alias_from_numbered_ref() 
     assert 'nas-demo docker' in aliases
 
 
-def test_connection_semantic_resolver_prefers_metadata_alias_match() -> None:
+def test_connection_semantic_resolver_does_not_select_without_llm() -> None:
     resolver = ConnectionSemanticResolver(llm_client=None)
-    hint = resolver.resolve_connection(
+    candidates = resolver.collect_connection_candidates(
         'Zeige mir die Daten vom backup nas',
         {
             'smb': {
@@ -63,9 +62,9 @@ def test_connection_semantic_resolver_prefers_metadata_alias_match() -> None:
             }
         },
     )
-    assert hint.connection_kind == 'smb'
-    assert hint.connection_ref == 'nas-docker'
-    assert hint.source == 'semantic_alias'
+    assert [(item.connection_kind, item.connection_ref) for item in candidates] == [('smb', 'nas-docker')]
+    assert candidates[0].source == 'configured_candidate'
+    assert candidates[0].score == 0
 
 
 def test_connection_semantic_resolver_collects_sorted_candidates() -> None:
@@ -91,16 +90,14 @@ def test_connection_semantic_resolver_collects_sorted_candidates() -> None:
     )
 
     assert {item.connection_ref for item in candidates[:2]} == {"heise-online-news", "area41-feed"}
-    assert candidates[0].score >= candidates[1].score
-    assert candidates[0].source == "semantic_alias"
-    assert candidates[0].note.startswith("alias:")
+    assert all(item.score == 0 for item in candidates)
+    assert all(item.source == "configured_candidate" for item in candidates)
 
 
-def test_connection_catalog_provides_shared_labels_templates_and_keywords() -> None:
+def test_connection_catalog_provides_shared_labels_and_templates() -> None:
     assert connection_kind_label("email") == "SMTP"
     assert "alerts-mail" in connection_insert_template("email", "create", "alerts-mail")
     assert "inventory-api" in connection_insert_template("http_api", "update", "inventory-api")
-    assert "synology" in connection_toolbox_keywords("smb", ["nas-share"])
 
 
 def test_connection_semantic_resolver_prefers_single_plausible_candidate_without_llm() -> None:
@@ -128,7 +125,7 @@ def test_connection_semantic_resolver_prefers_single_plausible_candidate_without
 
     assert hint.connection_kind == "webhook"
     assert hint.connection_ref == "n8n-demo"
-    assert hint.source == "semantic_alias"
+    assert hint.source == "semantic_llm"
 
 
 def test_connection_semantic_resolver_uses_llm_for_single_loose_candidate() -> None:
@@ -216,9 +213,9 @@ def test_build_connection_aliases_adds_discord_alert_channel_hints() -> None:
         },
     )
 
-    assert "alerts channel" in aliases
-    assert "alert channel" in aliases
-    assert "logs channel" in aliases
+    assert "alerts channel" not in aliases
+    assert "alert channel" not in aliases
+    assert "logs channel" not in aliases
 
 
 def test_build_connection_aliases_adds_website_docs_hints() -> None:
@@ -237,12 +234,7 @@ def test_build_connection_aliases_adds_website_docs_hints() -> None:
     assert "aria docs" in aliases
     assert "docs" in aliases
     assert "documentation" in aliases
-    assert "dokumentation" in aliases
-
-
-def test_connection_label_match_score_ignores_generic_single_word_server_label() -> None:
-    assert connection_label_match_score("prüfe den status vom backup server", "server") == 0
-    assert connection_label_match_score("check health auf management server", "management server") > 0
+    assert "dokumentation" not in aliases
 
 
 def test_routing_decision_record_formats_candidates_and_selection() -> None:

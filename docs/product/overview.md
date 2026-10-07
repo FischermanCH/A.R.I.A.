@@ -110,7 +110,7 @@ It is designed for people who want:
 - document upload directly in `Memory`
 - `txt`, `md`, and `pdf` with embedded text supported for RAG v1
 - grouped document management in `Memory Map`
-- pre-alpha web search via self-hosted `SearXNG`
+- provider-native web search when the configured model supports web tooling
 - watched websites as a lighter source type for pages without RSS feeds
 
 ### Recipes and automation
@@ -133,7 +133,6 @@ Current connection families include:
 - `SMB`
 - `Webhook`
 - `HTTP API`
-- `SearXNG`
 - `Google Calendar`
 - `Watched Websites`
 - `RSS`
@@ -150,7 +149,7 @@ Examples of what ARIA can already do:
 - read and write remote files via `SFTP`
 - access remote file areas via `SMB`
 - read `RSS` feeds
-- search the web via configured `SearXNG`
+- search the web through configured provider web tooling
 - ask for upcoming calendar events via configured read-only `Google Calendar` iCal feeds
 - send to `Discord`
 - call configured `HTTP APIs`

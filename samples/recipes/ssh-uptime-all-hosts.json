@@ -1,0 +1,46 @@
+{
+  "id": "ssh-uptime-all-hosts",
+  "name": "SSH Uptime (alle Hosts)",
+  "version": "0.1.0",
+  "description": "Adaptives Beispielrezept: fuehrt 'uptime' auf ALLEN konfigurierten SSH-Hosts aus (connection_kind ssh, binding all), fasst kurz zusammen und postet ins Chat. Read-only, keine fixe Connection-Ref.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "ssh uptime alle hosts",
+    "uptime aller server",
+    "server uptime check",
+    "wie lange laufen meine server"
+  ],
+  "connections": ["ssh"],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Uptime auf allen SSH-Hosts",
+      "type": "ssh_run",
+      "params": {
+        "connection_kind": "ssh",
+        "binding": "all",
+        "timeout_seconds": 30,
+        "command": "echo \"Host: $(hostname 2>/dev/null || echo host)\"; uptime"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s2",
+      "name": "Ergebnis kurz zusammenfassen",
+      "type": "llm_transform",
+      "params": {"prompt": "Du bist ARIA. Fasse die Uptime-Ergebnisse ALLER Hosts kurz auf Deutsch zusammen: pro Host eine Zeile mit Hostname und Uptime/Load. Keine Rohsektionen wie STDOUT/STDERR/Exit-Code. Technischer Input:\n\n{prev_output}"},
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {"chat_message": "{prev_output}"},
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {"enabled": false, "cron": "", "timezone": "Europe/Zurich", "run_on_startup": false},
+  "ui": {"config_path": "/recipes", "hint": "Adaptiv: laeuft auf ALLEN konfigurierten SSH-Verbindungen (binding all), keine fixe Ref noetig. Ohne konfigurierte SSH-Verbindung stoppt das Rezept ehrlich. Read-only (nur uptime)."},
+  "schema_version": "1.1"
+}

@@ -5,9 +5,9 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from aria.core.llm_client import LLMClientError
-from aria.core.pipeline import Pipeline
-from aria.core.prompt_loader import PromptLoadError
+from aria.modules.model_gateway_clients.llm import LLMClientError
+from aria.modules.pipeline_orchestrator.pipeline import Pipeline
+from aria.modules.platform_primitives.prompt_loader import PromptLoadError
 
 
 def _extract_last_user_message(messages: list[dict[str, Any]]) -> str:

@@ -148,7 +148,7 @@ Persistenz liegt bewusst außerhalb des ersetzbaren ARIA-App-Codes und verteilt 
 - JSON/JSONL fuer Learning nur als Export/Import, Audit, Replay, Manifest, Cache oder technisches Log; nicht als primaerer Wissens-/Learning-Store an Qdrant vorbei
 
 Wichtige Module:
-- `aria/skills/memory.py`
+- `aria/modules/memory_learning_bridge/skill.py`
 - `aria/core/qdrant_client.py`
 - `aria/core/maintenance.py`
 - `aria/core/secure_store.py`
@@ -221,7 +221,7 @@ Explizite Memory-Operationen werden über eigene Intents verarbeitet:
 Auto-Memory ist davon getrennt und läuft optional nach normalen Chat-Antworten. Capability-Ergebnisse werden dabei **bewusst nicht pauschal automatisch persistiert**, weil viele davon nur Momentaufnahmen sind und sonst schnell veraltetes Rauschen in Qdrant erzeugen würden. Wenn solche Ergebnisse später dauerhaft lernwirksam werden sollen, dann über explizit modellierte Summary-/State-Memory-Flows, nicht über blindes Mitschreiben jeder Action-Antwort.
 
 Wichtige Module:
-- `aria/skills/memory.py`
+- `aria/modules/memory_learning_bridge/skill.py`
 - `aria/core/auto_memory.py`
 - `aria/core/memory_assist.py`
 
@@ -259,10 +259,7 @@ Beispiel:
 {
   "id": "homelab-status",
   "name": "Homelab Status",
-  "router_keywords": [
-    "homelab status",
-    "server check"
-  ],
+  "description": "Read-only status overview for the configured homelab target.",
   "steps": [
     {
       "id": "s1",
@@ -371,7 +368,7 @@ Aktuell gilt:
 - Auto-Memory für normale Chat-Pfade ist konfigurierbar
 - Auto-Memory filtert flüchtige Einmalfragen und reine Tool-/Action-Prompts beim automatischen Persistieren stärker heraus, damit nicht jede Chat-Zeile als neue Erinnerung in Qdrant landet
 - Memory-Export ist als JSON-Download aus der Memory-Ansicht verfügbar
-- `/memories/map` zeigt neben Collections, Dokumentgruppen und Rollups einen begrenzten Qdrant-Brain-Graphen mit serverseitig berechneten Aehnlichkeitskanten; rohe Vektoren bleiben im Backend
+- `/memories` zeigt den Memory-Browser mit begrenztem Qdrant-Brain-Graphen und serverseitig berechneten Aehnlichkeitskanten; rohe Vektoren bleiben im Backend
 - Qdrant-Status und DB-Größe erscheinen in `Statistiken`
 
 Wichtig:
@@ -456,7 +453,7 @@ Aktueller Default-Stack:
 
 Wichtiger Architekturpunkt:
 - **Updates ersetzen nur den ARIA-Container**
-- **Qdrant-Container und Volumes bleiben erhalten**
+- **Qdrant und alle Volumes bleiben erhalten**
 - dadurch bleiben Config, Secrets, Connections, Rezepte, Logs, Chat-History und Memories über Updates erhalten
 
 Konfiguration:

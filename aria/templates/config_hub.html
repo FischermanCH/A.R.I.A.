@@ -6,15 +6,22 @@
   {% include "_config_page_header.html" %}
   <section class="floating-card config-domain-links config-domain-links-compact">
     <div class="admin-nav-groups settings-nav-groups">
-      {% for group in settings_nav_groups(request) %}
-      <details class="admin-nav-group settings-nav-group" data-settings-nav-group="{{ group.title_key }}" open>
-        <summary class="admin-nav-group-summary">
+      {% for group in config_hub_groups(request) %}
+      <section class="admin-nav-group settings-nav-group" data-config-hub-group="{{ group.id }}">
+        <div class="admin-nav-group-summary">
           <span class="admin-nav-group-copy">
-            <h2>{{ tr(request, group.title_key, group.title_fallback) }}</h2>
-            <p>{{ tr(request, group.desc_key, group.desc_fallback) }}</p>
+            <h2>
+              {% if group.landing_href %}
+              <a class="config-hub-group-link" href="{{ group.landing_href }}">
+                <span>{{ tr(request, group.title_key, group.title_fallback) }}</span>
+                <span class="config-hub-group-link-icon" aria-hidden="true">→</span>
+              </a>
+              {% else %}
+              {{ tr(request, group.title_key, group.title_fallback) }}
+              {% endif %}
+            </h2>
           </span>
-          {{ icon('arrow_right', 'admin-nav-group-caret') }}
-        </summary>
+        </div>
         <div class="config-submenu admin-nav-group-grid">
           {% for item in group['items'] %}
           <a class="config-submenu-item{% if item.active %} is-active{% endif %}" href="{{ item.href }}">
@@ -26,7 +33,7 @@
           </a>
           {% endfor %}
         </div>
-      </details>
+      </section>
       {% endfor %}
     </div>
   </section>

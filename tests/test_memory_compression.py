@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from aria.core.config import EmbeddingsConfig, MemoryConfig
+from aria.modules.configuration_foundations.config import EmbeddingsConfig, MemoryConfig
 from aria.skills.memory import MemorySkill
 
 

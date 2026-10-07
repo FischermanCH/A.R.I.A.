@@ -1,9 +1,10 @@
 {% from "_icons.html" import icon %}
+{% set config_ui_admin_mode_path = module_route_path('config_ui', '/config/admin-mode') %}
 <section class="floating-card config-domain-section">
   <h3>{{ tr(request, 'config.admin_mode_off_title', 'Extended view is currently off') }}</h3>
   <p class="hint-text">{{ tr(request, 'config.admin_mode_off_desc', 'Advanced system areas are hidden. You can re-enable them under Extended view.') }}</p>
   <div class="config-submenu">
-    <a class="config-submenu-item" href="/config/admin-mode?return_to={{ page_return_to | urlencode }}">
+    <a class="config-submenu-item" href="{{ config_ui_admin_mode_path }}?return_to={{ page_return_to | urlencode }}">
       <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
       <span class="submenu-copy">
         <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Extended view') }}</span>

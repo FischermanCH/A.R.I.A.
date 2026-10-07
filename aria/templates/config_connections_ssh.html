@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
+{% set ssh_save_path = required_module_route_path('ssh_admin_ui', '/config/connections/save') %}
+{% set ssh_key_exchange_path = required_module_route_path('ssh_admin_ui', '/config/connections/key-exchange') %}
+{% set ssh_keygen_path = required_module_route_path('ssh_admin_ui', '/config/connections/keygen') %}
+{% set ssh_meta_endpoint = required_module_route_path('ssh_admin_ui', '/config/connections/ssh/suggest-metadata') %}
 <main class="config-layout">
   {% include "_connection_page_intro.html" %}
   {% include "_connection_mode_nav.html" %}
@@ -49,7 +53,7 @@
       {% set selected_guardrail_ref = selected.guardrail_ref %}
       {% include "_connection_guardrail_summary.html" %}
       {% if test_status == 'ok' or test_status == 'error' %}<article class="connection-test-card status-{{ test_status }}"><div class="connection-test-head"><span class="health-lamp status-{{ test_status }}"></span><strong>{% if test_status == 'ok' %}{{ tr(request, 'config_conn.test_ok', 'Connection test successful') }}{% else %}{{ tr(request, 'config_conn.test_error', 'Connection test failed') }}{% endif %}</strong></div><small>{% if test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small></article>{% endif %}
-      <form method="post" action="/config/connections/save" class="editor-form" autocomplete="off">
+      <form method="post" action="{{ ssh_save_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="original_ref" value="{{ selected_ref }}">
         {% set schema_fields = ssh_edit_base_form_fields %}
         {% include "_connection_schema_fields.html" %}
@@ -62,7 +66,7 @@
         <details class="skill-details" open><summary>{{ tr(request, 'config_conn.security_and_advanced', 'Security & advanced options') }}</summary><div class="skill-details-content">{% set schema_fields = ssh_edit_advanced_form_fields %}{% include "_connection_schema_fields.html" %}{% set guardrail_field_id = 'guardrail_ref_edit' %}{% set selected_guardrail_ref = selected.guardrail_ref %}{% include "_connection_guardrail_select.html" %}</div></details>
         {% set meta_prefix = 'ssh_edit' %}
         {% set meta_llm_kind = 'ssh' %}
-        {% set meta_llm_endpoint = '/config/connections/ssh/suggest-metadata' %}
+        {% set meta_llm_endpoint = ssh_meta_endpoint %}
         {% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}
         {% set meta_show_service_url_field = true %}
         {% set meta_values = selected %}
@@ -87,7 +91,7 @@
     </summary>
     <div class="config-section-content">
       <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_conn.recommended_flow', 'Recommended flow') }}</strong><span>{{ tr(request, 'config_conn.recommended_flow_text', '1) Save profile with host/user. 2) Add one-time login password for key exchange if needed. 3) Save. 4) ARIA tests the connection automatically.') }}</span></div>
-      <form method="post" action="/config/connections/save" class="editor-form" autocomplete="off">
+      <form method="post" action="{{ ssh_save_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="original_ref" value="">
         {% set schema_fields = ssh_new_base_form_fields %}
         {% include "_connection_schema_fields.html" %}
@@ -102,7 +106,7 @@
         <small class="hint-text">{{ tr(request, 'config_conn.ssh_create_matching_sftp_hint', 'Erzeugt beim Speichern zusaetzlich ein SFTP-Profil mit Host, User, Port und SSH-Key. Wenn der Ref auf -ssh endet, wird automatisch -sftp daraus.') }}</small>
         {% set meta_prefix = 'ssh_new' %}
         {% set meta_llm_kind = 'ssh' %}
-        {% set meta_llm_endpoint = '/config/connections/ssh/suggest-metadata' %}
+        {% set meta_llm_endpoint = ssh_meta_endpoint %}
         {% set meta_llm_source_fields = ['host', 'user', 'port', 'service_url'] %}
         {% set meta_show_service_url_field = true %}
         {% set meta_values = {} %}
@@ -123,8 +127,8 @@
     </summary>
     <div class="config-section-content">
       <div class="connection-tools-grid">
-        <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_exchange', 'Manual key exchange') }}</summary><div class="skill-details-content"><form method="post" action="/config/connections/key-exchange" class="editor-form"><label for="connection_ref_exchange">{{ tr(request, 'config_conn.profile_ref', 'Profile name (ref)') }}</label><input id="connection_ref_exchange" name="connection_ref" type="text" value="{{ selected_ref or '' }}" maxlength="48" required><label for="login_user">{{ tr(request, 'config_conn.login_user', 'Login user for key exchange (optional, else profile user)') }}</label><input id="login_user" name="login_user" type="text" value="{{ selected.user or '' }}" placeholder="z.B. root"><label for="login_password">{{ tr(request, 'config_conn.login_password_plain', 'Login password') }}</label><input id="login_password" name="login_password" type="password" autocomplete="current-password" required><button type="submit">{{ tr(request, 'config_conn.start_key_exchange', 'Start key exchange') }}</button></form></div></details>
-        <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_mgmt', 'Manual key management') }}</summary><div class="skill-details-content"><form method="post" action="/config/connections/keygen" class="editor-form"><label for="connection_ref_keygen">{{ tr(request, 'config_conn.profile_for_keygen', 'Profile name for key generation') }}</label><input id="connection_ref_keygen" name="connection_ref" type="text" value="{{ selected_ref or '' }}" maxlength="48" required><label class="inline-check" for="overwrite_key"><input id="overwrite_key" type="checkbox" name="overwrite" value="1">{{ tr(request, 'config_conn.replace_key', 'Replace existing key') }}</label><button type="submit">{{ tr(request, 'config_conn.generate_ssh_key', 'Generate SSH key') }}</button></form><label>{{ tr(request, 'config_conn.public_key_label', 'Public key (for') }} <code>~/.ssh/authorized_keys</code>)</label><pre class="key-preview">{{ public_key or tr(request, 'config_conn.public_key_empty', 'No public key found for this profile yet.') }}</pre></div></details>
+        <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_exchange', 'Manual key exchange') }}</summary><div class="skill-details-content"><form method="post" action="{{ ssh_key_exchange_path }}" class="editor-form"><label for="connection_ref_exchange">{{ tr(request, 'config_conn.profile_ref', 'Profile name (ref)') }}</label><input id="connection_ref_exchange" name="connection_ref" type="text" value="{{ selected_ref or '' }}" maxlength="48" required><label for="login_user">{{ tr(request, 'config_conn.login_user', 'Login user for key exchange (optional, else profile user)') }}</label><input id="login_user" name="login_user" type="text" value="{{ selected.user or '' }}" placeholder="z.B. root"><label for="login_password">{{ tr(request, 'config_conn.login_password_plain', 'Login password') }}</label><input id="login_password" name="login_password" type="password" autocomplete="current-password" required><button type="submit">{{ tr(request, 'config_conn.start_key_exchange', 'Start key exchange') }}</button></form></div></details>
+        <details class="skill-details"><summary>{{ tr(request, 'config_conn.manual_key_mgmt', 'Manual key management') }}</summary><div class="skill-details-content"><form method="post" action="{{ ssh_keygen_path }}" class="editor-form"><label for="connection_ref_keygen">{{ tr(request, 'config_conn.profile_for_keygen', 'Profile name for key generation') }}</label><input id="connection_ref_keygen" name="connection_ref" type="text" value="{{ selected_ref or '' }}" maxlength="48" required><label class="inline-check" for="overwrite_key"><input id="overwrite_key" type="checkbox" name="overwrite" value="1">{{ tr(request, 'config_conn.replace_key', 'Replace existing key') }}</label><button type="submit">{{ tr(request, 'config_conn.generate_ssh_key', 'Generate SSH key') }}</button></form><label>{{ tr(request, 'config_conn.public_key_label', 'Public key (for') }} <code>~/.ssh/authorized_keys</code>)</label><pre class="key-preview">{{ public_key or tr(request, 'config_conn.public_key_empty', 'No public key found for this profile yet.') }}</pre></div></details>
       </div>
     </div>
   </details>

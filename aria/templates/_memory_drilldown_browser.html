@@ -1,11 +1,16 @@
 {% from "_icons.html" import icon %}
+{% set chat_surface_home_path = module_route_path('chat_surface', '/') %}
+{% set memory_admin_fullscreen_path = module_route_path('memory_admin_ui', '/memories') %}
+{% set memory_browser_delete_point_path = module_route_path('memory_admin_ui', '/memories/browser/delete-point') %}
+{% set memory_browser_delete_document_path = module_route_path('memory_admin_ui', '/memories/browser/delete-document') %}
+{% set navigation_shell_logo_path = module_static_asset_url('navigation_shell', 'logo-aria-v01.png') %}
 {% set memory_browser_initial_semantic = false %}
 <section class="memory-drilldown-browser" data-memory-browser>
   <header class="memory-drilldown-head">
     {% if memory_browser_fullscreen|default(false) %}
-    <a class="memory-browser-fullscreen-brand brand brand-home" href="/" aria-label="{{ tr(request, 'nav.home', 'Startseite') }}">
+    <a class="memory-browser-fullscreen-brand brand brand-home" href="{{ chat_surface_home_path }}" aria-label="{{ tr(request, 'nav.home', 'Startseite') }}">
       <span class="brand-mark" aria-hidden="true">
-        <img src="/static/logo-aria-v01.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" alt="" class="brand-logo">
+        <img src="{{ navigation_shell_logo_path }}?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" alt="" class="brand-logo">
         <span class="brand-logo-rotate"></span>
       </span>
       <span class="brand-text">
@@ -27,7 +32,7 @@
         <button type="button" data-memory-browser-mode="semantic" aria-pressed="{{ 'true' if memory_browser_initial_semantic else 'false' }}" hidden disabled aria-disabled="true">{{ tr(request, 'memories_browser.mode_semantic', 'Semantische Naehe') }}</button>
       </div>
       {% if not memory_browser_fullscreen|default(false) %}
-      <a class="button-like ui-icon-only memories-link" href="/memories?fullscreen=1&mode={{ memory_browser_initial_mode|default('structure')|urlencode }}" target="_blank" rel="noopener" data-memory-browser-detach title="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}" aria-label="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}">
+      <a class="button-like ui-icon-only memories-link" href="{{ memory_admin_fullscreen_path }}?fullscreen=1&mode={{ memory_browser_initial_mode|default('structure')|urlencode }}" target="_blank" rel="noopener" data-memory-browser-detach title="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}" aria-label="{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}">
         {{ icon('arrow_right', 'ui-action-icon') }}
         <span class="sr-only">{{ tr(request, 'memories_browser.full_view', 'Vollbild oeffnen') }}</span>
       </a>
@@ -100,7 +105,12 @@
     "semantic_empty": tr(request, 'memories_browser.semantic_empty', 'No semantic points available yet.'),
     "semantic_hint": tr(request, 'memories_browser.semantic_hint', 'Edges show calculated embedding proximity.'),
     "source": tr(request, 'memories.source', 'Source'),
-    "store": tr(request, 'memories_browser.store', 'Store')
+    "store": tr(request, 'memories_browser.store', 'Store'),
+    "effect_active": tr(request, 'memories_browser.effect_active', 'aktiv wirksam'),
+    "effect_review": tr(request, 'memories_browser.effect_review', 'nur Review'),
+    "effect_audit": tr(request, 'memories_browser.effect_audit', 'nur Audit'),
+    "importance": tr(request, 'memories_browser.importance', 'Wichtigkeit'),
+    "synthesis_target": tr(request, 'memories_browser.synthesis_target', 'Ziel')
   }|tojson }}</script>
 </section>
 
@@ -135,6 +145,9 @@
   }
   let data = {};
   let labels = {};
+  const memoryBrowserFullscreenPath = {{ memory_admin_fullscreen_path|tojson }};
+  const memoryBrowserDeletePointPath = {{ memory_browser_delete_point_path|tojson }};
+  const memoryBrowserDeleteDocumentPath = {{ memory_browser_delete_document_path|tojson }};
   try {
     data = JSON.parse(payloadEl?.textContent || '{}');
     labels = JSON.parse(labelsEl?.textContent || '{}');
@@ -554,6 +567,8 @@
     if (item.document_count) rows.push([item.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents'), item.document_count]);
     if (item.chunk_count) rows.push([labels.chunks || 'Chunks', item.chunk_count]);
     if (item.collection) rows.push([labels.store || 'Store', item.collection]);
+    if (Number(item.importance_score || 0) > 0) rows.push([labels.importance || 'Wichtigkeit', Number(item.importance_score).toFixed(2)]);
+    if (item.synthesis_target) rows.push([labels.synthesis_target || 'Ziel', item.synthesis_target]);
     const detailRows = rows.map(row => `<div><dt>${escapeHTML(row[0])}</dt><dd>${escapeHTML(row[1])}</dd></div>`).join('');
     const documents = Array.isArray(item.documents) ? item.documents : [];
     const documentGroupLabel = item.kind === 'notes' ? (labels.notes || 'Notes') : (labels.documents || 'Documents');
@@ -2036,7 +2051,7 @@
       if (state.entry || (pointContext?.pointKind === 'entry' && pointContext.point?.id)) {
         params.set('entry', state.entry || pointContext.point.id);
       }
-      detachLink.href = `/memories?${params.toString()}`;
+      detachLink.href = `${memoryBrowserFullscreenPath}?${params.toString()}`;
     }
   };
   modeButtons.forEach(button => {
@@ -2101,7 +2116,7 @@
         if (!window.confirm(labels.delete_confirm || 'Delete this memory entry?')) return;
         pointDelete.disabled = true;
         try {
-          await postBrowserDelete('/memories/browser/delete-point', { collection, point_id: pointId });
+          await postBrowserDelete(memoryBrowserDeletePointPath, { collection, point_id: pointId });
           window.location.reload();
         } catch (error) {
           window.alert(error?.message || labels.delete_failed || 'Delete failed.');
@@ -2118,7 +2133,7 @@
         if (!window.confirm(labels.delete_document_confirm || 'Dieses Dokument mit allen Chunks wirklich loeschen?')) return;
         documentDelete.disabled = true;
         try {
-          await postBrowserDelete('/memories/browser/delete-document', {
+          await postBrowserDelete(memoryBrowserDeleteDocumentPath, {
             collection,
             document_id: documentId,
             document_name: documentName,

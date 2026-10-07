@@ -109,7 +109,7 @@ Kanten-Typen:
   - lesbar
   - mobile-tolerant
 - aktueller Stand:
-  - read-only Graph in `/memories/map`
+  - read-only Graph in `/memories`
   - Root-Knoten fuer den User
   - Typ-Knoten fuer Fakten, Praeferenzen, Tages-Kontext, Dokumente und Wissen
   - darunter erste Detail-Knoten fuer Collections, Dokument-Collections und Rollup-Gruppen
@@ -163,7 +163,7 @@ Spaeteres `HA v2`:
 ### Session-Rollup
 
 Betroffene Bereiche:
-- `aria/skills/memory.py`
+- `aria/modules/memory_learning_bridge/skill.py`
 - Rollup-/Compression-Logik
 - ggf. neue Hilfsfunktionen in `aria/core/`
 - `Memory Map`
@@ -177,7 +177,7 @@ Noetige Artefakte:
 
 Betroffene Bereiche:
 - `aria/web/memories_routes.py`
-- `aria/templates/memories_map.html`
+- `aria/templates/memories_overview.html`
 - `aria/static/style.css`
 - ggf. kleines JS fuer read-only Visualisierung
 

@@ -1,5 +1,8 @@
-from aria.web.connection_context_helpers import _secret_status_card
-from aria.web.connection_context_helpers import _sftp_auth_status_card
+import pytest
+
+import aria.modules.connections_ui_readonly.context_helpers as connection_context_helpers
+from aria.modules.connections_ui_readonly.context_helpers import _secret_status_card
+from aria.modules.sftp_admin_ui.context import _sftp_auth_status_card
 
 
 def test_secret_status_card_uses_connected_state_when_secret_exists() -> None:
@@ -30,3 +33,10 @@ def test_sftp_auth_status_card_uses_sign_in_needed_without_key_or_password() -> 
     card = _sftp_auth_status_card({})
 
     assert card["value_key"] == "config_conn.sign_in_needed"
+
+
+def test_connection_ui_path_fails_closed_without_route_owner(monkeypatch) -> None:
+    monkeypatch.setattr(connection_context_helpers, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="rss_ui route is not registered: /config/connections/rss"):
+        connection_context_helpers._connection_ui_path("rss_ui", "/config/connections/rss")

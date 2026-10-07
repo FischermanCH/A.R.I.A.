@@ -1,4 +1,9 @@
 {% from "_icons.html" import icon %}
+{% set stats_ui_pricing_refresh_path = module_route_path('stats_ui', '/stats/pricing/refresh') %}
+{% set stats_ui_pricing_alias_path = module_route_path('stats_ui', '/stats/pricing/alias') %}
+{% set stats_ui_pricing_alias_delete_path = module_route_path('stats_ui', '/stats/pricing/alias/delete') %}
+{% set stats_ui_pricing_manual_path = module_route_path('stats_ui', '/stats/pricing/manual') %}
+{% set stats_ui_pricing_manual_delete_path = module_route_path('stats_ui', '/stats/pricing/manual/delete') %}
 <div id="stats-pricing-panel" class="stats-details-content">
   <section class="stat-card">
     <div class="stats-health-head">
@@ -17,9 +22,9 @@
       {% if request.state.can_access_advanced_config %}
       <form
         method="post"
-        action="/stats/pricing/refresh"
+        action="{{ stats_ui_pricing_refresh_path }}"
         class="inline-form"
-        hx-post="/stats/pricing/refresh"
+        hx-post="{{ stats_ui_pricing_refresh_path }}"
         hx-target="#stats-pricing-panel"
         hx-swap="outerHTML"
         hx-indicator="#stats-pricing-refresh-indicator"
@@ -70,9 +75,9 @@
     <p class="stat-sub">{{ tr(request, 'stats.pricing_admin_hint', 'Local manual aliases and prices stay in config and survive LiteLLM price refreshes.') }}</p>
     <form
       method="post"
-      action="/stats/pricing/alias"
+      action="{{ stats_ui_pricing_alias_path }}"
       class="editor-form compact-form"
-      hx-post="/stats/pricing/alias"
+      hx-post="{{ stats_ui_pricing_alias_path }}"
       hx-target="#stats-pricing-panel"
       hx-swap="outerHTML"
     >
@@ -84,9 +89,9 @@
     </form>
     <form
       method="post"
-      action="/stats/pricing/manual"
+      action="{{ stats_ui_pricing_manual_path }}"
       class="editor-form compact-form"
-      hx-post="/stats/pricing/manual"
+      hx-post="{{ stats_ui_pricing_manual_path }}"
       hx-target="#stats-pricing-panel"
       hx-swap="outerHTML"
     >
@@ -166,7 +171,7 @@
         <li>
           <span>{{ row.alias }} → {{ row.target }}</span>
           {% if request.state.can_access_advanced_config %}
-          <form method="post" action="/stats/pricing/alias/delete" class="inline-form" hx-post="/stats/pricing/alias/delete" hx-target="#stats-pricing-panel" hx-swap="outerHTML">
+          <form method="post" action="{{ stats_ui_pricing_alias_delete_path }}" class="inline-form" hx-post="{{ stats_ui_pricing_alias_delete_path }}" hx-target="#stats-pricing-panel" hx-swap="outerHTML">
             <input type="hidden" name="alias" value="{{ row.alias }}">
             <button type="submit" class="link-button">{{ tr(request, 'stats.delete', 'Delete') }}</button>
           </form>
@@ -185,7 +190,7 @@
         <li>
           <span>{{ row.kind }} · {{ row.model }} · {{ row.rate }} · {{ row.source_name }}</span>
           {% if request.state.can_access_advanced_config and row.is_manual %}
-          <form method="post" action="/stats/pricing/manual/delete" class="inline-form" hx-post="/stats/pricing/manual/delete" hx-target="#stats-pricing-panel" hx-swap="outerHTML">
+          <form method="post" action="{{ stats_ui_pricing_manual_delete_path }}" class="inline-form" hx-post="{{ stats_ui_pricing_manual_delete_path }}" hx-target="#stats-pricing-panel" hx-swap="outerHTML">
             <input type="hidden" name="kind" value="{{ row.kind|lower }}">
             <input type="hidden" name="model" value="{{ row.model }}">
             <button type="submit" class="link-button">{{ tr(request, 'stats.delete', 'Delete') }}</button>

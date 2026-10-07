@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import yaml
 
-from aria.core.connection_admin import (
+from aria.modules.connections_profiles.admin import (
     ConnectionAdminError,
     create_connection_profile,
     friendly_connection_admin_error_text,
     resolve_connection_target,
     update_connection_profile,
 )
-from aria.web import chat_admin_actions
-from aria.web.chat_catalog import build_chat_command_catalog
-from aria.web.config_routes import _normalize_rss_feed_url_for_dedupe
+import aria.modules.chat_admin_composition.actions as chat_admin_actions
+import aria.modules.chat_surface.catalog as chat_catalog
+from aria.modules.chat_surface.catalog import build_chat_command_catalog
+from aria.modules.config_ui.routes import _normalize_rss_feed_url_for_dedupe
 
 
 def test_resolve_connection_target_handles_unique_ref_without_kind() -> None:
@@ -178,7 +179,7 @@ def test_create_connection_profile_writes_discord_and_secret(tmp_path, monkeypat
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = create_connection_profile(
         tmp_path,
@@ -215,7 +216,7 @@ def test_create_connection_profile_writes_webhook_and_secret(tmp_path, monkeypat
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = create_connection_profile(
         tmp_path,
@@ -242,6 +243,44 @@ def test_create_connection_profile_writes_webhook_and_secret(tmp_path, monkeypat
     assert fake_store.secrets["connections.webhook.n8n-demo.url"] == "https://example.org/hook"
 
 
+def test_create_connection_profile_provisions_inbound_webhook_token(tmp_path, monkeypatch) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    config_path = config_dir / "config.yaml"
+    config_path.write_text("connections: {}\n", encoding="utf-8")
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.secrets: dict[str, str] = {}
+
+        def set_secret(self, key: str, value: str) -> None:
+            self.secrets[key] = value
+
+    fake_store = FakeStore()
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+
+    result = create_connection_profile(
+        tmp_path,
+        "inbound_webhook",
+        "sensecap-watcher",
+        {
+            "provider_profile": "senscap_watcher",
+            "max_body_bytes": 32768,
+            "max_events": 250,
+            "title": "SenseCAP Watcher",
+        },
+    )
+
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    row = raw["connections"]["inbound_webhook"]["sensecap-watcher"]
+    assert row["provider_profile"] == "senscap_watcher"
+    assert row["routing_policy"] == "log_only"
+    assert row["max_body_bytes"] == 32768
+    assert row["max_events"] == 250
+    assert result["generated_token"]
+    assert fake_store.secrets["connections.inbound_webhook.sensecap-watcher.token"] == result["generated_token"]
+
+
 def test_create_connection_profile_writes_smb_config_and_optional_secret(tmp_path, monkeypatch) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)
@@ -256,7 +295,7 @@ def test_create_connection_profile_writes_smb_config_and_optional_secret(tmp_pat
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = create_connection_profile(
         tmp_path,
@@ -298,7 +337,7 @@ def test_create_connection_profile_writes_sftp_config_and_optional_secret(tmp_pa
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = create_connection_profile(
         tmp_path,
@@ -370,7 +409,7 @@ def test_create_connection_profile_writes_http_api_and_optional_token(tmp_path, 
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = create_connection_profile(
         tmp_path,
@@ -411,7 +450,7 @@ def test_create_connection_profile_writes_mqtt_config_and_optional_secret(tmp_pa
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = create_connection_profile(
         tmp_path,
@@ -450,7 +489,7 @@ def test_create_connection_profile_writes_smtp_and_imap_config_and_secrets(tmp_p
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     smtp_result = create_connection_profile(
         tmp_path,
@@ -548,7 +587,6 @@ def test_update_connection_profile_updates_discord_secret_and_metadata(tmp_path,
                             "send_test_messages": True,
                             "allow_skill_messages": True,
                             "alert_skill_errors": False,
-                            "alert_safe_fix": False,
                             "alert_connection_changes": False,
                             "alert_system_events": False,
                         }
@@ -569,7 +607,7 @@ def test_update_connection_profile_updates_discord_secret_and_metadata(tmp_path,
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = update_connection_profile(
         tmp_path,
@@ -621,7 +659,7 @@ def test_update_connection_profile_updates_webhook_secret(tmp_path, monkeypatch)
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = update_connection_profile(
         tmp_path,
@@ -673,7 +711,7 @@ def test_update_connection_profile_updates_smb_and_password(tmp_path, monkeypatc
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = update_connection_profile(
         tmp_path,
@@ -730,7 +768,7 @@ def test_update_connection_profile_updates_sftp_and_password(tmp_path, monkeypat
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = update_connection_profile(
         tmp_path,
@@ -839,7 +877,7 @@ def test_update_connection_profile_updates_mqtt_host_topic_and_secret(tmp_path, 
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     result = update_connection_profile(
         tmp_path,
@@ -908,7 +946,7 @@ def test_update_connection_profile_updates_smtp_and_imap_fields(tmp_path, monkey
             self.secrets[key] = value
 
     fake_store = FakeStore()
-    monkeypatch.setattr("aria.core.connection_admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
+    monkeypatch.setattr("aria.modules.connections_profiles.admin.get_secure_store_for_config", lambda base_dir, raw: fake_store)
 
     smtp_result = update_connection_profile(
         tmp_path,
@@ -948,260 +986,11 @@ def test_update_connection_profile_updates_smtp_and_imap_fields(tmp_path, monkey
     assert fake_store.secrets["connections.imap.ops-inbox.password"] == "imap-secret"
 
 
-def test_parse_connection_create_request_supports_rss() -> None:
-    parsed = chat_admin_actions._parse_connection_create_request(
-        "Erstelle RSS heise-online-news https://www.heise.de/rss/heise-atom.xml"
-    )
-    assert parsed is not None
-    assert parsed["kind"] == "rss"
-    assert parsed["ref"] == "heise-online-news"
-    assert parsed["payload"]["feed_url"] == "https://www.heise.de/rss/heise-atom.xml"
-
-
-def test_parse_connection_create_request_supports_website_watch_shortcut() -> None:
-    parsed = chat_admin_actions._parse_connection_create_request(
-        'beobachte https://example.org/docs titel "ARIA Docs" tags "docs, aria"'
-    )
-
-    assert parsed is not None
-    assert parsed["kind"] == "website"
-    assert parsed["ref"] == "example-org-docs"
-    assert parsed["payload"]["url"] == "https://example.org/docs"
-    assert parsed["payload"]["title"] == "ARIA Docs"
-    assert parsed["payload"]["tags"] == ["docs", "aria"]
-
-
-def test_parse_connection_update_request_supports_website_shortcuts() -> None:
-    title_update = chat_admin_actions._parse_connection_update_request(
-        'ändere beobachtete webseite aria-docs titel "ARIA Dokumentation"'
-    )
-    assert title_update is not None
-    assert title_update["kind"] == "website"
-    assert title_update["ref"] == "aria-docs"
-    assert title_update["payload"]["title"] == "ARIA Dokumentation"
-
-    group_update = chat_admin_actions._parse_connection_update_request(
-        'verschiebe beobachtete webseite aria-docs nach "Team Wissen"'
-    )
-    assert group_update is not None
-    assert group_update["kind"] == "website"
-    assert group_update["payload"]["group_name"] == "Team Wissen"
-
-    url_update = chat_admin_actions._parse_connection_update_request(
-        "ändere beobachtete webseite aria-docs url https://example.org/new-docs"
-    )
-    assert url_update is not None
-    assert url_update["kind"] == "website"
-    assert url_update["payload"]["url"] == "https://example.org/new-docs"
-
-
-def test_parse_connection_create_request_supports_webhook_and_http_api() -> None:
-    ssh = chat_admin_actions._parse_connection_create_request(
-        'erstelle ssh mgmt-ssh 10.0.1.1 user aria key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519 allow "uptime; df -h"'
-    )
-    assert ssh is not None
-    assert ssh["kind"] == "ssh"
-    assert ssh["payload"]["host"] == "10.0.1.1"
-    assert ssh["payload"]["user"] == "aria"
-    assert ssh["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
-    assert ssh["payload"]["allow_commands"] == ["uptime", "df -h"]
-
-    sftp = chat_admin_actions._parse_connection_create_request(
-        "erstelle sftp mgmt-sftp 10.0.1.1 user aria pfad /data key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
-    )
-    assert sftp is not None
-    assert sftp["kind"] == "sftp"
-    assert sftp["payload"]["host"] == "10.0.1.1"
-    assert sftp["payload"]["user"] == "aria"
-    assert sftp["payload"]["root_path"] == "/data"
-    assert sftp["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
-
-    smb = chat_admin_actions._parse_connection_create_request(
-        "erstelle smb nas-share nas-demo share docker user aria pfad /docker"
-    )
-    assert smb is not None
-    assert smb["kind"] == "smb"
-    assert smb["payload"]["host"] == "nas-demo"
-    assert smb["payload"]["share"] == "docker"
-    assert smb["payload"]["root_path"] == "/docker"
-
-    discord = chat_admin_actions._parse_connection_create_request(
-        "erstelle discord alerts-bot https://discord.example/webhook"
-    )
-    assert discord is not None
-    assert discord["kind"] == "discord"
-    assert discord["payload"]["webhook_url"] == "https://discord.example/webhook"
-
-    webhook = chat_admin_actions._parse_connection_create_request(
-        "erstelle webhook n8n-test-webhook https://example.org/webhook"
-    )
-    assert webhook is not None
-    assert webhook["kind"] == "webhook"
-    assert webhook["ref"] == "n8n-test-webhook"
-
-    http_api = chat_admin_actions._parse_connection_create_request(
-        "erstelle http api inventory-api https://example.org/api /health"
-    )
-    assert http_api is not None
-    assert http_api["kind"] == "http_api"
-    assert http_api["payload"]["base_url"] == "https://example.org/api"
-    assert http_api["payload"]["health_path"] == "/health"
-
-    mqtt = chat_admin_actions._parse_connection_create_request(
-        "erstelle mqtt event-bus mqtt.example.local topic aria/events"
-    )
-    assert mqtt is not None
-    assert mqtt["kind"] == "mqtt"
-    assert mqtt["payload"]["host"] == "mqtt.example.local"
-    assert mqtt["payload"]["topic"] == "aria/events"
-
-    smtp = chat_admin_actions._parse_connection_create_request(
-        "erstelle smtp alerts-mail smtp.example.local user ops@example.local from ops@example.local to admin@example.local"
-    )
-    assert smtp is not None
-    assert smtp["kind"] == "email"
-    assert smtp["payload"]["smtp_host"] == "smtp.example.local"
-    assert smtp["payload"]["from_email"] == "ops@example.local"
-    assert smtp["payload"]["to_email"] == "admin@example.local"
-
-    imap = chat_admin_actions._parse_connection_create_request(
-        "erstelle imap ops-inbox imap.example.local user ops@example.local mailbox INBOX"
-    )
-    assert imap is not None
-    assert imap["kind"] == "imap"
-    assert imap["payload"]["host"] == "imap.example.local"
-    assert imap["payload"]["mailbox"] == "INBOX"
-
 
 def test_parse_connection_create_confirm_token_supports_german_and_ascii() -> None:
     assert chat_admin_actions._parse_connection_create_confirm_token("bestätige verbindung erstellen abc123") == "abc123"
     assert chat_admin_actions._parse_connection_create_confirm_token("bestaetige verbindung erstellen abc123") == "abc123"
 
-
-def test_extract_connection_create_metadata_parses_optional_fields() -> None:
-    payload = chat_admin_actions._extract_connection_create_metadata(
-        'erstelle rss heise-news https://example.org/feed.xml titel "Heise News" '
-        'beschreibung "Aktuelle Tech-News" tags "news, tech" aliases "heise online; headlines"'
-    )
-    assert payload["title"] == "Heise News"
-    assert payload["description"] == "Aktuelle Tech-News"
-    assert payload["tags"] == ["news", "tech"]
-    assert payload["aliases"] == ["heise online", "headlines"]
-
-
-def test_parse_connection_create_request_merges_optional_metadata() -> None:
-    parsed = chat_admin_actions._parse_connection_create_request(
-        'erstelle webhook n8n-demo https://example.org/hook titel "n8n Demo" tags "automation, webhook"'
-    )
-    assert parsed is not None
-    assert parsed["payload"]["title"] == "n8n Demo"
-    assert parsed["payload"]["tags"] == ["automation", "webhook"]
-
-
-def test_parse_connection_request_supports_generic_passwords_and_tokens() -> None:
-    http_api = chat_admin_actions._parse_connection_create_request(
-        "erstelle http api inventory-api https://example.org/api /health token secret-token"
-    )
-    assert http_api is not None
-    assert http_api["kind"] == "http_api"
-    assert http_api["payload"]["auth_token"] == "secret-token"
-
-    sftp = chat_admin_actions._parse_connection_update_request(
-        "aktualisiere sftp mgmt-sftp password sftp-secret"
-    )
-    assert sftp is not None
-    assert sftp["kind"] == "sftp"
-    assert sftp["payload"]["password"] == "sftp-secret"
-
-
-def test_parse_connection_request_supports_catalog_driven_explicit_field_forms() -> None:
-    webhook = chat_admin_actions._parse_connection_update_request(
-        "aktualisiere webhook n8n-demo url https://example.org/new-hook"
-    )
-    assert webhook is not None
-    assert webhook["kind"] == "webhook"
-    assert webhook["payload"]["url"] == "https://example.org/new-hook"
-
-    smtp = chat_admin_actions._parse_connection_update_request(
-        "aktualisiere smtp alerts-mail host smtp.example.local from ops@example.local"
-    )
-    assert smtp is not None
-    assert smtp["kind"] == "email"
-    assert smtp["payload"]["smtp_host"] == "smtp.example.local"
-    assert smtp["payload"]["from_email"] == "ops@example.local"
-
-
-def test_parse_connection_update_request_supports_metadata_only_and_url_updates() -> None:
-    ssh = chat_admin_actions._parse_connection_update_request(
-        'aktualisiere ssh mgmt-ssh 10.0.1.1 user aria key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519 allow "uptime; df -h"'
-    )
-    assert ssh is not None
-    assert ssh["kind"] == "ssh"
-    assert ssh["payload"]["host"] == "10.0.1.1"
-    assert ssh["payload"]["user"] == "aria"
-    assert ssh["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
-    assert ssh["payload"]["allow_commands"] == ["uptime", "df -h"]
-
-    sftp = chat_admin_actions._parse_connection_update_request(
-        "aktualisiere sftp mgmt-sftp 10.0.1.1 user aria pfad /data key PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
-    )
-    assert sftp is not None
-    assert sftp["kind"] == "sftp"
-    assert sftp["payload"]["host"] == "10.0.1.1"
-    assert sftp["payload"]["user"] == "aria"
-    assert sftp["payload"]["root_path"] == "/data"
-    assert sftp["payload"]["key_path"] == "PROJECT_ROOT/data/ssh_keys/mgmt_ed25519"
-
-    smb = chat_admin_actions._parse_connection_update_request("aktualisiere smb nas-share nas-demo share docker pfad /docker")
-    assert smb is not None
-    assert smb["kind"] == "smb"
-    assert smb["payload"]["host"] == "nas-demo"
-    assert smb["payload"]["share"] == "docker"
-    assert smb["payload"]["root_path"] == "/docker"
-
-    discord = chat_admin_actions._parse_connection_update_request("aktualisiere discord alerts-bot https://discord.example/new-webhook")
-    assert discord is not None
-    assert discord["kind"] == "discord"
-    assert discord["payload"]["webhook_url"] == "https://discord.example/new-webhook"
-
-    rss = chat_admin_actions._parse_connection_update_request('aktualisiere rss heise-news titel "Heise News" tags "news, tech"')
-    assert rss is not None
-    assert rss["kind"] == "rss"
-    assert rss["ref"] == "heise-news"
-    assert rss["payload"]["title"] == "Heise News"
-    assert rss["payload"]["tags"] == ["news", "tech"]
-
-    webhook = chat_admin_actions._parse_connection_update_request("update webhook n8n-demo https://example.org/new-hook")
-    assert webhook is not None
-    assert webhook["payload"]["url"] == "https://example.org/new-hook"
-
-    http_api = chat_admin_actions._parse_connection_update_request("ändere http api inventory-api https://example.org/api /health")
-    assert http_api is not None
-    assert http_api["payload"]["base_url"] == "https://example.org/api"
-    assert http_api["payload"]["health_path"] == "/health"
-
-    mqtt = chat_admin_actions._parse_connection_update_request("aktualisiere mqtt event-bus mqtt.example.local topic aria/events")
-    assert mqtt is not None
-    assert mqtt["kind"] == "mqtt"
-    assert mqtt["payload"]["host"] == "mqtt.example.local"
-    assert mqtt["payload"]["topic"] == "aria/events"
-
-    smtp = chat_admin_actions._parse_connection_update_request(
-        "aktualisiere smtp alerts-mail smtp.example.local from ops@example.local to admin@example.local"
-    )
-    assert smtp is not None
-    assert smtp["kind"] == "email"
-    assert smtp["payload"]["smtp_host"] == "smtp.example.local"
-    assert smtp["payload"]["from_email"] == "ops@example.local"
-    assert smtp["payload"]["to_email"] == "admin@example.local"
-
-    imap = chat_admin_actions._parse_connection_update_request(
-        "aktualisiere imap ops-inbox imap.example.local mailbox INBOX"
-    )
-    assert imap is not None
-    assert imap["kind"] == "imap"
-    assert imap["payload"]["host"] == "imap.example.local"
-    assert imap["payload"]["mailbox"] == "INBOX"
 
 
 def test_parse_connection_update_confirm_token_supports_german_and_ascii() -> None:
@@ -1298,7 +1087,32 @@ def test_build_chat_command_catalog_includes_admin_entries_for_admins() -> None:
     assert any(group["key"] == "admin" for group in toolbox_groups)
 
 
-def test_build_chat_command_catalog_adds_suggested_group_for_recent_context() -> None:
+def test_build_chat_command_catalog_document_import_uses_memory_admin_readpoint(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def tracking_module_route_path(module_id: str, route_path: str) -> str | None:
+        calls.append((module_id, route_path))
+        if module_id == "memory_admin_ui" and route_path == "/memories/import":
+            return route_path
+        return None
+
+    monkeypatch.setattr(chat_catalog, "module_route_path", tracking_module_route_path)
+
+    entries, _group_titles, _toolbox_groups = build_chat_command_catalog(
+        lang="de",
+        auth_role="user",
+        advanced_mode=False,
+        recall_templates=[],
+        store_templates=[],
+        recipe_trigger_hints=[],
+    )
+
+    document_entry = next(entry for entry in entries if entry.get("group") == "documents")
+    assert document_entry["href"] == "/memories/import#document-import"
+    assert ("memory_admin_ui", "/memories/import") in calls
+
+
+def test_build_chat_command_catalog_does_not_rank_tools_from_recent_words() -> None:
     _entries, group_titles, toolbox_groups = build_chat_command_catalog(
         lang="de",
         auth_role="admin",
@@ -1309,10 +1123,8 @@ def test_build_chat_command_catalog_adds_suggested_group_for_recent_context() ->
         connection_catalog={"discord": ["alerts-bot"], "rss": ["heise-news"]},
         recent_messages=["schicke bitte eine test nachricht nach discord an alerts bot"],
     )
-    assert group_titles["suggested"] == "Passend jetzt"
-    suggested_group = next(group for group in toolbox_groups if group["key"] == "suggested")
-    assert suggested_group["items"]
-    assert any("discord" in item["insert"] for item in suggested_group["items"])
+    assert "suggested" not in group_titles
+    assert not any(group["key"] == "suggested" for group in toolbox_groups)
 
 
 def test_build_chat_command_catalog_omits_suggested_group_without_recent_context() -> None:
@@ -1344,7 +1156,7 @@ def test_build_chat_command_catalog_hides_admin_entries_for_users() -> None:
     assert not any(group["key"] == "admin" for group in toolbox_groups)
 
 
-def test_build_chat_command_catalog_shows_chat_learn_mode_controls() -> None:
+def test_build_chat_command_catalog_omits_retired_chat_learn_mode_controls() -> None:
     entries, group_titles, toolbox_groups = build_chat_command_catalog(
         lang="de",
         auth_role="user",
@@ -1352,14 +1164,11 @@ def test_build_chat_command_catalog_shows_chat_learn_mode_controls() -> None:
         recall_templates=[],
         store_templates=[],
         recipe_trigger_hints=[],
-        chat_learn_active=True,
     )
 
-    assert group_titles["learning"] == "Lernmodus"
-    assert any(entry["group"] == "learning" and entry["insert"].strip() == "/lernen stop" for entry in entries)
-    assert any(entry["group"] == "learning" and entry["insert"].strip() == "/lernen abbrechen" for entry in entries)
-    learning_group = next(group for group in toolbox_groups if group["key"] == "learning")
-    assert len(learning_group["items"]) == 2
+    assert "learning" not in group_titles
+    assert not any(entry.get("group") == "learning" for entry in entries)
+    assert not any(group.get("key") == "learning" for group in toolbox_groups)
 
 
 def test_build_chat_command_catalog_localizes_visible_inserts_for_english() -> None:

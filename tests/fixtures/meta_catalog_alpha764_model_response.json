@@ -1,0 +1,29 @@
+{
+  "decision_kind": "context",
+  "needs_context": true,
+  "context_requests": [
+    {"surface_id": "web", "mode": "search", "reason": "Aktuelle n8n Version und Release-Informationen aus öffentlichen Quellen"}
+  ],
+  "surfaces": [
+    {"surface_id": "web", "reason": "Öffentliche Websuche für aktuelle n8n Release-Version"}
+  ],
+  "catalog_ids": [],
+  "intents": ["product_version_query"],
+  "target_scope_authority": "new_scope",
+  "scope_operation": "new_scope",
+  "context_depth": "focused",
+  "risk": "low",
+  "needs_confirmation": false,
+  "confidence": 0.95,
+  "reason": "Frage nach aktueller n8n Version erfordert öffentliche Web-Kontext für Release-Informationen. Lokale n8n SSH-Verbindung (dev-n8n) ist für installierte Version relevant, aber Frage zielt auf neueste verfügbare Version ab, nicht auf installierte Instanz.",
+  "contract": {"mode": "answer"},
+  "personal_context_resolution": {
+    "status": "independent_context",
+    "reason": "Öffentliche Produktversion-Anfrage, keine persönlichen Claims relevant"
+  },
+  "turn_semantics": {
+    "primary": "ordinary", "confidence": 0.95,
+    "reason": "Standard Produktversions-Anfrage ohne persönlichen Kontext oder Lerninhalt"
+  },
+  "learning_directive": {"capture_enabled": false}
+}

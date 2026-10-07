@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from aria.core.connection_catalog import (
+from aria.modules.connections_catalog.catalog import (
     connection_chat_emoji,
     connection_chat_defaults,
     connection_field_specs,
+    connection_manifest_kinds,
     connection_menu_meta,
     connection_menu_rows,
     connection_overview_meta,
@@ -24,13 +25,22 @@ def test_connection_template_name_handles_special_route_names() -> None:
 def test_connection_menu_rows_follow_catalog_order() -> None:
     rows = connection_menu_rows()
     assert [row["kind"] for row in rows] == ordered_connection_kinds()
-    assert [row["kind"] for row in rows[-4:]] == ["searxng", "mqtt", "email", "imap"]
-    assert all(bool(row["alpha"]) for row in rows[-4:])
+    assert [row["kind"] for row in rows[-3:]] == ["mqtt", "email", "imap"]
+    assert all(bool(row["alpha"]) for row in rows[-3:])
 
 
 def test_routing_workbench_kind_options_follow_connection_catalog() -> None:
     assert routing_workbench_kind_options() == ["auto", *ordered_connection_kinds()]
     assert routing_workbench_kind_options(include_auto=False) == ordered_connection_kinds()
+
+
+def test_inbound_webhook_is_manifested_but_not_exposed_before_ui_slice() -> None:
+    assert "inbound_webhook" in connection_manifest_kinds()
+    assert "inbound_webhook" not in ordered_connection_kinds()
+    assert "inbound_webhook" not in [row["kind"] for row in connection_menu_rows()]
+    fields = connection_field_specs("inbound_webhook")
+    assert fields["routing_policy"]["type"] == "str"
+    assert fields["max_body_bytes"]["max"] == 10485760
 
 
 def test_connection_menu_meta_exposes_page_text_keys() -> None:
@@ -74,28 +84,9 @@ def test_rss_catalog_exposes_poll_interval_field() -> None:
     assert fields["poll_interval_minutes"]["max"] == 10080
 
 
-def test_searxng_catalog_exposes_web_search_defaults() -> None:
-    searxng = connection_menu_meta("searxng")
-    defaults = connection_chat_defaults("searxng")
-    fields = connection_field_specs("searxng")
-
-    assert searxng["url"] == "/config/connections/searxng"
-    assert defaults["base_url"] == "http://searxng:8080"
-    assert defaults["safe_search"] == 1
-    assert defaults["max_results"] == 5
-    assert fields["categories"]["type"] == "list"
-    assert fields["engines"]["type"] == "list"
-    assert connection_chat_emoji("searxng") == "🔎"
-
-
-def test_connection_routing_spec_prepares_website_and_searxng_action_preferences() -> None:
+def test_connection_routing_spec_prepares_website_without_legacy_search() -> None:
     website = connection_routing_spec("website")
-    searxng = connection_routing_spec("searxng")
 
     assert website.preferred_action_candidates["default"] == ["website_read"]
     assert website.preferred_action_candidates["list_like"] == ["website_list"]
     assert "beobachtete webseiten" in website.supported_actions
-
-    assert searxng.preferred_action_candidates["default"] == ["web_search"]
-    assert searxng.preferred_action_candidates["search_like"] == ["web_search"]
-    assert "search" in searxng.language_hints

@@ -1,15 +1,21 @@
 {% extends "base.html" %}
 {% block content %}
+{% set config_ui_security_path = module_route_path('config_ui', '/config/security') %}
+{% set config_ui_security_guardrails_draft_path = module_route_path('config_ui', '/config/security/guardrails/draft') %}
+{% set config_ui_security_guardrails_save_path = module_route_path('config_ui', '/config/security/guardrails/save') %}
+{% set config_ui_security_guardrails_test_path = module_route_path('config_ui', '/config/security/guardrails/test') %}
+{% set config_ui_security_guardrails_delete_path = module_route_path('config_ui', '/config/security/guardrails/delete') %}
+{% set config_ui_security_guardrails_import_sample_path = module_route_path('config_ui', '/config/security/guardrails/import-sample') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-security-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
 
-  <section class="config-card floating-card config-domain-section">
+  <section class="config-card floating-card config-domain-section guardrail-card">
     <h2>{{ tr(request, 'config_security.guardrails_title', 'Guardrail-Profile') }}</h2>
     <p>{{ tr(request, 'config_security.guardrails_subtitle', 'Wiederverwendbare Sicherheitsprofile für einzelne Dienste. Öffne nur den Bereich, den du gerade wirklich bearbeiten willst.') }}</p>
   </section>
 
-  <details class="config-card floating-card config-domain-section config-section-details" {% if guardrail_draft %}open{% endif %}>
+  <details class="config-card floating-card config-domain-section config-section-details guardrail-card" {% if guardrail_draft %}open{% endif %}>
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
@@ -20,7 +26,7 @@
       </div>
     </summary>
     <div class="config-section-content">
-      <form id="guardrail-draft-form" method="post" action="/config/security/guardrails/draft" class="editor-form" autocomplete="off">
+      <form id="guardrail-draft-form" method="post" action="{{ config_ui_security_guardrails_draft_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <div class="connection-form-grid">
           <div>
@@ -68,7 +74,7 @@
           {% endfor %}
         </ul>
         {% endif %}
-        <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
+        <form method="post" action="{{ config_ui_security_guardrails_save_path }}" class="editor-form" autocomplete="off">
           <input type="hidden" name="original_ref" value="">
           <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <input type="hidden" name="connection_kinds" value="{{ (guardrail_draft.connection_kinds or [])|join(',') }}">
@@ -111,7 +117,7 @@
     </div>
   </details>
 
-  <details class="config-card floating-card config-domain-section config-section-details" {% if request.query_params.get('guardrail_ref') %}open{% endif %}>
+  <details class="config-card floating-card config-domain-section config-section-details guardrail-card" {% if request.query_params.get('guardrail_ref') %}open{% endif %}>
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
@@ -122,7 +128,7 @@
       </div>
     </summary>
     <div class="config-section-content">
-      <form method="get" action="/config/security" class="editor-form">
+      <form method="get" action="{{ config_ui_security_path }}" class="editor-form">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <label for="guardrail_ref">{{ tr(request, 'config_security.load_existing', 'Bestehendes Guardrail laden') }}</label>
         <div class="inline-actions">
@@ -136,7 +142,7 @@
 
       {% if selected_guardrail_ref %}
       <div class="skill-summary connection-flow-note"><strong>{{ tr(request, 'config_security.current_guardrail', 'Geladenes Guardrail') }}</strong><span>{{ selected_guardrail_ref }}</span></div>
-      <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
+      <form method="post" action="{{ config_ui_security_guardrails_save_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="original_ref" value="{{ selected_guardrail_ref }}">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <input type="hidden" name="connection_kinds" value="{{ (selected_guardrail.connection_kinds or [])|join(',') }}">
@@ -164,6 +170,23 @@
             <textarea id="guardrail_deny_edit" name="deny_terms" rows="5" placeholder="rm -rf&#10;shutdown&#10;reboot">{{ (selected_guardrail.deny_terms or [])|join('\n') }}</textarea>
             <small class="hint-text">{{ tr(request, 'config_security.guardrail_deny_hint', 'Wenn ein Eintrag vorkommt, blockiert ARIA die Anfrage sofort.') }}</small>
           </div>
+          <div>
+            <span class="form-label">{{ tr(request, 'config_security.guardrail_recipe_allow', 'Vertrauenswürdige Rezepte') }}</span>
+            <div id="guardrail_recipe_allow_edit" class="guardrail-recipe-checklist" style="max-height: 14rem; overflow-y: auto;">
+              {% for recipe in enabled_recipe_options %}
+              <label class="inline-check">
+                <input
+                  type="checkbox"
+                  name="allow_recipe_ids"
+                  value="{{ recipe.id }}"
+                  {% if recipe.id in (selected_guardrail.allow_recipe_ids or []) %}checked{% endif %}
+                >
+                {{ recipe.name }}
+              </label>
+              {% endfor %}
+            </div>
+            <small class="hint-text">{{ tr(request, 'config_security.guardrail_recipe_allow_hint', 'Ausgewählte aktivierte Rezepte dürfen die Allow-/Deny-Wörter dieses Profils umgehen. Absolute SSH-Sperren gelten immer.') }}</small>
+          </div>
         </div>
         <button type="submit">{{ tr(request, 'config_security.save_guardrail', 'Guardrail speichern') }}</button>
       </form>
@@ -173,7 +196,7 @@
     </div>
   </details>
 
-  <details class="config-card floating-card config-domain-section config-section-details" {% if guardrail_test_result %}open{% endif %}>
+  <details class="config-card floating-card config-domain-section config-section-details guardrail-card" {% if guardrail_test_result %}open{% endif %}>
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
@@ -184,7 +207,7 @@
       </div>
     </summary>
     <div class="config-section-content">
-      <form method="post" action="/config/security/guardrails/test" class="editor-form" autocomplete="off">
+      <form method="post" action="{{ config_ui_security_guardrails_test_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <div class="connection-form-grid">
           <div>
@@ -227,18 +250,18 @@
   </details>
 
   {% if selected_guardrail_ref %}
-  <details class="config-card floating-card config-domain-section config-section-details">
+  <details class="config-card floating-card config-domain-section config-section-details guardrail-card">
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
           <h3>{{ tr(request, 'config_security.delete_guardrail', 'Guardrail löschen') }}</h3>
-          <span class="config-section-count">{{ tr(request, 'config_security.danger_badge', 'Riskant') }}</span>
+          <span class="config-section-count guardrail-risk-badge">{{ tr(request, 'config_security.danger_badge', 'Riskant') }}</span>
         </div>
         <span class="config-section-desc">{{ tr(request, 'config_security.delete_guardrail_hint', 'Löscht das Profil und entfernt die Zuordnung aus Verbindungen, die es verwendet haben.') }}</span>
       </div>
     </summary>
     <div class="config-section-content">
-      <form method="post" action="/config/security/guardrails/delete" class="editor-form">
+      <form method="post" action="{{ config_ui_security_guardrails_delete_path }}" class="editor-form">
         <input type="hidden" name="guardrail_ref" value="{{ selected_guardrail_ref }}">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <button type="submit" class="danger">{{ tr(request, 'config_security.delete_guardrail_action', 'Guardrail löschen') }}</button>
@@ -247,7 +270,7 @@
   </details>
   {% endif %}
 
-  <details class="config-card floating-card config-domain-section config-section-details">
+  <details class="config-card floating-card config-domain-section config-section-details guardrail-card">
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
@@ -257,7 +280,7 @@
       </div>
     </summary>
     <div class="config-section-content">
-      <form method="post" action="/config/security/guardrails/save" class="editor-form" autocomplete="off">
+      <form method="post" action="{{ config_ui_security_guardrails_save_path }}" class="editor-form" autocomplete="off">
         <input type="hidden" name="original_ref" value="">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <input type="hidden" name="connection_kinds" value="">
@@ -291,7 +314,7 @@
     </div>
   </details>
 
-  <details class="config-card floating-card config-domain-section config-section-details">
+  <details class="config-card floating-card config-domain-section config-section-details guardrail-card">
     <summary class="config-section-summary">
       <div class="config-section-heading">
         <div class="config-section-title-row">
@@ -318,7 +341,7 @@
           {% if sample.profile_refs %}
           <p class="hint-text">{{ sample.profile_refs }}</p>
           {% endif %}
-          <form method="post" action="/config/security/guardrails/import-sample" class="inline-form">
+          <form method="post" action="{{ config_ui_security_guardrails_import_sample_path }}" class="inline-form">
             <input type="hidden" name="return_to" value="{{ return_to or '' }}">
             <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
             <button type="submit">{{ tr(request, 'config_security.sample_guardrails_import_btn', 'Sample-Paket importieren') }}</button>

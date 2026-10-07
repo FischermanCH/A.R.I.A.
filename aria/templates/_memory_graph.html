@@ -1,4 +1,5 @@
 {% from "_icons.html" import icon %}
+{% set memory_graph_delete_point_path = module_route_path('memory_admin_ui', '/memories/browser/delete-point') %}
 {% set brain = memory_graph.get('brain') if memory_graph else none %}
 {% if show_qdrant_brain|default(false) and brain %}
 {% set memory_brain_initial_collection = memory_browser.initial_collection_name|default(memory_browser.initial_collection|default('')) if memory_browser is defined else '' %}
@@ -133,6 +134,7 @@
   const payload = root.querySelector('[data-brain-payload]');
   const labelsPayload = root.querySelector('[data-brain-labels]');
   const backButton = root.querySelector('[data-brain-back]');
+  const memoryGraphDeletePointPath = {{ memory_graph_delete_point_path|tojson }};
   let graph = { nodes: [], edges: [], collections: [], width: 1180, height: 760 };
   let brainLabels = {};
   try {
@@ -175,7 +177,7 @@
     const pointId = String(item?.point_id || item?.id || '').trim();
     if (!collection || !pointId) return;
     if (!window.confirm(brainLabels.delete_confirm || 'Delete this memory entry?')) return;
-    const response = await window.fetch('/memories/browser/delete-point', {
+    const response = await window.fetch(memoryGraphDeletePointPath, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

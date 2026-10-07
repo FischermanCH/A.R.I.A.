@@ -1,6 +1,6 @@
-from aria.core.recipe_result_view import build_recipe_execution_summary
-from aria.core.recipe_result_view import format_recipe_step_marker
-from aria.core.recipe_result_view import friendly_recipe_error_text
+from aria.modules.recipe_runtime.result_view import build_recipe_execution_summary
+from aria.modules.recipe_runtime.result_view import format_recipe_step_marker
+from aria.modules.recipe_runtime.result_view import friendly_recipe_error_text
 
 
 def test_format_recipe_step_marker_localizes_runtime_states() -> None:

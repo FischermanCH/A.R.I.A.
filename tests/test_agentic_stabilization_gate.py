@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from aria.core.agentic_operator_trace import build_operator_trace_lines
-from aria.core.agentic_stabilization_gate import STABILIZATION_PROMPT_MATRIX
-from aria.core.agentic_stabilization_gate import append_stabilization_gate_detail_lines
-from aria.core.agentic_stabilization_gate import enforce_stabilization_gate_answerability
-from aria.core.agentic_stabilization_gate import stabilization_prompt_ids
+from aria.modules.operator_trace_boundary.operator_trace import build_operator_trace_lines
+from aria.modules.agentic_stabilization.gate import STABILIZATION_PROMPT_MATRIX
+from aria.modules.agentic_stabilization.gate import append_stabilization_gate_detail_lines
+from aria.modules.agentic_stabilization.gate import enforce_stabilization_gate_answerability
+from aria.modules.agentic_stabilization.gate import stabilization_prompt_ids
 
 
 def test_stabilization_prompt_matrix_has_unique_core_live_families() -> None:
@@ -122,9 +122,10 @@ def test_stabilization_gate_normalizes_runtime_outcome_contracts() -> None:
     assert any("phase=result" in line and "source=answerability" in line for line in traces)
 
 
-def test_stabilization_gate_blocks_candidate_context_overclaim() -> None:
+def test_stabilization_gate_does_not_reinterpret_answer_text() -> None:
+    original = "Ich habe 12 SSH/SFTP-Verbindungen mit Hostname und IP-Adresse gefunden."
     text, lines = enforce_stabilization_gate_answerability(
-        "Ich habe 12 SSH/SFTP-Verbindungen mit Hostname und IP-Adresse gefunden.",
+        original,
         [
             "Routing Debug: evidence_bundle stored "
             "surface=connections authority=candidate completeness=candidate_only fields=host,ref rows=12",
@@ -132,15 +133,9 @@ def test_stabilization_gate_blocks_candidate_context_overclaim() -> None:
         language="de",
     )
 
-    assert "nur Kandidatenkontext" in text
-    assert "vollstaendige oder harte Antwort" in text
-    assert any("stabilization_gate_final_answer_guard status=blocked" in line for line in lines)
+    assert text == original
+    assert not any("stabilization_gate_final_answer_guard" in line for line in lines)
     assert any("evidence_contract surface=connections authority=candidate completeness=candidate_only" in line for line in lines)
-    traces = build_operator_trace_lines(lines)
-    assert any(
-        "phase=result" in line and "source=stabilization_gate_final_answer_guard" in line and "status=blocked" in line
-        for line in traces
-    )
 
 
 def test_stabilization_gate_allows_cautious_candidate_answer() -> None:

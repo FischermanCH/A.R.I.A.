@@ -5,13 +5,14 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from aria.core.config import Settings
-from aria.core.config import EmbeddingsConfig
-from aria.core.config import MemoryConfig
-from aria.core.embedding_client import EmbeddingClient
-from aria.core.guardrail_drafts import build_guardrail_draft_context, suggest_guardrail_with_llm
-from aria.core.llm_client import LLMClient
-from aria.core.usage_meter import UsageMeter
+from aria.modules.configuration_foundations.config import Settings
+from aria.modules.configuration_foundations.config import ChatPricingModelConfig
+from aria.modules.configuration_foundations.config import EmbeddingsConfig
+from aria.modules.configuration_foundations.config import MemoryConfig
+from aria.modules.model_gateway_clients.embedding import EmbeddingClient
+from aria.modules.action_draft_policy.guardrail_drafts import build_guardrail_draft_context, suggest_guardrail_with_llm
+from aria.modules.model_gateway_clients.llm import LLMClient
+from aria.modules.model_usage_observability.usage_meter import UsageMeter
 from aria.skills.memory import MemorySkill
 
 
@@ -52,7 +53,7 @@ def test_llm_client_logs_direct_calls_via_usage_meter(monkeypatch, tmp_path: Pat
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
-    monkeypatch.setattr("aria.core.llm_client._acompletion", _fake_completion)
+    monkeypatch.setattr("aria.modules.model_gateway_clients.llm._acompletion", _fake_completion)
 
     settings = _settings(tmp_path)
     meter = UsageMeter(settings)
@@ -94,7 +95,7 @@ def test_guardrail_draft_llm_call_is_metered(monkeypatch, tmp_path: Path) -> Non
             usage=SimpleNamespace(prompt_tokens=42, completion_tokens=21, total_tokens=63),
         )
 
-    monkeypatch.setattr("aria.core.llm_client._acompletion", _fake_completion)
+    monkeypatch.setattr("aria.modules.model_gateway_clients.llm._acompletion", _fake_completion)
 
     settings = _settings(tmp_path)
     meter = UsageMeter(settings)
@@ -126,7 +127,7 @@ def test_embedding_client_logs_direct_calls_via_usage_meter(monkeypatch, tmp_pat
             usage=SimpleNamespace(prompt_tokens=6, completion_tokens=0, total_tokens=6),
         )
 
-    monkeypatch.setattr("aria.core.embedding_client._aembedding", _fake_embedding)
+    monkeypatch.setattr("aria.modules.model_gateway_clients.embedding._aembedding", _fake_embedding)
 
     settings = _settings(tmp_path)
     meter = UsageMeter(settings)
@@ -226,6 +227,105 @@ def test_usage_meter_prices_known_claude_and_openai_embedding_models(tmp_path: P
     assert rows[0]["total_cost_usd"] == chat_cost
     assert rows[1]["embedding_model"] == "openai/text-embedding-3-small"
     assert rows[1]["total_cost_usd"] == embedding_cost
+
+
+def test_web_llm_usage_tracks_role_search_count_and_tool_cost(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.pricing.enabled = True
+    settings.pricing.chat_models["openai/gpt-5.6-luna"] = ChatPricingModelConfig(
+        input_per_million=0.2,
+        output_per_million=1.2,
+        native_web_search_per_call=0.01,
+    )
+    meter = UsageMeter(settings)
+
+    cost = asyncio.run(
+        meter.record_web_llm_call(
+            model="openai/gpt-5.6-luna",
+            usage={"prompt_tokens": 1000, "completion_tokens": 100, "total_tokens": 1100},
+            native_search_uses=2,
+            source="web",
+            operation="native_web_answer",
+            user_id="neo",
+            request_id="web-1",
+            duration_ms=8000,
+        )
+    )
+
+    assert cost == 0.02032
+    rows = _read_log_rows(tmp_path / "tokens.jsonl")
+    assert len(rows) == 1
+    assert rows[0]["llm_role"] == "web"
+    assert rows[0]["native_web_search_uses"] == 2
+    assert rows[0]["native_web_search_cost_usd"] == 0.02
+
+
+def test_web_llm_scope_flushes_exactly_once_with_role_and_search_receipt(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.pricing.enabled = True
+    settings.pricing.chat_models["openai/gpt-5.6-luna"] = ChatPricingModelConfig(
+        input_per_million=0.2,
+        output_per_million=1.2,
+        native_web_search_per_call=0.01,
+    )
+    meter = UsageMeter(settings)
+
+    async def _run() -> tuple[bool, bool]:
+        with meter.scope(request_id="web-scope", user_id="neo", source="web_chat", router_level=0):
+            await meter.record_web_llm_call(
+                model="openai/gpt-5.6-luna",
+                usage={"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                native_search_uses=2,
+            )
+            first = await meter.flush_current_scope(
+                intents=["web_search"],
+                duration_ms=8044,
+                skill_errors=[],
+            )
+            second = await meter.flush_current_scope(
+                intents=["web_search"],
+                duration_ms=8044,
+                skill_errors=[],
+            )
+            return first, second
+
+    first, second = asyncio.run(_run())
+    rows = _read_log_rows(tmp_path / "tokens.jsonl")
+
+    assert (first, second) == (True, False)
+    assert len(rows) == 1
+    assert rows[0]["request_id"] == "web-scope"
+    assert rows[0]["llm_role"] == "web"
+    assert rows[0]["native_web_search_uses"] == 2
+    assert rows[0]["total_tokens"] == 120
+    stats = asyncio.run(meter.token_tracker.get_stats(days=7))
+    assert stats["llm_requests_by_role"] == {"web": 1}
+    assert stats["native_web_search_uses"] == 2
+    assert stats["native_web_search_cost_usd"] == 0.02
+
+
+def test_native_scope_flush_persists_activity_projection_metadata(tmp_path: Path) -> None:
+    meter = UsageMeter(_settings(tmp_path))
+
+    async def _run() -> None:
+        with meter.scope(request_id="native-run", user_id="alice", source="web", router_level=2):
+            await meter.record_llm_call(
+                model="fake", usage={"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+            )
+            await meter.flush_current_scope(
+                intents=["native_agent", "recipes_execute"], duration_ms=1234, skill_errors=[],
+                activity={"title": "SSH Update", "target": "srv-dev02", "success": True},
+            )
+
+    asyncio.run(_run())
+    rows = _read_log_rows(tmp_path / "tokens.jsonl")
+
+    assert len(rows) == 1
+    assert rows[0]["user_id"] == "alice"
+    assert rows[0]["intents"] == ["native_agent", "recipes_execute"]
+    assert rows[0]["activity"] == {
+        "title": "SSH Update", "target": "srv-dev02", "success": True,
+    }
 
 
 def test_usage_meter_prices_configured_embedding_model_alias(tmp_path: Path) -> None:

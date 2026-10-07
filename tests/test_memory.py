@@ -1,10 +1,12 @@
 import asyncio
 from types import SimpleNamespace
 
-from aria.core.config import EmbeddingsConfig, MemoryConfig
-from aria.core.doc_meta_catalog import document_meta_collection_for_user
-from aria.core.embedding_client import EmbeddingClient
-from aria.core.memory_recall_helpers import build_recall_source_entries
+from aria.modules.configuration_foundations.config import EmbeddingsConfig, MemoryConfig
+from aria.modules.document_memory.meta_catalog import document_meta_collection_for_user
+from aria.modules.model_gateway_clients.embedding import EmbeddingClient
+from aria.modules.memory.recall_sources import build_recall_source_entries
+from aria.modules.memory.personal import build_personal_context_capsule
+from aria.modules.memory.personal import store_personal_claim
 from aria.skills.memory import MemorySkill
 
 
@@ -211,7 +213,7 @@ async def _run_document_ingest_store() -> None:
 
     skill._embed = fake_embed  # type: ignore[assignment]
 
-    from aria.core.document_ingest import prepare_uploaded_document
+    from aria.modules.document_ingest.ingest import prepare_uploaded_document
 
     prepared = prepare_uploaded_document(
         filename="netzwerk-notizen.md",
@@ -317,6 +319,18 @@ async def _run_document_meta_rebuild_from_legacy_chunks() -> None:
             },
         )
     ]
+    fake.collections["aria_recipe_experience_u1"] = [
+        SimpleNamespace(
+            id="recipe-1",
+            payload={
+                "text": "SSH recipe execution experience.",
+                "user_id": "u1",
+                "type": "recipe_experience",
+                "source": "recipe_runtime",
+                "title": "SSH Agentic Command",
+            },
+        )
+    ]
     skill.qdrant = fake
     skill._collection_ready = True
 
@@ -343,11 +357,73 @@ async def _run_document_meta_rebuild_from_legacy_chunks() -> None:
     payload = document_meta[-1].payload or {}
     assert payload["document_name"] == "mill-heizung-handbuch.pdf"
     assert payload["target_collection"] == "aria_docs_u1"
-    assert "wireless" in payload["knows"]
+    assert "mill heizung handbuch" in payload["knows"]
+    assert "wireless" not in payload["knows"]
 
 
 def test_document_meta_rebuild_can_bootstrap_from_legacy_chunks() -> None:
     asyncio.run(_run_document_meta_rebuild_from_legacy_chunks())
+
+
+async def _run_exact_document_scope_filters_recall_by_document_id() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    fake = FakeQdrant()
+    fake.collections["aria_docs_u1"] = [
+        SimpleNamespace(
+            id="med-a-1",
+            score=0.8,
+            payload={
+                "text": "Simponi enthaelt Golimumab und wird als Fertigpen bereitgestellt.",
+                "user_id": "u1",
+                "source": "rag_upload",
+                "document_id": "med-a",
+                "document_name": "Simpoini50mg.pdf",
+            },
+        ),
+        SimpleNamespace(
+            id="med-b-1",
+            score=0.99,
+            payload={
+                "text": "Dieses andere Medikament darf nicht in der Antwort erscheinen.",
+                "user_id": "u1",
+                "source": "rag_upload",
+                "document_id": "med-b",
+                "document_name": "Other50mg.pdf",
+            },
+        ),
+    ]
+    skill.qdrant = fake
+    skill._collection_ready = True
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+
+    result = await skill.execute(
+        "Was weisst du ueber Simpoini?",
+        {
+            "action": "recall",
+            "user_id": "u1",
+            "include_documents": True,
+            "docs_only": True,
+            "document_ids": ["med-a"],
+            "document_names": ["Simpoini50mg.pdf"],
+            "document_target_collections": ["aria_docs_u1"],
+        },
+    )
+
+    assert result.success is True
+    assert "Golimumab" in result.content
+    assert "andere Medikament" not in result.content
+    assert result.metadata["sources"][0]["document_id"] == "med-a"
+
+def test_exact_document_scope_filters_recall_by_document_id() -> None:
+    asyncio.run(_run_exact_document_scope_filters_recall_by_document_id())
 
 
 async def _run_document_meta_rebuild_accepts_scoped_collection_case_mismatch() -> None:
@@ -401,8 +477,8 @@ async def _run_document_meta_rebuild_accepts_scoped_collection_case_mismatch() -
     assert payload["document_id"] == "83aa10229b78947317d15169"
     assert payload["document_name"] == "Mill Gentle Air WiFi oil filled_Nordic_2025_print.pdf"
     assert payload["target_collection"] == "aria_docs_example_user"
-    assert "mill" in payload["knows"]
-    assert "wifi" in payload["knows"]
+    assert "Mill Gentle Air WiFi oil filled Nordic 2025 print" in payload["knows"]
+    assert "wifi" not in payload["knows"]
 
 
 def test_document_meta_rebuild_accepts_scoped_collection_case_mismatch() -> None:
@@ -572,37 +648,7 @@ def test_admin_query_service_keeps_memory_skill_facade() -> None:
     asyncio.run(_run_admin_query_facade_lists_and_stats())
 
 
-async def _run_memory_keyword_fallback_reports_debug_line() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    skill.qdrant = FakeQdrant()
-    skill._collection_ready = True
-
-    async def fake_embed(_text: str, **kwargs):
-        _ = kwargs
-        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-    skill._embed = fake_embed  # type: ignore[assignment]
-
-    stored = await skill.execute("merk", {"action": "store", "text": "Gateway 192.0.2.1", "user_id": "u1"})
-    assert stored.success is True
-
-    result = await skill._recall_keyword_fallback("Gateway", "u1", 3, collections=list(skill.qdrant.collections.keys()))
-
-    assert result.success is True
-    assert "Gateway 192.0.2.1" in result.content
-    detail_lines = list((result.metadata or {}).get("detail_lines") or [])
-    assert any("Routing Debug: memory_keyword_fallback" in str(line) for line in detail_lines)
-    assert any("reason=keyword_match" in str(line) for line in detail_lines)
-
-
-def test_memory_keyword_fallback_reports_debug_line() -> None:
-    asyncio.run(_run_memory_keyword_fallback_reports_debug_line())
-
-
-def test_document_guide_targets_prefer_keyword_matched_document() -> None:
+def test_document_guide_targets_keep_bounded_vector_order_without_keyword_authority() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
         embeddings=EmbeddingsConfig(model="fake-embeddings"),
@@ -629,8 +675,9 @@ def test_document_guide_targets_prefer_keyword_matched_document() -> None:
         ]
     )
 
-    assert len(targets) == 1
+    assert len(targets) == 2
     assert str(targets[0].get("document_id", "")) == "mill-doc"
+    assert str(targets[1].get("document_id", "")) == "arlo-doc"
 
 
 def test_document_guide_targets_keep_close_scored_same_keyword_matches() -> None:
@@ -722,401 +769,58 @@ def test_document_inventory_recall_uses_document_metadata() -> None:
     asyncio.run(_run_document_inventory_recall_uses_document_metadata())
 
 
-async def _run_docs_only_recall_scans_all_document_chunks_for_missing_literal() -> None:
+async def _run_document_catalog_excludes_raw_learning_collections() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
         embeddings=EmbeddingsConfig(model="fake-embeddings"),
     )
     fake = FakeQdrant()
     skill.qdrant = fake
-    fake.collections["aria_docs_example_user"] = [
+    fake.collections[skill._document_guide_collection_for_user("example_user")] = [
         SimpleNamespace(
-            id="doc-a-1",
-            payload={
-                "source": "document",
-                "user_id": "example_user",
-                "document_id": "doc-a",
-                "document_name": "Alpha Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 2,
-                "text": "Alpha contains lactose and sodium chloride.",
-            },
-        ),
-        SimpleNamespace(
-            id="doc-b-1",
-            payload={
-                "source": "document",
-                "user_id": "example_user",
-                "document_id": "doc-b",
-                "document_name": "Beta Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Beta contains water for injections.",
-            },
-        ),
-    ]
-
-    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
-        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-    skill._embed = fake_embed  # type: ignore[assignment]
-
-    result = await skill.execute(
-        "Ist Glucosamin Bestandteil eines der Dokumente?",
-        {"action": "recall", "user_id": "example_user", "include_documents": True, "docs_only": True},
-    )
-
-    assert result.success is True
-    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
-    assert "glucosamin: 0 Treffer-Chunks" in result.content
-    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
-    assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
-    assert result.metadata["document_corpus_scan"]["term_stats"]["glucosamin"]["chunks"] == 0
-    assert "glucosamin" in result.metadata["document_corpus_scan"]["unmatched_terms"]
-    assert any("term_hits=" in line and "glucosamin:0" in line for line in result.metadata["detail_lines"])
-    assert {source["document_id"] for source in result.metadata["sources"]} == {"doc-a", "doc-b"}
-
-
-def test_docs_only_recall_scans_all_document_chunks_for_missing_literal() -> None:
-    asyncio.run(_run_docs_only_recall_scans_all_document_chunks_for_missing_literal())
-
-
-async def _run_docs_only_recall_finds_literal_in_non_semantic_document() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    fake = FakeQdrant()
-    skill.qdrant = fake
-    fake.collections["aria_docs_example_user"] = [
-        SimpleNamespace(
-            id="doc-a-1",
-            payload={
-                "source": "document",
-                "user_id": "example_user",
-                "document_id": "doc-a",
-                "document_name": "Alpha Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Alpha contains lactose and sodium chloride.",
-            },
-        ),
-        SimpleNamespace(
-            id="doc-b-1",
-            payload={
-                "source": "document",
-                "user_id": "example_user",
-                "document_id": "doc-b",
-                "document_name": "Beta Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Beta lists Glucosamin as an excipient in this example leaflet.",
-            },
-        ),
-    ]
-
-    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
-        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-    skill._embed = fake_embed  # type: ignore[assignment]
-
-    result = await skill.execute(
-        "Ist Glucosamin Bestandteil eines der Dokumente?",
-        {"action": "recall", "user_id": "example_user", "include_documents": True, "docs_only": True},
-    )
-
-    assert result.success is True
-    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
-    assert "glucosamin: 1 Treffer-Chunks in 1 Dokumenten" in result.content
-    assert "Beta Leaflet.pdf" in result.content
-    assert result.metadata["document_corpus_scan"]["match_chunks"] >= 1
-
-
-def test_docs_only_recall_finds_literal_in_non_semantic_document() -> None:
-    asyncio.run(_run_docs_only_recall_finds_literal_in_non_semantic_document())
-
-
-async def _run_forced_document_corpus_scan_finds_literal_past_generic_top_hit() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=1),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    fake = FakeQdrant()
-    skill.qdrant = fake
-    fake.collections["aria_docs_example_user"] = [
-        SimpleNamespace(
-            id="doc-a-1",
-            payload={
-                "source": "document",
-                "user_id": "example_user",
-                "document_id": "doc-a",
-                "document_name": "Alpha Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Section 6.1 lists other ingredients and composition details.",
-            },
-        ),
-        SimpleNamespace(
-            id="doc-b-1",
-            payload={
-                "source": "document",
-                "user_id": "example_user",
-                "document_id": "doc-b",
-                "document_name": "Beta Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Beta lists Glucosamin as an excipient in this example leaflet.",
-            },
-        ),
-    ]
-
-    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
-        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-    skill._embed = fake_embed  # type: ignore[assignment]
-
-    result = await skill.execute(
-        "Ist Glucosamin Bestandteil eines der Dokumente?",
-        {
-            "action": "recall",
-            "user_id": "example_user",
-            "include_documents": True,
-            "docs_only": True,
-            "document_corpus_scan": True,
-        },
-    )
-
-    assert result.success is True
-    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
-    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
-    assert "glucosamin: 1 Treffer-Chunks in 1 Dokumenten" in result.content
-    assert "Beta Leaflet.pdf" in result.content
-
-
-def test_forced_document_corpus_scan_finds_literal_past_generic_top_hit() -> None:
-    asyncio.run(_run_forced_document_corpus_scan_finds_literal_past_generic_top_hit())
-
-
-async def _run_forced_document_corpus_scan_uses_selected_named_document_collection() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=2),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    fake = FakeQdrant()
-    skill.qdrant = fake
-    fake.collections["aria_doc_guides_sample"] = [
-        SimpleNamespace(
-            id="guide-a",
-            score=0.9,
+            id="stale-learning-guide",
             payload={
                 "source": "rag_document_guide",
-                "user_id": "sample",
+                "user_id": "example_user",
+                "document_id": "candidate-guide",
+                "document_name": "Stale Learning Candidate",
+                "target_collection": "aria_learning_candidates_example_user",
+            },
+        )
+    ]
+    fake.collections["aria_docs_example_user"] = [
+        SimpleNamespace(
+            id="doc-a-chunk",
+            payload={
+                "source": "rag_upload",
+                "user_id": "example_user",
                 "document_id": "doc-a",
-                "document_name": "Alpha Leaflet.pdf",
-                "target_collection": "aria_docs_sample_medications",
-                "guide_keywords": ["bestandteil"],
-                "guide_summary": "Medication package insert.",
-                "text": "Dokument: Alpha Leaflet.pdf\nCollection: aria_docs_sample_medications",
-                "embedding_model": skill._resolve_embedding_model(),
-                "embedding_fingerprint": skill._active_embedding_fingerprint(),
+                "document_name": "Alpha Instructions.pdf",
+                "text": "Actual document content.",
             },
-        ),
-        SimpleNamespace(
-            id="guide-b",
-            score=0.88,
-            payload={
-                "source": "rag_document_guide",
-                "user_id": "sample",
-                "document_id": "doc-b",
-                "document_name": "Beta Leaflet.pdf",
-                "target_collection": "aria_docs_sample_medications",
-                "guide_keywords": ["bestandteil"],
-                "guide_summary": "Medication package insert.",
-                "text": "Dokument: Beta Leaflet.pdf\nCollection: aria_docs_sample_medications",
-                "embedding_model": skill._resolve_embedding_model(),
-                "embedding_fingerprint": skill._active_embedding_fingerprint(),
-            },
-        ),
+        )
     ]
-    fake.collections["aria_docs_sample_medications"] = [
+    fake.collections["aria_learning_candidates_example_user"] = [
         SimpleNamespace(
-            id="doc-a-1",
+            id="candidate-a",
             payload={
-                "source": "document",
-                "user_id": "sample",
-                "document_id": "doc-a",
-                "document_name": "Alpha Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Alpha lists lactose as an excipient.",
+                "source": "learning_classifier",
+                "user_id": "example_user",
+                "document_id": "candidate-a",
+                "title": "Learning Candidate",
+                "text": "Review-only learning evidence.",
             },
-        ),
-        SimpleNamespace(
-            id="doc-b-1",
-            payload={
-                "source": "document",
-                "user_id": "sample",
-                "document_id": "doc-b",
-                "document_name": "Beta Leaflet.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Beta lists Glucosamin as an excipient in this example leaflet.",
-            },
-        ),
+        )
     ]
 
-    async def fake_embed(*args, **kwargs):  # noqa: ANN002, ANN003
-        return [0.1, 0.2, 0.3], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+    rows = await skill._document_catalog_payloads(user_id="example_user")
 
-    skill._embed = fake_embed  # type: ignore[assignment]
-
-    result = await skill.execute(
-        "Ist Glucosamin Bestandteil eines der Dokumente?",
-        {
-            "action": "recall",
-            "user_id": "sample",
-            "include_documents": True,
-            "docs_only": True,
-            "document_corpus_scan": True,
-        },
-    )
-
-    assert result.success is True
-    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
-    assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
-    assert "Vollständig gescannt: 2 Dokumente, 2 Chunks." in result.content
-    assert "glucosamin: 1 Treffer-Chunks in 1 Dokumenten" in result.content
-    assert "Beta Leaflet.pdf" in result.content
+    assert [row["document_name"] for row in rows] == ["Alpha Instructions.pdf"]
+    assert {row["target_collection"] for row in rows} == {"aria_docs_example_user"}
 
 
-def test_forced_document_corpus_scan_uses_selected_named_document_collection() -> None:
-    asyncio.run(_run_forced_document_corpus_scan_uses_selected_named_document_collection())
-
-
-async def _run_document_corpus_scan_respects_explicit_document_target_collection_param() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=2),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    fake = FakeQdrant()
-    skill.qdrant = fake
-    fake.collections["aria_docs_sample_medications"] = [
-        SimpleNamespace(
-            id="med-a-1",
-            payload={
-                "source": "document",
-                "user_id": "sample",
-                "document_id": "med-a",
-                "document_name": "Olumiant.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Olumiant lists Baricitinib and excipients.",
-            },
-        ),
-        SimpleNamespace(
-            id="med-b-1",
-            payload={
-                "source": "document",
-                "user_id": "sample",
-                "document_id": "med-b",
-                "document_name": "Humira.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Humira contains Adalimumab.",
-            },
-        ),
-    ]
-    fake.collections["aria_docs_other_user"] = [
-        SimpleNamespace(
-            id="home-a-1",
-            payload={
-                "source": "document",
-                "user_id": "other_user",
-                "document_id": "home-a",
-                "document_name": "Arlo Manual.pdf",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Arlo camera setup.",
-            },
-        ),
-    ]
-    fake.collections["aria_recipe_experience_other_user"] = [
-        SimpleNamespace(
-            id="recipe-a-1",
-            payload={
-                "source": "document",
-                "user_id": "other_user",
-                "document_id": "recipe-a",
-                "document_name": "SSH Agentic Command",
-                "chunk_index": 1,
-                "chunk_total": 1,
-                "text": "Recipe experience document.",
-            },
-        ),
-    ]
-
-    result = await skill.execute(
-        "Ist Glucosamin Bestandteil eines der Medikamente deren Beipackzettel wir haben",
-        {
-            "action": "recall",
-            "user_id": "sample",
-            "include_documents": True,
-            "docs_only": True,
-            "document_corpus_scan": True,
-            "document_target_collections": ["aria_docs_sample_medications"],
-        },
-    )
-
-    assert result.success is True
-    assert result.metadata["document_corpus_scan"]["exhaustive"] is True
-    assert result.metadata["document_corpus_scan"]["documents_scanned"] == 2
-    assert {source["document_id"] for source in result.metadata["sources"]} == {"med-a", "med-b"}
-    assert "Arlo Manual.pdf" not in result.content
-    assert "SSH Agentic Command" not in result.content
-
-
-def test_document_corpus_scan_respects_explicit_document_target_collection_param() -> None:
-    asyncio.run(_run_document_corpus_scan_respects_explicit_document_target_collection_param())
-
-
-async def _run_session_vs_user_recall() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    fake = FakeQdrant()
-    skill.qdrant = fake
-    user_id = "DemoUser"
-
-    day = "260323"
-    fake.collections = {
-        "aria_facts_demo_user": [
-            SimpleNamespace(
-                id="f1",
-                payload={"text": "mein Default Gateway Eins 192.0.2.1 ist", "user_id": user_id},
-            ),
-        ],
-        f"aria_sessions_demo_user_{day}": [
-            SimpleNamespace(
-                id="s1",
-                payload={"text": "Hostname: server-main, IP: 192.0.2.11", "user_id": user_id},
-            ),
-        ],
-    }
-
-    recalled = await skill._recall_keyword_fallback(
-        query="Was weisst du ueber mein Netzwerk?",
-        user_id=user_id,
-        top_k=3,
-        collections=list(fake.collections.keys()),
-    )
-    assert recalled.success is True
-    assert "192.0.2.1" in recalled.content
-    assert "192.0.2.11" in recalled.content
-
-
-def test_session_and_user_memory_recall_are_combined() -> None:
-    asyncio.run(_run_session_vs_user_recall())
+def test_document_catalog_excludes_raw_learning_collections() -> None:
+    asyncio.run(_run_document_catalog_excludes_raw_learning_collections())
 
 
 async def _run_weighted_multi_collection_recall_prefers_fact_over_session() -> None:
@@ -1196,43 +900,6 @@ def test_cleanup_removes_empty_memory_collections() -> None:
     asyncio.run(_run_empty_collection_cleanup_global())
 
 
-async def _run_operational_session_cleanup() -> None:
-    skill = MemorySkill(
-        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
-        embeddings=EmbeddingsConfig(model="fake-embeddings"),
-    )
-    fake = FakeQdrant()
-    skill.qdrant = fake
-    fake.collections = {
-        "aria_sessions_demo_user_260326": [
-            SimpleNamespace(
-                id="keep-1",
-                payload={"text": "Hostname: server-main, IP: 192.0.2.11", "user_id": "DemoUser", "source": "auto_session"},
-            ),
-            SimpleNamespace(
-                id="drop-1",
-                payload={"text": "systemupdate server-main", "user_id": "DemoUser", "source": "auto_session"},
-            ),
-            SimpleNamespace(
-                id="drop-2",
-                payload={"text": "welche skills sind aktiv", "user_id": "DemoUser", "source": "auto_session"},
-            ),
-        ],
-    }
-
-    stats = await skill.cleanup_operational_session_entries(
-        ["systemupdate", "welche skills sind aktiv"]
-    )
-    assert int(stats["removed_points"]) == 2
-    remaining = fake.collections["aria_sessions_demo_user_260326"]
-    assert len(remaining) == 1
-    assert remaining[0].id == "keep-1"
-
-
-def test_cleanup_removes_operational_session_noise() -> None:
-    asyncio.run(_run_operational_session_cleanup())
-
-
 async def _run_forget_apply_removes_empty_collections() -> None:
     skill = MemorySkill(
         memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
@@ -1258,3 +925,156 @@ async def _run_forget_apply_removes_empty_collections() -> None:
 
 def test_forget_apply_removes_empty_collections_immediately() -> None:
     asyncio.run(_run_forget_apply_removes_empty_collections())
+
+
+async def _run_forget_preview_prefers_structured_personal_claims() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    skill.qdrant = FakeQdrant()
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+    stored = await store_personal_claim(
+        memory_skill=skill,
+        llm_client=None,
+        claim={
+            "claim_kind": "fact",
+            "subject": "DemoUser",
+            "predicate": "test_code",
+            "value": "Orion-656",
+            "scope": "global",
+            "authority": "explicit_user",
+            "confidence": 0.98,
+            "explicit": True,
+            "risk": "low",
+        },
+        user_id="DemoUser",
+        facts_collection="aria_facts_demouser",
+        preferences_collection="aria_preferences_demouser",
+    )
+    claim_id = str(stored["claim"]["claim_id"])
+
+    selected = await skill._forget_preview(
+        query="meinen Testcode Orion-656",
+        user_id="DemoUser",
+        personal_claim_ids=[claim_id],
+    )
+
+    assert selected.success is True
+    assert selected.metadata["forget_candidate_source"] == "personal_claim_ids"
+    assert selected.metadata["forget_candidates"][0]["claim_id"] == claim_id
+    assert selected.metadata["forget_candidates"][0]["text"] == "Orion-656"
+
+
+def test_forget_preview_prefers_structured_personal_claims() -> None:
+    asyncio.run(_run_forget_preview_prefers_structured_personal_claims())
+
+
+async def _run_personal_claim_store_list_and_capsule() -> None:
+    skill = MemorySkill(
+        memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+        embeddings=EmbeddingsConfig(model="fake-embeddings"),
+    )
+    skill.qdrant = FakeQdrant()
+
+    async def fake_embed(_text: str, **kwargs):
+        _ = kwargs
+        return [0.1, 0.2, 0.3], {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    skill._embed = fake_embed  # type: ignore[assignment]
+    result = await store_personal_claim(
+        memory_skill=skill,
+        llm_client=None,
+        claim={
+            "claim_kind": "preference",
+            "subject": "user",
+            "predicate": "response_style",
+            "value": "Antworte mir kurz und direkt.",
+            "scope": "global",
+            "explicit": True,
+            "authority": "explicit_user",
+            "risk": "low",
+            "confidence": 0.98,
+            "evidence_refs": ["current_user_message"],
+        },
+        user_id="Fischerman",
+        facts_collection="aria_facts_fischerman",
+        preferences_collection="aria_preferences_fischerman",
+    )
+
+    assert result["stored"] is True
+    claims = await skill.list_personal_claims(user_id="Fischerman", limit=20)
+    assert len(claims) == 1
+    assert claims[0]["personal_claim_contract"] == "personal_claim_v1"
+    assert claims[0]["claim_status"] == "active"
+    assert claims[0]["claim_scope"] == "global"
+    assert claims[0]["claim_value"] == "Antworte mir kurz und direkt."
+
+    capsule = await build_personal_context_capsule(
+        skill,
+        message="Warum ist der Himmel blau?",
+        user_id="Fischerman",
+        request_id="req-personal-claim",
+        llm_client=None,
+    )
+    assert [claim["value"] for claim in capsule["claims"]] == ["Antworte mir kurz und direkt."]
+
+
+def test_personal_claim_round_trip_is_visible_and_runtime_effective() -> None:
+    asyncio.run(_run_personal_claim_store_list_and_capsule())
+
+
+def test_personal_claim_semantic_match_is_bounded_and_never_scrolls() -> None:
+    async def run() -> None:
+        skill = MemorySkill(
+            memory=MemoryConfig(enabled=True, qdrant_url="http://unused:6333", collection="aria_memory", top_k=3),
+            embeddings=EmbeddingsConfig(model="fake-embeddings"),
+        )
+        query_calls: list[dict[str, object]] = []
+
+        class BoundedQdrant:
+            async def collection_exists(self, *, collection_name: str) -> bool:
+                return bool(collection_name)
+
+            async def query_points(self, **kwargs):  # noqa: ANN003
+                query_calls.append(dict(kwargs))
+                return SimpleNamespace(points=[SimpleNamespace(
+                    score=0.91,
+                    payload={
+                        "user_id": "alice",
+                        "personal_claim_contract": "personal_claim_v1",
+                        "claim_status": "active",
+                    },
+                )])
+
+            async def scroll(self, **_kwargs):  # noqa: ANN003
+                raise AssertionError("bounded semantic match must never scroll/list all claims")
+
+        skill.qdrant = BoundedQdrant()
+
+        async def candidate_collections(base: str) -> list[str]:
+            return [base]
+
+        skill._candidate_collections = candidate_collections  # type: ignore[assignment]
+        matched = await skill.personal_claim_semantic_match(
+            user_id="alice",
+            embedding=(0.25, 0.75),
+            top_k=4,
+        )
+
+        assert matched is True
+        assert len(query_calls) == 1
+        assert query_calls[0]["query"] == [0.25, 0.75]
+        assert query_calls[0]["limit"] == 4
+        query_filter = query_calls[0]["query_filter"]
+        assert [condition.key for condition in query_filter.must] == [
+            "user_id",
+            "personal_claim_contract",
+        ]
+
+    asyncio.run(run())

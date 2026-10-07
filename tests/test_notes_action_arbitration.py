@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from aria.core.notes_action_arbitration import NotesActionArbiter
+from aria.modules.notes.action_arbitration import NotesActionArbiter
 
 
 class _Response:
@@ -30,7 +30,7 @@ def test_notes_action_arbiter_returns_canonical_notes_command() -> None:
     llm = _NotesLLM(
         {
             "action": "search_notes",
-            "canonical_command": "suche in notizen nach ARIA",
+            "canonical_command": "search notes: ARIA",
             "confidence": "high",
             "reason": "The user asks to search their notes.",
         }
@@ -45,15 +45,15 @@ def test_notes_action_arbiter_returns_canonical_notes_command() -> None:
     )
 
     assert decision.action == "search_notes"
-    assert decision.canonical_command == "suche in notizen nach ARIA"
+    assert decision.canonical_command == "search notes: ARIA"
     assert decision.source == "notes_action_arbitration"
     assert llm.operations == ["notes_action_arbitration"]
 
 
-def test_notes_action_arbiter_low_confidence_falls_back_to_regex() -> None:
-    llm = _NotesLLM({"action": "search_notes", "canonical_command": "suche in notizen nach ARIA", "confidence": "low"})
+def test_notes_action_arbiter_low_confidence_fails_closed() -> None:
+    llm = _NotesLLM({"action": "search_notes", "canonical_command": "search notes: ARIA", "confidence": "low"})
 
     decision = asyncio.run(NotesActionArbiter(llm).decide("notizen?", user_id="u1"))
 
-    assert decision.action == "fallback"
-    assert decision.source == "regex_fallback"
+    assert decision.action == "no_action"
+    assert decision.source == "fail_closed"

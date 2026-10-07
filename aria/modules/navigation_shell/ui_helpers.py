@@ -1,0 +1,334 @@
+from __future__ import annotations
+
+import html
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from fastapi import Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from markupsafe import Markup
+
+from aria.modules.action_contracts.capabilities import capability_badge
+from aria.modules.action_contracts.capabilities import RECIPE_STATUS_BADGE_LABEL
+from aria.modules.action_contracts.capabilities import STORED_RECIPE_BADGE_LABEL
+from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules import module_route_path, module_static_asset_path
+
+try:
+    import markdown as markdown_lib
+except ModuleNotFoundError:  # pragma: no cover - runtime dependency fallback
+    markdown_lib = None
+
+LANGUAGE_LABELS = {
+    "de": "Deutsch",
+    "en": "English",
+}
+_BASE_DIR = Path(__file__).resolve().parents[3]
+_MAIN_UI_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
+
+_MARKDOWN_LINK_RE = re.compile(r"\[(.+?)\]\(((?:https?://|/)[^\s)]+)\)")
+_MARKDOWN_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_RENDERED_LINK_RE = re.compile(
+    r'(<a href="[^"]*" target="_blank" rel="noopener noreferrer">.*?</a>)'
+)
+
+
+def is_web_source_no_reliable_error(errors: list[str] | None) -> bool:
+    cleaned = [str(item or "").strip().lower() for item in list(errors or []) if str(item or "").strip()]
+    localized_markers = [
+        _MAIN_UI_I18N.t("de", "pipeline.web_search_no_reliable_sources", "").strip().lower(),
+        _MAIN_UI_I18N.t("en", "pipeline.web_search_no_reliable_sources", "").strip().lower(),
+    ]
+    return any(
+        item.startswith("web_source_no_reliable_sources")
+        or any(marker and item.startswith(marker) for marker in localized_markers)
+        for item in cleaned
+    )
+
+
+def _main_ui_text(language: str | None, key: str, default: str = "", **values: Any) -> str:
+    template = _MAIN_UI_I18N.t(language or "de", f"main_ui.{key}", default or key)
+    if not values:
+        return template
+    try:
+        return template.format(**values)
+    except Exception:
+        return template
+
+
+def _required_module_route_path(module_id: str, route_path: str) -> str:
+    resolved = module_route_path(module_id, route_path)
+    if resolved is None:
+        raise RuntimeError(f"{module_id} route is not registered: {route_path}")
+    return resolved
+
+
+def _required_module_static_asset_url(module_id: str, asset_name: str) -> str:
+    asset_key = str(asset_name or "").strip()
+    if module_static_asset_path(module_id, asset_key, _BASE_DIR) is None:
+        raise RuntimeError(f"{module_id} static asset is not registered: {asset_key}")
+    return f"/static/{asset_key}"
+
+
+def replace_agent_name(text: str, agent_name: str) -> str:
+    raw = str(text or "")
+    clean_name = str(agent_name or "").strip() or "ARIA"
+    return re.sub(r"\b(?:ARIA|Aria)\b", clean_name, raw)
+
+
+def daily_time_to_cron(value: str) -> str:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{2}:\d{2}", text):
+        raise ValueError(_main_ui_text("de", "time_format_error", "Time must use HH:MM format."))
+    hour = int(text[:2])
+    minute = int(text[3:5])
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValueError(_main_ui_text("de", "time_range_error", "Time is outside valid bounds."))
+    return f"{minute} {hour} * * *"
+
+
+def daily_time_from_cron(value: str) -> str:
+    raw = str(value or "").strip()
+    match = re.fullmatch(r"(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*", raw)
+    if not match:
+        return ""
+    minute = int(match.group(1))
+    hour = int(match.group(2))
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return ""
+    return f"{hour:02d}:{minute:02d}"
+
+
+def render_assistant_message_html(text: str) -> Markup:
+    lines: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        escaped_line = html.escape(str(raw_line or ""))
+
+        def _replace_link(match: re.Match[str]) -> str:
+            label = html.escape(match.group(1))
+            url = html.escape(match.group(2), quote=True)
+            return f'<a href="{url}" target="_blank" rel="noopener noreferrer">{label}</a>'
+
+        rendered_line = _MARKDOWN_LINK_RE.sub(_replace_link, escaped_line)
+        rendered_line = "".join(
+            part if part.startswith("<a ") else _MARKDOWN_BOLD_RE.sub(r"<strong>\1</strong>", part)
+            for part in _RENDERED_LINK_RE.split(rendered_line)
+        )
+        lines.append(rendered_line)
+    return Markup("<br>".join(lines))
+
+
+def intent_badge(intents: list[str], recipe_errors: list[str] | None = None) -> tuple[str, str]:
+    from aria.modules.recipe_runtime.contracts import is_recipe_intent
+    from aria.modules.recipe_runtime.contracts import is_recipe_status_intent
+
+    if recipe_errors:
+        text = " ".join(recipe_errors).lower()
+        if is_web_source_no_reliable_error(recipe_errors):
+            return "🔎", "web_search_error"
+        if "external_http_api_status" in text:
+            for intent in intents:
+                if not str(intent).startswith("capability:"):
+                    continue
+                badge = capability_badge(str(intent).split(":", 1)[1])
+                if badge:
+                    return badge
+        if "memory_unavailable" in text:
+            return "⚠", "memory_unavailable"
+        if "embedding_failed" in text:
+            return "⚠", "embedding_failed"
+        if "memory_error" in text:
+            return "⚠", "memory_error"
+        if "capability_" in text:
+            for intent in intents:
+                if not str(intent).startswith("capability:"):
+                    continue
+                badge = capability_badge(str(intent).split(":", 1)[1])
+                if badge:
+                    return badge
+            return "⚠", "capability_error"
+        return "⚠", "agent_error"
+    if "notes_search" in intents:
+        return "📝", "notes_search"
+    if "docs_search" in intents:
+        return "📄", "docs_search"
+    if "memory_recall" in intents:
+        return "🧠", "memory_recall"
+    if "memory_store" in intents:
+        return "💾", "memory_store"
+    if any(is_recipe_status_intent(intent) for intent in intents):
+        return "🧩", RECIPE_STATUS_BADGE_LABEL
+    for intent in intents:
+        if is_recipe_intent(str(intent)):
+            return "🧩", STORED_RECIPE_BADGE_LABEL
+    for intent in intents:
+        if not str(intent).startswith("capability:"):
+            continue
+        badge = capability_badge(str(intent).split(":", 1)[1])
+        if badge:
+            return badge
+    if "connection_delete" in intents:
+        return "🗑", "connection_delete"
+    if "connection_create" in intents:
+        return "🧩", "connection_create"
+    if "connection_update" in intents:
+        return "🛠", "connection_update"
+    return "💬", "chat"
+
+
+def friendly_error_text(recipe_errors: list[str] | None, *, language: str = "de") -> str:
+    text = " ".join(recipe_errors or []).lower()
+    if is_web_source_no_reliable_error(recipe_errors):
+        return ""
+    if "external_http_api_status" in text:
+        return ""
+    if "_guardrail_blocked" in text:
+        return ""
+    if "memory_unavailable" in text:
+        return _main_ui_text(language, "memory_unavailable", "Memory service is unavailable. I will answer without stored knowledge.")
+    if "embedding_failed" in text:
+        return _main_ui_text(language, "embedding_failed", "Text processing failed. Please check the embedding model/API key.")
+    if "memory_error" in text:
+        return _main_ui_text(language, "memory_error", "Memory processing failed. I will answer without memory context.")
+    if "capability_" in text:
+        return _main_ui_text(language, "capability_error", "The action could not be completed. Please check profile, target, and access rights.")
+    return ""
+
+
+def should_alert_recipe_errors(recipe_errors: list[str] | None) -> bool:
+    cleaned = [str(item or "").strip().lower() for item in list(recipe_errors or []) if str(item or "").strip()]
+    if not cleaned:
+        return False
+    if is_web_source_no_reliable_error(recipe_errors):
+        return False
+    quiet_prefixes = ("external_http_api_status",)
+    quiet_markers = ("_guardrail_blocked",)
+    return any(
+        not item.startswith(quiet_prefixes) and not any(marker in item for marker in quiet_markers)
+        for item in cleaned
+    )
+
+
+def discord_alert_error_lines(recipe_errors: list[str] | None, *, limit: int = 4) -> str:
+    cleaned_rows: list[str] = []
+    for raw in list(recipe_errors or [])[: max(1, int(limit or 4))]:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        first_line = ""
+        for line in text.splitlines():
+            candidate = str(line or "").strip()
+            if not candidate:
+                continue
+            if candidate.startswith("====================") or candidate.startswith("SMB Header:") or candidate.startswith("SMB Data Packet"):
+                break
+            first_line = candidate
+            break
+        if not first_line:
+            first_line = text.splitlines()[0].strip() if text.splitlines() else text
+        first_line = re.sub(r"\s+", " ", first_line).strip()
+        if len(first_line) > 220:
+            first_line = first_line[:220].rstrip() + "…"
+        cleaned_rows.append(first_line)
+    return " | ".join(cleaned_rows)
+
+
+def exception_response(request: Request, *, detail: str, status_code: int = 500) -> Response:
+    lang = str(getattr(request.state, "lang", "de") or "de")
+    clean_detail = str(detail or "").strip() or _main_ui_text(lang, "unexpected_error", "Unexpected error.")
+    path = str(request.url.path or "").strip()
+    accept = str(request.headers.get("accept", "") or "").lower()
+    agent_name = str(getattr(request.state, "agent_name", "") or "ARIA").strip() or "ARIA"
+    if path == "/chat":
+        return JSONResponse(status_code=status_code, content={"detail": clean_detail})
+    if "text/html" in accept:
+        stylesheet_url = _required_module_static_asset_url("navigation_shell", "style.css")
+        chat_url = _required_module_route_path("chat_surface", "/")
+        html_body = (
+            f"<!DOCTYPE html><html lang='{html.escape(lang[:2] or 'de')}'><head><meta charset='UTF-8'>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+            f"<title>{html.escape(_main_ui_text(lang, 'error_title', '{agent_name} error', agent_name=agent_name))}</title><link rel='stylesheet' href='{html.escape(stylesheet_url)}'></head>"
+            "<body><main class='config-layout'><section class='config-card'>"
+            f"<h2>{html.escape(_main_ui_text(lang, 'page_load_failed', '{agent_name} could not load this page cleanly.', agent_name=agent_name))}</h2>"
+            f"<p>{html.escape(clean_detail)}</p>"
+            f"<p><a class='nav-link' href='{html.escape(chat_url)}'>{html.escape(_main_ui_text(lang, 'back_to_chat', 'Back to chat'))}</a></p>"
+            "</section></main></body></html>"
+        )
+        return HTMLResponse(status_code=status_code, content=html_body)
+    return JSONResponse(status_code=status_code, content={"detail": clean_detail})
+
+
+def lang_flag(code: str) -> str:
+    lang = str(code or "").strip().lower()
+    if lang.startswith("de"):
+        return "🇩🇪"
+    if lang.startswith("en"):
+        return "🇬🇧"
+    if len(lang) >= 2 and lang[:2].isalpha():
+        pair = lang[:2].upper()
+        return chr(ord(pair[0]) + 127397) + chr(ord(pair[1]) + 127397)
+    return "🏳️"
+
+
+def lang_label(code: str) -> str:
+    lang = str(code or "").strip().lower()
+    return LANGUAGE_LABELS.get(lang, lang.upper() or "LANG")
+
+
+def current_memory_day() -> str:
+    return datetime.now().strftime("%y%m%d")
+
+
+def parse_collection_day_suffix(name: str) -> datetime | None:
+    raw = str(name).strip()
+    if len(raw) < 6:
+        return None
+    suffix = raw[-6:]
+    if not suffix.isdigit():
+        return None
+    try:
+        return datetime.strptime(suffix, "%y%m%d")
+    except ValueError:
+        return None
+
+
+def read_doc_text(base_dir: Path, relative_path: str) -> str:
+    doc_path = base_dir / relative_path
+    if not doc_path.exists():
+        return ""
+    try:
+        return doc_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def localized_doc_path(base_dir: Path, relative_path: str, lang: str) -> str:
+    clean_lang = str(lang or "").strip().lower()
+    if not clean_lang:
+        return relative_path
+    doc_path = Path(relative_path)
+    if doc_path.suffix.lower() != ".md":
+        return relative_path
+    lang_code = clean_lang[:2]
+    if lang_code not in {"de", "en"}:
+        return relative_path
+    localized_name = f"{doc_path.stem}.{lang_code}{doc_path.suffix}"
+    localized_path = doc_path.with_name(localized_name)
+    if (base_dir / localized_path).exists():
+        return localized_path.as_posix()
+    return relative_path
+
+
+def render_markdown_doc(text: str) -> Markup:
+    if not text.strip():
+        return Markup("")
+    if markdown_lib is None:
+        return Markup(f"<pre>{html.escape(text)}</pre>")
+    rendered = markdown_lib.markdown(
+        text,
+        extensions=["fenced_code", "tables", "sane_lists"],
+        output_format="html5",
+    )
+    return Markup(rendered)

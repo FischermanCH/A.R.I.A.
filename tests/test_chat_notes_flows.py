@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from aria.core.notes_magic import WebNoteSource
-import aria.web.chat_notes_flows as chat_notes_flows
-from aria.web.chat_notes_flows import handle_chat_notes_flow
+from aria.modules.notes.magic import WebNoteSource
+import aria.modules.notes.chat_flows as chat_notes_flows
+from aria.modules.notes.chat_flows import handle_chat_notes_flow
 
 
 class _Response:
@@ -32,7 +32,7 @@ class _NotesLLM:
 
 async def _run_open(base_dir: Path):
     return await handle_chat_notes_flow(
-        clean_message="öffne notizen",
+        clean_message="open notes",
         username="neo",
         base_dir=base_dir,
         settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -41,7 +41,7 @@ async def _run_open(base_dir: Path):
 
 async def _run_create(base_dir: Path):
     return await handle_chat_notes_flow(
-        clean_message="erstelle notiz Ideen: Erste Zeile\n\nMehr Text",
+        clean_message="create note: Ideen\nErste Zeile\n\nMehr Text",
         username="neo",
         base_dir=base_dir,
         settings=SimpleNamespace(
@@ -74,12 +74,15 @@ def test_chat_notes_flow_can_create_note_without_qdrant(tmp_path: Path):
     assert "Erste Zeile" in saved_files[0].read_text(encoding="utf-8")
 
 
-def test_chat_notes_flow_can_create_natural_note_with_tags(tmp_path: Path):
+def test_chat_notes_flow_does_not_infer_tags_from_canonical_note_contract(tmp_path: Path):
     import asyncio
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="halte fest Google Calendar OAuth braucht Audience, Test users und OAuth Playground",
+            clean_message=(
+                "create note: Google Calendar OAuth\n"
+                "Google Calendar OAuth braucht Audience, Test users und OAuth Playground"
+            ),
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(
@@ -91,15 +94,15 @@ def test_chat_notes_flow_can_create_natural_note_with_tags(tmp_path: Path):
 
     assert outcome is not None
     assert outcome.handled is True
-    assert "Tags:" in outcome.assistant_text
+    assert "Tags:" not in outcome.assistant_text
     saved_files = list((tmp_path / "data" / "notes" / "neo").rglob("*.md"))
     assert len(saved_files) == 1
     raw = saved_files[0].read_text(encoding="utf-8")
-    assert "tags:" in raw
+    assert "tags:" not in raw
     assert "oauth" in raw.lower()
 
 
-def test_chat_notes_flow_can_search_notes(tmp_path: Path):
+def test_chat_notes_flow_does_not_use_lexical_search_when_semantic_index_is_disabled(tmp_path: Path):
     import asyncio
 
     store = chat_notes_flows._store(tmp_path)
@@ -107,7 +110,7 @@ def test_chat_notes_flow_can_search_notes(tmp_path: Path):
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="suche in notizen nach qdrant",
+            clean_message="search notes: qdrant",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -116,13 +119,13 @@ def test_chat_notes_flow_can_search_notes(tmp_path: Path):
 
     assert outcome is not None
     assert outcome.handled is True
-    assert "Qdrant Plan" in outcome.assistant_text
-    assert "/notes?note=" in outcome.assistant_text
+    assert "nichts Passendes gefunden" in outcome.assistant_text
+    assert "`/notes`" in outcome.assistant_text
     assert outcome.badge_duration is not None
     assert any("notes_flow handled=true" in row for row in outcome.badge_details)
 
 
-def test_chat_notes_flow_agentic_arbiter_rewrites_natural_search(tmp_path: Path) -> None:
+def test_chat_notes_flow_agentic_arbiter_does_not_add_lexical_search_fallback(tmp_path: Path) -> None:
     import asyncio
 
     store = chat_notes_flows._store(tmp_path)
@@ -130,7 +133,7 @@ def test_chat_notes_flow_agentic_arbiter_rewrites_natural_search(tmp_path: Path)
     llm = _NotesLLM(
         {
             "action": "search_notes",
-            "canonical_command": "suche in notizen nach agentic",
+            "canonical_command": "search notes: agentic",
             "confidence": "high",
             "reason": "The user asks to search notes.",
         }
@@ -148,7 +151,7 @@ def test_chat_notes_flow_agentic_arbiter_rewrites_natural_search(tmp_path: Path)
 
     assert outcome is not None
     assert outcome.handled is True
-    assert "ARIA Agentic Plan" in outcome.assistant_text
+    assert "nichts Passendes gefunden" in outcome.assistant_text
     assert llm.operations == ["notes_action_arbitration"]
 
 
@@ -186,7 +189,7 @@ def test_chat_notes_flow_can_list_note_folders(tmp_path: Path):
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="zeige ordner in notizen",
+            clean_message="list note folders",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -207,7 +210,7 @@ def test_chat_notes_flow_can_list_notes_in_folder(tmp_path: Path):
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="zeige notizen in Projekte/ARIA",
+            clean_message="list notes in folder: Projekte/ARIA",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -228,7 +231,7 @@ def test_chat_notes_flow_can_open_notes_folder_without_falling_through(tmp_path:
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="öffne notizen in ordner area41",
+            clean_message="list notes in folder: area41",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -249,7 +252,7 @@ def test_chat_notes_flow_resolves_folder_case_insensitively(tmp_path: Path):
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="öffne notizen in ordner area41",
+            clean_message="list notes in folder: area41",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -262,7 +265,7 @@ def test_chat_notes_flow_resolves_folder_case_insensitively(tmp_path: Path):
     assert "Area41 Status" in outcome.assistant_text
 
 
-def test_chat_notes_flow_can_open_note_by_query(tmp_path: Path):
+def test_chat_notes_flow_does_not_guess_note_by_title_when_semantic_search_is_unavailable(tmp_path: Path):
     import asyncio
 
     store = chat_notes_flows._store(tmp_path)
@@ -270,7 +273,7 @@ def test_chat_notes_flow_can_open_note_by_query(tmp_path: Path):
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="öffne notiz qdrant",
+            clean_message="open note: qdrant",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
@@ -279,40 +282,8 @@ def test_chat_notes_flow_can_open_note_by_query(tmp_path: Path):
 
     assert outcome is not None
     assert outcome.handled is True
-    assert "Qdrant Plan" in outcome.assistant_text
-    assert "/notes?note=" in outcome.assistant_text
-
-
-def test_chat_notes_flow_can_use_notes_as_web_context(tmp_path: Path, monkeypatch):
-    import asyncio
-
-    store = chat_notes_flows._store(tmp_path)
-    store.save_note("neo", title="Google OAuth", folder="Recherche", body="Audience, Test users und OAuth Playground")
-
-    class _FakeWebSearch:
-        def __init__(self, *, settings):
-            self.settings = settings
-
-        async def execute(self, query: str, params: dict):
-            _ = params
-            return SimpleNamespace(content=f"[Web Search]\\nSuche: {query}\\n- Treffer")
-
-    monkeypatch.setattr(chat_notes_flows, "WebSearchSkill", _FakeWebSearch)
-
-    outcome = asyncio.run(
-        handle_chat_notes_flow(
-            clean_message="suche im internet nach google calendar oauth mit meinen notizen zu google oauth",
-            username="neo",
-            base_dir=tmp_path,
-            settings=SimpleNamespace(memory=SimpleNamespace(enabled=False, backend="memory"), embeddings=SimpleNamespace()),
-        )
-    )
-
-    assert outcome is not None
-    assert outcome.handled is True
-    assert "Notiz-Kontext" in outcome.assistant_text
-    assert "Google OAuth" in outcome.assistant_text
-    assert "[Web Search]" in outcome.assistant_text
+    assert "keine Notiz gefunden" in outcome.assistant_text
+    assert "/notes?q=qdrant" in outcome.assistant_text
 
 
 def test_chat_notes_flow_can_capture_web_source_as_note(tmp_path: Path, monkeypatch):
@@ -332,7 +303,7 @@ def test_chat_notes_flow_can_capture_web_source_as_note(tmp_path: Path, monkeypa
 
     outcome = asyncio.run(
         handle_chat_notes_flow(
-            clean_message="speichere webseite https://example.org/google-oauth als notiz",
+            clean_message="save web source: https://example.org/google-oauth",
             username="neo",
             base_dir=tmp_path,
             settings=SimpleNamespace(
@@ -345,7 +316,7 @@ def test_chat_notes_flow_can_capture_web_source_as_note(tmp_path: Path, monkeypa
     assert outcome is not None
     assert outcome.handled is True
     assert "Webquelle als Notiz gespeichert" in outcome.assistant_text
-    assert "Recherche" in outcome.assistant_text
+    assert "Ordner: Inbox" in outcome.assistant_text
     saved_files = list((tmp_path / "data" / "notes" / "neo").rglob("*.md"))
     assert len(saved_files) == 1
     raw = saved_files[0].read_text(encoding="utf-8")

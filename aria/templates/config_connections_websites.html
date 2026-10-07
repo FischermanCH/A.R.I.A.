@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <main class="config-layout">
+  {% set website_ui_page_path = required_module_route_path('website_ui', '/config/connections/websites') %}
+  {% set website_ui_save_path = required_module_route_path('website_ui', '/config/connections/websites/save') %}
+  {% set website_ui_suggest_metadata_path = required_module_route_path('website_ui', '/config/connections/websites/suggest-metadata') %}
   {% include "_connection_page_intro.html" %}
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
@@ -38,13 +41,13 @@
       {% endfor %}
     </div>
 
-    <form method="post" action="/config/connections/websites/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ website_ui_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_website_ref }}">
       {% set schema_fields = website_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'website_edit' %}
       {% set meta_llm_kind = 'website' %}
-      {% set meta_llm_endpoint = '/config/connections/websites/suggest-metadata' %}
+      {% set meta_llm_endpoint = website_ui_suggest_metadata_path %}
       {% set meta_llm_source_fields = ['url', 'group_name'] %}
       {% set meta_values = selected_website %}
       {% include "_connection_metadata_fields.html" %}
@@ -76,7 +79,7 @@
           <div class="skill-details-content connection-status-grid">
             {% for item in group.rows %}
             <a
-              href="/config/connections/websites?mode=edit&website_ref={{ item.ref|urlencode }}"
+              href="{{ website_ui_page_path }}?mode=edit&website_ref={{ item.ref|urlencode }}"
               class="connection-test-card connection-test-card-link status-{{ item.status }}{% if item.selected %} current-profile{% endif %}"
             >
               <div class="connection-test-head"><span class="health-lamp status-{{ item.status }}"></span><strong>{{ item.display_name }}</strong>{% if item.display_name != item.ref %}<small class="connection-ref-inline">{{ item.ref }}</small>{% endif %}</div>
@@ -109,13 +112,13 @@
       <span>{{ tr(request,'config_conn.website_recommended_flow_text','1) URL eintragen. 2) Metadaten per LLM ergänzen lassen. 3) Speichern. 4) ARIA testet die Quelle und ordnet sie in eine Gruppe ein.') }}</span>
     </div>
 
-    <form method="post" action="/config/connections/websites/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ website_ui_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
       {% set schema_fields = website_new_form_fields %}
       {% include "_connection_schema_fields.html" %}
       {% set meta_prefix = 'website_new' %}
       {% set meta_llm_kind = 'website' %}
-      {% set meta_llm_endpoint = '/config/connections/websites/suggest-metadata' %}
+      {% set meta_llm_endpoint = website_ui_suggest_metadata_path %}
       {% set meta_llm_source_fields = ['url', 'group_name'] %}
       {% set meta_values = {} %}
       {% include "_connection_metadata_fields.html" %}

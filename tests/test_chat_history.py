@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aria.core.chat_history import FileChatHistoryStore
+from aria.modules.chat_history_storage.store import FileChatHistoryStore
 
 
 def test_chat_history_append_and_load(tmp_path: Path) -> None:
@@ -18,6 +18,7 @@ def test_chat_history_append_and_load(tmp_path: Path) -> None:
         badge_tokens=12,
         badge_cost_usd="$0.000001",
         badge_duration="0.2",
+        request_id="request-1",
     )
 
     history = store.load_history("DemoUser")
@@ -27,6 +28,7 @@ def test_chat_history_append_and_load(tmp_path: Path) -> None:
     assert history[1]["role"] == "assistant"
     assert history[1]["text"] == "Hi"
     assert history[1]["badge_intent"] == "chat"
+    assert history[1]["request_id"] == "request-1"
 
 
 def test_chat_history_trim_and_clear(tmp_path: Path) -> None:

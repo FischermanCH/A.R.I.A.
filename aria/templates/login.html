@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
+{% set auth_ui_login_path = module_route_path('auth_ui', '/login') %}
+{% set release_update_updates_path = module_route_path('release_update', '/updates') %}
 <main class="chat-layout login-layout">
   <section class="login-box">
-    <form method="get" action="/login" class="editor-form login-lang-form">
+    <form method="get" action="{{ auth_ui_login_path }}" class="editor-form login-lang-form">
       <input type="hidden" name="next" value="{{ next_path or '/' }}">
       <label>
         {{ tr(request, 'login.language', 'Sprache') }}
@@ -17,7 +19,7 @@
     <p class="hint-text">{{ tr(request, 'login.subtitle', 'Melde dich mit Benutzername und Passwort an.') }}</p>
     <p class="hint-text">{{ tr(request, 'login.case_hint', 'Benutzername ist gross/klein-sensitiv.') }}</p>
     {% if request.state.update_status.update_available %}
-    <a href="/updates" class="update-notice-card">
+    <a href="{{ release_update_updates_path }}" class="update-notice-card">
       <span class="health-lamp status-warn"></span>
       <div>
         <strong>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</strong>
@@ -45,7 +47,7 @@
     </p>
     {% endif %}
     {% endif %}
-    <form action="/login" method="post" class="login-form">
+    <form action="{{ auth_ui_login_path }}" method="post" class="login-form">
       <input type="hidden" name="next_path" value="{{ next_path or '/' }}">
       <label for="login-username">{{ tr(request, 'login.username', 'Benutzername') }}</label>
       <input

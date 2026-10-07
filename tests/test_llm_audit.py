@@ -5,10 +5,10 @@ from datetime import datetime, timedelta, timezone
 import json
 from types import SimpleNamespace
 
-import aria.core.llm_client as llm_client_mod
-from aria.core.config import LLMConfig
-from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG, LLMAuditLog
-from aria.core.llm_client import LLMClient
+import aria.modules.model_gateway_clients.llm as llm_client_mod
+from aria.modules.configuration_foundations.config import LLMConfig
+from aria.modules.model_usage_observability.llm_audit import GLOBAL_LLM_AUDIT_LOG, LLMAuditLog
+from aria.modules.model_gateway_clients.llm import LLMClient
 
 
 def test_llm_audit_redacts_and_records_gateway_prompt(monkeypatch) -> None:
@@ -29,14 +29,14 @@ def test_llm_audit_redacts_and_records_gateway_prompt(monkeypatch) -> None:
     client = LLMClient(
         LLMConfig(
             model="test-model",
-            api_key="sk-secret-key-that-must-not-leak",
+            api_key="EXAMPLE_SECRET_THAT_MUST_NOT_LEAK",
         )
     )
 
     response = asyncio.run(
         client.chat(
             [
-                {"role": "system", "content": "Use api_key: sk-secret-key-that-must-not-leak"},
+                {"role": "system", "content": "Use api_key: EXAMPLE_SECRET_THAT_MUST_NOT_LEAK"},
                 {"role": "user", "content": "webhook_url=https://discord.com/api/webhooks/abc/def"},
             ],
             source="test",
@@ -54,7 +54,7 @@ def test_llm_audit_redacts_and_records_gateway_prompt(monkeypatch) -> None:
     assert row["operation"] == "unit"
     assert row["usage"]["total_tokens"] == 10
     text = "\n".join(message["content"] for message in row["messages"])
-    assert "sk-secret-key-that-must-not-leak" not in text
+    assert "EXAMPLE_SECRET_THAT_MUST_NOT_LEAK" not in text
     assert "https://discord.com/api/webhooks/abc/def" not in text
     assert "[REDACTED]" in text
 

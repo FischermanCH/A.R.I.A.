@@ -126,6 +126,8 @@ def test_managed_update_worker_refreshes_stack_from_target_image_before_host_upd
     ]
 
 
+
+
 def test_try_refresh_managed_stack_files_logs_warning_and_continues_on_failure(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -253,6 +255,45 @@ def test_reconcile_stale_error_state_resets_status_when_validate_passes(tmp_path
     assert state["last_result"] == "Managed stack healthy after repair."
     log_text = update_helper.LOG_PATH.read_text(encoding="utf-8")
     assert "Resetting helper status to ok" in log_text
+
+
+def test_reconcile_stale_internal_update_error_from_live_aria_health(tmp_path: Path, monkeypatch) -> None:
+    class HealthyResponse:
+        status = 200
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, *_args):  # noqa: ANN204
+            return False
+
+        @staticmethod
+        def read() -> bytes:
+            return b'{"status":"ok"}'
+
+    monkeypatch.setattr(update_helper, "HELPER_MODE", "internal-local")
+    monkeypatch.setattr(update_helper, "STATE_DIR", tmp_path / ".aria-updater")
+    monkeypatch.setattr(update_helper, "STATE_PATH", tmp_path / ".aria-updater" / "state.json")
+    monkeypatch.setattr(update_helper, "LOG_PATH", tmp_path / ".aria-updater" / "update.log")
+    monkeypatch.setattr(update_helper, "_last_status_reconcile_monotonic", 0.0)
+    monkeypatch.setattr(update_helper, "urlopen", lambda *_args, **_kwargs: HealthyResponse())
+
+    update_helper._ensure_state_dir()
+    update_helper._save_state(
+        {
+            **update_helper._default_state(),
+            "status": "error",
+            "last_error": "Local update healthcheck timed out",
+            "last_result": "Update failed.",
+        }
+    )
+
+    state = update_helper._reconcile_stale_error_state()
+
+    assert state["status"] == "ok"
+    assert state["last_error"] == ""
+    assert state["last_result"] == "ARIA healthy after previous update timeout."
+    assert "ARIA health recovered" in update_helper.LOG_PATH.read_text(encoding="utf-8")
 
 
 def test_run_logged_includes_last_meaningful_failure_detail(tmp_path: Path, monkeypatch) -> None:

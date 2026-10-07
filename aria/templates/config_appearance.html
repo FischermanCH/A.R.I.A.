@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
+{% set config_ui_appearance_save_path = module_route_path('config_ui', '/config/appearance/save') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-appearance-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
   <section class="floating-card config-domain-section">
-    <form method="post" action="/config/appearance/save" class="editor-form">
+    <form method="post" action="{{ config_ui_appearance_save_path }}" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
         {{ tr(request, 'config_appearance.preset_label', 'Theme set') }}

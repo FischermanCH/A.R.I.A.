@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
+from urllib.parse import quote_plus
 
 import aria.main as main_mod
 from aria.main import AUTH_COOKIE, CONNECTION_CREATE_PENDING_COOKIE, CSRF_COOKIE, FORGET_PENDING_COOKIE, ROUTED_ACTION_PENDING_COOKIE, app
@@ -37,6 +38,42 @@ def test_protected_route_with_invalid_auth_cookie_redirects_to_session_expired_a
     assert response.headers["location"].startswith("/session-expired?")
     set_cookie_headers = response.headers.get_list("set-cookie")
     assert any(header.startswith(f"{_current_cookie_name(AUTH_COOKIE)}=") for header in set_cookie_headers)
+
+
+def test_chat_surface_home_get_uses_registry_template_readpoint(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def tracking_module_template_name(module_id: str, template_name: str) -> str | None:
+        seen.append((module_id, template_name))
+        return template_name
+
+    monkeypatch.setattr("aria.modules.chat_surface.routes.module_template_name", tracking_module_template_name)
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    client = TestClient(app)
+    client.cookies.set(
+        _current_cookie_name(AUTH_COOKIE),
+        main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope()),
+    )
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert ("chat_surface", "chat.html") in seen
+    assert 'class="chat-layout chat-layout-fill"' in response.text
+    assert 'id="chat-form"' in response.text
+
+
+def test_chat_surface_home_get_fails_closed_without_template_owner(monkeypatch) -> None:
+    monkeypatch.setattr("aria.modules.chat_surface.routes.module_template_name", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    client = TestClient(app)
+    client.cookies.set(
+        _current_cookie_name(AUTH_COOKIE),
+        main_mod._encode_auth_session("neo", "admin", scope=_current_cookie_scope()),
+    )
+
+    with pytest.raises(RuntimeError, match="chat_surface template is not registered: chat.html"):
+        client.get("/")
 
 
 def test_session_expired_page_clears_auth_and_pending_cookies() -> None:
@@ -116,7 +153,7 @@ def test_protected_html_routes_redirect_to_login_without_session(path: str, expe
     response = client.get(path, follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == f"/login?next={main_mod.quote_plus(expected_next)}"
+    assert response.headers["location"] == f"/login?next={quote_plus(expected_next)}"
 
 
 def test_valid_signed_cookie_survives_temporary_auth_store_unavailability(monkeypatch) -> None:

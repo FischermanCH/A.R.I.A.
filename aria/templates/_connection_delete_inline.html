@@ -1,7 +1,8 @@
 {% if delete_ref %}
+{% set connections_profiles_delete_path = module_route_path('connections_profiles', '/config/connections/delete') %}
 <form
   method="post"
-  action="/config/connections/delete"
+  action="{{ connections_profiles_delete_path }}"
   class="editor-form"
   onsubmit="return confirm('{{ tr(request, 'config_conn.delete_profile_confirm', 'Dieses Profil wirklich löschen?')|e }}');"
 >

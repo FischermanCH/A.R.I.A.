@@ -1,0 +1,46 @@
+{
+  "id": "ssh-updates-check-all-hosts",
+  "name": "SSH Updates Check (alle Hosts)",
+  "version": "0.1.0",
+  "description": "Adaptives Beispielrezept fuer Debian/Ubuntu: prueft via SSH auf ALLEN konfigurierten Hosts (connection_kind ssh, binding all), ob Paket-Updates verfuegbar sind, ohne etwas zu installieren, und fasst das Ergebnis pro Host im Chat zusammen. Read-only, keine fixe Connection-Ref.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "brauchen meine server updates",
+    "updates auf allen servern pruefen",
+    "apt updates alle hosts",
+    "server updates check adaptiv"
+  ],
+  "connections": ["ssh"],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Updates auf allen SSH-Hosts pruefen",
+      "type": "ssh_run",
+      "params": {
+        "connection_kind": "ssh",
+        "binding": "all",
+        "timeout_seconds": 120,
+        "command": "h=$(hostname 2>/dev/null||echo host); echo \"Host: $h\"; export DEBIAN_FRONTEND=noninteractive; if command -v sudo >/dev/null 2>&1; then s=sudo; else s=; fi; $s apt-get update -qq >/dev/null 2>&1||true; u=\"$(apt list --upgradable 2>/dev/null|sed 1d||true)\"; c=\"$(printf \"%s\\n\" \"$u\"|grep -c .||true)\"; echo \"Updates available: $c\"; [ -n \"$u\" ] && printf \"%s\\n\" \"$u\"|sed -n \"1,15p\" || echo \"System is up to date.\""
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s2",
+      "name": "Ergebnis kurz zusammenfassen",
+      "type": "llm_transform",
+      "params": {"prompt": "Du bist ARIA. Fasse den Update-Check ALLER Hosts kurz auf Deutsch zusammen: pro Host eine Zeile mit Host, Anzahl Updates und bis zu 3 Paketnamen. Beginne mit einer klaren Kurzantwort. Keine Rohsektionen wie STDOUT/STDERR/Exit-Code. Technischer Input:\n\n{prev_output}"},
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {"chat_message": "{prev_output}"},
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {"enabled": false, "cron": "", "timezone": "Europe/Zurich", "run_on_startup": false},
+  "ui": {"config_path": "/recipes", "hint": "Adaptiv: laeuft auf ALLEN konfigurierten SSH-Verbindungen (binding all), prueft nur und installiert nichts. Ohne SSH-Verbindung stoppt es ehrlich. Debian/Ubuntu."},
+  "schema_version": "1.1"
+}

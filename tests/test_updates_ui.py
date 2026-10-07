@@ -5,11 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 import aria.main as main_mod
-import aria.web.stats_routes as stats_routes_mod
-from aria.core.update_helper_client import resolve_update_helper_config
+import aria.modules.release_update.routes as system_update_routes_mod
+import aria.modules.stats_ui.routes as stats_routes_mod
+from aria.modules.release_update.helper_client import resolve_update_helper_config
 
 
 def _scoped_cookie(base_name: str) -> str:
@@ -25,6 +27,15 @@ def _scoped_auth(username: str, role: str) -> str:
 
 
 def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = main_mod.TEMPLATES.env.globals["module_route_path"]
+
+    def tracking_module_route_path(module_id: str, route_path: str):  # noqa: ANN202
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return original(module_id, route_path)
+
+    monkeypatch.setitem(main_mod.TEMPLATES.env.globals, "module_route_path", tracking_module_route_path)
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
@@ -49,9 +60,19 @@ def test_login_page_shows_update_notice_when_newer_version_exists(monkeypatch) -
     assert "0.1.0-alpha27" in response.text
     assert "/updates" in response.text
     assert "hart neu laden" in response.text or "hard reload" in response.text
+    assert ("release_update", "/updates") in seen
 
 
 def test_authenticated_menu_surfaces_updates_destination_when_available(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = main_mod.TEMPLATES.env.globals["module_route_path"]
+
+    def tracking_module_route_path(module_id: str, route_path: str):  # noqa: ANN202
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return original(module_id, route_path)
+
+    monkeypatch.setitem(main_mod.TEMPLATES.env.globals, "module_route_path", tracking_module_route_path)
     monkeypatch.setattr(
         main_mod,
         "_get_update_status",
@@ -80,6 +101,7 @@ def test_authenticated_menu_surfaces_updates_destination_when_available(monkeypa
     assert 'href="/updates"' in response.text
     assert "menu-update-chip" in response.text
     assert "Update verf" in response.text or "Update avail" in response.text
+    assert ("release_update", "/updates") in seen
 
 
 def test_authenticated_menu_keeps_updates_destination_active_without_chip_when_current(monkeypatch) -> None:
@@ -160,6 +182,39 @@ def test_updates_page_renders_release_notes(monkeypatch) -> None:
     assert "memory-subnav-item" in response.text
     assert 'href="/updates?return_to=/config"' in response.text
     assert "/config/operations" not in response.text
+
+
+def test_updates_page_uses_registry_template_readpoint(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main_mod,
+        "_read_release_meta",
+        lambda _base_dir: {
+            "version": "0.1.0",
+            "label": "0.1.0-alpha41",
+        },
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "_get_update_status",
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
+            "current_label": "0.1.0-alpha41",
+            "latest_label": "0.1.0-alpha41",
+            "latest_tag": "v0.1.0-alpha.41",
+            "update_available": False,
+            "checked_at": "2026-04-05T10:00:00+00:00",
+            "source": "github-tags",
+            "release_notes": "",
+            "release_notes_source": "",
+            "recent_releases": [],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(system_update_routes_mod, "module_template_name", lambda *_args, **_kwargs: None)
+    client = TestClient(main_mod.app, raise_server_exceptions=False)
+
+    response = client.get("/updates")
+
+    assert response.status_code == 500
 
 
 def test_updates_page_is_public_but_hides_managed_controls_for_anonymous(monkeypatch) -> None:
@@ -306,6 +361,73 @@ def test_updates_page_shows_prominent_live_card_while_update_is_running(monkeypa
     assert "Request sent to update helper" in response.text or "Anfrage an den Update-Helper gesendet" in response.text
 
 
+def test_updates_page_visible_urls_use_release_update_route_readpoints(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = system_update_routes_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id in {"release_update", "config_ui"}:
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", tracking_module_route_path)
+    monkeypatch.setattr(
+        main_mod,
+        "_read_release_meta",
+        lambda _base_dir: {
+            "version": "0.1.0",
+            "label": "0.1.0-alpha73",
+        },
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "_get_update_status",
+        lambda _current_label, ttl_seconds=60 * 60 * 6: {
+            "current_label": "0.1.0-alpha73",
+            "latest_label": "0.1.0-alpha73",
+            "latest_tag": "v0.1.0-alpha.73",
+            "update_available": False,
+            "checked_at": "2026-04-09T06:00:00+00:00",
+            "source": "github-tags",
+            "release_notes": "## [0.1.0-alpha.73] - 2026-04-09",
+            "release_notes_source": "CHANGELOG.md",
+            "recent_releases": [],
+            "error": "",
+        },
+    )
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        main_mod,
+        "fetch_update_helper_status",
+        lambda _config: {
+            "status": "running",
+            "running": True,
+            "current_step": "Run internal aria-pull/update-local flow",
+            "last_started_at": "2026-04-09T06:31:58Z",
+            "last_finished_at": "",
+            "last_result": "",
+            "last_error": "",
+            "log_tail": [],
+        },
+    )
+
+    client = TestClient(main_mod.app)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
+    response = client.get("/updates")
+
+    assert response.status_code == 200
+    assert 'action="/updates/run"' in response.text
+    assert 'data-status-url="/updates/status"' in response.text
+    assert 'data-reload-url="/updates/relogin?next=%2Fupdates"' in response.text
+    assert ("release_update", "/updates") in seen
+    assert ("release_update", "/updates/run") in seen
+    assert ("release_update", "/updates/status") in seen
+    assert ("release_update", "/updates/relogin") in seen
+    assert ("config_ui", "/config") in seen
+
+
 def test_internal_local_helper_mode_is_treated_as_gui_update_capable() -> None:
     config = resolve_update_helper_config(
         env={
@@ -358,7 +480,7 @@ def test_updates_run_renders_running_wait_page_for_regular_form_posts(monkeypatc
     assert response.status_code == 200
     assert "Update in progress" in response.text or "Update laeuft gerade" in response.text
     assert "/updates/status" in response.text
-    assert "/health" in response.text
+    assert 'data-health-url="/health"' in response.text
 
 
 def test_updates_run_returns_json_for_ajax_requests(monkeypatch) -> None:
@@ -384,7 +506,51 @@ def test_updates_run_returns_json_for_ajax_requests(monkeypatch) -> None:
     assert payload["reload_url"] == "/updates/relogin?next=%2Fupdates"
 
 
-def test_updates_relogin_clears_current_instance_cookies() -> None:
+def test_updates_run_ajax_urls_use_release_update_route_readpoints(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = system_update_routes_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", tracking_module_route_path)
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "trigger_update_helper_run", lambda _config: {"status": "accepted"})
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+
+    client = TestClient(main_mod.app)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
+    client.get("/updates")
+    csrf_token = client.cookies.get(_scoped_cookie(main_mod.CSRF_COOKIE), "")
+    response = client.post(
+        "/updates/run",
+        data={"csrf_token": csrf_token},
+        headers={"X-Requested-With": "ARIA-Update-UI", "Accept": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["running_url"] == "/updates/running"
+    assert ("release_update", "/updates") in seen
+    assert ("release_update", "/updates/running") in seen
+    assert ("release_update", "/updates/status") in seen
+    assert ("release_update", "/updates/relogin") in seen
+
+
+def test_updates_relogin_clears_current_instance_cookies_and_uses_auth_readpoint(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = system_update_routes_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id == "auth_ui":
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", tracking_module_route_path)
     client = TestClient(main_mod.app)
     client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("whity", "admin"))
     client.cookies.set(_scoped_cookie(main_mod.CSRF_COOKIE), "csrf-token")
@@ -396,6 +562,7 @@ def test_updates_relogin_clears_current_instance_cookies() -> None:
 
     assert response.status_code == 303
     assert response.headers["location"] == "/login?next=%2Fupdates"
+    assert ("auth_ui", "/login") in seen
     set_cookie_headers = response.headers.get_list("set-cookie")
     assert any(header.startswith(f"{_scoped_cookie(main_mod.AUTH_COOKIE)}=") for header in set_cookie_headers)
     assert any(header.startswith(f"{_scoped_cookie(main_mod.USERNAME_COOKIE)}=") for header in set_cookie_headers)
@@ -403,7 +570,32 @@ def test_updates_relogin_clears_current_instance_cookies() -> None:
     assert any(header.startswith(f"{_scoped_cookie(main_mod.SESSION_COOKIE)}=") for header in set_cookie_headers)
 
 
+def test_updates_relogin_redirect_fails_closed_without_auth_owner(monkeypatch) -> None:
+    original = system_update_routes_mod.module_route_path
+    monkeypatch.setattr(
+        system_update_routes_mod,
+        "module_route_path",
+        lambda module_id, route_path, **_kwargs: None
+        if module_id == "auth_ui" and route_path == "/login"
+        else original(module_id, route_path),
+    )
+    client = TestClient(main_mod.app)
+
+    with pytest.raises(RuntimeError, match="auth_ui route is not registered: /login"):
+        client.get("/updates/relogin?next=%2Fupdates", follow_redirects=False)
+
+
 def test_updates_page_forces_relogin_when_helper_finished_after_session(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = system_update_routes_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", tracking_module_route_path)
     session_issued_at = int(time.time()) - 120
     helper_started_at = datetime.fromtimestamp(session_issued_at + 30, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     helper_finished_at = datetime.fromtimestamp(session_issued_at + 90, tz=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -461,9 +653,21 @@ def test_updates_page_forces_relogin_when_helper_finished_after_session(monkeypa
 
     assert response.status_code == 303
     assert response.headers["location"] == "/updates/relogin?next=%2Fupdates"
+    assert ("release_update", "/updates") in seen
+    assert ("release_update", "/updates/relogin") in seen
 
 
 def test_updates_run_rejects_non_admin(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = system_update_routes_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", tracking_module_route_path)
     monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
     monkeypatch.setattr(main_mod, "fetch_update_helper_status", lambda _config: {"status": "idle", "running": False})  # noqa: ARG005
     monkeypatch.setattr(main_mod, "trigger_update_helper_run", lambda _config: {"status": "accepted"})
@@ -477,6 +681,40 @@ def test_updates_run_rejects_non_admin(monkeypatch) -> None:
 
     assert response.status_code == 303
     assert response.headers["location"] == "/updates?error=no_admin"
+    assert ("release_update", "/updates") in seen
+
+
+def test_updates_redirects_fail_closed_without_release_update_owner(monkeypatch) -> None:
+    original = system_update_routes_mod.module_route_path
+
+    def missing_release_update_route(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        if module_id == "release_update":
+            return None
+        return original(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", missing_release_update_route)
+    client = TestClient(main_mod.app, raise_server_exceptions=False)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "user"))
+
+    response = client.get("/updates/running", follow_redirects=False)
+
+    assert response.status_code == 500
+
+
+def test_updates_page_fails_closed_without_config_ui_owner(monkeypatch) -> None:
+    original = system_update_routes_mod.module_route_path
+
+    def missing_config_route(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202, ARG001
+        if module_id == "config_ui" and route_path == "/config":
+            return None
+        return original(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", missing_config_route)
+    client = TestClient(main_mod.app, raise_server_exceptions=False)
+
+    response = client.get("/updates")
+
+    assert response.status_code == 500
 
 
 def test_updates_run_rejects_anonymous_even_with_valid_csrf(monkeypatch) -> None:
@@ -561,6 +799,82 @@ def test_updates_running_page_renders_reconnect_shell(monkeypatch) -> None:
     assert "/health" in response.text
 
 
+def test_updates_running_page_visible_urls_use_release_update_route_readpoints(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = system_update_routes_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", tracking_module_route_path)
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        main_mod,
+        "fetch_update_helper_status",
+        lambda _config: {
+            "status": "running",
+            "visual_status": "warn",
+            "running": True,
+            "current_step": "Recreating aria",
+            "last_started_at": "2026-04-09T06:31:58Z",
+            "last_finished_at": "",
+            "last_result": "",
+            "last_error": "",
+            "log_tail": [],
+        },
+    )
+
+    client = TestClient(main_mod.app)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
+    response = client.get("/updates/running")
+
+    assert response.status_code == 200
+    assert 'data-health-url="/health"' in response.text
+    assert 'data-reload-url="/updates"' in response.text
+    assert 'data-status-url="/updates/status"' in response.text
+    assert ("release_update", "/health") in seen
+    assert ("release_update", "/updates") in seen
+    assert ("release_update", "/updates/status") in seen
+
+
+def test_update_live_card_fails_closed_without_health_readpoint(monkeypatch) -> None:
+    original = system_update_routes_mod.module_route_path
+
+    def without_health(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        if module_id == "release_update" and route_path == "/health":
+            return None
+        return original(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(system_update_routes_mod, "module_route_path", without_health)
+    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
+    monkeypatch.setattr(main_mod, "get_master_key", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(
+        main_mod,
+        "fetch_update_helper_status",
+        lambda _config: {
+            "status": "running",
+            "visual_status": "warn",
+            "running": True,
+            "current_step": "Recreating aria",
+            "last_started_at": "2026-04-09T06:31:58Z",
+            "last_finished_at": "",
+            "last_result": "",
+            "last_error": "",
+            "log_tail": [],
+        },
+    )
+
+    client = TestClient(main_mod.app, raise_server_exceptions=False)
+    client.cookies.set(_scoped_cookie(main_mod.AUTH_COOKIE), _scoped_auth("neo", "admin"))
+    response = client.get("/updates/running")
+
+    assert response.status_code == 500
+
+
 def test_update_reconnect_service_worker_is_available() -> None:
     client = TestClient(main_mod.app)
 
@@ -571,14 +885,115 @@ def test_update_reconnect_service_worker_is_available() -> None:
     assert "X-ARIA-Reconnect-Shell" in response.text
     assert 'request.mode !== "navigate"' in response.text
     assert "reconnectShell(request.url)" in response.text
+    assert 'const ARIA_RECONNECT_HEALTH_URL = "/health";' in response.text
+    assert 'fetch("/health' not in response.text
+
+
+def test_update_reconnect_service_worker_uses_registry_asset_readpoint(monkeypatch) -> None:
+    monkeypatch.setattr(main_mod, "module_static_asset_path", lambda *_args, **_kwargs: None)
+    client = TestClient(main_mod.app)
+
+    response = client.get("/update-reconnect-sw.js")
+
+    assert response.status_code == 404
+
+
+def test_update_reconnect_service_worker_uses_registry_health_readpoint(monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    original = main_mod.module_route_path
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        result = original(module_id, route_path, **kwargs)
+        if module_id == "release_update":
+            seen.append((module_id, route_path))
+        return result
+
+    monkeypatch.setattr(main_mod, "module_route_path", tracking_module_route_path)
+    client = TestClient(main_mod.app)
+
+    response = client.get("/update-reconnect-sw.js")
+
+    assert response.status_code == 200
+    assert 'const ARIA_RECONNECT_HEALTH_URL = "/health";' in response.text
+    assert ("release_update", "/health") in seen
+
+
+def test_update_reconnect_service_worker_fails_closed_without_health_readpoint(monkeypatch) -> None:
+    original = main_mod.module_route_path
+
+    def without_health(module_id: str, route_path: str, **kwargs):  # noqa: ANN001, ANN202
+        if module_id == "release_update" and route_path == "/health":
+            return None
+        return original(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(main_mod, "module_route_path", without_health)
+    client = TestClient(main_mod.app)
+
+    response = client.get("/update-reconnect-sw.js")
+
+    assert response.status_code == 404
 
 
 def test_base_registers_update_reconnect_service_worker() -> None:
     template = Path("aria/templates/base.html").read_text(encoding="utf-8")
+    reconnect_shell = Path("aria/static/update-reconnect-sw.js").read_text(encoding="utf-8")
+    updates_template = Path("aria/templates/updates.html").read_text(encoding="utf-8")
 
-    assert 'navigator.serviceWorker.register("/update-reconnect-sw.js"' in template
+    assert "module_route_path('release_update', '/update-reconnect-sw.js')" in template
+    assert "module_route_path('release_update', '/health')" in template
+    assert 'navigator.serviceWorker.register(reconnectServiceWorkerUrl' in template
+    assert 'navigator.serviceWorker.register("/update-reconnect-sw.js"' not in template
+    assert 'fetch("/health"' not in template
+    assert 'fetch("/health' not in reconnect_shell
+    assert "ARIA_RECONNECT_HEALTH_URL" in reconnect_shell
+    assert "liveCard ? liveCard.dataset.healthUrl : '/health'" not in updates_template
     assert 'scope: "/"' in template
     assert 'updateViaCache: "none"' in template
+
+
+def test_base_service_worker_registration_uses_registry_route_readpoint(monkeypatch) -> None:
+    original = main_mod.TEMPLATES.env.globals["module_route_path"]
+    monkeypatch.setitem(main_mod.TEMPLATES.env.globals, "module_route_path", lambda *_args, **_kwargs: "")
+    client = TestClient(main_mod.app)
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    assert 'const reconnectServiceWorkerUrl = "";' in response.text
+    assert "/update-reconnect-sw.js" not in response.text
+    monkeypatch.setitem(main_mod.TEMPLATES.env.globals, "module_route_path", original)
+
+
+def test_base_health_poll_uses_registry_route_readpoint(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+    original = main_mod.TEMPLATES.env.globals["module_route_path"]
+
+    def tracking_route_path(module_id: str, route_path: str) -> str:
+        calls.append((module_id, route_path))
+        return route_path
+
+    monkeypatch.setitem(main_mod.TEMPLATES.env.globals, "module_route_path", tracking_route_path)
+    client = TestClient(main_mod.app)
+
+    response = client.get("/login")
+
+    assert response.status_code == 200
+    assert 'fetch("/health"' in response.text
+    assert ("release_update", "/health") in calls
+    monkeypatch.setitem(main_mod.TEMPLATES.env.globals, "module_route_path", original)
+
+
+def test_update_redirect_routes_do_not_keep_hardcoded_release_update_targets() -> None:
+    source = Path("aria/modules/release_update/routes.py").read_text(encoding="utf-8")
+    blocked = [
+        'RedirectResponse(url="/updates"',
+        'RedirectResponse(url="/updates?',
+        'RedirectResponse(url=f"/updates?',
+        'RedirectResponse(url="/updates/relogin',
+        'RedirectResponse(url=f"/updates/relogin',
+    ]
+
+    assert [snippet for snippet in blocked if snippet in source] == []
 
 
 def test_stats_page_shows_update_card_and_uses_same_release_label(monkeypatch) -> None:

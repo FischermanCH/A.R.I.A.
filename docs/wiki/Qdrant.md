@@ -28,7 +28,7 @@ Important: Qdrant does not decide alone. Policy, guardrails, and runtime remain 
 
 ## Qdrant Brain in the Memory Map
 
-`/memories/map` includes a visual Qdrant Brain view. ARIA reads a bounded sample from user memory and document collections in read-only mode, computes semantic edges server-side, and renders a zoomable drilldown graph from that data.
+`/memories` includes a visual Qdrant Brain view. ARIA reads a bounded sample from user memory and document collections in read-only mode, computes semantic edges server-side, and renders a zoomable drilldown graph from that data.
 
 The view is meant for observation and debugging:
 
@@ -43,11 +43,11 @@ The view is meant for observation and debugging:
 If memory, RAG, or routing feels weak:
 
 - check `/stats` preflight
-- open `/memories/map`
+- open `/memories`
 - check embedding model and fingerprint
 - test connection routing under `/config/routing`
 - watch Qdrant collection and storage warnings
 
 ## Update note
 
-Normal managed updates recreate only `aria`. Qdrant and its volume intentionally stay running. Use `repair` or full-stack work only when release notes or recovery guidance say so.
+Normal managed updates recreate only `aria`. Qdrant and its volumes intentionally stay running. Use `repair` or full-stack work only when release notes or recovery guidance say so.

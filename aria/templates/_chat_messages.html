@@ -1,8 +1,38 @@
+{% if not assistant_only %}
 <article class="msg msg-user">
   <p>{{ user_message }}</p>
 </article>
-<article class="msg msg-assistant">
+{% endif %}
+<article class="msg msg-assistant"{% if agent_job_id %} data-agent-job-id="{{ agent_job_id }}" data-agent-job-notice="{{ 'true' if agent_job_notice else 'false' }}" data-agent-job-state="{{ badge_intent|e }}" data-agent-job-event-key="{{ (agent_job_event_key or '')|e }}"{% endif %}>
   <div class="msg-text">{{ render_assistant_message_html(assistant_message) }}</div>
+  {% if agent_job_id and not agent_job_notice %}
+  <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ agent_job_id|e }}" data-agent-job-event-key="{{ (agent_job_event_key or '')|e }}">
+    <button type="button" class="js-agent-job-action" data-agent-job-action="pause">⏸ {{ tr(request, 'agent_jobs.pause', 'Pausieren') }}</button>
+    <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+    <span class="stat-sub" data-agent-job-control-status aria-live="polite"></span>
+  </div>
+  {% elif agent_job_id and badge_intent == 'agent_job_budget_reached' %}
+  <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ agent_job_id|e }}" data-agent-job-event-key="{{ (agent_job_event_key or '')|e }}">
+    <button type="button" class="js-agent-job-action" data-agent-job-action="extend">▶ {{ tr(request, 'agent_jobs.extend', 'Weitere {count} Schritte').replace('{count}', '32') }}</button>
+    <button type="button" class="js-agent-job-action" data-agent-job-action="finish">✅ {{ tr(request, 'agent_jobs.finish_now', 'Jetzt abschließen') }}</button>
+    <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    <span class="stat-sub" data-agent-job-control-status aria-live="polite"></span>
+  </div>
+  {% elif agent_job_id and badge_intent == 'agent_job_paused' %}
+  <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ agent_job_id|e }}">
+    <button type="button" class="js-agent-job-action" data-agent-job-action="resume">▶ {{ tr(request, 'agent_jobs.resume', 'Fortsetzen') }}</button>
+    <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+  </div>
+  {% elif agent_job_id and badge_intent == 'agent_job_awaiting_confirmation' %}
+  <div class="msg-actions agent-job-inline-controls" data-agent-job-controls data-agent-job-id="{{ agent_job_id|e }}">
+    <button type="button" class="js-agent-job-action" data-agent-job-action="confirm">✅ {{ tr(request, 'agent_jobs.confirm', 'Ausführen') }}</button>
+    <button type="button" class="js-agent-job-action" data-agent-job-action="decline">✖ {{ tr(request, 'agent_jobs.decline', 'Ablehnen') }}</button>
+    <button type="button" class="js-agent-job-action danger-button" data-agent-job-action="cancel">⏹ {{ tr(request, 'agent_jobs.cancel', 'Abbrechen') }}</button>
+    <button type="button" class="js-agent-job-action" data-agent-job-action="correct">✏️ {{ tr(request, 'agent_jobs.correct', 'Korrigieren') }}</button>
+  </div>
+  {% endif %}
   {% if routed_action_confirm_command %}
   <div class="msg-actions" aria-label="{{ tr(request, 'chat.pending_action_actions_label', 'Pending action') }}">
     <button
@@ -10,8 +40,23 @@
       class="chat-confirm-action js-chat-send-message"
       data-message="{{ routed_action_confirm_command }}"
       data-routed-action-pending="{{ routed_action_confirm_payload or '' }}"
+      data-single-use-confirmation="{{ 'false' if routed_action_confirm_payload else 'true' }}"
     >
-      {{ tr(request, 'chat.confirm_action_button', 'Run action') }}
+      {{ confirmation_button_label or tr(request, 'chat.confirm_action_button', 'Run action') }}
+    </button>
+  </div>
+  {% endif %}
+  {% if suggestion_affordance %}
+  <div class="msg-actions chat-suggestion-card" aria-label="{{ tr(request, 'chat.learning_suggestion_label', 'Recipe suggestion') }}">
+    <p class="chat-suggestion-caption">{{ suggestion_affordance.caption }}</p>
+    <button
+      type="button"
+      class="chat-confirm-action chat-queue-action chat-queue-confirmation-action js-chat-send-message"
+      data-confirmation-action="run"
+      data-message="{{ suggestion_affordance.confirm_command }}"
+      data-single-use-confirmation="true"
+    >
+      {{ suggestion_affordance.label }}
     </button>
   </div>
   {% endif %}

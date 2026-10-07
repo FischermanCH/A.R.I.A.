@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set product_info_path = module_route_path('static_help_docs', '/product-info') %}
 <section class="panel docs-clean-layout">
   <div class="page-head">
     <div>
@@ -16,7 +17,7 @@
   <div class="product-doc-grid docs-clean-grid">
     {% for product_doc in product_docs %}
     <a
-      href="/product-info?doc={{ product_doc.id }}"
+      href="{{ product_info_path }}?doc={{ product_doc.id }}"
       class="product-doc-card {% if selected_doc.id == product_doc.id %}is-active{% endif %}"
       aria-current="{{ 'page' if selected_doc.id == product_doc.id else 'false' }}"
     >

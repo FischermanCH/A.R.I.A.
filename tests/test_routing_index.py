@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from aria.core.config import Settings
-from aria.core.routing_index import (
+from aria.modules.configuration_foundations.config import Settings
+from aria.modules.connection_routing.index import (
     RoutingIndexStore,
     build_connection_routing_documents,
     routing_collection_name,

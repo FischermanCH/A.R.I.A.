@@ -1,0 +1,46 @@
+{
+  "id": "ssh-disk-usage-all-hosts",
+  "name": "SSH Disk Usage (alle Hosts)",
+  "version": "0.1.0",
+  "description": "Adaptives Beispielrezept: liest die Festplattenbelegung (df -h) auf ALLEN konfigurierten SSH-Hosts (connection_kind ssh, binding all), fasst kurz zusammen und postet ins Chat. Read-only, keine fixe Connection-Ref.",
+  "category": "infrastructure",
+  "router_keywords": [
+    "festplattenbelegung aller server",
+    "disk usage alle hosts",
+    "wie voll sind meine server",
+    "speicherplatz server check"
+  ],
+  "connections": ["ssh"],
+  "enabled_default": true,
+  "steps": [
+    {
+      "id": "s1",
+      "name": "Disk Usage auf allen SSH-Hosts",
+      "type": "ssh_run",
+      "params": {
+        "connection_kind": "ssh",
+        "binding": "all",
+        "timeout_seconds": 30,
+        "command": "echo \"Host: $(hostname 2>/dev/null || echo host)\"; df -h -x tmpfs -x devtmpfs 2>/dev/null | awk 'NR==1 || $5+0>0'"
+      },
+      "on_error": "continue"
+    },
+    {
+      "id": "s2",
+      "name": "Ergebnis kurz zusammenfassen",
+      "type": "llm_transform",
+      "params": {"prompt": "Du bist ARIA. Fasse die Festplattenbelegung ALLER Hosts kurz auf Deutsch zusammen: pro Host die vollsten Mounts mit Prozent. Hebe alles ueber 80% klar hervor. Keine Rohsektionen. Technischer Input:\n\n{prev_output}"},
+      "on_error": "continue"
+    },
+    {
+      "id": "s3",
+      "name": "Zusammenfassung in Chat",
+      "type": "chat_send",
+      "params": {"chat_message": "{prev_output}"},
+      "on_error": "continue"
+    }
+  ],
+  "schedule": {"enabled": false, "cron": "", "timezone": "Europe/Zurich", "run_on_startup": false},
+  "ui": {"config_path": "/recipes", "hint": "Adaptiv: laeuft auf ALLEN konfigurierten SSH-Verbindungen (binding all). Ohne SSH-Verbindung stoppt es ehrlich. Read-only."},
+  "schema_version": "1.1"
+}

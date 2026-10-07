@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set config_ui_embeddings_test_path = module_route_path('config_ui', '/config/embeddings/test') %}
+{% set config_ui_embeddings_models_path = module_route_path('config_ui', '/config/embeddings/models') %}
+{% set config_ui_embeddings_profile_load_path = module_route_path('config_ui', '/config/embeddings/profile/load') %}
+{% set config_ui_embeddings_profile_delete_path = module_route_path('config_ui', '/config/embeddings/profile/delete') %}
+{% set config_ui_embeddings_save_path = module_route_path('config_ui', '/config/embeddings/save') %}
+{% set config_ui_embeddings_profile_save_path = module_route_path('config_ui', '/config/embeddings/profile/save') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-embeddings-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
@@ -66,7 +72,7 @@
       <article class="config-group-card">
         <h3>{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</h3>
         <p>{{ tr(request, 'config_embed.test_hint', 'Prüfe zuerst den aktiven Embedding-Provider, bevor du Profile umstellst oder speicherst.') }}</p>
-        <form method="post" action="/config/embeddings/test" class="editor-form compact-form">
+        <form method="post" action="{{ config_ui_embeddings_test_path }}" class="editor-form compact-form">
           <div class="inline-actions">
             <button type="submit">{{ tr(request, 'config_conn.test_btn', 'Jetzt testen') }}</button>
           </div>
@@ -75,7 +81,7 @@
 
       <article class="config-group-card">
         <h3>{{ tr(request, 'config_embed.load_profile', 'Load profile') }}</h3>
-        <form method="post" action="/config/embeddings/profile/load" class="editor-form compact-form">
+        <form method="post" action="{{ config_ui_embeddings_profile_load_path }}" class="editor-form compact-form">
           <label for="embedding_profile_name_load">{{ tr(request, 'config_embed.load_profile', 'Load profile') }}</label>
           <div class="inline-actions">
             <select id="embedding_profile_name_load" name="profile_name">
@@ -99,7 +105,7 @@
 
       <article class="config-group-card">
         <h3>{{ tr(request, 'config_embed.delete_profile', 'Delete profile') }}</h3>
-        <form method="post" action="/config/embeddings/profile/delete" class="editor-form compact-form">
+        <form method="post" action="{{ config_ui_embeddings_profile_delete_path }}" class="editor-form compact-form">
           <label for="embedding_profile_name_delete">{{ tr(request, 'config_embed.delete_profile', 'Delete profile') }}</label>
           <div class="inline-actions">
             <select id="embedding_profile_name_delete" name="profile_name">
@@ -116,7 +122,7 @@
   </section>
 
   <section class="floating-card config-domain-section">
-    <form method="post" action="/config/embeddings/save" class="editor-form">
+    <form method="post" action="{{ config_ui_embeddings_save_path }}" class="editor-form">
       <label for="provider-preset">{{ tr(request, 'config_embed.provider_preset', 'Provider preset') }}</label>
       <select id="provider-preset">
         <option value="">{{ tr(request, 'config_embed.preset_choose', '-- Choose preset --') }}</option>
@@ -165,7 +171,7 @@
 
       <div class="inline-actions">
         <button type="submit">{{ tr(request, 'config_embed.save', 'Save') }}</button>
-        <button type="submit" formaction="/config/embeddings/profile/save">{{ tr(request, 'config_embed.save_as_profile', 'Save as profile') }}</button>
+        <button type="submit" formaction="{{ config_ui_embeddings_profile_save_path }}">{{ tr(request, 'config_embed.save_as_profile', 'Save as profile') }}</button>
       </div>
     </form>
   </section>
@@ -236,7 +242,7 @@
         const form = new URLSearchParams();
         form.set("api_base", base);
         form.set("api_key", apiKey.value || "");
-        const res = await fetch("/config/embeddings/models", {
+        const res = await fetch({{ config_ui_embeddings_models_path|tojson }}, {
           method: "POST",
           credentials: "same-origin",
           headers: {

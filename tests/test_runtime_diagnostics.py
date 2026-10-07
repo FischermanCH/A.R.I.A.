@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from aria.core.config import Settings
-from aria.core import runtime_diagnostics
+from aria.modules.configuration_foundations.config import Settings
+import aria.modules.runtime_diagnostics.runtime as runtime_diagnostics
 
 
 class _FakeQdrantClient:

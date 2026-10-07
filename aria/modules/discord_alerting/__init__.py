@@ -1,0 +1,1 @@
+"""Discord alert delivery boundary."""

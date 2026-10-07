@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import aria.main as main_mod
-import aria.web.chat_admin_actions as chat_admin_actions
-import aria.web.chat_pending_flows as chat_pending_flows
-from aria.web.chat_route_helpers import prepare_chat_route_state
-from aria.core.pipeline import PipelineResult
-from aria.skills.memory import MemorySkill
+import aria.modules.memory.native_tools as memory_native_tools
+import aria.modules.chat_admin_composition.actions as chat_admin_actions
+import aria.modules.action_pending_chat_boundary.flows as chat_pending_flows
+from aria.modules.action_confirmation.ledger import ActionConfirmationLedger
+from aria.modules.chat_execution_composition.route_helpers import prepare_chat_route_state
+from aria.modules.configuration_foundations.config import LLMConfig
+from aria.modules.native_agent.handler import run_native_agent_turn
+from aria.modules.native_agent.pending_store import NativePendingStore
+from aria.modules.pipeline_orchestrator.pipeline import PipelineResult
 
 
 def _scoped_cookie(base_name: str) -> str:
@@ -50,6 +55,145 @@ def _user_client(monkeypatch) -> TestClient:
     client.cookies.set(_scoped_cookie(main_mod.CSRF_COOKIE), csrf_token)
     client.headers.update({"x-csrf-token": csrf_token})
     return client
+
+
+def test_chat_progress_is_user_scoped_and_idle_returns_no_content(monkeypatch) -> None:
+    from aria.modules.platform_primitives.recipe_progress import RECIPE_PROGRESS_STORE
+
+    client = _user_client(monkeypatch)
+    RECIPE_PROGRESS_STORE.clear("neo")
+    idle = client.get("/chat/progress")
+    RECIPE_PROGRESS_STORE.update(
+        "neo", phase="running", step_index=2, step_total=3, step_type="ssh_run",
+        host_index=5, host_total=14, host_ref="srv-dev02", ok_count=4, error_count=1,
+    )
+    active = client.get("/chat/progress")
+    RECIPE_PROGRESS_STORE.update("other", phase="running", step_index=1, step_total=1, step_type="ssh_run")
+    isolated = client.get("/chat/progress")
+    RECIPE_PROGRESS_STORE.clear("neo")
+
+    assert idle.status_code == 204
+    assert active.status_code == 200
+    assert active.json() == {
+        "phase": "running", "step_index": 2, "step_total": 3, "step_type": "ssh_run",
+        "host_index": 5, "host_total": 14, "host_ref": "srv-dev02",
+        "ok_count": 4, "error_count": 1, "updated_at": active.json()["updated_at"],
+    }
+    assert isolated.json()["host_ref"] == "srv-dev02"
+
+
+def test_agent_job_status_route_is_authenticated_and_user_scoped(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_list(_self: object, user_id: str, *, limit: int = 20) -> list[dict[str, object]]:
+        seen.append(user_id)
+        return [{"job_id": "aj1", "goal": "goal", "status": "detached", "step_log": [], "result": ""}]
+
+    monkeypatch.setattr(main_mod.Pipeline, "list_agent_jobs", fake_list)
+    client = _user_client(monkeypatch)
+
+    response = client.get("/jobs")
+
+    assert response.status_code == 200
+    assert response.json()["jobs"][0]["job_id"] == "aj1"
+    assert seen == ["neo"]
+
+
+def test_agent_jobs_panel_is_authenticated_user_scoped_and_renders_progress(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def fake_list(_self: object, user_id: str, *, limit: int = 20) -> list[dict[str, object]]:
+        seen.append(user_id)
+        return [{
+            "job_id": "aj-panel",
+            "goal": "Build a detailed scene",
+            "status": "done",
+            "step_log": [{
+                "step_index": 2,
+                "tool_names": ["mcp__blender__execute_blender_code"],
+                "outcome_summary": "snowman created",
+            }],
+            "result": "Scene complete",
+            "created_at": 10.0,
+            "updated_at": 20.0,
+            "cancel_requested": False,
+            "warning": "native_agent_summary_unavailable",
+        }]
+
+    monkeypatch.setattr(main_mod.Pipeline, "list_agent_jobs", fake_list)
+    authenticated = _user_client(monkeypatch)
+    response = authenticated.get("/jobs/panel")
+    anonymous = TestClient(main_mod.app).get("/jobs/panel")
+
+    assert response.status_code == 200
+    assert "aj-panel" in response.text
+    assert "Build a detailed scene" in response.text
+    assert "mcp__blender__execute_blender_code" in response.text
+    assert "snowman created" in response.text
+    assert "Scene complete" in response.text
+    assert "Teilweise erledigt" in response.text
+    assert "aufgezeichnete Tool-Rückmeldungen" in response.text
+    assert 'fetch("/jobs"' in response.text
+    assert seen == ["neo"]
+    assert anonymous.status_code == 401
+
+
+def test_agent_job_cancel_route_passes_authenticated_owner_and_reports_noop(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_cancel(_self: object, user_id: str, job_id: str) -> str:
+        calls.append((user_id, job_id))
+        return "not_running"
+
+    monkeypatch.setattr(main_mod.Pipeline, "request_agent_job_cancel", fake_cancel)
+    client = _user_client(monkeypatch)
+
+    response = client.post("/jobs/aj-finished/cancel", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/jobs/panel?notice=not_running#job-aj-finished"
+    assert calls == [("neo", "aj-finished")]
+
+    client.headers.pop("x-csrf-token")
+    rejected = client.post("/jobs/aj-finished/cancel", follow_redirects=False)
+    assert rejected.status_code == 403
+    assert calls == [("neo", "aj-finished")]
+
+
+def test_chat_wait_indicator_polls_server_progress_only_while_request_is_active() -> None:
+    template = (Path(main_mod.BASE_DIR) / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert "'/chat/progress'" in template or '"/chat/progress"' in template
+    assert "1500" in template
+    assert "step_index" in template
+    assert "host_ref" in template
+    assert "clearProgressPolling" in template
+
+
+def test_pending_connection_ref_reply_requires_exact_configured_ref() -> None:
+    pending_action = {
+        "action_decision": {"missing_input": "connection_ref"},
+        "payload": {
+            "capability": "ssh_command",
+            "connection_kind": "ssh",
+            "connection_ref": "",
+            "missing_fields": ["connection_ref"],
+        },
+    }
+    settings = SimpleNamespace(
+        connections=SimpleNamespace(ssh={"example-host-01": {"host": "192.0.2.15"}})
+    )
+
+    assert chat_pending_flows.pending_input_reply_matches_contract(
+        pending_action,
+        "example-host-01",
+        settings,
+    )
+    assert not chat_pending_flows.pending_input_reply_matches_contract(
+        pending_action,
+        "wie fit ist example-host-01",
+        settings,
+    )
 
 
 def test_prepare_chat_route_state_uses_separate_forget_and_pending_signing_secrets() -> None:
@@ -106,7 +250,6 @@ def test_prepare_chat_route_state_uses_separate_forget_and_pending_signing_secre
         pending_signing_secret="pending-secret",
         connection_pending_max_age_seconds=600,
         forget_pending_cookie=main_mod.FORGET_PENDING_COOKIE,
-        safe_fix_pending_cookie=main_mod.SAFE_FIX_PENDING_COOKIE,
         connection_delete_pending_cookie=main_mod.CONNECTION_DELETE_PENDING_COOKIE,
         connection_create_pending_cookie=main_mod.CONNECTION_CREATE_PENDING_COOKIE,
         connection_update_pending_cookie=main_mod.CONNECTION_UPDATE_PENDING_COOKIE,
@@ -118,6 +261,59 @@ def test_prepare_chat_route_state_uses_separate_forget_and_pending_signing_secre
     assert route_state.pending_state.routed_action_pending["token"] == "route1"
 
 
+def test_prepare_chat_route_state_does_not_run_free_text_semantic_parsers(monkeypatch) -> None:
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("free-text semantic parser must not run in route preparation")
+
+    removed_parsers = (
+        "_parse_connection_delete_request",
+        "_parse_connection_create_request",
+        "_parse_connection_update_request",
+        "_parse_update_run_request",
+        "_parse_update_status_request",
+        "_parse_backup_export_request",
+        "_parse_backup_import_request",
+        "_parse_stats_request",
+        "_parse_activities_request",
+    )
+    assert all(not hasattr(chat_admin_actions, name) for name in removed_parsers)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/chat",
+            "headers": [],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+        }
+    )
+    request.state.auth_role = "admin"
+    request.state.can_access_advanced_config = True
+    route_state = prepare_chat_route_state(
+        request=request,
+        clean_message="starte update",
+        username="neo",
+        lang="de",
+        pipeline=SimpleNamespace(classify_routing=forbidden),
+        request_cookie_value=lambda _request, _name: "",
+        sanitize_username=lambda value: str(value or "").strip(),
+        sanitize_connection_name=lambda value: str(value or "").strip(),
+        sanitize_role=lambda value: str(value or "").strip() or "user",
+        forget_signing_secret="forget-secret",
+        pending_signing_secret="pending-secret",
+        connection_pending_max_age_seconds=600,
+        forget_pending_cookie=main_mod.FORGET_PENDING_COOKIE,
+        connection_delete_pending_cookie=main_mod.CONNECTION_DELETE_PENDING_COOKIE,
+        connection_create_pending_cookie=main_mod.CONNECTION_CREATE_PENDING_COOKIE,
+        connection_update_pending_cookie=main_mod.CONNECTION_UPDATE_PENDING_COOKIE,
+        update_pending_cookie=main_mod.UPDATE_PENDING_COOKIE,
+        routed_action_pending_cookie=main_mod.ROUTED_ACTION_PENDING_COOKIE,
+    )
+
+    assert route_state.admin_requests.update_run_request is False
+
+
 def test_render_assistant_message_html_supports_internal_links() -> None:
     rendered = str(main_mod._render_assistant_message_html("[Stats öffnen](/stats)"))
 
@@ -125,89 +321,46 @@ def test_render_assistant_message_html_supports_internal_links() -> None:
     assert 'target="_blank"' in rendered
 
 
-def test_chat_can_offer_config_backup_download_link(monkeypatch) -> None:
-    monkeypatch.setattr(main_mod, "build_config_backup_payload", lambda **kwargs: {"ok": True})
-    monkeypatch.setattr(
-        main_mod,
-        "summarize_config_backup_payload",
-        lambda _payload: {
-            "secret_count": 4,
-            "user_count": 2,
-            "custom_skill_count": 3,
-            "prompt_file_count": 5,
-            "support_file_count": 1,
-        },
-    )
-
-    client = _admin_client(monkeypatch, advanced_mode=True)
-    response = client.post("/chat", data={"message": "exportiere config backup", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert response.status_code == 200
-    assert "/config/backup/export" in response.text
-    assert "Connections werden" in response.text or "Connections are included" in response.text
 
 
-def test_chat_can_start_controlled_update_with_confirmation(monkeypatch) -> None:
-    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
-    monkeypatch.setattr(main_mod, "trigger_update_helper_run", lambda _config: {"status": "accepted"})
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "starte update", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert preview.status_code == 200
-    match = re.search(r"bestätige update ([a-z0-9]{8})", preview.text, re.IGNORECASE)
-    assert match
-
-    confirm = client.post("/chat", data={"message": f"bestätige update {match.group(1)}", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert confirm.status_code == 200
-    assert "Kontrolliertes Update gestartet" in confirm.text or "Controlled update started" in confirm.text
-    assert "/updates/running" in confirm.text
 
 
-def test_chat_can_show_update_helper_status(monkeypatch) -> None:
-    monkeypatch.setattr(main_mod, "resolve_update_helper_config", lambda secure_store=None: SimpleNamespace(enabled=True))  # noqa: ARG005
-    monkeypatch.setattr(
-        main_mod,
-        "fetch_update_helper_status",
-        lambda _config: {
-            "status": "running",
-            "running": True,
-            "current_step": "Run internal aria-pull/update-local flow",
-            "last_result": "",
-            "last_error": "",
-        },
-    )
-
-    client = _admin_client(monkeypatch)
-    response = client.post("/chat", data={"message": "zeige update status", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert response.status_code == 200
-    assert "Update-Helper" in response.text
-    assert "/updates" in response.text
-    assert "/updates/running" in response.text
 
 
-def test_chat_learn_mode_start_and_cancel_commands_are_handled_without_pipeline(monkeypatch) -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
 
+
+@pytest.mark.parametrize("message", ("hallo", "/lernen start", "/lernen stop", "/lernen abbrechen"))
+def test_former_chat_learn_commands_follow_normal_chat_flow(monkeypatch, message: str) -> None:
     calls: list[str] = []
-    monkeypatch.setattr(chat_execution_routes, "start_chat_learn_mode", lambda *_args, **_kwargs: calls.append("start") or {})
-    monkeypatch.setattr(chat_execution_routes, "cancel_chat_learn_mode", lambda *_args, **_kwargs: calls.append("cancel") or 2)
 
+    async def fake_process(_self, clean_message, **_kwargs):  # noqa: ANN001
+        calls.append(str(clean_message))
+        return PipelineResult(
+            request_id="r-retired-learn-mode",
+            text=f"normal-flow:{clean_message}",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["chat"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=1,
+            detail_lines=[],
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
     client = _user_client(monkeypatch)
-    start = client.post("/chat", data={"message": "/lernen start", "csrf_token": client.headers["x-csrf-token"]})
-    cancel = client.post("/chat", data={"message": "/lernen abbrechen", "csrf_token": client.headers["x-csrf-token"]})
 
-    assert start.status_code == 200
-    assert cancel.status_code == 200
-    assert "Rezept-Lernmodus ist aktiv" in start.text
-    assert "Verworfen: 2" in cancel.text
-    assert calls == ["start", "cancel"]
+    response = client.post(
+        "/chat",
+        data={"message": message, "csrf_token": client.headers["x-csrf-token"]},
+    )
+
+    assert response.status_code == 200
+    assert f"normal-flow:{message}" in response.text
+    assert calls == [message]
 
 
 def test_chat_can_save_current_history_as_note(monkeypatch, tmp_path) -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
+    import aria.modules.chat_execution_composition.routes as chat_execution_routes
 
     saved: dict[str, object] = {}
     indexed: list[str] = []
@@ -256,11 +409,34 @@ def test_chat_can_save_current_history_as_note(monkeypatch, tmp_path) -> None:
     assert "Wie geht es meinen Servern?" in str(saved["body"])
     assert "Alle Server sind erreichbar." in str(saved["body"])
     assert "/chat note" not in str(saved["body"])
+    assert "`/notes?note=chat-note-1#note-editor`" in state.assistant_text
     assert indexed == ["chat-note-1"]
 
 
+
+
+
+
+def test_chat_catalog_memory_import_path_fails_closed_without_memory_route(monkeypatch) -> None:
+    import aria.modules.chat_surface.catalog as chat_catalog
+
+    monkeypatch.setattr(chat_catalog, "module_route_path", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(RuntimeError, match="memory_admin_ui route is not registered: /memories/import"):
+        chat_catalog.build_chat_command_catalog(
+            lang="de",
+            auth_role="user",
+            advanced_mode=False,
+            recall_templates=[],
+            store_templates=[],
+            recipe_trigger_hints=[],
+        )
+
+
+
+
 def test_chat_toolbox_contains_save_chat_as_note_command() -> None:
-    from aria.web.chat_catalog import build_chat_command_catalog
+    from aria.modules.chat_surface.catalog import build_chat_command_catalog
 
     entries, _titles, groups = build_chat_command_catalog(
         lang="de",
@@ -278,7 +454,7 @@ def test_chat_toolbox_contains_save_chat_as_note_command() -> None:
 
 
 def test_chat_toolbox_links_to_document_import() -> None:
-    from aria.web.chat_catalog import build_chat_command_catalog
+    from aria.modules.chat_surface.catalog import build_chat_command_catalog
 
     entries, _titles, groups = build_chat_command_catalog(
         lang="de",
@@ -298,8 +474,8 @@ def test_chat_toolbox_links_to_document_import() -> None:
     assert any(item.get("href") == "/memories/import#document-import" for item in document_groups[0].get("items", []))
 
 
-def test_chat_notes_flow_searches_natural_notes_question(monkeypatch, tmp_path) -> None:
-    import aria.web.chat_notes_flows as chat_notes_flows
+def test_chat_notes_flow_does_not_route_natural_question_without_llm_contract(monkeypatch, tmp_path) -> None:
+    import aria.modules.notes.chat_flows as chat_notes_flows
 
     calls: list[str] = []
 
@@ -325,450 +501,184 @@ def test_chat_notes_flow_searches_natural_notes_question(monkeypatch, tmp_path) 
         )
     )
 
-    assert outcome is not None
-    assert outcome.handled is True
-    assert calls == ["ARIA"]
-    assert "ARIA ist der lokale Agent." in outcome.assistant_text
+    assert outcome is None
+    assert calls == []
 
 
-def test_vague_web_search_followup_uses_recent_user_topic() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
+def test_web_chat_has_no_independent_followup_semantic_rewriter() -> None:
+    import aria.modules.chat_execution_composition.routes as chat_execution_routes
 
-    history = [
-        {"role": "user", "text": "welche version von claude code ist momentan aktuell"},
-        {"role": "assistant", "text": "Ich kann nicht in Echtzeit suchen."},
-    ]
-
-    rewritten = chat_execution_routes._rewrite_vague_web_search_followup(
-        "suche im internet nach der neusten version",
-        history,
-    )
-
-    assert rewritten == "suche im internet nach claude code version der neusten version"
+    assert not hasattr(chat_execution_routes, "_resolve_pipeline_followup_message")
+    assert not hasattr(chat_execution_routes, "_rewrite_vague_web_search_followup")
+    assert not hasattr(chat_execution_routes, "_rewrite_vague_local_context_followup")
 
 
-def test_vague_web_search_followup_keeps_specific_query() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
+def test_web_chat_layer_has_no_independent_feedback_learning_scheduler() -> None:
+    import aria.modules.chat_execution_composition.routes as chat_execution_routes
 
-    rewritten = chat_execution_routes._rewrite_vague_web_search_followup(
-        "suche im internet nach claude code latest release",
-        [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
-    )
-
-    assert rewritten == "suche im internet nach claude code latest release"
+    assert not hasattr(chat_execution_routes, "_schedule_user_feedback_learning")
+    assert not hasattr(chat_execution_routes, "_should_schedule_user_feedback_learning")
 
 
-def test_vague_local_notes_followup_uses_recent_user_topic() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    history = [
-        {"role": "user", "text": "welche version von claude code ist momentan aktuell"},
-        {"role": "assistant", "text": "Ich habe Webquellen zu Claude Code gefunden."},
-    ]
-
-    rewritten = chat_execution_routes._rewrite_vague_local_context_followup(
-        "und was steht dazu in meinen notizen?",
-        history,
-    )
-
-    assert rewritten == "was steht in meinen notizen zu claude code version"
-
-
-class _FollowupLLM:
-    def __init__(self, payload: dict[str, object]):
-        self.payload = payload
-        self.operations: list[str] = []
-
-    async def chat(self, _messages, **kwargs):
-        self.operations.append(str(kwargs.get("operation") or ""))
-        return SimpleNamespace(
-            content=json.dumps(self.payload),
-            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        )
-
-
-def test_pipeline_followup_resolution_rewrites_before_regex_fallback() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    llm = _FollowupLLM(
-        {
-            "action": "rewrite",
-            "target_space": "web_search",
-            "rewritten_message": "suche im internet nach claude code latest release",
-            "confidence": "high",
-            "reason": "recent topic",
-        }
-    )
-
-    rewritten = asyncio.run(
-        chat_execution_routes._resolve_pipeline_followup_message(
-            "suche im internet nach der neusten version",
-            [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
-            llm_client=llm,
-        )
-    )
-
-    assert rewritten == "suche im internet nach claude code latest release"
-    assert llm.operations == ["followup_resolution"]
-
-
-def test_pipeline_followup_resolution_skips_standalone_explicit_web_search() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    llm = _FollowupLLM(
-        {
-            "action": "rewrite",
-            "target_space": "web_search",
-            "rewritten_message": "wrong",
-            "confidence": "high",
-            "reason": "should not run",
-        }
-    )
-
-    rewritten = asyncio.run(
-        chat_execution_routes._resolve_pipeline_followup_message(
-            "suche im internet nach der neusten apple watch ultra und dem neusten iphone",
-            [{"role": "user", "text": "was habe ich fuer news feeds?"}],
-            llm_client=llm,
-        )
-    )
-
-    assert rewritten == "suche im internet nach der neusten apple watch ultra und dem neusten iphone"
-    assert llm.operations == []
-
-
-def test_pipeline_followup_resolution_no_rewrite_blocks_regex_fallback() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    llm = _FollowupLLM(
-        {
-            "action": "no_rewrite",
-            "target_space": "chat",
-            "rewritten_message": "",
-            "confidence": "high",
-            "reason": "standalone enough",
-        }
-    )
-
-    rewritten = asyncio.run(
-        chat_execution_routes._resolve_pipeline_followup_message(
-            "suche im internet nach der neusten version",
-            [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
-            llm_client=llm,
-        )
-    )
-
-    assert rewritten == "suche im internet nach der neusten version"
-    assert llm.operations == ["followup_resolution"]
-
-
-def test_pipeline_followup_resolution_low_confidence_uses_regex_fallback() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    llm = _FollowupLLM(
-        {
-            "action": "rewrite",
-            "target_space": "web_search",
-            "rewritten_message": "suche im internet nach guessed latest release",
-            "confidence": "low",
-            "reason": "not sure",
-        }
-    )
-
-    rewritten = asyncio.run(
-        chat_execution_routes._resolve_pipeline_followup_message(
-            "suche im internet nach der neusten version",
-            [{"role": "user", "text": "welche version von claude code ist momentan aktuell"}],
-            llm_client=llm,
-        )
-    )
-
-    assert rewritten == "suche im internet nach claude code version der neusten version"
-    assert llm.operations == ["followup_resolution"]
-
-
-def test_pipeline_followup_resolution_skips_standalone_local_prompt() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    llm = _FollowupLLM(
-        {
-            "action": "rewrite",
-            "target_space": "local_context",
-            "rewritten_message": "wrong",
-            "confidence": "high",
-            "reason": "should not run",
-        }
-    )
-
-    rewritten = asyncio.run(
-        chat_execution_routes._resolve_pipeline_followup_message(
-            "wie kriege ich meine heizungen ans wireless ?",
-            [{"role": "assistant", "text": "Vorherige Antwort"}],
-            llm_client=llm,
-        )
-    )
-
-    assert rewritten == "wie kriege ich meine heizungen ans wireless ?"
-    assert llm.operations == []
-
-
-def test_pipeline_followup_resolution_skips_runtime_path_followup() -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    llm = _FollowupLLM(
-        {
-            "action": "rewrite",
-            "target_space": "connections",
-            "rewritten_message": "wrong",
-            "confidence": "high",
-            "reason": "runtime frame should resolve this later",
-        }
-    )
-
-    rewritten = asyncio.run(
-        chat_execution_routes._resolve_pipeline_followup_message(
-            "3.6G /tmp was liegt da alles rum",
-            [{"role": "assistant", "text": "3.6G /tmp"}],
-            llm_client=llm,
-        )
-    )
-
-    assert rewritten == "3.6G /tmp was liegt da alles rum"
-    assert llm.operations == []
-
-
-def test_user_feedback_learning_is_scheduled_not_awaited(monkeypatch) -> None:
-    import aria.web.chat_execution_routes as chat_execution_routes
-
-    captured: dict[str, object] = {}
-
-    async def fake_capture_user_feedback_learning(**kwargs):
-        captured["capture_kwargs"] = kwargs
-        return {"captured": True, "reason": "captured"}
-
-    def fake_enqueue_learning_job(**kwargs):
-        captured["enqueue_kwargs"] = kwargs
-        return {"accepted": True, "job_id": "job-1", "reason": "queued"}
-
-    monkeypatch.setattr(chat_execution_routes, "capture_user_feedback_learning", fake_capture_user_feedback_learning)
-    monkeypatch.setattr(chat_execution_routes, "enqueue_learning_job", fake_enqueue_learning_job)
-
-    result = chat_execution_routes._schedule_user_feedback_learning(
-        message="das war gut",
-        user_id="sample_user",
-        history=[{"role": "user", "text": f"turn {index}"} for index in range(10)],
-        memory_skill=object(),
-        llm_client=object(),
-        session_id="session-1",
-    )
-
-    assert result == {"accepted": True, "job_id": "job-1", "reason": "queued"}
-    assert "capture_kwargs" not in captured
-    enqueue_kwargs = dict(captured["enqueue_kwargs"])  # type: ignore[arg-type]
-    assert enqueue_kwargs["job_type"] == "user_feedback_learning"
-    assert enqueue_kwargs["session_id"] == "session-1"
-
-    outcome = asyncio.run(enqueue_kwargs["factory"]())
-
-    assert outcome == {"captured": True, "reason": "captured"}
-    capture_kwargs = dict(captured["capture_kwargs"])  # type: ignore[arg-type]
-    assert capture_kwargs["message"] == "das war gut"
-    assert [row["text"] for row in capture_kwargs["history"]] == [f"turn {index}" for index in range(2, 10)]
-
-
-def test_chat_can_confirm_pending_routed_action(monkeypatch) -> None:
-    async def fake_process(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r1",
-            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=10,
-            detail_lines=[],
-            pending_action={
-                "query": "schick eine testnachricht",
-                "candidate_kind": "template",
-                "candidate_id": "discord_send_message",
-                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
-                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
-                "payload": {
-                    "found": True,
-                    "capability": "discord_send",
-                    "connection_kind": "discord",
-                    "connection_ref": "alerts",
-                    "content": "ARIA Testnachricht",
-                    "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
-                    "missing_fields": [],
-                },
-                "safety_decision": {"action": "ask_user", "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden."},
-                "execution_decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen."},
+def test_missing_input_routed_action_sets_continuation_cookie_without_confirmation_payload() -> None:
+    result = PipelineResult(
+        request_id="r1",
+        text="Ich brauche noch ein Ziel.",
+        usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        intents=["capability:ssh_command"],
+        skill_errors=[],
+        router_level=1,
+        duration_ms=10,
+        detail_lines=[],
+        pending_action={
+            "query": "Führe uptime auf allen SSH Hosts aus.",
+            "candidate_kind": "capability_draft",
+            "candidate_id": "ssh_command",
+            "routing_decision": {"found": True, "kind": "ssh"},
+            "action_decision": {
+                "found": True,
+                "candidate_kind": "capability_draft",
+                "candidate_id": "ssh_command",
+                "missing_input": "connection_ref",
             },
-        )
-
-    async def fake_execute_pending(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r2",
-            text="Discord gesendet.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=12,
-            detail_lines=['Discord-Nachricht: "ARIA Testnachricht"'],
-        )
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "execute_pending_routed_action", fake_execute_pending)
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "schick eine testnachricht", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert preview.status_code == 200
-    assert "js-chat-send-message" in preview.text
-    match = re.search(r'data-message="((?:bestätige aktion|bestaetige aktion|confirm action) [a-z0-9]{8})"', preview.text, re.IGNORECASE)
-    assert match
-
-    command = match.group(1)
-    confirm = client.post("/chat", data={"message": command, "csrf_token": client.headers["x-csrf-token"]})
-
-    assert confirm.status_code == 200
-    assert "Discord gesendet." in confirm.text
-
-
-def test_chat_confirm_button_can_post_signed_pending_payload_without_cookie(monkeypatch) -> None:
-    async def fake_process(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r1",
-            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=10,
-            detail_lines=[],
-            pending_action={
-                "query": "schick eine testnachricht",
-                "candidate_kind": "template",
-                "candidate_id": "discord_send_message",
-                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
-                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
-                "payload": {
-                    "found": True,
-                    "capability": "discord_send",
-                    "connection_kind": "discord",
-                    "connection_ref": "alerts",
-                    "content": "ARIA Testnachricht",
-                    "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
-                    "missing_fields": [],
-                },
-                "safety_decision": {"action": "ask_user", "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden."},
-                "execution_decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen."},
+            "payload": {
+                "found": True,
+                "capability": "ssh_command",
+                "connection_kind": "ssh",
+                "connection_ref": "",
+                "content": "uptime",
+                "missing_fields": ["connection_ref"],
             },
-        )
-
-    async def fake_execute_pending(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r2",
-            text="Discord gesendet.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=12,
-            detail_lines=['Discord-Nachricht: "ARIA Testnachricht"'],
-        )
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "execute_pending_routed_action", fake_execute_pending)
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "schick eine testnachricht", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert preview.status_code == 200
-    command_match = re.search(r'data-message="((?:bestätige aktion|bestaetige aktion|confirm action) [a-z0-9]{8})"', preview.text, re.IGNORECASE)
-    payload_match = re.search(r'data-routed-action-pending="([^"]+)"', preview.text)
-    assert command_match
-    assert payload_match
-
-    fresh_client = _admin_client(monkeypatch)
-    confirm = fresh_client.post(
-        "/chat",
-        data={
-            "message": command_match.group(1),
-            "routed_action_pending": payload_match.group(1),
-            "csrf_token": fresh_client.headers["x-csrf-token"],
+            "safety_decision": {"action": "ask_user", "reason": "missing_parameters"},
+            "execution_decision": {"next_step": "ask_user"},
         },
     )
 
-    assert confirm.status_code == 200
-    assert "Discord gesendet." in confirm.text
+    outcome = asyncio.run(
+        chat_pending_flows.apply_chat_result_pending_followups(
+            result=result,
+            assistant_text=result.text,
+            icon="⚠",
+            intent_label="action",
+            username="neo",
+            settings=SimpleNamespace(),
+            is_english=False,
+            language="de",
+            signing_secret="pending-secret",
+            sanitize_username=lambda value: str(value or "").strip(),
+            sanitize_connection_name=lambda value: str(value or "").strip(),
+            alert_sender=lambda *_args, **_kwargs: None,
+        )
+    )
+
+    assert outcome.intent_label == "routed_action_needs_input"
+    assert chat_pending_flows.COOKIE_ROUTED_ACTION in outcome.set_cookies
+    assert chat_pending_flows.COOKIE_ROUTED_ACTION not in outcome.clear_cookies
+    assert outcome.routed_action_confirm_command is None
+    assert outcome.routed_action_confirm_payload is None
 
 
-def test_chat_confirm_button_signed_payload_confirms_without_token_text(monkeypatch) -> None:
+def test_complete_payload_with_non_confirmation_execution_step_is_not_confirmable() -> None:
+    result = PipelineResult(
+        request_id="r1",
+        text="Geplante Aktion: file_list: smb/fischer_ronny; Pixel Axiom",
+        usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        intents=["capability:file_list"],
+        skill_errors=[],
+        router_level=1,
+        duration_ms=10,
+        detail_lines=[
+            "Routing Debug: action_contract_preflight status=held "
+            "reason=confirmation_required_by_action_contract"
+        ],
+        pending_action={
+            "query": "Was steht in meinen Notizen über Death Pays Overtime?",
+            "candidate_kind": "capability_draft",
+            "candidate_id": "file_list",
+            "routing_decision": {"found": True, "kind": "smb", "ref": "fischer_ronny"},
+            "action_decision": {"found": True, "candidate_kind": "capability_draft", "candidate_id": "file_list"},
+            "payload": {
+                "found": True,
+                "capability": "file_list",
+                "connection_kind": "smb",
+                "connection_ref": "fischer_ronny",
+                "path": "Pixel Axiom",
+                "missing_fields": [],
+            },
+            "safety_decision": {"action": "allow", "reason": "No_extra_confirmation_needed."},
+            "execution_decision": {"next_step": "allow"},
+        },
+    )
+
+    outcome = asyncio.run(
+        chat_pending_flows.apply_chat_result_pending_followups(
+            result=result,
+            assistant_text=result.text,
+            icon="🟡",
+            intent_label="routed_action_pending",
+            username="neo",
+            settings=SimpleNamespace(),
+            is_english=False,
+            language="de",
+            signing_secret="pending-secret",
+            sanitize_username=lambda value: str(value or "").strip(),
+            sanitize_connection_name=lambda value: str(value or "").strip(),
+            alert_sender=lambda *_args, **_kwargs: None,
+        )
+    )
+
+    assert outcome.intent_label == "routed_action_invalid_token"
+    assert chat_pending_flows.COOKIE_ROUTED_ACTION not in outcome.set_cookies
+    assert chat_pending_flows.COOKIE_ROUTED_ACTION in outcome.clear_cookies
+    assert outcome.routed_action_confirm_command is None
+    assert outcome.routed_action_confirm_payload is None
+
+
+def test_chat_template_does_not_restore_completed_routed_confirmation() -> None:
+    template = (Path(main_mod.__file__).resolve().parent / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert "(button) => !button.disabled &&" in template
+    assert 'button.removeAttribute("data-routed-action-pending")' in template
+
+
+def test_chat_template_keeps_cookie_bound_confirmation_buttons_single_use() -> None:
+    template = (Path(main_mod.__file__).resolve().parent / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert 'button.getAttribute("data-single-use-confirmation") === "true"' in template
+    assert "!routedActionPending && !singleUseConfirmation" in template
+
+
+def test_chat_template_has_no_dead_response_mode_control() -> None:
+    template = (Path(main_mod.__file__).resolve().parent / "templates" / "chat.html").read_text(encoding="utf-8")
+
+    assert 'name="chat_mode"' not in template
+    assert "chat-mode-control" not in template
+    assert 'formData.set("chat_mode"' not in template
+
+
+def test_chat_route_accepts_request_without_dead_mode_field(monkeypatch) -> None:
     async def fake_process(*_args, **_kwargs):
         return PipelineResult(
-            request_id="r1",
-            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
+            request_id="r-no-mode",
+            text="ok",
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
+            intents=["chat"],
             skill_errors=[],
             router_level=1,
-            duration_ms=10,
-            detail_lines=[],
-            pending_action={
-                "query": "schick eine testnachricht",
-                "candidate_kind": "template",
-                "candidate_id": "discord_send_message",
-                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
-                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
-                "payload": {
-                    "found": True,
-                    "capability": "discord_send",
-                    "connection_kind": "discord",
-                    "connection_ref": "alerts",
-                    "content": "ARIA Testnachricht",
-                    "preview": 'Discord-Nachricht: "ARIA Testnachricht"',
-                    "missing_fields": [],
-                },
-                "safety_decision": {"action": "ask_user"},
-                "execution_decision": {"next_step": "ask_user"},
-            },
-        )
-
-    async def fake_execute_pending(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r2",
-            text="Discord gesendet.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=12,
+            duration_ms=1,
             detail_lines=[],
         )
 
     monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "execute_pending_routed_action", fake_execute_pending)
-
     client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "schick eine testnachricht", "csrf_token": client.headers["x-csrf-token"]})
-    payload_match = re.search(r'data-routed-action-pending="([^"]+)"', preview.text)
-    assert payload_match
 
-    fresh_client = _admin_client(monkeypatch)
-    confirm = fresh_client.post(
+    response = client.post(
         "/chat",
-        data={
-            "message": "Aktion ausführen",
-            "routed_action_pending": payload_match.group(1),
-            "csrf_token": fresh_client.headers["x-csrf-token"],
-        },
+        data={"message": "hallo", "csrf_token": client.headers["x-csrf-token"]},
     )
 
-    assert confirm.status_code == 200
-    assert "Discord gesendet." in confirm.text
+    assert response.status_code == 200
+    assert "ok" in response.text
 
 
 def test_chat_does_not_offer_confirm_button_for_empty_ssh_command_contract(monkeypatch) -> None:
@@ -818,6 +728,238 @@ def test_chat_does_not_offer_confirm_button_for_empty_ssh_command_contract(monke
     assert "Action-Contract fehlt" in preview.text or "action contract is missing" in preview.text
 
 
+def test_chat_renders_native_learning_suggestion_as_nonblocking_action(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-learning-suggestion",
+            text="Der aktuelle Befehl wurde ausgefuehrt.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["native_agent"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=10,
+            detail_lines=[],
+            suggestion_affordance={
+                "kind": "recurrence",
+                "label": "Save as Recipe",
+                "caption": "Save this repeated action as an inactive Recipe.",
+                "confirm_command": "confirm action na123456789abc",
+                "token": "na123456789abc",
+            },
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+
+    client = _admin_client(monkeypatch)
+    response = client.post(
+        "/chat",
+        data={"message": "wiederhole die Aktion", "csrf_token": client.headers["x-csrf-token"]},
+    )
+
+    assert response.status_code == 200
+    assert "Der aktuelle Befehl wurde ausgefuehrt." in response.text
+    assert 'data-message="confirm action na123456789abc"' in response.text
+    assert "chat-queue-confirmation-action" in response.text
+    assert "Als Rezept speichern" in response.text or "Save as Recipe" in response.text
+
+
+@pytest.mark.parametrize(
+    ("language", "suggestion", "expected_label", "expected_caption", "forbidden_words"),
+    (
+        (
+            "de",
+            {"kind": "memory"},
+            "Als Erinnerung speichern",
+            "Diese Präferenz als persönliche Erinnerung speichern.",
+            ("Rezept", "Recipe"),
+        ),
+        (
+            "en",
+            {"kind": "memory"},
+            "Save as memory",
+            "Save this preference as a personal memory.",
+            ("Rezept", "Recipe"),
+        ),
+        (
+            "de",
+            {"kind": "recurrence"},
+            "Als Rezept speichern",
+            "Diese wiederholte Aktion als inaktiven Rezeptentwurf speichern.",
+            (),
+        ),
+        (
+            "de",
+            {"kind": "cross_host", "new_host": "srv-b"},
+            "Kopie fuer srv-b anlegen",
+            "Eine inaktive Kopie dieses Rezepts fuer srv-b anlegen.",
+            (),
+        ),
+    ),
+)
+def test_chat_localizes_learning_suggestion_by_exact_kind(
+    monkeypatch, language, suggestion, expected_label, expected_caption, forbidden_words,  # noqa: ANN001
+) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id=f"r-{language}-{suggestion['kind']}",
+            text="Verstanden.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["native_agent"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=1,
+            detail_lines=[],
+            suggestion_affordance={
+                **suggestion,
+                "label": "upstream label",
+                "caption": "upstream caption",
+                "confirm_command": "confirm action na123456789abc",
+                "token": "na123456789abc",
+            },
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    client = _admin_client(monkeypatch)
+    client.cookies.set(_scoped_cookie(main_mod.LANG_COOKIE), language)
+    response = client.post(
+        "/chat",
+        data={"message": "zeige Vorschlag", "csrf_token": client.headers["x-csrf-token"]},
+    )
+
+    assert response.status_code == 200
+    caption_match = re.search(r'class="chat-suggestion-caption">([^<]*)</p>', response.text)
+    button_match = re.search(
+        r'class="chat-confirm-action chat-queue-action chat-queue-confirmation-action js-chat-send-message"'
+        r'.*?>\s*([^<]+?)\s*</button>',
+        response.text,
+        flags=re.DOTALL,
+    )
+    assert caption_match and button_match
+    rendered_copy = f"{button_match.group(1).strip()}\n{caption_match.group(1).strip()}"
+    assert button_match.group(1).strip() == expected_label
+    assert caption_match.group(1).strip() == expected_caption
+    assert all(word not in rendered_copy for word in forbidden_words)
+
+
+def test_memory_suggestion_button_confirms_existing_memory_capture_pending(monkeypatch, tmp_path) -> None:
+    token = "na123456789abc"
+    claim = {
+        "claim_kind": "preference",
+        "subject": "user",
+        "predicate": "preferred_tea",
+        "value": "grüner tee",
+    }
+    pending_store = NativePendingStore(tmp_path / "memory-button-pending.sqlite3")
+    ledger = ActionConfirmationLedger(tmp_path / "memory-button-ledger.sqlite3")
+    pending_store.put(
+        user_id="neo",
+        token=token,
+        tool_name="memory_capture",
+        frozen_arguments=claim,
+        preview="Save personal memory",
+        request_message="Ich trinke am liebsten grünen Tee.",
+    )
+    stored: list[dict[str, object]] = []
+
+    async def fake_store_personal_claim(**kwargs):  # noqa: ANN003
+        stored.append(dict(kwargs["claim"]))
+        return {"stored": True, "reason": "claim_activated"}
+
+    monkeypatch.setattr(memory_native_tools, "store_personal_claim", fake_store_personal_claim)
+    owner = SimpleNamespace(
+        memory_skill=object(),
+        llm_client=object(),
+        facts_collection_for_user=lambda user_id: f"facts-{user_id}",
+        preferences_collection_for_user=lambda user_id: f"preferences-{user_id}",
+    )
+    binding = next(
+        item for item in memory_native_tools.native_tool_contributions(owner)
+        if item.contract.name == "memory_capture"
+    )
+    confirmation_tokens: list[str] = []
+
+    async def completion(**_request):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(content="Als persönliche Erinnerung gespeichert.", tool_calls=[]),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        )
+
+    async def fake_process(message, *_args, confirmation_token="", **kwargs):  # noqa: ANN001, ANN003
+        if not confirmation_token:
+            return PipelineResult(
+                request_id="r-memory-button",
+                text="Das klingt nach einer klaren Präferenz.",
+                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                intents=["native_agent"],
+                skill_errors=[],
+                router_level=1,
+                duration_ms=1,
+                detail_lines=[],
+                suggestion_affordance={
+                    "kind": "memory",
+                    "label": "upstream label",
+                    "caption": "upstream caption",
+                    "confirm_command": f"confirm action {token}",
+                    "token": token,
+                },
+            )
+        confirmation_tokens.append(confirmation_token)
+        outcome = await run_native_agent_turn(
+            message=message,
+            user_id=kwargs["user_id"],
+            auth_role=kwargs["auth_role"],
+            turn_id="memory-button-confirm",
+            llm_config=LLMConfig(model="fake"),
+            tool_bindings=(binding,),
+            completion=completion,
+            pending_store=pending_store,
+            confirmation_ledger=ledger,
+            confirmation_token=confirmation_token,
+        )
+        return PipelineResult(
+            request_id="r-memory-button-confirm",
+            text=outcome.message,
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["native_agent"],
+            skill_errors=[],
+            router_level=1,
+            duration_ms=1,
+            detail_lines=[],
+            clear_routed_action_affordance=outcome.clear_confirmation_affordance,
+        )
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    client = _admin_client(monkeypatch)
+    first = client.post(
+        "/chat",
+        data={"message": "zeige Vorschlag", "csrf_token": client.headers["x-csrf-token"]},
+    )
+    command_match = re.search(r'data-message="(confirm action na[0-9a-f]+)"', first.text)
+    assert first.status_code == 200 and command_match
+
+    confirmed = client.post(
+        "/chat",
+        data={"message": command_match.group(1), "csrf_token": client.headers["x-csrf-token"]},
+    )
+
+    assert confirmed.status_code == 200
+    assert confirmation_tokens == [token]
+    assert pending_store.peek(user_id="neo", token=token) is None
+    assert stored == [{
+        **claim,
+        "scope": "global",
+        "scope_ref": "",
+        "explicit_user_statement": True,
+        "authority": "explicit_user",
+        "risk": "low",
+        "confidence": 1.0,
+        "source": "native_capture",
+    }]
+
+
 def test_chat_rejects_unknown_routed_action_confirm_token(monkeypatch) -> None:
     async def fake_process(*_args, **_kwargs):
         raise AssertionError("pipeline.process should not run for a bare confirm token")
@@ -830,84 +972,6 @@ def test_chat_rejects_unknown_routed_action_confirm_token(monkeypatch) -> None:
     assert confirm.status_code == 200
     assert "ungültig oder abgelaufen" in confirm.text or "invalid or expired" in confirm.text
     assert "Plane die Aktion bitte neu" in confirm.text or "Plan the action again" in confirm.text
-
-
-def test_chat_can_continue_pending_routed_action_missing_input(monkeypatch) -> None:
-    async def fake_process(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r-missing-preview",
-            text="Welche Nachricht soll ARIA senden?",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=10,
-            detail_lines=[],
-            pending_action={
-                "query": "schick an alerts",
-                "candidate_kind": "template",
-                "candidate_id": "discord_send_message",
-                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
-                "action_decision": {
-                    "found": True,
-                    "candidate_kind": "template",
-                    "candidate_id": "discord_send_message",
-                    "missing_input": "message",
-                    "clarifying_question": "Welche Nachricht soll ARIA senden?",
-                },
-                "payload": {
-                    "found": True,
-                    "capability": "discord_send",
-                    "connection_kind": "discord",
-                    "connection_ref": "alerts",
-                    "content": "",
-                    "preview": "Discord-Nachricht",
-                    "missing_fields": [],
-                },
-                "safety_decision": {"action": "ask_user"},
-                "execution_decision": {"next_step": "ask_user"},
-            },
-        )
-
-    async def fake_continue(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r-missing-continued",
-            text="ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:discord_send"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=12,
-            detail_lines=['Discord-Nachricht: "TESTNACHRICHT"'],
-            pending_action={
-                "query": "schick an alerts",
-                "candidate_kind": "template",
-                "candidate_id": "discord_send_message",
-                "routing_decision": {"found": True, "kind": "discord", "ref": "alerts"},
-                "action_decision": {"found": True, "candidate_kind": "template", "candidate_id": "discord_send_message"},
-                "payload": {
-                    "found": True,
-                    "capability": "discord_send",
-                    "connection_kind": "discord",
-                    "connection_ref": "alerts",
-                    "content": "TESTNACHRICHT",
-                    "preview": 'Discord-Nachricht: "TESTNACHRICHT"',
-                    "missing_fields": [],
-                },
-                "safety_decision": {"action": "ask_user", "reason_label": "Ausgehende Nachrichten sollten vor dem Senden kurz bestaetigt werden."},
-                "execution_decision": {"next_step": "ask_user", "summary": "ARIA wuerde vor der Ausfuehrung auf discord/alerts noch nachfragen."},
-            },
-        )
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "continue_pending_routed_action_input", fake_continue)
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "schick an alerts", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert preview.status_code == 200
-    assert "Welche Nachricht soll ARIA senden?" in preview.text
-    assert "bestätige aktion" not in preview.text.lower()
 
 
 def test_pending_input_flow_ignores_unrelated_new_capability_request() -> None:
@@ -1035,6 +1099,35 @@ def test_chat_handles_recipe_errors_without_crashing_and_sends_alert(monkeypatch
     assert "SMB2_COM_TREE_CONNECT" not in str(alerts[0]["lines"])
 
 
+def test_chat_categorizes_native_agent_errors_separately(monkeypatch) -> None:
+    async def fake_process(*_args, **_kwargs):
+        return PipelineResult(
+            request_id="r-native-agent-error",
+            text="Die gesammelten Ergebnisse konnten nicht abschließend zusammengefasst werden.",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            intents=["native_agent"], skill_errors=["native_agent_budget_finalization_failed"],
+            router_level=2, duration_ms=10, detail_lines=[],
+        )
+
+    alerts: list[dict[str, object]] = []
+
+    def fake_send_discord_alerts(settings, **kwargs):  # noqa: ARG001
+        alerts.append(dict(kwargs))
+        return []
+
+    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
+    monkeypatch.setattr(main_mod, "send_discord_alerts", fake_send_discord_alerts)
+
+    client = _admin_client(monkeypatch)
+    response = client.post(
+        "/chat", data={"message": "komplexe Frage", "csrf_token": client.headers.get("x-csrf-token", "")},
+    )
+
+    assert response.status_code == 200
+    assert alerts
+    assert alerts[0]["category"] == "native_agent_errors"
+
+
 def test_chat_routes_web_source_fail_closed_as_skill_alert(monkeypatch) -> None:
     async def fake_process(*_args, **_kwargs):
         return PipelineResult(
@@ -1122,260 +1215,11 @@ def test_chat_does_not_offer_confirm_when_target_profile_is_still_missing(monkey
     assert "confirm action" not in preview.text.lower()
 
 
-def test_chat_does_not_consume_new_request_as_missing_connection_ref_followup(monkeypatch) -> None:
-    calls: list[str] = []
-
-    async def fake_process(_self, message, *_args, **_kwargs):
-        calls.append(str(message))
-        if message == "backup server status":
-            return PipelineResult(
-                request_id="r-missing-target",
-                text="Für `backup server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ops-monitor-01. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
-                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                intents=["capability:ssh_command"],
-                skill_errors=[],
-                router_level=1,
-                duration_ms=10,
-                detail_lines=[],
-                pending_action={
-                    "query": "backup server status",
-                    "candidate_kind": "template",
-                    "candidate_id": "ssh_run_command",
-                    "routing_decision": {"found": True, "kind": "ssh", "ref": ""},
-                    "action_decision": {
-                        "found": True,
-                        "candidate_kind": "template",
-                        "candidate_id": "ssh_run_command",
-                        "missing_input": "connection_ref",
-                    },
-                    "payload": {
-                        "found": True,
-                        "capability": "ssh_command",
-                        "connection_kind": "ssh",
-                        "connection_ref": "",
-                        "requested_connection_ref": "backup server",
-                        "content": "uptime",
-                        "preview": "SSH command: uptime",
-                        "missing_fields": ["connection_ref"],
-                    },
-                    "safety_decision": {"action": "ask_user"},
-                    "execution_decision": {"next_step": "ask_user"},
-                },
-            )
-        return PipelineResult(
-            request_id="r-monitoring",
-            text="Monitoring wurde normal neu verarbeitet.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:ssh_command"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=10,
-            detail_lines=[],
-        )
-
-    async def fake_continue(*_args, **_kwargs):
-        raise AssertionError("Pending connection_ref flow should not consume a fresh monitoring request.")
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "continue_pending_routed_action_input", fake_continue)
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "backup server status", "csrf_token": client.headers["x-csrf-token"]})
-    assert preview.status_code == 200
-    assert calls == ["backup server status"]
-
-    next_request = client.post("/chat", data={"message": "wie geht es dem monitoring server", "csrf_token": client.headers["x-csrf-token"]})
-    assert next_request.status_code == 200
-    assert "Monitoring wurde normal neu verarbeitet." in next_request.text
-    assert calls == ["backup server status", "wie geht es dem monitoring server"]
-
-
-def test_chat_suggests_manual_alias_followup_for_non_admin_connection_reply(monkeypatch) -> None:
-    async def fake_process(_self, message, *_args, **_kwargs):
-        return PipelineResult(
-            request_id="r-missing-target",
-            text="Für `backup server` habe ich noch kein passendes SSH-Profil.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:ssh_command"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=10,
-            detail_lines=[],
-            pending_action={
-                "query": str(message),
-                "candidate_kind": "template",
-                "candidate_id": "ssh_run_command",
-                "routing_decision": {"found": True, "kind": "ssh", "ref": ""},
-                "action_decision": {
-                    "found": True,
-                    "candidate_kind": "template",
-                    "candidate_id": "ssh_run_command",
-                    "missing_input": "connection_ref",
-                },
-                "payload": {
-                    "found": True,
-                    "capability": "ssh_command",
-                    "connection_kind": "ssh",
-                    "connection_ref": "",
-                    "requested_connection_ref": "backup server",
-                    "content": "uptime",
-                    "preview": "SSH command: uptime",
-                    "missing_fields": ["connection_ref"],
-                },
-                "safety_decision": {"action": "ask_user"},
-                "execution_decision": {"next_step": "ask_user"},
-            },
-        )
-
-    async def fake_continue(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r-continued",
-            text="Kurzcheck für `ops-monitor-01`: Erreichbar.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:ssh_command"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=12,
-            detail_lines=["Ausgeführt via SSH-Profil `ops-monitor-01`", "Befehl: uptime"],
-        )
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "continue_pending_routed_action_input", fake_continue)
-    monkeypatch.setattr(
-        chat_pending_flows,
-        "_looks_like_connection_ref_reply",
-        lambda pending_action, message, settings: str(message).strip() == "ops-monitor-01",
-    )
-
-    client = _user_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "backup server status", "csrf_token": client.headers["x-csrf-token"]})
-    assert preview.status_code == 200
-
-    follow_up = client.post("/chat", data={"message": "ops-monitor-01", "csrf_token": client.headers["x-csrf-token"]})
-    assert follow_up.status_code == 200
-    assert "kann ein Admin später `backup server` als Alias für `ops-monitor-01` speichern" in follow_up.text
-
-
-def test_chat_offers_alias_learning_after_missing_connection_ref_is_filled(monkeypatch) -> None:
-    async def fake_process(_self, message, *_args, **_kwargs):
-        if message == "backup server status":
-            return PipelineResult(
-                request_id="r-missing-target",
-                text="Für `backup server` habe ich noch kein passendes SSH-Profil. Verfügbare SSH-Profile: ops-monitor-01. Antworte einfach mit dem passenden Profilnamen. Wenn es passt, kann ARIA sich die Zuordnung danach als Alias merken.",
-                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                intents=["capability:ssh_command"],
-                skill_errors=[],
-                router_level=1,
-                duration_ms=10,
-                detail_lines=[],
-                pending_action={
-                    "query": "backup server status",
-                    "candidate_kind": "template",
-                    "candidate_id": "ssh_run_command",
-                    "routing_decision": {"found": True, "kind": "ssh", "ref": ""},
-                    "action_decision": {
-                        "found": True,
-                        "candidate_kind": "template",
-                        "candidate_id": "ssh_run_command",
-                        "missing_input": "connection_ref",
-                    },
-                    "payload": {
-                        "found": True,
-                        "capability": "ssh_command",
-                        "connection_kind": "ssh",
-                        "connection_ref": "",
-                        "requested_connection_ref": "backup server",
-                        "content": "uptime",
-                        "preview": "SSH command: uptime",
-                        "missing_fields": ["connection_ref"],
-                    },
-                    "safety_decision": {"action": "ask_user"},
-                    "execution_decision": {"next_step": "ask_user"},
-                },
-            )
-        raise AssertionError(f"Unexpected process call: {message}")
-
-    async def fake_continue(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r-continued",
-            text="SSH ok.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:ssh_command"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=12,
-            detail_lines=["Ausgeführt via SSH-Profil `ops-monitor-01`", "Befehl: uptime"],
-        )
-
-    updates: list[tuple[str, str, dict[str, object]]] = []
-
-    def fake_update_connection_profile(_base_dir, kind, ref, payload):
-        updates.append((str(kind), str(ref), dict(payload)))
-        return {"success_message": "SSH-Profil aktualisiert"}
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "continue_pending_routed_action_input", fake_continue)
-    monkeypatch.setattr(main_mod, "update_connection_profile", fake_update_connection_profile)
-    monkeypatch.setattr(
-        chat_pending_flows,
-        "_looks_like_connection_ref_reply",
-        lambda pending_action, message, settings: str(message).strip() == "ops-monitor-01",
-    )
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "backup server status", "csrf_token": client.headers["x-csrf-token"]})
-    assert preview.status_code == 200
-
-    follow_up = client.post("/chat", data={"message": "ops-monitor-01", "csrf_token": client.headers["x-csrf-token"]})
-    assert follow_up.status_code == 200
-    assert "kann ich mir `backup server` als Alias für `ops-monitor-01` merken" in follow_up.text
-    match = re.search(r"bestätige verbindung aktualisieren ([a-z0-9]{8})", follow_up.text, re.IGNORECASE)
-    assert match
-
-    confirm = client.post(
-        "/chat",
-        data={"message": f"bestätige verbindung aktualisieren {match.group(1)}", "csrf_token": client.headers["x-csrf-token"]},
-    )
-    assert confirm.status_code == 200
-    assert "SSH-Profil aktualisiert" in confirm.text
-    assert updates == [("ssh", "ops-monitor-01", {"aliases": ["backup server"]})]
-
-
-def test_chat_can_confirm_pending_safe_fix(monkeypatch) -> None:
-    async def fake_process(*_args, **_kwargs):
-        return PipelineResult(
-            request_id="r-safe-fix-preview",
-            text="Ich habe einen sicheren Fix vorbereitet.",
-            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            intents=["capability:ssh_command"],
-            skill_errors=[],
-            router_level=1,
-            duration_ms=8,
-            detail_lines=[],
-            safe_fix_plan=[{"connection_ref": "dns-node-01", "packages": ["curl"]}],
-        )
-
-    async def fake_execute_safe_fix_plan(*_args, **_kwargs):
-        return SimpleNamespace(content="Safe-Fix ausgeführt.", success=True, error="")
-
-    monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
-    monkeypatch.setattr(main_mod.Pipeline, "execute_safe_fix_plan", fake_execute_safe_fix_plan)
-    monkeypatch.setattr(main_mod, "send_discord_alerts", lambda *_args, **_kwargs: None)
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "repariere apt", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert preview.status_code == 200
-    match = re.search(r"bestätige fix ([a-z0-9]{8})", preview.text, re.IGNORECASE)
-    assert match
-
-    confirm = client.post("/chat", data={"message": f"bestätige fix {match.group(1)}", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert confirm.status_code == 200
-    assert "Safe-Fix ausgeführt." in confirm.text
-
-
 def test_chat_badge_details_include_web_request_timing(monkeypatch) -> None:
+    from html import unescape
+
+    provider_detail = 'Routing Debug: web_search_provider query_index=1 {"engine_errors":[{"engine":"brave","class":"rate_limit","suspended":true}]}'
+
     async def fake_process(*_args, **_kwargs):
         return PipelineResult(
             request_id="r-web-timing",
@@ -1385,7 +1229,7 @@ def test_chat_badge_details_include_web_request_timing(monkeypatch) -> None:
             skill_errors=[],
             router_level=1,
             duration_ms=7,
-            detail_lines=["Routing Debug: fake_pipeline"],
+            detail_lines=["Routing Debug: fake_pipeline", provider_detail],
         )
 
     monkeypatch.setattr(main_mod.Pipeline, "process", fake_process)
@@ -1395,6 +1239,7 @@ def test_chat_badge_details_include_web_request_timing(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert "Routing Debug: fake_pipeline" in response.text
+    assert provider_detail in unescape(response.text)
     assert "Routing Debug: web_request_timing" in response.text
     assert "Routing Debug: web_total_wall_time" in response.text
     assert "Routing Debug: web_post_pipeline_timing" in response.text
@@ -1404,36 +1249,3 @@ def test_chat_badge_details_include_web_request_timing(monkeypatch) -> None:
     assert response.headers["x-aria-web-template-ms"].isdigit()
     assert response.headers["x-aria-web-cookies-ms"].isdigit()
     assert "pipeline_ms=7" in response.text
-
-
-def test_chat_can_confirm_memory_forget(monkeypatch) -> None:
-    async def fake_memory_execute(self, query="", params=None):  # noqa: ANN001
-        action = dict(params or {}).get("action")
-        if action == "forget_preview":
-            return SimpleNamespace(
-                success=True,
-                content="Ich habe passende Memories gefunden.",
-                metadata={"forget_candidates": [{"collection": "facts", "id": "m1"}]},
-                error=None,
-            )
-        return SimpleNamespace(
-            success=True,
-            content="Memory gelöscht.",
-            metadata={},
-            error=None,
-        )
-
-    monkeypatch.setattr(main_mod.Pipeline, "classify_routing", lambda *_args, **_kwargs: SimpleNamespace(intents=["memory_forget"]))
-    monkeypatch.setattr(MemorySkill, "execute", fake_memory_execute)
-
-    client = _admin_client(monkeypatch)
-    preview = client.post("/chat", data={"message": "vergiss meine notiz über dns", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert preview.status_code == 200
-    match = re.search(r"bestätige ([a-z0-9]{8})", preview.text, re.IGNORECASE)
-    assert match
-
-    confirm = client.post("/chat", data={"message": f"bestätige {match.group(1)}", "csrf_token": client.headers["x-csrf-token"]})
-
-    assert confirm.status_code == 200
-    assert "Memory gelöscht." in confirm.text

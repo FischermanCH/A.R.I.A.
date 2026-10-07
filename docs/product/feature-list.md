@@ -33,7 +33,7 @@ Zweck:
 
 ## Routing / Capability Layer
 
-- deterministisches Keyword-/Capability-Routing für zentrale Intents
+- bounded LLM-Routing über den registrierten Capability-, Context- und Connection-Katalog
 - Memory-Intents:
   - `memory_store`
   - `memory_recall`
@@ -153,7 +153,6 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - `RSS`
 - `Beobachtete Webseiten`
 - `HTTP API`
-- `SearXNG`
 - `Google Calendar`
 - `Webhook`
 - `SMTP`
@@ -189,23 +188,12 @@ ARIA hat dedizierte Config-Seiten, Health-/Test-Flows, Statusanzeigen und Routin
 - HTTP-API- und Webhook-Connections mit eigenen Profilen
 - optionale Basis-URL über `ARIA_PUBLIC_URL` / `aria.public_url` fuer Host-/Link-Hinweise in Messages; interne LAN-URLs wie `http://aria.example.lan/` sind gueltig
 
-## Websuche / SearXNG
+## Websuche
 
-- dedizierte `SearXNG`-Connection mit eigener Config-Seite
-- ARIA nutzt SearXNG bewusst nur ueber die JSON-Search-API
-- die Base-URL ist im typischen Stack fest `http://searxng:8080` und muss nicht pro Profil neu eingegeben werden
-- sinnvolle Defaults fuer:
-  - Sprache
-  - SafeSearch
-  - Kategorien
-  - Engines
-  - Zeitbereich
-  - Maximalzahl Treffer
-- Profil-Metadaten wie Name, Aliase und Tags helfen beim Routing fuer unterschiedliche Suchprofile wie `youtube` fuer Videos oder `startpage` fuer Buecher
+- Websuche nutzt das konfigurierte Provider-Web-Tool und bleibt an die gelieferten Quellen gebunden
 - Chat kann explizite Websuche-Anfragen routen, z. B. `websuche ...`
-- Chat-Details zeigen Web-Quellen mit Titel, URL und Engine
+- Chat-Details zeigen Web-Quellen mit Titel und URL
 - passende `Notizen` koennen bei normaler Websuche automatisch als Zusatzkontext zugeladen werden
-- Stack-Dateien koennen SearXNG als separaten Dienst neben ARIA und Qdrant mitfuehren
 
 ## Beobachtete Webseiten
 

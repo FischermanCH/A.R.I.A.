@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 {% from "_icons.html" import icon %}
+{% set static_help_docs_help_path = module_route_path('static_help_docs', '/help') %}
+{% set static_help_docs_licenses_path = module_route_path('static_help_docs', '/licenses') %}
 <section class="panel docs-clean-layout">
   <nav class="help-doc-inline-nav" aria-label="{{ tr(request, 'help.toc_label', 'Inhaltsverzeichnis') }}">
     <div class="help-doc-pill-row">
       {% for help_doc in help_docs %}
-      {% if help_doc.id not in ['qdrant', 'searxng'] %}
+      {% if help_doc.id != 'qdrant' %}
       <a
-        href="/help?doc={{ help_doc.id }}"
+        href="{{ static_help_docs_help_path }}?doc={{ help_doc.id }}"
         class="help-doc-pill{% if selected_doc.id == help_doc.id %} is-active{% endif %}"
         aria-current="{{ 'page' if selected_doc.id == help_doc.id else 'false' }}"
       >
@@ -16,7 +18,7 @@
       </a>
       {% endif %}
       {% endfor %}
-      <a href="/licenses" class="help-doc-pill" aria-current="false">
+      <a href="{{ static_help_docs_licenses_path }}" class="help-doc-pill" aria-current="false">
         <span class="help-doc-pill-icon">{{ icon('files') }}</span>
         <span>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</span>
       </a>
@@ -26,24 +28,17 @@
   <section class="help-third-party-strip" aria-label="{{ tr(request, 'help.third_party_title', 'Wichtige Dienste & Lizenz') }}">
     <div class="help-third-party-head">
       <p class="section-kicker">{{ tr(request, 'help.third_party_title', 'Wichtige Dienste & Lizenz') }}</p>
-      <p>{{ tr(request, 'help.third_party_subtitle', 'Qdrant und SearXNG sind zentrale externe Dienste fuer Wissen und Websuche in ARIA. Die Lizenzseite sammelt ausserdem die wichtigsten Open-Source-Lizenzen.') }}</p>
+      <p>{{ tr(request, 'help.third_party_subtitle', 'Qdrant is the central external service for ARIA knowledge storage. The license page also lists the relevant open-source licenses.') }}</p>
     </div>
     <div class="help-third-party-grid">
-      <a href="/help?doc=qdrant" class="help-third-party-card">
+      <a href="{{ static_help_docs_help_path }}?doc=qdrant" class="help-third-party-card">
         <span class="help-third-party-icon">{{ icon('memories') }}</span>
         <span class="help-third-party-copy">
           <strong>{{ tr(request, 'help.doc_qdrant', 'Qdrant') }}</strong>
           <span>{{ tr(request, 'help.doc_qdrant_summary', 'Wofuer ARIA Qdrant nutzt, was dort gespeichert wird und worauf man im Betrieb achten sollte.') }}</span>
         </span>
       </a>
-      <a href="/help?doc=searxng" class="help-third-party-card">
-        <span class="help-third-party-icon">{{ icon('searxng') }}</span>
-        <span class="help-third-party-copy">
-          <strong>{{ tr(request, 'help.doc_searxng', 'SearXNG') }}</strong>
-          <span>{{ tr(request, 'help.doc_searxng_summary', 'Wie ARIA die SearXNG-Websuche nutzt und warum der Dienst bewusst separat im Stack bleibt.') }}</span>
-        </span>
-      </a>
-      <a href="/licenses" class="help-third-party-card">
+      <a href="{{ static_help_docs_licenses_path }}" class="help-third-party-card">
         <span class="help-third-party-icon">{{ icon('files') }}</span>
         <span class="help-third-party-copy">
           <strong>{{ tr(request, 'base.nav_licenses', 'Lizenz') }}</strong>

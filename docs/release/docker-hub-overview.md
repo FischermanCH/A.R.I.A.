@@ -2,6 +2,20 @@
 
 ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first UI.
 
+## ARIA 0.1.0-alpha982: a major ARIA architecture upgrade
+
+ARIA Alpha982 is not the same internal shape as the last public Docker Hub alpha, Alpha604.
+
+The project has moved from the older monolith-style alpha line to a modular ARIA runtime with clearer owners for chat routing, recipes, memory, documents, notes, web/public facts, runtime actions, release/update handling, and UI composition. This is meant to make ARIA easier to maintain and safer to operate, but it also means operators should treat the next public image as an architecture migration from `0.1.0-alpha604`, not as a tiny patch update.
+
+The most important upgrade facts:
+
+- normal managed updates recreate only `aria`
+- Qdrant, config, prompts, notes, recipes, memory data, auth data, and volumes are not deleted or recreated by the normal update path
+- current-fact and web answers now need an LLM/provider setup with web tooling or a managed web-search capability
+- runtime actions, recipe execution, and target selection are more conservative and require stricter source authority, exact IDs, permissions, and confirmations
+- users should prefer `/updates`, `aria-setup upgrade`, or `./aria-stack.sh update`; raw Docker commands are for manual Compose installs or admin recovery
+
 This Docker page is intentionally simple:
 
 - one recommended install path first
@@ -18,33 +32,27 @@ Repository and full documentation:
 
 ## Current alpha highlights
 
-Current public alpha release on Docker Hub:
+Release candidate and publication tags:
 
-- `0.1.0-alpha511`
+- immutable: `fischermanch/aria:0.1.0-alpha.982`
+- moving channels after approval: `fischermanch/aria:alpha`, `fischermanch/aria:latest`
 
-Current public alpha focus:
+Release highlights:
 
-- Chat Prompt Queue lets users keep writing while ARIA is busy, then edit, remove, or reorder waiting prompts before sequential execution.
-- Pending Confirmations stay visible as their own queue/action items with run, plan-again, and discard actions.
-- Graphical Memory browser adds Qdrant/Memory drilldown, document and chunk inspection, semantic proximity, fullscreen, and touch/iOS handling.
-- Notes workspace adds folder moves from cards/editor, a dense list view, and bulk-move support.
-- Auto-memory and agentic learning UI are clearer, with user-facing controls and better separation between memory, learning reflections, and technical maintenance.
-- Navigation is generated from a shared registry across the header, account menu, Settings, Admin, Memory, Recipes, and Connections.
-- Agentic Operator Trace and runtime result contracts make understanding, context, policy, runtime, result, and summary phases easier to inspect.
-- Document inventory and corpus checks are more source-bound and less likely to answer from unrelated snippets.
-- Web freshness answers prefer official/vendor/compare/release sources for current product and version questions.
-- Multi-target SSH/runtime paths keep full-fleet scope for prompts such as all Linux servers when no true subgroup is named.
+- Modular runtime architecture replaces the old monolith-style internal shape.
+- Repeated personal preferences can become explicit memory suggestions; repeated action sequences can become inactive recipe suggestions.
+- Enabled MCP servers join the native Tool agent with confirmations, trust control, timeouts and honest failures.
+- Long Agent tasks continue as controllable background jobs instead of holding the browser request open.
+- Core memory remains intact while obsolete learning collections can be removed explicitly after an upgrade.
 
 ## What you need
 
 - Docker
 - one long random key for Qdrant
-- one long random key for SearXNG
 
 Generate suitable values on Unix:
 
 ```bash
-openssl rand -hex 32
 openssl rand -hex 32
 ```
 
@@ -109,7 +117,7 @@ cd /opt/aria/aria
 Managed update rules:
 
 - normal image refresh:
-  - `./aria-stack.sh update` recreates only the `aria` service
+  - `./aria-stack.sh update` recreates only `aria`; Qdrant and all volumes stay untouched
 - stack layout change, for example a new sidecar service:
   - `aria-setup upgrade --install-dir /opt/aria/aria`
 - deliberate full-stack recovery:
@@ -162,7 +170,6 @@ Minimum values:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
-SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
@@ -175,12 +182,12 @@ Optional LLM / embedding environment overrides should usually stay empty when yo
 docker compose up -d
 ```
 
-This starts:
+The public manual Compose file starts:
 
 - `aria`
 - `qdrant`
-- `searxng`
-- `searxng-valkey`
+
+The recommended managed `aria-setup` stack additionally starts `aria-updater`, so controlled UI updates do not require mounting Docker control into the application container.
 
 Qdrant stays internal by default and is not published on host ports in the public sample.
 
@@ -196,69 +203,11 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
-  searxng-valkey:
-    image: valkey/valkey:8-alpine
-    restart: unless-stopped
-    volumes:
-      - searxng_valkey:/data
-
-  searxng:
-    image: searxng/searxng:latest
-    restart: unless-stopped
-    depends_on:
-      - searxng-valkey
-    environment:
-      FORCE_OWNERSHIP: "false"
-      SEARXNG_SECRET: ${SEARXNG_SECRET}
-      SEARXNG_LIMITER: "false"
-      SEARXNG_VALKEY_URL: "valkey://searxng-valkey:6379/0"
-    entrypoint:
-      - /bin/sh
-      - -lc
-      - |
-        umask 077
-        mkdir -p /etc/searxng
-        python - <<'PY'
-        import json
-        import os
-        from pathlib import Path
-
-        secret = os.environ.get("SEARXNG_SECRET", "ultrasecretkey")
-        valkey_url = os.environ.get("SEARXNG_VALKEY_URL", "valkey://searxng-valkey:6379/0")
-        lines = [
-            "use_default_settings: true",
-            "",
-            "general:",
-            '  instance_name: "ARIA Search"',
-            "",
-            "search:",
-            "  safe_search: 1",
-            '  autocomplete: ""',
-            "  formats:",
-            "    - html",
-            "    - json",
-            "",
-            "server:",
-            f"  secret_key: {json.dumps(secret)}",
-            "  limiter: false",
-            "  image_proxy: true",
-            "",
-            "valkey:",
-            f"  url: {json.dumps(valkey_url)}",
-            "",
-        ]
-        Path("/etc/searxng/settings.yml").write_text("\\n".join(lines), encoding="utf-8")
-        PY
-        exec /usr/local/searxng/entrypoint.sh
-    volumes:
-      - searxng_cache:/var/cache/searxng
-
   aria:
     image: fischermanch/aria:alpha
     restart: unless-stopped
     depends_on:
       - qdrant
-      - searxng
     ports:
       - "${ARIA_HTTP_PORT:-8800}:8800"
     extra_hosts:
@@ -277,8 +226,6 @@ services:
 
 volumes:
   qdrant_storage:
-  searxng_cache:
-  searxng_valkey:
   aria_config:
   aria_prompts:
   aria_data:
@@ -322,7 +269,7 @@ docker/aria-host-update.sh update --project <name> --dry-run
 docker/aria-host-update.sh update --project <name> --target-image fischermanch/aria:<version>
 ```
 
-The helper recreates only the `aria` service and preflights the intended host port before recreate. If another process already owns that port, it aborts safely before touching the running stack.
+The helper recreates only `aria` and preflights the intended host port before recreate. Qdrant and all volumes remain untouched. If another process already owns that port, it aborts safely before touching the running stack.
 
 ## Backup and recovery
 

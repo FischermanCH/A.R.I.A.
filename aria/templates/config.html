@@ -2,6 +2,17 @@
 {% block content %}
 {% from "_icons.html" import icon %}
 {% set update_status = request.state.update_status if request and request.state and request.state.update_status is defined else None %}
+{% set config_ui_llm_path = module_route_path('config_ui', '/config/llm') %}
+{% set config_ui_embeddings_path = module_route_path('config_ui', '/config/embeddings') %}
+{% set config_ui_prompts_path = module_route_path('config_ui', '/config/prompts') %}
+{% set config_ui_appearance_path = module_route_path('config_ui', '/config/appearance') %}
+{% set config_ui_language_path = module_route_path('config_ui', '/config/language') %}
+{% set config_ui_files_path = module_route_path('config_ui', '/config/files') %}
+{% set config_ui_error_interpreter_path = module_route_path('config_ui', '/config/error-interpreter') %}
+{% set config_ui_llm_debug_path = module_route_path('config_ui', '/config/llm/debug') %}
+{% set config_ui_admin_mode_path = module_route_path('config_ui', '/config/admin-mode') %}
+{% set config_ui_security_path = module_route_path('config_ui', '/config/security') %}
+{% set config_ui_users_path = module_route_path('config_ui', '/config/users') %}
 {% macro config_section(title, desc, count=None, open=False, section_id='') -%}
   <details class="floating-card config-section-details"{% if section_id %} id="{{ section_id }}"{% endif %}{% if open %} open{% endif %}>
     <summary class="config-section-summary">
@@ -64,11 +75,11 @@
     'config-intelligence'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/llm?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_llm_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.llm_title', 'Chat Brain (LLM)') }}</span><span class="submenu-desc">{{ tr(request, 'config.llm_desc', 'Provider, API base, API key, model, temperature, tokens, timeout.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/embeddings?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_embeddings_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('embeddings', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.embed_title', 'Embedding Radar') }}</span><span class="submenu-desc">{{ tr(request, 'config.embed_desc', 'Separate model for memory, search, and similarity.') }}</span></span>
       </a>
@@ -85,15 +96,15 @@
     'config-persona'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/prompts?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_prompts_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('prompts', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.prompt_title', 'Prompt Studio') }}</span><span class="submenu-desc">{{ tr(request, 'config.prompt_desc', 'Edit persona and recipe prompts directly in the browser.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/appearance?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_appearance_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('appearance', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.appearance_title', 'Appearance & Theme') }}</span><span class="submenu-desc">{{ tr(request, 'config.appearance_desc', 'Choose the visual style, accent palette, and background atmosphere for your ARIA.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/language?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_language_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('language', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.language_title', 'Language & Translation') }}</span><span class="submenu-desc">{{ tr(request, 'config.language_desc', 'Set default language and edit language files in Advanced mode.') }}</span></span>
       </a>
@@ -110,11 +121,11 @@
     'config-access'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/users?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_users_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('users', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'base.nav_users', 'Users') }}</span><span class="submenu-desc">{{ tr(request, 'config.access_users_desc', 'Manage user accounts and roles from one place.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/security?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_security_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('security', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.security_title', 'Security Guardrails') }}</span><span class="submenu-desc">{{ tr(request, 'config.security_desc', 'Control bootstrap lock and login protection centrally.') }}</span></span>
       </a>
@@ -131,7 +142,7 @@
     'config-admin'
   ) %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/admin-mode?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_ui_admin_mode_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
         <span class="submenu-copy">
           <span class="submenu-title">{{ tr(request, 'config.admin_mode_off_link_title', 'Open Extended view') }}</span>
@@ -150,8 +161,11 @@
     False,
     'config-operations'
   ) %}
+    {% set config_backup_path = module_route_path('config_backup', '/config/backup') %}
+    {% set config_logs_path = module_route_prefix_path('ops_config_backup', '/config/logs') %}
+    {% set release_update_updates_path = module_route_path('release_update', '/updates') %}
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/updates">
+      <a class="config-submenu-item" href="{{ release_update_updates_path }}">
         <span class="submenu-icon-wrap">{{ icon('updates', 'submenu-icon') }}</span>
         <span class="submenu-copy">
           <span class="submenu-title-row">
@@ -163,11 +177,11 @@
           <span class="submenu-desc">{{ tr(request, 'config.updates_desc', 'Version, Release Notes und kontrollierte Update-Pfade an einem Ort.') }}</span>
         </span>
       </a>
-      <a class="config-submenu-item" href="/config/logs?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_logs_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('logs', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.logs_title', 'Logs & Cleanup') }}</span><span class="submenu-desc">{{ tr(request, 'config.logs_desc', 'Automatically clean up token/run logs and control retention.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/config/backup?return_to=%2Fconfig">
+      <a class="config-submenu-item" href="{{ config_backup_path }}?return_to=%2Fconfig">
         <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.transfer_title', 'Import / Export') }}</span><span class="submenu-desc">{{ tr(request, 'config.transfer_desc', 'Export config backups, download memory JSON, and restore ARIA from one place.') }}</span></span>
       </a>
@@ -175,34 +189,6 @@
   {% endcall %}
   {% endif %}
 
-  {% if request.state.can_access_advanced_config %}
-  {% call config_section(
-    tr(request, 'config.workbench_title', 'Workbench (Advanced)'),
-    tr(request, 'config.workbench_desc', 'For debugging, fine-tuning, and “I know what I am doing” moments.'),
-    4,
-    False,
-    'config-workbench'
-  ) %}
-    <div class="config-submenu">
-      <a class="config-submenu-item" href="/config/workbench/routing?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('routing', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.workbench_routing_title', 'Routing Workbench') }}</span><span class="submenu-desc">{{ tr(request, 'config.workbench_routing_menu_desc', 'Dedicated dry-run page for routing, action planning, payloads, and execution preview.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/files?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('files', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.files_title', 'File Editor') }}</span><span class="submenu-desc">{{ tr(request, 'config.files_desc', 'Direct access to relevant text files without an IDE.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/error-interpreter?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('error', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'config.error_interpreter_title', 'Error Interpreter') }}</span><span class="submenu-desc">{{ tr(request, 'config.error_interpreter_desc', 'Rules that translate technical SSH and package errors into clearer messages for users.') }}</span></span>
-      </a>
-      <a class="config-submenu-item" href="/config/llm/debug?return_to=%2Fconfig">
-        <span class="submenu-icon-wrap">{{ icon('llm', 'submenu-icon') }}</span>
-        <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'llm_debug.title', 'LLM Prompt Debug') }}</span><span class="submenu-desc">{{ tr(request, 'llm_debug.menu_desc', 'Inspect recent prompts, responses, source, operation, and token usage from the central LLM gateway.') }}</span></span>
-      </a>
-    </div>
-  {% endcall %}
-  {% endif %}
 </main>
 <script>
   (function () {

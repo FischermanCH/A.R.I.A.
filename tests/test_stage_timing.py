@@ -1,5 +1,5 @@
-from aria.core.stage_timing import StageTimingLedger
-from aria.core.stage_timing import insert_stage_timing_detail_lines
+from aria.modules.platform_primitives.stage_timing import StageTimingLedger
+from aria.modules.platform_primitives.stage_timing import insert_stage_timing_detail_lines
 
 
 def test_insert_stage_timing_lines_keeps_answer_tail_after_debug_lines():

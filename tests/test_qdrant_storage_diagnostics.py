@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aria.core.qdrant_storage_diagnostics import build_qdrant_storage_warning
-from aria.core.qdrant_storage_diagnostics import list_local_qdrant_collection_names
-from aria.core.qdrant_storage_diagnostics import qdrant_storage_has_local_data
-from aria.core.qdrant_storage_diagnostics import resolve_qdrant_storage_path
+from aria.modules.system_diagnostics.qdrant_storage import build_qdrant_storage_warning
+from aria.modules.system_diagnostics.qdrant_storage import list_local_qdrant_collection_names
+from aria.modules.system_diagnostics.qdrant_storage import qdrant_storage_has_local_data
+from aria.modules.system_diagnostics.qdrant_storage import resolve_qdrant_storage_path
 
 
 def test_resolve_qdrant_storage_path_prefers_existing_local_candidate(tmp_path: Path) -> None:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from aria.core.action_plan import ActionPlan
-from aria.core.agentic_runtime_debug import runtime_debug_line_for_plan
-from aria.core.agentic_runtime_debug import runtime_operation_for_plan
-from aria.core.agentic_runtime_debug import runtime_payload_for_plan
+from aria.modules.action_contracts.plan import ActionPlan
+from aria.modules.action_runtime_debug.debug import runtime_debug_line_for_plan
+from aria.modules.action_runtime_debug.debug import runtime_operation_for_plan
+from aria.modules.action_runtime_debug.debug import runtime_payload_for_plan
 
 
 def test_runtime_debug_line_exposes_normalized_ssh_execution_boundary() -> None:

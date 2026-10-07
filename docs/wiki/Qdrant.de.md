@@ -28,7 +28,7 @@ Wichtig: Qdrant entscheidet nicht allein. Policy, Guardrails und Runtime bleiben
 
 ## Qdrant Brain in der Memory Map
 
-`/memories/map` integriert eine visuelle Qdrant-Brain-Ansicht. ARIA liest dafuer read-only eine begrenzte Stichprobe aus Nutzer-Memory und Dokument-Collections, berechnet semantische Kanten serverseitig und rendert daraus einen zoombaren Graphen.
+`/memories` integriert eine visuelle Qdrant-Brain-Ansicht. ARIA liest dafuer read-only eine begrenzte Stichprobe aus Nutzer-Memory und Dokument-Collections, berechnet semantische Kanten serverseitig und rendert daraus einen zoombaren Graphen.
 
 Die Ansicht ist fuer Beobachtung und Debugging gedacht:
 
@@ -43,7 +43,7 @@ Die Ansicht ist fuer Beobachtung und Debugging gedacht:
 Wenn Memory, RAG oder Routing schwach wirken:
 
 - `/stats` Preflight pruefen
-- `/memories/map` oeffnen
+- `/memories` oeffnen
 - Embedding-Modell und Fingerprint pruefen
 - `/config/routing` fuer Connection-Routing testen
 - Qdrant-Collections und Storage-Warnungen beachten

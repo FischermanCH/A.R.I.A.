@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from aria.core.config import Settings
-from aria.core.discord_alerts import runtime_host_line, send_discord_alerts
+from aria.modules.configuration_foundations.config import Settings
+from aria.modules.discord_alerting.alerts import runtime_host_line, send_discord_alerts
 
 
 def test_send_discord_alerts_respects_category_flags() -> None:
@@ -13,19 +13,17 @@ def test_send_discord_alerts_respects_category_flags() -> None:
                     "ops": {
                         "webhook_url": "https://discord.example/ops",
                         "alert_skill_errors": True,
-                        "alert_safe_fix": False,
                     },
                     "audit": {
                         "webhook_url": "https://discord.example/audit",
                         "alert_skill_errors": False,
-                        "alert_safe_fix": True,
                     },
                 }
             },
         }
     )
 
-    with patch("aria.core.discord_alerts._post_webhook_message") as send_mock:
+    with patch("aria.modules.discord_alerting.alerts._post_webhook_message") as send_mock:
         sent = send_discord_alerts(
             settings,
             category="recipe_errors",
@@ -49,7 +47,6 @@ def test_send_discord_alerts_routes_configured_event_categories() -> None:
                     "ops": {
                         "webhook_url": "https://discord.example/ops",
                         "alert_skill_errors": True,
-                        "alert_safe_fix": True,
                         "alert_connection_changes": True,
                         "alert_system_events": True,
                     }
@@ -58,15 +55,39 @@ def test_send_discord_alerts_routes_configured_event_categories() -> None:
         }
     )
 
-    with patch("aria.core.discord_alerts._post_webhook_message") as send_mock:
-        categories = ("recipe_errors", "skill_errors", "safe_fix", "connection_changes", "system_events")
+    with patch("aria.modules.discord_alerting.alerts._post_webhook_message") as send_mock:
+        categories = ("recipe_errors", "skill_errors", "connection_changes", "system_events")
         sent = [
             send_discord_alerts(settings, category=category, title="event", lines=["demo"], level="info")
             for category in categories
         ]
 
-    assert sent == [1, 1, 1, 1, 1]
+    assert sent == [1, 1, 1, 1]
     assert send_mock.call_count == len(categories)
+
+
+def test_legacy_alert_safe_fix_config_key_is_ignored_without_enabling_an_alert() -> None:
+    settings = Settings.model_validate(
+        {
+            "llm": {"model": "fake"},
+            "connections": {
+                "discord": {
+                    "ops": {
+                        "webhook_url": "https://discord.example/ops",
+                        "alert_safe_fix": True,
+                    }
+                }
+            },
+        }
+    )
+
+    profile = settings.connections.discord["ops"]
+    assert not hasattr(profile, "alert_safe_fix")
+    with patch("aria.modules.discord_alerting.alerts._post_webhook_message") as send_mock:
+        assert send_discord_alerts(
+            settings, category="safe_fix", title="retired", lines=["ignored"], level="info",
+        ) == 0
+    send_mock.assert_not_called()
 
 
 def test_send_discord_alerts_returns_zero_when_nothing_matches() -> None:
@@ -77,7 +98,7 @@ def test_send_discord_alerts_returns_zero_when_nothing_matches() -> None:
         }
     )
 
-    with patch("aria.core.discord_alerts._post_webhook_message") as send_mock:
+    with patch("aria.modules.discord_alerting.alerts._post_webhook_message") as send_mock:
         sent = send_discord_alerts(
             settings,
             category="system_events",
@@ -105,6 +126,6 @@ def test_runtime_host_line_treats_configured_url_as_optional_basis_url() -> None
     )
 
     assert runtime_host_line(configured) == "Host: http://aria.example.lan"
-    with patch("aria.core.runtime_endpoint._detect_lan_ip", return_value="192.0.2.29"):
+    with patch("aria.modules.integration_support.runtime_endpoint._detect_lan_ip", return_value="192.0.2.29"):
         assert runtime_host_line(wildcard) == "Host: http://192.0.2.29:8800"
     assert "Public URL" not in runtime_host_line(wildcard)

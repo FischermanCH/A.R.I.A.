@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="config-layout config-domain-layout">
+  <section class="floating-card config-section">
+    <div class="section-heading"><div><p class="eyebrow">Admin diagnostic</p><h1>Native Tool-Call Selftest</h1></div></div>
+    <form method="post" action="/config/native-toolcall-selftest">
+      <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit">Run native Tool-Call selftest</button>
+    </form>
+    {% if error %}<p class="status-error">{{ error }}</p>{% endif %}
+    {% if diagnostics %}
+    <dl class="stats-grid">
+      {% for key, value in diagnostics.items() %}<div><dt>{{ key }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+    </dl>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

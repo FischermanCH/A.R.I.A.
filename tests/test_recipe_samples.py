@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import aria.web.recipes_template_import as template_import
+import pytest
+
+from aria.modules import module_route_path
+import aria.modules.recipe_store.template_import as template_import
+import aria.modules.recipes_ui.route_support as recipes_route_support
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +38,12 @@ ALLOWED_STEP_TYPES = {
     "ssh_run",
 }
 
+ADAPTIVE_RECIPE_FILES = {
+    "ssh-disk-usage-all-hosts.json",
+    "ssh-updates-check-all-hosts.json",
+    "ssh-uptime-all-hosts.json",
+}
+
 
 def _sample_payloads(sample_dir: Path) -> list[tuple[Path, dict]]:
     files = sorted(sample_dir.glob("*.json"))
@@ -44,6 +54,19 @@ def _sample_payloads(sample_dir: Path) -> list[tuple[Path, dict]]:
         assert isinstance(payload, dict), path.name
         rows.append((path, payload))
     return rows
+
+
+def test_shipped_recipe_set_contains_only_adaptive_ssh_templates() -> None:
+    rows = _sample_payloads(RECIPE_SAMPLE_DIR)
+
+    assert {path.name for path, _payload in rows} == ADAPTIVE_RECIPE_FILES
+    for path, payload in rows:
+        ssh_steps = [step for step in payload["steps"] if step.get("type") == "ssh_run"]
+        assert len(ssh_steps) == 1, path.name
+        params = ssh_steps[0]["params"]
+        assert params.get("connection_kind") == "ssh", path.name
+        assert params.get("binding") == "all", path.name
+        assert "connection_ref" not in params, path.name
 
 
 def test_recipe_sample_manifests_are_valid_json_and_use_supported_step_types() -> None:
@@ -64,11 +87,8 @@ def test_recipe_samples_are_recipe_first_public_surface() -> None:
         assert "Skill" not in description and "skill" not in description, path.name
 
 
-def test_legacy_skill_samples_stay_available_only_as_backcompat_reference() -> None:
-    recipe_names = {path.name for path, _payload in _sample_payloads(RECIPE_SAMPLE_DIR)}
-    legacy_names = {path.name for path, _payload in _sample_payloads(LEGACY_SAMPLE_DIR)}
-
-    assert legacy_names == recipe_names
+def test_legacy_skill_sample_root_contains_no_shipped_templates() -> None:
+    assert list(LEGACY_SAMPLE_DIR.glob("*.json")) == []
 
 
 def test_sample_recipe_dir_prefers_recipe_samples_and_keeps_legacy_fallback(monkeypatch, tmp_path: Path) -> None:
@@ -87,16 +107,70 @@ def test_sample_recipe_dir_prefers_recipe_samples_and_keeps_legacy_fallback(monk
 def test_sample_recipe_rows_expose_review_metadata() -> None:
     rows = template_import.build_sample_recipe_rows()
 
-    disk = next(row for row in rows if row["id"] == "ssh-disk-usage-template")
+    assert {row["id"] for row in rows} == {
+        "ssh-disk-usage-all-hosts", "ssh-updates-check-all-hosts", "ssh-uptime-all-hosts",
+    }
+    disk = next(row for row in rows if row["id"] == "ssh-disk-usage-all-hosts")
     assert disk["step_count"] == 3
     assert disk["step_types"] == ["ssh_run", "llm_transform", "chat_send"]
     assert disk["connections_label"] == "ssh"
-    assert disk["trigger_count"] == 4
+    assert "trigger_count" not in disk
     assert disk["schedule_enabled"] is False
     assert disk["has_side_effect"] is False
 
-    briefing = next(row for row in rows if row["id"] == "rss-morning-briefing-to-discord-template")
-    assert briefing["schedule_enabled"] is True
-    assert briefing["schedule_cron"] == "0 7 * * *"
-    assert briefing["connections"] == ["rss", "discord"]
-    assert briefing["has_side_effect"] is True
+    assert all(row["schedule_enabled"] is False for row in rows)
+    assert all(row["connections"] == ["ssh"] for row in rows)
+    assert all(row["has_side_effect"] is False for row in rows)
+
+
+def test_import_sample_recipe_success_default_uses_registry_route_readpoint(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+    sample_dir = tmp_path / "samples" / "recipes"
+    recipes_dir = tmp_path / "data" / "recipes"
+    sample_dir.mkdir(parents=True)
+    recipes_dir.mkdir(parents=True)
+    (sample_dir / "demo.json").write_text(
+        json.dumps(
+            {
+                "id": "demo-template",
+                "name": "Demo",
+                "description": "Demo recipe.",
+                "version": "1.0",
+                "schema_version": "1",
+                "category": "demo",
+                "router_keywords": [],
+                "connections": [],
+                "steps": [{"id": "say", "type": "chat_send", "params": {"chat_message": "ok"}}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def tracking_module_route_path(module_id: str, route_path: str, **kwargs: object) -> str | None:
+        calls.append((module_id, route_path))
+        return module_route_path(module_id, route_path, **kwargs)
+
+    monkeypatch.setattr(recipes_route_support, "module_route_path", tracking_module_route_path)
+    monkeypatch.setattr(template_import, "SAMPLE_RECIPES_DIR", sample_dir)
+    monkeypatch.setattr(template_import, "LEGACY_SAMPLE_RECIPES_DIR", tmp_path / "samples" / "skills")
+    monkeypatch.setattr(template_import, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(template_import, "_save_stored_recipe_manifest", lambda raw: raw)
+
+    url = recipes_route_support.import_sample_recipe_success_url(sample_file="demo.json", surface_path="", lang="en")
+
+    assert url == "/recipes?saved=1&info=imported:demo-template"
+    assert ("recipes_ui", "/recipes") in calls
+
+
+def test_import_sample_recipe_success_default_fails_closed_without_owner(monkeypatch, tmp_path: Path) -> None:
+    sample_dir = tmp_path / "samples" / "recipes"
+    sample_dir.mkdir(parents=True)
+    (sample_dir / "demo.json").write_text(json.dumps({"id": "demo"}), encoding="utf-8")
+
+    monkeypatch.setattr(recipes_route_support, "module_route_path", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(template_import, "SAMPLE_RECIPES_DIR", sample_dir)
+    monkeypatch.setattr(template_import, "LEGACY_SAMPLE_RECIPES_DIR", tmp_path / "samples" / "skills")
+    monkeypatch.setattr(template_import, "_save_stored_recipe_manifest", lambda raw: raw)
+
+    with pytest.raises(RuntimeError, match="recipes_ui route is not registered: /recipes"):
+        recipes_route_support.import_sample_recipe_success_url(sample_file="demo.json", surface_path="", lang="en")

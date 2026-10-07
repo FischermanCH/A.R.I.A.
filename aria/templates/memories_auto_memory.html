@@ -1,19 +1,50 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block content %}
 {% set memory_lang_de = request and request.state and (request.state.lang|string).lower().startswith('de') %}
+{% set static_help_path = module_route_path('static_help_docs', '/help') %}
 <main class="config-layout memory-config-layout memory-domain-shell">
-  {% include "_admin_section_nav.html" %}
-  <section class="config-card">
-    <div class="page-title-row">
-      <h2>{{ tr(request, 'config_memory.auto_learning_title', 'Auto-Memory & agentisches Lernen' if memory_lang_de else 'Auto-memory & agentic learning') }}</h2>
-    </div>
+  {% include "_memories_nav.html" %}
+  <section class="config-card auto-memory-workspace">
+    <header class="auto-memory-page-head">
+      <div class="page-title-row">
+        <h2>{{ tr(request, 'config_memory.auto_kicker', 'Persönliches Modell' if memory_lang_de else 'Personal model') }}</h2>
+      </div>
+      <div class="auto-memory-page-actions">
+        <a class="context-help-link ui-action-link" href="{{ static_help_path }}?doc=memory">{{ icon('help', 'ui-action-icon') }}{{ tr(request, 'config_memory.auto_help_link', 'Memory-Hilfe' if memory_lang_de else 'Memory help') }}</a>
+      </div>
+    </header>
+
     {% if saved %}
     <div class="alert ok">{{ tr(request, 'config_memory.saved', 'Memory setup updated.') }}</div>
     {% endif %}
     {% if error_message %}
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
-    {% include "_memory_auto_section.html" %}
+
+    <section class="learning-ledger" aria-labelledby="personal-model-title">
+      <div class="learning-ledger-head">
+        <div>
+          <h2 id="personal-model-title">{{ 'Persönliches Modell' if memory_lang_de else 'Personal model' }}</h2>
+          <p>{{ personal_claims|length }} {{ 'Claims · aktuelle Wahrheit und sichtbare Historie' if memory_lang_de else 'claims · current truth and visible history' }}</p>
+        </div>
+      </div>
+      <div class="learning-ledger-summary learning-ledger-summary-primary">
+        <span class="meta-badge is-active">{{ 'Wirksam' if memory_lang_de else 'Effective' }}: {{ personal_active_claim_count }}</span>
+        <span class="meta-badge">{{ 'Geplant' if memory_lang_de else 'Scheduled' }}: {{ personal_scheduled_claim_count }}</span>
+        <span class="meta-badge">{{ 'Abgelaufen' if memory_lang_de else 'Expired' }}: {{ personal_expired_claim_count }}</span>
+        <span class="meta-badge">{{ 'Review fällig' if memory_lang_de else 'Review due' }}: {{ personal_review_due_claim_count }}</span>
+        <span class="meta-badge">{{ 'Suspendiert' if memory_lang_de else 'Suspended' }}: {{ personal_suspended_claim_count }}</span>
+        <span class="meta-badge">{{ 'Inaktiv / historisch' if memory_lang_de else 'Inactive / historical' }}: {{ personal_claims|length - personal_active_claim_count - personal_scheduled_claim_count - personal_expired_claim_count - personal_suspended_claim_count }}</span>
+      </div>
+      <div class="learning-ledger-list">
+        {% for claim in personal_claims %}
+          {% include "_personal_claim_item.html" %}
+        {% else %}
+        <p class="learning-ledger-empty">{{ 'Noch keine strukturierten persönlichen Claims vorhanden.' if memory_lang_de else 'No structured personal claims yet.' }}</p>
+        {% endfor %}
+      </div>
+    </section>
   </section>
 </main>
 {% endblock %}

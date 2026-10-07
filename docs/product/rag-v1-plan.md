@@ -13,7 +13,7 @@ Bereits umgesetzt:
 - Dokument-Chunks als eigener Typ `document`
 - interner Dokument-Guide-Index mit Summary + Stichworten pro Upload
 - Recall fragt zuerst den Guide-Index und dann gezielt passende Dokument-Chunks ab
-- Dokument-Verwaltung in `/memories/map`
+- Dokument-Verwaltung in `/memories`
   - gruppiert nach Dokumentname
   - mit Chunk-Anzahl, Vorschau und Collection
   - ganzes Dokument loeschbar
@@ -201,7 +201,7 @@ Quellenanzeige in V1:
   - Chunk-Nummer
 
 Technische Andockpunkte:
-- `aria/skills/memory.py`
+- `aria/modules/memory_learning_bridge/skill.py`
 - `aria/core/pipeline.py`
 - bestehende Recall-Zusammenstellung erweitern
 

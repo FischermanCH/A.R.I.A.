@@ -26,10 +26,15 @@
 </div>
 {%- endmacro %}
 {% macro manage_connections_link(request) -%}
-<a class="nav-link ui-action-link" href="/connections" target="_blank" rel="noopener noreferrer">{{ icon('connections', 'ui-action-icon') }}{{ tr(request, 'recipes.manage_connections', 'Verbindungen verwalten') }}</a>
+{% set connections_ui_path = module_route_path('connections_ui_readonly', '/connections') %}
+<a class="nav-link ui-action-link" href="{{ connections_ui_path }}" target="_blank" rel="noopener noreferrer">{{ icon('connections', 'ui-action-icon') }}{{ tr(request, 'recipes.manage_connections', 'Verbindungen verwalten') }}</a>
 {%- endmacro %}
 {% block content %}
 <main class="skills-layout skills-clean-layout skills-surface-layout skills-wizard-layout" id="skills-wizard-root" data-wizard-mode="{{ wizard_mode or 'simple' }}" data-skill-loaded="{% if skill.id %}1{% else %}0{% endif %}">
+  {% set recipes_ui_overview_path = module_route_path('recipes_ui', '/recipes') %}
+  {% set recipes_ui_wizard_save_path = module_route_path('recipes_ui', '/recipes/wizard/save') %}
+  {% set recipes_ui_delete_path = module_route_path('recipes_ui', '/recipes/delete') %}
+  {% set config_ui_overview_path = module_route_path('config_ui', '/config') %}
   {% include "_recipes_nav.html" %}
   {% include "_recipes_page_header.html" %}
 
@@ -53,7 +58,7 @@
   </section>
 
   <section class="floating-card skills-wizard-editor">
-    <form class="editor-form" method="post" action="/recipes/wizard/save" id="skill-wizard-form">
+    <form class="editor-form" method="post" action="{{ recipes_ui_wizard_save_path }}" id="skill-wizard-form">
       <input type="hidden" name="original_skill_id" value="{{ skill.id or '' }}">
       <input type="hidden" name="wizard_mode" id="wizard-mode-input" value="{{ wizard_mode or 'simple' }}">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
@@ -91,19 +96,9 @@
           </p>
         </section>
 
-        <label>
-          {{ tr(request, 'recipes.wizard_trigger_keywords_label', 'Trigger keywords') }}
-          <span class="field-help" title="{{ tr(request, 'recipes.wizard_trigger_keywords_help', 'Comma-separated keywords. If one appears in the prompt, the recipe can be activated.') }}">i</span>
-          <input type="text" name="skill_router_keywords" value="{{ (skill.router_keywords or [])|join(', ') }}" placeholder="{{ tr(request, 'recipes.wizard_trigger_keywords_placeholder', 'e.g. update server, patching') }}">
-        </label>
-        <label class="inline-check">
-          <input type="checkbox" name="auto_generate_keywords" value="1" checked>
-          {{ tr(request, 'recipes.wizard_auto_keywords', 'Trigger automatically via LLM when empty') }}
-        </label>
-
         <section class="skill-summary">
           <h3>{{ tr(request, 'recipes.wizard_simple_flow_title', 'Einfacher Ablauf') }}</h3>
-          <p class="hint-text">{{ tr(request, 'recipes.wizard_simple_flow_hint', '1) Name und Beschreibung setzen. 2) Trigger leer lassen oder kurz pflegen. 3) Schedule optional setzen. 4) Pro Step nur den passenden Connection-Typ ausfuellen.') }}</p>
+          <p class="hint-text">{{ tr(request, 'recipes.wizard_simple_flow_hint', '1) Name und Beschreibung setzen. 2) Schedule optional setzen. 3) Pro Step nur den passenden Connection-Typ ausfuellen.') }}</p>
         </section>
 
         <details class="skill-details wizard-advanced-only">
@@ -249,6 +244,12 @@
                   <textarea name="step_{{ step.idx }}_command" rows="4" maxlength="2400" placeholder="sudo apt update && sudo apt upgrade -y">{{ step.command }}</textarea>
                 </label>
 
+                <label data-step-types="ssh_run">
+                  {{ tr(request, 'recipes.wizard_ssh_timeout_label', 'Timeout (seconds)') }}
+                  <input type="number" name="step_{{ step.idx }}_timeout_seconds" min="5" value="{{ step.timeout_seconds or '' }}">
+                  <small class="hint-text">{{ tr(request, 'recipes.wizard_ssh_timeout_hint', 'Empty uses the connection default (20 s); for apt/upgrade, for example 300.') }}</small>
+                </label>
+
                 <label data-step-types="sftp_read sftp_write">
                   {{ tr(request, 'recipes.wizard_sftp_connection_ref_label', 'SFTP connection ref (for sftp_read / sftp_write)') }}
                   <div class="inline-actions">
@@ -390,14 +391,14 @@
         <button
           type="submit"
           class="danger-btn ui-action-button"
-          formaction="/recipes/delete"
+          formaction="{{ recipes_ui_delete_path }}"
           formmethod="post"
           name="skill_id"
           value="{{ skill.id }}"
           onclick="return confirm('{{ tr(request, 'recipes.delete_confirm', 'Rezept wirklich löschen?') }}');"
         >{{ icon('trash', 'ui-action-icon') }}{{ tr(request, 'recipes.delete', 'Löschen') }}</button>
         {% endif %}
-        <a class="nav-link ui-action-link" href="{{ return_to or '/recipes' }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'recipes.wizard_back_to_recipes', 'Back to recipes') }}</a>
+        <a class="nav-link ui-action-link" href="{{ return_to or recipes_ui_overview_path }}">{{ icon('arrow_left', 'ui-action-icon') }}{{ tr(request, 'recipes.wizard_back_to_recipes', 'Back to recipes') }}</a>
       </div>
     </form>
   </section>
@@ -458,6 +459,12 @@
       <label data-step-types="ssh_run">
         {{ tr(request, 'recipes.wizard_ssh_command_label', 'SSH command (for ssh_run)') }}
         <textarea name="step___IDX___command" rows="4" maxlength="2400" placeholder="sudo apt update && sudo apt upgrade -y"></textarea>
+      </label>
+
+      <label data-step-types="ssh_run">
+        {{ tr(request, 'recipes.wizard_ssh_timeout_label', 'Timeout (seconds)') }}
+        <input type="number" name="step___IDX___timeout_seconds" min="5" value="">
+        <small class="hint-text">{{ tr(request, 'recipes.wizard_ssh_timeout_hint', 'Empty uses the connection default (20 s); for apt/upgrade, for example 300.') }}</small>
       </label>
 
       <label data-step-types="sftp_read sftp_write">
@@ -565,6 +572,7 @@
     const skillTypeFollowupSteps = {{ skill_type_followup_steps_json | tojson }};
     const skillTypeConnectionChoices = {{ skill_type_connection_choices_json | tojson }};
     const connectionOptionsByKind = {{ connection_options_by_kind_json | tojson }};
+    const configUiOverviewPath = {{ config_ui_overview_path | tojson }};
     const wizardText = {
       addStepAdvanced: {{ tr(request, 'recipes.wizard_add_step_advanced', 'Enable additional step') | tojson }},
       addAnotherStep: {{ tr(request, 'recipes.wizard_add_another_step', 'Add another {label} step') | tojson }},
@@ -944,7 +952,7 @@
           actions.appendChild(empty);
           const link = document.createElement("a");
           link.className = "nav-link ui-action-link";
-          link.href = "/config";
+          link.href = configUiOverviewPath;
           link.target = "_blank";
           link.rel = "noopener noreferrer";
           link.textContent = wizardText.createConnection;

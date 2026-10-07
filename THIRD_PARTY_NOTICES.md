@@ -18,26 +18,6 @@ Qdrant ist der Vector Store, auf dem ARIAs semantische Memory-Schicht aufbaut.
 
 ARIA betreibt Qdrant typischerweise als separaten Container im selben Compose-/Portainer-Stack. Qdrant ist kein ARIA-eigener Codebestand, sondern ein eigenständiges Upstream-Projekt, das hier mit Respekt und Dankbarkeit genutzt wird.
 
-### SearXNG
-
-SearXNG ist der self-hosted Meta-Search-Dienst hinter ARIAs pre-alpha Websuche.
-
-- Projekt: https://docs.searxng.org/
-- Repository: https://github.com/searxng/searxng
-- Lizenz: AGPL-3.0
-
-ARIA nutzt SearXNG bewusst als separaten, unveränderten Stack-Dienst und spricht nur die JSON-Search-API an. SearXNG ist kein in ARIA eingebetteter Codepfad, sondern ein eigenständiges Upstream-Projekt mit eigener Lizenz und eigenem Runtime-Verhalten. Diese Trennung ist technisch und lizenzseitig bewusst so gewählt.
-
-### Valkey
-
-Valkey wird im ARIA-Stack als separater Hilfsdienst für den SearXNG-Container eingesetzt.
-
-- Projekt: https://valkey.io/
-- Repository: https://github.com/valkey-io/valkey
-- Lizenz: BSD-3-Clause
-
-Valkey ist ebenfalls kein ARIA-eigener Codebestand, sondern ein eigenständiges Upstream-Projekt, das im Stack als Cache-/Runtime-Komponente mitläuft.
-
 ## Wichtige Python-/Runtime-Abhängigkeiten
 
 ARIA nutzt unter anderem:
@@ -67,4 +47,4 @@ Vor einem Public Release sollten die final ausgelieferten Container- und Paketab
 
 ## Design-Prinzip
 
-ARIA versucht nicht, Qdrant, SearXNG, Valkey, LiteLLM, FastAPI oder andere Upstream-Projekte als eigene Arbeit darzustellen. ARIA ist die Integrations-, UI-, Routing-, Skill- und Memory-Orchestrierungsschicht darüber; die zugrundeliegenden Infrastruktur- und Framework-Projekte verdienen explizite Nennung.
+ARIA versucht nicht, Qdrant, LiteLLM, FastAPI oder andere Upstream-Projekte als eigene Arbeit darzustellen. ARIA ist die Integrations-, UI-, Routing-, Skill- und Memory-Orchestrierungsschicht darüber; die zugrundeliegenden Infrastruktur- und Framework-Projekte verdienen explizite Nennung.

@@ -8,14 +8,15 @@ Die Dateien unter `samples/recipes/` sind recipe-first JSON-Manifeste fuer den I
 
 Aktuelle Beispiele:
 
-- `discord-broadcast-template.json`: einfache Discord-Nachricht aus einem Rezept senden
-- `linux-fleet-healthcheck-to-discord-template.json`: mehrere Linux-Hosts read-only via SSH pruefen, per LLM bewerten und nur bei echtem Alarm nach Discord senden
-- `linux-updates-check-template.json`: read-only Linux-Update-Check via SSH
-- `smb-share-list-template.json`: SMB-Share lesen und im Chat zusammenfassen
+- `ssh-uptime-all-hosts.json`: Uptime auf allen konfigurierten SSH-Verbindungen lesen
+- `ssh-disk-usage-all-hosts.json`: Dateisystembelegung auf allen konfigurierten SSH-Verbindungen lesen
+- `ssh-updates-check-all-hosts.json`: Debian-/Ubuntu-Updates auf allen konfigurierten SSH-Verbindungen pruefen
+
+Alle drei Templates sind adaptiv: `connection_kind=ssh` und `binding=all` werden beim Lauf in konkrete konfigurierte Profile expandiert. Sie enthalten keine fixe Demo-Ref.
 
 ## Legacy Skill Samples
 
-Die Dateien unter `samples/skills/` bleiben vorerst als Legacy-/Backcompat-Referenz erhalten. Neue Tests, neue Doku und neue Produkttexte sollen `samples/recipes/` und `/recipes` verwenden.
+Unter `samples/skills/` werden keine Legacy-Demo-Rezepte mehr ausgeliefert. Der Loader-Fallback bleibt fuer externe Alt-Pakete kompatibel; shipped Beispiele liegen ausschliesslich unter `samples/recipes/`.
 
 ## Connections
 
@@ -39,5 +40,5 @@ Wichtig:
 
 - alle Werte sind Platzhalter
 - Secrets / Tokens / Passwoerter sind bewusst leer oder neutral
-- bei Rezepten mit `ssh_run`, `sftp_read`, `sftp_write` oder `discord_send` muessen die referenzierten Connections vorher existieren
+- bei den adaptiven `ssh_run`-Beispielen muss mindestens eine SSH-Connection konfiguriert sein
 - bei Rezepten mit `smb_read`, `smb_write` oder `rss_read` muss der entsprechende Build-Stand diese Step-Typen bereits enthalten

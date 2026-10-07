@@ -19,9 +19,7 @@ AUTO_DETECTED_MESSAGE=""
 SOURCE_PROJECT=""
 SOURCE_PROJECT_EXPLICIT="false"
 ARIA_QDRANT_API_KEY=""
-SEARXNG_SECRET=""
 QDRANT_KEY_EXPLICIT="false"
-SEARXNG_SECRET_EXPLICIT="false"
 NEED_SUDO_CACHE=""
 
 STACK_NAME="${ARIA_STACK_NAME:-$DEFAULT_STACK_NAME}"
@@ -76,7 +74,7 @@ Usage:
 What it does:
   - prepares a full ARIA docker-compose install in one directory
   - creates persistent storage folders automatically
-  - generates Qdrant and SearXNG secrets for you
+  - generates a Qdrant secret for you
   - writes a ready-to-use docker-compose.yml, .env and aria-stack.sh
   - starts the stack unless you explicitly disable that
 
@@ -97,7 +95,6 @@ Options:
   --embeddings-model MODEL    Default embeddings model
   --project NAME              Source compose project for migration
   --qdrant-key VALUE          Explicit Qdrant API key override
-  --searxng-secret VALUE      Explicit SearXNG secret override
   --no-start                  Only create files, do not start containers
   --force                     Allow overwrite in an existing target directory
   --yes                       Accept the shown plan without asking again
@@ -431,24 +428,18 @@ normalize_qdrant_storage_permissions() {
 discover_source_project_defaults() {
   local aria_container=""
   local qdrant_container=""
-  local searxng_container=""
-  local valkey_container=""
   local value=""
 
   [[ -n "$SOURCE_PROJECT" ]] || die "Bitte --project <compose-projekt> fuer die Migration angeben."
 
   aria_container="$(first_container_for_project_service "$SOURCE_PROJECT" "aria")"
   qdrant_container="$(first_container_for_project_service "$SOURCE_PROJECT" "qdrant")"
-  searxng_container="$(first_container_for_project_service "$SOURCE_PROJECT" "searxng")"
-  valkey_container="$(first_container_for_project_service "$SOURCE_PROJECT" "searxng-valkey")"
 
   [[ -n "$aria_container" ]] || die "Kein ARIA-Container fuer Compose-Projekt gefunden: $SOURCE_PROJECT"
   [[ -n "$qdrant_container" ]] || die "Kein Qdrant-Container fuer Compose-Projekt gefunden: $SOURCE_PROJECT"
 
   SOURCE_ARIA_CONTAINER="$aria_container"
   SOURCE_QDRANT_CONTAINER="$qdrant_container"
-  SOURCE_SEARXNG_CONTAINER="$searxng_container"
-  SOURCE_VALKEY_CONTAINER="$valkey_container"
 
   if [[ "$STACK_NAME_EXPLICIT" != "true" ]]; then
     STACK_NAME="${SOURCE_PROJECT}-managed"
@@ -490,10 +481,6 @@ discover_source_project_defaults() {
   if [[ "$QDRANT_KEY_EXPLICIT" != "true" ]]; then
     value="$(docker_env_value "$SOURCE_ARIA_CONTAINER" "ARIA_QDRANT_API_KEY")"
     [[ -n "$value" ]] && ARIA_QDRANT_API_KEY="$value"
-  fi
-  if [[ "$SEARXNG_SECRET_EXPLICIT" != "true" && -n "$SOURCE_SEARXNG_CONTAINER" ]]; then
-    value="$(docker_env_value "$SOURCE_SEARXNG_CONTAINER" "SEARXNG_SECRET")"
-    [[ -n "$value" ]] && SEARXNG_SECRET="$value"
   fi
 }
 
@@ -540,20 +527,11 @@ perform_migration() {
     --embeddings-model "$EMBEDDINGS_MODEL"
     --qdrant-key "$ARIA_QDRANT_API_KEY"
   )
-  if [[ -n "$SEARXNG_SECRET" ]]; then
-    setup_args+=(--searxng-secret "$SEARXNG_SECRET")
-  fi
   setup_args+=(--no-start --force)
 
   run_setup_script "$setup_script" "${setup_args[@]}"
 
   source_containers=("$SOURCE_ARIA_CONTAINER" "$SOURCE_QDRANT_CONTAINER")
-  if [[ -n "${SOURCE_SEARXNG_CONTAINER:-}" ]]; then
-    source_containers+=("$SOURCE_SEARXNG_CONTAINER")
-  fi
-  if [[ -n "${SOURCE_VALKEY_CONTAINER:-}" ]]; then
-    source_containers+=("$SOURCE_VALKEY_CONTAINER")
-  fi
 
   log "Stoppe Quell-Stack als Sicherheitsmassnahme fuer die Datenkopie."
   run_host_docker_stop "${source_containers[@]}"
@@ -779,11 +757,6 @@ while [[ $# -gt 0 ]]; do
       QDRANT_KEY_EXPLICIT="true"
       shift 2
       ;;
-    --searxng-secret)
-      SEARXNG_SECRET="${2:-}"
-      SEARXNG_SECRET_EXPLICIT="true"
-      shift 2
-      ;;
     --no-start)
       START_STACK="false"
       shift
@@ -948,10 +921,6 @@ SETUP_ARGS=(
 if [[ -n "$ARIA_QDRANT_API_KEY" ]]; then
   SETUP_ARGS+=(--qdrant-key "$ARIA_QDRANT_API_KEY")
 fi
-if [[ -n "$SEARXNG_SECRET" ]]; then
-  SETUP_ARGS+=(--searxng-secret "$SEARXNG_SECRET")
-fi
-
 if [[ "$START_STACK" != "true" ]]; then
   SETUP_ARGS+=(--no-start)
 fi

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import yaml
 
-import aria.web.config_routes as config_routes_mod
-from aria.core.guardrails import guardrail_kind_options
+import aria.modules.config_ui.routes as config_routes_mod
+from aria.modules.runtime_guardrails.guardrails import guardrail_kind_options
 
 
 def test_guardrail_sample_yaml_uses_supported_guardrail_kinds() -> None:

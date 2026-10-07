@@ -5,16 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="csrf-token" content="{{ request.state.csrf_token if request and request.state else '' }}">
   <title>{{ agent_name(request, title) }}</title>
-  <link rel="icon" href="/favicon.ico?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" sizes="any">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
-  <script src="/static/vendor/htmx-1.9.12.min.js?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}"></script>
-  <link rel="stylesheet" href="/static/style.css?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}">
+  {% set release_asset_version = (request.state.release_meta.label if request and request.state else 'dev')|urlencode %}
+  {% set chat_surface_home_path = module_route_path('chat_surface', '/') if module_route_path is defined else '' %}
+  {% set navigation_shell_favicon_route = module_route_path('navigation_shell', '/favicon.ico') if module_route_path is defined else '' %}
+  {% set navigation_shell_favicon_32_path = module_static_asset_url('navigation_shell', 'favicon-32x32.png') if module_static_asset_url is defined else '' %}
+  {% set navigation_shell_favicon_16_path = module_static_asset_url('navigation_shell', 'favicon-16x16.png') if module_static_asset_url is defined else '' %}
+  {% set navigation_shell_apple_touch_icon_path = module_static_asset_url('navigation_shell', 'apple-touch-icon.png') if module_static_asset_url is defined else '' %}
+  {% set navigation_shell_style_path = module_static_asset_url('navigation_shell', 'style.css') if module_static_asset_url is defined else '' %}
+  {% set navigation_shell_busy_state_path = module_static_asset_url('navigation_shell', 'app-busy-state.js') if module_static_asset_url is defined else '' %}
+  {% set navigation_shell_logo_path = module_static_asset_url('navigation_shell', 'logo-aria-v01.png') if module_static_asset_url is defined else '' %}
+  {% set navigation_shell_htmx_path = module_static_asset_url('navigation_shell', 'vendor/htmx-1.9.12.min.js') if module_static_asset_url is defined else '' %}
+  <link rel="icon" href="{{ navigation_shell_favicon_route }}?v={{ release_asset_version }}" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ navigation_shell_favicon_32_path }}?v={{ release_asset_version }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ navigation_shell_favicon_16_path }}?v={{ release_asset_version }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ navigation_shell_apple_touch_icon_path }}?v={{ release_asset_version }}">
+  <script src="{{ navigation_shell_htmx_path }}?v={{ release_asset_version }}"></script>
+  <script src="{{ navigation_shell_busy_state_path }}?v={{ release_asset_version }}"></script>
+  <link rel="stylesheet" href="{{ navigation_shell_style_path }}?v={{ release_asset_version }}">
+  <style>
+    .global-agent-job-toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 1200; display: flex; gap: 0.8rem; align-items: center; }
+    .global-agent-job-toast button { min-width: 2rem; }
+  </style>
   <script>
-    if ("serviceWorker" in navigator) {
+    {% set release_update_reconnect_sw_path = module_route_path('release_update', '/update-reconnect-sw.js') if module_route_path is defined else '' %}
+    {% set release_update_health_path = module_route_path('release_update', '/health') if module_route_path is defined else '' %}
+    const reconnectServiceWorkerUrl = {{ release_update_reconnect_sw_path|tojson }};
+    if ("serviceWorker" in navigator && reconnectServiceWorkerUrl) {
       window.addEventListener("load", function () {
-        navigator.serviceWorker.register("/update-reconnect-sw.js", { scope: "/", updateViaCache: "none" }).catch(function () {
+        navigator.serviceWorker.register(reconnectServiceWorkerUrl, { scope: "/", updateViaCache: "none" }).catch(function () {
           // The update reconnect shell is best-effort. Normal ARIA usage must not depend on it.
         });
       });
@@ -32,14 +50,24 @@
   {% set nav_connections_active = current_path == '/connections' or current_path.startswith('/config/connections') %}
   {% set nav_stats_active = current_path.startswith('/stats') %}
   {% set nav_activities_active = current_path.startswith('/activities') %}
+  {% set nav_jobs_active = current_path.startswith('/jobs') %}
+  {% set stats_ui_stats_path = module_route_path('stats_ui', '/stats') if module_route_path is defined else '' %}
+  {% set chat_execution_jobs_panel_path = module_route_path('chat_execution_composition', '/jobs/panel') if module_route_path is defined else '' %}
+  {% set auth_ui_login_path = module_route_path('auth_ui', '/login') if module_route_path is defined else '' %}
+  {% set auth_ui_logout_path = module_route_path('auth_ui', '/logout') if module_route_path is defined else '' %}
+  {% set static_help_docs_help_path = module_route_path('static_help_docs', '/help') if module_route_path is defined else '' %}
+  {% set release_update_updates_path = module_route_path('release_update', '/updates') if module_route_path is defined else '' %}
+  {% set documents_notes_path = module_route_path('notes', '/notes') if module_route_path is defined else '' %}
+  {% set config_ui_config_path = module_route_path('config_ui', '/config') if module_route_path is defined else '' %}
+  {% set config_ui_admin_mode_path = module_route_path('config_ui', '/config/admin-mode') if module_route_path is defined else '' %}
   {% set nav_updates_active = current_path.startswith('/updates') %}
   {% set nav_config_active = current_path == '/config' or current_path.startswith('/config/') or current_path.startswith('/connections') or current_path.startswith('/recipes') %}
   {% set nav_help_active = current_path.startswith('/help') or current_path.startswith('/product-info') or current_path.startswith('/licenses') %}
   <div class="app-shell">
     <header class="topbar">
-      <a class="brand brand-home" href="/" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
+      <a class="brand brand-home" href="{{ chat_surface_home_path }}" aria-label="{{ tr(request, 'base.aria_label', 'Zurück zum Chat') }}">
         <div class="brand-mark">
-          <img src="/static/logo-aria-v01.png?v={{ (request.state.release_meta.label if request and request.state else 'dev')|urlencode }}" alt="{{ agent_name(request, title) }} Logo" class="brand-logo">
+          <img src="{{ navigation_shell_logo_path }}?v={{ release_asset_version }}" alt="{{ agent_name(request, title) }} Logo" class="brand-logo">
           <span class="brand-logo-rotate" aria-hidden="true"></span>
           <span class="thinking-rings brand-thinking-rings" aria-hidden="true">
             <span class="ring ring-a"></span>
@@ -59,6 +87,7 @@
       </a>
       <nav class="topnav" aria-label="{{ tr(request, 'base.nav_main', 'Hauptnavigation') }}">
         {% if request.state.authenticated %}
+        <a id="global-agent-job-indicator" class="pill" href="{{ chat_execution_jobs_panel_path }}" hidden aria-live="polite"></a>
         {% if request.state.can_access_advanced_config %}
         <span class="pill brand-admin-pill mobile-admin-pill mobile-only">{{ tr(request, 'base.admin_on', 'Admin ON') }}</span>
         {% endif %}
@@ -79,7 +108,7 @@
               <small>{{ request.state.auth_role }}</small>
               {% endif %}
             </div>
-            <a href="/config/admin-mode" class="user-menu-account-toggle{% if current_path == '/config/admin-mode' %} is-active{% endif %}">
+            <a href="{{ config_ui_admin_mode_path }}" class="user-menu-account-toggle{% if current_path == '/config/admin-mode' %} is-active{% endif %}">
               <span class="user-menu-account-toggle-copy">
                 <span class="user-menu-account-toggle-title">{{ tr(request, 'base.nav_extended_view', 'Extended view') }}</span>
                 <span class="user-menu-account-toggle-subtitle">
@@ -97,40 +126,22 @@
               {% endif %}
             </a>
             <div class="user-menu-section-label">{{ tr(request, 'base.nav_sections', 'Bereiche') }}</div>
-            <a href="/memories" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_memories_active %} is-active{% endif %}">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
-            <a href="/notes" class="user-menu-link user-menu-link-icon{% if nav_notes_active %} is-active{% endif %}">{{ icon('notes') }}<span>{{ tr(request, 'base.nav_notes', 'Notizen') }}</span></a>
-            {% if request.state.can_access_advanced_config %}
-            <details class="user-menu-admin-details user-menu-settings-details"{% if nav_config_active %} open{% endif %}>
-              <summary class="user-menu-link user-menu-link-icon user-menu-admin-summary{% if nav_config_active %} is-active{% endif %}">
-                {{ icon('settings') }}
-                <span>{{ tr(request, 'base.nav_config', 'Settings') }}</span>
-                {{ icon('arrow_right', 'user-menu-admin-caret') }}
-              </summary>
-              <div class="user-menu-admin-links user-menu-settings-links">
-                <a href="/config" class="user-menu-link user-menu-link-icon{% if current_path == '/config' %} is-active{% endif %}">
-                  {{ icon('settings') }}
-                  <span>{{ tr(request, 'base.nav_settings_overview', 'Overview') }}</span>
-                </a>
-                <a href="/config/admin" class="user-menu-link user-menu-link-icon{% if current_path == '/config/admin' or current_path.startswith('/config/admin/') %} is-active{% endif %}">
-                  {{ icon('settings') }}
-                  <span>{{ tr(request, 'base.nav_admin', 'Admin') }}</span>
-                </a>
-              </div>
-            </details>
-            {% else %}
-            <a href="/config" class="user-menu-link user-menu-link-icon{% if nav_config_active %} is-active{% endif %}">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Settings') }}</span></a>
-            {% endif %}
-            <a href="/stats" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
+            {% set memory_admin_memories_path = module_route_path('memory_admin_ui', '/memories') if module_route_path is defined else '' %}
+            <a href="{{ memory_admin_memories_path }}" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_memories_active %} is-active{% endif %}">{{ icon('memories') }}<span>{{ tr(request, 'base.nav_memories', 'Memories') }}</span></a>
+            <a href="{{ documents_notes_path }}" class="user-menu-link user-menu-link-icon{% if nav_notes_active %} is-active{% endif %}">{{ icon('notes') }}<span>{{ tr(request, 'base.nav_notes', 'Notizen') }}</span></a>
+            <a href="{{ config_ui_config_path }}" class="user-menu-link user-menu-link-icon{% if nav_config_active %} is-active{% endif %}">{{ icon('settings') }}<span>{{ tr(request, 'base.nav_config', 'Settings') }}</span></a>
+            <a href="{{ stats_ui_stats_path }}" data-busy-immediate="true" class="user-menu-link user-menu-link-icon{% if nav_stats_active %} is-active{% endif %}">{{ icon('stats') }}<span>{{ tr(request, 'base.nav_stats', 'Stats') }}</span></a>
+            <a href="{{ chat_execution_jobs_panel_path }}" class="user-menu-link user-menu-link-icon{% if nav_jobs_active %} is-active{% endif %}">{{ icon('activities') }}<span>{{ tr(request, 'base.nav_agent_jobs', 'Agent-Aufträge') }}</span></a>
             {% if (update_status and update_status.update_available) or nav_updates_active %}
-            <a href="/updates" class="user-menu-link user-menu-link-icon{% if nav_updates_active %} is-active{% endif %}">
+            <a href="{{ release_update_updates_path }}" class="user-menu-link user-menu-link-icon{% if nav_updates_active %} is-active{% endif %}">
               {{ icon('updates') }}
               <span>{{ tr(request, 'base.nav_updates', 'Updates') }}</span>
               {% if update_status and update_status.update_available %}<span class="menu-update-chip"><span class="health-lamp status-warn"></span><span>{{ tr(request, 'updates.available_short', 'Update verfügbar') }}</span></span>{% endif %}
             </a>
             {% endif %}
-            <a href="/help" class="user-menu-link user-menu-link-icon{% if nav_help_active %} is-active{% endif %}">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
+            <a href="{{ static_help_docs_help_path }}" class="user-menu-link user-menu-link-icon{% if nav_help_active %} is-active{% endif %}">{{ icon('help') }}<span>{{ tr(request, 'base.nav_help', 'Hilfe') }}</span></a>
             <div class="user-menu-divider" aria-hidden="true"></div>
-            <form action="/logout" method="post" class="inline-form">
+            <form action="{{ auth_ui_logout_path }}" method="post" class="inline-form">
               <button type="submit" class="user-menu-link user-menu-link-icon user-menu-button">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_logout', 'Logout') }}</span></button>
             </form>
           </div>
@@ -145,7 +156,7 @@
             {% endfor %}
           </select>
         </form>
-        <a href="/login" class="nav-link nav-link-icon">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_login', 'Login') }}</span></a>
+        <a href="{{ auth_ui_login_path }}" class="nav-link nav-link-icon">{{ icon('logout') }}<span>{{ tr(request, 'base.nav_login', 'Login') }}</span></a>
         {% endif %}
       </nav>
     </header>
@@ -179,48 +190,127 @@
       const restartBanner = document.getElementById("runtime-restart-banner");
       const restartReloadButton = document.getElementById("runtime-restart-reload");
       const restartDismissButton = document.getElementById("runtime-restart-dismiss");
-      let busyCount = 0;
-      let busyTimer = null;
+      const busyState = window.AriaBusyState.create({ body, brandMark, delayMs: 220 });
+      const legacyBusyOwners = [];
+      const htmxBusyOwners = new WeakMap();
       let restartCheckInFlight = false;
+      const globalAgentJobIndicator = document.getElementById("global-agent-job-indicator");
+      const knownAgentJobStates = new Map();
+      const shownAgentJobEvents = new Set();
+      let globalAgentJobsInitialized = false;
 
-      function setBusy(active) {
-        body.classList.toggle("app-busy", !!active);
-        if (brandMark) {
-          brandMark.classList.toggle("logo-busy", !!active);
+      function showAgentJobToast(job, previousState) {
+        const status = String(job.status || "");
+        const eventKey = String(job.event_key || (status + "#terminal"));
+        const jobId = String(job.job_id || "");
+        const eventIdentity = jobId + ":" + eventKey;
+        const stateIdentity = status + ":" + eventKey;
+        if (!previousState || previousState === stateIdentity || shownAgentJobEvents.has(eventIdentity)) return;
+        if (!["paused", "done", "error", "cancelled"].includes(status)) return;
+        const dismissedKey = "aria_agent_job_toast_dismissed:" + eventIdentity;
+        try {
+          if (window.sessionStorage.getItem(dismissedKey) === "1") return;
+        } catch (error) { /* storage can be unavailable */ }
+        shownAgentJobEvents.add(eventIdentity);
+        const toast = document.createElement("div");
+        toast.className = "alert note global-agent-job-toast";
+        const partial = status === "done" && !!String(job.warning || "").trim();
+        const label = status === "paused"
+          ? (String(job.pause_reason || "") === "budget_reached" ? "⏸ Schritt-Budget erreicht" : "⏸ pausiert")
+          : status === "cancelled" ? "⏹ abgebrochen" : partial ? "⚠️ teilweise" : status === "done" ? "✅ fertig" : "⚠️ fehlgeschlagen";
+        const link = document.createElement("a");
+        link.href = "/jobs/panel#job-" + encodeURIComponent(String(job.job_id || ""));
+        link.textContent = label;
+        const close = document.createElement("button");
+        close.type = "button";
+        close.textContent = "×";
+        close.setAttribute("aria-label", "Schließen");
+        close.addEventListener("click", function () {
+          try { window.sessionStorage.setItem(dismissedKey, "1"); } catch (error) { /* ignore */ }
+          toast.remove();
+        });
+        toast.append(link, close);
+        document.body.appendChild(toast);
+      }
+
+      async function pollGlobalAgentJobs() {
+        if (!isAuthenticated || document.hidden || !globalAgentJobIndicator) return;
+        try {
+          const response = await fetch("/jobs", { credentials: "same-origin", cache: "no-store" });
+          if (!response.ok) return;
+          const payload = await response.json();
+          const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+          let running = 0;
+          let paused = 0;
+          let awaiting = 0;
+          jobs.forEach(function (job) {
+            const status = String(job.status || "");
+            if (["running", "detached"].includes(status)) running += 1;
+            if (status === "paused") paused += 1;
+            if (status === "awaiting_confirmation") awaiting += 1;
+            const jobId = String(job.job_id || "");
+            const eventKey = String(job.event_key || (status + "#terminal"));
+            const stateIdentity = status + ":" + eventKey;
+            if (globalAgentJobsInitialized) showAgentJobToast(job, knownAgentJobStates.get(jobId));
+            knownAgentJobStates.set(jobId, stateIdentity);
+          });
+          globalAgentJobsInitialized = true;
+          const parts = [];
+          if (running) parts.push("⚙ " + running + (running === 1 ? " Auftrag läuft" : " Aufträge laufen"));
+          if (paused) parts.push("⏸ " + paused + " pausiert");
+          if (awaiting) parts.push("❓ " + awaiting + " wartet auf Bestätigung");
+          globalAgentJobIndicator.textContent = parts.join(" · ");
+          globalAgentJobIndicator.hidden = parts.length === 0;
+        } catch (error) {
+          // Global job status is observational and fail-soft.
         }
+      }
+
+      if (isAuthenticated && globalAgentJobIndicator) {
+        pollGlobalAgentJobs();
+        window.setInterval(pollGlobalAgentJobs, 10000);
+        document.addEventListener("visibilitychange", function () {
+          if (!document.hidden) pollGlobalAgentJobs();
+        });
       }
 
       function beginBusy() {
-        busyCount += 1;
-        if (busyTimer || body.classList.contains("app-busy")) return;
-        busyTimer = window.setTimeout(function () {
-          busyTimer = null;
-          if (busyCount > 0) setBusy(true);
-        }, 220);
+        const owner = Symbol("legacy-busy");
+        legacyBusyOwners.push(owner);
+        busyState.begin(owner);
+        return owner;
       }
 
       function beginBusyImmediate() {
-        busyCount += 1;
-        if (busyTimer) {
-          window.clearTimeout(busyTimer);
-          busyTimer = null;
-        }
-        setBusy(true);
+        const owner = Symbol("legacy-busy-immediate");
+        legacyBusyOwners.push(owner);
+        busyState.begin(owner, { immediate: true });
+        return owner;
       }
 
-      function endBusy() {
-        busyCount = Math.max(0, busyCount - 1);
-        if (busyCount > 0) return;
-        if (busyTimer) {
-          window.clearTimeout(busyTimer);
-          busyTimer = null;
+      function endBusy(owner) {
+        let resolvedOwner = owner;
+        if (resolvedOwner === undefined || resolvedOwner === null) {
+          resolvedOwner = legacyBusyOwners.pop();
+        } else {
+          const index = legacyBusyOwners.indexOf(resolvedOwner);
+          if (index >= 0) legacyBusyOwners.splice(index, 1);
         }
-        setBusy(false);
+        return busyState.end(resolvedOwner);
+      }
+
+      function setBusyOwner(owner, active, immediate) {
+        if (active) {
+          busyState.begin(owner, { immediate: !!immediate });
+        } else {
+          busyState.end(owner);
+        }
       }
 
       window.ariaBeginBusy = beginBusy;
       window.ariaBeginBusyImmediate = beginBusyImmediate;
       window.ariaEndBusy = endBusy;
+      window.ariaSetBusyOwner = setBusyOwner;
       window.ariaCookieNames = {{ (request.state.cookie_names or {})|tojson }};
       window.ariaCsrfCookieName = (window.ariaCookieNames && window.ariaCookieNames.csrf) || "aria_csrf_token";
 
@@ -314,12 +404,8 @@
       }
 
       window.addEventListener("pageshow", function () {
-        busyCount = 0;
-        if (busyTimer) {
-          window.clearTimeout(busyTimer);
-          busyTimer = null;
-        }
-        setBusy(false);
+        legacyBusyOwners.length = 0;
+        busyState.reset();
         try {
           if (sessionStorage.getItem(backReloadKey) !== "1") return;
           sessionStorage.removeItem(backReloadKey);
@@ -333,11 +419,33 @@
         if (!token) return;
         event.detail.headers["X-CSRF-Token"] = token;
       });
-      document.body.addEventListener("htmx:beforeRequest", beginBusy);
-      document.body.addEventListener("htmx:afterRequest", endBusy);
-      document.body.addEventListener("htmx:responseError", endBusy);
+      function htmxRequestOwner(event) {
+        const detail = event && event.detail ? event.detail : null;
+        return detail && (detail.xhr || detail.requestConfig || detail.elt);
+      }
+
+      document.body.addEventListener("htmx:beforeRequest", function (event) {
+        const requestOwner = htmxRequestOwner(event);
+        if (!requestOwner || htmxBusyOwners.has(requestOwner)) return;
+        const busyOwner = Symbol("htmx-request");
+        htmxBusyOwners.set(requestOwner, busyOwner);
+        busyState.begin(busyOwner);
+      });
+
+      function finishHtmxRequest(event) {
+        const requestOwner = htmxRequestOwner(event);
+        if (!requestOwner) return;
+        const busyOwner = htmxBusyOwners.get(requestOwner);
+        if (!busyOwner) return;
+        htmxBusyOwners.delete(requestOwner);
+        busyState.end(busyOwner);
+      }
+
+      document.body.addEventListener("htmx:afterRequest", finishHtmxRequest);
+      document.body.addEventListener("htmx:responseError", finishHtmxRequest);
 
       document.addEventListener("submit", function (event) {
+        if (event.defaultPrevented) return;
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) return;
         if (form.id === "chat-form") return;
@@ -349,8 +457,10 @@
       });
 
       document.addEventListener("click", function (event) {
+        if (event.defaultPrevented) return;
         const link = event.target && event.target.closest ? event.target.closest("a[href]") : null;
         if (!link) return;
+        if (link.hasAttribute("download")) return;
         if (link.target && link.target !== "_self") return;
         const href = link.getAttribute("href") || "";
         if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
@@ -403,7 +513,7 @@
           }
           restartCheckInFlight = true;
           try {
-            const response = await fetch("/health", {
+            const response = await fetch({{ release_update_health_path|tojson }}, {
               method: "GET",
               cache: "no-store",
               credentials: "same-origin",

@@ -4,10 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 import asyncio
 
-from aria.core.capability_context import CapabilityContextStore
-from aria.web.runtime_manager import RuntimeBundle
-from aria.web.runtime_manager import RuntimeManager
-import aria.web.runtime_manager as runtime_manager_mod
+from aria.modules.capability_context.store import CapabilityContextStore
+from aria.modules.runtime_bootstrap.manager import RuntimeBundle
+from aria.modules.runtime_bootstrap.manager import RuntimeManager
+import aria.modules.runtime_bootstrap.manager as runtime_manager_mod
 
 
 class _DummyRuntimeManager(RuntimeManager):

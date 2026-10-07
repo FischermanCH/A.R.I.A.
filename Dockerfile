@@ -7,10 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md /app/
+COPY pyproject.toml README.md CHANGELOG.md LICENSE /app/
 COPY constraints /app/constraints
 COPY aria /app/aria
 COPY docs /app/docs
+COPY docs/release/docker-hub-overview.md /app/docs/release/docker-hub-overview.md
 COPY prompts /app/prompts
 COPY samples /app/samples
 COPY config /app/config
@@ -25,7 +26,10 @@ COPY --from=docker_cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr
 
 RUN python -m pip install --no-cache-dir -c /app/constraints/runtime.txt \
       pip==25.0.1 setuptools==80.9.0 wheel==0.45.1 \
-    && python -m pip install --no-cache-dir --no-build-isolation -c /app/constraints/runtime.txt ".[model-gateway]"
+    && python -m pip install --no-cache-dir --no-build-isolation -c /app/constraints/runtime.txt ".[model-gateway]" \
+    && python -c "import mcp" \
+    && find /app/aria -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete \
+    && find /app/aria -depth -type d -name '__pycache__' -empty -delete
 
 RUN mkdir -p /app/data/auth /app/data/logs /app/data/skills /app/bootstrap \
     && cp -a /app/config /app/bootstrap/config \

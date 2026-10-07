@@ -9,11 +9,8 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-import yaml
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
@@ -21,36 +18,30 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from aria.channels.api import register_api_routes
-import aria.web.auth_session_helpers as auth_session_helpers
-from aria.web.auth_middleware import AuthMiddlewareDeps, register_auth_middleware
-from aria.web.auth_surface_routes import AuthSurfaceRouteDeps, register_auth_surface_routes
-from aria.web.chat_execution_flow import ChatExecutionDeps, execute_chat_flow
-from aria.web.chat_execution_routes import ChatExecutionRouteDeps, register_chat_execution_routes
-from aria.web.chat_surface_routes import ChatSurfaceRouteDeps, register_chat_surface_routes
-from aria.web.chat_route_helpers import (
-    apply_chat_response_cookies,
-    prepare_chat_route_state,
-    render_missing_username_response,
-)
-from aria.web.docs_surface_routes import DocsSurfaceRouteDeps, register_docs_surface_routes
-from aria.web.main_config_helpers import MainConfigHelperDeps, build_main_config_helpers
-from aria.web.main_request_helpers import MainRequestHelperDeps, build_main_request_helpers
-from aria.web.main_runtime_support_helpers import MainRuntimeSupportDeps, build_main_runtime_support_helpers
-from aria.web.memory_runtime_helpers import MemoryRuntimeHelperDeps, build_memory_runtime_helpers
-import aria.web.runtime_manager as runtime_manager
-from aria.web.system_update_routes import SystemUpdateRouteDeps, register_system_update_routes
-from aria.web.activities_routes import register_activities_routes
-from aria.web.chat_catalog import build_chat_command_catalog
-from aria.web.cookie_helpers import CookieHelper
-from aria.web.config_routes import ConfigRouteDeps, register_config_routes
-from aria.web.main_ui_helpers import (
-    build_client_recipe_progress_hints as _build_client_recipe_progress_hints,
+import aria.modules.auth_ui.session as auth_session_helpers
+from aria.modules.auth_ui.middleware import AuthMiddlewareDeps, register_auth_middleware
+from aria.modules.auth_ui.routes import AuthSurfaceRouteDeps, register_auth_surface_routes
+from aria.modules.chat_execution_composition.flow import ChatExecutionDeps
+from aria.modules.chat_execution_composition.routes import ChatExecutionRouteDeps, register_chat_execution_routes
+from aria.modules.chat_surface.routes import ChatSurfaceRouteDeps, register_chat_surface_routes
+from aria.modules.static_help_docs.routes import DocsSurfaceRouteDeps, register_docs_surface_routes
+from aria.modules.inbound_event_storage.routes import InboundEventRouteDeps, register_inbound_event_routes
+from aria.modules.config_ui.main_helpers import MainConfigHelperDeps, build_main_config_helpers
+from aria.modules.navigation_shell.request_helpers import MainRequestHelperDeps, build_main_request_helpers
+from aria.modules.runtime_bootstrap.support_helpers import MainRuntimeSupportDeps, build_main_runtime_support_helpers
+from aria.modules.runtime_bootstrap.memory_helpers import MemoryRuntimeHelperDeps, build_memory_runtime_helpers
+import aria.modules.runtime_bootstrap.manager as runtime_manager
+from aria.modules.release_update.routes import SystemUpdateRouteDeps, register_system_update_routes
+from aria.modules.stats_ui.activities import register_activities_routes
+from aria.modules.chat_surface.catalog import build_chat_command_catalog
+from aria.modules.auth_ui.cookies import CookieHelper
+from aria.modules.config_ui.routes import ConfigRouteDeps, register_config_routes
+from aria.modules.recipes_ui.stored_ui import build_client_recipe_progress_hints as _build_client_recipe_progress_hints
+from aria.modules.navigation_shell.ui_helpers import (
     current_memory_day as _current_memory_day,
     daily_time_from_cron as _daily_time_from_cron,
     daily_time_to_cron as _daily_time_to_cron,
-    discord_alert_error_lines as _discord_alert_error_lines,
     exception_response as _exception_response,
-    extract_keyword_candidates as _extract_keyword_candidates,
     friendly_error_text as _friendly_error_text,
     intent_badge as _intent_badge,
     lang_flag as _lang_flag,
@@ -62,30 +53,34 @@ from aria.web.main_ui_helpers import (
     render_markdown_doc as _render_markdown_doc,
     replace_agent_name as _replace_agent_name,
 )
-from aria.web.memories_routes import register_memories_routes
-from aria.web.navigation_registry import admin_nav_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
-from aria.web.notes_routes import NotesRouteDeps, register_notes_routes
-from aria.web.recipes_routes import register_recipe_routes
-from aria.web.stats_routes import _refresh_pricing_snapshot
-from aria.web.stats_routes import register_stats_routes
-from aria.core.access import (
+from aria.modules.memory_admin_ui.routes import register_memories_routes
+from aria.modules.navigation_shell.navigation import admin_nav_groups, config_hub_groups, context_nav_context, context_nav_items, nav_section_items, settings_nav_groups
+from aria.modules.notes.routes import NotesRouteDeps, register_notes_routes
+from aria.modules.native_toolcall_selftest.routes import NativeToolcallRouteDeps, register_native_toolcall_selftest_routes
+from aria.modules.recipes_ui.routes import register_recipe_routes
+from aria.modules.stats_ui.routes import _refresh_pricing_snapshot
+from aria.modules import module_catalog_entries, module_route_path, module_route_prefix_path, module_static_asset_path
+from aria.modules.stats_ui.routes import register_stats_routes
+from aria.modules.auth_policy.access_policy import (
     can_access_advanced_config,
     can_access_settings,
     can_access_users,
     is_advanced_config_path,
     is_admin_only_path,
 )
-from aria.core.chat_history import FileChatHistoryStore
-from aria.core.capability_context import CapabilityContextStore
-from aria.core.connection_admin import (
+from aria.modules.action_confirmation.ledger import ActionConfirmationLedger
+from aria.modules.chat_history_storage.store import FileChatHistoryStore
+from aria.modules.capability_context.store import CapabilityContextStore
+from aria.modules.connections_profiles.admin import (
     CONNECTION_ADMIN_SPECS,
     create_connection_profile,
     delete_connection_profile,
+    get_inbound_webhook_token,
     list_connection_refs,
     resolve_connection_target,
     update_connection_profile,
 )
-from aria.core.config import (
+from aria.modules.configuration_foundations.config import (
     Settings,
     get_master_key,
     get_or_create_runtime_secret,
@@ -94,32 +89,31 @@ from aria.core.config import (
     normalize_ui_theme,
     resolve_ui_background_asset_url,
 )
-from aria.core.config_backup import build_config_backup_payload
-from aria.core.config_backup import summarize_config_backup_payload
-from aria.core.notes_index import NotesIndex
-from aria.core.notes_store import NotesStore
-from aria.core.recipe_manifests import (
-    RECIPE_TRIGGER_INDEX_FILE as SKILL_TRIGGER_INDEX_FILE,
+from aria.modules.config_backup.backup import build_config_backup_payload
+from aria.modules.config_backup.backup import summarize_config_backup_payload
+from aria.modules.inbound_event_storage.store import InboundEventStore
+from aria.modules.notes.index import NotesIndex
+from aria.modules.notes.store import NotesStore
+from aria.modules.recipe_store.manifests import (
     _load_stored_recipe_manifests,
     _recipe_manifest_file,
     _refresh_recipe_trigger_index,
     _sanitize_recipe_id,
     _save_stored_recipe_manifest,
-    _validate_stored_recipe_manifest,
 )
-from aria.core.discord_alerts import runtime_host_line, send_discord_alerts
-from aria.core.i18n import I18NStore
-from aria.core.inventory_admin import rebuild_inventory_index
-from aria.core.llm_audit import GLOBAL_LLM_AUDIT_LOG
-from aria.core.pipeline import Pipeline
-from aria.core.routing_admin import ensure_connection_routing_index_ready
-from aria.core.routing_hints import suggest_skill_keywords_with_llm
-from aria.core.runtime_diagnostics import build_runtime_diagnostics
-from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure
-from aria.core.update_helper_client import fetch_update_helper_status
-from aria.core.update_helper_client import helper_status_visual
-from aria.core.update_helper_client import resolve_update_helper_config
-from aria.core.update_helper_client import trigger_update_helper_run
+from aria.modules.discord_alerting.alerts import runtime_host_line, send_discord_alerts
+from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.system_inventory.admin import rebuild_inventory_index
+from aria.modules.system_inventory.managed_action_catalog import ensure_managed_action_catalog
+from aria.modules.model_usage_observability.llm_audit import GLOBAL_LLM_AUDIT_LOG
+from aria.modules.pipeline_orchestrator.pipeline import Pipeline
+from aria.modules.connection_routing.admin import ensure_connection_routing_index_ready
+from aria.modules.runtime_diagnostics.runtime import build_runtime_diagnostics
+from aria.modules.integration_support.runtime_endpoint import cookie_should_be_secure
+from aria.modules.release_update.helper_client import fetch_update_helper_status
+from aria.modules.release_update.helper_client import helper_status_visual
+from aria.modules.release_update.helper_client import resolve_update_helper_config
+from aria.modules.release_update.helper_client import trigger_update_helper_run
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -135,9 +129,7 @@ TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "aria" / "templates"))
 USERNAME_COOKIE = "aria_username"
 MEMORY_COLLECTION_COOKIE = "aria_memory_collection"
 SESSION_COOKIE = "aria_session_id"
-AUTO_MEMORY_COOKIE = "aria_auto_memory"
 FORGET_PENDING_COOKIE = "aria_forget_pending"
-SAFE_FIX_PENDING_COOKIE = "aria_safe_fix_pending"
 CONNECTION_DELETE_PENDING_COOKIE = "aria_connection_delete_pending"
 CONNECTION_CREATE_PENDING_COOKIE = "aria_connection_create_pending"
 CONNECTION_UPDATE_PENDING_COOKIE = "aria_connection_update_pending"
@@ -150,9 +142,7 @@ COOKIE_NAME_BASES: dict[str, str] = {
     "username": USERNAME_COOKIE,
     "memory_collection": MEMORY_COLLECTION_COOKIE,
     "session": SESSION_COOKIE,
-    "auto_memory": AUTO_MEMORY_COOKIE,
     "forget_pending": FORGET_PENDING_COOKIE,
-    "safe_fix_pending": SAFE_FIX_PENDING_COOKIE,
     "connection_delete_pending": CONNECTION_DELETE_PENDING_COOKIE,
     "connection_create_pending": CONNECTION_CREATE_PENDING_COOKIE,
     "connection_update_pending": CONNECTION_UPDATE_PENDING_COOKIE,
@@ -173,7 +163,6 @@ AUTH_RELATED_COOKIE_BASES: tuple[str, ...] = (
     MEMORY_COLLECTION_COOKIE,
     SESSION_COOKIE,
     FORGET_PENDING_COOKIE,
-    SAFE_FIX_PENDING_COOKIE,
     CONNECTION_DELETE_PENDING_COOKIE,
     CONNECTION_CREATE_PENDING_COOKIE,
     CONNECTION_UPDATE_PENDING_COOKIE,
@@ -182,7 +171,6 @@ AUTH_RELATED_COOKIE_BASES: tuple[str, ...] = (
 )
 PREFERENCE_COOKIE_BASES: tuple[str, ...] = (
     LANG_COOKIE,
-    AUTO_MEMORY_COOKIE,
 )
 _COOKIE_HELPER = CookieHelper(
     cookie_name_bases=COOKIE_NAME_BASES,
@@ -206,8 +194,8 @@ _AUTH_SESSION_HELPER = auth_session_helpers.AuthSessionHelper(
     auth_cookie_name=AUTH_COOKIE,
     get_signing_secret=lambda: AUTH_SIGNING_SECRET,
     get_max_age_seconds=lambda: AUTH_SESSION_MAX_AGE_SECONDS,
-    sanitize_username=lambda value: _sanitize_username(value),
-    sanitize_role=lambda value: _sanitize_role(value),
+    sanitize_username=lambda value: globals()["_sanitize_username"](value),
+    sanitize_role=lambda value: globals()["_sanitize_role"](value),
     request_cookie_value=lambda request, base_name: _request_cookie_value(request, base_name),
     cookie_scope_source=lambda request=None, public_url="": _cookie_scope_source(request, public_url=public_url),
 )
@@ -221,7 +209,7 @@ _sanitize_auth_session_max_age_seconds = lambda value: auth_session_helpers.sani
     default_seconds=DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS,
 )
 _new_csrf_token = auth_session_helpers.new_csrf_token
-FILE_EDITOR_CATALOG: tuple[dict[str, str], ...] = (
+PROMPT_FILE_EDITOR_CATALOG: tuple[dict[str, str], ...] = (
     {
         "path": "prompts/persona.md",
         "label": "Persona",
@@ -240,254 +228,29 @@ FILE_EDITOR_CATALOG: tuple[dict[str, str], ...] = (
         "group": "prompts",
         "mode": "edit",
     },
-    {
-        "path": "docs/help/memory.md",
-        "label": "Memory Help",
-        "group": "help",
-        "mode": "readonly",
-    },
-    {
-        "path": "docs/help/pricing.md",
-        "label": "Pricing Help",
-        "group": "help",
-        "mode": "readonly",
-    },
-    {
-        "path": "docs/help/security.md",
-        "label": "Security Help",
-        "group": "help",
-        "mode": "readonly",
-    },
 )
-PRODUCT_DOC_CATALOG: tuple[dict[str, Any], ...] = (
-    {
-        "id": "overview",
-        "label_i18n": "product_info.doc_overview",
-        "label_default": "Product overview",
-        "path": "docs/product/overview.md",
-        "summary_i18n": "product_info.doc_overview_summary",
-        "summary_default": "What ARIA is, who it is for, and where the current ALPHA boundary is.",
-        "icon": "product",
-        "assets": (),
-    },
-    {
-        "id": "feature-list",
-        "label_i18n": "product_info.doc_feature_list",
-        "label_default": "Feature-Liste",
-        "path": "docs/product/feature-list.md",
-        "summary_i18n": "product_info.doc_feature_list_summary",
-        "summary_default": "Technical feature snapshot for chat, memory, recipes, connections, UI, and deployment.",
-        "icon": "skills",
-        "assets": (),
-    },
-    {
-        "id": "architecture",
-        "label_i18n": "product_info.doc_architecture",
-        "label_default": "Architecture",
-        "path": "docs/product/architecture-summary.md",
-        "summary_i18n": "product_info.doc_architecture_summary",
-        "summary_default": "Layer model, routing, recipes, persistence, security, and update strategy.",
-        "icon": "routing",
-        "assets": (
-            {
-                "src": "/product-info/assets/aria_schichten_architektur.svg",
-                "caption_i18n": "product_info.diagram_layers",
-                "caption_default": "Layer architecture",
-            },
-            {
-                "src": "/product-info/assets/aria_intelligentes_routing.svg",
-                "caption_i18n": "product_info.diagram_routing",
-                "caption_default": "Routing-Fluss",
-            },
-            {
-                "src": "/product-info/assets/aria_modularitaet_persistenz.svg",
-                "caption_i18n": "product_info.diagram_persistence",
-                "caption_default": "Modularity and persistence",
-            },
-        ),
-    },
+HELP_FILE_EDITOR_CATALOG: tuple[dict[str, Any], ...] = module_catalog_entries(
+    "static_help_docs",
+    "file_editor_entries",
 )
+if not HELP_FILE_EDITOR_CATALOG:
+    raise RuntimeError("static_help_docs file_editor_entries catalog is not registered")
+FILE_EDITOR_CATALOG: tuple[dict[str, Any], ...] = PROMPT_FILE_EDITOR_CATALOG + HELP_FILE_EDITOR_CATALOG
+PRODUCT_DOC_CATALOG: tuple[dict[str, Any], ...] = module_catalog_entries("static_help_docs", "product_docs")
+if not PRODUCT_DOC_CATALOG:
+    raise RuntimeError("static_help_docs product_docs catalog is not registered")
 PRODUCT_DOC_MAP = {entry["id"]: entry for entry in PRODUCT_DOC_CATALOG}
-HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = (
-    {
-        "id": "home",
-        "label_i18n": "help.doc_home",
-        "label_default": "Wiki Home",
-        "path": "docs/wiki/Home.md",
-        "summary_i18n": "help.doc_home_summary",
-        "summary_default": "Starting point for orientation, documentation paths, and recommended first steps.",
-        "icon": "help",
-        "group": "wiki",
-    },
-    {
-        "id": "quick-start",
-        "label_i18n": "help.doc_quick_start",
-        "label_default": "Quick Start",
-        "path": "docs/wiki/Quick-Start.md",
-        "summary_i18n": "help.doc_quick_start_summary",
-        "summary_default": "Fast path from Docker or Portainer to the first usable ARIA instance.",
-        "icon": "updates",
-        "group": "wiki",
-    },
-    {
-        "id": "chat",
-        "label_i18n": "help.doc_chat",
-        "label_default": "Chat & Queue",
-        "path": "docs/help/chat.md",
-        "summary_i18n": "help.doc_chat_summary",
-        "summary_default": "How chat, prompt queue, confirmations, details, and mobile use work.",
-        "icon": "llm",
-        "group": "wiki",
-    },
-    {
-        "id": "navigation",
-        "label_i18n": "help.doc_navigation",
-        "label_default": "Navigation & Menus",
-        "path": "docs/help/navigation.md",
-        "summary_i18n": "help.doc_navigation_summary",
-        "summary_default": "How header navigation, the account menu, Settings, Admin, and Extended view fit together.",
-        "icon": "settings",
-        "group": "wiki",
-    },
-    {
-        "id": "memory",
-        "label_i18n": "help.doc_memory",
-        "label_default": "Memory",
-        "path": "docs/wiki/Memory.md",
-        "summary_i18n": "help.doc_memory_summary",
-        "summary_default": "Memory, RAG documents, the graphical Memory browser, and recall behavior explained compactly.",
-        "icon": "memories",
-        "group": "wiki",
-    },
-    {
-        "id": "notes",
-        "label_i18n": "help.doc_notes",
-        "label_default": "Notes",
-        "path": "docs/help/notes.md",
-        "summary_i18n": "help.doc_notes_summary",
-        "summary_default": "Markdown notes, folders, moving notes, list view, bulk move, and indexing.",
-        "icon": "notes",
-        "group": "wiki",
-    },
-    {
-        "id": "skills",
-        "label_i18n": "help.doc_skills",
-        "label_default": "Recipes",
-        "path": "docs/wiki/Recipes.md",
-        "summary_i18n": "help.doc_skills_summary",
-        "summary_default": "How recipes are structured, how triggers work, and how ARIA executes them.",
-        "icon": "skills",
-        "group": "wiki",
-    },
-    {
-        "id": "agentic",
-        "label_i18n": "help.doc_agentic",
-        "label_default": "Agentic Operator",
-        "path": "docs/help/agentic-operator.md",
-        "summary_i18n": "help.doc_agentic_summary",
-        "summary_default": "The controlled operator flow: understanding, context, policy, runtime, result, and learning.",
-        "icon": "routing",
-        "group": "wiki",
-    },
-    {
-        "id": "connections",
-        "label_i18n": "help.doc_connections",
-        "label_default": "Connections",
-        "path": "docs/wiki/Connections.md",
-        "summary_i18n": "help.doc_connections_summary",
-        "summary_default": "Overview of connection types, configuration, and routing value.",
-        "icon": "settings",
-        "group": "wiki",
-    },
-    {
-        "id": "releases",
-        "label_i18n": "help.doc_releases",
-        "label_default": "Releases & Upgrades",
-        "path": "docs/wiki/Releases-and-Upgrades.md",
-        "summary_i18n": "help.doc_releases_summary",
-        "summary_default": "How releases, local TAR updates, and upgrade flows fit together.",
-        "icon": "updates",
-        "group": "wiki",
-    },
-    {
-        "id": "pricing",
-        "label_i18n": "help.doc_pricing",
-        "label_default": "Pricing",
-        "path": "docs/help/pricing.md",
-        "summary_i18n": "help.doc_pricing_summary",
-        "summary_default": "How ARIA resolves prices for LLM and embedding models and calculates costs.",
-        "icon": "stats",
-        "group": "reference",
-    },
-    {
-        "id": "qdrant",
-        "label_i18n": "help.doc_qdrant",
-        "label_default": "Qdrant",
-        "path": "docs/help/qdrant.md",
-        "summary_i18n": "help.doc_qdrant_summary",
-        "summary_default": "What ARIA uses Qdrant for, what gets stored there, and what matters in day-to-day operation.",
-        "icon": "memories",
-        "group": "reference",
-    },
-    {
-        "id": "searxng",
-        "label_i18n": "help.doc_searxng",
-        "label_default": "SearXNG",
-        "path": "docs/help/searxng.md",
-        "summary_i18n": "help.doc_searxng_summary",
-        "summary_default": "Wie ARIA die SearXNG-Websuche nutzt und warum der Dienst bewusst separat im Stack bleibt.",
-        "icon": "searxng",
-        "group": "reference",
-    },
-    {
-        "id": "security",
-        "label_i18n": "help.doc_security",
-        "label_default": "Security",
-        "path": "docs/help/security.md",
-        "summary_i18n": "help.doc_security_summary",
-        "summary_default": "Session-, Guardrail- und Sicherheitsprinzipien der aktuellen ALPHA-Linie.",
-        "icon": "security",
-        "group": "reference",
-    },
-    {
-        "id": "alpha-help-system",
-        "label_i18n": "help.doc_alpha_help_system",
-        "label_default": "Alpha Help System",
-        "path": "docs/wiki/Alpha-Help-System.md",
-        "summary_i18n": "help.doc_alpha_help_system_summary",
-        "summary_default": "Full practical alpha help covering chat, memory, connections, recipes, costs, updates, and security.",
-        "icon": "help",
-        "group": "reference",
-    },
-    {
-        "id": "help-system",
-        "label_i18n": "help.doc_help_system",
-        "label_default": "Help System",
-        "path": "docs/wiki/Help-System.md",
-        "summary_i18n": "help.doc_help_system_summary",
-        "summary_default": "Documentation maintenance notes for keeping local help and wiki content aligned.",
-        "icon": "files",
-        "group": "reference",
-    },
-)
+HELP_DOC_CATALOG: tuple[dict[str, Any], ...] = module_catalog_entries("static_help_docs", "help_docs")
+if not HELP_DOC_CATALOG:
+    raise RuntimeError("static_help_docs help_docs catalog is not registered")
 HELP_DOC_MAP = {entry["id"]: entry for entry in HELP_DOC_CATALOG}
-HELP_DOC_GROUPS: tuple[dict[str, str], ...] = (
-    {
-        "id": "wiki",
-        "label_i18n": "help.group_wiki",
-        "label_default": "Wiki & Guides",
-    },
-    {
-        "id": "reference",
-        "label_i18n": "help.group_reference",
-        "label_default": "Technical reference",
-    },
+HELP_DOC_GROUPS: tuple[dict[str, Any], ...] = module_catalog_entries(
+    "static_help_docs",
+    "help_doc_groups",
+    require_path=False,
 )
-PRODUCT_INFO_ASSET_MAP = {
-    "aria_schichten_architektur.svg": BASE_DIR / "docs" / "product" / "aria_schichten_architektur.svg",
-    "aria_intelligentes_routing.svg": BASE_DIR / "docs" / "product" / "aria_intelligentes_routing.svg",
-    "aria_modularitaet_persistenz.svg": BASE_DIR / "docs" / "product" / "aria_modularitaet_persistenz.svg",
-}
+if not HELP_DOC_GROUPS:
+    raise RuntimeError("static_help_docs help_doc_groups catalog is not registered")
 CONFIG_PATH = BASE_DIR / "config" / "config.yaml"
 ERROR_INTERPRETER_PATH = BASE_DIR / "config" / "error_interpreter.yaml"
 FORGET_SIGNING_SECRET = secrets.token_hex(32)
@@ -517,6 +280,41 @@ class _DynamicProxy:
 
     def __repr__(self) -> str:
         return repr(self._getter())
+
+
+def _schedule_mcp_startup_warmup(pipeline: Any, settings: Any) -> asyncio.Task[None] | None:
+    config = getattr(settings, "agentic_loop", None)
+    if not bool(getattr(config, "native_agent_mcp_enabled", False)):
+        return None
+    manager = getattr(pipeline, "_native_mcp_client", None)
+    servers = getattr(manager, "servers", {})
+    if manager is None or not any(
+        bool(getattr(server, "enabled", False)) for server in dict(servers or {}).values()
+    ):
+        return None
+
+    async def warmup() -> None:
+        try:
+            await manager.discover_all(refresh=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOGGER.warning("MCP startup discovery failed (%s)", type(exc).__name__)
+
+    return asyncio.create_task(warmup(), name="mcp-startup-discovery")
+
+
+async def _close_mcp_sessions(pipeline: Any) -> None:
+    manager = getattr(pipeline, "_native_mcp_client", None)
+    close = getattr(manager, "close", None)
+    if not callable(close):
+        return
+    try:
+        await close()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        LOGGER.warning("MCP session shutdown failed (%s)", type(exc).__name__)
 
 LLM_PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "ollama": {
@@ -605,9 +403,27 @@ def _build_app() -> FastAPI:
     settings = _DynamicProxy(runtime_manager_instance.get_settings)
     prompt_loader = _DynamicProxy(runtime_manager_instance.get_prompt_loader)
     usage_meter = _DynamicProxy(runtime_manager_instance.get_usage_meter)
-    llm_client = _DynamicProxy(runtime_manager_instance.get_llm_client)
     pipeline = _DynamicProxy(runtime_manager_instance.get_pipeline)
     chat_history_store = FileChatHistoryStore(CHAT_HISTORY_DIR, max_messages=80)
+
+    async def _append_agent_job_notice(user_id: str, **payload: Any) -> None:
+        job_id = str(payload.get("job_id") or "")
+        # The detached exchange is persisted by the web route just after the
+        # pipeline returns. A very fast background completion must follow it,
+        # rather than racing ahead of it or being overwritten.
+        for _ in range(40):
+            if any(
+                str(row.get("agent_job_id") or "") == job_id
+                for row in chat_history_store.load_history(user_id)
+            ):
+                break
+            await asyncio.sleep(0.05)
+        chat_history_store.append_assistant_notice(user_id, **payload)
+
+    def _wire_agent_job_notifier(target_pipeline: Pipeline) -> None:
+        target_pipeline._agent_job_notifier = _append_agent_job_notice
+
+    _wire_agent_job_notifier(runtime_manager_instance.get_pipeline())
 
     def _get_runtime_settings() -> Settings:
         return runtime_manager_instance.get_settings()
@@ -619,6 +435,9 @@ def _build_app() -> FastAPI:
         global AUTH_SESSION_MAX_AGE_SECONDS
         try:
             new_settings = runtime_manager_instance.reload_runtime()
+            reloaded_pipeline = runtime_manager_instance.get_pipeline()
+            reloaded_pipeline._native_agent_secure_store_getter = _get_secure_store
+            _wire_agent_job_notifier(reloaded_pipeline)
             AUTH_SESSION_MAX_AGE_SECONDS = _sanitize_auth_session_max_age_seconds(
                 getattr(new_settings.security, "session_max_age_seconds", DEFAULT_AUTH_SESSION_MAX_AGE_SECONDS)
             )
@@ -661,10 +480,7 @@ def _build_app() -> FastAPI:
     _ensure_session_id = _memory_runtime_helpers.ensure_session_id
     _get_effective_memory_collection = _memory_runtime_helpers.get_effective_memory_collection
     _session_memory_collection_for_user = _memory_runtime_helpers.session_memory_collection_for_user
-    _is_auto_memory_enabled = _memory_runtime_helpers.is_auto_memory_enabled
-    _qdrant_base_url = _memory_runtime_helpers.qdrant_base_url
     _qdrant_dashboard_url = _memory_runtime_helpers.qdrant_dashboard_url
-    _list_qdrant_collections = _memory_runtime_helpers.list_qdrant_collections
     _qdrant_overview = _memory_runtime_helpers.qdrant_overview
 
     _main_config_helpers = build_main_config_helpers(
@@ -734,25 +550,13 @@ def _build_app() -> FastAPI:
         }
     )
 
-    async def _suggest_skill_keywords_with_llm(
-        manifest: dict[str, Any],
-        language: str = "de",
-        max_keywords: int = 12,
-    ) -> list[str]:
-        return await suggest_skill_keywords_with_llm(
-            llm_client,
-            manifest,
-            language=language,
-            max_keywords=max_keywords,
-        )
-
     _main_runtime_support_helpers = build_main_runtime_support_helpers(
         MainRuntimeSupportDeps(
             base_dir=BASE_DIR,
             config_path=CONFIG_PATH,
             read_raw_config=lambda: _read_raw_config(),
             get_settings=_get_runtime_settings,
-            get_master_key=lambda path: globals()["get_master_key"](path),
+            get_master_key=lambda path: globals().get("get_master_key", get_master_key)(path),
             sanitize_role=_sanitize_role,
             get_auth_session_from_request=lambda request: _get_auth_session_from_request(request),
             get_or_refresh_startup_diagnostics=runtime_manager_instance.get_or_refresh_startup_diagnostics,
@@ -764,6 +568,7 @@ def _build_app() -> FastAPI:
     _get_active_profile_name = _main_runtime_support_helpers.get_active_profile_name
     _set_active_profile = _main_runtime_support_helpers.set_active_profile
     _get_secure_store = _main_runtime_support_helpers.get_secure_store
+    runtime_manager_instance.get_pipeline()._native_agent_secure_store_getter = _get_secure_store
     _get_auth_manager = _main_runtime_support_helpers.get_auth_manager
     _active_admin_count = _main_runtime_support_helpers.active_admin_count
     _get_runtime_preflight_data = _main_runtime_support_helpers.get_runtime_preflight_data
@@ -871,10 +676,22 @@ def _build_app() -> FastAPI:
 
     startup_maintenance_task: asyncio.Task[None] | None = None
     inventory_reindex_task: asyncio.Task[None] | None = None
+    mcp_warmup_task: asyncio.Task[None] | None = None
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI):  # noqa: ANN202
-        nonlocal inventory_reindex_task, startup_maintenance_task
+        nonlocal inventory_reindex_task, mcp_warmup_task, startup_maintenance_task
+        try:
+            interrupted_agent_jobs = pipeline.sweep_stale_agent_jobs()
+        except Exception as exc:
+            interrupted_agent_jobs = 0
+            LOGGER.warning("Agent job startup sweep failed: %s", exc)
+        if interrupted_agent_jobs:
+            LOGGER.warning(
+                "Marked %s stale native-agent jobs interrupted after worker restart",
+                interrupted_agent_jobs,
+            )
+        mcp_warmup_task = _schedule_mcp_startup_warmup(pipeline, settings)
         async def _run_startup_maintenance() -> None:
             try:
                 pricing_snapshot = await _refresh_pricing_snapshot(
@@ -914,6 +731,16 @@ def _build_app() -> FastAPI:
                         routing_status.get("status", "warn"),
                         routing_status.get("message", ""),
                     )
+                managed_action_catalog = await ensure_managed_action_catalog(
+                    settings,
+                    embedding_client=pipeline.embedding_client,
+                )
+                LOGGER.info(
+                    "Managed action catalog ensure status=%s documents=%s detail=%s",
+                    managed_action_catalog.get("status", "unknown"),
+                    managed_action_catalog.get("documents", 0),
+                    managed_action_catalog.get("detail", ""),
+                )
                 memory_ops = 0
                 if pipeline.memory_skill:
                     session_cfg = settings.memory.collections.sessions
@@ -990,6 +817,11 @@ def _build_app() -> FastAPI:
         try:
             yield
         finally:
+            if mcp_warmup_task and not mcp_warmup_task.done():
+                mcp_warmup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await mcp_warmup_task
+            await _close_mcp_sessions(pipeline)
             if inventory_reindex_task and not inventory_reindex_task.done():
                 inventory_reindex_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -1001,17 +833,30 @@ def _build_app() -> FastAPI:
 
     app = FastAPI(title=prompt_loader.get_persona_name(default=settings.ui.title or "ARIA"), lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "aria" / "static")), name="static")
+    inbound_event_store = InboundEventStore(BASE_DIR / "data" / "runtime" / "inbound_events.sqlite3")
+    action_confirmation_ledger = ActionConfirmationLedger(
+        BASE_DIR / "data" / "runtime" / "action_confirmations.sqlite3"
+    )
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> FileResponse:
+        asset_path = module_static_asset_path("navigation_shell", "favicon.ico", BASE_DIR)
+        if asset_path is None:
+            return Response(status_code=404)
         return FileResponse(
-            BASE_DIR / "aria" / "static" / "favicon.ico",
+            asset_path,
             media_type="image/x-icon",
         )
 
     @app.get("/update-reconnect-sw.js", include_in_schema=False)
     async def update_reconnect_service_worker() -> Response:
-        template = (BASE_DIR / "aria" / "static" / "update-reconnect-sw.js").read_text(encoding="utf-8")
+        asset_path = module_static_asset_path("release_update", "update-reconnect-sw.js", BASE_DIR)
+        if asset_path is None:
+            return Response(status_code=404)
+        health_path = module_route_path("release_update", "/health")
+        if health_path is None:
+            return Response(status_code=404)
+        template = asset_path.read_text(encoding="utf-8")
 
         def reconnect_labels(language: str) -> dict[str, str]:
             prefix = "updates.reconnect_shell"
@@ -1032,7 +877,10 @@ def _build_app() -> FastAPI:
             }
 
         labels = {"de": reconnect_labels("de"), "en": reconnect_labels("en")}
-        script = template.replace("__ARIA_RECONNECT_LABELS__", json.dumps(labels, ensure_ascii=False))
+        script = template.replace("__ARIA_RECONNECT_LABELS__", json.dumps(labels, ensure_ascii=False)).replace(
+            "__ARIA_RECONNECT_HEALTH_URL__",
+            json.dumps(health_path, ensure_ascii=False),
+        )
         return Response(
             content=script,
             media_type="application/javascript",
@@ -1040,6 +888,14 @@ def _build_app() -> FastAPI:
         )
     if settings.channels.api.enabled:
         register_api_routes(app, pipeline=pipeline, auth_token=settings.channels.api.auth_token)
+    register_inbound_event_routes(
+        app,
+        InboundEventRouteDeps(
+            get_settings=_get_runtime_settings,
+            get_token=lambda ref: get_inbound_webhook_token(BASE_DIR, ref),
+            event_store=inbound_event_store,
+        ),
+    )
 
     def _agent_name_value() -> str:
         try:
@@ -1067,9 +923,31 @@ def _build_app() -> FastAPI:
         base = str(text or fallback or "")
         return _replace_agent_name(base, _agent_name(request, fallback))
 
+    def _module_route_path(module_id: str, route_path: str) -> str:
+        return module_route_path(module_id, route_path) or ""
+
+    def _required_module_route_path(module_id: str, route_path: str) -> str:
+        resolved = module_route_path(module_id, route_path)
+        if resolved is None:
+            raise RuntimeError(f"{module_id} route is not registered: {route_path}")
+        return resolved
+
+    def _module_route_prefix_path(module_id: str, route_path: str) -> str:
+        return module_route_prefix_path(module_id, route_path) or ""
+
+    def _module_static_asset_url(module_id: str, asset_name: str) -> str:
+        asset_key = str(asset_name or "").strip()
+        if module_static_asset_path(module_id, asset_key, BASE_DIR) is None:
+            return ""
+        return f"/static/{asset_key}"
+
     TEMPLATES.env.globals["tr"] = _tr
     TEMPLATES.env.globals["agent_name"] = _agent_name
     TEMPLATES.env.globals["agent_text"] = _agent_text
+    TEMPLATES.env.globals["module_route_path"] = _module_route_path
+    TEMPLATES.env.globals["required_module_route_path"] = _required_module_route_path
+    TEMPLATES.env.globals["module_route_prefix_path"] = _module_route_prefix_path
+    TEMPLATES.env.globals["module_static_asset_url"] = _module_static_asset_url
     TEMPLATES.env.globals["lang_flag"] = _lang_flag
     TEMPLATES.env.globals["lang_label"] = _lang_label
     TEMPLATES.env.globals["nav_section_items"] = nav_section_items
@@ -1077,6 +955,7 @@ def _build_app() -> FastAPI:
     TEMPLATES.env.globals["context_nav_context"] = context_nav_context
     TEMPLATES.env.globals["admin_nav_groups"] = admin_nav_groups
     TEMPLATES.env.globals["settings_nav_groups"] = settings_nav_groups
+    TEMPLATES.env.globals["config_hub_groups"] = config_hub_groups
     TEMPLATES.env.globals["render_assistant_message_html"] = _render_assistant_message_html
 
     register_auth_middleware(
@@ -1105,11 +984,15 @@ def _build_app() -> FastAPI:
             normalize_ui_theme=normalize_ui_theme,
             normalize_ui_background=normalize_ui_background,
             resolve_ui_background_asset_url=resolve_ui_background_asset_url,
-            can_access_settings=lambda role: globals()["can_access_settings"](role),
-            can_access_users=lambda role: globals()["can_access_users"](role),
-            can_access_advanced_config=lambda role, debug_mode: globals()["can_access_advanced_config"](role, debug_mode),
-            is_admin_only_path=lambda path: globals()["is_admin_only_path"](path),
-            is_advanced_config_path=lambda path: globals()["is_advanced_config_path"](path),
+            can_access_settings=lambda role: globals().get("can_access_settings", can_access_settings)(role),
+            can_access_users=lambda role: globals().get("can_access_users", can_access_users)(role),
+            can_access_advanced_config=lambda role, debug_mode: globals().get(
+                "can_access_advanced_config", can_access_advanced_config
+            )(role, debug_mode),
+            is_admin_only_path=lambda path: globals().get("is_admin_only_path", is_admin_only_path)(path),
+            is_advanced_config_path=lambda path: globals().get(
+                "is_advanced_config_path", is_advanced_config_path
+            )(path),
             encode_auth_session=_encode_auth_session,
             auth_cookie=AUTH_COOKIE,
             csrf_cookie=CSRF_COOKIE,
@@ -1141,7 +1024,6 @@ def _build_app() -> FastAPI:
             username_cookie=USERNAME_COOKIE,
             memory_collection_cookie=MEMORY_COLLECTION_COOKIE,
             session_cookie=SESSION_COOKIE,
-            auto_memory_cookie=AUTO_MEMORY_COOKIE,
             auth_session_max_age_seconds=AUTH_SESSION_MAX_AGE_SECONDS,
             logger=LOGGER,
         ),
@@ -1156,7 +1038,6 @@ def _build_app() -> FastAPI:
             get_username_from_request=_get_username_from_request,
             get_auth_session_from_request=_get_auth_session_from_request,
             ensure_session_id=_ensure_session_id,
-            is_auto_memory_enabled=_is_auto_memory_enabled,
             get_effective_memory_collection=_get_effective_memory_collection,
             session_memory_collection_for_user=_session_memory_collection_for_user,
             load_stored_recipe_manifests=_load_stored_recipe_manifests,
@@ -1175,7 +1056,6 @@ def _build_app() -> FastAPI:
             request_cookie_value=_request_cookie_value,
             set_response_cookie=_set_response_cookie,
             session_cookie=SESSION_COOKIE,
-            auto_memory_cookie=AUTO_MEMORY_COOKIE,
         ),
     )
 
@@ -1195,7 +1075,6 @@ def _build_app() -> FastAPI:
             help_doc_groups=HELP_DOC_GROUPS,
             product_doc_catalog=PRODUCT_DOC_CATALOG,
             product_doc_map=PRODUCT_DOC_MAP,
-            product_info_asset_map=PRODUCT_INFO_ASSET_MAP,
         ),
     )
 
@@ -1251,10 +1130,8 @@ def _build_app() -> FastAPI:
         translate=lambda lang, key, default: I18N.t(lang, key, default),
         localize_stored_recipe_description=_localize_stored_recipe_description,
         format_recipe_routing_info=_format_recipe_routing_info,
-        suggest_skill_keywords_with_llm=_suggest_skill_keywords_with_llm,
         daily_time_to_cron=_daily_time_to_cron,
         daily_time_from_cron=_daily_time_from_cron,
-        get_pipeline=_get_runtime_pipeline,
     )
 
     register_memories_routes(
@@ -1271,14 +1148,12 @@ def _build_app() -> FastAPI:
         sanitize_collection_name=_sanitize_collection_name,
         default_memory_collection_for_user=_default_memory_collection_for_user,
         get_effective_memory_collection=_get_effective_memory_collection,
-        is_auto_memory_enabled=_is_auto_memory_enabled,
         read_raw_config=_read_raw_config,
         write_raw_config=_write_raw_config,
         reload_runtime=_reload_runtime,
         resolve_prompt_file=_resolve_prompt_file,
         get_secure_store=_get_secure_store,
         memory_collection_cookie=MEMORY_COLLECTION_COOKIE,
-        auto_memory_cookie=AUTO_MEMORY_COOKIE,
     )
 
     register_notes_routes(
@@ -1294,6 +1169,14 @@ def _build_app() -> FastAPI:
                 runtime_settings.embeddings,
                 usage_meter=getattr(runtime_settings, "_aria_usage_meter", None),
             ),
+        ),
+    )
+
+    register_native_toolcall_selftest_routes(
+        app,
+        NativeToolcallRouteDeps(
+            templates=TEMPLATES,
+            get_llm_config=lambda: _get_runtime_settings().llm,
         ),
     )
 
@@ -1350,7 +1233,6 @@ def _build_app() -> FastAPI:
             save_stored_recipe_manifest=_save_stored_recipe_manifest,
             refresh_skill_trigger_index=_refresh_recipe_trigger_index,
             format_recipe_routing_info=_format_recipe_routing_info,
-            suggest_skill_keywords_with_llm=_suggest_skill_keywords_with_llm,
         ),
     )
 
@@ -1361,7 +1243,6 @@ def _build_app() -> FastAPI:
             get_settings=lambda: settings,
             get_username_from_request=_get_username_from_request,
             ensure_session_id=_ensure_session_id,
-            is_auto_memory_enabled=_is_auto_memory_enabled,
             get_effective_memory_collection=_get_effective_memory_collection,
             session_memory_collection_for_user=_session_memory_collection_for_user,
             cookie_should_be_secure=cookie_should_be_secure,
@@ -1380,6 +1261,7 @@ def _build_app() -> FastAPI:
                 intent_badge=_intent_badge,
                 friendly_error_text=_friendly_error_text,
                 alert_sender=lambda *args, **kwargs: send_discord_alerts(*args, **kwargs),
+                claim_action_confirmation=action_confirmation_ledger.claim,
                 pending_signing_secret=PENDING_ACTION_SIGNING_SECRET,
                 forget_signing_secret=FORGET_SIGNING_SECRET,
                 sanitize_username=_sanitize_username,
@@ -1396,8 +1278,12 @@ def _build_app() -> FastAPI:
                 fetch_update_helper_status=lambda helper_config: fetch_update_helper_status(helper_config),
                 helper_status_visual=lambda *args, **kwargs: helper_status_visual(*args, **kwargs),
                 get_secure_store=_get_secure_store,
-                build_config_backup_payload=lambda *args, **kwargs: globals()["build_config_backup_payload"](*args, **kwargs),
-                summarize_config_backup_payload=lambda payload: globals()["summarize_config_backup_payload"](payload),
+                build_config_backup_payload=lambda *args, **kwargs: globals().get(
+                    "build_config_backup_payload", build_config_backup_payload
+                )(*args, **kwargs),
+                summarize_config_backup_payload=lambda payload: globals().get(
+                    "summarize_config_backup_payload", summarize_config_backup_payload
+                )(payload),
                 read_raw_config=lambda: globals()["_read_raw_config"](),
             ),
             append_chat_history=chat_history_store.append_exchange,
@@ -1406,7 +1292,6 @@ def _build_app() -> FastAPI:
             clear_capability_context=capability_context_store.clear_user,
             session_cookie=SESSION_COOKIE,
             forget_pending_cookie=FORGET_PENDING_COOKIE,
-            safe_fix_pending_cookie=SAFE_FIX_PENDING_COOKIE,
             connection_delete_pending_cookie=CONNECTION_DELETE_PENDING_COOKIE,
             connection_create_pending_cookie=CONNECTION_CREATE_PENDING_COOKIE,
             connection_update_pending_cookie=CONNECTION_UPDATE_PENDING_COOKIE,

@@ -10,6 +10,7 @@ def test_setuptools_package_data_includes_runtime_assets() -> None:
     package_data = config["tool"]["setuptools"]["package-data"]["aria"]
 
     expected_patterns = {
+        "contracts/*.json",
         "i18n/*.json",
         "lexicons/*.json",
         "static/*",
@@ -23,6 +24,7 @@ def test_setuptools_package_data_covers_current_runtime_assets() -> None:
     config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     package_data = config["tool"]["setuptools"]["package-data"]["aria"]
     asset_roots = [
+        Path("aria/contracts"),
         Path("aria/i18n"),
         Path("aria/lexicons"),
         Path("aria/templates"),
@@ -41,9 +43,7 @@ def test_setuptools_package_data_covers_current_runtime_assets() -> None:
     assert uncovered == []
 
 
-def test_workbench_surface_links_to_llm_prompt_debug() -> None:
-    template = Path("aria/templates/_config_workbench_section.html").read_text(encoding="utf-8")
+def test_config_hub_exposes_llm_prompt_debug_directly() -> None:
+    template = Path("aria/templates/config_hub.html").read_text(encoding="utf-8")
 
-    assert "/config/llm/debug" in template
-    assert "llm_debug.title" in template
-    assert "llm_debug.menu_desc" in template
+    assert "config_hub_groups(request)" in template

@@ -4,12 +4,12 @@ import json
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 
-import aria.core.update_check as update_check
-from aria.core.update_check import extract_changelog_section
-from aria.core.update_check import extract_release_history
-from aria.core.update_check import get_update_status
-from aria.core.update_check import is_newer_release
-from aria.core.update_check import normalize_release_label
+import aria.modules.release_update.update_check as update_check
+from aria.modules.release_update.update_check import extract_changelog_section
+from aria.modules.release_update.update_check import extract_release_history
+from aria.modules.release_update.update_check import get_update_status
+from aria.modules.release_update.update_check import is_newer_release
+from aria.modules.release_update.update_check import normalize_release_label
 
 
 def test_normalize_release_label_handles_tags_and_internal_labels() -> None:

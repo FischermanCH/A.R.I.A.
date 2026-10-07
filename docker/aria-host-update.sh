@@ -53,12 +53,12 @@ Usage:
 
 What it does:
   - detect: list compose-based ARIA stacks on this host
-  - update: update exactly one chosen ARIA stack and only recreate the ARIA service
+  - update: update exactly one chosen ARIA stack and recreate ARIA only
 
 Defaults:
   - internal alpha-local stacks load the newest TAR from /var/lib/aria/images
   - registry/public stacks run docker compose pull for the aria service
-  - qdrant, searxng, valkey and data volumes stay untouched
+  - qdrant and all data volumes stay untouched
 
 Options:
   --project NAME     Compose project to update. Required if multiple ARIA stacks exist.
@@ -203,7 +203,7 @@ project_rows() {
 
 print_detect_table() {
   local rows=()
-  local line project aria_container qdrant_container searxng_container image_ref mode health port public_url stack_file_source
+  local line project aria_container qdrant_container image_ref mode health port public_url stack_file_source
 
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
@@ -219,7 +219,6 @@ print_detect_table() {
     project="${line%%$'\t'*}"
     aria_container="${line#*$'\t'}"
     qdrant_container="$(container_for_service "$project" qdrant)"
-    searxng_container="$(container_for_service "$project" searxng)"
     image_ref="$(inspect_config_image "$aria_container")"
     mode="$(mode_for_image "$image_ref")"
     health="$(inspect_health "$aria_container")"
@@ -234,8 +233,8 @@ print_detect_table() {
       fi
     fi
     printf '%-18s %-24s %-14s %-10s %-6s %-10s %s\n' "$project" "$aria_container" "$mode" "${health:-unknown}" "${port:--}" "${stack_file_source##*/}" "${public_url:--}"
-    if [[ -n "$qdrant_container" || -n "$searxng_container" ]]; then
-      printf '  qdrant=%s  searxng=%s  image=%s\n' "${qdrant_container:--}" "${searxng_container:--}" "$image_ref"
+    if [[ -n "$qdrant_container" ]]; then
+      printf '  qdrant=%s  image=%s\n' "${qdrant_container:--}" "$image_ref"
     fi
   done
 }
@@ -468,7 +467,6 @@ set_runtime_env() {
   local project="$1"
   local aria_container="$2"
   local qdrant_container="$3"
-  local searxng_container="$4"
   local host_port qdrant_key value
 
   host_port="$(published_host_port "$aria_container")"
@@ -492,17 +490,6 @@ set_runtime_env() {
   fi
   if [[ -n "$qdrant_key" ]]; then
     export ARIA_QDRANT_API_KEY="$qdrant_key"
-  fi
-
-  if [[ -n "$searxng_container" ]]; then
-    value="$(inspect_env "$searxng_container" 'SEARXNG_SECRET')"
-    if [[ -n "$value" ]]; then
-      export SEARXNG_SECRET="$value"
-    fi
-    value="$(inspect_env "$searxng_container" 'SEARXNG_LIMITER')"
-    if [[ -n "$value" ]]; then
-      export SEARXNG_LIMITER="$value"
-    fi
   fi
 
   log "Nutze Compose-Projekt: $project"
@@ -896,13 +883,12 @@ update_project() {
   local tar_dir="$4"
   local dry_run="$5"
   local target_image="$6"
-  local project aria_container qdrant_container searxng_container image_ref effective_image_ref mode stack_file="" stack_hint="" env_file old_runtime_image_id loaded_image_ref latest_tar use_portainer_api="false"
+  local project aria_container qdrant_container image_ref effective_image_ref mode stack_file="" stack_hint="" env_file old_runtime_image_id loaded_image_ref latest_tar use_portainer_api="false"
 
   project="$(resolve_project "$requested_project")"
   aria_container="$(container_for_service "$project" "$DEFAULT_SERVICE_NAME")"
   [[ -n "$aria_container" ]] || die "Kein ARIA-Container fuer Compose-Projekt '$project' gefunden."
   qdrant_container="$(container_for_service "$project" qdrant)"
-  searxng_container="$(container_for_service "$project" searxng)"
   image_ref="$(inspect_config_image "$aria_container")"
   effective_image_ref="${target_image:-$image_ref}"
   mode="$(mode_for_image "$effective_image_ref")"
@@ -932,12 +918,11 @@ update_project() {
     export ARIA_IMAGE="$target_image"
   fi
 
-  set_runtime_env "$project" "$aria_container" "$qdrant_container" "$searxng_container"
+  set_runtime_env "$project" "$aria_container" "$qdrant_container"
 
   log "Zielprojekt: $project"
   log "ARIA-Container: $aria_container"
   log "Qdrant-Container: ${qdrant_container:-<nicht gefunden>}"
-  log "SearXNG-Container: ${searxng_container:-<nicht gefunden>}"
   log "Modus: $mode"
   if [[ "$use_portainer_api" == "true" ]]; then
     log "Update-Pfad: Portainer-API"
@@ -974,10 +959,10 @@ update_project() {
     if [[ "$use_portainer_api" == "true" ]]; then
       portainer_update_stack "$project" "$dry_run"
     elif [[ "$mode" == "internal-local" ]]; then
-      log "Dry-run: wuerde '$latest_tar' laden, nach '$DEFAULT_INTERNAL_IMAGE_REF' taggen und dann nur den ARIA-Service neu erstellen."
+      log "Dry-run: wuerde '$latest_tar' laden, nach '$DEFAULT_INTERNAL_IMAGE_REF' taggen und dann nur ARIA neu erstellen."
       [[ -n "$stack_file" ]] && log "Dry-run: wuerde Managed-Stack-Dateien aus '$DEFAULT_INTERNAL_IMAGE_REF' refreshen, falls '$stack_file' zu einem managed Install gehoert."
     else
-      log "Dry-run: wuerde 'docker compose pull $DEFAULT_SERVICE_NAME' fuer '${effective_image_ref}' und danach nur den ARIA-Service neu erstellen."
+      log "Dry-run: wuerde 'docker compose pull $DEFAULT_SERVICE_NAME' fuer '${effective_image_ref}' und danach nur ARIA neu erstellen."
       if [[ -n "$target_image" && -n "$env_file" ]]; then
         log "Dry-run: wuerde ARIA_IMAGE in '$env_file' auf '$target_image' setzen."
       fi
@@ -1028,7 +1013,7 @@ update_project() {
     refresh_managed_stack_files "$effective_image_ref" "$stack_file"
   fi
 
-  log "Erstelle nur den ARIA-Service neu. Qdrant, SearXNG und Volumes bleiben unberuehrt."
+  log "Erstelle den ARIA-Service neu. Qdrant und Volumes bleiben unberuehrt."
   run_compose_recreate "$project" "$stack_file" "$env_file" "$DEFAULT_SERVICE_NAME"
 
   if wait_for_aria_health "$aria_container"; then

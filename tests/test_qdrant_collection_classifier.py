@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from aria.core.qdrant_collection_classifier import classify_qdrant_collection
-from aria.core.qdrant_collection_classifier import is_notes_qdrant_collection
-from aria.core.qdrant_collection_classifier import is_recipe_experience_qdrant_collection
-from aria.core.qdrant_collection_classifier import is_routing_qdrant_collection
+from aria.modules.system_diagnostics.qdrant_collection_classifier import classify_qdrant_collection
+from aria.modules.system_diagnostics.qdrant_collection_classifier import is_notes_qdrant_collection
+from aria.modules.system_diagnostics.qdrant_collection_classifier import is_recipe_experience_qdrant_collection
+from aria.modules.system_diagnostics.qdrant_collection_classifier import is_routing_qdrant_collection
 
 
 def test_recipe_experience_collection_is_system_learning_memory() -> None:

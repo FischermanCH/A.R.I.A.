@@ -1,20 +1,23 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block content %}
+{% set connections_status_path = module_route_path('connections_ui_readonly', '/connections/status') %}
+{% set connections_types_path = module_route_path('connections_ui_readonly', '/connections/types') %}
+{% set connections_templates_path = module_route_path('connections_ui_readonly', '/connections/templates') %}
 <main class="config-layout connections-clean-layout connections-overview-layout">
   {% include "_connections_nav.html" %}
   {% include "_connections_page_header.html" %}
   <section class="floating-card connections-overview-links">
     <div class="config-submenu">
-      <a class="config-submenu-item" href="/connections/status">
+      <a class="config-submenu-item" href="{{ connections_status_path }}">
         <span class="submenu-icon-wrap">{{ icon('stats', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'connections_overview.nav_status', 'Live-Status') }}</span><span class="submenu-desc">{{ tr(request, 'connections_overview.status_card_desc', 'Alle konfigurierten Verbindungen mit ihrem aktuellen Zustand an einem Ort.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/connections/types">
+      <a class="config-submenu-item" href="{{ connections_types_path }}">
         <span class="submenu-icon-wrap">{{ icon('settings', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'connections_overview.section_types_title', 'Verbindungstypen') }}</span><span class="submenu-desc">{{ tr(request, 'connections_overview.types_card_desc', 'Die eigentliche Pflege passiert auf den jeweiligen Typseiten mit sauberem Rückweg.') }}</span></span>
       </a>
-      <a class="config-submenu-item" href="/connections/templates">
+      <a class="config-submenu-item" href="{{ connections_templates_path }}">
         <span class="submenu-icon-wrap">{{ icon('upload', 'submenu-icon') }}</span>
         <span class="submenu-copy"><span class="submenu-title">{{ tr(request, 'connections_overview.nav_templates', 'Vorlagen') }}</span><span class="submenu-desc">{{ tr(request, 'connections_overview.templates_card_desc', 'Mitgelieferte Beispielprofile getrennt vom Live-Bestand deiner Instanz.') }}</span></span>
       </a>

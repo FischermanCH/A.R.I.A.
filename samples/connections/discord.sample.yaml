@@ -8,6 +8,5 @@ connections:
       send_test_messages: true
       allow_skill_messages: true
       alert_skill_errors: true
-      alert_safe_fix: true
       alert_connection_changes: false
       alert_system_events: false

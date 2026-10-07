@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from aria.core.connection_ref_scope import ConnectionRefScope
+from aria.modules.connections_semantic.ref_scope import ConnectionRefScope
 
 
 def test_connection_ref_scope_normalizes_draft_refs() -> None:

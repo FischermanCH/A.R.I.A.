@@ -16,7 +16,7 @@ Gut geeignet fuer:
 - Chat Prompt Queue mit editierbarer, umsortierbarer Warteschlange
 - sichtbare Pending Confirmations fuer bestaetigungspflichtige Aktionen
 - generierte Bereichsnavigation fuer Header, Account-Menue, Settings, Admin, Memory, Recipes und Connections
-- sichere Connections zu SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT, SearXNG und Google Calendar
+- sichere Connections zu SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT und Google Calendar
 - recipe-first Automationen mit Guardrails
 - Agentic Operator Flow: ARIA versteht natuerliche Prompts, plant begrenzte Schritte, laesst Policy/Guardrails entscheiden, fuehrt aus und zeigt Details
 
@@ -37,7 +37,6 @@ Danach zuerst pruefen:
 3. `/stats` - Preflight, Qdrant, Modellstatus, Token/Kosten und Pricing Coverage
 4. `/connections/types` - Connections zu deinen Systemen
 5. `/recipes` und `/recipes/mine` - Rezepte importieren, reviewen oder mit dem Wizard bauen
-6. `/config/routing` und `/config/workbench/routing` - Routing-Dry-runs und Debug-Prompts, wenn ARIA ein Ziel falsch versteht
 
 ## Admin-Modus und User-Modus
 
@@ -123,7 +122,7 @@ Aktuelle Connection-Familien:
 - SSH / SFTP / SMB
 - RSS und beobachtete Webseiten
 - Discord / Webhook / HTTP API
-- SearXNG Websuche
+- Provider-native Websuche
 - Google Calendar read-only
 - SMTP / IMAP / MQTT
 
@@ -182,7 +181,7 @@ Wichtig: Auch interne LLM-Aufrufe fuer Routing, RSS-Zusammenfassungen, Guardrail
 
 ## Updates
 
-Der sichere Public-Pfad ist `aria-setup` / Managed Compose. Der Update-Helper aktualisiert gezielt nur den `aria` Service und laesst Qdrant, SearXNG, Valkey und Volumes unangetastet.
+Der sichere Public-Pfad ist `aria-setup` / Managed Compose. Der Update-Helper erzeugt nur `aria` neu; Qdrant und alle Volumes bleiben unangetastet.
 
 Vor einem Recreate prueft der Host-Update-Helper den geplanten Host-Port. Wenn ein anderer Prozess oder Container den Port belegt, bricht das Update vor Veraenderungen am laufenden Service ab.
 
@@ -202,7 +201,7 @@ ARIA ist fuer kontrollierte Umgebungen gebaut:
 ### ARIA waehlt das falsche Ziel
 
 - Connection-Aliase und Kurzbeschreibung pruefen
-- `/config/routing` oder `/config/workbench/routing` nutzen
+- Connection-Inventar und Chat-Details auf das tatsächlich aufgelöste Ziel prüfen
 - im Chat-Detail auf `routing_chain`, `semantic_llm`, `memory_hint` und `explicit_ref` achten
 
 ### Aktion wird blockiert

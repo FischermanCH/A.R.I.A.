@@ -4,7 +4,7 @@
 
 # ARIA
 
-Lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first UI.
+Lean, modular, self-hosted AI assistant with memory, recipes, secure connections, a native tool-calling agent with MCP and controllable background jobs, and a browser-first UI.
 
 **GitHub:** [FischermanCH/A.R.I.A.](https://github.com/FischermanCH/A.R.I.A.)  
 **Docker Hub:** [fischermanch/aria](https://hub.docker.com/r/fischermanch/aria)  
@@ -85,7 +85,7 @@ It combines:
 - a browser-first chat UI
 - structured memory with Qdrant
 - recipe-driven automation
-- LLM-assisted action planning
+- a native tool-calling agent with MCP servers and controllable background jobs
 - modular connections to real systems
 - explicit security and role boundaries
 
@@ -131,18 +131,13 @@ Not the current target:
 ## Current implementation snapshot
 
 - Chat UI at `/`
-- Recipe-first routing plus LLM-assisted bounded capability execution
-- Qdrant-backed memory with typed collections, weighted recall, and JSON export
-- RAG v1 in `Memory` with document upload for `txt`, `md`, and `pdf` with embedded text
-- Document-RAG uses an internal guide index with summary + keywords so ARIA can route chat recall to relevant uploaded documents
-- Chat details now show document recall sources with file name, collection, and chunk reference
-- pre-alpha web search via self-hosted `SearXNG`, with a fixed in-stack target URL, slim search profiles, and source lines in chat details
-- Chat toolbox includes direct phrases for web search, stats, activities, controlled updates, config-backup helpers, and explicit Recipe Learn Mode; the same actions can now also be triggered from chat instead of only through the respective pages
-- Embedding changes are now guarded by explicit confirmation plus Memory fingerprinting, so existing Memory/RAG is less likely to be mixed with a different embedding generation by accident
-- `Memory Map` groups imported documents by name and can remove a whole document from Qdrant in one step
-- `Memory Map` includes a bounded Qdrant Brain drilldown graph with zoom, pan, Collection-first navigation, semantic similarity edges, and safe payload previews without exposing raw vectors
-- Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, SearXNG, Webhook, SMTP, IMAP, and MQTT
-- Recipes as JSON manifests with a browser wizard, import/export, learned recipe review, chat-driven review-only learn mode, and bundled sample recipes
+- modular Native Agent with 37 core Tools when MCP is off
+- optional HTTP/SSE MCP servers whose tools join the native catalog, with per-server trust, timeouts and confirmation previews
+- persistent background Agent Jobs with pause, resume, correction, cancellation, budget extension and in-job confirmation
+- Qdrant-backed memory, structured personal claims, document upload and explicit memory/recipe recurrence suggestions
+- recipes as stored JSON manifests with preview, confirmation and adaptive connection bindings
+- source-bound public facts and web answers via configured provider-native capabilities
+- Connection pages for SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP, and MQTT
 - `Statistics` under `/stats` with health, token/cost stats, connection status, activities, and reset
 - Read-only `/help` and `/product-info`
 - OpenAI-compatible endpoint `POST /v1/chat/completions`
@@ -151,17 +146,11 @@ Not the current target:
 
 ## Recent alpha highlights
 
-- Recipes are now the visible automation model; legacy Skills remain only as compatibility bridges where needed
-- chat Recipe Learn Mode can create review-only learned recipe candidates from an explicit observed chat run without activating anything automatically
-- the chat toolbox can save the current chat history as a Markdown Note, with Notes search reindexing when the Notes index is enabled
-- Notes now has a calmer desktop/mobile workspace with consistent ARIA form styling and contained long titles, URLs, tags, and folder labels
-- general how-to/product questions filter weak or mixed local Memory/RAG context, so unrelated manuals are not shown as sources unless the user explicitly asks for local notes/documents
-- `/help` home entries now link directly to Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security, and local help-system docs
-- agentic action flow: ARIA enriches context, lets an LLM propose bounded action drafts, then lets policy/guardrails decide execution
-- multi-target SSH read-only checks can summarize fleet health without forcing one stale target
-- `/stats` now shows token/cost coverage, pricing source status, Model Gateway Audit, and Recipe Experience Memory
-- managed public updates are safer: normal update recreates only `aria`, while Qdrant/SearXNG/Valkey stay untouched
-- LLM Prompt Debug helps admins inspect redacted prompts, responses, model, operation, duration, and token usage
+- The former monolithic runtime has been replaced by registered modules with explicit dependencies and lifecycle ownership.
+- Repeated personal preferences and actionable sequences can produce user-approved memory or inactive recipe suggestions.
+- MCP tools use the same Tool selection, confirmation kernel and honest result boundary as ARIA's native Tools.
+- Long Agent work detaches before browser timeout and remains controllable and observable in chat and the Jobs panel.
+- Output guards prevent unsupported claims about resource contents or completed actions when no Tool supplied the evidence.
 
 ## Architecture at a glance
 
@@ -266,7 +255,7 @@ cd /opt/aria/aria
 Managed update rules:
 
 - normal image update:
-  - `./aria-stack.sh update` refreshes/recreates only the `aria` service and leaves Qdrant/SearXNG data services running
+  - `./aria-stack.sh update` refreshes/recreates only the `aria` service and leaves Qdrant running
 - stack layout change, for example a new sidecar service:
   - `aria-setup upgrade --install-dir /opt/aria/aria`
 - deliberate full-stack refresh:
@@ -274,9 +263,9 @@ Managed update rules:
 - admin-triggered browser update:
   - `/updates`
 
-When Docker container metadata is exposed to the ARIA runtime, `/stats#runtime-health` also shows the visible Qdrant/SearXNG/Valkey sidecar images and status. Missing Docker visibility is informational; it does not mean the install is unhealthy.
+When Docker container metadata is exposed to the ARIA runtime, `/stats#runtime-health` also shows the visible Qdrant sidecar image and status. Missing Docker visibility is informational; it does not mean the install is unhealthy.
 
-After a deliberate full-stack sidecar update, verify `/health`, `/stats#runtime-health`, one memory/notes-backed chat question, one web search, and `/updates`.
+After a deliberate full-stack sidecar update, verify `/health`, `/stats#runtime-health`, one memory/notes-backed chat question, provider/web-tooling readiness if web answers are enabled, and `/updates`.
 
 If a managed ARIA install already exists, `aria-setup` detects that and upgrades it instead of creating an accidental second install.
 
@@ -310,7 +299,6 @@ Minimal `.env`:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
-SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://localhost:8800
 ```
@@ -325,8 +313,6 @@ This starts:
 
 - `aria`
 - `qdrant`
-- `searxng`
-- `searxng-valkey`
 
 Manual Compose update rules:
 
@@ -498,14 +484,11 @@ For the public/registry path, use `docker-compose.public.yml`.
 - the public stack already contains:
   - `aria`
   - `qdrant`
-  - `searxng`
-  - `searxng-valkey`
 
 Set at least this in `.env`:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
-SEARXNG_SECRET=replace-with-a-long-random-key
 ```
 
 Optional:
@@ -533,7 +516,7 @@ docker compose up -d
 Open:
 
 - ARIA: `http://localhost:8800`
-- SearXNG is internal in the stack and is used from ARIA via `http://searxng:8080`
+- Web search uses the configured provider-native Web-LLM.
 - Qdrant is internal in the stack by default and is not published to a host port in the public sample
 
 First start flow:
@@ -624,12 +607,12 @@ Never commit real secrets into code or YAML.
 
 ## Public release status
 
-- Current public alpha release: `0.1.0-alpha437`
-- `alpha437` strengthens uploaded-document corpus answers, improves document inventory recall, keeps source-bound document scans scoped to the selected store, reduces avoidable runtime/follow-up latency for common operational tasks, and makes Web Search fallback handling more robust around SearXNG timeouts.
+- Release candidate: `0.1.0-alpha982`
+- Existing public installations on `0.1.0-alpha604` should follow the backup and migration notes in `CHANGELOG.md` before replacing the image.
 
 ## One-line summary
 
-**ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, LLM-assisted action planning, and a browser-first interface built for real control instead of platform bloat.**
+**ARIA is a lean, modular, self-hosted AI assistant with memory, recipes, secure connections, a native tool-calling agent with MCP and controllable background jobs, and a browser-first interface built for real control instead of platform bloat.**
 
 ---
 
@@ -689,11 +672,12 @@ Aktuell **nicht** gedacht für:
 ## Aktueller Implementierungsstand
 
 - Chat-UI unter `/`
-- Recipe-first Routing plus LLM-gestützte, begrenzte Capability-Ausführung
-- Qdrant-Memory mit typisierten Collections, gewichtetem Recall und JSON-Export
+- modularer Native Agent mit 37 Core-Tools bei ausgeschaltetem MCP
+- optionale HTTP/SSE-MCP-Server mit serverbezogenem Vertrauen, Timeouts und Confirmation-Previews
+- persistente Agent-Hintergrund-Jobs mit Pause, Fortsetzen, Korrektur, Abbruch, Budgeterweiterung und Bestaetigung im Job
+- Qdrant-Memory, strukturierte Personal Claims, Dokumente und explizite Memory-/Recipe-Recurrence-Vorschlaege
 - Connection-Seiten für SSH, SFTP, SMB, Discord, RSS, HTTP API, Webhook, SMTP, IMAP und MQTT
-- Rezepte als JSON-Manifeste mit Wizard, Import/Export, Learned-Recipe-Review und mitgelieferten Sample-Rezepten
-- Chat-Tool-Box mit explizitem Rezept-Lernmodus: aus einer bewusst gestarteten Chat-Sequenz kann ein Review-Kandidat entstehen, aber kein automatisch aktives Rezept
+- Rezepte als JSON-Manifeste mit Wizard, Import/Export, Preview, Confirmation und adaptiven Connection-Bindings
 - `Statistiken` unter `/stats` mit Health, Token-/Kosten-Stats, Connection-Status, Aktivitäten und Reset
 - Read-only `/help` und `/product-info`
 - CLI-Schnellcheck via `aria --version` und `aria version-check`
@@ -703,19 +687,11 @@ Aktuell **nicht** gedacht für:
 
 ## Neu in der aktuellen Alpha-Linie
 
-- Rezepte sind jetzt das sichtbare Automationsmodell; Legacy-Skills bleiben nur als Kompatibilitaetsbruecken erhalten
-- Der Chat-Lernmodus erzeugt reviewbare Learned-Recipe-Kandidaten aus bewusst beobachteten Chatlaeufen, ohne Guardrails oder Promotion zu umgehen
-- Aktive Chatverlaeufe koennen als Markdown-Notiz archiviert und bei aktivem Notes-Index direkt fuer die Notizsuche neu indiziert werden
-- Die Notes-Seite ist ruhiger, konsistenter und mobil besser bedienbar; lange Titel, URLs, Tags und Ordnerlabels bleiben innerhalb der Karten
-- Allgemeine How-to-/Produktfragen filtern schwache oder gemischte lokale Memory-/RAG-Quellen aus, damit unpassende Handbuecher nicht als Quellen erscheinen
-- `/help` hat klickbare Einstiegspunkte fuer Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security und lokale Help-System-Dokumente
-- Agentic Action Flow: ARIA reichert Kontext an, laesst ein LLM begrenzte Action-Drafts vorschlagen und laesst Policy/Guardrails ueber Ausfuehrung entscheiden
-- Multi-Target-SSH kann sichere read-only Checks ueber mehrere Server zusammenfassen
-- `/stats` zeigt Token/Kosten, Pricing-Quellen, Model Gateway Audit und Recipe Experience Memory deutlich sichtbarer
-- `/stats#runtime-health` kann sichtbare Third-party-Sidecars wie Qdrant, SearXNG und Valkey anzeigen; normale Updates lassen diese Dienste weiter unangetastet
-- Managed Public Updates sind sicherer: normales Update recreatet nur `aria`, Qdrant/SearXNG/Valkey bleiben unangetastet
-- natuerliche Laufzeit-/Online-Fragen wie `Wie lange ist mein DNS Server schon online?` koennen direkt auf SSH `uptime` geroutet werden
-- Runtime-Reloads tauschen ihren Live-Bundle jetzt atomar aus, was Config-Saves und Profilwechsel robuster macht
+- Die fruehere monolithische Runtime wurde durch registrierte Module mit expliziten Abhaengigkeiten und Lifecycle-Ownern ersetzt.
+- Wiederholte Praeferenzen und Aktionsfolgen koennen nutzerbestaetigte Memory- oder inaktive Rezeptvorschlaege erzeugen.
+- MCP-Tools verwenden dieselbe Tool-Auswahl, denselben Confirmation-Kernel und dieselbe ehrliche Ergebnisgrenze wie native ARIA-Tools.
+- Lange Agent-Arbeiten loesen sich vor dem Browser-Timeout und bleiben in Chat und Jobs-Panel steuerbar und beobachtbar.
+- Output-Guards verhindern unbelegte Aussagen ueber Ressourceninhalte oder ausgefuehrte Aktionen ohne Tool-Evidenz.
 
 ## Architektur auf einen Blick
 
@@ -841,14 +817,11 @@ Für den Public-/Registry-Weg nutzt du `docker-compose.public.yml`.
 - im Public-Stack sind bereits enthalten:
   - `aria`
   - `qdrant`
-  - `searxng`
-  - `searxng-valkey`
 
 In `.env` mindestens setzen:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=hier-einen-langen-zufaelligen-key-setzen
-SEARXNG_SECRET=hier-einen-langen-zufaelligen-searxng-key-setzen
 ```
 
 Optional:
@@ -876,7 +849,7 @@ docker compose up -d
 Im Browser öffnen:
 
 - ARIA: `http://localhost:8800`
-- SearXNG läuft intern im Stack und wird in ARIA über `http://searxng:8080` genutzt
+- Websuche nutzt das konfigurierte provider-native Web-LLM.
 - Qdrant bleibt im Public-Sample standardmäßig intern und wird nicht auf einen Host-Port veröffentlicht
 
 First-Run-Flow:
@@ -965,8 +938,8 @@ Echte Secrets bitte nie in Code oder YAML committen.
 
 ## Public-Release-Status
 
-Aktueller Public-Alpha-Release: `0.1.0-alpha437`. Dieser Stand verbessert hochgeladene Dokumente, corpusweite Dokumentantworten, Dokument-Inventare, source-bound Dokument-Scans, schnellere Runtime-/Follow-up-Pfade fuer typische Operationsfragen und robusteres Web-Search-Fallback-Verhalten bei SearXNG-Timeouts.
+Release Candidate: `0.1.0-alpha982`. Bestehende Public-Installationen auf `0.1.0-alpha604` sollten vor dem Image-Wechsel die Backup- und Migrationshinweise in `CHANGELOG.de.md` befolgen.
 
 ## Ein-Satz-Zusammenfassung
 
-**ARIA ist ein schlanker, modularer, selbst gehosteter AI-Assistent mit Memory, Rezepten, sicheren Connections, LLM-gestützter Action-Planung und browser-first UI für echte Kontrolle statt Plattform-Bloat.**
+**ARIA ist ein schlanker, modularer, selbst gehosteter AI-Assistent mit Memory, Rezepten, sicheren Connections, einem nativen Tool-Agenten mit MCP und steuerbaren Hintergrund-Jobs und browser-first UI für echte Kontrolle statt Plattform-Bloat.**

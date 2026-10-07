@@ -16,7 +16,7 @@ Gut geeignet fuer:
 - Chat Prompt Queue mit editierbarer, umsortierbarer Warteschlange
 - sichtbare Pending Confirmations fuer bestaetigungspflichtige Aktionen
 - generierte Bereichsnavigation fuer Header, Account-Menue, Settings, Admin, Memory, Recipes und Connections
-- sichere Connections zu SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT, SearXNG und Google Calendar
+- sichere Connections zu SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT und Google Calendar
 - recipe-first Automationen mit Guardrails
 - Agentic Operator Flow: ARIA versteht natuerliche Prompts, plant begrenzte Schritte, laesst Policy/Guardrails entscheiden, fuehrt aus und zeigt Details
 
@@ -123,7 +123,7 @@ Aktuelle Connection-Familien:
 - SSH / SFTP / SMB
 - RSS und beobachtete Webseiten
 - Discord / Webhook / HTTP API
-- SearXNG Websuche
+- Provider-native Websuche
 - Google Calendar read-only
 - SMTP / IMAP / MQTT
 
@@ -182,7 +182,7 @@ Wichtig: Auch interne LLM-Aufrufe fuer Routing, RSS-Zusammenfassungen, Guardrail
 
 ## Updates
 
-Der sichere Public-Pfad ist `aria-setup` / Managed Compose. Der Update-Helper aktualisiert gezielt nur den `aria` Service und laesst Qdrant, SearXNG, Valkey und Volumes unangetastet.
+Der sichere Public-Pfad ist `aria-setup` / Managed Compose. Der Update-Helper erzeugt nur `aria` neu; Qdrant und alle Volumes bleiben unangetastet.
 
 Vor einem Recreate prueft der Host-Update-Helper den geplanten Host-Port. Wenn ein anderer Prozess oder Container den Port belegt, bricht das Update vor Veraenderungen am laufenden Service ab.
 

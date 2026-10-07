@@ -11,7 +11,6 @@ Unterstuetzte Familien:
 - Beobachtete Webseiten
 - Discord
 - HTTP API
-- SearXNG
 - Google Calendar
 - Webhook
 - SMTP
@@ -41,7 +40,6 @@ Bei Action-Prompts kann ARIA Connection-Metadaten, Qdrant-Kandidaten, aktuellen 
 - HTTP API: konfigurierte Health-Endpunkte pruefen
 - Discord/Webhook: ausgehende Nachrichten mit Bestaetigung
 - RSS: Digests mit Titel, Quelle, Datum, Kurztext und Link
-- SearXNG: offene Websuche ueber den separaten Stack-Service
 - Google Calendar: read-only Terminabfragen ueber die geheime iCal-Adresse aus Google Calendar; kein Google-Cloud-/OAuth-Setup im aktuellen Alpha-Enduser-Pfad
 
 Nuetzliche Referenzen:

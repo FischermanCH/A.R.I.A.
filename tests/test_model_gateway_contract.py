@@ -8,8 +8,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_provider_runtime_calls_stay_behind_metered_clients() -> None:
     allowed_runtime_call_files = {
-        Path("aria/core/llm_client.py"),
-        Path("aria/core/embedding_client.py"),
+        Path("aria/modules/model_gateway_clients/llm.py"),
+        Path("aria/modules/model_gateway_clients/embedding.py"),
     }
     blocked_runtime_markers = (
         "from litellm import completion",

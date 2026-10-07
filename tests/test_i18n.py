@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aria.core.i18n import I18NStore
+from aria.modules.platform_primitives.i18n import I18NStore
 
 
 def test_i18n_store_reads_flat_dotted_keys(tmp_path: Path) -> None:

@@ -1,0 +1,1 @@
+"""Recipes UI module metadata."""

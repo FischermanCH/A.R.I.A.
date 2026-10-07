@@ -1,9 +1,20 @@
 {% from "_icons.html" import icon %}
+{% set config_ui_prompts_path = module_route_path('config_ui', '/config/prompts') %}
+{% set config_ui_appearance_path = module_route_path('config_ui', '/config/appearance') %}
+{% set config_ui_language_path = module_route_path('config_ui', '/config/language') %}
 <section class="floating-card config-domain-section">
   <div class="config-submenu">
     {% for item in nav_section_items(request, 'persona', 'settings.persona') %}
     {% if item.id not in ['settings.overview', 'settings.persona'] %}
-    <a class="config-submenu-item{% if item.active %} is-active{% endif %}" href="{{ item.href }}">
+    {% set item_href = item.href %}
+    {% if item.id == 'persona.prompts' %}
+    {% set item_href = config_ui_prompts_path ~ '?return_to=' ~ (page_return_to | urlencode) %}
+    {% elif item.id == 'persona.appearance' %}
+    {% set item_href = config_ui_appearance_path ~ '?return_to=' ~ (page_return_to | urlencode) %}
+    {% elif item.id == 'persona.language' %}
+    {% set item_href = config_ui_language_path ~ '?return_to=' ~ (page_return_to | urlencode) %}
+    {% endif %}
+    <a class="config-submenu-item{% if item.active %} is-active{% endif %}" href="{{ item_href }}">
       <span class="submenu-icon-wrap">{{ icon(item.icon, 'submenu-icon') }}</span>
       <span class="submenu-copy">
         <span class="submenu-title">{{ tr(request, item.title_key, item.title_fallback) }}</span>

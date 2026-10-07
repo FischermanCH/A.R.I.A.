@@ -15,7 +15,7 @@
   </div>
 </section>
 
-<div class="update-live-card" id="update-live-card" data-health-url="/health" data-reload-url="/updates" data-status-url="/updates/status" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
+<div class="update-live-card" id="update-live-card" data-health-url="{{ release_update_urls.health }}" data-reload-url="{{ release_update_urls.updates }}" data-status-url="{{ release_update_urls.status }}" data-started-at="{{ update_control.last_started_at or '' }}" aria-live="polite">
   <div class="update-live-card__panel">
     <div class="update-live-card__head">
       <span class="health-lamp status-warn update-live-card__lamp" id="update-live-helper-lamp"></span>

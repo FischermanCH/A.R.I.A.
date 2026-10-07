@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
+{% set config_ui_language_path = module_route_path('config_ui', '/config/language') %}
+{% set config_ui_language_save_path = module_route_path('config_ui', '/config/language/save') %}
+{% set config_ui_language_file_save_path = module_route_path('config_ui', '/config/language/file/save') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-language-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
   <section class="floating-card config-domain-section">
-    <form method="post" action="/config/language/save" class="editor-form">
+    <form method="post" action="{{ config_ui_language_save_path }}" class="editor-form">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label>
         {{ tr(request, 'config_language.default_language', 'Standardsprache') }}
@@ -23,7 +26,7 @@
     <details class="skill-details">
       <summary>{{ tr(request, 'config_language.advanced_summary', 'Erweitert: Sprachdatei editieren') }}</summary>
       <div class="skill-details-content">
-        <form method="get" action="/config/language" class="editor-form">
+        <form method="get" action="{{ config_ui_language_path }}" class="editor-form">
           <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label>
             {{ tr(request, 'config_language.select_file', 'Datei auswählen') }}
@@ -35,7 +38,7 @@
             </select>
           </label>
         </form>
-        <form method="post" action="/config/language/file/save" class="editor-form">
+        <form method="post" action="{{ config_ui_language_file_save_path }}" class="editor-form">
           <input type="hidden" name="file_name" value="{{ selected_file }}">
           <input type="hidden" name="return_to" value="{{ return_to or '' }}">
           <label>

@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <main class="skills-layout skills-clean-layout skills-surface-layout">
+  {% set recipes_ui_save_path = module_route_path('recipes_ui', '/recipes/save') %}
   {% set admin_current_nav_id = 'admin.recipes.system' %}
   {% include "_admin_section_nav.html" %}
   {% include "_recipes_page_header.html" %}
-  <form id="skills-toggles-form" class="editor-form" method="post" action="/recipes/save">
+  <form id="skills-toggles-form" class="editor-form" method="post" action="{{ recipes_ui_save_path }}">
     <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">
     {% include "_recipes_system_section.html" %}
     {% include "_recipes_save_hint.html" %}

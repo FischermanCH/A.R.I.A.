@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
+{% set ops_logs_save_path = module_route_path('ops_config_backup', '/config/logs/save') %}
+{% set ops_logs_cleanup_path = module_route_path('ops_config_backup', '/config/logs/cleanup') %}
+{% set ops_logs_reset_path = module_route_path('ops_config_backup', '/config/logs/reset') %}
+{% set ops_logs_factory_reset_path = module_route_path('ops_config_backup', '/config/logs/factory-reset') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout config-logs-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
@@ -32,7 +36,7 @@
     <div class="alert err">{{ error_message }}</div>
     {% endif %}
 
-    <form method="post" action="/config/logs/save" class="config-form-grid">
+    <form method="post" action="{{ ops_logs_save_path }}" class="config-form-grid">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <label class="checkbox-row" for="logs-enabled">
         <input
@@ -69,7 +73,7 @@
       </div>
     </form>
 
-    <form method="post" action="/config/logs/cleanup" class="config-actions" style="margin-top: 1rem;">
+    <form method="post" action="{{ ops_logs_cleanup_path }}" class="config-actions" style="margin-top: 1rem;">
       <input type="hidden" name="return_to" value="{{ return_to or '' }}">
       <button type="submit">{{ tr(request, 'config_logs.cleanup_now', 'Clean up now') }}</button>
     </form>
@@ -90,7 +94,7 @@
       </div>
       {% endif %}
       <p class="hint-text">{{ tr(request, 'config_logs.reset_confirm_hint', 'Type RESET to confirm the reset deliberately.') }}</p>
-      <form method="post" action="/config/logs/reset" class="config-form-grid">
+      <form method="post" action="{{ ops_logs_reset_path }}" class="config-form-grid">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <label for="confirm-reset">{{ tr(request, 'config_logs.reset_confirm_label', 'Confirmation') }}</label>
         <input id="confirm-reset" name="confirm_text" type="text" value="" placeholder="RESET" autocomplete="off">
@@ -104,7 +108,7 @@
       <h3>{{ tr(request, 'config_logs.factory_reset_title', 'Factory Reset') }}</h3>
       <p>{{ tr(request, 'config_logs.factory_reset_subtitle', 'Deletes user data, memories, connections, guardrails, stored recipes, chat history, SSH keys, and local runtime caches. Runtime secrets and prompts remain intact.') }}</p>
       <p class="hint-text">{{ tr(request, 'config_logs.factory_reset_confirm_hint', 'Type FACTORY RESET to wipe this ARIA instance deliberately.') }}</p>
-      <form method="post" action="/config/logs/factory-reset" class="config-form-grid">
+      <form method="post" action="{{ ops_logs_factory_reset_path }}" class="config-form-grid">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
         <label for="confirm-factory-reset">{{ tr(request, 'config_logs.factory_reset_confirm_label', 'Confirmation') }}</label>
         <input id="confirm-factory-reset" name="confirm_text" type="text" value="" placeholder="FACTORY RESET" autocomplete="off">

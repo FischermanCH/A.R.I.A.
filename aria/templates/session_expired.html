@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+{% set auth_ui_login_path = module_route_path('auth_ui', '/login') %}
 <main class="chat-layout login-layout">
   <section class="login-box session-expired-box">
     <h2>Session abgelaufen</h2>
@@ -12,7 +13,7 @@
       <span id="countdown-bar"></span>
     </div>
     <p>
-      <a class="nav-link" href="/login?next={{ next_query }}">Jetzt einloggen</a>
+      <a class="nav-link" href="{{ auth_ui_login_path }}?next={{ next_query }}">Jetzt einloggen</a>
     </p>
   </section>
 </main>
@@ -38,7 +39,7 @@
   }, 100);
 
   setTimeout(function () {
-    window.location.href = "/login?next={{ next_query }}";
+    window.location.href = "{{ auth_ui_login_path }}?next={{ next_query }}";
   }, totalMs);
 </script>
 {% endblock %}

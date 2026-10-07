@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
 import ssl
 import smtplib
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
-from aria.core import connection_runtime
-from aria.core.searxng_client import SearXNGClient
+import pytest
+
+import aria.modules.connections_runtime_status.runtime as connection_runtime
+import aria.modules.ssh_runtime.status as ssh_status
 
 
 class _FakeHttpResponse:
@@ -205,9 +208,9 @@ def test_cached_only_connection_status_without_cache_returns_warn_placeholder(mo
     monkeypatch.setattr(connection_runtime, "get_connection_health", lambda _ref: {})
 
     status = connection_runtime.build_connection_status_row(
-        "searxng",
-        "web-allgemein",
-        {"title": "Web Allgemein"},
+        "website",
+        "example-docs",
+        {"title": "Example Docs"},
         cached_only=True,
         lang="de",
     )
@@ -230,7 +233,7 @@ def test_ssh_connection_test_explains_unknown_host_key(monkeypatch, tmp_path) ->
             ),
         )
 
-    monkeypatch.setattr(connection_runtime.subprocess, "run", _fake_run)
+    monkeypatch.setattr(ssh_status.subprocess, "run", _fake_run)
 
     status = connection_runtime.build_connection_status_row(
         "ssh",
@@ -250,19 +253,6 @@ def test_ssh_connection_test_explains_unknown_host_key(monkeypatch, tmp_path) ->
     assert "`yes`" in status["message"]
 
 
-def test_searxng_probe_adds_internal_ip_headers_for_internal_stack() -> None:
-    headers = connection_runtime._searxng_request_headers("http://searxng:8080")  # type: ignore[attr-defined]
-
-    assert headers["X-Forwarded-For"] == "127.0.0.1"
-    assert headers["X-Real-IP"] == "127.0.0.1"
-
-
-def test_searxng_client_adds_internal_ip_headers_for_internal_stack() -> None:
-    client = SearXNGClient()
-    headers = client._request_headers("http://searxng:8080")  # type: ignore[attr-defined]
-
-    assert headers["X-Forwarded-For"] == "127.0.0.1"
-    assert headers["X-Real-IP"] == "127.0.0.1"
 
 
 def test_rss_connection_test_accepts_rdf_rss_feed(monkeypatch) -> None:
@@ -393,96 +383,6 @@ def test_extract_rss_preview_titles_supports_atom_feed() -> None:
     assert titles == ["First item", "Second item"]
 
 
-def test_searxng_connection_test_accepts_json_results(monkeypatch) -> None:
-    payload = b'{"query":"aria health check","results":[{"title":"Example","url":"https://example.org","content":"Snippet","engines":["duckduckgo"]}]}'
-    monkeypatch.setattr(connection_runtime, "urlopen", lambda _req, timeout=0: _FakeHttpResponse(payload, status=200))
-
-    message = connection_runtime._test_searxng_connection(
-        "web-search",
-        {"base_url": "http://searxng:8080", "timeout_seconds": 10, "language": "de-CH", "safe_search": 1},
-        lang="de",
-    )
-
-    assert message == "SearXNG-Test erfolgreich für web-search"
-
-
-def test_searxng_connection_test_uses_default_stack_url_when_profile_url_is_missing(monkeypatch) -> None:
-    payload = b'{"query":"aria health check","results":[{"title":"Example","url":"https://example.org","content":"Snippet","engines":["duckduckgo"]}]}'
-    captured_url: dict[str, str] = {}
-
-    def _fake_open(request, timeout=0):
-        captured_url["url"] = request.full_url
-        return _FakeHttpResponse(payload, status=200)
-
-    monkeypatch.setattr(connection_runtime, "urlopen", _fake_open)
-
-    message = connection_runtime._test_searxng_connection(
-        "web-search",
-        {"timeout_seconds": 10, "language": "de-CH", "safe_search": 1},
-        lang="de",
-    )
-
-    assert message == "SearXNG-Test erfolgreich für web-search"
-    assert captured_url["url"].startswith("http://searxng:8080/search?")
-
-
-def test_searxng_connection_test_shows_actionable_hint_on_rate_limit(monkeypatch) -> None:
-    def _fail(_request, timeout=0):
-        raise HTTPError("http://searxng:8080/search?q=aria", 429, "Too Many Requests", hdrs=None, fp=None)
-
-    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
-
-    try:
-        connection_runtime._test_searxng_connection(
-            "web-search",
-            {"timeout_seconds": 10, "language": "de-CH", "safe_search": 1},
-            lang="de",
-        )
-    except ValueError as exc:
-        assert "SEARXNG_LIMITER=false" in str(exc)
-        assert "HTTP 429" in str(exc)
-    else:
-        raise AssertionError("429 rate limit should return actionable SearXNG hint")
-
-
-def test_probe_searxng_stack_service_marks_rate_limit_as_warning(monkeypatch) -> None:
-    def _fail(_request, timeout=0):
-        raise HTTPError("http://searxng:8080/search?q=aria", 429, "Too Many Requests", hdrs=None, fp=None)
-
-    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
-
-    result = connection_runtime.probe_searxng_stack_service(lang="de")
-
-    assert result["available"] is True
-    assert result["status"] == "warn"
-    assert "SEARXNG_LIMITER=false" in result["message"]
-
-
-def test_probe_searxng_stack_service_marks_http_403_as_reachable_warning(monkeypatch) -> None:
-    def _fail(_request, timeout=0):
-        raise HTTPError("http://searxng:8080/search?q=aria", 403, "Forbidden", hdrs=None, fp=None)
-
-    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
-
-    result = connection_runtime.probe_searxng_stack_service(lang="de")
-
-    assert result["available"] is True
-    assert result["status"] == "warn"
-    assert "HTTP 403" in result["message"]
-    assert "json" in result["message"].lower()
-
-
-def test_probe_searxng_stack_service_marks_unreachable_service_as_error(monkeypatch) -> None:
-    def _fail(_request, timeout=0):
-        raise URLError("Connection refused")
-
-    monkeypatch.setattr(connection_runtime, "urlopen", _fail)
-
-    result = connection_runtime.probe_searxng_stack_service(lang="de")
-
-    assert result["available"] is False
-    assert result["status"] == "error"
-    assert "nicht erreichbar" in result["message"]
 
 
 def test_rss_connection_test_rejects_json_with_actionable_hint(monkeypatch) -> None:

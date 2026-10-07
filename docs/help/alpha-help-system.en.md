@@ -16,7 +16,7 @@ Good fit for:
 - Chat Prompt Queue with editable and reorderable waiting prompts
 - visible Pending Confirmations for confirmation-required actions
 - generated section navigation for the header, account menu, Settings, Admin, Memory, Recipes, and Connections
-- safe connections to SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT, SearXNG, and Google Calendar
+- safe connections to SSH, SFTP, SMB, RSS, Discord, HTTP API, Webhook, Mail, MQTT, and Google Calendar
 - recipe-first automation with guardrails
 - Agentic Operator Flow: ARIA understands natural prompts, plans bounded steps, lets policy/guardrails decide, executes, and exposes details
 
@@ -37,7 +37,6 @@ After that, check:
 3. `/stats` - preflight, Qdrant, model status, tokens/costs, and pricing coverage
 4. `/connections/types` - connections to your systems
 5. `/recipes` and `/recipes/mine` - import, review, or build recipes
-6. `/config/routing` and `/config/workbench/routing` - routing dry-runs and debug prompts when ARIA picks the wrong target
 
 ## Admin mode and user mode
 
@@ -123,7 +122,7 @@ Current connection families:
 - SSH / SFTP / SMB
 - RSS and watched websites
 - Discord / Webhook / HTTP API
-- SearXNG web search
+- provider-native web search
 - Google Calendar read-only
 - SMTP / IMAP / MQTT
 
@@ -180,7 +179,7 @@ Important: internal LLM calls for routing, RSS summaries, guardrail decisions, a
 
 ## Updates
 
-The safe public path is `aria-setup` / managed Compose. The update helper refreshes only the `aria` service and intentionally leaves Qdrant, SearXNG, Valkey, and volumes alone.
+The safe public path is `aria-setup` / managed Compose. The update helper recreates only `aria` while leaving Qdrant and all volumes alone.
 
 Before recreating ARIA, the host update helper preflights the intended host port. If another process or container owns the port, the update aborts before changing the running service.
 
@@ -200,7 +199,7 @@ ARIA is built for controlled environments:
 ### ARIA chooses the wrong target
 
 - check connection aliases and short description
-- use `/config/routing` or `/config/workbench/routing`
+- inspect the connection inventory and chat details for the resolved target
 - inspect `routing_chain`, `semantic_llm`, `memory_hint`, and `explicit_ref` in chat details
 
 ### An action is blocked

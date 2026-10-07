@@ -1,2285 +1,770 @@
 # Changelog
 
-All notable changes to ARIA should be documented in this file.
+## 0.1.0-alpha982
+
+> **About the version numbers:** ARIA's version numbers deliberately count development iterations. Alpha604 to Alpha982 are 378 iterations of building ARIA together with AI — the number is kept transparent on purpose and will keep counting, past 1000 if need be.
+
+### Highlights
+
+1. **A modular ARIA under the familiar surface.** From the outside, only the GUI still looks much like the Alpha604 release; underneath, the application has been rebuilt into independently owned modules with explicit contracts. This removes the former monolithic core as a second source of truth and makes connection, memory, recipe, chat and administration changes safer to isolate.
+2. **Self-learning that asks before it becomes memory.** ARIA can recognize recurring personal preferences and offer them as a user-scoped memory only after repeated evidence. The model does not silently store casual statements, and the user decides through the dedicated action before a personal claim is saved.
+3. **Self-learning recipes.** Repeated actionable sequences can be grouped into an inactive recipe suggestion, including semantic variants and supported cross-connection copies. Suggestions remain reviewable and inactive until the user explicitly saves them; the retired legacy learning stack is no longer part of this path.
+4. **A native tool-calling agent with MCP and durable jobs.** The agent can use ARIA's native tools and enabled MCP servers, while longer work continues as background jobs with pause, resume, correction, cancellation, budget extension and in-job confirmation. Tool images can be passed to supported Claude-family vision models, and output guards refuse fabricated resource contents or action claims when no Tool supplied the evidence.
+5. **A cleaner memory database boundary.** Core memories, facts, preferences, documents and recipe experience remain supported, while obsolete legacy-learning collections from the old architecture are no longer written. After upgrading, administrators can remove those old per-user collections explicitly from **Memories → Maintenance → Clean up old learning collections** without deleting personal memories, facts or preferences.
+
+### Added
+
+- MCP client support for enabled HTTP/SSE servers, namespaced Tool discovery, per-server trust and call timeouts, administration status, reconnect controls, bounded Tool results and confirmation previews for mutating Tools.
+- Persistent, user-scoped Agent Jobs with progress, token/cost observability, completion notices and controls for pause, resume, correction, confirmation, budget extension, finalization, cancellation and retention.
+- Native recurrence learning for personal-memory suggestions and inactive recipe suggestions, plus an explicit maintenance action for old learning collections.
+- A strict, isolated browser E2E harness for the Agent, MCP, jobs, confirmations and vision contracts; it is development tooling and is not included as a production service.
+
+### Changed
+
+- Runtime ownership is modular: the kernel keeps generic lifecycle, auth, policy, confirmation and observability while modules own domain contracts, routes, runtime and UI contributions.
+- Web answers use configured provider-native capabilities; the former search sidecar is not used by fresh installs.
+- Memory creation, personal claims, recipe execution and cross-connection bindings use explicit structured contracts and stable identifiers.
+- Provider compatibility now supports an omitted per-model temperature, longer bounded agent turns, prompt caching, rolling Tool-image windows and honest retries for selected provider limitations.
+
+### Removed
+
+- SearXNG and Valkey sidecars from the supported fresh-install stack.
+- The dead legacy-learning modules, worker/admin surfaces and automatic learning-data writers replaced by native memory and recipe recurrence.
+- Obsolete monolithic compatibility modules and inactive public samples whose live owners had already moved to modules.
+
+### Fixed
+
+- Confirmation turns retain the pending Tool even when the relevance selector is active, and MCP sessions recover or fail honestly without blocking normal turns.
+- Agent jobs no longer duplicate budget-pause or completion notices, lose confirmation state, become blind after four Tool images, or silently stop at provider output limits.
+- Memory recurrence now clusters stable topic values across phrasing and language-preserving extraction, while explicit memory capture retries bounded transient store failures and exposes safe diagnostics.
+- Release, setup, routing, chat-history and update boundaries were hardened through the Alpha605–Alpha982 iteration series.
+
+### Security
+
+- Mutating native and untrusted MCP Tools run through the existing confirmation kernel with frozen arguments and a one-shot ledger claim; trusted MCP servers are an explicit administrator decision.
+- Agent-job controls and maintenance actions are authenticated, CSRF-protected and user-scoped.
+- Output-side honesty guards reject unsupported claims about resource contents or completed actions, and secrets in MCP headers, logs, job snapshots and release artifacts stay redacted or excluded.
+- Public-repository hygiene excludes local configuration, secrets, runtime data, internal work logs and developer browser state, with generic privacy and credential-shape scanning before export.
+
+### Upgrade Notes
+
+- Back up the ARIA config/data bind mounts or volumes and the Qdrant volume before upgrading from `0.1.0-alpha604`.
+- The isolated Alpha604→Alpha982 test verifies that authentication, both users, configuration and connections, chat history, personal facts/preferences, recipes and Qdrant-backed memories survive when the same storage is mounted into Alpha982. Existing legacy-learning collections are deliberately not removed automatically.
+- After the update, open **Memories → Maintenance → Clean up old learning collections** once per user. It removes only that user's obsolete learning-candidate/evaluation/event/hint/reflection collections; personal memories, facts, preferences, documents and recipe experience are untouched.
+- Old SearXNG and Valkey containers are no longer in the supported stack and may be removed manually after the ARIA/Qdrant backup and successful upgrade verification; ARIA never removes them automatically. See `docs/release/alpha981-upgrade-note.md`.
+- Per-model `temperature` may be left empty for models that reject it. For long Agent/Blender jobs, start with about `16000` maximum output tokens and a `300` second model timeout, then tune for the chosen model and budget; MCP call timeout is configured per server.
+- LiteLLM proxy users no longer receive `tool_choice=none`. MCP and Blender setup is documented in `docs/setup/mcp-and-blender.md`.
+
+### Known Limitations
+
+- Tool-result image vision is currently supported only with Claude-family models.
+- AI 3D generation invoked through a Blender MCP add-on needs the user's own paid generator keys; ARIA does not provide those services or credits.
+- The Blender MCP bridge runs on the user's machine and must be reachable from the ARIA container; it is not bundled as a sidecar.
+- Token usage, cost and achievable job budgets depend on the selected provider and model. The E2E harness is developer-only test tooling, not a production component.
+
+## 0.1.0-alpha981
+
+- Removed four verified-dead legacy modules and their stale registry, manifest, audit and test ownership while preserving the live SSH runtime, memory browser and legacy-learning collection cleanup action.
+- Removed the retired search sidecar from fresh-install, Compose, Portainer, environment and public setup artifacts; provider-native web tooling remains the supported web-search path and upgrades do not mutate old sidecars.
+- Hardened the public-repository ignore boundary for local agent state, runtime data, test/browser output, build archives and editor metadata, and removed the last inert Discord sample toggle.
+
+## 0.1.0-alpha979
+
+- LLM-Temperatur ist optional; leere Konfigurationen senden keinen Sampling-Parameter, während bestehende numerische Werte unverändert bleiben.
+- Modellbezogene Temperature-Ablehnungen lösen genau einen parameterlosen Wiederholungsversuch aus und werden pro Prozess für weitere Calls gemerkt und diagnostiziert.
+- Der isolierte Strict-Fake-Browserprüfstand reproduziert die exakte Live-Ablehnung und erweitert das Gate um S19.
+
+## 0.1.0-alpha978
+
+- Native-Agent-Budget-Finalizer ist proxy-kompatibel; detached Jobs können ihr Budget kontrolliert erweitern oder sofort abschließen.
+- Agent-Job-Aufbewahrung, veraltete Pausenbereinigung und nutzerspezifische Löschaktionen ergänzt.
+
+## 0.1.0-alpha977
+
+- Sniffed bounded PNG, JPEG, GIF and WebP magic bytes before forwarding MCP images, correcting mislabeled media types and keeping unknown bytes as text-only placeholders.
+- Added a single budgeted text-only retry when a provider rejects an image block, hardened detached confirmation-resume failures into terminal jobs, and report total job wall time in completion notices.
+- Extended the strict isolated browser harness with MIME/byte validation and S14–S16 for mislabeled images, provider image degradation and post-confirm resume failure.
+
+## 0.1.0-alpha976
+
+- Added bounded, owner-scoped mid-flight corrections and resumable detached-job confirmations that reuse the existing pending-action store and confirmation ledger with frozen arguments and exact Tool-result pairing.
+- Added global job status/toasts, honest partial-budget completion summaries and finalizer diagnostics, stable in-place Jobs scrolling, per-server MCP call timeouts, and corrected unreachable-server footer handling after failed MCP calls.
+- Extended the isolated strict-fake browser harness with S10–S13 for correction, in-job confirmation, global status/toasts and incomplete-job reporting.
+
+## 0.1.0-alpha975
+
+- Moved detached Agent Job Pause/Resume/Cancel controls into each panel-card header and the originating chat bubble, with authenticated CSRF-protected JSON actions and status-preserving polling.
+- Replaced full-page Jobs polling reloads with escaped in-place updates, added collapsible step histories and timeout recovery links, persisted post-pipeline web timing into terminal notice Details, and added safe `**bold**` rendering.
+
+## 0.1.0-alpha974
+
+- Added clean-boundary pause and restart-safe resume for detached Native Agent jobs: paired Tool history, budgets, guard state and bounded metrics persist in the worker-shared store while inline image bytes never do.
+- Added user-scoped, CSRF-protected Pause/Resume controls and per-event chat notices; cancellation, terminal finalization, prompt caching, MCP discovery/selection and the default-off 37-Tool Core Registry remain unchanged.
+
+## 0.1.0-alpha973
+
+- Moved the final Anthropic prompt-cache breakpoint for Tool messages onto the Tool-result envelope, preserving string and multimodal content while preventing invalid `cache_control` metadata inside `tool_result.content` after LiteLLM conversion.
+- Unmatched Native/provider failures now use a generic agent-error badge; explicit memory availability, embedding and memory errors retain their existing badges.
+
+## 0.1.0-alpha972
+
+- Supported bounded MCP image results are now carried as real current-turn vision blocks for Claude models while chat history, Agent Jobs, traces, details and logs retain base64-free references; unsupported, oversized and excess media stay honest placeholders.
+- Deduplicated unreachable-server footers and stripped them only from provider history, broadened truthful earlier-turn recap authority, and scoped action-claim negation to the matched completion claim.
+
+## 0.1.0-alpha971
+
+- Added a conservative output-side guard for unsupported action-completion claims: a no-Tool mutation claim gets one bounded corrective retry, then a localized honest refusal if it persists, while explicit earlier-turn recaps and tool-backed results remain valid.
+- MCP transport and availability failures now immediately invalidate the affected server's cached Tool snapshot and publish a bounded error status for the next turn; remote Tool `isError` results keep the connection healthy.
+
+## 0.1.0-alpha970
+
+- Failed MCP discovery becomes cold again after its bounded cooldown, while idle persistent sessions recycle before reuse and only idempotent discovery may retry once on a fresh session after a timeout; timed-out Tool calls remain honest and are never replayed.
+- Native turns now disclose matching unreachable MCP capabilities without secrets, omit unseen image/audio/binary payloads instead of passing base64 to the model, and preserve bounded multiline Agent Job completion summaries.
+
+## 0.1.0-alpha969
+
+- Detached Agent Jobs now link directly to their panel row and append exactly one localized assistant-only terminal notice, including the recorded result, usage/cache/tool Details, and live user-scoped chat polling without duplicating persisted history.
+- Normalized assistant-only history into valid alternating provider messages and made externally closed MCP sessions return an honest `mcp_call_failed` result instead of cancelling the caller task.
+
+## 0.1.0-alpha968
+
+- Added a scoped MCP reconnect action that cleanly drops one server session, clears its discovery failure cooldown and cache, and immediately performs a bounded fresh discovery.
+- Added an admin-only, CSRF-protected per-server Reconnect button with localized success and failure feedback; MCP configuration, trust, secrets, and enabled state remain unchanged.
+
+## 0.1.0-alpha967
+
+- Reused one persistent MCP transport session per enabled server for discovery and Tool calls, with per-server serialization, one bounded reconnect after transport failure, and clean application-shutdown closure.
+- Preserved MCP discovery snapshots, failure cooldowns, timeouts, Tool binding/confirmation/trust, selector, Agent Jobs, prompt caching and the default-off 37-Tool Native Registry.
+
+## 0.1.0-alpha966
+
+- Added a lossless one-hour Anthropic prompt-cache breakpoint to the final block of the current Native Agent message history, allowing later loop/finalizer calls and subsequent turns to reuse the longest stable conversation prefix.
+- Kept the existing system and final-Tool breakpoints, non-Anthropic requests, Tool schemas, selection, budgets, retries and usage/cache metering unchanged while staying below Anthropic's four-breakpoint limit.
+
+## 0.1.0-alpha965
+
+- Cold enabled MCP servers now perform one shared, timeout-bounded first discovery on the first native turn so their Tools are available immediately; warm snapshots and failure-cooldown servers remain non-blocking.
+- Added a fail-soft background MCP discovery warm-up during application startup without changing Tool calls, bindings, confirmation, trust, selection or the default-off 37-Tool Core Registry.
+
+## 0.1.0-alpha964
+
+- Raised the configurable Native Agent loop and provider-call budgets to 16 and added bounded retries for transient upstream 5xx, overload, connection and timeout failures without retrying non-transient 4xx errors.
+- When final summarization remains unavailable after successful mutating Tool steps, return and persist an observation-only result with a visible warning instead of misclassifying completed partial work as a failed job.
+
+## 0.1.0-alpha963
+
+- Raised the configurable Native Tool selector MCP allowance to 16 while keeping all 37 Core Tools available on every normal large-catalog turn; confirmation turns and catalogs at or below 40 remain unchanged.
+- Added an authenticated, user-scoped Agent Jobs panel with live JSON polling, progress/result history and CSRF-protected cooperative cancellation at completed tool-step boundaries.
+
+## 0.1.0-alpha962
+
+- Made per-turn MCP discovery snapshot-only: missing or stale server catalogs refresh in one bounded background task per server while chat continues without waiting for network discovery.
+- Failed discovery now caches an honest empty result and error status for a 60-second cooldown, retries once eligible, and uses an 8-second background probe timeout without changing the 30-second MCP Tool-call timeout.
+
+## 0.1.0-alpha961
+
+- Added a worker-shared SQLite Agent Job foundation: long native-agent turns detach after a configurable 25-second synchronous budget, continue without cancellation, checkpoint completed tool steps, and expose user-scoped read-only status at `/jobs`.
+- Short turns and confirmation-token turns remain synchronous and do not create visible jobs; startup marks only stale in-flight jobs as interrupted after a worker restart.
+
+## 0.1.0-alpha960
+
+- Bypass semantic Native Tool relevance selection only for turns carrying an existing confirmation token, preserving the full assembled and connection-filtered Tool catalog so the frozen pending Tool can be resolved and claimed.
+- Keep normal large-catalog selection and diagnostics unchanged while removing misleading selector activity and embedding latency from confirmation turns.
+
+## 0.1.0-alpha959
+
+- Project every discovered Tool from an enabled MCP server into the Native Tool assembly: explicit read-only Tools remain direct, while unannotated or mutating Tools from an untrusted server reuse ARIA's existing frozen-argument confirmation flow.
+- Added a default-off per-server trust setting to the sanctioned MCP admin surface; trusted servers run all Tools directly only after an explicit advanced-admin choice and prominent warning.
+
+## 0.1.0-alpha958
+
+- Added an advanced-admin MCP server page under Connections for sanctioned add/edit/disable/delete and global enable/disable through the existing raw-config write and RuntimeManager reload path.
+- Added secret-safe masked server summaries and fail-soft live discovery status with explicit read-only Tool counts; Alpha957 bindings/calls and the default-off 37-Tool Core Registry remain unchanged.
+
+## 0.1.0-alpha957
+
+- Added an opt-in generic MCP client for configured SSE and Streamable HTTP servers, with cached discovery and additive projection of only explicitly read-only MCP Tools into the Native Tool assembly.
+- MCP discovery and calls fail softly with secret-safe diagnostics and bounded honest Tool results; the default-off path remains the unchanged 37-Tool core Registry and catalogs above 40 reuse the existing semantic selector.
+
+## 0.1.0-alpha956
+
+- Added the embedding-based Native Tool relevance selector for future catalogs above the unchanged 40-Tool threshold, with deterministic top-8 ranking over Tool name and description.
+- Reused owner-scoped descriptor embeddings across turns and degraded missing or failed embeddings to a logged stable first-eight fallback; the current 37-Tool path performs no selector or embedding work and emits no selector detail.
+
+## 0.1.0-alpha955
+
+- Generalized the existing semantic stored-Recipe copy suggestion from SSH hosts to any exact matching primary Recipe step type on a different connection, while retaining the existing embedding batch, 0.88 threshold, one-shot pair claim and confirmation-gated inactive copy.
+- Reused the existing generic connection-ref repointing with connection-neutral copy wording; SSH selection, actionable recurrence clustering/telemetry, Anti-Fabrication, Kernel, Guardrails and the 37-tool Registry remain unchanged.
+
+## 0.1.0-alpha954
+
+- Hardened the Native Agent resource-evidence prompt so file/resource content, command output, listings and status always require a fresh tool result from the current turn, including familiar/default resources and repeated reads.
+- Added a conservative no-tool final-output veto with one bounded corrective retry and a localized honest refusal if the model persists, while leaving tool-backed reads and ordinary conversation/code unchanged.
+
+## 0.1.0-alpha953
+
+- Preserved the best same-bucket actionable recurrence cosine as passive telemetry even below the unchanged `0.88` clustering threshold, without changing signature, count or offer behavior.
+- Added bounded `near_sim` and actual embedding-vector usage to the existing recurrence Details line while leaving SSH cross-host and Memory recurrence diagnostics unchanged.
+
+## 0.1.0-alpha952
+
+- Generalized Native actionable-sequence recurrence embeddings from SSH commands to the existing signature-bearing primary parameters of all actionable step kinds while retaining exact signatures, type/connection buckets, similarity and offer thresholds.
+- Kept stored-Recipe semantic comparison and cross-host copy suggestions strictly SSH-only, with unchanged SSH command embedding and confirmation behavior.
+
+## 0.1.0-alpha951
+
+- Removed the high-priority preload for the decorative appearance background while preserving the existing CSS-loaded WebP background rendering.
+
+## 0.1.0-alpha950
+
+- Unified manual Memory creation with the structured Personal Claim contract for explicit facts and preferences, including bounded validation and authoritative store errors.
+- Re-encoded all eight shipped appearance backgrounds as bounded WebP assets and preload the active background without changing its slug or resolver contract.
+
+## 0.1.0-alpha949
+
+- Folded the retained Memory Reindex action and compact canonical status into Memory Maintenance with card-local focused feedback.
+- Moved all seven existing Reindex scheduler controls into Memory setup while preserving the existing save and rebuild implementations.
+- Retired the standalone Reindex page/template and redirected legacy entry points to the retained Maintenance and setup surfaces.
+
+## 0.1.0-alpha947
+
+- Generalized adaptive stored-Recipe connection binding from SSH to the connection kinds owned by SFTP, SMB, Discord, Webhook, Email, MQTT and HTTP API steps while preserving explicit references and unrelated steps.
+- Retained the exact SSH fleet fan-out contract, reused its 20-target cap for SFTP/SMB, exposed bounded localized `recipe_connection_*` failures and kept confirmation previews bound to resolved configured targets.
+
+## 0.1.0-alpha946
+
+- Removed the two unreferenced Legacy Learning POST routes for active-hint mutation and the retired candidate-action stub from Memory Admin routing and manifest metadata.
+- Preserved Personal Model claim actions, Memory deletion routes, Legacy Learning collection classification and cleanup, the protected Memory browser, and the 37-tool Native Registry.
+
+## 0.1.0-alpha945
+
+- Removed stale Auto-Memory wording from both localized Memory setup descriptions and their Maintenance fallback while retaining the remaining setup guidance.
+- Kept rollup, suggestion-reset and Legacy Learning cleanup feedback inside the triggering Maintenance card with deterministic focus query parameters and anchors; unknown or absent focus retains the page-top fallback.
+
+## 0.1.0-alpha944
+
+- Added an explicit authenticated and CSRF-protected Memory maintenance action that removes only retired Legacy Learning Qdrant collection kinds with the exact current-user suffix.
+- Added a confirmed maintenance card and bounded localized result while protecting Core Memory, documents, notes, sessions, Recipe Experience, routing, backups, external collections and other users.
+
+## 0.1.0-alpha943
+
+- Added a bounded three-attempt retry with 0.2/0.4-second backoff around failed Personal Memory store results, without retrying successful or deduplicated writes or changing claim lifecycle logic.
+- Preserved the bounded authoritative store error in failed `memory_capture` diagnostics while keeping the existing friendly user-facing response and Registry contract unchanged.
+
+## 0.1.0-alpha942
+
+- Removed the final Legacy Auto-Memory configuration authority and its dead cookie, status, recipe and runtime plumbing while continuing to accept old configuration files that contain an ignored `auto_memory` section.
+- Removed only the retired Auto-Memory status and Learning-effect presentation from the retained Memory browser; recall, capture, Personal Model, navigation, graph, stats and search remain intact.
+
+## 0.1.0-alpha941
+
+- Physically removed the nine closed Legacy Learning modules and their exclusive tests and UI partial, reducing the registered module graph from 118 to 109 without deleting `memory_learning_bridge` or stored Learning data.
+- Removed their static registry entries and remaining Recipe/Auto-Memory manifest edges; Core Memory, `/memories`, Personal Model, Native learning and Recipe tools remain on their retained owners.
+
+## 0.1.0-alpha940
+
+- Removed all ten Legacy Learning candidate review, apply, regression, generated-pytest and activation admin routes plus their apply-preview template from Memory Admin while preserving the Memory browser and Personal Model.
+- Severed the retained Memory Admin module from `learning_candidates`, `learning_artifacts` and `prepared_artifacts`; the Learning ring remains registered as an intentionally closed dead subgraph for the separately authorized Stage 3c-2.
+
+## 0.1.0-alpha939
+
+- Removed the obsolete Legacy Auto-Memory status badge and its unused styling from the Chat debug header while retaining the remaining Chat diagnostics.
+- Extended the server-owned Memory-learning cost pre-filter to skip German and English first-token question-word messages without changing extraction, recurrence or Registry behavior.
+
+## 0.1.0-alpha938
+
+- Stripped Legacy Learning retention, synthesis status, active-hint recall and inventory behavior plus all Learning imports from the retained Core MemorySkill while preserving personal claims, recall, capture, documents, cleanup and the Memory browser.
+- Removed the `learning_context_read` Native tool and its integration point, reducing the Registry to 37 tools, and deleted the Learning-only procedure guidance helper while relocating the generic Memory admin query facade into the retained `memory` module.
+
+## 0.1.0-alpha937
+
+- Reduced the former Auto-Memory page to the retained Personal Model, removing the Auto-Memory toggle, extraction/retention controls, Legacy Learning inventory and synthesis presentation while preserving personal claims and their lifecycle actions.
+- Removed the obsolete Auto-Memory save and Learning synthesis POST routes and renamed the Memory navigation tab to Personal Model; MemorySkill, AutoMemoryConfig and `/memories` remain unchanged.
+
+## 0.1.0-alpha936
+
+- Decoupled retained runtime execution contracts, Stats, Memory Admin and personal feedback linking from Legacy Learning Runtime while preserving normal action execution, `/memories`, memory recall and explicit capture.
+- Removed the Startup Learning-retention call and its logging while retaining document MetaCatalog rebuild and empty-collection cleanup; Learning modules remain registered for later B2 stages.
+
+## 0.1.0-alpha935
+
+- Relocated passive stored-Recipe manifest projections from `recipe_learning` to `recipe_runtime` and repointed Recipe UI, Chat Surface, dry-run and planner consumers without changing their visible projection contract.
+- Removed the dead learned-Recipe planner candidate branch, historical startup purge and Stats learned-review promotion path while retaining the registered `recipe_learning` module for B2 Stage 3c.
+
+## 0.1.0-alpha934
+
+- Retired the explicit Chat Learn Start/Stop/Cancel mode from live POST dispatch and passive chat presentation; former commands now follow the normal Chat flow while `recipe_remember` and Native recurrence remain the supported learning paths.
+- Removed chat-learn session reads, observation writes, state badges, toolbox controls and two now-dead Chat Execution manifest dependencies without deleting or relocating the `recipe_learning` module.
+
+## 0.1.0-alpha933
+
+- Removed the dead Legacy Learning Worker and Self-Learning sections and their admin routes from Memory maintenance while retaining the user-scoped native learning-suggestion reset.
+- Detached Pipeline from the unused Legacy Learning helper mixin/handler registration and removed RecipeRuntime Learning Governance event writes; all Learning modules remain registered for later B2 stages.
+
+## 0.1.0-alpha932
+
+- Clarified the Native memory prompt so direct remember, save or note requests must call the existing confirmation-gated `memory_capture`, while incidental preferences still never receive textual storage offers.
+- Required server Memory-learning topic values to remain in the user's message language and never be translated, while preserving the existing lowercase singular bare-topic contract.
+
+## 0.1.0-alpha931
+
+- Severed the two B2 Stage 1 legacy Learning inputs: startup maintenance no longer enqueues global synthesis, and RecipeRuntime no longer records Learning candidates or evaluations while claim storage, Recipe execution and auto-memory event handling remain intact.
+
+## 0.1.0-alpha930
+
+- Tightened native memory extraction so paraphrases of one durable preference emit the same lowercase singular bare topic value while predicate retains nuance, and exposed the bounded extracted value in Routing Debug diagnostics.
+
+## 0.1.0-alpha929
+
+- Resolved native learning-suggestion reset stores from the canonical project runtime files instead of lazy per-Pipeline attributes, so the authenticated maintenance action works before that worker has handled a Native turn while retaining the existing user scope.
+
+## 0.1.0-alpha928
+
+- Added memory-specific German and English presentation for native learning suggestions so the existing `memory_capture` action no longer appears as a Recipe offer; recipe recurrence and cross-host copy wording remain unchanged.
+
+## 0.1.0-alpha927
+
+- Changed native memory recurrence embeddings to use only the normalized claim value, so model-variable predicates no longer split paraphrases of the same topic while exact-key matching, subject buckets and stored claim fidelity remain unchanged.
+
+## 0.1.0-alpha926
+
+- Strengthened the Native Agent memory rule with an explicit rationale, German and English negative examples, and positive response guidance so ordinary durable statements do not receive model-written remember/save offers; explicit `memory_capture` requests remain unchanged.
+- Added user-scoped, atomic reset operations for native memory and recipe suggestion recurrence, plus an authenticated, CSRF-protected and confirmation-gated maintenance action that does not delete stored memories or recipes.
+
+## 0.1.0-alpha925
+
+- Changed the server-memory prefilter to use only the existing structural gates plus expanded German and English first-person forms; durable-claim classification remains exclusively owned by the structured extraction model.
+- Removed the hard-coded durable-word requirement so first-person preferences such as `ohne Chili schmeckt mir Essen nicht` reach extraction and can advance the unchanged recurrence and confirmation-gated offer path.
+
+## 0.1.0-alpha924
+
+- Replaced model-selected `memory_note_candidate` observation with a server-owned, concurrent structured extraction step that records durable first-person facts and preferences independently of native tool choice.
+- Anchored memory recurrence to subject, claim kind and normalized value, offers the existing confirmation-gated capture affordance on the second observation, and checks already-stored claims through a bounded semantic query that reuses the candidate embedding.
+- Retired `memory_note_candidate`; the Native Tool Registry returns to 38 tools while explicit `memory_capture` requests keep their existing preview and confirmation contract.
+
+## 0.1.0-alpha923
+
+- Made the silent native `memory_note_candidate` observation best-effort: invalid candidates and unavailable or failing observation dependencies now degrade to a non-suggesting ignored result instead of failing the user turn closed.
+
+## 0.1.0-alpha922
+
+- Enforce the native personal-memory recurrence gate in the agent prompt: ordinary durable facts and preferences are observed silently through `memory_note_candidate`, while only explicit requests to remember use confirmation-gated `memory_capture`.
+
+## 0.1.0-alpha921
+
+- Added conservative native personal-memory observation with semantic recurrence clustering and a one-shot confirmation button that reuses the existing `memory_capture` authority.
+
+## 0.1.0-alpha920
+
+- Bundled the ARIA MIT `LICENSE` in the runtime image so `/licenses` can render the complete, theme-readable license text after deployment.
+
+## 0.1.0-alpha919
+
+- Fixed runtime background discovery after modularization so saved Appearance selections survive reload and resolve to their selected shipped image instead of falling back to Grid Signal.
+
+## 0.1.0-alpha918
+
+- Restored every background offered by Appearance to its matching shipped image while preserving theme-aware overlays and structural colors.
+
+## 0.1.0-alpha917
+
+- Replaced structural hardcoded green surfaces across admin, statistics, connection, and shared configuration UI with theme tokens while preserving semantic success and health colors.
+- Removed the duplicate Updates entry from the About hub group and suppressed the empty ARIA license container when the license file is not bundled.
+
+## 0.1.0-alpha916
+
+- Replaced the Cyberpunk theme's full-magenta configuration accordion surfaces with dark ARIA house-style cards and green borders across Guardrails and connection settings.
+
+## 0.1.0-alpha915
+
+- Renamed Activities to Execution History and included provider-native web searches in its existing single-record usage projection.
+- Decoupled the license page from the full Help wiki navigation and aligned Guardrail cards with the dark green ARIA house style.
+
+## 0.1.0-alpha914
+
+- Removed the redundant Workbench overview and experimental rollout controls while keeping File Editor, Error Interpreter, and LLM Debug directly available from the configuration hub.
+
+## 0.1.0-alpha913
+
+- Added native Recipe, memory and system-tool runs to the existing user-scoped Activities projection, including duration, error status, Recipe name and resolved target metadata.
+
+## 0.1.0-alpha912
+
+- Filled thin configuration-hub groups with their real model, access, backup, log, update, and activity subpages, while retaining a landing card whenever removing it would leave a group empty.
+
+## 0.1.0-alpha911
+
+- Simplified the grouped configuration hub by turning natural section headings into overview links, removing repeated landing cards, and dropping redundant group subtitles.
+
+## 0.1.0-alpha910
+
+- Replaced the parallel settings/admin navigation trees with one role-gated, topic-grouped `/config` hub while preserving all detail pages.
+- Moved the existing Agentic Loop rollout controls to the System & Development workbench and retired the redundant admin group pages.
+- Renamed the visible `/licenses` entry to License agreements without changing its route.
+
+## 0.1.0-alpha909
+
+- Removed the retired connection-routing configuration, workbench, and legacy skill-routing redirect pages while retaining the routing index backend and diagnostics.
+
+## 0.1.0-alpha908
+
+- Replaced UI audit autosave with one CSRF-protected bulk-save form and corrected the localized page heading.
+
+## 0.1.0-alpha907
+
+- Replaced per-row UI audit form submissions with debounced in-place autosave and per-row save feedback.
+
+## 0.1.0-alpha906
+
+- Added an admin-only, self-discovering UI route audit with persistent keep/verify/cut/regroup decisions and JSON export.
+
+## 0.1.0-alpha905
+
+- Strengthened the native agent's live-state rule so every repeated current-state request requires a fresh tool call in that turn rather than reusing conversational output.
+
+## 0.1.0-alpha904
+
+- Replaced model-authored Recipe learning suggestions with deterministic, nonblocking chat buttons backed by server-frozen one-shot confirmation payloads.
+
+## 0.1.0-alpha903
+
+- Added optional embedding-based same-host recurrence clustering and one-shot cross-host inactive Recipe-copy suggestions while preserving exact matching as the graceful fallback.
+
+## 0.1.0-alpha902
+
+- SSH targets now resolve deterministically by configured reference, unique display name, or unique host while ambiguous values remain unresolved.
+- Exact recurrence tracking now uses canonical SSH references and ignores unresolved or transport-failed actions while retaining actual policy blocks.
+
+## 0.1.0-alpha901
+
+- Added bounded, persistent, per-user exact recurrence tracking for native actionable sequences.
+- The third exact repetition can produce one non-authoritative Recipe suggestion while existing Recipes and prior offers suppress duplicates.
+- Added secret-free recurrence signature/count diagnostics; native tool count remains unchanged.
+
+## 0.1.0-alpha900
+
+- Added Anthropic ephemeral prompt-cache breakpoints for the native agent's unchanged static system prompt and offered tool schemas.
+- Added per-call native LLM latency and cache-token diagnostics to the existing routing details without exposing credentials or dynamic content.
+
+## 0.1.0-alpha899
+
+- Removes internal confirmation-control echoes from user history before native-agent model calls, preventing action tokens from being reused as Recipe identifiers.
+
+## 0.1.0-alpha898
+
+- Adds an explicit, confirmation-gated `recipe_remember` flow that stores the caller's last actionable native-tool sequence as an inactive Recipe draft.
+- Retires legacy learned-recipe state once at startup through an idempotent, narrowly scoped purge.
+
+## 0.1.0-alpha897
+
+- Removed the obsolete learned-Recipe UI, routes, navigation, and templates while preserving the shared recipe-learning backend and normal stored-Recipe surfaces.
+
+All notable public-facing changes to ARIA should be documented in this file.
 
 Format: `Added` / `Changed` / `Fixed` / `Security` / `Known Limitations` / `Upgrade Notes`
 
+For the full German working changelog and detailed internal alpha history, see [CHANGELOG.de.md](CHANGELOG.de.md).
+
 ## [Unreleased]
 
-- No unreleased changes.
+- Internal Alpha896 makes mutating host-maintenance intents inspect the offered
+  Recipe inventory before synthesizing an ad-hoc SSH command. A matching active
+  Recipe is executed by exact ID; ad-hoc SSH remains a guardrail-bound last
+  resort when none matches. Literal one-off commands and reads, 37 native tools
+  and public alpha604 are unchanged.
+- Internal Alpha895 clarifies the model-facing native tool contract: stored
+  Recipes named or intended by the user take precedence over reconstructing
+  their actions as ad-hoc SSH commands. Literal one-off SSH reads and commands,
+  confirmation, policy, guardrails, 37 native tools and public alpha604 are
+  unchanged.
+- Internal Alpha894 adds an optional SSH timeout field to the Recipe wizard.
+  Positive values round-trip through saved `ssh_run` parameters; empty, zero or
+  invalid values remain omitted so the connection default still applies.
+  Execution, SSH policy, guardrails, 37 native tools and public alpha604 are
+  unchanged.
+- Internal Alpha893 adds a Duplicate action to every editable saved-Recipe
+  card. Copies receive collision-safe IDs, preserve their steps, and are always
+  saved inactive for review before activation. Recipe execution, adaptive
+  binding, guardrails, 37 native tools and public alpha604 are unchanged.
+- Internal Alpha892 adds user-scoped, TTL-bounded live Recipe progress to the
+  existing chat wait indicator. The browser polls while a request is active and
+  shows the current logical step, expanded SSH host and cumulative host outcome;
+  idle or unavailable progress keeps the existing elapsed-time display. Recipe
+  execution, confirmation, guardrails, 37 native tools and public alpha604 are
+  unchanged.
+- Internal Alpha891 adds exact enabled-Recipe allowlists to SSH guardrail
+  profiles. A whitelisted, kernel-confirmed Recipe may bypass that profile's
+  ordinary allow/deny terms, but a code-owned absolute floor still blocks root
+  or home wipes, raw block-device writes/formats, fork bombs and power-state
+  commands. Direct SSH and non-whitelisted Recipes remain fully guarded; the
+  native registry stays at 37 tools and public alpha604 is unchanged.
+- Internal Alpha890 makes confirmed Recipe output readable and complete. The
+  Recipe tool relays its user-facing `direct_chat_text` or content as plain
+  text, while adaptive multi-host SSH output is grouped by exact connection
+  reference before a following transform step. Single-host Recipes, target
+  resolution, per-host policy, confirmation, 37 native tools and public
+  alpha604 remain unchanged.
+- Internal Alpha889 lets explicitly marked native tools relay their already
+  user-facing bounded result after kernel confirmation. Only `recipes_execute`
+  opts in, preserving its Recipe-generated overview without a lossy second
+  model phrasing call; every other mutating tool keeps existing phrasing.
+  Confirmation, Recipe execution, 37 native tools and public alpha604 remain
+  unchanged.
+- Internal Alpha888 initializes the intentionally empty held-package summary
+  left after the safe-fix teardown, so successful `ssh_run` Recipes can reach
+  their execution summary without a `NameError`. Adaptive binding, SSH policy,
+  native tools and the public alpha604 marker are unchanged.
+- Internal Alpha887 replaces the shipped fixed-ref demo Recipe catalog with
+  exactly three adaptive SSH examples for uptime, disk usage and update checks.
+  Each uses `connection_kind=ssh` plus `binding=all`; duplicate legacy files
+  under `samples/skills` are removed. User runtime Recipes, Alpha886 expansion,
+  policy enforcement, 37 native tools and the public alpha604 marker are
+  unchanged.
+- Internal Alpha886 adds additive `ssh_run` Recipe binding by configured SSH
+  kind. `binding=all` expands to concrete per-profile steps with a 20-target
+  cap; `binding=one` requires exactly one configured profile. Fixed
+  `connection_ref` Recipes are unchanged, previews list resolved targets, and
+  expanded steps retain the existing per-step SSH policy and output bounds.
+  Native tool count and the public alpha604 marker are unchanged.
+- Internal Alpha885 forces `search_context_size=high` at the native web-tool
+  request boundary, regardless of a persisted Config/Env value. The existing
+  field remains for compatibility but is non-authoritative for native search.
+  Alpha884 query framing, reasoning effort, output limits, diagnostics, native
+  tools and the public alpha604 marker are unchanged.
+- Internal Alpha884 prevents stale-year anchoring in provider-native web
+  searches: the gateway makes the current date authoritative, no longer injects
+  cached evidence URLs into provider input, and the native tool uses `high` as
+  its missing/empty context-size fallback. The agent must form latest/current,
+  year-neutral web-tool queries. Reasoning effort, output limits, native tools
+  and the public alpha604 marker are unchanged.
+- Internal Alpha883 removes the temporary Alpha882 file dump and adds a
+  default-off admin toggle that exposes the exact native-web provider input,
+  bounded request parameters and up to eight evidence URLs in the serving
+  chat turn's routing details. Secrets, raw provider responses, web behavior,
+  native tools and the public alpha604 marker are unchanged.
+- Internal Alpha882 candidate adds a temporary always-on, single-file native
+  web diagnostic dump with exact sent input, recursively redacted raw response
+  and normalized evidence. Dump failures cannot affect turns; no config or
+  environment switch is added, and the public alpha604 marker is unchanged.
+- Internal Alpha881 candidate removes the inert Auto/Main/Web chat-mode control,
+  its client submission and discarded request plumbing. Main/Web model setup,
+  native execution and the public alpha604 marker are unchanged.
+- Internal Alpha880 candidate: provider-native web search now defaults to
+  `search_context_size=high`. `ARIA_WEB_LLM_SEARCH_CONTEXT_SIZE` accepts
+  `low`, `medium` or `high`; unsupported values use the canonical default.
+  Native tools, gateway payloads and the public alpha604 marker are unchanged.
+- Internal Alpha879 candidate: the native-agent system instruction now requires
+  `web_search_fetch` for latest/current fast-changing external facts instead of
+  permitting answers from stale model knowledge. Answers must identify the
+  evidence date or as-of state and describe older evidence as the latest state
+  found rather than current. Native tools, confirmation, execution authority
+  and the public alpha604 marker are unchanged.
+- Internal Alpha878 candidate: the retired SearXNG transition service, its
+  runtime module, pipeline wiring, health/restart surfaces, stack services and
+  obsolete tests/docs are removed. Provider-native `native_web_llm` and its
+  `web_search_fetch` tool remain the sole web-search path.
+- Internal Alpha844 candidate: native RSS, calendar and remote-file read
+  fallbacks now resolve exact configured profiles by membership in the
+  authoritative ref-keyed connection dictionaries. Unknown refs remain honest
+  empty results without runtime execution; injected loader scope and source
+  authority checks are unchanged.
+- Internal Alpha843 candidate: native `list_connections` treats an unknown
+  optional kind filter as an honest empty result and reports the exact kinds
+  available in the same user-scoped profile authority. Known and absent filters
+  retain their existing behavior; invalid scope, source authority, identity and
+  secret boundaries still fail closed.
+- Internal Alpha842 candidate: six user-bound read-only native tools add exact
+  RSS feed, calendar, SFTP/SMB file, and IMAP mailbox reads through existing
+  runtime adapters. Tool inputs are allowlisted, profiles are exact, credentials
+  never enter results, empty reads are explicit, and the global honest result
+  cap applies to file and mail content. All 21 native tools remain below the
+  full-offer threshold; the relevance selector is not activated.
+- Internal Alpha834 candidate: exact Connections lookup now returns all safe
+  user-scoped profiles when the same reference exists for multiple connection
+  kinds, instead of treating that benign case as a safety failure. An optional
+  exact `connection_kind` narrows the lookup; single-hit and not-found formats,
+  source authority validation, and secret exclusion remain unchanged.
+- Internal Alpha833 candidate: the Connections owner contributes the native
+  read-only `lookup_connection` tool through the P1 registry. It resolves one
+  exact user-scoped profile reference and returns only whitelisted safe profile
+  metadata; credentials, keys, tokens, and other secrets are excluded. Missing
+  references are reported honestly and ambiguous or foreign-scope rows fail
+  closed. The existing Connections rollout flag controls both Connections tools.
+- Internal Alpha832 candidate: native tools are declared by their owning
+  modules and assembled from active module manifests plus rollout flags. The
+  existing Personal Memory and Connections tools retain their schemas,
+  authorities, user scope, and behavior; the native handler no longer embeds
+  either implementation. A MetaCatalog relevance-selector boundary is ready
+  for larger toolsets, while the current two-tool set is offered in full.
+- Internal Alpha831 candidate: enabled native-agent Web turns now invoke the
+  native handler before the expensive pre-pipeline MetaCatalog arbitration.
+  Pending contexts and disabled flags retain the legacy path, while an
+  unexpected native `None` result lazily restores the same arbitration and
+  pipeline processing without crashing. During this rollout, model-routed
+  per-chat admin actions and memory forget are deferred until native tools own
+  them.
+- Internal Alpha830 candidate: the standalone default-off native agent now also
+  offers `list_connections`, a read-only Anthropic-native tool backed by the
+  complete passive Connections profile source rather than an arbitration plan.
+  The current turn user is bound by the handler, an optional exact kind filter
+  is supported, and Memory and Connections tools are offered independently by
+  their rollout flags. Empty inventories are reported honestly.
+- Internal Alpha829 candidate: a default-off standalone native agent can own an
+  enabled turn before runtime follow-up and MetaCatalog arbitration. It uses the
+  proven Anthropic-native `tools` path, offers one read-only Personal Memory
+  tool backed by the Memory source authority, and records a bounded step trace.
+  The existing admin rollout save path controls the new flag; legacy behavior
+  remains unchanged while either required flag is off.
+- Internal Alpha828 candidate: the native Tool-Calling selftest now passes an
+  Anthropic-native tool definition through LiteLLM with an explicit
+  `input_schema.type="object"`, properties, and required fields. Provider bad
+  requests expose their raw error text and the exact sent tool payload in the
+  admin diagnostic. Tool-call parsing and the second roundtrip step are unchanged.
+- Internal Alpha827 candidate: an isolated admin-only native Tool-Calling
+  selftest invokes LiteLLM with `tools` and `tool_choice="auto"`, executes only
+  the local deterministic `add_numbers` diagnostic, returns its tool result to
+  the model, and reports the two-hop transport evidence. It does not use
+  `response_format`/JSON Schema, Qdrant, the turn pipeline, agentic loops, or
+  product operations; loading the page is inert and only an explicit POST can
+  make the two provider calls.
+- Internal Alpha826 candidate: the default-off agentic loop now has its first
+  model-driven Personal Memory Recall vertical. Recall remains MetaCatalog- and
+  claim-authority-bound, produces per-step learning traces, and never turns a
+  failed executor result into a successful answer. Admins can persist the
+  default-off read-only rollout flags through the existing configuration UI.
+  The Alpha825 correction moves the recall gate before legacy arbitration;
+  a tiny model decision either enters Personal Recall or defers unchanged.
+  The Alpha825 live failure exposed Anthropic Tool-Use responses with empty
+  message content: Alpha826 reads the first tool call's structured arguments,
+  while preserving normal content, usage, audit, cost, and empty-response behavior.
+- Internal Alpha823 candidate: Stage-2 Connections and Commands discard unknown
+  non-authoritative fields while exact kinds, refs, capabilities, effects,
+  permissions, confirmations, and action matches remain fail-closed. Personal
+  memory can repair one answer/context contract contradiction.
+- Internal Alpha822 candidate: structured turn decisions now negotiate strict
+  JSON-schema support gracefully. Providers that reject strict mode fall back
+  once to the validated non-strict path, and later turns avoid another failed
+  strict probe; providers that ignore strict remain bounded by validation and
+  one model-based repair.
+- Internal Alpha821 candidate: Makroblock G adds a default-off agentic execution
+  loop with a read-only Connections Inventory vertical, kernel enforcement before
+  execution, bounded iteration, trace evidence, and fail-closed budget handling.
+- Internal Alpha820 candidate: Recipes, Chat, Connections, and Commands now use
+  owner-specific bounded operation payloads after MetaCatalog dispatch.
+- Command actions must be offered by current Qdrant MetaCatalog candidates;
+  stale configuration no longer substitutes for runtime routing authority.
+- Fixed Recipe inventory compilation, module-semantics diagnostics, and the SSH
+  confirmation debug reason observed during the Alpha819 live review.
+- No public release; the public version remains `0.1.0-alpha604`.
 
-## [0.1.0-alpha604] - 2026-07-21
+## [0.1.0-alpha808] - Public Release Candidate Draft
 
-### Public Release Candidate Notes
+### Public Release Notes Draft Since 0.1.0-alpha604 - Major Changes
 
-- Published the post-`0.1.0-alpha511` agentic stabilization line after internal `alpha604` validation. This release consolidates the LLM-first authority-chain work, source-bound evidence contracts, RuntimeOutcome follow-ups, multi-target SSH hardening, Memory Browser fixes, WebSearch source discipline, and UI/help refinements that were validated internally between `alpha512` and `alpha604`.
-- Live validation for `alpha604` confirmed the key Server/Agentic matrix: disk-capacity and diagnostic prompts execute on 14/14 SSH targets, package-update checks execute on 14/14 SSH targets, SSH inventory remains config-bound, dev-server follow-ups stay narrowed, unknown explicit SSH refs fail closed, medication package-insert inventory returns the expected six documents, and Notes retrieval finds `Sample Project Note`.
-- Known nuance: exact Note recall can still summarize selectively for long notes; the note is retrieved, but the final answer may omit some lower-priority bullets. This is not a Memory Browser or Qdrant visibility blocker.
+- **ARIA has been rebuilt from a monolith into a modular architecture.** The application is no longer organized around one large chat/runtime block. It now uses registered modules with clearer owners, manifests, read models, boundaries, import identities, and stricter release hygiene. For users this should make ARIA easier to maintain and less prone to hidden side effects; for operators this update must be treated as a major architecture upgrade, not a routine alpha bump.
+- **Routing and tool use now have stricter agentic ownership boundaries.** MetaCatalog, documents, memory, notes, recipes, web/public facts, and runtime actions each have their own authority contracts. Natural-language meaning must not be inferred through keyword lists, regex cascades, substrings, tokens, stems, or phrase triggers. Models produce structured plans; ARIA then mechanically validates exact IDs, source authority, schemas, confirmations, permissions, and execution scope.
+- **SearXNG is no longer the supported public WebSearch operating model.** Stored SearXNG profiles are no longer the expected WebSearch path for current public facts. Current web answers now require a suitable LLM/provider setup with web tooling or a managed web-search capability. Without that capability, ARIA must answer current-fact and web questions in a limited or fail-closed way instead of silently falling back to old local SearXNG profiles.
+- **Public facts and WebSearch have been made source-bound.** Current information such as prices, device releases, software versions, or web content must not be guessed from model knowledge when a source is required. Web/public-fact answers must respect their search/tool authority and source scope.
+- **Recipes now have a dedicated semantic owner.** Stored recipe manifests come from the same catalog path as the UI. Operations such as `inventory`, `explain`, `preview`, `execute`, and `none` are owned by the recipe semantic router. `execute` creates a confirmation instead of silently running anything. Unknown recipe IDs are explained source-bound and are not replaced with similar-looking recipes.
+- **Notes, documents, and memory were repaired after the modularization.** Notes folder lists, document inventories, document-vs-memory source labels, and personal recall were restored to source-bound behavior across several internal alphas so ARIA does not jump between similarly worded note, memory, and document sources.
+- **Runtime actions are more conservative.** Action selection, action input, target scope, and confirmation are now more tightly enforced. ARIA should not execute a runtime action until the exact structured action, target, permission, and user confirmation all match.
+- **Release and artifact hygiene has been tightened substantially.** Internal review builds now check CLI/release metadata, package data, module registry state, JSON/compile/diff hygiene, source bytecode, image-layer privacy, and passive HTTP routes. Private data, secrets, productive connections, Qdrant data, and live runtime actions must not be baked into public artifacts.
 
-### Added
+### Smooth Upgrade / No CLI Recovery Goal
 
-- Added the internal `alpha603` P1 MetaCatalog backup-fallback action authority gate: if `aria_meta_catalog_routing` falls back because the meta catalog is unavailable, low-confidence, or invalid, a backup AriaTurn action plan is now blocked before Pre-RAG/Runtime with `meta_catalog_backup_fallback ... legacy_semantics=blocked`; valid MetaCatalog action contracts still run through the existing preflight path.
-- Added the internal `alpha598` P1 Explicit Target Authority Validator slice after live `alpha597` testing: AriaTurn now only turns LLM/MetaCatalog `target_scope_authority=explicit_refs` into an executable `explicit_ref` when the user prompt actually binds the configured ref, alias, or label; unbound identifier-like target words are carried as `requested_connection_ref` and handled by the existing target guard chain.
-- Added the internal `alpha597` P1 Legacy Authority Gate / test-migration slice after internal `alpha596`: routed action tests now enter through the current LLM capability-draft contract instead of the old local `_classify_capability_draft` hook, and the authority audit explicitly checks that semantic candidates cannot promote themselves to `explicit_ref`.
-- Added the internal `alpha596` P1 Agentic Contract Model slice: `agentic_contracts.py` defines canonical turn-decision, evidence, and answerability contracts; the Stabilization Gate now derives its debug/guard lines from these objects and normalizes `runtime_outcome_evidence_contract` into the same `evidence_contract` / `answerability` model used by EvidenceBundle and ContextPacket paths.
-- Added the internal `alpha595` P1A RuntimeOutcome full-kind/disk-measurement contract slice after live `alpha594` testing: SSH runtime contracts with `target_scope_authority=full_kind` now complete missing configured refs at the executor/preflight boundary, and disk-capacity runtime records preserve structured measurements from `df` tables or summarized runtime output so follow-ups like "over 75%" / "least free" answer from `runtime_records` instead of failing closed with missing structured values.
-- Added the internal `alpha594` P1A RuntimeOutcome fail-closed authority slice after live `alpha593` outliers: when the runtime follow-up review declines or returns an invalid/low-confidence outcome for an actual previous package-update or disk-capacity question, ARIA now answers from the last source-bound runtime records and emits a `runtime_outcome_evidence_contract` instead of falling through to WebSearch, RSS/security-source inventory, SSH config inventory, or incomplete action preflight.
-- Added the internal `alpha593` P1A Last-Observation Continuation Authority slice after `alpha592`: runtime outcome follow-ups are reviewed before Web Freshness / MetaCatalog surface re-routing can take over; package-update and disk-capacity follow-ups can answer from the previous source-bound SSH runtime records instead of drifting to WebSearch or connection inventory.
-- Added the internal `alpha592` P1A Action-Preflight Contract fix for SSH full-kind runtime tasks: MetaCatalog `connection_action_ssh` plans with `target_scope_authority=full_kind` can now seed a valid multi-target Runtime contract even when the action plan carries no concrete refs; safe read-only package-update and capacity profiles execute through the existing SSH preflight/guardrail path, while incomplete SSH action preflights no longer reframe to candidate inventory.
-- Added the internal `alpha591` P1A Stabilization Gate final-answer guard: pipeline finalization now enforces existing `evidence_contract` / `answerability` boundaries and fails closed when candidate-only context is about to become a hard counted or complete inventory claim, while still allowing cautious observed RSS/website candidates; guard blocks are mapped into Operator Trace as `source=stabilization_gate_final_answer_guard`.
-- Added the internal `alpha590` P1A Contract-Authority follow-up: contradictory connection follow-ups that say both `target_scope_authority=last_turn_scope` and `scope_operation=surface_change` are reviewed against the existing config-bound connection EvidenceBundle when the plan still targets `connections`, while real docs/memory surface changes remain isolated; seeded MetaCatalog action contracts keep capability/preflight authority instead of degrading to chat or executing action-less contracts too early; local memory-family catalog IDs bind their target collections from structured MetaCatalog data.
-- Added the internal `alpha589` Evidence/Answerability follow-up: document inventory metadata is now treated as a source-bound evidence contract even when the LLM selected the `memory` surface because the user asked about documents "im Memory"; bound EvidenceBundle subset/exclusion follow-ups can also answer non-address set questions from config evidence instead of falling back to candidate context.
-- Added the internal `alpha588` P1A Scope-History / LLM Scope-Review follow-up: direct EvidenceBundle follow-ups now keep config-bound evidence in the turn frame, and a new `connection_evidence_scope_review` can bind or clarify semantic subset/exclusion follow-ups against the existing config-bound connection evidence without adding Dev/server keyword routing.
-- Added the internal `alpha587` P1A MetaCatalog TurnPlan contract follow-up: MetaCatalog now carries `scope_operation`, system inventories normalize to inventory mode, full-kind connection inventory can bind configured kinds at the loader boundary, and unbound Host/IP candidate answers are rejected when they make uncautious count/completeness claims.
-- Added the internal `alpha586` Agentic scope-operation contract: AriaTurn can now emit explicit last-turn scope operations (`reuse_same_set`, `narrow_subset`, `expand_to_kind`, `exclude_subset`, `surface_change`, `new_scope`) so follow-ups describe the intended set operation instead of relying on ambiguous `last_turn_scope`.
-- Added real `capabilities` and `recipes` ContextSurfaces with system inventory loaders, so questions about active ARIA capabilities or stored recipe templates can be answered from runtime/recipe metadata instead of drifting into memory or documents.
-- Added a P1A Agentic Stabilization Gate observability slice: a reusable live-prompt matrix now anchors the regression gate, pipeline finalization derives `turn_decision_owner`, `evidence_contract`, and `answerability` debug lines from existing contracts, and Operator Trace maps those boundaries without adding new routing semantics.
-- Added a `connections` EvidenceBundle v1 slice: config-bound connection inventory now records safe rows, authority, completeness, field set, selected refs/kinds, and row count in the turn frame so follow-up Host/IP questions can reuse already loaded evidence instead of relying on visible chat text.
-- Added a Runtime Target Scope Contract for Multi-Target SSH planning: `target_scope_authority` distinguishes whole-kind fleet scope, semantic groups, explicit refs, last-turn follow-ups, and priority samples.
-- Added a P1 Authority Chain Audit/Test slice: a manifest of known legacy authority boundaries classifies old routers, fallbacks, candidate heuristics, guardrails, and observability-only paths without adding new free-semantics routing.
-- Removed the red `capability_router_kind_inference` authority path: `CapabilityRouter` no longer imports or calls `infer_preferred_connection_kind`, so free text cannot choose a connection kind there.
-- Added a client-side Chat/Debug Export control that turns the current chat into Markdown, including collapsed Details, Routing Debug, and Operator Trace lines, with clipboard-first behavior and a download fallback.
-
-### Changed
-
-- Built internal `0.1.0-alpha604` local image/TAR for the finalized multi-target ActionContract missing-field pruning fix; included in this public release line.
-- Built internal `0.1.0-alpha603` local image/TAR for the P1 MetaCatalog backup-fallback action authority gate; included in this public release line.
-- Built internal `0.1.0-alpha602` local image/TAR for the Memory-Browser structure drilldown type-state follow-up; included in this public release line.
-- Live-accepted internal `0.1.0-alpha602` for the Memory-Browser fixing session: notes are visible again from real Qdrant rows, structure drilldown keeps hierarchy edges stable, and the browser is closed for now unless a new concrete bug or tweak is reported.
-- Built internal `0.1.0-alpha601` local image/TAR for the Memory-Browser Notes read-model follow-up; included in this public release line.
-- Built internal `0.1.0-alpha600` local image/TAR for the Memory-Browser Qdrant structure source-of-truth slice; included in this public release line.
-- Built internal `0.1.0-alpha599` local image/TAR for the raw-prompt follow-up to the `alpha598` explicit-target validator; included in this public release line.
-- Live-accepted internal `0.1.0-alpha599` after export `internal live export`: the `ops-unknown-01` prompt no longer executes SSH against a similar configured target; ARIA keeps `requested_ref=ops-unknown-01`, clears the executable `explicit_ref`, and asks for a valid SSH profile.
-- Fixed the `alpha598` explicit-target validator after export `internal live export`: the validator now checks prompt-bound `explicit_ref` authority against the raw user message passed from the pipeline, not against the LLM-rewritten `ContextRequest.query` that may already contain the wrong selected ref.
-- Built internal `0.1.0-alpha598` local image/TAR for the P1 Explicit Target Authority Validator slice; included in this public release line.
-- Changed routed action authority handling so a strong semantic candidate may replace stale memory only as `semantic_candidate_resolution` / `semantic_alias`, never as `explicit_ref`; explicit draft targets remain higher authority.
-- Changed requested-target fallback behavior so an unmatched concrete requested ref can block stale/default single-profile selection and still produce an incomplete capability payload instead of silently executing on the only configured profile.
-- Built internal `0.1.0-alpha597` local image/TAR for the P1 Legacy Authority Gate / test-migration slice; included in this public release line.
-- Built internal `0.1.0-alpha596` local image/TAR for the P1 Agentic Contract Model follow-up; included in this public release line.
-- Live-accepted internal `0.1.0-alpha596` after export `internal live export`: RuntimeOutcome follow-ups now expose normal `turn_decision_owner`, `evidence_contract`, and `answerability` lines, update/disk follow-ups remain bound to `runtime_records`, inventory/docs/capabilities/recipes stay source-bound, and the broad "what do you know about my servers" probe stayed safely limited to the last runtime evidence instead of inventing wider server knowledge.
-- Built internal `0.1.0-alpha595` local image/TAR for the RuntimeOutcome full-kind/disk-measurement contract follow-up; included in this public release line.
-- Live-accepted internal `0.1.0-alpha595` after export `internal live export`: update checks and disk checks ran on 14/14 SSH targets, update and disk follow-ups stayed source-bound on `runtime_records`, SSH inventory/dev subset remained config-bound, and the package-insert document inventory returned the expected six medication documents.
-- Built internal `0.1.0-alpha594` local image/TAR for the RuntimeOutcome fail-closed authority follow-up; included in this public release line.
-- Built internal `0.1.0-alpha593` local image/TAR for the Last-Observation Continuation Authority follow-up; included in this public release line.
-- Built internal `0.1.0-alpha592` local image/TAR for the SSH full-kind Action-Preflight Contract follow-up; included in this public release line.
-- Built internal `0.1.0-alpha591` local image/TAR for the P1A Stabilization Gate final-answer guard; included in this public release line.
-- Built internal `0.1.0-alpha590` local image/TAR for the P1A Contract-Authority follow-up; included in this public release line.
-- Changed the fast document-inventory answer path so it can list loaded document sources from `document_inventory=true` results independently of whether the selected local surface was `docs` or `memory`.
-- Changed last-turn EvidenceBundle follow-up answers so reviewed `narrow_subset`/`exclude_subset` contracts are not forced through the Host/IP query gate when the user asks a set question such as "which of these are not ...".
-- Built internal `0.1.0-alpha589` local image/TAR for the Evidence/Answerability follow-up; included in this public release line.
-- Built internal `0.1.0-alpha588` local image/TAR for the P1A Scope-History / LLM Scope-Review follow-up; included in this public release line.
-- Built internal `0.1.0-alpha587` local image/TAR for the P1A MetaCatalog TurnPlan contract / system inventory / candidate answerability follow-up; included in this public release line.
-- Live-rejected internal `0.1.0-alpha585` for the Agentic follow-up slice after export `internal live export`: it kept useful alias/token fixes, but the last-turn evidence contract was too weak and let same-set, dev-subset, non-dev-exclusion, capabilities, and recipes prompts regress.
-- Built internal `0.1.0-alpha586` local image/TAR for the Agentic scope-operation / fail-closed / capabilities-recipes surface follow-up; included in this public release line.
-- Changed last-turn EvidenceBundle reuse so `last_turn_scope` alone is incomplete and cannot imply all rows; reuse now requires a matching `scope_operation`, with fail-closed behavior for malformed last-turn follow-ups instead of falling into legacy memory/docs chat.
-- Built internal `0.1.0-alpha585` local image/TAR for the P1A Last Evidence Reuse Gate / Follow-up Scope Contract; included in this public release line.
-- Changed `docker/export-local-build.sh` so internal exports update `internal image archive alias` to the freshly exported versioned TAR instead of leaving the alias on an older build.
-- Changed the P1A last-turn EvidenceBundle reuse path so it no longer finalizes before AriaTurn arbitration. Host/IP evidence can now only be reused after a structured turn contract confirms the same `connections:inventory` surface, a valid scope operation, and available fields; rejected reuse is traced and normal context loading continues.
-- Changed the last-turn frame and LLM frame compaction so full EvidenceBundle rows stay runtime-internal, while AriaTurn/MetaCatalog only receive a compact summary with surface, authority, completeness, field set, row count, selected kinds, and selected refs.
-- Built internal `0.1.0-alpha584` local image/TAR for EvidenceBundle v1 and P1A Agentic Stabilization Gate Observability; included in this public release line.
-- Built internal `0.1.0-alpha583` local image/TAR for the P1 preferred-kind / KeywordRouter authority slice; included in this public release line.
-- Changed `RoutingResolver.resolve_connection()` so it no longer uses free-text kind inference as a preferred-kind filter; Qdrant connection candidates without an authorized kind only bind directly when exactly one connection kind is configured; Routing Workbench reports inferred preferred kinds as `diagnostic_only`; active-learning hints are no longer suppressed by free-text kind inference and remain weak LLM context signals; KeywordRouter is signal-only for turn intent, with safe chat fallback on unavailable or low-confidence arbitration and recipe status gated by turn-intent arbitration.
-- Built internal `0.1.0-alpha582` local image/TAR for the Runtime Target Scope Contract follow-up after `alpha581`; included in this public release line.
-- Changed MetaCatalog runtime-action planning so it transports `target_scope_authority`; priority refs without scope authority become `priority_sample` hints, and SSH multi-target execution only expands empty multi-target contracts for `full_kind` while stopping `priority_sample` without target refs.
-- Live-accepted internal `0.1.0-alpha582` for the server slice: status checks ran on 14/14 SSH targets, SSH host/IP inventory returned 14 config-authoritative entries, and dev-server inventory stayed scoped to the two dev hosts.
-- Built internal `0.1.0-alpha581` local image/TAR for the Runtime Target Scope Contract; included in this public release line.
-- Changed Multi-Target SSH draft handling so LLM `priority` refs alone no longer become a complete runtime target list; `full_kind` expands against validated configured candidates before command preparation, while semantic/ref scopes must be explicitly authorized.
-- Built internal `0.1.0-alpha580` local image/TAR for the P1 Authority Chain Audit/Test slice and `CapabilityRouter` kind-inference authority removal; included in this public release line.
-- Built internal `0.1.0-alpha579` local image/TAR for the Connection Inventory Query-Kind Contract Normalizer; if the LLM emits a configured connection kind such as `ssh` in its inventory query contract but omits structured `selected_kinds`, runtime now normalizes that contract to config metadata authority instead of falling back to Qdrant candidate context for broad host/IP server inventories.
-- Built internal `0.1.0-alpha578` local image/TAR for Semantic Group Authority Review in connection inventory; group-scoped Host/IP requests with selected refs now distinguish config data authority from semantic group membership, run an LLM review over selected config metadata when needed, and keep fallback answers as possible matches if review authority is unavailable.
-- Built internal `0.1.0-alpha577` local image/TAR for Candidate Inventory Authority Guard plus rollback of the live-rejected `alpha576` scope continuation; unbound connection-inventory candidate context may still support cautious candidate answers, but host/IP answers cannot claim complete inventory/all-server coverage unless the evidence is contract-bound to config metadata.
-- Live-rejected internal `0.1.0-alpha576` after export `internal live export`: the scope-continuation fix still left the broad server host/IP prompt incomplete and polluted later scoped prompts by carrying `continued_scope=last_turn`.
-- Built internal `0.1.0-alpha576` local image/TAR for Follow-up Connection Inventory Scope Continuation; this artifact remains internal and is not accepted for the server-inventory slice after live testing.
-- Built internal `0.1.0-alpha575` local image/TAR for the Structured Connection-Kind Host/IP Inventory follow-up; the LLM can bind a connection-kind scope in `context_requests[].budget.selected_kinds` with `bind_selected_kinds=true`, and runtime only validates that structured scope against configured kinds before loading safe connection metadata.
-- Built internal `0.1.0-alpha574` local image/TAR for the Broad/Exact Server Host/IP Inventory follow-up; connection `answer` requests with host/IP questions are normalized to inventory requests, selected connection refs/kinds and broad server host/IP inventories now load safe non-secret connection metadata as the authoritative source, Qdrant remains for thematic inventory candidate search, and kind-only broad SSH inventories are no longer truncated back to the candidate limit after selecting all matching refs.
-- Built internal `0.1.0-alpha573` local image/TAR for the Broad Server Host/IP Inventory follow-up; broad host/IP questions with multiple same-kind LLM priority refs now bind the inventory request by kind only (`ref_authority=kind_only`) instead of treating priority refs as a complete server list, while scoped groups such as dev servers remain ref-bound; included in this public release line.
-- Built internal `0.1.0-alpha572` local image/TAR for LLM Input Contract boundary hardening and P1 RoutedActionResolver authority hardening; included in this public release line.
-- Hardened P1 RoutedActionResolver authority boundaries: preferred connection kind is no longer authorized from free-text heuristics, and can only come from the draft contract or a single configured capability-catalog executor; the legacy inference remains trace-only with `authority=none`.
-- Hardened LLM Input Contract boundaries: bound Inventory host/IP evidence is preserved only inside the Answer Composer evidence packet, while general meta/surface/connection hosts remain redacted from LLM input contracts.
-- Built internal `0.1.0-alpha571` local image/TAR for the WebSearch Source Authority Contract; included in this public release line.
-- Added a WebSearch Source Authority Contract after `alpha570`: planned fast-answer web searches now label sources as required/preferred/strong-secondary/weak-secondary/noise and pass explicit caution guidance plus `source_authority_outcome` when only weak or secondary evidence is available, without adding product-specific domains, a new router, or another LLM curation hop.
-- Live-tested `alpha571` WebSearch with Apple Watch Ultra, Kindle, Rabbit R1, and Docker Compose prompts; the path is accepted for now, with later tuning deferred for better official-source acquisition and faster final answer condensation.
-- Built internal `0.1.0-alpha570` local image/TAR for the WebSearch acquisition-boundary fix; included in this public release line.
-- Changed WebSearch acquisition so `preferred_domains` no longer generate `site:` queries or hard-block fast answers; true must-have domains still use hard source validation, while obvious deal/rumor/shopping noise is removed before answer context.
-- Built internal `0.1.0-alpha569` local image/TAR for the WebSearch LLM-hop reduction / evidence-budget follow-up; included in this public release line.
-- Reduced the fresh external WebSearch fastpath by one LLM hop: the Search Intent Builder can now act as the first web hop, its `web_source_plan` is carried into context loading instead of replanning, preferred-domain evidence must still match the query topic, and `fast_answer` limits answer context to four web sources.
-- Built internal `0.1.0-alpha568` local image/TAR for the WebSearch Direct-Fastpath / Source-Gate follow-up; included in this public release line.
-- Added an early LLM-first WebSearch fastpath for current external web questions, so normal fresh web lookups can skip expensive Meta/Turn arbitration while local connection questions stay on the local context path.
-- Built internal `0.1.0-alpha567` local image/TAR for the Web Search Intent Builder / Fast Web Answer Lane; included in this public release line.
-- Added the Web Search Intent Builder / Fast Web Answer Lane: WebSearch now asks an LLM to formulate a compact SearXNG search intent before retrieval, supports editable runtime rules in `prompts/web/search_intent.md`, exposes that prompt from the Workbench, and skips expensive research-style source curation for normal `fast_answer` web questions.
-- Built internal `0.1.0-alpha566` local image/TAR for the WebSearch provider-garbage boundary and source-plan validation follow-up; included in this public release line.
-- Hardened profile-aware WebSearch at the contract boundary: inferred LLM hard domains are demoted unless the user explicitly named the domain, stale years in relative freshness queries are normalized against `current_date`, and source-plan searches filter off-topic provider results before expensive LLM curation.
-- Built internal `0.1.0-alpha565` local image/TAR for profile-aware WebSearch planning; included in this public release line.
-- Prepared profile-aware WebSearch planning: SearXNG profile metadata can now be exposed safely through the LLM input contract, the web source planner can select `search_profile_ref`, and runtime validates/executes the selected profile without adding product-specific routing rules.
-- Built internal `0.1.0-alpha564` local image/TAR for the SearXNG connection save regression fix; included in this public release line.
-- Built internal `0.1.0-alpha563` local image/TAR for the Web Evidence Contract `must_have_domains`/`preferred_domains` split and bound Inventory host/IP answer coverage follow-up; included in this public release line.
-- Built internal `0.1.0-alpha562` local image/TAR for the Agentic Web/Inventory Evidence Contract follow-up; included in this public release line.
-- Built internal `0.1.0-alpha561` local image/TAR for the Web Source Contract Observability follow-up; included in this public release line.
-- Built internal `0.1.0-alpha560` local image/TAR for the P0 LLM Input Contract follow-up on Answer Composer and Web Source Relevance Review; included in this public release line.
-- Built internal `0.1.0-alpha559` local image/TAR for the planned WebSearch freshness-sufficiency follow-up; included in this public release line.
-- Built internal `0.1.0-alpha558` local image/TAR for the planned WebSearch required-domain retrieval/recovery follow-up; included in this public release line.
-- Built internal `0.1.0-alpha557` local image/TAR for the planned WebSearch source-contract required-domain validation follow-up; included in this public release line.
-- Built internal `0.1.0-alpha556` local image/TAR for the P0 LLM Input Contract V1 / Normalizer contract-only slice; included in this public release line.
-- Built internal `0.1.0-alpha555` local image/TAR for WebSearch source-contract freshness and planned-query ordering; included in this public release line.
-- Built internal `0.1.0-alpha554` local image/TAR for WebSearch fail-closed observability and single LLM-planned source retry; included in this public release line.
-- Built internal `0.1.0-alpha553` local image/TAR for planned WebSearch source curation; included in this public release line.
-- Built internal `0.1.0-alpha552` local image/TAR for the LLM-first Web Source Acquisition Plan; included in this public release line.
-- Built internal `0.1.0-alpha551` local image/TAR for the WebSearch/Freshness latency-budget follow-up; included in this public release line.
-- Built internal `0.1.0-alpha550` local image/TAR for the WebSearch/Freshness evidence follow-up and `/stats` release-header polish; included in this public release line.
-- Built internal `0.1.0-alpha549` local image/TAR for the Runtime-Task authority removal, WebSearch action-contract normalization, and file-action evidence guard; included in this public release line.
-- Built internal `0.1.0-alpha548` local image/TAR for the post-`alpha547` authority cleanup bundle; included in this public release line.
-- Built internal `0.1.0-alpha547` local image/TAR for the Meta-Catalog self-contradictory keep-local fail-closed follow-up; included in this public release line.
-- Built internal `0.1.0-alpha546` local image/TAR for the Meta-Catalog self-contradictory connection-evidence fail-closed follow-up; included in this public release line.
-- Built internal `0.1.0-alpha545` local image/TAR for the Meta-Catalog surface-review recovery; included in this public release line.
-- Built internal `0.1.0-alpha544` local image/TAR for the Meta-Catalog connection-evidence recovery; included in this public release line.
-- Built internal `0.1.0-alpha543` local image/TAR for the Docs evidence-contract fix; included in this public release line.
-- Built internal `0.1.0-alpha542` local image/TAR for the post-`alpha541` surface-review descriptor follow-up; included in this public release line.
-- Built internal `0.1.0-alpha541` local image/TAR for the post-`alpha540` meta-catalog surface-review self-consistency hardening; included in this public release line.
-- Built internal `0.1.0-alpha540` local image/TAR for the post-`alpha539` Connection-Contract repair; included in this public release line.
-- Built internal `0.1.0-alpha539` local image/TAR for the Inventory Fast-Answer authority removal; included in this public release line.
-- Built internal `0.1.0-alpha538` local image/TAR for the SSH blocked-action safety/observability follow-up and Operator Trace policy-consistency slice; included in this public release line.
-- Built internal `0.1.0-alpha537` local image/TAR for the SSH Multi-Target Action-Contract follow-up; included in this public release line.
-- Built internal `0.1.0-alpha536` local image/TAR for the SSH Status-Contract cost slice; included in this public release line.
-- Built internal `0.1.0-alpha535` local image/TAR for the SSH Missing-Command Status-Contract follow-up; included in this public release line.
-- Built internal `0.1.0-alpha534` local image/TAR for the SSH Status-Contract Fast-Path; included in this public release line.
-- Built internal `0.1.0-alpha533` local image/TAR for SSH Capability-Draft Runtime Payload Recovery; included in this public release line.
-- Built internal `0.1.0-alpha532` local image/TAR for the P0.2 Capability-Draft to Runtime-Payload Contract follow-up; included in this public release line.
-- Built internal `0.1.0-alpha531` local image/TAR for P0 Executable Action Contract and Pending Integrity hardening; included in this public release line.
-- Built internal `0.1.0-alpha530` local image/TAR for Agentic Runtime / Recipes / Observability Contract-Hardening; included in this public release line.
-- Built internal `0.1.0-alpha529` local image/TAR for Chat Prompt Queue Collapse and P0 Connection Runtime Contract Recovery; included in this public release line.
-- Built internal `0.1.0-alpha528` local image/TAR for the Web/Freshness and Recipe/Action-Planner heuristic cleanup; included in this public release line.
-- Built internal `0.1.0-alpha527` local image/TAR for the P0 Legacy Semantic Authority Removal slice; included in this public release line.
-- Built internal `0.1.0-alpha526` local image/TAR for the post-`alpha525` contract repair follow-up; included in this public release line.
-- Built internal `0.1.0-alpha525` local image/TAR for the post-`alpha524` live-export follow-up; included in this public release line.
-- Built internal `0.1.0-alpha524` local image/TAR for the post-`alpha523` live-export follow-up; included in this public release line.
-- Refined the narrow iPhone admin indicator so the compact mobile header no longer shows a separate empty admin circle next to the section menu; the admin state is now folded into the menu button styling.
-- Built internal `0.1.0-alpha522` local image/TAR for the post-`alpha521` iPhone admin-indicator and SSH explicit-ref/plural-scope follow-up; included in this public release line.
-- Built internal `0.1.0-alpha523` local image/TAR for the post-`alpha522` live-export fix bundle; included in this public release line.
-- Built internal `0.1.0-alpha521` local image/TAR for the AriaTurn meta-catalog seed follow-up and iPhone mobile header polish; included in this public release line.
-- Tightened the authenticated mobile header for narrow iPhone viewports: the ARIA brand row stays compact, the section menu becomes icon-only, the admin state collapses to a small status chip, and long debug context IDs are ellipsized instead of making the chat header tall.
-- Built internal `0.1.0-alpha520` local image/TAR for Runtime Target/Path Contract Hardening; included in this public release line.
-- Built internal `0.1.0-alpha519` local image/TAR for the Learned-Recipe side-effect promotion gate and Provider Manifest runtime-adapter audit; included in this public release line.
-- Added a Provider Manifest runtime-adapter audit against the Agentic Execution Registry so built-in adapters are classified as specialized or generic handler backed, while unknown adapters fail manifest validation.
-- Built internal `0.1.0-alpha518` local image/TAR for the Agentic Operator Trace confirm-execute export follow-up; included in this public release line.
-- Built internal `0.1.0-alpha517` local image/TAR for the Agentic Operator Trace confirmation follow-up; included in this public release line.
-- Added Agentic Operator Trace confirmation follow-up after `alpha516`: confirmed routed actions now pass their execution details through the same trace appender, multi-target execution details are summarized as target counts instead of only the first ref, and live-shape golden tests cover SSH/API/pending/confirmed traces.
-- Built internal `0.1.0-alpha516` local image/TAR for the Agentic Operator Trace live-shape fallback; included in this public release line.
-- Added Agentic Operator Trace live-shape fallback after `alpha515`: existing `aria_turn_surface_action_arbitration` and execution detail lines can now produce draft/policy/runtime trace phases even when the routed-action debug objects are absent from the live detail payload.
-- Built internal `0.1.0-alpha515` local image/TAR for Agentic Action Trace Completeness v1; included in this public release line.
-- Added Agentic Action Trace Completeness v1: routed actions now expose existing action-contract, policy-decision, and executable next-step debug lines so Operator Trace can show draft/policy/runtime phases without changing routing behavior.
-- Tightened the mobile Chat composer controls so the Tool-Box button becomes icon-only beside the Chat/Debug Export copy icon on narrow touch viewports, preventing label overflow on iPhone.
-- Built internal `0.1.0-alpha514` local image/TAR for the mobile Chat composer icon-only polish; included in this public release line.
-- Refined the Chat/Debug Export control from a full-width text action into a compact icon action beside the chat Tool-Box, while keeping the same clipboard/download behavior.
-- Built internal `0.1.0-alpha513` local image/TAR for the compact Chat/Debug Export icon polish; included in this public release line.
-- Built internal `0.1.0-alpha512` local image/TAR for the client-side Chat/Debug Export slice; included in this public release line.
-
-### Fixed
-
-- Fixed the post-`alpha603` ActionContract finalization gap in internal `alpha604` for multi-target actions: when a finalizer has already written concrete target refs and a read-only command, it now prunes only those stale `missing_fields` that are satisfied by the finalized payload before policy/dry-run evaluates it. This targets the live `alpha603` disk/diagnostic outlier without changing global pending-input semantics or adding prompt/SSH keyword rules.
-- Fixed the remaining MetaCatalog backup action authority gap in internal `alpha603`: a legacy backup AriaTurn action plan can no longer become an executable Runtime/Pre-RAG owner after MetaCatalog unavailable, low-confidence, or invalid fallback; ARIA now stops with a visible contract-bound clarification instead of running backup-derived actions.
-- Fixed the Memory-Browser structure drilldown state bug in internal `alpha602`: selecting collections, notes-as-documents, chunks, or entries now derives the browser type from the real collection so `notes`/document/entry hierarchy edges do not disappear because stale UI state falls back to `document`.
-- Fixed the `alpha600` Memory-Browser follow-up in internal `alpha601`: own `aria_notes_*` collections are now listed slug-/case-tolerantly for the browser read model, legacy numeric chunk metadata no longer drops a whole collection, and notes collections no longer fall back to the limited semantic graph sample as visible structure truth.
-- Fixed the Memory-Browser source-of-truth gap in internal `alpha600`: the structure drilldown now loads real Qdrant rows for memory entries and notes instead of depending on the limited semantic graph sample, groups `aria_notes_*` chunks by `note_id`/`note_title`, and exposes note chunks through the existing CSRF-protected point-delete path without offering unsafe whole-note deletion.
-- Fixed the `alpha587` live follow-up gap in internal `alpha588` from `internal live export`: Same-Set Host/IP evidence no longer gets lost before the next turn, and incorrectly labeled Dev-Narrowing / Nicht-Dev-Exclusion follow-ups are reviewed against config-bound evidence before answering.
-- Fixed the root cause behind the `alpha585` live regression family in internal `alpha586`: same-set Host/IP follow-ups reuse the previous config-bound SSH evidence without legacy memory, scoped dev follow-ups stay narrowed, exclusion follow-ups can return previous set minus selected refs, and missing scope operations block visibly.
-- Fixed an unbuilt P1A regression from `internal live export`: last-turn SSH Host/IP evidence no longer captures unrelated Memory/Docs questions, and expanding from a dev-server subset back to all SSH servers falls through to the inventory loader instead of answering from the stale subset.
-- Fixed an unbuilt inventory follow-up gap from `internal live export`: after a config-authoritative SSH Host/IP inventory, a scoped follow-up such as `Welche IP/Hostnamen haben meine dev-server?` can answer from the stored EvidenceBundle and remains narrowed to matching dev rows instead of saying the IPs are not in context.
-- Hardened `llm_input_contract` redaction for common secret key variants such as access/refresh tokens, client secrets, secret keys, API keys, authorization fields, and nested token/secret suffixes.
-- Hardened WebSearch source gating after the direct fastpath: empty or `0 Treffer` web contexts no longer count as usable evidence, path-aware `site:` queries stay intact, and current/latest answers fail closed when no preferred or official-adjacent source is present.
-- Planned WebSearch with zero usable results now fail-closes as `web_source_no_reliable_sources` instead of passing an empty source set as a normal answer context; too-broad planned search intents can stop as a clarification before wasting retrieval/curation tokens.
-- Hardened planned WebSearch provider evidence: existing `site:<domain>` queries from the LLM source plan are no longer double-prefixed, and off-domain results returned for a `site:<domain>` provider query are discarded before source curation.
-- Counted bound connection inventory evidence by individual refs instead of source containers, so multi-ref context such as multiple dev servers reports and passes the correct source count to the answer contract.
-- Migrated the Answer Composer LLM boundary to `llm_input_contract`: `aria_answer_composer` now sends only the canonical contract payload, with outcome/evidence under `world_map.answer_request`, preserving source-bound answer behavior without legacy top-level payload fields.
-- Migrated the legacy Web Source Relevance Review LLM boundary to `llm_input_contract`: `web_source_relevance_review` and its retry validation now send only the canonical contract payload, with query, sources, runtime date, optional source plan, validation round, and review rules under `world_map.web_request`.
-- Added a freshness-sufficiency boundary to planned WebSearch curation: when the user explicitly asks for a relative window such as "last few weeks" and the selected evidence only contains older dates, ARIA now performs one contract-bound freshness retry. If no fresher official evidence appears, older official evidence can still support a cautious "no recent evidence found" answer instead of a false positive. This is date/contract validation, not a product-specific fallback.
-- Added contract-bound required-domain retrieval for planned WebSearch: when an LLM source plan names concrete required domains, WebSearch now executes generic `site:<domain>` queries from that plan, and source curation can perform one contract-validation recovery retry if the first result set lacks the required domain. This avoids product-specific fallbacks while ensuring required official sources are actually fetched.
-- Hardened planned WebSearch source curation after `alpha556`: when the LLM source plan names concrete required source domains, selected sources are now validated against those domains before entering the answer context, or fail closed if none match. This is a generic source-contract boundary, not a product-specific Rabbit/Apple rule.
-- Added current-date runtime context to LLM-planned WebSearch source acquisition and source curation so "latest", "current", and "last few weeks" claims are judged against the actual runtime date instead of stale inferred windows.
-- Let planned WebSearch queries lead retrieval before the original user query, while keeping the original query as a recall fallback.
-- Filtered registry/Docker/container-image results from planned WebSearch candidate sets only when the LLM source plan explicitly excludes those source classes, and removed the overly broad single-word `version` trigger that could boost registries for product comparison wording such as "old version".
-- Added WebSearch fail-closed observability after `alpha553`: no-reliable-source WebSearch outcomes now carry `web_source_no_reliable_sources`, keep source/curation debug details in exports, show as WebSearch errors instead of `memory_error`, and route Discord alerts as `skill_errors` instead of `recipe_errors`.
-- Added one bounded LLM-planned retry to planned WebSearch source curation: if the curator rejects off-topic sources and supplies retry queries, ARIA performs one second search round with the LLM-proposed query and curates that result set; no product-specific wordlists or retry loops were added.
-- Added planned WebSearch source curation after `alpha552`: when an LLM Web Source Acquisition Plan is active, ARIA now asks a bounded LLM curator to select only sources that satisfy the requested entity, freshness, and source contract before the answer is composed; curation timeout, low confidence, or insufficient sources fail closed instead of answering from mixed SearXNG noise. WebSearch now carries snippets/page excerpts into source metadata and falls back to the `general` SearXNG category for planned source searches when the configured profile has no category.
-- Added an LLM-first Web Source Acquisition Plan after `alpha551`: current/latest web questions can now plan concrete search queries and source requirements before SearXNG runs, the WebSearch skill executes those planned queries without product-specific code rules, and planned retry results fail closed if LLM source validation still finds off-topic evidence.
-- Added runtime budgets to the post-`alpha550` web freshness path: page excerpts now fetch in parallel with a shorter per-page budget, the LLM web-source relevance review has a hard timeout with Routing Debug fallback, and the LLM freshness-query refinement falls back to the existing Web context if it stalls. This addresses live runs that stayed in `A.R.I.A. arbeitet weiter...` for several minutes on current product questions without adding product-specific rules.
-- Hardened web evidence review after `alpha549`: a single irrelevant web source now still goes through LLM relevance review and retry, current/latest product or device web plans can get an LLM-refined freshness query even when the Meta-Catalog already selected Web, and the relevance-review contract now asks for semantically fitting current/primary-source evidence instead of accepting stale or off-topic hits.
-- Removed the duplicate `Release` / current-version heading from the top of the `/stats` release card; the version panels remain.
-- Removed the legacy runtime-task override/fastpath authority from production routing: RSS/chat/meta answers are no longer silently transformed into SSH package/update commands unless an executable SSH contract is explicitly present.
-- Normalized LLM/Meta-Catalog `web_search` action contracts back into the existing Web context path, so web research uses the source-gathering pipeline instead of falling into a generic `searxng:web_search` runtime action.
-- Added a file-action evidence boundary before SFTP/SMB action-mode seeds: real file/list/read prompts can still route to file operations, but document/manual questions such as Syncthing manuals no longer become blind root directory listings.
-- Limited the Meta-Catalog connection-inventory normalizer to existing contracts: it no longer selects concrete connection IDs from the candidate hit list after the LLM/Meta plan; `connections:inventory` normalization now requires a connections surface, selected catalog ID, or existing connections context request.
-- Removed the deterministic chat-freshness fallback after `alpha547`: current/latest/update/version wording no longer triggers web search when the LLM freshness arbiter is unavailable or invalid; only explicit web research requests and explicit URLs remain deterministic freshness fallbacks.
-- Removed the old deterministic Meta-Catalog document-meta override after `alpha547`: a structured LLM/Meta-Catalog plan for `connections` is no longer rewritten to `docs:search` just because a document meta entry has lexical overlap. This keeps Syncthing connection-inventory prompts on the connections surface instead of falling through to unrelated document search.
-- Kept Meta-Catalog surface review fail-closed when the review keeps a local Docs/Memory/Notes plan even though the router itself acknowledged connection evidence; this prevents self-contradictory `docs:search` answers from surviving when the review does not repair the route.
-- Hardened the post-`alpha545` Meta-Catalog mismatch boundary: when the router's own structured output or reason acknowledges connection evidence but still selects local Docs/Memory/Notes, ARIA no longer silently continues with the wrong local search if no connection candidates can be recovered; the turn fails closed as a visible surface-review clarification instead.
-- Recovered Meta-Catalog surface-review mismatches when the first routing window selects local Docs/Memory/Notes but the Meta-Collection still contains matching connection evidence: the review now reloads connection candidates from the Meta-Catalog before asking the LLM to resolve the surface contract, instead of silently falling through to the wrong local search.
-- Hardened Meta-Catalog connection-evidence recovery after live Qdrant inspection confirmed Syncthing SSH/SFTP entries existed in both `aria_meta_catalog_aria_8800` and `aria_inventory_aria_8800`: the Connections surface now carries stronger bilingual inventory signals, and concrete connection evidence is sorted by query overlap before LLM surface review so specific candidates are not displaced by generic hits.
-- Fixed the post-`alpha542` Docs evidence-contract failure in internal `alpha543`: exhaustive document corpus scans with zero match chunks no longer count their own "0 hits" diagnostics as source-bound evidence, so they cannot produce `fast_docs_search_answer` or `docs_search found/source_bound` responses. The trace now reports `matched=false reason=document_corpus_scan_no_matches`.
-- Hardened the post-`alpha541` surface review so the LLM-first review can use the `surface|connections` descriptor as unbound connection-inventory evidence, preventing local Docs fastpaths from silently answering connection-inventory questions when concrete connection candidates are absent from the review set.
-- Hardened the post-`alpha540` meta-catalog surface review: local Docs/Memory/Notes selections with competing connection candidates now pass the original router reason into the LLM-first review; accepted and kept-local outcomes are visible as `meta_catalog_surface_contract_review` Routing Debug lines, while unavailable, invalid, or low-confidence review outcomes fail closed as clarification instead of silently loading the wrong local context.
-- Recovered two post-`alpha539` connection contract failures from the live export: meta-catalog docs choices that conflict with available connection catalog candidates now get an LLM-first surface-contract review before loading context, alias-bound resolved targets can defer a stale/wrong capability-draft `explicit_ref` before runtime payload construction, and the surface review is visible in Routing Debug/Operator Trace with a regression guard that real document questions stay on Docs.
-- Removed the deterministic `connections:inventory` fast-list answer path after `alpha538`: inventory candidates no longer use query-term evidence filters or `fast_inventory_list_answer` to decide the visible answer scope. Unbound inventory hits now go through the LLM answer composer or fall back to a narrow-contract warning, while concrete Meta-Catalog refs/hints are preserved as bound inventory contracts through loading and merge metadata.
-- Let concrete policy decisions override early turn-level confirmation hints in Operator Trace, so read-only actions that are allowed by policy no longer appear as `action=confirm` in the final policy phase.
-- Redacted ungrounded mutating SSH command previews from blocked-action user messages: ARIA still reports the target and guardrail/security block, but no longer presents an unverified shell line as a planned executable action.
-- Hardened the post-`alpha528` connection runtime contract: LLM capability drafts can return validated `connection_refs`, SSH `multi_target` no longer expands to all configured SSH profiles without explicit contract refs, exact requested refs are normalized to explicit refs, signed pending confirmations can execute without visible token text, incomplete action contracts no longer offer a run button, and recent-weeks/update product questions fall back to web freshness when no LLM freshness decision is available.
-- Fixed the Chat Prompt Queue overflow on long waiting lists: more than two queued/pending entries now collapse into a compact queue header with an explicit show/hide toggle, so the chat remains visible while ARIA is busy.
-- Removed P0 legacy semantic authority from the agentic front path: local capability fallback drafts, local fallback learning, deterministic unified-routing starts without authoritative drafts, the early runtime-task fastpath before Meta/AriaTurn, fleet expansion from sampled meta refs, and SSH scope group expansion from prompt seed terms no longer decide route, target scope, or tool choice.
-- Kept P0-safe boundaries intact after the authority removal: explicit SSH refs still block contradictory multi-target runtime, SSH service probes require command/allowlist evidence, file paths are normalized or blocked at the contract boundary, WebSearch with zero sources stops before free-form answers, and inventory can still expose host/IP evidence.
-- Cleaned the unbuilt post-`alpha526` agentic repair workspace against the Agentic Coding Manifest: removed RSS/Web overrides by update-word lists, IP/server inventory overrides, dev-scope marker filtering, product-family/Amazon/Rabbit WebSearch special filters, and fleet detection by word list.
-- Kept the post-`alpha526` fixes that are boundary checks instead of meaning heuristics: SSH service-status probes require command/allowlist evidence, WebSearch with zero sources stops before free-form final answers, file paths are normalized or blocked at the action contract, explicit SSH refs block contradictory multi-target runtime, and inventory can expose host/IP evidence.
-- Fixed post-`alpha523` to post-`alpha526` live-export regressions in workspace where the fix is a manifest-compliant contract, validation, fallback, or observability boundary rather than a prompt-specific router rule.
-- Fixed a post-`alpha521` SSH scope edge where a concrete meta-catalog `explicit_ref` such as `ops-alert-01` for "monitoring server" could still be overridden by the later plural-target scope phase and expand to the full SSH fleet.
-- Hardened the AriaTurn meta-catalog seed contract after `alpha520` live testing: SFTP file questions now seed explicit file operations and extracted remote paths instead of passing the whole user prompt as `path`, and SSH singular catalog targets no longer expand to multi-target execution without explicit fleet wording.
-- Hardened Runtime Target/Path contracts after `alpha519`: SFTP/File-Read payloads no longer execute a whole user prompt as a remote path, and SSH health-style multi-target expansion now requires explicit fleet wording instead of expanding concrete singular targets such as "monitoring server".
-- Fixed Learned Recipe promotion affordances so side-effect capabilities such as Discord, webhook, email, MQTT, and side-effectful file writes remain review-only/context-only instead of being shown as directly stored-recipe-promotable.
-- Fixed the Agentic Operator Trace export follow-up for confirmed actions whose exported detail block contains only execution details plus web/browser timings: `Ausgeführt via ...` detail lines can now produce `operator_trace phase=runtime` without requiring a preceding `Routing Debug:` action line.
-
-## [0.1.0-alpha511] - 2026-07-09
-
-### Public Release Candidate Notes
-
-- Prepared the post-`0.1.0-alpha437` public release line by consolidating the user-facing feature set: graphical Memory browser, Notes workspace improvements, Auto-memory and agentic learning UI, generated navigation, Chat Prompt Queue, visible pending confirmations, Agentic Operator Trace, stronger document inventory answers, web freshness source discipline, and safer multi-target runtime routing.
-- Refreshed public-facing help coverage for Chat & Queue, Navigation & Menus, Notes, and the Agentic Operator flow so new capabilities are documented from the end-user perspective before the next public push.
-- Published as public `0.1.0-alpha511` after internal `alpha511` validation; GitHub and Docker publication use the matching `v0.1.0-alpha.511` / `0.1.0-alpha.511` release line.
-
-### Added
-
-- Added the completed graphical Memory browser as an internal Qdrant/Memory maintenance and debug tool. It combines structure navigation, inspector drilldown, collection/document/entry/chunk hierarchy, point-level semantic proximity, deletion actions for chunks/points/documents, fullscreen support, iOS/touch handling, panbars, saved structure preferences, and organic graph physics.
-
-### Changed
-
-- Built internal `0.1.0-alpha511` local image/TAR for the Public Release Readiness slice: release draft, refreshed help/wiki/i18n coverage, and mobile queue polish; public release remains `0.1.0-alpha437`.
-- Built internal `0.1.0-alpha510` local image/TAR for the product freshness official-source follow-up and post-`alpha509` full-suite fixes; public release remains `0.1.0-alpha437`.
-- Improved current/latest product-line web searches so single product families can add official manufacturer/store/compare sources, while leak, rumor, and future-model sources are demoted for current availability claims.
-- Built internal `0.1.0-alpha509` local image/TAR for Pending Confirmation Queue UX and the all-Linux full-fleet SSH scope follow-up; public release remains `0.1.0-alpha437`.
-- Hardened Pending Confirmations in Chat Prompt Queue: confirmation-required actions now stay visible as their own queue/action item with waiting or expired status plus run, plan-again, and discard actions, without bypassing guardrails or executing automatically.
-- Built internal `0.1.0-alpha508` local image/TAR for the server disk-capacity runtime fastpath and reusable local agentic prompt-test protocol; public release remains `0.1.0-alpha437`.
-- Built internal `0.1.0-alpha507` local image/TAR for the HTTP API health fastpath, product-comparison freshness tweak, and Agentic Runtime Result Contract v1; public release remains `0.1.0-alpha437`.
-- Added Agentic Runtime Result Contract v1 for multi-target SSH execution details: runtime records now emit a generic result contract with task intent, command profile, target/record/state counts, assumption or threshold, notable targets, and confidence, and Operator Trace prefers that contract as the visible `result` phase.
-- Built internal `0.1.0-alpha506` local image/TAR for the Agentic Source Discipline / Action Contract follow-up; public release remains `0.1.0-alpha437`.
-- Tightened current/latest product web answers so official vendor, release-note, documentation, and comparison sources dominate when available, while rumor, deal, news, and future-model sources are kept out of the answer context unless the user explicitly asks for them.
-- Hardened connection action contracts so SSH/RSS action requests selected by the meta catalog cannot fall through to a plain inventory answer just because the action list is empty.
-- Built internal `0.1.0-alpha505` local image/TAR for the Agentic Contract Trace follow-up; public release remains `0.1.0-alpha437`.
-- Documented Chat Prompt Queue v1 as an accepted workflow improvement after the internal `0.1.0-alpha504` test/build: users can keep submitting prompts while ARIA is busy, then edit, remove, and reorder queued prompts before sequential execution. Mobile/iOS support is expected from responsive CSS, with future polish reserved for replacing the current browser `prompt()` edit dialog if needed.
-- Built internal `0.1.0-alpha504` local image/TAR for Chat Prompt Queue v1; public release remains `0.1.0-alpha437`.
-- Added Chat Prompt Queue v1: the chat composer can accept prompts while a response is running, keep waiting prompts in a per-tab FIFO queue, and let users edit, remove, or reorder not-yet-started prompts before sequential execution.
-- Built internal `0.1.0-alpha503` local image/TAR for the Docs inventory evidence follow-up; public release remains `0.1.0-alpha437`.
-- Fixed Docs inventory answers so `document_inventory=True` results are treated as document metadata evidence instead of being discarded by the normal search-term evidence filter.
-- Built internal `0.1.0-alpha502` local image/TAR for the Web freshness contract follow-up; public release remains `0.1.0-alpha437`.
-- Fixed Meta-Catalog/AriaTurn web context requests so `web:search` requests execute the web search runtime even when the high-level intent is only `chat`, and final web-backed answers receive freshness instructions.
-- Built internal `0.1.0-alpha501` local image/TAR for the Docs inventory follow-up; public release remains `0.1.0-alpha437`.
-- Fixed document-store inventory questions phrased as stored/archived content so they request document inventory instead of answering from only the top semantic chunks.
-- Built internal `0.1.0-alpha500` local image/TAR for Agentic Operator Trace v1.1 contract propagation; public release remains `0.1.0-alpha437`.
-- Extended Agentic Operator Trace observability so existing policy/preflight result lines become a generic `policy` phase, aggregate runtime timing lines are preferred over per-target runtime traces, summary timing is recognized by shape, and existing `target_intent` / `task_intent` contracts are preserved into multi-target runtime outcomes.
-- Built internal `0.1.0-alpha499` local image/TAR for the first Agentic Operator Trace slice; public release remains `0.1.0-alpha437`.
-- Added an Agentic Operator Trace debug contract that normalizes existing routing/runtime detail lines into stable phases for understanding, context, draft/policy, runtime, result, summary, and review-only learning. The trace is observability-only: it does not add semantic routing rules, prompt special cases, or new action decisions.
-- Applied the HTTP API action contract before generic capability runtime execution, so configured health/status requests are normalized through the existing policy boundary before execution and mutating/confirmation-required HTTP API requests stay blocked from direct runtime execution.
-- Built internal `0.1.0-alpha498` local image/TAR for the completed navigation follow-up; public release remains `0.1.0-alpha437`.
-- Accepted the internal `alpha498` UI navigation follow-up after user live-testing on a real ARIA instance with live data; the menu/UI tweak block is considered closed.
-- Built internal `0.1.0-alpha497` local image/TAR for the current Auto-memory, navigation, Appearance, Admin Mode, and final UI-polish changes; public release remains `0.1.0-alpha437`.
-- Polished the generated navigation and hub pages: active states are quieter, Settings/Admin/Connections hubs are denser, Connections no longer acts as a status dashboard, Admin Mode is presented as `Extended view`, and long menu/help labels wrap more safely on mobile.
-- Built the navigation follow-up in `alpha498`: `_section_nav.html` now renders through a central context navigation registry, header menus stay stable per section instead of switching into subchapter navigation, `/config`, `/config/persona`, and `/recipes` hub cards are generated from the same registry instead of hard-coded template links, `/config` now renders one card per meaningful Settings destination instead of a self-link card, Settings subpages keep the Settings main nav, Admin subpages keep `Admin` plus four stable real group pages (`/config/admin/config`, `/config/admin/recipes`, `/config/admin/memory`, `/config/admin/operations`) instead of hash anchors, each Admin group page renders only its own block while `/config/admin` remains the full overview, the global account menu no longer has a separate Admin overview entry, Settings becomes a real account-menu submenu with Admin inside it when Extended view is active, Admin is only exposed from `/config` when Extended view is active, `/recipes` is a real Recipes section hub and `/recipes/mine` is the explicit saved-recipes worklist, `/recipes/learned` stays the normal Recipes view while Admin maintenance moved to the distinct `/recipes/learned/maintenance` URL, the navigation registry now has regression tests against duplicate href ownership, wrong header-context switches, and wrong Admin menu exposure, System recipes stay in Admin navigation, Admin config pages no longer show Settings nav plus a second right-side Admin return link, Activities uses Admin navigation chrome, Auto-memory now has its own `/memories/auto-memory` page instead of an anchor inside technical Memory setup, Operations no longer duplicates the Updates entry, and Memory maintenance is no longer duplicated on the Admin overview.
-- Refined the Recipes surface over the alpha UI work: saved recipes now live explicitly at `/recipes/mine`, `/recipes` is the Recipes section hub, New/Templates remains the combined creation/import/template entry point, Learned Recipes remains the review surface, and System recipes stay in the Admin maintenance context.
-- Combined new recipe creation, JSON import, and template import on the New/Templates page while keeping `/recipes/templates` as a compatibility route.
-- Reduced Recipes UI terminology drift by making visible labels recipe/template-first instead of skill/sample-first, and collapsed the Learned Recipes process explanation behind a compact help disclosure.
-- Added a clearer global Admin section in the authenticated menu: daily work areas stay separate from Admin Mode links such as system recipes, learned-recipe maintenance, Memory import/maintenance, connections, stats, activities, and updates, while the Admin Mode toggle remains reachable even when Admin Mode is off.
-- Hid advanced Config hub/subnav entries when Admin Mode is off, keeping the access/admin-mode path visible so users can re-enable administration without hunting through hidden tools.
-- Collapsed the global Admin section into one Admin submenu so the account menu stays compact while still keeping all admin destinations available on demand.
-- Moved Updates back into the normal user-facing navigation and grouped technical Config destinations under an Admin submenu, so `/config` stays focused while updates are not treated as an Admin-only destination.
-- Moved Statistics back into the normal user-facing navigation because usage and cost overview are useful outside Admin Mode.
-- Removed Memory Import from the global Admin submenu because document import is a normal Memory workflow reachable from the Memory area.
-- Added a dedicated, collapsible-section `/config/admin` hub and shared Admin navigation source so the global Admin submenu and Admin page stay consistent while `/config` shows only one Admin entry.
-- Simplified Config/Help chrome: technical Config subpages now link back to the Admin overview, contextual help blocks are compact links into the Help system instead of inline explanations, and visible German labels use recipes/templates/connections wording more consistently.
-- Tightened the new Admin/Config layout for iPhone, iPad mini, and other narrow touch viewports with explicit wrapping, touch-target, and compact-help-link guards.
-- Reduced global menu nesting by replacing the Admin submenu with one direct Admin overview entry; the generated `/config/admin` page remains the single place for grouped technical destinations and now has a dedicated Memory section with direct Auto-memory & learning and Memory maintenance links.
-- Added user-facing Connections and Recipes entries to the Settings hub and Settings subnav so central workflows are reachable from `/config` without being hidden in Admin; Recipes is no longer duplicated as a separate global menu entry.
-- Kept Memory Import as a normal Memory-area user action while moving Memory Maintenance out of the Memory subnav and leaving it reachable through the Admin overview's Memory section.
-- Added parent navigation for moved areas: Recipes and Connections now link back to Settings from their subnavs, while Auto-memory setup and Memory Maintenance link back to the Admin overview.
-- Added a central hierarchical navigation registry and shared subnav renderer so Settings, Recipes, Connections, Memory, and Admin navigation are generated from one movable page tree instead of hard-coded per-template links.
-- Removed the Settings subnav from the Admin overview so `/config/admin` shows only the generated Admin sections instead of repeating normal Settings tabs.
-- Removed status summary tiles from the Settings overview because those operational signals belong in Stats, leaving `/config` as a quieter navigation hub.
-- Removed status summary tiles from the Connections overview because live connection signals belong in Stats or the dedicated Live Status page, leaving `/connections` as a quieter navigation hub.
-- Moved the Admin Mode toggle out of the global Areas menu and the Users page into a compact account-level Extended view control, backed by a narrow `/config/admin-mode` page that only manages this one option.
-- Kept Appearance and default Language settings user-accessible when Admin Mode is off, while leaving Prompt Studio and language-file editing behind Admin Mode.
-- Added a direct `/memories/create` page and Memory subnav entry for creating a manual memory, so the create flow is no longer hidden below Document Import.
-- Added combined Appearance theme sets that choose a matching theme palette and background image together while keeping the individual Theme and Background selectors available for manual fine-tuning.
-- Clarified Auto-memory as Auto-memory & agentic learning: the new `/memories/auto-memory` page separates status, user-facing effects, help link, and advanced extraction details, and the chat/status entry points link directly to that page.
-- Simplified the Learned Recipes page further with a compact summary strip, collapsible filters/sorting, flatter review rows, and admin-only process, contract, learning, curator, promotion, dismiss, and delete details tied to Admin Mode.
-- Notes can now be moved directly from the board cards or the editor into another existing folder or back to Inbox. The move updates the Markdown source path/frontmatter and reindexes the note so the Qdrant Notes collection follows the new folder.
-- Added a dense Notes list view with multi-select bulk move, so existing notes can be organized across folders without opening each card one by one.
-- Added a compact clickable breadcrumb path to the Memory browser inspector so users can jump back to root, type, collection, or document context without hunting in the graph.
-- Consolidated Memory browser inspector selection handlers into shared state helpers, reducing duplicated navigation logic between collection, document, chunk, and entry drilldowns.
-- Simplified the unified Memory browser context model so structure navigation, inspector drilldown, and semantic proximity all derive availability from the same current point context instead of scattered special cases.
-- Tightened the Memory browser fullscreen layout so the graph/inspector workspace uses more of the viewport and the semantic viewport follows the same compact fullscreen sizing as the structure graph.
-- Stabilized the Memory browser as the primary graphical view for browsing and maintaining ARIA's Memory stores. Import and technical maintenance flows stay on separate pages so the browser can remain focused on reading, navigating, inspecting, and selectively deleting Memory data.
-- Refined the Memory section into clearer `Memory`, `Import`, and `Maintenance` areas. The Memory view is now a focused graphical browser for stores, documents, chunks, and semantic proximity, while upload and technical maintenance actions live on separate pages.
-- The Memory browser now keeps structure and semantic proximity as modes of the same browser space. Structure view auto-fits the graph to the available viewport and includes zoom, fit, and center controls for deeper drilldowns.
-- Structure mode now uses the same round-node SVG graph language as semantic proximity, so switching modes feels like staying in one browser instead of jumping between unrelated layouts.
-
-### Fixed
-
-- Fixed the no-LLM action-planner fallback so stored recipe candidates do not make a clear built-in template action look ambiguous when ARIA has no LLM client available.
-- Fixed SSH follow-up routing so a reconstructed current-target SSH prompt is not preempted by generic stored recipe arbitration.
-- Fixed all-scope SSH target narrowing so prompts like "all Linux servers" keep the full SSH fleet when only OS/runtime words are present, while true groups such as dev, DNS, or management can still narrow normally.
-- Fixed expired or invalid routed-action confirmation feedback so the user gets a recovery hint to plan the action again or discard the pending confirmation.
-- Fixed plural server disk-capacity questions so an LLM-selected `capacity_check` capability draft can use the runtime-task SSH fastpath instead of falling through to unrelated local document search; exact single SSH refs still stay on the normal single-target path.
-- Tightened web-backed product comparison answers so ARIA separates model-specific improvements from carried-over, ecosystem, or software-only features and only presents a change as "more than the old version" when the provided sources support that comparison.
-- Suppressed stored-recipe arbitration for clear HTTP API status/health capability drafts, so configured single-profile health checks can stay on the local `health_path` contract without an unnecessary `recipe_execution_intent` LLM call.
-- Added Agentic Contract Trace follow-up: current/latest public product comparison questions can override an accidental local Docs-only meta-catalog match and route to WebSearch, `context_packet` debug lines now summarize requested/loaded/empty/missing context per TurnPlan, and `answer_contract` debug lines expose source-bound answer status before direct or empty context answers.
-- Removed the extra `Puke Unicorn` theme decorator and theme-specific background pattern layers so the selected background image is the only visual background source for that palette.
-- Fixed Memory browser structure-node dragging so moved nodes become soft simulation anchors instead of snapping back to their old layout positions; connected neighbor nodes now receive a small settling impulse and drift with the dragged node.
-- Persisted Memory browser structure view options in local browser storage and widened the spacing, clustering, and attraction ranges for stronger layout tuning.
-- Fixed the Memory browser fullscreen header layout so the ARIA brand, browser title, and mode controls share one coherent header row instead of overlapping separate header blocks.
-- Fixed detached fullscreen semantic Memory views so document, chunk, and entry focus are preserved instead of falling back to structure mode.
-- Reworked the Memory browser fullscreen header into a compact topbar and added touch/iOS fallbacks so the graph and inspector get more usable height without cramped controls.
-- Replaced the earlier fullscreen right-rail title placement with the compact topbar layout so the header stays coherent across graph and inspector.
-- Fixed fullscreen semantic Memory graph clipping by allowing the SVG layer to render labels and shifted nodes beyond its internal viewBox edge.
-- Fixed the Memory browser fullscreen brand mark by rendering the actual ARIA logo image plus its overlay, instead of an invisible overlay-only logo.
-- Fixed theme collisions in Memory browser controls and inspector drilldown lists so broad theme button styles no longer turn browser navigation into oversized accent bars.
-- Fixed semantic proximity availability for collections/documents that already expose concrete entries/chunks in the inspector: semantic proximity is offered from the current visible point context, while higher summary levels remain structure-only.
-- Changed Memory browser semantic proximity into a point-level view: the semantic mode tab stays hidden on pure summary levels, appears when the current inspector level exposes concrete chunks/entries, and no longer exposes the global semantic collection overview inside the unified browser.
-- Fixed Memory browser semantic-mode state handoff: inspector navigation now keeps the semantic browser active, focuses the selected collection/entry/chunk in the Qdrant Brain view, clears stale semantic detail on the entry page, and restores the ARIA brand mark in fullscreen.
-- Reduced semantic overview label collisions by spreading collection nodes into a wider organic cloud with quieter overview labels, without changing the normal semantic point-graph layout.
-- Changed the Memory browser semantic entry overview from a forced column list into an organic collection cloud, and removed the temporary semantic overview fit experiment so the real semantic point graph logic stays isolated.
-- Fixed the Memory browser semantic switch so it no longer falls back to a global semantic root view when the current drilldown collection cannot be focused in the Qdrant Brain graph. Semantic proximity is only offered when the current collection can actually be shown.
-- Fixed semantic availability for document collections by prioritizing document graph points in the Qdrant Brain sample used by the Memory browser.
-- Fixed the Memory browser `Center` control so it recenters the current structure zoom level instead of resetting back to fit mode.
-- Added drag-to-pan for the structure graph stage so zoomed drilldowns can be moved directly with the pointer.
-- Fixed the Memory browser structure source so it shows all Qdrant collections from the live collection overview instead of only user-memory recall targets.
-- Fixed structure drilldown navigation so clicking a node focuses, centers, and zooms that node instead of returning to the full-map overview.
-- Fixed document-store counts in the Memory browser so non-document collections such as recipe experience or self-learning stores are not mixed into document totals.
-- Moved Self-Learning out of the user Memory view and into Maintenance, keeping review and worker tooling separate from read-only browsing.
-- Fixed structure graph interaction so nodes can be dragged like the semantic graph and connected edges update while dragging.
-- Kept the Memory node inspector visible in fullscreen as a compact detail strip below the graph.
-- Added cursor-centered mouse-wheel zoom and two-finger pinch zoom to the Memory structure graph.
-- Moved the Memory fullscreen inspector into a right-side detail rail on wide windows.
-- Added an automatic force-layout relaxation pass to the Memory structure graph so opened collections, documents, and chunks self-organize into clearer clusters.
-- Fixed fullscreen semantic proximity for focused document stores so the selected collection is carried into the Qdrant Brain graph sample and document chunks remain visible instead of falling back to a sparse/global semantic view.
-- Broadened Qdrant Brain sampling across ARIA collections so semantic proximity is also available for non-document stores such as Notes when they have visualizable vector-backed points.
-- Changed the Memory structure graph from a static post-layout cleanup to a live force simulation that continues to settle nodes and reheats after drag interactions.
-- Fixed semantic proximity detail panels so focusing a collection selects a real point immediately and falls back to readable label/meta previews when payload text is sparse.
-- Fixed embedded semantic proximity graph scoping so clicking a node updates the detail panel belonging to that graph instance, including fullscreen/document-store views.
-- Added compact Memory structure view options for spacing, clustering, and attraction, and made node focus less aggressively centered so open graphs use the available space better.
-- Fixed semantic proximity document chunk nodes so chunk points are labelled and detailed as chunks instead of appearing as the parent PDF, and exposed spacing, clustering, and attraction controls in the semantic graph/fullscreen view.
-- Fixed semantic proximity node details so clicked document chunks render as `Chunk N` with the actual chunk excerpt in the inspector, not as the parent PDF.
-- Added a Memory structure `Expand all` control that opens all currently known graph levels at once; centering now preserves the expanded graph state.
-- Adjusted Memory structure graph placement so relaxed node clusters are shifted into the usable middle of the stage instead of hugging the upper edge.
-- Improved Memory structure fitting so `Fit` uses the visible node bounds rather than empty graph canvas space, making open graphs use the available viewport more evenly.
-
-## [0.1.0-alpha437] - 2026-06-30
-
-### Changed
-
-- Continued the agentic runtime cleanup by moving runtime-outcome follow-up handling out of the main pipeline into a focused resolver module, reducing the size of the central pipeline without changing the public routing contract.
-- Feedback learning from chat is now queued through the Learning Worker instead of being awaited directly in the web request, reducing avoidable wall time after user feedback.
-- Clear multi-target runtime tasks, such as server package update checks, can use a bounded capability-draft fast path before the Meta-Catalog call while still going through the existing confirmation, policy, and execution guardrails.
-- Web Search is more robust when SearXNG primary queries time out: official supplemental queries are best-effort and no longer discard otherwise valid primary results.
-
-### Fixed
-
-- Fixed broad uploaded-document inventory questions so ARIA loads the selected document store inventory instead of answering from only one or a few semantically selected document IDs.
-- Fixed corpus-wide uploaded-document substance checks when the Meta-Catalog narrows the query to one promising document. ARIA now preserves the original user prompt as a scope signal, keeps the selected document collection, and performs an exhaustive corpus scan before answering.
-- Fixed document corpus scans so explicit target collections are passed through the surface loader, recipe runtime, and Memory skill consistently, preventing unrelated documents or recipe-experience records from entering source-bound document answers.
-- Fixed a runtime-follow-up edge where a previous package-update frame could keep influencing a later, unrelated document question.
+- **The public upgrade path must work through the browser or managed updater first.** Normal users should not need to hunt for Docker containers, patch Compose files, or run unclear recovery commands after updating. `/updates`, `aria-setup upgrade`, and `./aria-stack.sh update` are the intended paths. Raw Docker commands belong in admin or recovery documentation only.
+- **No silent data or volume deletion.** Config, prompts, notes, recipes, auth data, memory, document data, and Qdrant collections must not be deleted, moved, or reinitialized during the public architecture jump unless a dedicated migration step clearly explains the change and asks for confirmation first.
+- **SearXNG is an explicit stack-migration decision.** The application no longer relies on the old SearXNG profile path, but existing public stacks may still contain `searxng` and `searxng-valkey` sidecars. Recommended policy for the first public architecture jump: do not remove these sidecars automatically. Leave them as legacy/inert services and move ARIA to provider web tooling. Removing them later should be an opt-in helper with dry-run output, health checks, and rollback guidance.
+- **Any script that stops, removes, or recreates services must say so first.** A future SearXNG cleanup or Compose-layout migration must show affected services, affected volumes, what will be kept, what will be removed, which backups or hashes exist, and where the operation can still abort before mutation.
+- **Provider and web-tooling readiness must be visible.** Before a public release candidate, ARIA needs a clear UI/documentation path that tells operators whether an LLM with web tooling or managed web search is configured. If the capability is missing, current-fact and web questions must be limited or fail closed instead of sending users into SearXNG troubleshooting.
+- **Open public release-candidate gates.** Before the next public release, an upgrade pack must cover managed setup upgrade, host-update dry-run, Compose config, passive HTTP routes, config backup/restore readpoints, provider/web-tooling messaging, SearXNG legacy behavior, and no-data-deletion checks. Matrix: `.codex/aria_acceptance/public-alpha604-to-alpha807-upgrade-transition.json`.
 
 ### Upgrade Notes
 
-- Normal managed installs should use `/updates` or `./aria-stack.sh update`.
-- Fixed-tag installs can use `fischermanch/aria:0.1.0-alpha.437`.
-- Normal updates should recreate only the `aria` service and keep Qdrant, SearXNG, Valkey, and persistent volumes untouched.
-
-## [0.1.0-alpha433] - 2026-06-30
-
-### Fixed
-
-- Fixed exhaustive uploaded-document corpus scan answers when the searched substance itself has zero matches but supporting context terms such as "ingredient" or "composition" have matches. ARIA now keeps per-term scan evidence and can answer from the corpus coverage without overclaiming from a single retrieved document.
-- Added a source-bound fallback for exhaustive document scans so an invalid answer-composer response no longer degrades to "matching passages found" when the primary searched term was not found.
-
-## [0.1.0-alpha432] - 2026-06-30
-
-### Fixed
-
-- Fixed corpus-wide uploaded-document questions when the Meta-Catalog selects the structured document-corpus scope (`local|docs|documents`) but labels the context depth as shallow. ARIA now treats that selected scope as sufficient evidence-policy signal to require a document corpus scan before answering.
-- This keeps "is this term in any uploaded document?" answers source-bound to corpus coverage instead of allowing a single semantically retrieved document excerpt to answer for the whole uploaded-document set.
-
-## [0.1.0-alpha431] - 2026-06-30
-
-### Fixed
-
-- Fixed deep document corpus scans for explicitly selected named document collections. When document guides or document metadata select a custom uploaded-document collection, the exhaustive scan now treats that selected collection as the allowed source scope even if the collection name is not a plain `aria_docs_<user>` slug.
-- Deep document searches now retry the corpus scan after guide selection when the pre-guide scan cannot find an accessible corpus, so source-bound answers over named upload collections no longer fall back to semantic top-k snippets only.
-- Added debug visibility for the deep document corpus-scan request in the context ledger.
-
-## [0.1.0-alpha430] - 2026-06-30
-
-### Fixed
-
-- Tightened deep source-bound document searches over uploaded document collections. When the LLM-selected document plan asks for deep docs context, ARIA now requests an exhaustive document corpus scan before semantic top-k snippets can answer, preventing generic section/ingredient wording from masking that the specific searched term was not covered by the retrieved excerpts.
-- The deep document corpus scan remains part of the docs evidence policy, not a deterministic router: the Meta-Catalog still chooses the docs/deep context contract, and the Memory skill then proves corpus coverage before source-bound answers can claim presence or absence.
-
-## [0.1.0-alpha429] - 2026-06-30
-
-### Fixed
-
-- Fixed source-bound negative document-search answers. When a docs-only recall does not retrieve chunks that actually contain the query evidence, ARIA now performs an exhaustive literal scan across the selected uploaded document chunks and records how many documents/chunks were scanned before allowing a negative answer.
-- Document corpus scans now report per-term coverage and source details for every scanned document, so answers such as "not found in the uploaded documents" are backed by explicit scan coverage instead of only a semantic top-k miss.
-
-## [0.1.0-alpha428] - 2026-06-29
-
-### Fixed
-
-- Fixed source-bound document inventory questions over uploaded document collections. When the Meta-Catalog selects multiple document metadata entries, ARIA now carries document IDs, names, and target collections into the context loader and loads the document metadata inventory directly instead of falling back to a semantic chunk recall that could return only one matching document.
-- Fixed a Pre-RAG SSH target recovery edge case where a semantically resolved SSH profile could still leave stale `missing_parameters` safety/execution state behind, causing ARIA to ask for a profile even after resolving the target.
-
-### Changed
-
-- Document inventory recall now uses existing document guide/catalog metadata and skips the embedding/chunk-search path for these list-style document requests, making answers both more complete and cheaper for "what documents do I have?" style prompts.
-
-## [0.1.0-alpha427] - 2026-06-29
-
-### Changed
-
-- Moved StageTiming detail-line insertion into `aria.core.stage_timing` while keeping the existing context-runtime delegate, reducing debug/timing helper code inside the agentic runtime mixin without changing routing behavior.
-- Consolidated repeated agentic operation refresh handling in `pipeline.py`. File, message, and read operation refinement now share template-operation refresh, draft hydration, and payload/safety/execution debug rebuilding while keeping their own eligibility and completion rules.
-- Began the large routed-action monolith reduction with characterization coverage and small helper cuts. Requested/plural connection scope, explicit-ref resolution, and single-RSS profile handling now have focused helpers while `_resolve_unified_routed_action` remains the orchestration point.
-- Added `aria.core.forced_resolution_builder` for forced routed-action finalization, forced-record attachment, retry on `missing_fields == ["connection_ref"]`, and kind-only fallback while `pipeline.py` keeps compatibility delegates.
-- Added `RoutedActionDebugBuilder` to centralize routed-action detail-line merging, routing-record attachment, and connection-candidate debug serialization while preserving the existing Pipeline compatibility delegates.
-- Added `ConnectionRefScope` to normalize requested/explicit connection refs from drafts and payloads before routed-action gates, guards, RSS single-profile selection, and explicit-ref handling consume them. This is a hygiene/modularization slice only; routing semantics and debug field names are unchanged.
-- Added an initial `RoutedActionResolver` request/callback service boundary and routed the Pipeline pre-RAG action gate through it while keeping `_resolve_unified_routed_action` as the compatibility implementation. The resolver now owns the routed-action request prelude, initial routing-chain/no-LLM fallback, and early candidate-pool outcomes without changing routing behavior.
-- Extracted the chain-complete routed-action rebuild path from `_resolve_unified_routed_action` into a focused Pipeline helper, keeping plural SSH rebuild, path-hint rebuild, routing records, candidate debug, and requested-connection guard behavior intact.
-- Added the `SshTargetScopePolicy` preparation dossier, moved `SshTargetScopeDecision` into `aria.core.ssh_target_scope_policy`, and expanded the policy for SSH plural-target narrowing, agentic multi-target command preparation, and multi-target payload finalization. Direct tests cover requested single-target handling, requested-ref group expansion, `command_draft`, health/package-update command adaptation, and read-only multi-target non-finalization while `pipeline.py` keeps compatibility delegates.
-- Extracted routed-action memory/semantic hint resolution into `_resolve_memory_semantic_routed_action_hints`, keeping Memory Assist, semantic candidate resolution, semantic LLM refinement, routing records, planner-candidate selection, and draft hint-path hydration together behind a typed result while `_resolve_unified_routed_action` remains the orchestrator.
-- Split the memory/semantic hint path further into focused helpers for memory-hint debug, high-confidence semantic candidate override, deterministic semantic candidate selection, semantic-LLM selection, and SSH memory-hint revalidation, preserving the existing routing debug strings and decision-record stages.
-- Moved the routed-action memory/semantic hint decision helpers into `RoutedActionResolver`; `pipeline.py` now supplies Memory Assist results, semantic candidates, requested-ref matching, and draft hydration while the resolver owns the reusable hint decisions and direct unit coverage.
-- Extracted routed-action forced-ref, RSS semantic-refine, and kind-only fallback resolution into `_resolve_forced_or_kind_only_routed_action`, preserving requested-ref blocking, plural target context handling, kind-only routing records, candidate debug, and forced-resolution finalization while further reducing `_resolve_unified_routed_action`.
-- Moved the forced-ref tail decisions for plural-scope memory hints, requested-ref memory-hint blocking, requested-ref semantic rebinding, default single-profile selection, and RSS semantic refine into `RoutedActionResolver` while keeping Pipeline as the action orchestration adapter.
-- Routed forced finalization selection and the kind-only/plural-context fallback through `RoutedActionResolver`, leaving Pipeline with thin compatibility delegates to the existing forced-resolution builder, SSH plural preparation, candidate debug, and requested-connection guard callbacks.
-- Split the kind-only/plural-context fallback from `_resolve_forced_or_kind_only_routed_action` into `_resolve_kind_only_or_plural_context_routed_action`, keeping kind-only records, scoped SSH plural handling, multi-target payload preparation, candidate debug, and the requested-connection guard together in a smaller helper.
-- Moved SSH plural-finalizer eligibility and requested/plural-scope checks into `SshTargetScopePolicy`, leaving `pipeline.py` to delegate the decision before narrowing/preparing multi-target SSH actions. This is hygiene only; routing behavior and debug contracts stay unchanged.
-- Grouped routed-action build, SSH, semantic, and guard callbacks into named callback bundles for the forced/kind-only and kind-only/plural resolver paths, reducing long Pipeline-to-Resolver argument lists without changing behavior.
-- Completed the planned Pre-RAG/Capability action-gate cleanup with a local dossier, seeded Runtime Task Contract regression coverage, `_resolve_pre_rag_capability_draft`, `CapabilityActionResult`, shared Pre-RAG capability-result wrapping, `CapabilityActionInputs`, `CapabilityHintResolution`, and `CapabilityActionPreflightResult`. This is hygiene only; action routing, guardrails, and debug contracts stay unchanged.
-- Completed the planned `process()` orchestrator cleanup with a local phase dossier, `TurnExecutionState`, named process finalization, shared active-learning hint scheduling, `ProcessTurnContracts`, `ProcessActionRecipeStageResult`, `ProcessContextLoadResult`, `ProcessContextAnswerStageResult`, and `ProcessChatResponseStageResult`. This is hygiene only; stage timing, direct-context fast paths, learning hooks, and routing behavior stay unchanged.
-- Completed the planned Agentic Context Runtime cleanup by extracting answer composition and Docs/Notes fast-answer builders into `aria.core.context_answer_runtime`, moving TurnFrame persistence into `aria.core.context_runtime_state`, and moving active-learning hint recall into `aria.core.active_learning_hint_runtime`. Compatibility delegates remain on the mixin; no routing or answer semantics changed.
-- Completed the planned MemorySkill cleanup with a local responsibility dossier, `aria.core.memory_recall_helpers` for recall source-entry formatting/prioritization, `aria.core.document_memory_service` for document guide/store/delete flows, `aria.core.memory_admin_query_service` for read-only admin/search/graph queries, and `aria.core.session_compression_service` for old-session rollup orchestration behind the existing MemorySkill facade.
-- Started the Legacy/Fallback audit with a local dossier and classified remaining fallback paths as technical safety, migration adapters, no-LLM fallbacks, or removal candidates. Memory keyword fallback now emits a `Routing Debug: memory_keyword_fallback ...` detail line without changing recall behavior.
-- Tightened the Pre-RAG capability boundary so an out-of-bounds `capability_draft_decision` cannot fall through into local legacy SSH fallback routing.
-- Added Phase-9 fallback guardrails: meta-catalog low-confidence backup actions and unavailable-catalog backup chat now have regression coverage, local capability fallback drafts carry risk markers, and unknown `invalid:*` capability-draft states no longer enable local legacy fallback routing.
-- Extracted shared Context evidence helpers from `AgenticContextRuntimeMixin` into `aria.core.context_evidence`. Topic-term extraction, request-scope ignore terms, inventory matching, and normalized evidence text matching now live in a focused module with cached static term sets while existing runtime delegate methods keep compatibility.
-- Extracted the Context Surface loader boundary from `agentic_context_runtime.py` into `aria.core.surface_loader_runtime`, keeping the ARIA context mixin closer to orchestration and moving inventory/memory-exists loading into a dedicated runtime service.
-- Consolidated duplicated forced-connection resolution record building in `pipeline.py` behind a helper so the unified routed-action path has one implementation for attaching detail lines, routing records, and candidate debug metadata.
-- Promoted the bounded Mill WiFi Docs answer from fallback-only to a conservative source-bound fast path. When the selected document evidence clearly contains the Mill heater WiFi setup/troubleshooting instructions, ARIA can answer directly without the second Docs answer-composer LLM call, while unrelated or unsafe document content still uses the normal composer/fallback path.
-- Added a conservative Direct-Docs performance fast path for already source-bound document search results. Compact, verified `docs:search` answers can now skip the second answer-composer LLM hop, while large or ambiguous document content still falls back to the composer. The Meta-Catalog router payload was also slimmed by shortening per-candidate descriptive fields without reducing the candidate count.
-- Extracted document memory helper functions from `MemorySkill` into `aria.core.document_memory_helpers`. User slug normalization, document payload name/id extraction, document collection matching, document-meta collection detection, and payload user matching now live in a small shared helper module while `MemorySkill` keeps compatibility delegates.
-- Extracted RSS execution policy helpers from `pipeline.py` into `aria.core.rss_execution_policy`. `RssActionSelectionPolicy` now owns the exact-feed guard, single-RSS-profile selection, RSS group-bundle selection, digest-option note creation, and ambiguous-candidate refine checks while `pipeline.py` keeps compatibility delegates. This is a hygiene/modularization slice only; explicit RSS feed reads and broad RSS group digests keep their existing behavior.
-- Added a fast direct inventory-list answer for multi-source RSS/Connections inventory results so large local source lists stay as readable multi-line markdown and skip the answer-composer hop. The answer composer now preserves line breaks when it is used.
-- Added bounded routing diagnostics for ARIA turn arbitration and Meta-Catalog routing. Context ledger/debug lines now include routing payload bytes, system prompt chars, payload key count, and prompt/completion tokens without exposing prompt payload content.
-- Compact-serialized bounded decision payloads before sending them to the LLM, reducing routing/request bytes without changing the decision contract.
-- Added Multi-Target SSH timing diagnostics. Debug output now includes per-target runtime, summary operator/LLM timing, and aggregate preflight/execution/summary/remember/total timing with the slowest target, without changing SSH policy, guardrails, or target selection.
-- Added Web chat route timing diagnostics. Badge details now split post-pipeline handling and route preparation/history/follow-up/flow/history-append timing, and response headers expose template and cookie timing so browser-wall-time gaps can be attributed without changing answer or routing behavior.
-- Added an explicit WebSearch performance fast path. Standalone prompts that explicitly ask ARIA to search/research on the internet now skip the Meta-Catalog arbiter and the web-route follow-up rewrite LLM, while vague explicit web follow-ups can still be rewritten from recent chat context.
-- Added multi-target official WebSearch supplements for explicit current-product queries. Multi-product searches can now run product-specific official-source queries, so a prompt that asks for the latest Apple Watch Ultra and latest iPhone can surface both official product pages instead of letting one product dominate the result set.
-- Added source-bound target coverage hints to WebSearch results for multi-product queries. The final answer composer now sees one compact evidence row per detected product target, preventing one well-ranked product from causing another sourced product to be reported as missing.
-
-### Fixed
-
-- Strengthened the source-bound Docs fallback for Mill WiFi heater instructions. When the selected document/query metadata clearly identifies the Mill WiFi setup source and the retrieved evidence contains app, router/2.4GHz, or WiFi-button instructions, ARIA now returns concrete bounded steps instead of a generic safe-summary fallback after an invalid answer-composer response.
-- Restored explicit web-search routing after a Meta-Catalog plain-chat contract. When the user explicitly asks ARIA to search/research on the internet and Web/SearXNG is available, the existing freshness/web contract now normalizes the turn to `web_research`/`web_search` with source-bound evidence instead of falling through to a generic chat answer claiming ARIA cannot browse.
-- Reduced runtime follow-up latency for SSH path inspections. If the last runtime outcome contains a requested POSIX path and exposes `inspect_path`, ARIA now builds the read-only SSH inspect follow-up directly from frame evidence without the `runtime_outcome_followup_resolution` LLM hop; unrelated single-command turns fall through to normal Meta-Catalog routing instead of paying that follow-up LLM.
-- Kept SSH runtime path-inspection results source-bound in the visible answer. Directory inspection commands such as `du -h --max-depth=1 /tmp ...` and `ls -lah /tmp` are now summarized from their actual stdout instead of being misread as generic `df`/root-filesystem health checks.
-- Restored the agentic server-update correction path when the Meta-Catalog narrows a mixed RSS/SSH update turn to `rss_read_feed` even though SSH targets are present in the turn contract. The existing bounded `capability_draft_decision` can now recover the SSH package-update check without adding new keyword routers, and blocked memory hints are fully cleared before forced routed-action finalization.
-- Preserved Runtime Task Contract SSH target refs through the Pre-RAG action gate so recovered server-update checks remain multi-target instead of being narrowed by later plural-context alias matching.
-- Fixed the `alpha408` Docs answer fallback regression where a failed/invalid Answer Composer response could expose raw multilingual PDF chunks for `docs:search` answers. Source-bound Docs fallback now produces a concise bounded answer for the Mill WiFi heater setup case, or a clear safe source-bound fallback, instead of dumping raw retrieved chunks.
-- Kept explicit RSS feed reads bound to the requested feed ref instead of expanding them to a same-named RSS group. A prompt such as "lies den feed heise-security-alerts" now reads only that RSS profile even when several Heise feeds share the `Heise` group, while broad prompts such as "aktuelle security news aus rss" still use grouped RSS digests.
-- Normalized RSS Meta-Catalog contracts so RSS inventory questions stay on `connections:inventory` even when an unrelated document also matches words like "security" or "feed", and explicit read-only prompts such as "lies den feed heise-security-alerts" seed the executable `feed_read` path instead of falling through to empty `connections:action` context.
-- Made the blocked mutating SSH response explicit and short: ARIA now tells the user that Guardrail/SSH policy blocked the state-changing request and still does not replace it with a read-only probe.
-- Preserved runtime context after confirmed single-target SSH actions. Generic SSH command execution now emits a `RuntimeOutcomeFrame`, and immediate read-only follow-ups can be resolved from that frame before normal Meta-Catalog/Docs routing takes over.
-- Made runtime SSH path follow-ups more tolerant of bounded-LLM schema variants. If the LLM correctly selects a read-only runtime follow-up but returns an affordance variant or a kind-prefixed SSH target ref, ARIA normalizes that to the existing runtime outcome contract instead of falling through to unrelated Meta-Catalog/Docs routing.
-- Kept cited path follow-ups on the runtime SSH context even when the bounded follow-up LLM misclassifies the turn as a new Meta-Catalog request or omits the command. If the path is present in the previous runtime output and `inspect_path` is allowed, ARIA builds a read-only SSH inspect draft for the same target and still runs it through SSH policy and confirmation.
-- Treats the visible web chat history as first-class routing evidence. Recent user/assistant turns now flow from the chat route into `pipeline.process`, then into Meta-Catalog routing and the backup turn arbiter as `recent_visible_chat_context`; Meta-Catalog candidate recall also gets a contextual semantic query so elliptic follow-ups to visible SSH/action output can retrieve the referenced connection instead of drifting into unrelated Docs/Memory hits.
-- Preserved single-target scope for direct runtime SSH path follow-ups. A follow-up resolved from visible `RuntimeOutcomeFrame` evidence, such as inspecting `/tmp` after a confirmed single-host disk-usage command, now carries an explicit single-target note so later plural SSH scope handling cannot widen it to every SSH profile.
-- Improved WebSearch/SearXNG source quality for recency and current-product queries. ARIA now can run an additional official-source search for current product/version questions and ranks official manufacturer/product pages above news, shopping, and deal-style results while still preserving normal dated-news recency when no stronger official source exists.
-- Kept explicit internet-search requests on WebSearch even when the Meta-Catalog selects a read-only RSS feed action. A prompt such as "suche im internet ..." now normalizes RSS/feed action contracts back to the existing `web_research`/`web_search` contract instead of reading a topical RSS feed such as Apple Newsroom.
-
-## [0.1.0-alpha403] - 2026-06-26
-
-### Fixed
-
-- Added semantic asset aliases to the Docs Meta-Catalog so English manuals can answer German natural prompts without requiring the user to name the product. Document metadata now enriches heating/WiFi manuals with aliases such as `heizung`, `heizungen`, `heizgeraet`, `wlan`, and `wireless`, so a prompt like "wie kriege ich meine heizungen ans wireless?" can retrieve the Mill heater manual candidate even without the word "Mill".
-
-## [0.1.0-alpha402] - 2026-06-26
-
-### Fixed
-
-- Fixed a Doc Meta-Catalog user-scope mismatch that could hide active document metadata from the Meta-Catalog router. `document_meta_collection_for_user()`, Doc-Meta rebuilds, and Doc-Meta queries now normalize user ids to the same lowercase slug as Memory collections, so mixed-case runtime user ids still query the canonical document meta collection and match normalized payload user ids.
-
-## [0.1.0-alpha401] - 2026-06-26
-
-### Fixed
-
-- Hardened Meta-Catalog routing for natural how-to prompts that match an active user document but do not explicitly say "documents". Active document-meta candidates with lexical overlap are now reserved in the routing candidate set, and a read-only connection answer is normalized back to `docs:search` when a matching document-meta candidate exists. This keeps prompts such as "wie kriege ich meine heizungen ans wireless?" on the Mill manual instead of empty Homebridge/connection context.
-
-## [0.1.0-alpha400] - 2026-06-26
-
-### Fixed
-
-- Hardened Docs Meta-Catalog rebuilds for legacy uploaded document chunks whose stored `user_id` casing differs from the canonical user slug. User-scoped document collections now bootstrap catalog entries from mixed-case legacy chunk payloads, so existing uploaded manuals can be discovered by the Meta-Catalog without re-uploading.
-
-## [0.1.0-alpha398] - 2026-06-26
-
-### Fixed
-
-- Hardened the public update checker after the `alpha397` corrective release. When the GitHub Tags API is rate-limited and the raw `main` changelog is still cached, ARIA now falls back to GitHub's releases Atom feed before using the changelog-only fallback, so future update checks can still discover the newest public prerelease.
-
-## [0.1.0-alpha397] - 2026-06-26
-
-### Added
-
-- Added a versioned Docs Meta-Catalog backed by `aria_doc_meta_<user>` collections. Document uploads now rebuild a per-user catalog from existing document guides, keep the active and previous build in the same collection, leave the old active build intact on rebuild failure, and feed active document-meta hits into the Meta-Catalog router so prompts such as wireless heating can select `docs:search` without the user explicitly saying "documents".
-- Hardened the Docs Meta-Catalog migration path for existing document stores. Rebuilds now synthesize catalog entries from legacy document chunks when no document guide exists, discover users from document collections/payloads, and run during startup maintenance so upgraded installs can route old manuals into `docs:search` without a re-upload.
-
-## [0.1.0-alpha394] - 2026-06-26
-
-### Changed
-
-- Added a presentation-stability contract slice after `alpha391`. Broad SSH fleet prompts with a confirmed multi-target objective can expand Meta-Catalog sample targets to the full configured SSH fleet, connection inventory questions such as "what security feeds do I have?" are normalized away from feed-read actions into `connections:inventory`, and simple Notes overview questions can return a source-bound note list without the extra answer-composer LLM hop.
-- Adjusted the Chat viewport UI after `alpha393`. The scroll-to-latest arrow is now anchored inside the message pane instead of the full chat shell, and small iPhone layouts keep a usable minimum message history area instead of collapsing the prompt/answer list when Safari reports a tight visual viewport.
-- Tightened the Notes inventory fast path after the `alpha392` live smoke. Notes evidence now uses the shared topic-term extraction, and the fast source-bound note list filters loaded hits by the real topic so similar ARIA/A.R.I.A. notes are not listed for an AREA41 query.
-- Fixed Meta-Catalog action preflight for seeded action contracts whose merged intents include `context_inventory`. A valid Meta/Turn action seed now bypasses the free pre-RAG chat-intent filter, so mixed connection contracts such as disk-capacity checks can produce an executable SSH preflight instead of failing closed with `capability=-`.
-- Hardened Meta-Catalog target propagation for SSH server-update action contracts. Meta-selected SSH targets are now carried as structured `CapabilityDraft.connection_refs` and bound before free alias/context single-target resolution, preventing a selected multi-target server update check from being narrowed to an unrelated SSH profile.
-- Hardened mixed Meta-Catalog action contracts for server update checks. If a Meta-Catalog action contract includes RSS advisory sources and SSH server targets, but the action IDs are missing or mixed, ARIA now seeds the SSH multi-target action from the selected SSH targets instead of executing the first RSS feed as the terminal action.
-- Added a runtime task/outcome contract for server update checks. Meta-Catalog answer routes over connection context can now be overridden by a bounded runtime task decision when the user is asking for an operational SSH package-update check, and multi-target SSH executions store a structured runtime outcome frame so follow-ups such as "which packages from those are most important?" answer from the previous `apt list --upgradable` results instead of falling into connection inventory.
-- Fixed the `alpha388` docs-only contract propagation gap in the normal SkillRuntime path. `RecipeRuntime.run_skills()` now forwards `docs_only=true` to MemorySkill recall, so `docs:search` cannot silently fall back to fact/preference/knowledge/learning recall after the Meta-Catalog selected the Docs surface; a focused regression test covers this path.
-- Fixed the post-`alpha386` docs-source isolation gap: `docs:search` now runs MemorySkill in docs-only mode, excludes normal fact/preference/knowledge/learning recall targets, and accepts direct docs answers only when the evidence source is an actual document collection/source.
-- Hardened the Meta-Catalog inventory/source contract for `alpha386`. Broad inventory questions now stay on surface-level `connections:inventory` with catalog IDs carried only as hints unless an exact ref is explicitly bound, source-bound evidence is forced whenever local/catalog context is loaded, inventory SkillResults are merged before the LLM-first answer composer, explicit document/note/memory source requests force the matching surface, and Inventory Reindex moved into the Memory menu as Memory Reindex.
-- Switched the Strict Meta-Catalog Contract gate to soft mode by default for `alpha385`. The contract instrumentation (`contract_mode`, `evidence_policy`, richer follow-up state, and evidence packets) remains active, but invalid strict contracts no longer block the route unless `routing.meta_catalog_strict_contract_enabled=true` is explicitly enabled for internal comparison testing.
-- Added the Strict Meta-Catalog Contract slice for `alpha384`. `aria_meta_catalog_routing` now asks the LLM for an explicit `contract` (`mode=answer|action|clarify|empty`, `evidence_policy=source_bound|allow_general`), validates that contract before accepting the route, carries `contract_mode` and `evidence_policy` through `AriaTurnPlan`, debug output, follow-up `TurnFrame`, and the LLM-first answer-composer evidence packet, and keeps a temporary rollback switch via `routing.meta_catalog_strict_contract_enabled=false` for internal testing only.
-- Added the first Qdrant Meta-Catalog migration slice after the `alpha379` architecture review. ARIA can now build a separate `aria_meta_catalog_*` collection with surface and connection capability documents containing safe semantic fields such as what an object knows, what context it can load, candidate actions, loader/executor contracts, risk hints, and confirmation policy. The existing Inventory index remains intact during migration, and the operations reindex flow now rebuilds both indexes side by side.
-- Activated the Qdrant Meta-Catalog as the first bounded chat routing step. ARIA now queries `aria_meta_catalog_*`, sends the compact candidate catalog plus the user prompt to `aria_meta_catalog_routing`, validates selected ContextRequests/actions against registered surfaces and catalog candidates, and falls back to the old turn arbiter only when the meta-catalog path is empty or uncertain.
-- Moved the legacy keyword router behind the Meta-Catalog contract for normal pipeline turns. Successful `aria_meta_catalog_routing` now skips the old turn-intent, pre-RAG semantic action classification, recipe arbitration, and freshness gates; selected inventory requests can bind to exact `catalog_id/kind/ref`, and selected actions seed the existing executor/guardrail path from the Meta-Catalog instead of re-detecting capability intent from free text.
-- Expanded the Meta-Catalog contract beyond coarse surfaces. It now indexes local context families such as facts, preferences, knowledge, context memory, sessions, learning artifacts, notes, and docs, binds selected local families to exact user collections for recall, and maps generic connection actions such as SSH, RSS, websites, SFTP/SMB, HTTP API, mail, webhook, Discord, calendar, and MQTT into existing capability/preflight paths.
-- Hardened the Meta-Catalog/backup action contract for `alpha381`. Any validated turn plan with selected actions, `needs_confirmation`, or `plan_action` now enters action preflight or fails closed; it can no longer fall through into direct context answers or final chat. Backup arbiter actions seed the same capability draft path as Meta-Catalog actions, selected multi-SSH targets stay multi-target, and debug now exposes when legacy semantics are used only as a backup fallback.
-- Hardened the Meta-Catalog context contract for `alpha382`. A successful Meta-Catalog route with `needs_context=true` and a selected surface but no explicit `context_requests` now synthesizes a validated loader request, e.g. `connections:inventory`, instead of accepting an empty load plan. This keeps source-bound inventory questions on the Inventory loader/direct-answer path and prevents unrelated memory/session context plus final chat from claiming ARIA has no access to configured data.
-- Added the LLM-first Answer-Composer contract for `alpha383`. Selected local context and inventory outcomes are now normalized into evidence packets, sent to a bounded `aria_answer_composer` operation for free wording, and then checked by deterministic claim guardrails so source-bound answers cannot claim missing access, invent matches, or use unrelated local context.
-- Hardened the remaining Meta-Catalog contracts for `alpha383`: selected non-chat surfaces now force a validated loader request even when the LLM incorrectly sets `needs_context=false`; local memory/search results with `matched=false` stay source-bound empty instead of falling into final chat; and seeded Meta SSH actions can be refined through the existing LLM capability-draft objective contract so package-update checks use the read-only update probe instead of defaulting to uptime.
-- Shifted the ARIA turn arbiter toward the Agentic Context Routing directive. The arbitration payload now exposes `routing_meta_context`, and the plan can carry `needs_context`, `context_directions`, and `context_depth` so the LLM decides whether ARIA should deepen context and in which direction instead of only selecting a surface/action menu.
-- Let high-confidence local context arbitration run before the legacy turn-intent arbiter and skip the old active-hint/turn-intent/freshness gates for direct local recall. This keeps direct Memory/Learning/Notes questions on the new context-routing path and avoids avoidable LLM/recall hops.
-- Added real arbiter-driven local recall limits. Selected Memory/Learning/Docs collections are passed down to `MemorySkill` as `target_collections`, Notes-only routes skip broad memory recall, and document guide lookup can be disabled unless the selected direction needs documents.
-- Added first Context Ledger debug lines for ARIA context routing. Details now show selected context directions, depth, collections/actions, query overrides, memory targets, loaded skill contexts, source counts, detail-line counts, embedding tokens, and arbiter tokens.
-- Tightened the local-context fast path after the first `alpha363` live test. High-confidence local context turns now skip the pre-RAG action and recipe arbitration stages completely, and Notes-only routes no longer emit a fake `memory_recall` skill result when Memory was intentionally disabled by the arbiter.
-- Added a no-context guardrail for agentic local retrieval. When the LLM correctly selects a local context direction such as Notes, Docs, Memory, or combined local sources but ARIA loads zero usable sources, the pipeline now returns a source-bound empty-result answer instead of sending the turn to the final LLM where it could claim ARIA has no access or invent unrelated context.
-- Added the same fail-closed contract for selected web side actions. If the ARIA action gate selects a Notes or watched-website side action but the concrete side-flow cannot execute it, the web chat now returns a clear non-execution answer instead of falling through into generic chat.
-- Added the Agentic Context Runtime v2 foundation. ARIA now has generic `ContextSurface`, `SurfaceRegistry`, `ContextRequest`, `ContextPacket`, and builtin Surface adapters for Memory, Notes, Docs, Connections, and Web so future data/function surfaces can register metadata instead of requiring central router phrase logic.
-- Extended the ARIA turn arbiter with registry-backed `context_requests`. The LLM can now choose registered surfaces such as `connections` with a mode like `inventory`, and ARIA validates that choice against the SurfaceRegistry before any loader or executor is used.
-- Added a safe Connection Inventory context path. Questions about configured/observed websites or connections can now load non-secret inventory context instead of being mistaken for watched-website actions; Stage-1 metadata intentionally excludes hosts, URLs, tokens, keys, passwords, and similar sensitive fields.
-- Changed final answer context filtering so a later `chat_local_context_relevance` decision can no longer discard context that the explicit ARIA TurnPlan already selected. It now skips with a debug line when the TurnPlan is the semantic authority.
-- Tightened the Agentic Context Runtime after live tests. Stage-1 SurfaceRegistry payloads now expose compact `routing_metadata` only, remove the duplicate full menu payload, and keep deep inventory metadata for the selected loader step instead of sending it to the arbiter.
-- Generalized inventory loading behind registered ContextSurfaces. `context_inventory` no longer depends on a Connections-only helper; selected surfaces can expose safe inventory metadata through the registry and the answer context stays source-bound.
-- Added a Context Isolation contract for selected turns. Answer-context skill results are filtered against the selected `ContextRequest`, and selected Notes/Inventory turns do not run pre-answer Auto-Memory/session/user recall context that could contaminate the answer.
-- Added a lightweight `TurnFrame` for follow-up routing. ARIA now passes the previous selected surface/mode/topic to the next arbiter call as weak context, so short follow-ups such as "und was ist mit IT-Security?" can continue an inventory frame without hard-coded phrases.
-- Changed the web pre-pipeline side-flow gate to become terminal only for genuine action intents. A stray watched-website action name inside an inventory/context turn no longer blocks the normal pipeline with a non-execution action message.
-- Added a content-existence context mode. Topic-specific questions such as "do I have information about X in memory?" are steered toward `exists`/search-style local retrieval instead of being satisfied by shallow inventory metadata alone.
-- Hardened generic inventory matching. Configured-item inventory now matches against individual safe item metadata, keeps many selected safe summaries for the deep loader, reports matched-vs-configured counts, avoids generic surface-word matches such as "websites" pulling unrelated items, and does not expose secret URLs/hosts/tokens.
-- Removed the extra web pre-pipeline LLM arbitration for normal free-text turns. Slash/UI shortcuts still enter the legacy side flows, but ordinary prompts now go straight to the single pipeline arbiter, which reduces latency and avoids pre-pipeline action misclassification for knowledge/inventory questions.
-- Changed chat badge timing to report end-to-end web request time and added `Routing Debug: web_request_timing` with total and pipeline milliseconds, making UI latency visible instead of only showing a partial pipeline/model duration.
-- Added tightly scoped direct context answers for already-selected inventory and memory-existence turns. When the TurnPlan selects registered inventory context or a source-bound memory `exists` check, ARIA can answer from the loaded context without a second final-answer LLM call.
-- Made memory-existence retrieval more selective by keeping session collections out of `memory_target_collections` unless the TurnPlan explicitly requests sessions.
-- Documented ARIA's Qdrant collection contracts in `docs/product/qdrant-collections.md` and made `aria_inventory_*` authoritative for inventory questions. Legacy `website_list` capability drafts now route into `connections:inventory` when the Qdrant inventory index is active, empty inventory results no longer fall back to broad action lists, inventory debug lines expose `authoritative=true`, and evidence-term selection keeps the actual topic in natural-language inventory questions.
-- Improved mobile chat viewport handling for iPhone Safari. The chat shell now uses a visual-viewport height variable, keeps the composer above the safe-area inset, and scrolls the message pane to the latest message after layout changes instead of relying on a single immediate `scrollTop` write.
-- Hardened source-bound follow-up context. Direct capability inventory answers now store a `TurnFrame`, follow-up plans preserve the previous registered surface/mode unless the user switches surface or requests an action, and empty registered local context returns a source-bound empty result instead of falling through to generic chat.
-- Reduced Direct-Context pipeline work for selected local context. High-confidence source-bound Notes/Memory/Docs turns now skip the legacy `turn_intent_arbiter` even when the ARIA turn plan's intent is still `chat`, and Notes-only hits can return a source-bound direct answer instead of paying for a final chat LLM pass.
-- Added a fast positive-only ContextSurface selector before the full ARIA turn arbiter. It uses only compact registered-surface metadata, can select one local/source-bound context request, and falls back to the full arbiter for actions, web/freshness, recipes, admin, pending confirmations, learning capture, uncertainty, or invalid surface/mode choices.
-- Slimmed the full ARIA turn arbiter payload in registry-backed mode by dropping duplicate legacy surface rows while keeping validated collections/actions. Selected TurnPlan context now skips late recent-context enrichment, direct Memory/Docs search requests can answer source-bound without a final chat LLM when evidence matches, and stage timing now includes `pipeline_wall_time`.
-- Tightened the generic evidence contract after the `alpha376` live test. Inventory and memory-existence answers now derive evidence from topic terms instead of raw user-query words, ignore Surface/Mode/request/scope wording such as RSS, websites, feeds, sources, list, inventory, and question filler, allow soft scope words such as monitoring to become the topic only when no stronger topic remains, and preserve the previous TurnFrame surface/mode for short underspecified follow-ups unless the user explicitly switches surface or requests an action.
-- Added a Chat scroll-to-latest overlay button. When the user scrolls upward in the chat history, ARIA now shows a compact floating down-arrow that jumps back to the newest message without shifting the composer.
-- Hardened the post-`alpha377` semantic evidence contract. Multilingual filler terms such as `and`, `the`, `für`, and `fuer` no longer count as topic evidence, unrelated inventory neighbors are rejected for unmatched topics such as beef grilling, and the fast memory-existence path is rejected when a resource/inventory question does not explicitly target Memory.
-- Re-centered the ARIA turn architecture on the full agentic TurnPlan after `alpha378` live regressions. The compact fast context selector and follow-up frame arbiter no longer run before the full turn arbiter, and local frame-preservation helpers no longer override the LLM's selected surface/mode after arbitration. Direct context loading remains an execution optimization after a validated TurnPlan, not an independent semantic router.
-
-## [0.1.0-alpha362] - 2026-06-16
-
-### Added
-
-- Added the ARIA Turn / Surface / Action Arbiter path. The new bounded arbitration module accepts a deterministic menu of allowed surfaces, Qdrant collections, and runtime actions, validates LLM choices against that menu, rejects invented entries, forces confirmation for risky actions, emits a unified routing debug line, and is now integrated into the pipeline before retrieval/action execution.
-- Documented the `Agentic Learning Loop v2` product direction: ARIA should turn real usage into controlled learning artifacts such as reflections, routing hints, procedure/recipe/skill candidates, eval candidates, and recipe improvements, with deterministic schemas, policy, guardrails, review, promotion gates, and tests controlling what becomes active.
-- Added the first Learning Event Ledger implementation. ARIA can now persist redacted JSONL audit events, load/filter recent events, record successful Auto-Memory `LERNEN` reflections as `memory_reflection` artifacts, and mirror those events into Qdrant as visible `learning_event` memory chunks for the future reflection/review loop.
-- Added the first bounded Learning Classifier. Successful Auto-Memory learning events can now be classified into review-only learning candidates such as `source_rule_candidate`, `procedure_candidate`, `recipe_candidate`, or `eval_candidate`, then stored visibly in Qdrant under `aria_learning_candidates_<user>` without activating runtime behavior.
-- Added a first Learning Candidate review surface in the Memory Explorer. `learning_candidate` chunks can now be filtered, inspected, marked as reviewed, or rejected in Qdrant payload metadata while promotion remains blocked until validator/eval gates exist.
-- Added the first Learning Candidate Validator/Eval dry-run. Review-only candidates now produce visible `learning_eval` chunks in Qdrant under `aria_learning_evals_<user>` with blockers, expected path, expected behavior, negative examples, and `promotion_allowed=false`.
-- Added a bounded User Feedback Learning detector in the chat flow. When Auto-Memory is enabled, durable feedback about ARIA's answer quality, source handling, routing, memory, UI, or workflow can create visible Qdrant `learning_event`, `learning_candidate`, and `learning_eval` chunks without activating runtime behavior.
-- Added the first runtime Outcome Learning recorder. Explicit URL/source WebSearch outcomes now carry source-quality metadata and, when Auto-Memory is enabled, can create review-only Qdrant `learning_event`, `learning_candidate`, and `learning_eval` chunks for page-excerpt/source-handling behavior.
-- Added a Deterministic Meaning Audit document that identifies where free user semantics are still decided by keyword/regex/list logic and sets the next refactor priority toward bounded `turn_intent_arbitration`.
-- Added bounded Turn Intent Arbitration around the normal pipeline router. The legacy `KeywordRouter` now acts as a signal source for top-level chat/memory/web intents, and a bounded LLM arbiter can override misleading keyword signals with sufficient confidence while falling back to the deterministic router when unavailable or uncertain.
-- Added a Capability Draft Fallback Boundary. The pre-RAG action gate now tries bounded LLM capability drafting before local heuristic drafts, treats LLM `no_action` as authoritative, allows local fallback only for unavailable/uncertain draft states, and records local fallback usage as a review-only learning outcome when Auto-Memory is enabled.
-- Added bounded Notes Action Arbitration for chat Notes flows. Natural-language Notes requests can now be classified into canonical Notes commands or `no_action` before the legacy regex handlers run, while slash/UI-style commands and low-confidence cases still fall back to the existing deterministic handlers.
-- Added bounded Follow-up Resolution for vague chat rewrites. ARIA now asks a constrained LLM resolver whether follow-up turns should be rewritten for web search or local context, treats high-confidence `no_rewrite` as authoritative, and keeps the old deterministic rewrite helpers only as low-confidence/no-LLM fallback.
-- Broadened runtime Outcome Learning beyond WebSearch and local capability fallback. Stored-recipe catalog misses and confirmed routed connection actions can now create review-only Qdrant learning events/candidates/evals when Auto-Memory is enabled.
-- Added the first low-risk Learning Candidate Promotion Gate. Reviewing a Qdrant learning candidate now writes a deterministic gate result back into the candidate payload: low-risk `source_rule_candidate` and `routing_hint` candidates become `eligible`, while higher-risk procedures/recipes remain `reviewed_blocked` and runtime activation stays disabled.
-- Added a guarded Apply preparation step for eligible low-risk Learning Candidates. The Memory Explorer can now mark eligible `source_rule_candidate`/`routing_hint` candidates as `apply_state=prepared` with `apply_requires_regression=true`, while still keeping `runtime_activation_allowed=false`.
-- Added a read-only Apply Preview for prepared low-risk Learning Candidates. Admins can inspect the proposed source-rule/routing-hint structure, provenance, regression requirement, and disabled runtime status before any future activation path exists.
-- Added Regression Gate status to Learning Candidate apply preparation and preview. Prepared candidates now default to `regression_status=missing`, the preview shows missing/linked regression state and references, and runtime activation remains disabled.
-- Added a Regression Link route in the Learning Candidate Apply Preview. Admins can link concrete pytest refs such as `tests/test_pipeline.py::test_name`, which updates the Qdrant candidate payload to `regression_status=linked`; invalid refs keep the candidate at `missing`.
-- Added Regression Ref verification for Learning Candidate Apply Preview. Linked pytest refs can now be checked against the workspace for file and test-function existence, writing `regression_verified`, `regression_test_exists`, and `regression_verify_result` back to Qdrant without running or activating runtime behavior.
-- Added focused Regression Test execution for verified Learning Candidate refs. The Apply Preview can now run the linked pytest ref and store `regression_verify_result=passed|failed`, return code, timestamp, and sanitized output in Qdrant while keeping runtime activation disabled.
-- Added the first Active Learning Hint activation path. Reviewed/prepared low-risk candidates now require an activation preflight with a passed regression run before they can be stored as visible Qdrant `learning_active_hint` chunks under `aria_learning_active_hints_<user>`.
-- Added weak runtime use of active learning hints. Turn intent arbitration can now receive reviewed Qdrant active hints as bounded weak signals, while policy, guardrails, and runtime activation remain deterministic gates.
-- Added Active Learning Hint outcome tracking. When Auto-Memory is enabled and a Qdrant active hint is available during turn intent arbitration, ARIA now records a review-only learning outcome so active hints can later be evaluated, refined, or withdrawn.
-- Added Universal Host/App Artifact Learning. Confirmed connection-action results can now surface observed paths, Compose files, Dockerfiles, systemd units, ports, packages, and health terms as review-only `app_artifact_candidate`, `install_plan_candidate`, and `health_check_candidate` learning artifacts in Qdrant.
-- Added App Identity Hypotheses for host artifact learning. Observed artifacts can now be condensed into review-only `app_identity_candidate` data with runtime kind, app root, entry artifacts, health surfaces, install/update surfaces, and rollback surfaces.
-- Added review-only Install/Update Plan Drafts from app identity hypotheses. Drafts include preflight checks, backup targets, proposed steps, health checks, rollback steps, blockers, required confirmation, and disabled runtime activation.
-- Added Install/Update Plan Validation gates. Drafts are now assessed for missing gates, mutating steps, required confirmations, regression suggestions, and risk while keeping promotion and runtime activation disabled.
-- Added structured Health Check and Regression Drafts from validated install/update plans. Drafts remain non-mutating and review-only, making future checks and tests derive from observed app artifacts instead of ad hoc rules.
-- Added Memory Explorer visibility for app-learning candidates. App identity, plan drafts, validation gates, health drafts, and regression drafts now render as structured chips and preview sections for Qdrant learning candidates.
-- Added review-only Pytest Skeleton Proposals from regression drafts. Proposals include target file, test function sketches, fixtures, safety notes, and disabled write/runtime activation flags.
-- Added read-only Pytest Apply Preview gates for app-learning proposals. The preview renders proposed test code, checks that targets stay under `tests/`, flags existing files and duplicate test functions, and still never writes files automatically.
-- Added a manual Pytest Write preparation gate for app-learning proposals. A ready preview can now store a `prepared` Qdrant payload with target file, test names, code preview, and SHA-256 hash while keeping `pytest_write_allowed=false` and writing no files.
-- Added prepared artifact review feedback for app-learning proposals. Operators can mark prepared Pytest write artifacts as accepted, needing changes, or rejected; ARIA stores that outcome back into the Qdrant candidate payload as learning feedback while keeping file writes and runtime activation disabled.
-- Added Review Outcome Learning for prepared artifacts. Accepted reviews create review-only `artifact_pattern_candidate` chunks, needs-change reviews create `artifact_improvement_candidate` chunks, and rejected reviews create `negative_pattern_candidate` chunks, each with a matching learning event and eval dry-run in Qdrant.
-- Added Learning Pattern Recall for app-learning proposals. New Pytest skeleton proposals can now recall prior accepted, needs-change, and rejected artifact review candidates from Qdrant as weak guidance and carry them visibly in the proposal payload without granting write or runtime permission.
-- Added the first Recipe Candidate Generator. Successful connection workflow outcomes can now create an additional review-only `recipe_candidate` plus eval dry-run in Qdrant, with similar existing recipe candidates recalled as weak duplicate/improvement guidance and no runtime promotion.
-- Added the first Recipe Improvement Loop behavior. When similar `recipe_candidate` or `recipe_improvement` chunks already exist in Qdrant, new successful workflow outcomes now create review-only `recipe_improvement` candidates instead of another duplicate recipe candidate.
-- Added Procedure/Skill Memory with gating. Successful connection workflow outcomes now create review-only `procedure_candidate` chunks and eval dry-runs in Qdrant; when similar procedure/skill memories already exist, ARIA can also propose a high-risk review-only `skill_candidate` without implementation, promotion, or runtime activation.
-- Added an Async Learning Worker status path. Runtime learning captures now go through a shared background job registry, and the Memory Explorer shows running, completed, failed, and latest learning jobs while Qdrant remains the durable learning store.
-- Added Learning Worker job detail, retry, and flush controls. Admins can inspect a job snapshot, force-retry failed/rejected runtime learning jobs with backoff metadata, and clear finished worker history without touching Qdrant learning artifacts.
-- Added first Learning Worker budget gates. Runtime learning jobs now carry estimated tokens, consumed token/cost metadata when available, max-attempt limits, in-process budget totals, and budget rejection status in the Memory Explorer.
-- Added Learning Worker observability to Stats and Operator Guardrail. `/stats` now surfaces worker running/completed/failed/rejected counts, budget state, latest job links, and a guardrail row that warns on failures, rejections, or exhausted learning budgets.
-- Added Learning Worker runtime audit and failure categories. Finished/rejected/maintenance worker events are recorded as a compact JSONL operations audit, summarized in the worker snapshot, and grouped into operational categories such as budget, Qdrant, provider, validator, worker, route, and unknown.
-- Added a Learning Review Queue summary to the Memory Explorer. Qdrant learning artifacts now show candidate, eval, active-hint, regression, and activation counts before the normal Memory type filters.
-
-### Fixed
-
-- Removed the rejected direct recall phrase fix and its tests. Questions like "what did I tell you..." are no longer solved through special phrase rules; they must flow through the common ARIA turn/surface/action arbitration path.
-- Moved web chat Notes/Websites side flows behind the common ARIA action gate. Free user turns can no longer be terminally answered by those side flows before the shared arbiter has a chance to choose the surface/action plan.
-- Let the pipeline use ARIA arbiter-selected collection queries for local recall, web research, and Notes retrieval, including Notes snippets as normal context instead of a pre-pipeline terminal route.
-- Avoid spending Active Learning Hint recall on explicit web-search or clear connection-action contexts while keeping active hints available as weak signals for normal free turns.
-- Added missing Learning Worker Stats i18n keys so the full release hygiene suite covers the new stats surface cleanly.
-- Keep explicit external `http(s)` URLs out of the agentic pre-RAG connection action gate, even when the bounded capability draft would classify them as watched-website reads. Direct URL/anchor questions now stay on the chat freshness/WebSearch path and preserve the literal URL as the search/fetch query.
-- Treat recalled `[LERNEN]` memory reflections as durable behavior guidance in the final chat prompt, so questions such as "was hast du aus meinem AREA41 feedback gelernt?" answer from the learning memory instead of claiming nothing was learned while a `LERNEN` source is present.
-- Give fetched web page excerpts higher final-answer priority than search snippets and raise the final context budget so official page excerpts are not truncated behind aggregator snippets before the final LLM answer.
-
-## [0.1.0-alpha360] - 2026-06-15
-
-### Fixed
-
-- Keep arbitrary `http(s)` URLs out of watched-website routing so direct page/anchor questions can use web research instead of asking for a configured Website profile.
-- Fetch one additional strong domain/path match beyond the first two web-search results, so official pages such as `area41.io/#speakers` can provide page excerpts even when a search engine ranks aggregator pages higher.
-- Let agentic Auto-Memory extract durable feedback reflections into per-user `aria_learning_*` collections. These `LERNEN` memories are visible in Memory/Qdrant and are searched during recall as context-only self-improvement guidance.
-
-## [0.1.0-alpha359] - 2026-06-14
-
-### Fixed
-
-- Move document import into its own chat Toolbox group so it is visible as a first-level document entry instead of being hidden inside Commands.
-- Fetch and inject page excerpts for concrete web-search result URLs, including explicit `#anchor` URLs, so official pages can provide answer context beyond search snippets.
-
-## [0.1.0-alpha358] - 2026-06-14
-
-### Fixed
-
-- Keep the ARIA working-logo emblem stable while ARIA is busy. The busy indicator now uses a slow rotating light aura and soft glow instead of rotating or flipping the logo itself, avoiding upside-down frames.
-
-## [0.1.0-alpha357] - 2026-06-14
-
-### Fixed
-
-- Restore the ARIA working-logo animation to a vertical emblem turn so the logo no longer rotates upside down while keeping the smoother light pulse from the previous pass.
-
-## [0.1.0-alpha356] - 2026-06-14
-
-### Changed
-
-- Surface document import from the main chat toolbox. The toolbox item opens the Memory document import panel directly and focuses the file picker so RAG document ingestion is no longer hidden in configuration.
-
-## [0.1.0-alpha355] - 2026-06-14
-
-### Fixed
-
-- Smooth the ARIA working-logo animation by replacing the hard 3D flip/scanline loop with a continuous rotation, synchronized energy sweep, and softer light pulse.
-
-## [0.1.0-alpha354] - 2026-06-14
-
-### Fixed
-
-- Link the main-screen Auto-Memory status indicator directly to the Auto-Memory settings section, following the app rule that option indicators should lead to their option settings.
-
-## [0.1.0-alpha353] - 2026-06-14
-
-### Fixed
-
-- Move the Stats cost-card disclaimer below the cost metrics so the card leads with the actual numbers and keeps the explanatory text near the pricing actions.
-- Keep the main Auto-Memory indicator aligned with agentic Auto-Memory extraction. Existing configs with Auto-Memory enabled now get `agentic_extraction_enabled=true` filled in at load time when missing, and the UI/Core toggles update both flags together.
-
-## [0.1.0-alpha352] - 2026-06-14
-
-### Fixed
-
-- Keep explicit recipe-catalog questions catalog-bound even when no recipe candidate matches. Questions such as "gibt es ein rezept fuer dns health" now answer from the stored catalog instead of drifting into a generic checklist.
-- Carry recent web-search topic context into vague local Notes/Documents follow-ups in the web chat flow. A follow-up like "und was steht dazu in meinen notizen?" now searches local notes for the prior topic instead of using only the pronoun-like phrase.
-- Give bounded capability drafting an earlier chance for local system check prompts before freshness/web-search arbitration. Local checks such as Pi-hole inspection no longer fall through to unrelated web results when configured connections can handle the request.
-- Let Auto-Memory use a bounded agentic extraction pass when enabled. ARIA can now persist durable user-specific behavior conventions, aliases, preferences, and infrastructure facts from chat messages, while deterministic extraction remains the fallback and persistence stays limited to facts, preferences, and session context.
-- Capture action-sensitive memory boundaries through the same agentic Auto-Memory pass. Durable approval requirements, expiry/trust constraints, and "do not act until..." notes are stored as visible memory facts prefixed with `Action boundary:` so future turns can recall them as context without bypassing runtime policy.
-
-## [0.1.0-alpha351] - 2026-06-14
-
-### Fixed
-
-- Keep general advice and chat questions out of the stored-recipe no-match path. Recipe catalog misses now produce a direct no-recipe answer only when the user explicitly asks about a recipe; normal diagnostic and explanation questions continue through chat.
-- Block mutating SSH requests before multi-target read-only fallbacks. Install, upgrade, restart, delete, and similar side-effect requests no longer get silently replaced by status probes such as `uptime`.
-- Give recent SSH runtime context the first chance for immediate follow-up questions before drafting a fresh SSH action. Follow-ups such as asking for per-server package details can reuse the previous multi-target result instead of losing the target group.
-- Stop passing local Notes/RAG context into normal web-search turns unless the user explicitly asks for local context, reducing unrelated note bleed in follow-up searches.
-
-## [0.1.0-alpha350] - 2026-06-14
-
-### Fixed
-
-- Keep the chat window height stable while long conversations grow. On the main chat page, the outer app frame stays fixed to the viewport and only the message history scrolls upward.
-- Keep stored-recipe explanation questions catalog-bound. When `recipe_execution_intent` rejects execution, ARIA now uses a bounded LLM explanation step over the matching recipe manifest, or says that no matching recipe exists instead of inventing a generic server-update runbook.
-- Keep automatic freshness/web-search routing LLM-first. When an LLM is available, ARIA now asks `chat_freshness_arbitration` for normal chat questions instead of letting currentness/product keyword filters decide whether the LLM may arbitrate; deterministic freshness terms remain only for no-LLM fallback and explicit/local-context gates.
-- Consolidate repeated bounded LLM call handling. Recent-runtime context relevance, local chat-context relevance, and stored-recipe catalog explanations now share `BoundedDecisionClient` for LLM calls, JSON parsing, usage extraction, confidence coercion, and error handling.
-- Split the chat turn pipeline into clearer internal stages. Recipe arbitration, freshness/web-search arbitration, and recent-runtime-context enrichment now live in dedicated stage helpers instead of being embedded directly in `Pipeline.process()`.
-- Continue untangling the chat turn pipeline. Web-search failure prechecks, direct stored-recipe chat responses, and final chat response/usage accounting now run through dedicated stage helpers.
-- Move the chat turn stage helpers into `pipeline_turn_stages.py`, including recipe-status and pre-RAG action exits. `Pipeline.process()` now mostly orchestrates stage calls, capability-draft and pre-RAG chat/action arbitration use `BoundedDecisionClient`, and routing-debug line formatting is shared for the touched debug paths.
-- Keep free capability drafts agentic-first before local SSH fallbacks. Bounded `capability_draft_decision` now gets the first semantic pass for non-explicit SSH-like prompts, and an explicit LLM `chat/no_action` decision blocks local SSH fallback.
-
-## [0.1.0-alpha349] - 2026-06-13
-
-### Fixed
-
-- Keep follow-up suggestions after read-only runtime context inspect-oriented. When ARIA answers from a recent read-only runtime result, it should offer read-only next steps such as listing affected items per target instead of suggesting state-changing operations.
-- Keep free-language SSH intent LLM-first. The deterministic capability router no longer turns natural health, uptime, status, disk, or free-space phrasing into SSH commands such as `uptime` or `df -h`; those prompts are left to the bounded LLM capability draft while deterministic code keeps only explicit commands, executor availability checks, and policy validation.
-- Adapt broad multi-target SSH bundles only from bounded LLM `target_intent` values such as `health_check`, `capacity_check`, or `package_update_check`, instead of falling back to health/capacity wordlists in the pipeline.
-- Classify SSH requested runtime effect with a bounded LLM step instead of mutating-request wordlists. ARIA now uses `ssh_requested_runtime_effect` to distinguish read-only, mutating, and unknown user intent, while SSH policy still blocks mutating commands and prevents guardrail healthcheck fallbacks from masking state-changing requests.
-- Select SSH guardrail healthcheck fallback commands with a bounded LLM step from the explicit allowlist instead of deterministically concatenating every allowed command. ARIA rejects invented or edited selections and still validates the final command through SSH policy before use.
-- Decide stored recipe execution intent with a bounded LLM step. Deterministic recipe scoring now only builds a candidate shortlist; `recipe_execution_intent` must explicitly return `execute=true` for ARIA to run a stored recipe, so explanatory or comparison questions about a recipe topic do not execute it.
-- Keep action planner scores as ranking hints instead of final semantics. When multiple bounded action candidates match and no LLM decision is available, ARIA now asks for confirmation instead of selecting an action from keyword or score gaps alone.
-- Decide local chat context relevance with a bounded LLM step. Local notes, documents, and memory snippets are now filtered through `chat_local_context_relevance` before the final chat prompt; the old regex-based how-to/diagnostic filter remains only as a fallback.
-- Link the Memory Map "Compression due" health card directly to the rollup/compression section in Memory setup so the warning has an immediate repair path.
-- Keep loose connection target matches LLM-first. Exact alias/ref matches may still resolve deterministically, but a single soft score candidate no longer bypasses semantic LLM resolution when multiple profiles are available.
-- Re-check Learned Recipe promotion blockers when loading runtime candidates. Promoted records with multi-target or side-effect blockers are now ignored even if stale or manually edited store data contains a stored recipe id.
-- Expose bounded local chat-context relevance decisions in routing debug details. When `chat_local_context_relevance` keeps or filters local notes, documents, or memory context, debug mode now shows the LLM decision, confidence, candidate count, and reason.
-- Expose bounded stored-recipe execution intent decisions in routing debug details. When `recipe_execution_intent` accepts or rejects a stored recipe candidate, debug mode now shows execute true/false, confidence, candidate count, selected id when applicable, and reason.
-- Expose action-planner and connection-target decisions in routing debug details. Debug mode now shows `action_plan_debug` for bounded planner choices and `connection_target_selection` for semantic/forced/explicit target resolution while keeping the existing human-readable routing lines.
-
-## [0.1.0-alpha348] - 2026-06-13
-
-### Fixed
-
-- Keep recent multi-target SSH runtime context available for immediate follow-up questions. After a multi-target check, ARIA can now answer which SSH targets the previous result referred to instead of falling back to unrelated local RAG context.
-
-## [0.1.0-alpha347] - 2026-06-13
-
-### Fixed
-
-- Route multi-target SSH package/update-status questions such as "sind meine server up to date" to a read-only package update listing instead of reusing the broad health check command. `apt list --upgradable` is now allowed as a safe SSH read-only probe while mutating apt operations remain blocked.
-
-## [0.1.0-alpha346] - 2026-06-11
-
-### Fixed
-
-- Separate Qdrant Brain graph scrolling from the Payload Preview and the classic Memory Graph. The Brain viewport and the regular Memory Graph now own their horizontal scroll areas independently instead of sharing the outer Memory Map frame scroll.
-
-## [0.1.0-alpha345] - 2026-06-10
-
-### Fixed
-
-- Make Qdrant Brain usable on mobile/touch devices by adding a deliberate touch movement mode. Touch users can now scroll and tap the page by default, then enable graph movement when they want to pan or drag nodes, avoiding the previous conflict between browser scroll, graph pan, and node drag.
-
-## [0.1.0-alpha344] - 2026-06-10
-
-### Changed
-
-- Make Qdrant Brain point dragging behave like a real layout edit: connected neighbors are directly nudged while dragging, and the whole moved graph segment stores its current position as the new layout base on release instead of returning to the original coordinates.
-
-## [0.1.0-alpha343] - 2026-06-10
-
-### Changed
-
-- Make Qdrant Brain point dragging feel stickier and closer to Qdrant: moved points keep their dropped position as their new local home, spring pullback is softer, and motion damping is heavier so the graph does not snap back toward its original layout as strongly.
-
-## [0.1.0-alpha342] - 2026-06-09
-
-### Fixed
-
-- Make the Qdrant Brain collection start map readable by replacing the radial collection layout with a lane-based overview and wrapped collection labels. Long collection names now keep reserved text space instead of overlapping neighboring labels.
-
-## [0.1.0-alpha341] - 2026-06-09
-
-### Fixed
-
-- Center Qdrant Brain collection and point views against the actual visible browser viewport instead of only the internal SVG viewBox. Collection labels are included in centering bounds and right-side collection labels flip left, preventing the start view and Center action from landing visibly right-heavy or clipping labels.
-
-## [0.1.0-alpha340] - 2026-06-09
-
-### Changed
-
-- Make Qdrant Brain point drilldowns feel more like a live graph explorer: point nodes can be dragged directly, connected edges act like damped springs, and the graph settles with a short elastic bounce after interaction. Point edges now also render subtle arrowheads for a closer Qdrant-style visual language.
-
-## [0.1.0-alpha339] - 2026-06-09
-
-### Changed
-
-- Make Qdrant Brain point drilldowns more graph-like by building a connected nearest-neighbor backbone per collection and then adding additional semantic neighbor edges. This makes point collections look closer to Qdrant's own visualization instead of appearing as loose dots that merely share a collection.
-- Thin Qdrant Brain point edges to keep denser semantic neighborhoods readable.
-
-## [0.1.0-alpha338] - 2026-06-09
-
-### Changed
-
-- Improve Qdrant Brain viewport interaction so graph drag/zoom behaves more like a dedicated graph canvas: pointer dragging no longer selects labels, wheel zoom keeps the cursor anchor stable, toolbar zoom keeps the graph centered, and pan deltas are calculated in SVG coordinates instead of raw CSS pixels.
-
-## [0.1.0-alpha337] - 2026-06-09
-
-### Changed
-- Add sparse landmark labels to Qdrant Brain point drilldowns: highly connected points and the active/focused point show short labels directly in the map without returning to a fully labelled dense graph.
-- Add a Qdrant Brain center control that recenters the currently visible collection or point graph while preserving the current zoom level.
-
-## [0.1.0-alpha336] - 2026-06-09
-
-### Fixed
-- Fix Qdrant Brain drilldown node activation by preventing viewport pan handling from swallowing node pointer events. The payload detail panel now sits below the graph, giving the graph more horizontal room.
-
-## [0.1.0-alpha335] - 2026-06-09
-
-### Changed
-- Change the Qdrant Brain on `/memories/map` from a fully labelled all-node graph to a drilldown view. The graph now starts at Collection level, opens a Collection into unlabeled Qdrant-style point nodes, and keeps payload details in the side panel so dense memories stay readable.
-
-## [0.1.0-alpha334] - 2026-06-09
-
-### Fixed
-- Fix the Qdrant Brain sampler runtime error caused by a stale `_normalize_user_id` helper reference. `/memories/map` can now sample Qdrant points through the existing user-filter path instead of falling back to the empty-state error.
-
-## [0.1.0-alpha333] - 2026-06-09
-
-### Fixed
-- Make the Qdrant Brain visible on `/memories/map` even when the first sampled collections do not produce graphable points. ARIA now samples additional ARIA Qdrant collections beyond the narrow recall/document target set and renders a clear empty-state diagnostic instead of silently showing no Brain section.
-
-## [0.1.0-alpha332] - 2026-06-09
-
-### Added
-- Add a Qdrant Brain visualization into `/memories/map`. The existing Memory Map now includes a zoomable, pannable similarity graph built from a bounded Qdrant point sample. ARIA computes semantic edges server-side and exposes only safe labels, previews, collection names, and point IDs to the browser; raw vectors are never rendered.
-
-## [0.1.0-alpha331] - 2026-06-08
-
-### Fixed
-- Treat explicit user requests to research/search/browse the internet as Web Search freshness candidates, even when the topic is not a current-version question. The LLM freshness arbiter still crafts the actual query, preventing prompts such as DIY cyberdeck research from falling back to stale model-only chat answers.
-
-## [0.1.0-alpha330] - 2026-06-08
-
-### Fixed
-- Hide the static ARIA header logo while the busy animation is active and render the holographic light effect on a transparent logo-emblem mask only. This prevents the old logo from showing underneath and avoids the visual impression of a full square plaque rotating.
-
-## [0.1.0-alpha329] - 2026-06-08
-
-### Fixed
-- Keep the ARIA header logo frame static during the global busy animation and animate only the inner logo layer, so the holographic effect feels cleaner and less jumpy.
-
-## [0.1.0-alpha328] - 2026-06-08
-
-### Changed
-- Replace the main ARIA header logo with the new ARIA artwork while keeping the existing `logo-aria-v01.png` runtime path for compatibility.
-- Regenerate all browser icon assets (`favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `favicon-48x48.png`, `apple-touch-icon.png`) from the new ARIA logo.
-- Replace the temporary busy-logo sprite animation with a CSS-driven holographic logo flip, glow halo and scanline effect to avoid visible sprite-frame labels and improve smoothness.
-
-## [0.1.0-alpha327] - 2026-06-08
-
-### Changed
-- Replace the subtle busy-logo ring overlay with the new `aria_rotate.png` sprite animation. Whenever ARIA enters the global busy state, the brand logo now switches to the horizontal ARIA rotation sprite.
-
-## [0.1.0-alpha326] - 2026-06-08
-
-### Fixed
-- Improve automatic freshness web-search quality for current version and latest release questions. ARIA now steers freshness queries toward official changelogs, GitHub releases, package registries and vendor docs, and ranks those sources ahead of generic news hits for version lookups.
-
-## [0.1.0-alpha325] - 2026-06-08
-
-### Changed
-- Speed up the Notes workspace folder and board navigation by loading lightweight note previews for board/sidebar rendering and reading the full Markdown body only when a note is opened, exported, saved, or deleted.
-
-## [0.1.0-alpha324] - 2026-06-08
-
-### Fixed
-- Stop passing Notes context into the Web Search skill when web search was added automatically by chat freshness arbitration. This removes visible `Notiz-Kontext` source lines from automatic current-product/version answers while keeping explicit web-search prompts able to use Notes context as search assistance.
-
-## [0.1.0-alpha323] - 2026-06-08
-
-### Changed
-- Add a trusted freshness instruction with the current date to final chat prompts when ARIA automatically adds web context for current product/version/setup questions. This keeps answers from mixing fresh web results with outdated fallback dates or training-cutoff language.
-
-### Fixed
-- Suppress local Notes/Memory context in automatic freshness web-search answers unless the user explicitly asks for local notes, documents, or memory. Explicit web searches can still use note context as search assistance.
-
-## [0.1.0-alpha322] - 2026-06-08
-
-### Added
-- Add chat freshness arbitration for current product, version, release, API, SDK, CLI and setup questions. When Web Search is configured, ARIA can now add web context before the final chat answer instead of relying on stale model knowledge for current tooling questions such as OpenAI Codex setup.
-
-### Fixed
-- Keep explicit local notes/document questions out of the automatic freshness web-search path.
-
-## [0.1.0-alpha321] - 2026-06-08
-
-### Fixed
-- Treat an explicitly named SFTP target in prompts such as `liste die dateien auf meiner sftp verbindung dev-node-01` as a hard requested profile. If that SFTP profile does not exist, ARIA now reports the missing SFTP profile instead of falling back to stale memory from another SFTP target.
-
-## [0.1.0-alpha320] - 2026-06-08
-
-### Changed
-- Keep multi-target SSH operator summaries LLM-authored while sending compact per-target result facts to the summary prompt. This reduces prompt bulk for large health checks without replacing the LLM interpretation.
-- Raise bounded multi-target SSH execution parallelism slightly so large read-only checks spend less time waiting for slow targets in serial batches.
-
-### Fixed
-- Let requested role phrases such as `developer server` expand through SSH connection metadata before single-target resolution. Prompts like `haben meine developer server noch genug festplattenspeicher` should now stay on the developer-server group instead of collapsing to the first matching host.
-- Treat multi-target payloads with `connection_refs` as already resolved in the requested-ref guard, avoiding false “missing connection ref” handling for grouped SSH actions.
-
-## [0.1.0-alpha319] - 2026-06-07
-
-### Changed
-- Parallelized allowed multi-target SSH execution with bounded concurrency. Large checks such as `wie fit sind meine server?` no longer wait for each SSH target strictly one after another; result ordering and preflight details stay stable.
-- Clear pasted-log/advice prompts can now run a bounded chat-vs-action arbitration before the expensive LLM capability-draft step. This keeps prompts such as `was mach ich damit: Message from syslogd ... soft lockup ...` in chat faster when the LLM chooses advice instead of runtime.
-
-### Fixed
-- Ignore stale Memory hints that point outside an already detected plural SSH target group. Prompts such as `haben meine developer server noch genug festplattenspeicher` should stay on the matching developer-server group instead of jumping to an unrelated recent host such as a management server.
-
-## [0.1.0-alpha318] - 2026-06-07
-
-### Fixed
-- Let LLM-generated SSH capability drafts still pass through chat-vs-action arbitration before runtime. This keeps pasted log/advice prompts such as `was mach ich damit: Message from syslogd ... soft lockup ...` in chat even if the LLM proposes a diagnostic SSH command first.
-
-## [0.1.0-alpha317] - 2026-06-07
-
-### Fixed
-- Prefer a concrete bounded SSH capability draft over Stored Recipe candidates when the draft already contains an explicit command. This prevents simple checks such as `prüf dev-node-01 kurz` from being replaced by broader, complex healthcheck recipes that may trip stricter SSH guardrails.
-- Filter weak local RAG/document context from general diagnostic-advice chat answers such as pasted `syslogd`/kernel lockup messages plus `was mach ich damit`, so unrelated manuals are not shown as sources unless local notes/documents are explicitly requested.
-
-## [0.1.0-alpha316] - 2026-06-07
-
-### Added
-- Added Runtime Health visibility for third-party sidecars when the ARIA runtime can inspect Docker containers. The card reports Qdrant, SearXNG, and Valkey image/status data without turning missing Docker-socket access into a warning.
-
-### Changed
-- Documented the deliberate full-stack sidecar update path and the required smoke checks after Qdrant/SearXNG/Valkey are updated.
-
-### Fixed
-- Added LLM arbitration before ambiguous connection routing, so known hosts/services can remain context for general advice or log/error interpretation instead of forcing an action merely because a configured connection name appears.
-- Removed the deterministic DNS/Pi-hole command override from SSH agentic resolution. DNS health semantics now stay with the bounded LLM command decision or an explicit LLM-classified Guardrail health bundle; deterministic code only validates policy and runtime safety.
-
-## [0.1.0-alpha315] - 2026-06-07
-
-### Added
-- Added an explicit chat Recipe Learn Mode in the chat toolbox. Users can start a bounded learning run, let ARIA observe following chat turns, and finish it into a review-only Learned Recipe candidate; no learned candidate becomes active automatically.
-- Added a chat toolbox action and `/chat note` command to save the current chat history as a Markdown Note. The saved note is reindexed into the Notes Qdrant collection when indexing is enabled, while normal Notes deletion removes the derived index entries again.
-
-### Changed
-- Polished the Notes workspace with consistent ARIA form styling, calmer editor typography, a wider desktop work area, mobile-friendly stacking, and collapsible folder management.
-- Extracted chat-context relevance filtering from the main pipeline into a dedicated core module, keeping the pipeline focused on orchestration while preserving the existing RAG safety behavior.
-- Moved the generic routed capability runtime fallback into an `AgenticExecutionHandler`, so normal single-target capability execution now uses the same handler registry shape as RSS and multi-target SSH.
-
-### Fixed
-- Filter weak local RAG/document context from general how-to or product-information chat answers, so unrelated manuals are not shown as sources unless the user explicitly asks for local notes/documents.
-- Apply that weak local RAG filter even when the normal chat route also carries an automatic `memory_recall` intent, preventing unrelated Arlo/Mill sources on prompts such as Claude Code version checks.
-- Filter mixed local Memory/RAG source packets for general chat as well, so a single recall result containing document, fact, and session hits cannot leak unrelated Arlo/Mill sources into normal how-to answers.
-- Make the `/help` home page start section clickable by linking Quick Start, Memory, Connections, Recipes, Releases and Upgrades, Pricing, Security, and the local help-system docs to their real `/help?doc=...` pages.
-- Keep explicit local Notes/Documents/Memory questions out of connection runtime routing even when the query term matches a connection alias, and recognize natural Notes questions such as `was steht in meinen notizen zu ARIA`.
-- Keep general setup/how-to questions that mention SSH/server terms in normal chat instead of turning them into SSH runtime actions.
-- Let explicit but vague web-search follow-ups reuse the recent chat topic, so `suche im internet nach der neusten version` after a Claude Code question searches for the relevant product instead of a generic “newest version”.
-- Aligned the Notes editor height more closely with the Notes sidebar on desktop so new/edit note screens feel visually calmer.
-- Contained long Notes card titles, URLs, tags, and folder labels so the Notes board no longer overflows horizontally on desktop or mobile.
-- Format `uptime -s` SSH results as a normal chat answer (`running since ...`) instead of exposing the raw Stored Recipe SSH executor output.
-- Suppressed the normal automatic Learned Recipe update path while chat Recipe Learn Mode is active. `/lernen abbrechen` now discards the observed turn without also updating an existing learned recipe through the background auto-learning path.
-- Let singular DNS/Pi-hole health role prompts such as `ist mein dns server ok` expand from a primary alias hit to matching primary/secondary DNS SSH profiles, while keeping mutating DNS requests single-target and guardrail-bound.
-- Keep DNS resolver-probe hardening scoped to real DNS health/status prompts, so DNS-target disk or uptime questions keep their intended `df`/`uptime` commands instead of being rewritten to `dig`.
-
-## [0.1.0-alpha306] - 2026-06-05
-
-### Fixed
-- Let singular role phrases such as `developer server` match Dev/Development connection metadata like `dev server`, `development`, or `entwicklung` instead of blocking the semantic LLM-selected SSH profile as an unknown requested ref.
-
-## [0.1.0-alpha305] - 2026-06-05
-
-### Fixed
-- Prefer a real local DNS resolver probe for single-target DNS/Pi-hole health checks when the LLM only proposes a service-active check, while keeping explicit Guardrail health bundles in control when configured.
-
-## [0.1.0-alpha304] - 2026-06-04
-
-### Fixed
-- Allowed standard read-only DNS probe commands (`dig`, `host`, `nslookup`) in the SSH read-only policy so DNS health checks can run without an unnecessary confirmation prompt.
-- Added a Security Guardrails review link for built-in SSH policy blocks when no specific Guardrail profile is attached to the connection.
-
-## [0.1.0-alpha303] - 2026-06-04
-
-### Fixed
-- Prevented the bounded planner / recipe-experience step from overriding an already resolved plural SSH multi-target payload. This keeps prompts such as “haben meine dev-server noch genug festplattenspeicher” on the resolved dev-server group instead of collapsing back to the first learned single target.
-
-## [0.1.0-alpha302] - 2026-06-04
-
-### Fixed
-- Tightened plural SSH metadata grouping so the short seed `dev` no longer matches unrelated words such as `device`, and rebuilt already-complete single-target SSH plans into multi-target plans when a plural metadata group is detected.
-
-## [0.1.0-alpha301] - 2026-06-04
-
-### Fixed
-- Improved plural SSH group scoping when one matching profile is found through memory/routing but sibling profiles only match through related metadata such as `development`, `entwicklung`, `code-server`, or `vscode`. Prompts such as “dev servers” now stay on the matching server group instead of collapsing to the first matched profile.
-
-## [0.1.0-alpha300] - 2026-06-04
-
-### Fixed
-- Moved the optional SSH Service URL next to the metadata “Check with LLM” action so the URL source field is visible where it is used.
-- Scoped plural SSH checks to strongly matched connection metadata groups, so prompts such as “dev servers” do not expand to every SSH profile when matching aliases/tags identify a narrower server set.
-
-## [0.1.0-alpha299] - 2026-06-01
-
-### Changed
-- Clarified Learned Recipes wording so the overview refers to the local review/learning list instead of the ambiguous term “Store”.
-
-### Fixed
-- Let SSH connection metadata suggestions use Host/User/Port when no Service URL is configured, and clarify SSH host-key verification failures during connection tests.
-
-## [0.1.0-alpha298] - 2026-05-21
-
-### Added
-- Added an LLM-assisted Guardrail draft flow on the Security page: ARIA can turn a natural-language safety intent into a reviewable Guardrail proposal, while saving remains an explicit user action and deterministic Guardrail evaluation stays unchanged.
-- Added a lightweight working-status indicator to the Guardrail AI draft form, so users can see when ARIA is checking context, contacting the LLM, and preparing the review draft.
-- Added a Guardrail test mode on the Security page, allowing saved Guardrails to be checked against example requests before they are attached to live connections.
-- Added a visible stats billing-period reset on the Costs card. Reset now archives the current token/run log before starting a fresh local usage period.
-
-### Changed
-- Clarified Discord startup host reporting: ARIA now reports the configured base URL or an automatically detected local address instead of warning about a missing public URL.
-- Clarified the Stats token card request label so it refers to the current local period instead of a misleading fixed 7-day label after a usage reset.
-- Clarified the Stats cost card so ARIA labels LLM costs as usage estimates for orientation, not invoice-grade provider billing.
-- Changed the default runtime log retention to 90 days and extended startup/maintenance cleanup to prune the redacted LLM prompt debug log alongside token/cost/activity logs.
-- Started aligning connection detail pages around the SSH page as the master pattern: the shared connection status block is now collapsible, profile cards show a visible edit action, and the other connection detail pages use collapsible edit/create work areas instead of hidden mode-only cards.
-- Moved guardrail attachment UI and save-time validation for SSH, SFTP, SMB, Webhook, and HTTP API connection pages into shared templates/context/helper logic, keeping current single-Guardrail behavior while preparing a cleaner Multi-Guardrail follow-up.
-- Scoped saved Guardrails can now carry exact compatible connection kinds, so a File Access Guardrail drafted for SFTP is not offered on SMB connection pages and vice versa.
-- Opened the security/advanced option panels by default on Guardrail-capable connection forms, making Guardrail assignment visible without an extra expand step.
-- Reworked the Security Guardrails page into focused collapsible sections, so AI drafting, loading/editing, deletion, manual creation, and sample imports are no longer all expanded at once.
-- Reworked the SSH connection page into focused collapsible sections and made profile cards open the edit mode, with a visible edit action and clearer access to the Guardrail selector.
-- Replaced the unsupported Google Calendar device-code/OAuth setup with a simpler read-only secret iCal URL setup, so LAN/IP-only end-user installs can connect a personal calendar without Google Cloud clients, redirect URIs, client secrets, or refresh-token handling.
-- Updated product, help, and wiki docs so current Google Calendar guidance points to the read-only iCal setup instead of the obsolete OAuth path.
-
-### Fixed
-- Made Operator Guardrail warnings actionable on the Stats page by listing the exact non-OK checks, their details, and deep links to the relevant section.
-- Fixed Stats in-page detail links so targets such as Costs & Pricing open their collapsed details section before scrolling.
-- Fixed Guardrail dry-run and runtime evaluation for file, webhook, and HTTP API actions so generated read-only/status Guardrails receive structured operation context such as `file_list`, `read`, `webhook_send`, `status`, and `health` instead of only a bare path or payload.
-- Fixed pending routed action execution so user-confirmed SSH/HTTP actions that were classified as `ask_user` can pass their explicit confirmation into runtime policy instead of failing again with the same confirmation-required error.
-- Tightened chat admin delete parsing so webhook/API payload text such as `delete user record` is no longer misclassified as a request to delete a connection profile.
-- Tightened memory-forget routing so webhook/API/message payloads containing words like `delete` are not intercepted before capability routing.
-- Improved deterministic blocked-action fallback text for file write attempts, so read-only Guardrail blocks explain the blocked write more naturally when the LLM explanation path times out.
-- Classified HTTP API 4xx/5xx endpoint responses as external endpoint status errors instead of internal recipe failures, with clearer chat wording and no Discord recipe-error alert for expected HTTP status responses.
-- Classified runtime Guardrail blocks as intentional security decisions in chat, avoiding the generic profile/access-rights warning and Discord recipe-error alert for expected policy blocks.
-- Added direct Guardrail review links to runtime Guardrail block messages and aligned the blocked-action timeout fallback with the same security-decision wording.
-- Routed colloquial multi-server health prompts such as `wie fit sind meine server?` into the SSH multi-target health path instead of falling back to generic chat/RAG.
-- Fixed connection mode navigation so switching to “new connection” no longer carries an already selected profile ref, and hash links such as `#manage-existing` reliably open the intended edit card.
-- Fixed SFTP connection status rows so profile cards receive the same edit URLs as other connection types.
-- Removed the obsolete Google Calendar OAuth/device-code routes and setup UI to avoid the repeated `OAuth Client-ID fehlt` loop.
-- Limited Google Calendar `next appointment` reads to the single nearest event, while broader upcoming/week ranges still return event lists.
-
-## [0.1.0-alpha280] - 2026-05-16
-
-### Fixed
-- Added hidden Google OAuth JSON fallback fields for the Calendar device-code flow, so Safari/form-submit edge cases can still send the parsed client ID even when the visible input value is not received by the backend.
-
-## [0.1.0-alpha279] - 2026-05-16
-
-### Fixed
-- Added a backend fallback for Google Calendar device-code start that rereads the submitted form when FastAPI injects an empty client ID, using the last non-empty client ID value from the form before failing.
-
-## [0.1.0-alpha278] - 2026-05-16
-
-### Fixed
-- Autofilled the Google Calendar client ID and optional client secret in the browser as soon as an OAuth JSON file is selected, making upload parsing visible before starting the code flow.
-
-## [0.1.0-alpha277] - 2026-05-16
-
-### Fixed
-- Let the Google Calendar default device-code flow accept OAuth client JSON files that provide a client ID without a client secret, and omit the secret from token refresh/device requests when the Google client has none.
-- Clarified the Google Calendar setup UI so Client Secret is shown as optional for the default code flow and only required for the advanced browser-redirect path.
-
-## [0.1.0-alpha276] - 2026-05-16
-
-### Changed
-- Clarified the Google Calendar setup guide by pointing users to download the OAuth client JSON from the Google OAuth Clients list before uploading it in ARIA.
-- Pre-filled new Google Calendar profiles with `primary-calendar` as the default connection ref so the device-code setup does not fail on an empty internal profile id.
-- Added a server-side Google Calendar default ref fallback so the OAuth/device-code handlers still use `primary-calendar` if the browser submits an empty ref.
-
-## [0.1.0-alpha275] - 2026-05-16
-
-### Added
-- Added a Google Calendar device-code sign-in flow as the default self-hosted setup path, so ARIA can connect calendars from LAN/IP-only installs without requiring a public redirect URI.
-
-## [0.1.0-alpha274] - 2026-05-16
-
-### Fixed
-- Treated `sind meine server in ordnung`, `are my servers healthy`, and related multi-server health phrasings as broad SSH health checks, so strict per-host guardrails can use the richer allowed status bundle instead of falling back to bare `uptime`.
-
-## [0.1.0-alpha273] - 2026-05-16
-
-### Fixed
-- Routed short multi-server health prompts such as `sind meine server ok` into the SSH multi-target health path instead of falling back to generic chat/RAG.
-
-## [0.1.0-alpha272] - 2026-05-16
-
-### Changed
-- Kept long-running chat working-status messages category-specific after the 8-second fallback, so server checks continue to show that ARIA is waiting for server responses instead of falling back to a generic working message.
-
-## [0.1.0-alpha271] - 2026-05-16
-
-### Added
-- Added lightweight chat working-status messages that show the user what ARIA is likely doing while a request is running, such as checking servers, reading feeds, searching files, preparing messages, or summarizing results.
-
-### Changed
-- Let the main chat view expand toward the available viewport height so the message area grows with the screen while the composer remains anchored below it.
-
-## [0.1.0-alpha270] - 2026-05-16
-
-### Added
-- Extended the Connection Action Contract and Provider Manifest with planner-level roles, confirmation metadata, sensitive-content metadata, and optional draft capabilities so future providers such as e-mail can share read/search/draft/send boundaries instead of adding provider-specific pipeline branches.
-- Added the first generic Agentic Content Access request/result contract and handler registry for read/search/list providers, keeping future mail, files, tickets, notes, and similar content adapters separate from send/write side-effect execution.
-- Added an optional Pipeline content-access hook: registered read/search/list handlers can take over from a generic `ActionPlan`, while existing IMAP/file/feed executors remain the fallback when no handler is registered.
-
-### Changed
-- Consolidated documentation under `docs/`: public/release docs stay tracked, the internal build log moved to `docs/internal/alpha-build-log.md`, and local-only handoff/history/screenshots now live under ignored `docs/local/`.
-
-### Fixed
-- Broadened vague multi-server health prompts such as `wie geht es meinen servern` to the same strongest allowed read-only SSH status bundle used for capacity checks, avoiding narrow `uptime` probes that can be blocked by stricter per-host guardrails.
-- Fixed an unterminated mobile CSS block that could break later styles on iPhone-sized screens, added iOS safe-area viewport support, and kept mobile form fields at 16px to avoid Safari input zoom.
-
-## [0.1.0-alpha269] - 2026-05-16
-
-### Fixed
-- Broadened vague multi-server capacity checks such as `haben meine server überall genug kapazität?` from a narrow `uptime` probe to the strongest read-only health/capacity bundle allowed across all SSH targets, with deterministic fallback to disk or memory probes when stricter guardrails require it.
-- Kept partial capability executions labeled as their actual capability in chat details instead of showing misleading `memory_error` badges for blocked SSH subtargets.
-
-## [0.1.0-alpha268] - 2026-05-15
-
-### Fixed
-- Fixed mixed-language plural SSH disk prompts such as `hab ich auf all meinen server mehr als 10gb harddisk speicher frei ?` so they enter the multi-target SSH disk-check path instead of falling back to memory/RAG.
-- Added a bounded LLM capability-draft fallback for operational remote prompts that carry a connection-kind signal but miss deterministic capability lexicons, keeping flexible server/disk wording out of memory/RAG while still routing through deterministic policy, guardrails, and runtime.
-- Loosened the Pre-RAG action gate so bounded LLM capability classification can override ambiguous keyword-router hits such as false `memory_store` matches, while explicit web-search/recipe-status and runtime guardrails remain deterministic.
-
-## [0.1.0-alpha267] - 2026-05-15
-
-### Added
-- Added `docs/product/agentic-flow-map-alpha267.md` to map the controlled Agentic Action Flow from Pre-RAG context enrichment through bounded draft, policy/guardrails, runtime execution, summary, and context-only learning.
-- Added `aria/core/agentic_execution.py` and `docs/product/agentic-execution-handler-contract-alpha267.md` as the first generic Agentic execution handler contract for future connection adapters.
-- Added `aria/core/agentic_execution_registry.py` and `aria/core/agentic_execution_learning.py` so provider adapters register through a shared execution registry and record successful capability learning through one service.
-- Added `aria/core/connection_provider_manifest.py` as the first internal provider-manifest contract, grouping existing Connection Action Contracts by connection kind with auth modes, runtime adapter ids, capability rows, and validation.
-
-### Changed
-- Agentic context debug lines now use a shared context-boundary helper, so capability-draft and candidate-pool debug output explicitly carry `boundary=context_enrichment`.
-- Bounded planner selection debug now marks the draft phase with `boundary=draft`, making the Agentic debug contract easier to audit before further pipeline modularization.
-- Learned Recipe promotion now goes through a shared deterministic promotion gate: multi-target observations stay context-only, side-effect learned actions can become review-ready but not directly executable, and stored-recipe promotion validates the same blockers used by the UI.
-- Multi-target SSH learning now marks learned scope as `target_scope=multi_target` / `learning_origin=plural_target_scope`, preventing fleet checks from looking like single-target recipe evidence.
-- Learned Recipe candidates now validate `connection_kind` plus `capability` against the Connection Action Contract before re-entering the bounded planner, so stale mismatched records such as RSS/feed actions with SSH scope cannot hijack SSH questions.
-- Learned HTTP API action recording now accepts the normalized `api_request` capability as well as the legacy `http_api_request` alias when extracting the learned path.
-- Multi-target SSH runtime execution now runs through `MultiTargetSSHExecutionHandler`, the first adapter on the generic Agentic execution hook path, while preserving existing preflight, guardrail, context-memory, learning, and operator-summary behavior.
-- RSS feed execution now runs through `RSSFeedExecutionHandler`, moving RSS group-bundle and digest-option enrichment onto the same Agentic execution registry while keeping runtime execution, summaries, context memory, and learning behavior intact.
-- Agentic execution learning is now centralized through `AgenticExecutionLearningService`, removing duplicated Learned Recipe recording code from the SSH and RSS handlers.
-- The Connection Provider Manifest checklist now documents the concrete internal schema, built-in export, validator, and tests that future community/provider manifests must satisfy before UI or import support is added.
-
-## [0.1.0-alpha266] - 2026-05-15
-
-### Added
-- Added `constraints/runtime.txt` as the Docker release-build dependency lock baseline, pinned from the tested `alpha264` container.
-- Added an update-reconnect service worker that serves a small multilingual waiting shell when navigation happens during ARIA's brief container-recreate downtime, then polls `/health` and returns to the original page once ARIA is reachable again.
-- Added `docs/product/codebase-modularity-audit-alpha257.md` to document the full codebase modularity audit, accepted provider-specific seams, residual watchpoints, and the LLM-first versus deterministic safety boundary.
-- RSS digest planning now has a bounded LLM preference extraction step for explicit count/detail requests, passing the requested result count into the read-only RSS runtime while keeping deterministic caps and fallbacks.
-- Learned Recipe review cards now show Curator debug metadata (`curation_source`, policy, status, timestamp, and skip/error reason), making it visible when bounded LLM curation ran or why it stayed skipped/context-only.
-- Learned Recipe store entries now record qualitative learning signals (`new_pattern`, repeat, wording/scope/action variants, risky deviations) plus weighted learning evidence, so self-learning can distinguish repeated noise from useful variation.
-- Added a Learned Recipe promotion preview page that shows the planned stored recipe manifest, policy/side-effect boundary, confidence/risk, trigger set, limits, and step parameters before an admin writes the promoted recipe.
-- Added a bounded LLM Learned Recipe Curator that enriches successful single Agentic/Recipe learning events with review-only metadata: confidence, risk level, generalization hint, suggested trigger phrasings, promotion reason, and explicit reuse limits.
-- Managed and internal update helpers now prune dangling Docker image layers and unused ARIA Docker images after a successful health check, keeping old image layers from filling `/var/lib/docker` while leaving containers, sidecars, volumes and tagged non-ARIA images untouched.
-- Added machine-readable Agentic debug boundary constants that map debug lines back to the canonical context-enrichment, LLM-draft, policy/guardrail, and runtime-execution phases.
-- Added `docs/product/agentic-live-regression-dossier.md` as the active live-test dossier for Agentic Action Flow regressions, linking real prompts to expected routing, policy, runtime, debug, and cost behavior.
-- Added `aria/core/connection_action_contract.py` and `docs/product/connection-action-contract.md` as the shared contract layer for capability operation, executor-kind, policy-family, required-field, side-effect, and runtime-debug metadata.
-- Added `docs/product/legacy-recipe-compatibility-audit.md` to make the remaining Skill-era bridges explicit: public surfaces stay recipe-first, while old imports, `/skills*` redirects, `skills:` config roots, and `skill_*` log/config fields remain compatibility seams until a deliberate migration release removes them.
-- Added `aria/core/recipe_result_view.py` as the shared presentation layer for stored recipe execution summaries, skipped/error-continue step labels, and friendly recipe runtime error text.
-- Added an Operator Guardrail card on `/stats` that combines Model Gateway Audit, Pricing Coverage, Startup Preflight, runtime health, and update-path status into one release/operations readiness view.
-- Added explicit release metadata validation to the `/stats` Operator Guardrail, so missing or inconsistent release labels/versions are surfaced before a public build or update test is trusted.
-- Added `docs/release/internal-build-smoke-test.md` as the repeatable internal build/update smoke checklist for `/stats`, Agentic routing, SSH guardrails, Discord confirmation, SMB, RSS, RAG, and managed update-path checks.
-- Learned Recipe review cards now expose the underlying Connection Action Contract boundary (`family`, `policy`, `runtime`, side-effect state), making promoted/context-only candidates easier to audit before adoption.
-- Learned Recipe review cards now show a localized review-maturity hint, separating strong promotion evidence from candidates that still need a target, action, or more successful runs.
-- Bundled recipe template cards now show step count, connection families, trigger count, schedule/manual state, step types, and whether a template has side effects that require confirmation/policy review.
-- Added `connection_action_manifest_rows()` plus `docs/product/connection-provider-manifest-checklist.md` as the bridge from today's Python-backed connection contracts to future declarative provider manifests.
-- Added `docs/product/operator-observability-guardrails.md` to document the `/stats` release/operations guardrail rows, status semantics, cost-tracking strictness, and maintenance rules.
-
-### Changed
-- Docker builds now pin the Python and Docker CLI base image digests, install ARIA through the runtime constraints file, and disable build isolation after pinned `pip/setuptools/wheel` bootstrap, reducing base-image and Python transitive dependency drift before public releases.
-- RSS read-only runtimes now size their internal transport budget from the requested digest count, so a `10 news` request is not truncated before the chat summarizer can format all requested entries.
-- Learned Recipe curation and Recipe Experience Memory writes now run as non-blocking post-response follow-up work, keeping self-learning context-only while preventing successful chat actions from waiting on curation LLM calls or memory embeddings.
-- RSS category reads now fetch the bounded feed set concurrently instead of serially, so slow or timing-out feeds no longer stack into minute-long digest responses.
-- File-list summaries now separate directories from file examples, making SMB/SFTP folder listings easier to scan without changing the bounded file-list runtime.
-- Routing Workbench kind options, pending chat action route kinds, default Qdrant routing-index kinds, and generic pipeline capability-gate pools now derive from the Connection Catalog / Connection Action Contract instead of page- or pipeline-local provider lists.
-- Agentic read/message resolver capability families now derive from the Connection Action Contract, keeping LLM-backed operation resolution attached to the same provider contract used by runtime and policy.
-- RSS category digests now collect multiple entries per feed up to a safe cap, instead of always taking one item per feed and formatting at most six items.
-- RSS digest summaries now explain request/result gaps such as `10 requested, 4 found/readable, 1 skipped`, making feed count limits, timeouts, and sparse sources visible to the user.
-- Learned Recipe review maturity now prefers weighted learning evidence over raw run count, reducing overconfidence from repeated identical executions while still keeping raw success count visible for audit.
-- Recipe Experience Memory text now carries the learning signal and weighted evidence as planner context, so future LLM-backed planning can see whether an experience was fresh evidence, wording variation, or repeated noise.
-- Learned Recipe cards now route promotable candidates through the promotion preview instead of writing a stored recipe directly from the list action.
-- Learned Recipe Experience Memory now includes curated confidence/risk/generalization/limits in its semantic text, so future planning can use richer context while runtime execution remains gated by normal bounded planning and guardrails.
-- `/recipes/learned` now explains the full learning lifecycle in the UI: where learned patterns come from, where review candidates and semantic experience memory are stored, what Promote/Dismiss/Delete do, and how learned context is retrieved without bypassing policy or guardrails.
-- `/recipes` overview status cards now use compact, non-duplicated status labels and link directly to the matching recipe sections, so the lamp cards behave like the navigation elements they visually resemble.
-- `/connections/status` now renders from cached/last-known connection health by default and exposes an explicit live-refresh link, so opening the status page no longer waits on slow SSH, RSS, API, SearXNG, or network probes.
-- `agentic_runtime` debug lines now include `boundary=runtime_execution`, making runtime execution visually separate from context enrichment, LLM drafts, and policy decisions.
-- Multi-target SSH checks now run an LLM-backed operator-summary pass over the already executed read-only results, with deterministic summaries kept as fallback only; this lets ARIA answer phrased constraints such as free-space reserves more flexibly without letting the LLM choose or bypass execution policy.
-- The active alpha backlog now removes the completed Agentic Intelligence block from the open work list and keeps only the ongoing live-regression dossier process as a standing guardrail.
-- `pre_rag_action_gate` debug output now includes the context-enrichment boundary plus target/path/content hints, and final chat/RAG responses in debug mode show an explicit `action_path=no_action` line when the Agentic gate intentionally declines to take over.
-- The live agentic routing regression now covers the natural German prompt `habe ich genügend freien speicherplatz auf meinen servern?`, ensuring it stays out of `memory_store`/RAG and fans out through the bounded SSH multi-target disk check.
-- Learned Recipe review cards now show a localized next-action hint, localize row status/safety labels with the active UI language, and preserve state/kind/sort filters after Promote/Dismiss/Delete actions.
-- Learned Recipe admin success messages now use recipe-first `learned_recipes.*` i18n keys instead of legacy `skills.learned_*` compatibility keys.
-- Stored recipe summaries now render skipped step markers through the same readable Recipe Result View formatter as executed steps.
-- Connection Action Contract tests now pin the side-effect boundary so write/send/publish capabilities stay auditable and cannot silently look read-only.
-
-### Fixed
-- Learned Recipes review cards now render as full-width contained cards with wrapped badges and structured details for long LLM curator fields, preventing promotion reasons, trigger lists, and limits from tearing the `/recipes/learned` layout apart.
-- Learned Recipe `file_list` candidates now display list/browse labels in the review UI even when older stored learning records still carry legacy `Read File` titles or intents.
-- Assistant-message Markdown rendering now supports link labels that contain square brackets, so RSS titles such as Exploit-DB `[webapps]` entries remain clickable in the chat UI.
-- Guardrail review hints now keep the visible `/config/security?guardrail_ref=...` path next to the clickable Markdown link, so copied chat text still contains the concrete review target.
-- RSS digest formatting now preserves explicit `Link:` lines for source titles that already contain bracketed Markdown labels such as Exploit-DB `[webapps]` entries.
-- Guardrail review references in blocked-action answers now render as Markdown links to `/config/security?guardrail_ref=...` instead of plain URL text.
-- SSH policy-block responses now use a deterministic safety fast-path after the LLM has identified the intended action, avoiding an extra blocked-action LLM call and recovering the guardrail review URL from the selected connection when the safety decision did not carry it forward.
-- Blocked policy/guardrail actions now keep the deterministic block decision but use a bounded LLM explanation step for the user-facing answer, with deterministic fallback, visible planned action, and direct `/config/security?guardrail_ref=...` review links when a guardrail profile is attached.
-- Blocked-action LLM explanations now post-process live wording more strictly: if the LLM already mentions the concrete command, ARIA does not append a duplicate planned-action line, and weak guardrail references are replaced with the canonical guardrail review link.
-- Blocked-action explanation calls now have a short timeout with deterministic fallback, and clearly mutating SSH requests skip the extra guardrail-intent LLM classification once policy has already blocked the command.
-- Guardrail-kind mapping now lives in the Connection Action Contract and is reused by dry-run plus recipe runtimes, removing duplicated HTTP/file/MQTT/SSH mapping tables from execution paths.
-- Memory Overview/Map and Stats now share a central Qdrant collection classifier, auto-detect ARIA system collections such as `aria_recipe_experience_*`, show Recipe Experience Memory even when empty, and keep future unknown `aria_*` system collections visible instead of silently dropping them from the graph.
-- Learned Recipes flow explainer cards now render explanatory body text with the same subdued visual weight as the meta hints, keeping `/recipes/learned` calmer when the learned store is empty.
-- Deleting a Learned Recipe now also purges matching Recipe Experience Memory points from Qdrant for the current user, preventing stale context-only learning data from surviving after an admin deliberately removes a bad candidate.
-- `/stats` Operator Guardrail now has a dedicated Cost Tracking row: disabled token tracking and UsageMeter bypasses fail the release guardrail, while estimated-vs-logged cost gaps surface as warnings.
-- `/stats` Operator Guardrail now includes Recipe Experience Memory reachability when that metadata is available, so Qdrant learning-memory outages are visible without making disabled/fresh installs look broken.
-- Pricing refresh now reuses the shared pricing-settings sync path after preserving manual prices and aliases, so manual alias overrides remain visible in the running settings object immediately after a LiteLLM refresh.
-- Agentic runtime debug operation/payload rendering now uses the shared Connection Action Contract instead of a local capability `if` chain, so future connection types have one explicit place to declare their runtime shape.
-- Executor registration and capability routing now derive valid `(connection_kind, capability)` bindings from the Connection Action Contract; unsupported runtime bindings fail fast instead of quietly creating a side path outside the modular connection contract.
-- Bundled sample-manifest regression coverage is now recipe-first: `samples/recipes/` is pinned as the public import surface, `/recipes` links are required there, and `samples/skills/` is verified only as a parity fallback for old installs.
-- Stored recipe step output now keeps its legacy marker for compatibility but also renders a clearer recipe run status, readable per-step states, skipped steps, technical run details, and result text.
-- Recipe Result View summaries now include executed/skipped step counts ahead of the detailed step list, making multi-step recipe output easier to scan.
-- Operator Guardrail rows now carry stable machine-readable keys, so tests and future UI/admin tooling do not have to infer row meaning from visual order.
-- The Legacy Recipe Compatibility Audit now includes an explicit migration gate for removing old Skill-era bridges instead of leaving those compatibility seams as vague cleanup debt.
-- Multi-target SSH LLM summaries now carry structured threshold facts and are validated against the measured read-only `df -h` results; if the first LLM summary contradicts hard measurements, ARIA asks the LLM for a bounded repair and only falls back to a measured threshold summary if repair fails.
-- Browser favicons are now real bundled favicon assets instead of a PNG served through `/favicon.ico`: ARIA ships `.ico`, 16/32/48 PNG variants and an Apple touch icon, the base template declares all of them, and regression tests pin the route, template links and package-data coverage.
-- Multi-target SSH LLM summaries no longer pass unsupported per-call `temperature` overrides to the shared `LLMClient`; skipped or failed summary calls now leave a routing-debug line instead of silently falling back to the old deterministic summary.
-- German disk-space questions such as `hab ich noch genug speicherplatz auf meinen servern?` no longer get misclassified as `memory_store` just because `speicherplatz` contains the memory-store verb stem `speicher`.
-- Multi-target SSH disk summaries now honor explicit free-space thresholds from the user prompt, so requests like `mehr als 10gb freien festplattenspeicher` report hosts below that threshold instead of reusing the generic all-ok disk summary.
-- The memory-store keyword boundary regex now uses Unicode word boundaries instead of an inline German character class, keeping the `speicherplatz` fix while passing the strict i18n literal audit.
-- Learned Recipe Dismiss/Delete redirects now render human-readable info messages instead of leaking raw `learned_dismissed:*` / `learned_deleted:*` status codes.
-- `/connections/types` now uses cached/last-known connection status rows instead of live-probing every configured service while rendering the type hub, so slow RSS or network endpoints no longer block that page load.
-
-## [0.1.0-alpha251] - 2026-05-12
-
-### Fixed
-- The host-side update helper now preflights published Compose ports before recreating the ARIA service. If a new Compose plan would publish a host port that is already occupied by something other than the current ARIA container, the update aborts before touching the running stack instead of failing mid-recreate.
-- RSS digests now print the URL explicitly below linked titles, so copied chat output still contains usable links even when the browser drops Markdown link targets during copy/paste.
-- Natural plural SSH prompts such as `von meinen server` no longer leak article fragments like `requested_ref=n server` into routing debug output.
-- Host-side public updates can now pass `--target-image` to move fixed-tag installs to a newer ARIA image while still recreating only the `aria` service; managed stack helper files are refreshed from the target image and file ownership is restored afterwards.
-- `docker/aria-host-update.sh` no longer leaves a stale lock cleanup error on exit after an update, and its managed-file refresh avoids root-owned `.env` files on user-owned installs.
-- Managed public stack updates now refresh/recreate only the `aria` service during normal `aria-stack.sh update`; stateful sidecars such as Qdrant/SearXNG remain untouched unless `repair` or `update-all` is run deliberately.
-- Multi-target SSH fleet checks now keep all-ok responses compact and action-oriented: when every target looks healthy, ARIA reports the fleet status and "no action required" instead of listing every host result in the main chat answer; mixed results still surface only hosts that need attention, were blocked, or failed while the full execution trace remains in details.
-- Plural SSH target requests are now finalized again after bounded planning/template normalization, so a late stale `connection_ref` missing-input state cannot undo the multi-target command draft and ask for one SSH profile.
-- Mutating SSH requests such as `starte meinen dns server neu` can no longer be converted into a safe healthcheck guardrail fallback; ARIA keeps the intended mutating command visible and lets SSH policy block it.
-- Plural SSH target requests with an empty command draft can now ask the SSH agentic resolver for the missing read-only command before deciding whether bounded multi-target execution is possible, and the resulting multi-target action clears stale `connection_ref` missing-input state.
-- The alpha246 live-test sequence is now covered by one regression spanning multi-target SSH, management disk checks, DNS health, blocked restarts, API availability, Discord confirmation, and SMB root listing.
-- Chat one-click confirmation buttons still send the signed confirmation command internally, but the visible user bubble now shows the clicked button label instead of the raw `bestätige aktion ...` token command.
-- Recent file-context hints such as `im gleichen Ordner` now distinguish a previously listed directory from a previously opened file, so a follow-up after listing `/tmp` stays in `/tmp` instead of jumping to `/`.
-- Chat one-click confirmation buttons now post the signed pending-action payload with the confirmation request, so the action can be confirmed even if the browser has not persisted the pending cookie yet; the typed confirmation fallback remains available.
-- SSH block previews are now rebuilt when the agentic resolver replaces a stale generic command with the actual intended command, so restart/state-change requests show the mutating command that policy blocked instead of an old `uptime` probe.
-- Recent file-context hints such as `im gleichen Ordner` now override default root/path placeholders like `.`, including explicit or single-profile SFTP/SMB routes.
-- Plural SSH target requests such as `meine Server` now suppress stale stored-recipe and single-host memory candidates, but safe read-only SSH commands such as `df -h` can fan out across all matching SSH profiles as a bounded multi-target action with a localized multi-target summary.
-- Multi-target SSH execution now preflights every target against its own profile allowlist, guardrail allow terms, and SSH read-only policy; mixed target sets execute allowed profiles and report blocked profiles as localized partial failures.
-- Multi-target SSH chat responses now include a compact operator summary before per-host details, highlighting how many targets look ok, need attention, were blocked, or failed.
-
-### Changed
-- RSS category digests now keep useful operator context in the main chat answer: entries are rendered as a readable list with source, timestamp, short snippet, and clickable Markdown links instead of collapsing everything into a one-line headline/source summary.
-- Public-facing release copy was refreshed for the post-`alpha167` rollup: README and Docker Hub overview now describe ARIA as recipe-first with LLM-assisted action planning, and `docs/release/public-alpha-rollup-alpha167-to-next.md` provides a human-readable GitHub/Docker release narrative.
-- The active alpha backlog has been compacted so old build history lives in `docs/internal/alpha-build-log.md` / `CHANGELOG.md`, while `docs/backlog/alpha-backlog.md` now focuses on current blockers, live-test focus, and next cleanup steps.
-- LiteLLM is no longer a hard base dependency of the ARIA package; model gateway calls load it lazily and Docker installs it explicitly via the `model-gateway` extra, so pricing can remain independent from the runtime provider package.
-- SSH, HTTP API, SFTP/SMB file, outbound messaging, and read-only agentic resolvers now share one explicit LLM action-draft contract: enrich context via a target dossier, let the LLM propose only a bounded draft, and leave allow/ask/block decisions to policy and guardrails.
-- Agentic Pre-RAG action paths now run inside a request usage scope, so LLM calls used for SSH/HTTP/File/Messaging/Read decisions are reflected in the visible `PipelineResult`, chat token badge, and token log instead of showing misleading `0 tokens`.
-- Pending routed actions in chat now expose a one-click confirmation button instead of asking users to manually type a confirmation code; the signed pending-cookie flow and typed-token fallback remain in place for safety and compatibility.
-- Agentic routing now fixes the first `alpha238` live-test outliers: generic HTTP availability prompts can use the only configured API profile instead of treating `erreichbar` / `reachable` as a profile name, SMB folder-list prompts default to the share root, and fresh Discord-send prompts are no longer consumed as a pending SMB path reply.
-- Natural SSH status/disk wording now keeps the router at Intent/Ziel level and leaves the concrete command proposal to the agentic SSH resolver before guardrails run, instead of baking `uptime` / `df -h` into the capability router itself.
-- Introduced an explicit generic Pre-RAG Action Gate in the pipeline: chat/memory requests are first checked for bounded capability/connection actions before document RAG, with `pre_rag_action_gate` debug output showing whether unified routing or direct capability action took precedence
-- Natural SSH disk wording now treats `HD`, `HDD`, `hard drive`, and German plate/free-space variants as disk-check terms, so prompts such as `wie sieht die hd auf meinem management server aus` route to the bounded SSH `df -h` action path before generic RAG chat can pull irrelevant documents
-- The Workbench surface at `/config/workbench` now links directly to `/config/llm/debug`; the LLM Prompt Debug entry is no longer only visible on the older settings overview
-- LLM Prompt Debug now persists redacted audit entries to `data/runtime/llm_audit.jsonl` in addition to the in-memory ring, so prompts remain visible across multiple web workers and can still be cleared from `/config/llm/debug`
-- Final chat/RAG responses now tag their LLM gateway call with `source`, `operation=final_chat_response`, `user_id`, and `request_id`, making the exact prompt context and model answer inspectable instead of only token totals
-- Recipe `llm_transform` steps now tag their gateway calls as `recipe_runtime` / `llm_transform` for clearer prompt debugging
-- Added an admin-only LLM Prompt Debug page at `/config/llm/debug` backed by the central `LLMClient` gateway; recent prompts, responses, source, operation, model, duration, and token usage are captured in memory with secret redaction and no disk persistence
-- The LLM gateway now records failed, empty, and successful calls in a bounded in-memory audit ring so agentic routing can be inspected without guessing what was sent to the model
-- Soft/ordinal connection targets such as `zweiten dns server` now trigger semantic LLM disambiguation across the available profiles before an alias-derived explicit ref is accepted, so `second DNS server` can resolve to `dns-node-02` instead of the first `dns server` alias match
-- SSH restart/state-change requests now get a second mutating-intent LLM pass when the first command proposal incorrectly substitutes a harmless status probe such as `uptime`; the real intended command is then blocked by policy instead of misleading the user
-- Explicit SSH command requests such as `führe uptime auf meinem dns server aus` now keep the requested command as the action draft; ARIA no longer expands those into a full healthcheck bundle unless the user asked for a broader health/status check
-- Mutating SSH requests now ask the SSH LLM resolver to identify the intended command so the policy layer can block the real requested operation instead of showing a misleading safe `uptime` fallback
-- Plural SSH target requests such as `meine Server` no longer accept a single-host semantic LLM guess when no explicit target was selected; until multi-target execution is implemented, ARIA keeps the request bounded instead of silently choosing one server
-- Bounded planning now carries an explicit `context_enrichment -> llm_action_proposal -> policy_guardrail_decision -> runtime_execution` contract into the LLM prompt, planner result, and routing debug output, making deterministic context advisory while keeping guardrails as the execution gate
-- Natural SSH status requests that arrive with only a generic deterministic `uptime` draft now ask the bounded SSH LLM resolver for a concrete command proposal first, unless the user explicitly requested `uptime`; the resulting command still goes through the same SSH guardrail allow/ask/block policy
-- Google Calendar now translates the most common real-world OAuth and API failures more precisely across both connection tests and live `calendar_read` execution, including expired refresh tokens, disabled Calendar APIs, and permission/scope mismatches
-- natural calendar search requests no longer depend only on quoted text; ARIA now also extracts simple unquoted filters such as `Termine mit Zahnarzt nächste Woche`
-- short calendar follow-ups now reuse recent calendar context more naturally, so requests like `und morgen?` can keep the last calendar filter instead of falling back to a generic chat answer
-- the Google Calendar setup page now includes an explicit reconnect hint for the common case where only the refresh token needs to be renewed later
-- Google Calendar no longer depends on a manual OAuth Playground copy/paste step; ARIA can now start the Google sign-in flow directly from the connection form and store the refresh token server-side on callback
-- Notes can now be browsed more naturally from chat and the toolbox, including folder listing, folder-scoped note lists, and opening a note by query
-- Notes folders can now be renamed directly from the Notes UI, while note title edits now explain more clearly that changing the title also renames the note
-- note cards on the Notes board now wrap long titles instead of stretching the whole board layout sideways
-- `öffne notizen in ordner ...` now resolves into the Notes flow and opens the folder view instead of falling through into unrelated generic routing
-- watched websites now have their own lightweight chat entry points for opening and listing profiles, and admin users can start a website profile via the short `beobachte https://...` command that drops into the existing confirm flow
-- `/stats` now renders token usage as a compact vertical token card with one prominent total and smaller detail rows, so the added chat/embedding/model metrics no longer break the top-row visual balance
-- `/stats` now includes a `Model Gateway Audit` card that shows the active chat model, embedding model, shared `UsageMeter` status, memory embedding wiring, token-log status, and unpriced-token warnings
-- LLM and embedding runtime calls are now guarded by a contract test so provider calls stay behind the metered `LLMClient` / `EmbeddingClient` gateway instead of reappearing as untracked side paths
-- natural SSH status questions such as `wie geht es meinem dns server` now count as health/status requests for the guardrail fallback, so an unsafe or unlisted narrow `uptime` draft can be replaced by the allowed healthcheck command bundle
-- successful SSH healthcheck guardrail fallbacks now enrich Learned Recipe candidates with the natural user wording, the final allowed command bundle, target scope, and fallback provenance; unpromoted learned recipes remain non-executable until review/promotion
-- successful recipe/guardrail runs are now also indexed as semantic `Recipe Experience Memory` in Qdrant and retrieved as bounded planner context only, so prior successes can inform planning without becoming a direct executor
-- `/stats` now shows Recipe Experience Memory status, collection count, and point count, making the new self-learning context layer visible during testing
-- the Learned Recipes review UI now exposes the original user wording and learning origin for each candidate, making promotion decisions easier to audit
-- full SSH healthcheck summaries now end with a human conclusion such as `Fazit: unauffällig` or `Fazit: Handlungsbedarf`, so users get an operator-level read instead of only raw metrics
-- SSH healthcheck summary wording now uses `result_ssh.*` i18n keys from the language files instead of German text embedded in the summarizer code, with an English regression test covering the full healthcheck path
-- a new `scripts/audit_i18n_code_literals.py` helper and `docs/backlog/i18n-code-literal-audit.md` report document the remaining German literals in Python code so the cleanup can be handled deliberately
-- Connection Admin now uses structured error codes and `connection_admin.*` i18n keys for success/error messages instead of German runtime strings in Python
-- Chat Admin connection/update/backup/status replies now use `chat_admin.*` i18n keys instead of hard-coded German assistant text
-- Connection mutation handlers now use `connection_mutation.*` i18n keys and structured errors for form/redirect failures instead of raw German runtime strings
-- Connection catalog UI labels, Discord toggle metadata, and chat insert examples now use `connection_catalog.*` / `config_conn.*` i18n keys instead of raw German metadata strings in Python
-- Recipe Runtime status output, step error markers, recipe-step summaries, SMB connection errors, and the stored-recipe selection prompt now use `recipe_runtime.*` i18n keys instead of raw German runtime strings
-- Chat command catalog no longer carries the old German-to-English insert replacement bridge; delete-connection inserts now use `chat.tool_delete_connection_insert`, and remaining German toolbox text is confined to i18n-backed fallbacks
-- Recipe route wizard presets, follow-up-step suggestions, connection-choice hints, and import/wizard validation errors now use `recipes_routes.*` i18n keys instead of raw German UI/runtime strings
-- Memory routes now use `memories_routes.*` i18n keys for graph labels, manual memory types, document delete/import errors, backend validation errors, and compression status text instead of raw German route strings
-- Chat pending flows now use `chat_pending.*` i18n keys for action confirmations, safe-fix prompts, memory-forget confirmations, and alias follow-ups, removing German UI text from `chat_pending_flows.py`
-- Config intelligence/workbench routes now use `config_workbench.*` i18n keys for LLM and embedding profile validation, model API validation, file editor errors, and error-interpreter rule validation
-- Main app documentation defaults, runtime reload errors, startup Discord alerts, and unexpected-error responses now use English fallbacks or `app.*` i18n keys instead of German literals in `main.py`
-- `/stats` pricing coverage now falls back directly to the ARIA bundled pricing seed and treats rows with logged numeric model costs as priced, avoiding false “unpriced model usage” warnings for known Claude/OpenAI models when the saved pricing catalog is empty or stale
-- Action Planner dry-run, heuristic, and bounded-recovery messages now use `action_planner.*` i18n keys, and Notes Store validation/file-action errors now use `notes_store.*` i18n keys instead of German core literals
-- Document ingest validation/errors and Safe-Fix held-package summaries/execution messages now use `document_ingest.*` and `safe_fix.*` i18n keys instead of German core literals; localized document stopwords also moved out of Python code
-- Config surface routes and Notes route status messages now use `config_surface.*` and `notes_routes.*` i18n keys instead of German route literals
-- Routing config/workbench route messages and shared main UI error helpers now use `config_routing_routes.*` and `main_ui.*` i18n keys instead of German route/helper literals
-- Config profile helper messages and Stats route summaries now use `config_profile_helpers.*` and `stats_routes.*` i18n keys instead of German helper/route literals
-- Action planner candidate detail labels and agentic SSH clarification/confirmation messages now use `action_planner_candidate_details.*` and `ssh_agentic_resolution.*` i18n keys instead of German core literals
-- Operations config, connection context hints, action candidate taxonomy labels, and IMAP result summaries now use `config_operations_detail_routes.*`, `connection_context_helpers.*`, `action_candidate_taxonomy.*`, and `result_imap.*` i18n keys instead of German literals
-- Auth surface, main config helpers, Notes Magic, HTTP API result summaries, and Website Runtime now use `auth_surface_routes.*`, `main_config_helpers.*`, `notes_magic.*`, `result_http_api.*`, and `website_runtime.*` i18n keys instead of German runtime strings or local German note-folder lexicon in Python
-- Google Calendar support errors, Web Search result text/lexicon, config overview helper messages, and chat execution warnings now use `google_calendar_support.*`, `web_search.*`, `config_surface_helpers.*`, and `chat_execution_flow.*` i18n keys instead of inline German strings in Python
-- Capability detail lines, action-planner result labels, RSS result summaries, and file-operation summaries now use `capability_catalog.*`, `action_planner_result_state.*`, `result_rss.*`, and `result_file_operation.*` i18n keys instead of hard-coded German labels in Python
-- Connections surface headings/cards and Notes context/index fallback text now use `connections_surface_routes.*`, `connections_surface_helpers.*`, `notes_context.*`, and `notes_index.*` i18n keys instead of German UI/runtime strings in Python
-- LLM client errors, executor registry errors, learned-recipe promotion validation, and stored-recipe manifest validation now use `llm_client.*`, `executor_registry.*`, `learned_recipe_promotion.*`, and `recipe_manifests.*` i18n keys instead of German runtime strings in Python
-- Config guardrail/persona errors, config file-save reload warnings, OPML RSS import exhaustion, and SSH authorized_keys write failures now use `config_access_detail_routes.*`, `config_persona_routes.*`, `config_support_helpers.*`, `connection_reader_helpers.*`, and `connection_support_helpers.*` i18n keys instead of German runtime strings in Python
-- User-admin CLI text, secure-store/migration errors, source-lookup previews, SSH template term matching, and HTTP API status term matching now use `user_admin.*`, `secure_store.*`, `secure_migrate.*`, `behavior_families.*`, `execution_dry_run_template_payloads.*`, and `http_api_agentic_resolution.*` i18n keys instead of German literals in Python
-- The i18n audit now reports zero `raw_runtime_literal` and zero `llm_prompt` findings after moving the remaining config, connection-health, maintenance, router, routing-hint, RSS grouping, learned-recipe UI, runtime-diagnostics, pipeline, and memory-skill strings into language keys
-- The first large `inline_localized` cleanup moved connection runtime, recipe runtime, and chat command catalog fallback text behind `connection_runtime.*`, `recipe_runtime.*`, and `chat.*` language keys, reducing inline localized audit findings from 252 to 93
-- A second `inline_localized` cleanup moved capability pipeline messages, recipe overview/wizard fallbacks, and memory hub/upload text behind `pipeline_capability_messages.*`, `skills.*`, and `memories_routes.*` language keys, reducing inline localized audit findings from 93 to 50
-- The final `inline_localized` cleanup moved dry-run labels/reasons, learned and stored recipe candidate previews, planner follow-up prompts, connection mutation status messages, pipeline capability details/execution text, auth JSON fallbacks, and docs license summaries behind i18n keys, reducing inline localized audit findings from 50 to 0; remaining German code-literal findings are input lexicon only
-- The declarative input-lexicon cleanup moved routing profiles, capability-routing terms, chat notes/admin/website command patterns, action-planner scoring/extractor hints and template overrides, auto-memory rules, routing-resolver scoring, capability-router patterns, recipe-runtime matching terms, connection-catalog extras, semantic resolver prompts, pipeline missing-input patterns, Notes tag normalization, and update-helper failure detection into `aria/lexicons/*.json`; visible Chat Notes replies now use `chat_notes.*` i18n keys, and the German code-literal audit now reports zero findings
-- `scripts/audit_i18n_code_literals.py` now has a `--strict` guardrail mode plus regression tests, so new German runtime, inline-localized, LLM-prompt, or input-lexicon literals in Python can fail validation instead of silently re-entering the codebase
-- Python package builds now declare ARIA runtime assets as setuptools package data, including `aria/i18n/*.json`, `aria/lexicons/*.json`, templates, and static files, so normal wheel installs keep the i18n and lexicon cleanup usable outside the Docker source tree
-- `docs/backlog/alpha-backlog.md` now reflects the current post-`alpha215` working state, separating shipped build facts from unbuilt guardrail/package-data follow-ups and reprioritizing the remaining backlog around Recipe legacy, model-cost tracking, Experience Memory, monolith cleanup, i18n guardrails, and release hygiene
-- `/stats` now separates logged USD from estimated USD and can reprice historical token rows from model names plus prompt/completion or embedding token counts once Claude/OpenAI pricing is known, making stale zero-cost rows visible instead of silently understating usage
-- Recipe Experience Memory now adds explicit planner-debug lines for retrieved experience hits, including score, target, success count, and previously working action, while marking the layer as `context_only` so learned memory remains planner context and never becomes a direct executor
-- Learned Recipe review cards now surface the original user wording, target scope, previously working action, and safety state directly in the admin UI, making it clearer that unpromoted experience is review/context only
-- The SSH healthcheck learning path now has an end-to-end regression covering successful guardrail fallback execution, Learned Recipe store payload creation, Experience Memory storage, and later planner-context retrieval/debug formatting
-- Learned Recipe admin UI text now uses the `learned_recipes.*` i18n namespace instead of the legacy `skills.learned_*` keys, keeping the visible Recipe-first surface separated from Skill compatibility keys
-- Recipes hub, nav, page headings, overview cards, start/custom/system/template sections, save/load hints, wizard controls, wizard form labels, and wizard JavaScript status text now use `recipes.*` / `learned_recipes.*` i18n keys instead of legacy `skills.*` keys or hard-coded German template strings, while old Skill keys remain only for compatibility and internal migration seams
-- `recipes_routes.py` is now slimmer and more readable after moving Recipes overview/next-step UI construction into `recipes_surface_context.py`, Wizard preset/follow-up/connection catalog data into `recipes_wizard_catalog.py`, Learned Recipe promote/dismiss/delete action handling into `recipes_learned_actions.py`, sample-template listing/import handling into `recipes_template_import.py`, Wizard form-to-manifest save logic into `recipes_wizard_save.py`, and shared return-to/CSRF/admin helpers into `recipes_route_support.py`
-- Recipe runtime matching now uses recipe-first helper names internally (`_recipe_tokens`, `_recipe_match_score`, `_looks_like_recipe_execution_request`) while retaining legacy `skill_*` aliases for compatibility
-- Recipe runtime file/guardrail diagnostics now use `recipe_runtime.*` i18n keys instead of embedded German strings, unused duplicated SFTP/SMB list-step helpers were removed, and SFTP/SMB file execution now lives in `recipe_runtime_file_adapters.py` behind a small `RecipeFileRuntime` adapter
-- RSS feed parsing, URL cleanup, timestamp normalization, summary formatting, and single-feed execution now live in `recipe_runtime_rss.py`, while `RecipeRuntime` keeps thin compatibility wrappers for existing tests and callers
-- Google Calendar OAuth token exchange, event fetching, range calculation, event-time formatting, and result rendering now live in `recipe_runtime_calendar.py`, with `RecipeRuntime.execute_google_calendar_read(...)` preserved as the stable public entry point
-- Webhook sends, Discord sends, and HTTP API requests now live in `recipe_runtime_http.py`, reusing the existing guardrail enforcer through dependency injection while keeping the stable `RecipeRuntime` execution methods as thin delegates
-- SMTP email send, IMAP read/search, and MQTT publish execution now live in `recipe_runtime_messaging.py`; `RecipeRuntime` keeps compatibility delegates for the existing public methods and shared mail-header helper
-- Direct Discord recipe steps now reuse the HTTP runtime adapter for webhook delivery instead of building `URLRequest` calls inside the recipe step executor
-- Recipe step execution, condition checks, template rendering, SSH step summaries, and LLM transform steps now live in `recipe_runtime_steps.py`, reducing `RecipeRuntime` to runtime composition and compatibility delegates
-- RSS group-read aggregation now also lives in `recipe_runtime_rss.py`, leaving `RecipeRuntime.execute_rss_group_read(...)` as a compatibility delegate
-- `/stats` pricing refresh now preserves local/custom pricing entries and lets marked manual overrides (`source_name: Manual` or `notes: source=manual`) keep precedence over refreshed provider prices, so ARIA can update provider catalogs without destroying deployment-specific cost settings
-- `/stats` pricing refresh now also imports the public LiteLLM GitHub pricing JSON as a short-timeout remote source without depending on the LiteLLM Python package for pricing, expanding automatic model-price coverage while keeping ARIA's bundled seed and manual overrides as safeguards
-- LiteLLM's public GitHub pricing JSON is now the primary pricing source: ARIA caches the last good copy in `data/pricing/litellm_model_prices.json`, refreshes it on startup when older than seven days, uses `/stats` refresh as a forced update, and falls back to the cached copy or bundled emergency seed when GitHub is unavailable
-- `/stats` now labels the active LiteLLM GitHub pricing source and local cache explicitly, and the top Costs card uses a compact hero/list layout so estimated/logged/average/request metrics no longer stretch the header row
-- `/stats` cost metrics now use a stable two-column LED matrix instead of mixed label/value rows, preventing labels such as `Logged USD` from wrapping away from their values in the narrow top-row card
-- `/stats` now stacks the long Model Gateway Audit and Recipe Experience Memory diagnostics as full-width rows, avoiding a broken two-card row with an empty third column
-- Recipe legacy internals are reduced further: action-planner recipe candidates now live in `action_planner_recipe_candidates.py`, stored recipe manifests use recipe-first helper/cache names, wizard presets use recipe-type names internally, and old `skill_runtime.py` / `custom_skills.py` / `skills_routes.py` modules are explicit compatibility wrappers instead of `sys.modules` aliases
-- Recipe Experience Memory now normalizes learned entries with target/action/experience fingerprints, keeps distinct successful actions for the same learned recipe, applies explicit target/capability/intent ranking bonuses during recall, and surfaces recent experience rows on `/stats` for easier self-learning audits
-- Monolith cleanup continued along product seams: Pipeline Recipe Experience context/debug formatting, Recipe Runtime status text, and Recipes manifest delete/export actions now live in dedicated helper modules with thin compatibility delegates in the old entry points
-- i18n and packaging hygiene now have stronger regression coverage: the strict German code-literal audit is exercised through its CLI, and package-data tests verify that every current i18n, lexicon, template, and static runtime asset is covered by setuptools package data
-- Release hygiene now blocks common generated packaging artifacts (`*.egg-info/`, `build/`, `dist/`, `*.whl`) and has a regression test for current release-label/backlog consistency plus required container source assets such as recipe prompts and sample recipe manifests
-- `/stats` now includes an admin-only Pricing Overrides panel for adding local model aliases and manual chat/embedding prices directly from the UI; manual prices are marked as overrides, survive LiteLLM refreshes, and can be removed without exposing provider-synced rows to accidental deletion
-- Recipe Experience Memory can now be deliberately promoted from `/stats` into the Learned Recipe review store as a context-only candidate; web/search-derived review entries are supported by the same core contract, while non-promotable capabilities no longer show a stored-recipe Promote action in the Learned Recipes UI
-- Natural SSH health questions such as `ist mein dns server ok` now use a bounded LLM guardrail-intent classifier before falling back to the configured healthcheck bundle, instead of requiring a new hard-coded phrase or executing a blocked bare `uptime` probe
-- Agentic action resolution now has a shared core contract that separates LLM-proposed action drafts from policy/runtime decisions, with SSH and HTTP API debug paths starting to report the same draft-versus-policy boundary
-- SSH and HTTP API agentic resolution now share the same action-draft, policy-result, and debug-line helpers, making the first two capability families follow one visible `LLM draft -> policy decision -> runtime` shape
-- File operations now have the same generic agentic action-draft shape for SFTP/SMB list/read/write, plus secret-free file target dossiers and dry-run debug output that separates the proposed file action from the `file_access` policy result
-- SFTP/SMB file operations now have a bounded LLM resolver that can fill missing operation details from the file target dossier, while already complete file actions stay deterministic and every draft still flows through the normal payload, confirmation, and `file_access` guardrail checks
-- Discord, webhook, email, and MQTT outbound messaging now share a bounded agentic message draft and secret-free message target dossier; the LLM resolver only fills missing content/topic fields, while complete drafts stay deterministic and all sends still require the normal side-effect confirmation/guardrail path
-- RSS, Google Calendar, IMAP mail read/search, and watched website read/list flows now share a bounded read-only agentic draft plus secret-free read target dossier; the LLM resolver only fills missing selector/query fields and complete read actions remain deterministic
-- Agentic policy actions are now canonicalized to `allow`, `ask_user`, or `block` in the shared core, and dry-run debug for SSH, HTTP API, File, Messaging, and Read capabilities now exposes the same draft-versus-policy boundary
-- Deterministic helper logic now has an explicit boundary registry for routing hints, normalizers, policies, runtimes, summaries, and compatibility wrappers, with regression coverage that prevents treating deterministic helpers as new product-level intent logic
-- Agentic debug lines now mark whether a line represents a draft, policy, or draft-policy boundary, and routed runtime execution can emit a separate `agentic_runtime` debug line before the human-facing execution details
-- Old `bounded_planner_poc` / `ssh_status_agentic_poc` naming has been removed from the active bounded-planner path; the legacy candidate-key fallback is kept only for config compatibility
-- Agentic free-form regression coverage now verifies that natural file, message, read/mail, and HTTP status prompts can fill bounded drafts while mutating SSH and HTTP requests are still blocked or confirmed by policy rather than executed directly
-- The Model Gateway contract test now blocks direct OpenAI/Anthropic SDK usage and synchronous/asynchronous LiteLLM bypasses outside the central `LLMClient` / `EmbeddingClient`
-- `UsageMeter` now has a regression test proving known Claude chat models and OpenAI embedding models resolve to non-zero USD costs through the central ARIA pricing fallback
-- `/stats` pricing now uses the ARIA bundled pricing seed plus OpenRouter enrichment instead of only OpenAI/Anthropic rows, covering common OpenAI and Anthropic names offline while OpenRouter remains available as live enrichment
-- The `/stats` unpriced-model warning is now a compact status strip with a details link, so a missing price can no longer break the top Costs card layout
-- `/stats` pricing refresh now shows a visible result message with refreshed chat/embedding model counts, timestamp, and refresh errors directly in the pricing details panel
-- `/stats` pricing details now list the exact unpriced model names and token counts, making custom deployment aliases easy to identify and map
-- `/stats` pricing refresh now treats ARIA bundled pricing seed as the primary offline source and keeps OpenRouter as a short-timeout optional enrichment, so a slow OpenRouter response no longer makes the refresh feel stuck
-- `/stats` pricing refresh now shows an inline "refreshing prices" indicator next to the button while the HTMX request is running
-- Pricing no longer imports `litellm` or reads `litellm.model_cost`; the cost layer now uses an explicit ARIA-owned seed plus optional OpenRouter enrichment, while LiteLLM remains only the current runtime adapter for model calls
-- Pricing now supports `pricing.model_aliases` for deployment/provider aliases; common embedding aliases such as `embed-small` and `openai/embed-small` map to `openai/text-embedding-3-small`, fixing false unpriced-token warnings for LiteLLM/OpenAI-compatible embedding deployments
-
-### Fixed
-- plural/fleet-style target requests such as `check mal ob meine server noch genug festplatten platz haben` no longer let stale Experience/Memory hints force a single previous SSH profile; ARIA now keeps the bounded SSH draft and asks for an explicit target until safe multi-target execution exists
-- unified routing now passes the capability draft's connection kind into the live routing chain, so an SSH disk-space draft such as `df -h` can no longer be hijacked by an unrelated RSS/Qdrant routing candidate
-- concrete SSH disk-space drafts now suppress conflicting stored-recipe candidates during routed execution, preventing old fleet-health recipes from producing `recipe_manifest_missing` or Discord recipe-error events for a simple `df -h` check
-- generic SSH template commands such as `uptime` are no longer treated as the user's real action when the natural request is mutating; the bounded SSH resolver can infer the dangerous command and the policy blocks it instead
-- natural SSH disk-space questions such as `check mal ob meine server noch genug festplatten platz haben` now resolve to a bounded `df -h` disk draft and ask for the target when multiple SSH profiles exist, instead of selecting a generic `server` alias or falling into an old fleet-health stored recipe
-- very short connection refs or aliases such as `a` / `b` no longer match arbitrary letters inside normal words when extracting explicit connection targets
-- SSH health/status requests such as `ist mein dns server ok` no longer keep the stale blocked `uptime` decision after the guardrail healthcheck bundle has replaced it with an allowed command sequence
-- SFTP/SMB list requests now treat the share/root path as a valid `.` default instead of asking for a path when the user wants to list folders on a share root
-- clear Discord/message requests no longer fall through to stale SMB/file context when no matching messaging connection profile is configured; ARIA now returns the missing-profile message instead of trying to list a bogus SMB path
-- `/connections/types` no longer performs live connection probes while rendering the type overview, avoiding slow page loads caused by status checks that belong on `/connections/status`
-- connection detail pages opened from `/connections/types` no longer render as an empty page when no profile exists yet; ARIA now opens the create form automatically for empty connection types such as Discord
-- the Discord connection page now receives its toggle-section builder through the normal route-helper dependency wiring, fixing the broken `/config/connections/discord?...` render path
-- German HTTP API field labels now use `Base-URL` again in connection-admin validation messages
-
-### Upgrade Notes
-- Public release `0.1.0-alpha266` publishes Docker tags `fischermanch/aria:0.1.0-alpha.266` and `fischermanch/aria:alpha`.
-- Python dependencies and base-image digests are pinned for Docker release builds; Debian `apt` packages still come from normal Debian repositories unless a future snapshot-repo hardening step is added.
-- A hard browser refresh is recommended after updating because this release includes UI, CSS, service-worker, and chat-rendering changes.
-
-## [0.1.0-alpha.167] - 2026-04-25
-
-Public release aligned with the internally tested `alpha167` code line.
-
-### Changed
-- the main menu now only shows `Updates` when a newer release is actually available; the old permanent entry added noise on installs that were already current
-- ARIA now treats the visible release label as one shared product version line again instead of reinforcing a separate public-vs-internal numbering story in the UI and docs
-
-### Upgrade Notes
-- this release intentionally brings the public Docker/GitHub line onto the same visible release number as the internal ARIA line
-- managed and internal-local update paths can still differ technically, but the product should now report the same release label for the same code line
-
-## [0.1.0-alpha.127] - 2026-04-24
-
-Public hotfix release on top of `0.1.0-alpha.126`.
-
-### Changed
-- the main user menu now exposes `Updates` as its own destination instead of only hinting availability with the small header lamp; when a newer release exists, the menu entry itself is marked with `Update verfügbar`, so users can see immediately where to go
-
-### Upgrade Notes
-- this release is recommended if users already noticed the update lamp but had to guess that the update flow lives under `/updates`
-- the managed update-path fixes from `alpha126` remain the base for this release and should now be easier to discover in normal everyday use
-
-## [0.1.0-alpha.126] - 2026-04-24
-
-Public hotfix release on top of `0.1.0-alpha.125`.
-
-### Fixed
-- managed GUI updates no longer try to run the critical stack `update` / `repair` / `validate` path via in-container `/managed/...` compose calls; the updater now executes those operations through a short-lived helper container that uses the real host stack path, which fixes the recurring config-sync and stale-mount regressions seen on real managed installs like `whity` and `neo`
-- the app header now uses the configured persona/agent name again instead of falling back to `settings.ui.title`, so renamed assistants such as `J.O.E.` show up correctly next to the logo
-
-### Upgrade Notes
-- this release is recommended immediately for managed installs using `/updates`
-- if a previous `alpha125` update left the stack drifted, run `./aria-stack.sh repair` once after upgrading; future managed updates should then stay on the corrected host-path-aware update flow
-
-## [0.1.0-alpha.125] - 2026-04-24
-
-Public hotfix release on top of `0.1.0-alpha.124`.
-
-### Fixed
-- managed GUI updates now try one automatic `./aria-stack.sh repair` when the post-update `validate` step still fails once; this closes the painful half-updated state where the image changed but config/data mounts still needed a manual repair
-- the managed stack helper now treats `qdrant`, `searxng-valkey`, `searxng`, `aria`, and `aria-updater` as one runtime group for `repair`, `restart`, and `update`, so a repair no longer leaves stateful sidecars on stale bind mounts
-- the update helper now self-heals stale red `/updates` states: if the stored helper status says `error`, but `./aria-stack.sh validate` is already clean again, the helper resets itself back to `ok` instead of showing an old failure forever
-
-### Upgrade Notes
-- this release is recommended immediately for managed installs using `/updates`
-- if a previous update left `/updates` red even after `./aria-stack.sh repair`, `alpha125` will clear that stale helper state automatically once the stack validates cleanly
-- if a previous managed update recreated `aria` but left `qdrant` or `searxng` on stale mounts, `alpha125` makes future repair/update runs recreate the whole managed runtime group together
-
-## [0.1.0-alpha.124] - 2026-04-24
-
-Public hotfix release on top of `0.1.0-alpha.123`.
-
-### Fixed
-- managed GUI updates now resolve the real host-side source path behind the updater's `/managed` bind mount before they call `docker run ... /app/docker/setup-compose-stack.sh`; this fixes the false `/managed/.env` lookup on existing managed installs
-
-### Upgrade Notes
-- this release supersedes `alpha123` for managed installs using `/updates`
-- if a previous GUI update stopped during `Refresh managed stack files`, upgrade to this release once and rerun the managed update
-
-## [0.1.0-alpha.123] - 2026-04-24
-
-Public hotfix release on top of `0.1.0-alpha.122`.
-
-### Fixed
-- managed GUI updates no longer abort the whole update run just because the stack-file refresh helper cannot re-open the managed install through `docker run ... /app/docker/setup-compose-stack.sh`; existing managed installs now continue with their current `.env` and `docker-compose.yml` instead of failing early with `Bestehende Env-Datei nicht gefunden: /managed/.env`
-
-### Upgrade Notes
-- this release is recommended immediately for managed installs using `/updates`
-- if a previous `alpha122` GUI update already pulled the image but stopped during stack refresh, rerun the managed update after upgrading to this hotfix
-
-## [0.1.0-alpha.122] - 2026-04-24
-
-Public roll-up release covering the internally tested `alpha122` to `alpha167` line since the previous public `alpha121` release.
-
-### Added
-- ARIA now has a first real personal end-user path:
-  - a dedicated `Google Calendar` connection type with secure secret storage, a guided setup flow, and a read-only live test
-  - natural calendar prompts such as `was steht heute in meinem kalender?` and `wann ist mein naechster termin?` now route into the shared planner/guardrail execution path
-- ARIA now has a first `Notes / Notizen` product path:
-  - a dedicated `/notes` surface with folders, board view, editor, delete, move, and Markdown export
-  - Markdown files are the source of truth while Qdrant is used as a derived semantic index
-  - notes can already be created, searched, and opened from chat and the toolbox
-- ARIA now has a first `Watched Websites / Beobachtete Webseiten` connection type:
-  - URL-first profile creation for websites without RSS
-  - automatic title/description/alias/tag suggestions
-  - grouping and connection health checks through the same connection status pipeline
-- `/config/operations` now includes helper-backed restart actions for `qdrant` and `searxng`
-
-### Changed
-- the routing stack now behaves much more like one product path instead of separate chat/debug worlds:
-  - live chat and the routing workbench share the same routing, planner, payload, and guardrail chain for supported connection kinds
-  - Qdrant routing indexes rebuild more automatically, so users do not have to babysit the index manually
-  - follow-ups, confirmations, and target hints are handled more consistently across chat and admin tooling
-- the UI was cleaned up substantially across the domain hubs:
-  - `Memories`, `Connections`, and `Skills` no longer repeat redundant `Next steps` teaser blocks above the real hub navigation
-  - the overall menu/domain structure is calmer and more product-like
-- `Notes` now behave more like a small file explorer:
-  - default board-first view without an already open editor
-  - direct board/editor switching instead of hidden lower-page editors
-  - a standalone surface instead of hanging off the Memory sub-navigation
-- the Memory Map now treats Notes as a first-class knowledge branch:
-  - per-user `aria_notes_<user>` collections are shown explicitly
-  - the graph now includes `Notizen` as a dedicated branch back to `/notes`
-- user-facing docs were refreshed for the current product shape:
-  - `README.md`
-  - product docs
-  - wiki drafts
-  - help pages for Memory, Notes, Connections, SearXNG, and Qdrant
-- the web layer was significantly simplified internally:
-  - large pieces of `main.py` and `aria/web/config_routes.py` were moved into clearer route/helper modules
-  - this release keeps behavior but reduces monolith pressure and maintenance drift
-
-### Fixed
-- the memory setup no longer exposes a normal UI toggle that can silently disable the whole memory backend; saving the Qdrant setup now keeps Memory enabled
-- skill toggles no longer disable each other just because the current page only posted one skill group
-- natural SSH disk checks such as `check mal die festplatte auf meinen dns server` now normalize to `df -h` instead of trying to execute the whole sentence as a shell command
-- `Admin mode off` hints now lead directly to the real admin-mode toggle, and the old users-surface save path no longer falls into `Not Found`
-- Notes editor overflow and width regressions in Safari/Firefox were fixed, and the board/editor flow no longer hides created folders or forces awkward scrolling
-- watched website connection flows now jump directly into create/edit mode instead of landing at the top of a longer page
-- connection test messaging for webhook, HTTP API, SMTP, and IMAP is clearer around auth, permission, TLS/SSL, timeout, and reachability failures
-
-### Security
-- controlled restart actions for `qdrant` and `searxng` now ask for explicit browser confirmation before execution
-- guarded outbound and connection-backed actions now keep stronger `allow / ask_user / block` behavior across the unified planner path
-
-### Known Limitations
-- Google Calendar is intentionally read-only in this release
-- Google Calendar setup is guided in-product, but still uses a manual Google OAuth / OAuth Playground flow
-- refresh tokens from Google test-mode projects can still expire after seven days unless the Google-side app moves beyond testing
-
-### Upgrade Notes
-- a hard browser reload is recommended after upgrading because this release includes broader UI, CSS, and navigation changes
-- if you use managed installs, `/updates` and `./aria-stack.sh update` remain the supported update paths
-- if you use Google Calendar, finish the in-product setup flow once after upgrading; no automatic account migration is needed
-- Notes use Markdown as the source of truth and Qdrant only as the derived search index, so semantic note search still expects a working Qdrant-backed Memory setup
-
-## [0.1.0-alpha.121] - 2026-04-16
-
-Public roll-up release covering the already internally tested `alpha111` to `alpha121` line since the previous public `alpha110` release.
-
-### Added
-- `/config/routing` now exposes a Qdrant-backed routing index admin/debug surface with status, rebuild, testbench output, and live-routing controls for bounded candidate routing
-- SSH and SFTP profiles now support a `Service URL`; ARIA can use the linked page plus the active UI language to draft routing-friendly titles, descriptions, aliases, and tags
-- SSH profile creation can optionally create a matching SFTP profile with the same connection basics in one step
-- `Memory Map` now surfaces routing/system collections in both the textual overview and the graph, so routing data is visible without mixing it into semantic user memory
-
-### Changed
-- runtime reloads now build a fresh runtime bundle and swap it atomically under a lock, which reduces stale-state drift after config saves and profile changes
-- managed update validation now compares `config`, `prompts`, and `data` host/container views and surfaces the real failing check in the update UI instead of only a generic `exit code 1`
-- connection metadata helpers now align generated routing hints more closely with the active UI language, which improves German/English routing coverage for SSH, SFTP, and RSS profiles
-- `/config/routing` now includes the live Qdrant-routing controls directly in the UI, including threshold, candidate limit, and low-confidence fallback behavior
-- the routing stack now keeps deterministic exact-name and alias matches first, then optionally consults the bounded Qdrant candidate set instead of jumping straight into generic chat behavior
-- connection pages make the primary create action more prominent and support richer routing-oriented metadata via titles, descriptions, aliases, tags, and service context
-- safety-sensitive SSH custom-command rendering now quotes user query placeholders more defensively, and guardrail matching uses stricter token/boundary behavior for simple deny terms
-
-### Fixed
-- managed update and update-button regressions from the internal `alpha111` to `alpha121` line are rolled up into this public release, including stronger mount validation for managed installs and clearer recovery guidance via `./aria-stack.sh repair`
-- natural SSH questions such as `Wie lange laeuft mein DNS Server schon?` and `Wie lange ist mein DNS Server schon online?` now route back to `ssh_command` / `uptime` instead of falling into generic chat or SFTP file reads
-- natural uptime / health / runtime prompts now win over accidental SFTP `file_read` matches for server-status style questions
-- first-contact SSH `known hosts` warnings are filtered from the user-visible stderr output, while real SSH errors stay visible
-- routing collections on `/memories/map` are no longer easy to miss; they now appear as a dedicated system branch in the graph
-- config saves keep session-cookie lifetime and related runtime settings consistent after reloads instead of quietly continuing with stale route dependencies
-- provider preset confusion between chat LLM and embedding configuration pages is resolved; the LLM page again shows chat-model presets and the embeddings page embedding-specific presets
-- config save redirects and the logical back-navigation flow on config and skills pages no longer strand users on blank POST result pages or same-page history loops
-- explicit Discord sends resolve through the connection routing path again instead of slipping into generic chat or memory behavior
-
-### Upgrade Notes
-- managed installs can continue to use `/updates` or `./aria-stack.sh update`; if validation reports a mount mismatch, `./aria-stack.sh repair` remains the supported recovery path
-- the internal TAR/NAS update flow stays a private test path; public installs should continue to use `aria-setup` or `docker-compose.public.yml`
-
-## [0.1.0-alpha.110] - 2026-04-12
-
-### Added
-- managed stacks now expose `./aria-stack.sh repair` as an official recovery path; it regenerates the managed stack files from the configured ARIA image and recreates the runtime services before running the normal validation again
-
-### Changed
-- managed GUI updates now refresh stack files from the target ARIA image via `docker run ... /app/docker/setup-compose-stack.sh` instead of relying on the currently running updater container's bundled script, which reduces stale-helper drift during upgrades
-- `./aria-stack.sh update` and `update-all` now refresh the managed stack files from the configured ARIA image before recreating services, so manual host-side updates follow the same safer recovery-aware path as the new repair flow
-
-### Fixed
-- managed runtime validation now compares the host `storage/aria-config/config.yaml` with the live container view of `/app/config/config.yaml` and fails loudly when the container does not actually see the same config state
-- managed update failures now point operators directly at `./aria-stack.sh repair` when a config-mount mismatch is detected, instead of silently reporting a healthy restart while profiles appear to be missing in the UI
-
-## [0.1.0-alpha.108] - 2026-04-11
-
-### Fixed
-- `/updates` now also performs the post-update re-login check server-side, so even an update that was started from an older browser tab or an older UI build cannot fall back into a stale pre-update session after ARIA comes back
-- managed GUI updates now clear the current instance auth boundary more reliably in multi-instance setups on the same domain, reducing the chance that `white`, `neo`, or similar stacks reopen with the wrong session after pressing the update button
-
-## [0.1.0-alpha.107] - 2026-04-11
-
-### Fixed
-- the GUI update flow now forces a clean per-instance re-login after a managed restart instead of silently reusing the old browser session, which hardens multi-instance setups on the same domain against stale-session mixups after pressing the update button
-- `/updates` now redirects through a dedicated relogin path that clears the current instance cookies before returning to `/login`, so `white`, `neo`, and other managed stacks can finish updates on a clean auth boundary
-
-## [0.1.0-alpha.106] - 2026-04-11
-
-### Fixed
-- `/config/llm` and `/config/embeddings` no longer show the wrong provider preset list; the LLM page now uses chat-model presets again and the embeddings page now uses embedding-specific presets again
-
-## [0.1.0-alpha.105] - 2026-04-11
-
-### Fixed
-- fresh managed installs via `aria-setup` now pull the referenced Docker images before the first `docker compose up`, so a host with an older cached `fischermanch/aria:alpha` image can no longer silently come up on the wrong ARIA version after a supposedly clean reinstall
-
-## [0.1.0-alpha.104] - 2026-04-11
-
-### Fixed
-- config save flows that were switched to the new logical `return_to` handling no longer break on pages such as `/config/appearance/save`; affected config forms redirect cleanly again instead of ending on a blank POST result page
-- the shared config redirect helper now accepts an explicit `return_to` target consistently, aligning it with the skills redirect behavior and preventing silent regressions across config forms
-## [0.1.0-alpha.103] - 2026-04-11
-
-### Fixed
-- the embeddings configuration page now uses embedding-specific provider presets instead of reusing the chat-LLM preset list, so fresh installs no longer suggest irrelevant chat providers such as Anthropic on the embeddings screen
-- embedding preset defaults are now better aligned with proxy-based setups like LiteLLM, reducing the chance that a fresh profile setup quietly drifts toward a mismatched default embedding model
-
-## [0.1.0-alpha.102] - 2026-04-11
-
-### Changed
-- managed installs and the managed compose template no longer inject implicit Ollama LLM or embedding defaults into the runtime environment; fresh installs now leave these runtime overrides empty unless the operator explicitly sets them
-- `.env.example`, setup docs, and README environment-override notes now make it explicit that runtime env overrides are optional and should stay unset when ARIA manages saved provider profiles itself
-
-### Fixed
-- active saved LLM and embedding profiles now win over stale container environment overrides, so old managed `.env` files can no longer silently force the runtime back to `host.docker.internal` and Ollama defaults after a profile was loaded in the UI
-- blank environment values no longer erase valid LLM or embedding runtime settings during config load
-- managed stack reinstalls via `aria-setup` no longer materialize misleading default LLM / embedding endpoints that make profile-based setups look broken immediately after startup
-
-## [0.1.0-alpha.101] - 2026-04-11
-
-### Added
-- custom skills support conditional steps now, so later actions can be skipped based on earlier outputs; the included Linux fleet healthcheck sample uses this to send a Discord alert only when the LLM marks a run as actionable
-- `/config/llm` and `/config/embeddings` now show the active saved profile more clearly, include the effective runtime values, and expose an explicit live test action for the currently loaded profile
-
-### Changed
-- the routing foundation is now more data-driven: default routing lexica and capability/status keywords moved out of hard-coded German-heavy lists and into the shared routing lexicon layer, with the pipeline passing language context through more consistently
-- chat admin/toolbox command catalog logic and pending admin action helpers were pulled out of `main.py` into dedicated web modules, reducing the size and coupling of the main application module
-- `/stats` now collapses every connection family into a summary tile once more than three profiles exist and uses cached health for large groups instead of probing every profile live during first render
-
-### Fixed
-- capability detail output now follows the active UI language more consistently, including file-read and other connection-backed actions that previously still emitted German detail lines in English mode
-- explicit Discord sends resolve through the connection capability path again instead of falling back into generic chat/memory behavior
-- config and skills pages now use a logical app-level back target instead of raw browser history, so saving/reloading forms no longer makes the back button bounce to the same page state
-- `/favicon.ico` is served through a dedicated app route again, which restores the classic favicon path for browsers that do not reliably pick up the static PNG reference alone
-
-## [0.1.0-alpha.89] - 2026-04-10
-
-### Changed
-- managed compose installs now run a deeper post-start validation through `./aria-stack.sh validate`, so fresh installs, upgrades, and GUI-triggered managed updates confirm both ARIA health and the `aria-updater` sidecar before they report success
-- managed update helpers now validate the refreshed stack after the recreate step, instead of stopping at a plain web healthcheck
-
-### Fixed
-- ARIA now compares local Qdrant storage against the live Qdrant API and surfaces a clear warning when collections exist on disk but are missing from the API; that makes partial or unloaded memory stores much easier to diagnose from `/memories/config` and `/stats`
-- `aria-setup migrate` now normalizes ownership on copied Qdrant storage, which reduces the risk that migrated collections stay on disk but are not loaded by the new managed Qdrant service
-
-## [0.1.0-alpha.88] - 2026-04-10
-
-### Fixed
-- auth sessions are now signed with the current instance scope, so a valid login cookie from one ARIA instance can no longer be accepted by another instance on the same host just because both live under the same domain with different ports
-- cookie scoping prefers the actual request host and port over a potentially stale configured `ARIA_PUBLIC_URL`, which makes multi-instance setups more resilient after updates, migrations, or reused stack definitions
-- managed `./aria-stack.sh update` and `restart` flows now refresh `aria-updater` together with `aria`, so the GUI update helper no longer lags one release behind the main ARIA container on managed installs
-
-## [0.1.0-alpha.87] - 2026-04-09
-
-### Fixed
-- auth and session cookies now stay isolated more reliably across multiple ARIA instances on the same host because legacy shared cookies are no longer reused for login/session state after scoped cookies are active
-- managed compose installs now write an explicit `ARIA_COOKIE_NAMESPACE`, so browser-side state remains instance-local even if multiple ARIAs share one hostname
-
-## [0.1.0-alpha.86] - 2026-04-09
-
-### Fixed
-- `aria-setup` respects explicitly passed install values better during interactive runs instead of prompting for the same `--stack-name`, `--install-dir`, `--http-port`, or `--public-url` again
-- the managed install health check now verifies ARIA locally through `127.0.0.1:<ARIA_HTTP_PORT>/health` instead of depending on the public/browser URL during first start
-- first-start health checks for managed installs now retry until ARIA is really ready, instead of failing too early on a short startup race directly after `docker compose up -d`
-- the public `aria-setup` download flow works again end to end when it has to fetch its helper from GitHub on demand
-
-## [0.1.0-alpha.85] - 2026-04-09
-
-### Added
-- die Chat-Toolbox kennt jetzt auch Websuche, Stats, Aktivitäten, Config-Backups und kontrollierte Updates; Admins koennen damit neue Systemfunktionen direkt aus dem Chat starten oder als Link/Statusauskunft anstossen, statt nur ueber die jeweiligen UI-Seiten zu gehen
-- `/updates` zeigt jetzt zusaetzlich eine konkrete sichere Update-Sequenz fuer interne `aria-pull`-Setups, Docker Compose und Portainer, damit der Update-Weg direkt in der GUI sichtbar ist
-- Managed-Compose-Installationen bringen jetzt einen separaten `aria-updater`-Helper mit; Admins koennen dadurch auf `/updates` ein kontrolliertes GUI-Update mit Status und Log-Auszug anstossen, statt fuer jeden normalen Release wieder auf den Host zu wechseln
-- der interne lokale `aria-pull`-/Portainer-Stack kann denselben `/updates`-Button jetzt ebenfalls ueber einen eigenen `aria-updater`-Sidecar nutzen; damit bleibt der gewohnte TAR-/NAS-Update-Weg erhalten, wird fuer Admins aber direkt aus ARIA heraus startbar
-- neuer Host-Helper `docker/aria-host-update.sh` erkennt Compose-basierte ARIA-Stacks auf einem Host und aktualisiert gezielt nur den `aria`-Service eines gewaelten Projekts; damit gibt es fuer Multi-Setup-/Portainer-Hosts einen sichereren Update-Weg ausserhalb des Containers
-- fuer Host-Updates gibt es jetzt zusaetzlich eine optionale Vorlage `docker/aria-host-update.env.example`, damit Portainer-Zugangsdaten spaeter sauber aus einem dedizierten Host-Update-Kontext oder aus einer kuenftigen UI/DB-Schiene in denselben Helper fliessen koennen
-- neues Setup-Script `docker/setup-compose-stack.sh` erstellt jetzt einen kontrollierten ARIA-Compose-Stack in einem eigenen Verzeichnis inklusive `.env`, bind-mount-basiertem `storage/` und lokalem `aria-stack.sh` fuer Start/Status/Updates
-- neues Top-Level-Script `aria-setup` dient jetzt als benutzerfreundlicher Ein-Befehl-Einstieg fuer Docker-Installationen, fragt nur fehlende Werte interaktiv ab und kann den niedrigeren Compose-Setup-Helper bei Bedarf auch direkt von GitHub nachladen
-- `aria-setup upgrade` aktualisiert jetzt bestehende verwaltete Compose-Installationen auf neue Stack-Layouts, behaelt vorhandene `.env`-Werte und Secrets bei und ergaenzt fehlende Dienste wie `searxng` ohne Neuaufbau des kompletten Hosts
-- `aria-setup` erkennt jetzt bestehende verwaltete ARIA-Installationen automatisch und schaltet bei genau einem passenden Fund selbststaendig vom Neuinstallations- in den Upgrade-Pfad um; bei mehreren Funden wird interaktiv ausgewaehlt oder im non-interactive Modus sauber abgebrochen
-- `/config/backup` kann jetzt die komplette ARIA-Konfiguration als einzelne JSON-Datei exportieren und spaeter wieder importieren; enthalten sind `config.yaml`, Secure-Store-Secrets und Benutzer, Prompt-Dateien, der Error-Interpreter sowie Custom-Skill-Manifeste
-- `/config/security` zeigt jetzt ein direkt importierbares Guardrail-Starter-Pack aus `samples/security`, damit neue Installationen schneller mit wiederverwendbaren SSH-, Datei-, HTTP- und MQTT-Guardrails starten koennen
-- die mitgelieferten Skill-Samples wurden um neue Vorlagen fuer Service-Status via SSH, Memory-Pressure via SSH und eine kuratierte RSS-Security-Watchlist erweitert; sie tauchen wie die bestehenden Samples direkt im Skills-UI auf
-
-### Changed
-- die Docker-/Compose- und lokalen Stack-Samples schreiben die benoetigte SearXNG-Konfiguration jetzt direkt beim Containerstart nach `/etc/searxng/settings.yml`; damit bleibt der Setup-Weg ohne manuelles Host-File robust, auch wenn Compose-/Portainer-Umgebungen Docker-`configs` nicht sauber bis in den Container durchreichen
-- `docker-compose.managed.yml` und `docker/setup-compose-stack.sh` erzeugen jetzt zusaetzlich den internen `aria-updater`-Dienst, hinterlegen dafuer ein eigenes Update-Token in `.env` und geben Managed-Stacks damit einen standardisierten GUI-faehigen Update-Endpunkt
-- die lokalen Portainer-/`aria-pull`-Stack-Dateien bringen jetzt ebenfalls einen `aria-updater`-Dienst samt eigenem Healthcheck mit; der ARIA-Container und der Helper teilen sich damit denselben kontrollierten Update-Button, ohne dass der bestehende Qdrant-/Volume-Pfad angeruehrt wird
-- die lokalen Helper-Skripte fuer `aria-pull`/Build-Export muessen keine separate SearXNG-Settings-Datei mehr neben das TAR kopieren, weil die Stack-Dateien die Konfiguration jetzt selbst mitbringen
-- `docker/export-local-build.sh` und `docker/pull-from-dev.sh` liefern jetzt sowohl den neuen Host-Update-Helper als auch `aria-setup` zusammen mit den bestehenden lokalen Update-Artefakten aus, damit Zielhosts den kompletten verwalteten Setup-/Update-Weg ohne zusaetzliches Nachziehen direkt nutzen koennen
-- der Host-Update-Helper kann Registry-/Public-Portainer-Stacks jetzt optional direkt ueber die Portainer-API aktualisieren, wenn `PORTAINER_URL` und `PORTAINER_API_KEY` gesetzt sind; damit muessen Portainer-Stacks nicht mehr ueber wegkopierte YAML-Dateien gepflegt werden
-- `docker-compose.managed.yml` bildet jetzt zusammen mit `aria-setup` den neuen kontrollierten Standard fuer Compose-Installationen mit sichtbaren Bind-Mounts statt anonymen Volumes; Portainer bleibt moeglich, ist aber nicht mehr der bevorzugte Setup-Weg
-- die GitHub-/Docker-Dokumentation erklaert den Install- und Update-Prozess jetzt klarer in Englisch und trennt sauber zwischen `aria-setup`, manuellem Compose, Portainer und internem `aria-pull`
-- GitHub-README, Setup-Doku und Docker-Hub-Overview fokussieren den Oeffentlichkeitsweg jetzt auf `aria-setup` und manuelles Docker Compose; Portainer bleibt nur noch als Legacy-Hinweis im Hintergrund statt als gleichberechtigter Hauptpfad
-- `/updates` startet den GUI-Update-Lauf jetzt ohne harten Seitenwechsel direkt in-place, zeigt den Running-State prominenter als eigene Live-Karte und verbindet sich nach einem kurzen ARIA-Recreate ueber Helper-/Health-Polling automatisch wieder
-- die Chat-/Config-Schiene liest Custom-Skill-Manifeste und rohe `config.yaml`-Daten jetzt ueber mtime-basierte In-Memory-Caches, statt dieselben Dateien pro Seitenaufruf immer wieder komplett neu zu parsen
-
-### Fixed
-- Chat-Antworten koennen jetzt auch sichere interne Markdown-Links wie `/updates` oder `/config/backup/export` rendern; dadurch funktionieren neue Chat-Hilfen fuer Backup, Update, Stats und Aktivitäten als echte klickbare Aktionen statt nur als Text
-- auf `/config` und `/config/connections/searxng` zeigt ARIA jetzt klar, wenn der SearXNG-Stackdienst fehlt oder nur mit Warnstatus antwortet, statt die Websearch-Connection kommentarlos wie einen normal verfuegbaren Dienst wirken zu lassen
-- ein `HTTP 403` vom internen SearXNG-Stack wird nicht mehr faelschlich als "Stackdienst nicht erreichbar" dargestellt; ARIA markiert den Dienst jetzt als erreichbar mit Warnstatus und erklaert, dass meist `format=json` oder eine Limiter-/Zugriffsregel die JSON-Probe blockiert
-- der interne GUI-Update-Pfad fuer `aria-pull`-Setups prueft nach dem Recreate jetzt auch ohne `curl` zuverlaessig per Container-Python auf `/health`, statt den Lauf nur mit einem uebersprungenen Host-Healthcheck enden zu lassen
-- die lokalen Update-Helfer (`update-local-aria.sh`, `pull-from-dev.sh`, `aria-host-update.sh`, `export-local-build.sh`) verwenden jetzt portable TAR-Auswahl-Logik statt GNU-awk-spezifischer `match(..., ..., array)`-Muster; dadurch bricht der GUI-Update-Flow in schlankeren Runtime-Umgebungen nicht mehr mit `awk`-Syntaxfehlern ab
-- der `/updates`-Button kann den Update-Helper jetzt auch per AJAX anstossen und faellt fuer Admins bei kurzen Container-Restarts nicht mehr so leicht auf eine leere Browser-Fehlerseite zurueck
-- der neue Raw-Config-Cache liefert isolierte Kopien zurueck und aktualisiert sich beim Schreiben selbst, damit Config-Seiten weniger YAML parsen muessen, ohne veraltete In-Memory-Mutationen zu riskieren
-- der neue Konfig-Import versucht bei Fehlern automatisch auf den vorherigen Snapshot zurueckzugehen, statt die Instanz in einem halb importierten Zustand stehen zu lassen
-- die Backup-Seite erklaert jetzt ausdruecklich, dass Connection-Profile und Connection-Secrets mitgesichert werden, lokale SSH-Key-Dateien unter `data/ssh_keys` aber bewusst ausserhalb des Exports bleiben
-
-## [0.1.0-alpha.69] - 2026-04-08
-
-### Added
-- pre-alpha Websuche ueber self-hosted `SearXNG` ist lokal vorbereitet: eigener Connection-Typ, eigener Chat-Intent und Quellenanzeige in den Chat-Details
-- die Compose-/Portainer-Stacks koennen jetzt zusaetzlich einen separaten `SearXNG`- und `Valkey`-Dienst mitfuehren, inklusive automatisch aktivierter JSON-API fuer ARIA
-- `SearXNG` taucht als eigene Connection-Familie in Config, Status und Connection-Hub auf
-
-### Changed
-- `Memory`/RAG-Quellen und Web-Quellen nutzen jetzt dieselbe `detail_lines`-Schiene, damit spaetere Recherche- und Websearch-Pfade dieselbe Quellenanzeige im Chat verwenden koennen
-- die SearXNG-Stacks nutzen jetzt eine statische `searxng.settings.yml` statt eines Shell-Bootstrap-Blocks im Compose/Portainer-Stack; `secret_key` und Valkey-URL kommen ueber normale Container-Umgebungsvariablen
-- SearXNG-Profile in ARIA fragen die Stack-URL nicht mehr pro Verbindung ab; ARIA nutzt dafuer standardmaessig `http://searxng:8080` aus dem Stack bzw. einen zentralen Override und laesst pro Profil nur noch Suchverhalten und Routing-Metadaten konfigurieren
-- die SearXNG-Config-Seite ist jetzt schlanker: Kategorien und Engines werden per Checkboxen gepflegt, dazu Sprache, SafeSearch, Zeitbereich, Trefferzahl sowie Name, Aliase und Tags fuer Routing wie `youtube` fuer Videos oder `startpage` fuer Buecher
-- der globale Restart-/Health-Poll im Frontend laeuft fuer eingeloggte Seiten jetzt deutlich ruhiger ueber einen getakteten Timeout-Loop statt alle 3 Sekunden per `setInterval`; beim Zurueckkehren in einen sichtbaren Tab wird dafuer einmal zeitnah nachgeprueft
-- Connection-Seiten zeigen bestehende Health-/Test-Resultate jetzt standardmaessig aus dem Cache statt beim bloessen Oeffnen sofort neue Live-Probes gegen SSH, SFTP, Discord, HTTP, SearXNG oder MQTT zu fahren; fuer frische Live-Checks bleiben die vorhandenen Test-Buttons zustandig
-- der Public-Docker-Weg ist jetzt auf einen konsistenten SearXNG-Stack gezogen: `docker-compose.public.yml`, `docker/portainer-stack.public.yml`, `.env.example` und die Quick-Start-Doku zeigen denselben Compose-/Portainer-Schnitt fuer ARIA + Qdrant + SearXNG + Valkey
-
-### Fixed
-- explizite Websuche mischt keinen Auto-Memory-Recall mehr in die Quellen; Web-Details bleiben dadurch bei Anfragen wie `recherchiere im web ...` sauber auf Web-Treffer fokussiert
-- SearXNG-Connection-Tests und Websuche geben bei `HTTP 429 Too Many Requests` jetzt einen klaren Hinweis auf den internen Stack-Fix mit `SEARXNG_LIMITER=false`, statt nur den rohen Fehler weiterzureichen
-- der interne `aria-pull`-/`update-local-aria`-Flow ueberfaehrt den laufenden Qdrant-Key nicht mehr still mit einem veralteten Wert aus `aria-stack.env`; bei Abweichungen nutzt ARIA fuer den reinen Service-Recreate jetzt den aktiven Live-Key des laufenden Stacks und vermeidet dadurch `HTTP 401 Unauthorized` gegen Qdrant nach Key-Rotationen im Portainer-Stack
-- Websuche uebergibt erkannte Trefferdaten jetzt sichtbarer in den Chat-Kontext: Treffer mit publiziertem Datum zeigen ihr Datum in den Details, und bei klaren Recency-/Release-Anfragen werden datierte Ergebnisse fuer die Antwortvorbereitung staerker nach oben sortiert
-- explizite Formulierungen wie `suche im internet ...` oder `recherchiere im internet ...` werden jetzt sauber als Websuche erkannt und nicht mehr von der Feed-/RSS-Heuristik als `feed_read` uebernommen
-- interne SearXNG-Probes und die eigentliche Websuche senden fuer Stack-Ziele jetzt zusaetzlich lokale Proxy-/IP-Header mit; das macht den internen JSON-API-Pfad robuster gegen Bot-Detection/Proxy-Pruefungen, solange der Dienst ueber `http://searxng:8080` im Stack angesprochen wird
-- die Websuche filtert generische Treffer ohne sinnvollen Query-Bezug jetzt haerter weg und priorisiert thematisch passende Ergebnisse vor bloessen `news`-/SEO-Treffern; dadurch rutschen irrelevante Quellen wie fachfremde Sammelseiten bei Produkt-News deutlich seltener in die Antwort
-
-### Security
-
-### Known Limitations
-- Websuche ist bewusst noch ein pre-alpha Block: ARIA nutzt die Top-Treffer aus SearXNG, aber noch kein Full-Page-Fetching oder Deep-Research-Crawling
-
-### Upgrade Notes
-- fuer interne ARIA-Stacks wird SearXNG jetzt standardmaessig ohne API-Limiter betrieben (`SEARXNG_LIMITER=false`), weil ARIA sonst schnell in `HTTP 429 Too Many Requests` fuer die JSON-API laufen kann
-- fuer bestehende Portainer-Stacks aus der Zeit vor `alpha69` gilt: vorhandene Volume- und Netzwerk-Namen weiterverwenden und nur den neuen `searxng`-/`searxng-valkey`-Teil als Delta ergaenzen; den frischen Public-Sample nicht blind ueber funktionierende `aria2_*`-Volumes legen
-
-## [0.1.0-alpha.64] - 2026-04-07
-### Added
-- `aria --version` und `aria version-check` stehen jetzt als kleine CLI-Schnellchecks fuer installierte Version und oeffentlichen Release-Status bereit
-- an zentralen Stellen wie LLM, Embeddings, Memory und RSS gibt es jetzt kurze Kontext-Hinweise mit Direktlink zur passenden Help-Seite
-- neue Sample-Skills erweitern die mitgelieferte Sammlung um RSS-Headlines fuer Chat, SSH-Disk-Usage und eine SFTP-Config-Vorschau
-
-### Changed
-- LLM- und Embedding-Nutzung laeuft jetzt ueber eine zentrale Metering-Schicht statt nur ueber den Chat-/Pipeline-Pfad; damit koennen kuenftige Modellfunktionen konsistent ueber dieselbe Kosten- und Token-Erfassung laufen
-- direkte Hilfs- und Admin-Aufrufe wie RSS-Metadaten, RSS-Gruppierung, Runtime-Diagnostics, Skill-Keyword-Generierung, RAG-Ingest und Memory-Embeddings werden jetzt ebenfalls ueber denselben Token-/Kosten-Zaehler erfasst
-- Pipeline-/Chat-Logs aggregieren jetzt alle innerhalb eines Runs angefallenen LLM- und Embedding-Aufrufe zentral, statt nur den letzten Haupt-LLM-Call und separat gemeldete Teilmengen zu beruecksichtigen
-- statische Assets wie CSS, Logo und htmx werden jetzt pro Release mit einer Versionskennung ausgeliefert, damit Browser nach UI- und CSS-Updates weniger oft an alten Cache-Dateien haengen bleiben
-- `/stats` zeigt fuer den Release-Block jetzt auch die passenden CLI-Kommandos und fuehrt Modellnutzung zusaetzlich nach Quellen wie `chat`, `rss_metadata` oder `rag_ingest` auf
-- `/stats` zeigt die Quellen-Aufschluesselung fuer Requests, Tokens und Kosten jetzt zusaetzlich als eigene ausklappbare Kachel `Kosten Details`, statt die Source-Daten nur in tieferen Detailbloecken zu verstecken
-- `Preise aktualisieren` in `/stats` refresht den Pricing-Block jetzt per HTMX direkt an Ort und Stelle, statt die ganze Seite neu zu laden und Scroll-/Details-Zustand zu verlieren
-- auf der RSS-Seite aktivieren `Kategorien mit LLM aktualisieren`, `Jetzt pingen` und `Check mit LLM` jetzt sichtbar den globalen Busy-Zustand, damit das drehende Logo bei laengeren Aktionen klar zeigt, dass ARIA noch arbeitet
-- Klicks auf Collection-Kacheln und Collection-Nodes in der `Memory Map` fuehren jetzt direkt in den passenden Collection-Inhalt statt in eine unklare `all`-Sicht; bei aktivem Collection-Filter oeffnet `Memory` die betroffenen Gruppen ausserdem automatisch
-- Dokument-Stores verhalten sich in `Memory` jetzt hierarchisch: ein Klick auf eine Dokument-Collection zeigt zuerst die enthaltenen Dokumente, und erst ein Klick auf ein Dokument oeffnet die zugehoerigen Chunks
-- Dokument-Recall priorisiert bei klaren Dokument-Hinweisen jetzt die passendsten Guide-Treffer deutlich enger, damit Fragen zu einem hochgeladenen Manual nicht mehr so leicht mit Chunks aus anderen Dokumenten vermischt werden
-- ein Wechsel von Embedding-Modell oder API Base in `/config/embeddings` verlangt bei vorhandenem Memory jetzt eine explizite Bestaetigung und verweist direkt auf den JSON-Export, damit bestehendes Memory/RAG nicht versehentlich in einen unzuverlaessigen Zustand kippt
-- Memory- und Dokument-Payloads tragen jetzt einen Embedding-Fingerprint; Recall, Suche und Dokument-Guides mischen dadurch keine alten und neuen Embedding-Generationen mehr still miteinander
-- Session-Komprimierung baut jetzt echte Wochen- und Monats-Rollups mit eigener Metadatenstruktur statt nur unsichtbarem generischem Kontext-Wissen; damit wird der Weg fuer spaetere Graph-/Map-Beziehungen klarer
-- die `Memory Map` zeigt jetzt zusaetzlich einen einfachen read-only Graphen fuer Typen, Collections, Dokumente und Rollups, damit gespeichertes Memory schneller visuell erfassbar wird
-
-### Fixed
-- auf `/config/connections/rss` ist der Ruecksprung zur RSS-Uebersicht im Intro jetzt ein echter Button statt nur ein unauffaelliger Link
-- `/updates` zeigt jetzt unterhalb der aktuellen Release Notes auch die fuenf vorherigen Versionen als einklappbare Release-Historie mit ihren jeweiligen Release Notes
-- die `Memory Map` gruppiert importierte Dokumente jetzt pro Dokument-Collection in einklappbaren Kacheln, statt alle Dokumente in einem langen Block zu mischen
-- `Dokumente im Speicher` startet in der `Memory Map` jetzt standardmaessig eingeklappt, und einzelne Dokumentkarten verlinken direkt auf ihre Chunk-Ansicht
-- die alte zweite Bubble-/Kachel-Wiederholung unter `Collections im Speicher` ist aus der `Memory Map` entfernt, damit Collections nicht doppelt und verwirrend erscheinen
-- auf `/memories/map` gibt es jetzt zusaetzlich klickbare Collection-Kacheln fuer die vorhandenen Qdrant-Collections; ein Klick oeffnet die normale Memory-Ansicht direkt mit aktivem Collection-Filter, sodass die Eintraege dieser Collection gezielt durchgesehen, exportiert oder gepflegt werden koennen
-- Buttons auf Memory-/Config-Seiten laufen auf schmalen Mobile-Viewports nicht mehr pauschal ueber die ganze Breite und sind dadurch wieder klarer als Buttons erkennbar
-- auf der RSS-Verbindungsseite verwenden die Aktionsbuttons `Jetzt pingen` und `Check mit LLM` im Matrix-Theme jetzt denselben dunklen Button-Text wie die restlichen Buttons der Seite, statt schlecht lesbarer heller Schrift
-- die RSS-Verbindungsseite zeigt nach `Jetzt pingen` jetzt wieder echte Feed-Artikel bzw. Headlines aus dem Feed an, statt nur den Profilnamen bzw. eine generische Erfolgsmeldung
-- auf `/config/connections/rss` ist `Kategorien mit LLM aktualisieren` jetzt ebenfalls ein echter Button statt nur ein Link
-- gecachte RSS-Gruppen uebernehmen beim Laden jetzt wieder die aktuellen Anzeigenamen aus den Live-Statusdaten, statt alte `ref`-basierte Profilnamen weiter anzuzeigen, wenn sich nur der Display-Name geaendert hat
-- LLM-Kosten in `/stats` und den Token-Logs untererfassen jetzt nicht mehr still bestimmte Nebenpfade; auch nicht-interaktive Modellaufrufe ausserhalb des normalen Chat-Flows laufen jetzt durch denselben Metering- und Kostenpfad
-- `/stats`, Token-Log-Auswertung und Log-Pruning brechen bei einem unlesbaren oder root-owned Token-Log nicht mehr hart weg, sondern fallen fail-safe auf leere bzw. unveraenderte Log-Ausgaben zurueck
-- Login- und Update-Seiten geben bei neuen Releases jetzt klarere Hinweise fuer harte Browser-Reloads, falls nach UI/CSS-Aenderungen noch alte Assets sichtbar bleiben
-- bestehendes Memory bleibt bei einem spaeteren Embedding-Wechsel besser abgesichert, weil alte ungetaggte Legacy-Eintraege nur so lange kompatibel bleiben, wie der konfigurierte Memory-Fingerprint nicht auf eine neue Embedding-Generation umgestellt wurde
-- `Memory Map` zeigt Session-Rollups jetzt als eigene Wochen-/Monats-Sicht mit Zeitraum und Quellenanzahl, statt verdichteten Kontext nur indirekt ueber die Knowledge-Collection versteckt zu halten
-
-### Security
-
-### Known Limitations
-
-### Upgrade Notes
-
-## [0.1.0-alpha.54] - 2026-04-06
-
-### Added
-- `/help` ist jetzt ein echter lokaler Docs-Hub mit Karten, Navigation und Markdown-Rendering auf Basis derselben Quelldateien wie `docs/wiki/` und `docs/help/`
-- fuer die Help-/Wiki-Inhalte gibt es jetzt mehrsprachige Seitenvarianten (`*.de.md` / `*.en.md`), damit lokale Hilfe und GitHub-Wiki dieselben Inhalte sauber in der gewaehlten Sprache ausspielen koennen
-- zwei neue Spass-Themes stehen in der Appearance-Auswahl bereit: `Nyan Cat` und `Puke Unicorn`
-
-### Changed
-- der lokale Help-Hub waehlt Markdown-Dateien jetzt sprachabhaengig aus (`.de.md` / `.en.md`), damit `/help` nicht mehr aus gemischten deutschen und englischen Seiten besteht
-- die Preisaufloesung fuer LLM-Kosten ist toleranter: gaengige Claude-Sonnet-Aliase wie `claude-sonnet`, `claude-3-5-sonnet-latest` oder `anthropic/claude-3-5-sonnet-latest` werden grosszuegiger auf bekannte Preis-Eintraege aufgeloest
-- die Startseite unter `/config` gruppiert grosse Bereiche wie `Tune Intelligence`, `Fine-Tune Memory`, `Personality & Style`, `Connections` und `Workbench` jetzt in einklappbaren Boxen, damit die Seite bei wachsendem Umfang ruhiger und schneller scannbar bleibt
-- `Dokumente importieren` und `Eigene Memory erfassen` sind auf `/memories` jetzt ebenfalls einklappbar, damit die Seite ruhiger bleibt wenn der Fokus auf der bestehenden Memory-Liste liegt
-
-### Fixed
-- wichtige Config-Seiten wie `/config/llm`, `/config/embeddings`, `/config/routing`, `/config/skill-routing` und `/config/prompts` bleiben auf iPhone-/Mobile-Viewports jetzt innerhalb der Bildschirmbreite, statt horizontal ueberzulaufen
-- `CyberPunk Classic` zeigt die grossen Boxen auf `/config` nicht mehr in einem schmutzig-braunen/senfigen Ton, sondern mit klarerem Pink/Gruen-Look passend zum Theme
-
-### Security
-
-### Known Limitations
-
-### Upgrade Notes
-
-## [0.1.0-alpha.50] - 2026-04-06
-
-### Added
-- `Memory` unterstützt jetzt erste RAG-Dokument-Uploads direkt im bestehenden Bereich, ohne neues Hauptmenü oder neue Top-Level-Seite
-- `txt`, `md` und `pdf` mit eingebettetem Text können in Dokument-Collections importiert, gechunkt, embedded und in Qdrant gespeichert werden
-- `/stats` zeigt im Bereich `Systemzustand` jetzt einen direkten `Updates`-Eintrag mit Status und Link auf `/updates`
-- Dokument-Chunks werden in `Memory` jetzt als eigener UI-Typ `Dokument` geführt, statt optisch mit normalem Rollup-Wissen zusammenzufallen
-- jeder Dokument-Upload erzeugt jetzt zusätzlich einen internen Dokument-Guide mit Summary und Stichworten, damit Chat-Recall passende Dokumente gezielter vorselektieren kann
-
-### Changed
-- `/updates` und `/stats` lesen die installierte ARIA-Version jetzt aus derselben gemeinsamen Release-Metadatenquelle, damit interne und öffentliche Versionsanzeigen konsistent bleiben
-- Dokument-Uploads in `Memory` arbeiten jetzt gezielt mit Dokument-Collections wie `aria_docs_*`, statt beliebige Memory-Collections zu vermischen
-- `Memory` bietet jetzt einen eigenen Filter und eigene Zählung für Dokumentwissen; `Dokumente` und `Rollup-Wissen` bleiben im UI sauber getrennt
-- der Dokument-Import zeigt während Chunking und Qdrant-Ingest einen sichtbaren Arbeitszustand direkt im Upload-Block, nicht nur über das drehende Logo
-- importierte Dokumente werden jetzt gesammelt in der `Memory Map` verwaltet, inklusive Dokumentname, Chunk-Anzahl, Vorschau und zentralem Entfernen ganzer Dokumente aus Qdrant
-- die `Memory`-Ansicht gruppiert Einträge jetzt zusätzlich nach Typ und zeigt klickbare Typ-Kacheln, damit große Mengen an Facts, Dokumenten, Session-Kontext und Rollup-Wissen nicht in einer langen Mischliste untergehen
-- der Chat-Recall nutzt bei Dokumentwissen jetzt zuerst den internen Dokument-Guide-Index und fragt danach gezielt nur passende Dokument-Chunks ab, statt blind alle Dokument-Collections mitzunehmen
-- Chat-Details zeigen bei Dokument-Recall jetzt die verwendeten Quellen mit Dokumentname, Collection und Chunk-Referenz an; dieselbe Detail-Schiene kann später auch für Websuche-Quellen wiederverwendet werden
-- Quellen in den Chat-Details werden jetzt nutzerfreundlich sortiert: Dokumente/Web zuerst, danach stabilere Memory-Typen vor flüchtigem Session-Kontext
-- die globale Restart-Erkennung lädt Seiten nach kurzen `/health`-Aussetzern nicht mehr blind neu, sondern zeigt erst nach mehreren aufeinanderfolgenden Failures einen klaren Reload-Hinweis
-- das `Cyberpunk`-Theme mischt jetzt Türkis und dunkles Blau in die bisher sehr grünlastige Neon-Palette
-- das ursprüngliche `Cyberpunk`-Theme ist jetzt wieder als `CyberPunk Classic` zurück; der neue Look bleibt separat als `CyberPunk Neo` auswählbar, damit bestehende Setups optisch stabil bleiben
-
-### Fixed
-- der Dokument-Upload akzeptiert serverseitig keine Nicht-Dokument-Collections mehr; falsche Collection-Wahlen werden sauber abgewiesen
-- PDFs ohne eingebetteten Text geben jetzt eine klare Fehlermeldung statt still zu scheitern; Scan-/Bild-PDFs werden in RAG v1 explizit als nicht unterstützt markiert
-- Multipart-Dokument-Uploads werden nicht mehr fälschlich als `Bitte eine Datei auswählen` abgewiesen; die Upload-Route akzeptiert jetzt sowohl FastAPI- als auch Starlette-UploadFile-Objekte sauber
-- die Dokument-Verwaltung liegt nicht mehr unpassend mitten im normalen `Memory`-Log, sondern an der thematisch passenderen Stelle in der `Memory Map`
-- der sichtbare Upload-Hinweis in `Memory` bleibt nach erfolgreichem Import nicht mehr hängen, sondern wird beim nächsten Seitenaufbau sauber zurückgesetzt
-- `/updates` bleibt bei GitHub-API-Rate-Limits nutzbar und fällt für die Versionsbestimmung sauber auf den öffentlichen `CHANGELOG.md` zurück, statt dauerhaft eine störende `403 rate limit exceeded`-Warnung anzuzeigen
-- der Dokument-Upload-Hinweis wird im Idle nicht mehr fälschlich angezeigt; das `hidden`-Verhalten der Statusmeldung wird jetzt auch per CSS sauber respektiert
-- Discord-Systemevents zeigen beim Start nicht mehr irreführend eine Docker-Bridge-IP als Host an; ohne gesetzte `ARIA_PUBLIC_URL` meldet ARIA jetzt klar, dass die öffentliche URL nicht konfiguriert ist
-
-### Security
-
-### Known Limitations
-- RAG v1 unterstützt bei PDFs nur eingebetteten Text; OCR und bildbasierte PDFs sind noch nicht enthalten
-
-### Upgrade Notes
-
-## [0.1.0-alpha.40] - 2026-04-05
-
-### Added
-
-### Changed
-- ARIA verwendet für Login-, CSRF- und Session-Cookies jetzt instanzspezifische Cookie-Namen, damit mehrere ARIA-Container auf demselben Host mit unterschiedlichen Ports sich nicht mehr gegenseitig die Browser-Session überschreiben
-
-### Fixed
-- der automatische Logout nach wenigen Minuten in Multi-Instanz-Setups wurde behoben; Ursache waren kollidierende Cookie-Namen zwischen z. B. `aria.example.lan:8800` und `aria.example.lan:8810`
-- LLM-, Embeddings-, Chat- und Memory-Flows lesen jetzt konsistent die zur aktuellen Instanz gehörenden Cookies, statt versehentlich Session- oder CSRF-Werte einer anderen ARIA-Instanz zu verwenden
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-- bei mehreren ARIA-Instanzen auf demselben Host kann nach dem Update ein einmaliges Neuanmelden sinnvoll sein, damit alte globale Legacy-Cookies nicht mehr im Browser bevorzugt werden
-
-## [0.1.0-alpha.39] - 2026-04-05
-
-### Added
-
-### Changed
-- Login-Timeout und Bootstrap-Einstellungen wurden von `Security Guardrails` nach `Benutzer` verschoben; die Security-Seite fokussiert sich jetzt auf Guardrail-Profile
-
-### Fixed
-- geschützte Fetch-/JSON-Requests löschen den Auth-Cookie bei nur temporärer Security-/Auth-Store-Unverfügbarkeit nicht mehr; dadurch verschwinden Sitzungen nicht mehr “einfach so” nach einigen Minuten durch einen Nebenrequest
-- der Login-Timeout bleibt damit als konfigurierbare Einstellung relevant, statt von einem separaten Session-Fehlerpfad überlagert zu werden
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.37] - 2026-04-05
-
-### Added
-- die Security-Seite zeigt den Login-Timeout jetzt zusätzlich in einer menschenlesbaren Form an, z. B. `12 Stunden` oder `1 Tag 6 Stunden`, damit große Minutenwerte nicht im Kopf umgerechnet werden müssen
-
-### Changed
-- Login-Sessions können jetzt über `Security` mit einem konfigurierbaren Default-Timeout gesteuert werden; der Wert wird intern weiter in Sekunden gespeichert und kann zusätzlich per `ARIA_SECURITY_SESSION_MAX_AGE_SECONDS` gesetzt werden
-- Update-Checks bleiben für den Zustand `up to date` deutlich frischer, damit neue Public-Releases schneller in Lampe und `/updates` sichtbar werden
-
-### Fixed
-- Login-Sessions bleiben bei LLM-/Embeddings-Konfigurationen und normalen Seitenwechseln stabil, statt durch unkritische Nebenrequests oder Runtime-Reloads ungewollt verloren zu gehen
-- frisch angemeldete Nutzer werden bei der Modellkonfiguration nicht mehr fälschlich auf `Login` oder `Sitzung abgelaufen` zurückgeworfen, solange die Session gültig ist
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.35] - 2026-04-05
-
-### Added
-
-### Changed
-
-### Fixed
-- der Auth-Cookie wird nicht mehr auf unkritischen Responses wie öffentlichen Nebenrequests versehentlich gelöscht; dadurch bleiben Login-Sessions bei `Load models`, Profilwechseln und normalen Seitenwechseln stabil
-- LLM- und Embeddings-Konfigurationen können wieder zuverlässig Modelle laden und speichern, ohne Nutzer auf `Login` oder `Bitte zuerst anmelden` zurückzuwerfen
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.34] - 2026-04-05
-
-### Added
-
-### Changed
-
-### Fixed
-- gültige, signierte Login-Sessions bleiben jetzt auch dann erhalten, wenn der Security-/Auth-Store während eines Runtime-Reloads kurzzeitig nicht verfügbar ist; ARIA wirft Nutzer in diesem Fall nicht mehr vorschnell auf `/login`
-- Debug-Header für die Session-Diagnose wurden vorbereitet (`X-ARIA-Auth-Reason`, `X-ARIA-Auth-Degraded`), damit künftige Auth-Probleme gezielter eingegrenzt werden können
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.33] - 2026-04-05
-
-### Added
-
-### Changed
-- `Updates` wurde aus der Hauptnavigation herausgenommen und als Kachel in `/help` neben `Produkt-Info` platziert
-
-### Fixed
-- Login-Sessions bleiben in internen HTTP-/LAN-Setups stabiler, weil Auth- und Preference-Cookies nur noch dann `Secure` werden, wenn die App wirklich unter HTTPS läuft oder `ARIA_PUBLIC_URL` explizit auf `https://...` gesetzt ist
-- die Client-Restart-Erkennung lädt nach einer kurzen Runtime-Unterbrechung jetzt die aktuelle Seite neu, statt Nutzer blind auf `/login` zu schicken
-- die `/updates`-Seite prüft jetzt frisch gegen GitHub und ignoriert veraltete Cache-Zustände, bei denen die installierte Version neuer als die gecachte `latest`-Version ist
-- der Typing-Indikator über dem Chat-Composer bleibt im Idle garantiert verborgen und hinterlässt keinen leeren Rahmen mehr
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.30] - 2026-04-05
-
-### Added
-
-### Changed
-
-### Fixed
-- JSON-Fetches für LLM-/Embeddings-Modelllisten erhalten bei fehlender oder abgelaufener Session jetzt saubere JSON-Fehler statt Login-HTML; die Config-UIs senden dafür explizit API-artige Request-Header und Credentials
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.29] - 2026-04-05
-
-### Added
-
-### Changed
-
-### Fixed
-- auth cookies trust proxy HTTPS headers more conservatively, reducing false logouts on fresh HTTP/container setups where a stray forwarded header could make the browser drop the session cookie
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.28] - 2026-04-05
-
-### Added
-
-### Changed
-
-### Fixed
-- `aria-pull` / `update-local-aria.sh` retaggt geladene TAR-Images jetzt korrekt auf das lokale Compose-Image-Tag wie `aria:alpha-local`, damit echte Updates nicht still auf dem alten lokalen Image hängen bleiben
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.27] - 2026-04-05
-
-### Added
-- Update-Hinweis auf Basis von GitHub-Tags plus Release-Notes-Seite unter `/updates`
-
-### Changed
-- Login-Screen und Menü zeigen jetzt ein dezentes oranges Update-Lämpchen, wenn eine neuere öffentliche Version verfügbar ist
-
-### Fixed
-
-### Security
-
-### Known Limitations
-- ARIA ist weiterhin primär ein Personal-Single-User-System
-- kein vollständiges RBAC-/Sharing-Modell für Skills, Connections und Memories
-- Capability-Ergebnisse werden nicht pauschal automatisch in Memory geschrieben
-- Public-Internet-Betrieb bleibt für diese ALPHA-Linie nicht empfohlen
-
-### Upgrade Notes
-
-## [0.1.0-alpha.26] - 2026-04-05
-
-### Added
-
-### Changed
-- `README.md` now links Docker Hub directly in the header, next to the GitHub repository link.
-
-### Fixed
-- Prompt Studio no longer disables saving for editable prompt files like `prompts/persona.md`; prompt rows now carry explicit `edit` metadata and the shared editor template defaults missing modes to editable.
-- LLM and Embeddings config now also create or overwrite a named profile when a different profile name is entered and the normal `Save` button or Enter key is used, instead of silently only updating the current active profile.
-
-### Security
-
-### Known Limitations
-- ARIA is still primarily a personal single-user system
-- No full shared-skill/shared-connection RBAC model yet
-- Capability results are not automatically written into Memory unless modeled explicitly
-- Public internet exposure is still not recommended for this ALPHA line
-
-### Upgrade Notes
-- Update the ARIA container/image, keep persistent volumes
-- Hard-refresh the browser after the update if old CSS/theme assets are still cached
-
-## [0.1.0-alpha.25] - 2026-04-04
-
-### Added
-- Added practical, human-readable DE/EN Alpha help docs (`docs/help/alpha-help-system.de.md` / `.en.md`) and made `/help` load the matching language variant
-
-### Changed
-- Chat toolbox skill entries now show the actual skill name plus a compact `/skill` badge and a wrapped description/example line, instead of repeating only `/skill` for every skill button
-- In the user menu, `Help` now appears after `Config` and before `Users`, so support docs sit closer to settings but still before user administration
-- `README.md` is now split into a clear English-first section and a separately labeled German section instead of silently switching language mid-document
-- `README.md` now embeds the architecture diagrams directly in both language sections
-
-### Fixed
-- `Systemzustand` cards in `/stats` now expose `visual_status` as well, so ARIA Runtime, Model Stack, Memory/Qdrant, Security Store, and Activities/Logs use the same status lamps as the rest of the page
-
-### Security
-- Repo/privacy sweep: removed personal dev-host defaults from `docker/pull-from-dev.sh`, neutralized `config/secrets.env`, removed stray root artifacts `=1.2` / `=2.1`, and excluded the then-current local project documentation folder from the public repo while keeping it locally
-
-### Known Limitations
-- ARIA is still primarily a personal single-user system
-- No full shared-skill/shared-connection RBAC model yet
-- Capability results are not automatically written into Memory unless modeled explicitly
-- Public internet exposure is still not recommended for this ALPHA line
-
-### Upgrade Notes
-- Update the ARIA container/image, keep persistent volumes
-- Hard-refresh the browser after the update if old CSS/theme assets are still cached
-
-## [0.1.0-alpha.24] - 2026-04-04
-
-### Added
-- `/skills` now exposes bundled sample-skill manifests from `/app/samples/skills` and lets admins import them directly without downloading files out of the container first
-- `/config` now exposes bundled sample-connection YAMLs from `/app/samples/connections` and lets admins import them directly into `config.yaml`
-- Added `rss-morning-briefing-to-discord-template.json`, a scheduled multi-RSS + LLM + Discord sample for a daily curated morning briefing
-
-### Changed
-- Product Info now only exposes user-facing docs; the internal Copy Pack card was removed from the Product Info page
-- CyberPunk Pulse buttons and menu labels are now rendered in neon green for stronger theme contrast, and Deep Space was shifted toward a darker violet/nebula palette so it is less close to Harbor Blue
-- Skill Wizard now explicitly documents that `llm_transform` prompts can use `{prev_output}` as well as step-specific placeholders like `{s1_output}` and `{s2_output}`
-
-### Fixed
-- `samples/` is now packaged into the Docker image, so bundled sample skills, sample connections, and sample guardrails are available inside the container as `/app/samples`
-
-### Security
-
-### Known Limitations
-- ARIA is still primarily a personal single-user system
-- No full shared-skill/shared-connection RBAC model yet
-- Capability results are not automatically written into Memory unless modeled explicitly
-- Public internet exposure is still not recommended for this ALPHA line
-
-### Upgrade Notes
-- Update the ARIA container/image, keep persistent volumes
-- Hard-refresh the browser after the update if old CSS/theme assets are still cached
-
-
-## [0.1.0-alpha.23] - 2026-04-04
-
-### Added
-
-### Changed
-- CyberPunk Pulse theme tuned further: stronger hot-pink panel/glow treatment, while secondary helper/meta/status text and chips now use neon `#00ff00`
-- `Produkt-Info` moved out of the top menu and linked from the `/help` page instead, so product docs are presented as support material rather than a main navigation item
-
-### Fixed
-- iPhone chat view no longer allows subtle horizontal side-panning/drift while scrolling; chat container and message bubbles are now locked to vertical pan with hard X-axis clipping
-- `/help` and `/product-info` docs are now packaged into the Docker image, so read-only help/product pages no longer show missing-file fallbacks in container deployments
-- Qdrant DB size in `/stats` no longer stops at `0 B` when telemetry reports collections but zero disk bytes; ARIA now falls through to local storage-path inspection first and only then uses the zero-byte telemetry fallback
-
-### Security
-
-### Known Limitations
-- ARIA is still primarily a personal single-user system
-- No full shared-skill/shared-connection RBAC model yet
-- Capability results are not automatically written into Memory unless modeled explicitly
-- Public internet exposure is still not recommended for this ALPHA line
-
-### Upgrade Notes
-- Update the ARIA container/image, keep persistent volumes
-- Hard-refresh the browser after the update if old CSS/theme assets are still cached
-
-## [0.1.0-alpha.22] - 2026-04-03
-
-### Added
-- Read-only `/help` page backed by `docs/help/help-system.md`
-- Read-only `/product-info` page with overview, feature list, architecture docs, and embedded architecture diagrams
-- Memory JSON export from `/memories` for the current user and current filter/search scope
-- `/stats` reset flow with explicit `RESET` confirmation
-- MIT `LICENSE` and `THIRD_PARTY_NOTICES.md`
-
-### Changed
-- Documentation tree reorganized into public `docs/` and the then-current internal history folder
-- Login, Users, and Security UI now explain first-run bootstrap and Admin/User mode boundaries more clearly
-- CyberPunk Pulse theme shifted toward stronger hot-pink/magenta accents
-- Auto-Memory now skips transient one-off questions and pure tool/action prompts unless they contain stable facts/preferences
-- Capability results are intentionally not auto-persisted to Memory by default; future durable state should use explicit summary/state-memory flows
-- Memory docs/backlogs now treat weighted multi-collection recall and JSON export as Public Alpha scope, while session rollup and reindex remain post-alpha work
-
-### Fixed
-- More robust Qdrant DB size fallback for separate Docker/Portainer Qdrant volumes mounted read-only into the ARIA container
-- Long `Tages-Kontext` / `Login-Session` debug IDs no longer cause horizontal overflow on iPhone chat screens
-- Help-file tests updated to the new `docs/help/...` paths
-
-### Security
-- Third-party attribution for Qdrant and key runtime dependencies documented explicitly
-
-### Known Limitations
-- ARIA is still primarily a personal single-user system
-- No full shared-skill/shared-connection RBAC model yet
-- Capability results are not automatically written into Memory unless modeled explicitly
-- Public internet exposure is still not recommended for this ALPHA line
-- Home Assistant, document ingest, web research, SSE streaming, and full multi-user sharing remain roadmap items
-
-### Upgrade Notes
-- Update the ARIA container/image, keep persistent volumes
-- Hard-refresh the browser after the update if old CSS/theme assets are still cached
-- If you use a separate Qdrant container, ensure the Qdrant storage volume is mounted read-only into the ARIA container as in the updated stack examples
-
-## [0.1.0-alpha.21] - 2026-04-03
-
-### Added
-- New UI themes: CyberPunk Pulse, 8-Bit Arcade, Amber CRT, Deep Space
-- RSS metadata helper button `Check mit LLM` to suggest/enrich title, description, aliases, and tags
-- Global RSS poll interval for all RSS feeds
-- Stable per-feed RSS poll phase offset to avoid all feeds becoming due on the same interval edge
-
-### Changed
-- RSS routing now uses title, description, aliases, and tags of RSS profiles more strongly
-- Short free-form RSS prompts like `was für news gibs auf heise` are recognized more reliably
-- Statistics / Startup Preflight / System health now display state mostly via status lamps instead of repeated text labels
-- CyberPunk theme adjusted toward stronger hot-pink/magenta accents and a darker black base
-
-### Fixed
-- RSS page search now correctly hides non-matching groups and feeds
-- RSS search also reacts when the browser clear `x` resets the search field
-
-### Security
-- No dedicated security change in this release block
-
-### Known Limitations
-- ARIA is still primarily a personal single-user system
-- No full shared-skill/shared-connection RBAC model yet
-- Capability results are not automatically written into Memory in the same way as normal chat responses
-- Public internet exposure is still not recommended for this ALPHA line
-
-### Upgrade Notes
-- Update the ARIA container/image, keep persistent volumes
-- Hard-refresh the browser after the update if old CSS/theme assets are still cached
-
-## Internal Notes
-
-- Detailed internal build history currently lives in `docs/internal/alpha-build-log.md`
-- Public release wording can be derived from:
-  - `docs/product/feature-list.md`
-  - `docs/backlog/future-features.md`
-  - `docs/setup/setup-overview.md`
-  - `docs/product/architecture-summary.md`
-  - `docs/release/versioning.md`
+- Treat this as an architecture migration from `0.1.0-alpha604`, not as a normal point update.
+- Back up configuration from `/config/backup` before upgrading.
+- Prefer `/updates` or the managed install updater. Use host-side CLI helpers only for managed-admin workflows or manual Compose installs.
+- Verify the upgraded instance after the update: `/health`, `/stats`, `/updates`, config pages, notes, recipes, memory, documents, one ordinary chat prompt, one recipe inventory prompt, one notes-folder prompt, one action-confirmation prompt, and one current-fact/web prompt if web tooling is configured.
+- Operators who previously used SearXNG must migrate to the provider/web-tooling model. Existing SearXNG sidecars should remain untouched for the first architecture jump unless a later release ships a dedicated opt-in cleanup helper.
+- The current public release remains `0.1.0-alpha604` until a separate public release-candidate workflow is explicitly approved.
+
+### Internal Alpha Summary Since Public 0.1.0-alpha604
+
+- **alpha830:** Adds complete read-only Connections inventory to the standalone
+  native agent, with optional kind filtering, turn-user binding, dual-tool model
+  selection, and an independent default-off admin rollout flag.
+- **alpha829:** Adds the first standalone native agent turn: direct chat or one
+  source-bound Personal Memory read through Anthropic-native Tool-Calling,
+  short-circuited before legacy arbitration and default-off behind admin flags.
+- **alpha828:** Corrects the live-rejected Alpha827 diagnostic tool schema to
+  Anthropic-native `input_schema` and makes provider schema rejection evidence
+  visible without changing the tool result roundtrip.
+- **alpha827:** A standalone admin diagnostic exercises native LiteLLM
+  Tool-Calling end to end with a harmless deterministic addition tool. Local
+  fake tests prove parsing and isolation; only the later explicit live trigger
+  can prove provider behavior.
+- **alpha826:** The model gateway preserves structured Anthropic Tool-Use
+  arguments when LiteLLM returns them outside empty message content, allowing
+  the loop-first gate to consume its strict-schema decision.
+- **alpha825:** The default-off agentic loop uses a bounded model decision for
+  Personal Memory Recall, supports bounded correction observations, binds final
+  answers to loaded claim evidence, and fails closed on non-success executor
+  statuses.
+- **alpha823:** Stage-2 field drift is tolerated consistently for Connections
+  and Commands, while authority fields remain exact; the bounded repair now
+  covers contradictory answer decisions that also request context.
+- **alpha822:** Structured decision transport now uses strict JSON schema only
+  for compatible schemas, falls back safely when providers reject it, and
+  remembers that capability while preserving authority validation.
+- **alpha821:** A default-off agentic execution loop is available for the
+  read-only Connections Inventory vertical. Operation contracts, policy and
+  confirmation enforcement remain between model decisions and execution;
+  budgets, observations, and machine-readable traces fail closed.
+- **alpha819:** Microkernel foundation, dynamic module loading, Qdrant-only MetaCatalog routing, module-owned projection providers, and the SSH/SFTP isolation proof are prepared as an internal review candidate. Alpha818 remains live-rejected; alpha819 does not authorize a public release.
+- **alpha808:** Public release-candidate docs and update helpers were aligned for the architecture jump from `0.1.0-alpha604`: Docker Hub now leads with the major modular-architecture warning, normal managed updates recreate only `aria`, and public docs describe SearXNG as a legacy sidecar while WebSearch moves to provider/web tooling.
+- **alpha807:** MetaCatalog action transport now comes only from structured authority fields. Recipe handoffs can carry zero unrelated runtime actions. Unknown recipe IDs produce source-bound recipe catalog clarification. Ordinary same-hop chat is covered with empty action transport and routing-debug diagnostics.
+- **alpha806:** MetaCatalog was reduced to broad recipe-domain selection. Exact recipe operation and offered recipe ID selection moved to the recipe semantic owner with strict schema validation and fail-closed behavior.
+- **alpha805:** A local public-release regression pack was added for public current facts/WebSearch, public artifact hygiene, actions/confirmation, ordinary chat/error handling, recipes, memory, notes, and documents.
+- **alpha803-alpha804:** Public current-fact/WebSearch contracts and public artifact hygiene were strengthened so private/internal artifacts do not leak into public packaging.
+- **alpha799-alpha801:** Notes folder authority, direct source-bound notes inventory, and document-vs-memory source labels were repaired after the modularization.
+- **alpha797:** MetaCatalog safe-fallback source authority was tightened after a live recipe inventory fallback failure.
+- **alpha796:** Ordinary chat was restored to the short same-hop path without unnecessary recipe, context, final-composer, or pending-action handling.
+- **alpha794-alpha795:** Runtime recipe catalog authority was aligned with `/recipes/mine`, legacy-compatible recipe manifests were included, disabled recipes were excluded, and recipe transport to MetaCatalog was made smaller.
+- **alpha792-alpha793:** Recipe matching debt was removed and replaced with model-owned recipe operation selection plus total fail-closed validation. The first alpha792 live test was rejected and then covered by alpha793.
+- **alpha787-alpha788:** Runtime action confirmation and execution snapshots were tightened. Confirmations now expose the concrete capability, target, and payload before execution.
+- **alpha783-alpha786:** Personal memory capture/recall ownership, same-hop personal recall, and latency/transport behavior were repaired and accepted in live review.
+- **alpha774-alpha782:** Earlier modularization follow-ups tightened connection target authority, fleet scope, document answers, personal recall, and source-bound behavior.
+
+### Current Internal Review Candidate
+
+- Internal workspace/build candidate: `0.1.0-alpha871`
+- **alpha871 (internal):** Removes the dead legacy decision fallthrough from `Pipeline.process`, makes the native agent the sole web/pipeline decision path, and deletes the now-reference-free process-stage and old agentic-loop bridge helpers. Explicitly disabled native operation returns an honest degraded result; the legacy funnel modules remain present for later teardown stages.
+- **alpha870 (internal):** Makes the native agent the reversible delivery default by setting all 13 Agentic Loop rollout fields on by default. Every field remains configurable, and legacy-funnel tests pin the master switch off explicitly until teardown stage 3.
+- **alpha869 (internal):** Tightens the native-agent system instruction so explicit or fragmented memory-persistence requests use the offered memory tool or ask for clarification, and mutation-completion language is allowed only after the matching tool returned success in the same turn. Tools, confirmation, phrasing, selector, and runtime behavior remain unchanged.
+- **alpha868 (internal):** Removes the dropped legacy `safe_fix` capability, including its module, registry ownership, pipeline result/threading, executor, and chat-cookie confirmation flow. Native tools, recipes, bounded decisions, and the intentionally inert Discord `alert_safe_fix` connection setting remain unchanged.
+- **alpha867 (internal):** Adds a separate default-off, administrator-only native `admin_update_run` tool. The existing confirmation kernel gates the existing GUI Update Helper trigger, while disabled, already-running, and failed helper outcomes remain explicit and administrative read tools stay independently gated.
+- **alpha866 (internal):** Adds default-off native `memory_capture` under the existing write-memory rollout flag. One explicit fact or preference is frozen by the confirmation kernel and stored through the canonical personal-claim authority with server-bound user, collections, authority, risk, confidence, and source; rejected activation remains an honest not-stored result.
+- **alpha865 (internal):** Resolves enabled Recipes through either their exact canonical id or one unique exact display name (case-insensitive for names), while confirmed execution always passes the canonical id to the unchanged guarded Recipe engine; ambiguous, disabled, partial, and fuzzy matches remain non-executable.
+- **alpha864 (internal):** Adds default-off native `recipes_execute` with recipe-level kernel confirmation while preserving the existing per-step SSH, file, connection, and policy guardrails through the canonical Recipe engine.
+- **alpha863 (internal):** Adds default-off native `file_write` and `http_api_request` tools with exact configured-profile binding and the existing confirmation kernel; HTTP execution receives `confirmed=True` only after kernel confirmation.
+- **alpha862 (internal):** Adds four default-off, profile-bound native messaging tools for Discord, webhooks, email, and MQTT; every send is intercepted by the existing confirmation kernel before execution, while the all-tools threshold rises to 40 without activating the selector.
+- **alpha861 (internal):** Populates every native-agent PipelineResult with the active scope's token snapshot for the per-turn chat badge, while retaining the scope flush as the sole persistent usage log and safely displaying zero when no snapshot is available.
+- **alpha860 (internal):** Flushes the native-agent chat usage scope before every outcome branch, persisting aggregated tokens and request counts exactly once while treating missing or failed metering as non-destructive observability loss.
+- **alpha859 (internal):** Resolves the native-agent UsageMeter from the pipeline owner's live `usage_meter` first, retaining the settings-attached meter only as a compatibility fallback, so native completion usage reaches the operator cost ledger.
+- **alpha858 (internal):** Records every native-agent loop, budget-finalizer, confirmation-preview and confirmed-result model completion through the shared UsageMeter with exact provider usage and isolated duration; missing usage or meter failures never alter a turn.
+- **alpha857 (internal):** Makes confirmation-required native tools direct: the model calls them with exact arguments while the kernel owns confirmation, and persisted non-authoritative request context keeps preview/result phrasing in the original request language across confirm turns.
+- **alpha856 (internal):** Keeps write preview/result phrasing in the current user's language, makes the action payload the sole phrasing authority, and includes the executed SSH command in the allowlisted result so confirmations can report concrete outcomes.
+- **alpha855 (internal):** Strengthens the native-agent system instruction so current server, file, remote-system, connection, command-output and stored-data questions must use an offered tool and may only answer from that turn's tool result; concrete live-state output must never be invented or reused.
+- **alpha854 (internal):** Adds default-off, admin-only native `ssh_read` and confirmation-gated `ssh_command` tools. Both bind exact configured SSH targets to the existing low-level SSH policy/runtime; confirmation cannot override policy hard blocks or allow-lists.
+- **alpha853 (internal):** `notes_write` now upserts one user-owned note by normalized exact title and folder when no note ID is supplied, refuses ambiguous title matches without writing, and reports explicit `created` or `updated` result actions.
+- **alpha852 (internal):** Updated the native-agent system instruction to allow every offered tool and forbid claims of completed mutations unless a tool call actually performed them in the current turn.
+- **alpha851 (internal):** Added default-off, kernel-confirmed personal-memory deletion by frozen claim IDs and user-scoped note updates. Unknown note IDs cannot create notes; the 24 read tools remain unchanged.
+- Native write phrasing calls now omit `tool_choice` when no tools are offered, matching the Anthropic/LiteLLM request contract while preserving deterministic fallbacks.
+- Native mutating-tool previews and successful results are now phrased naturally by bounded presenter calls, with deterministic raw-text fallbacks that cannot alter execution authority.
+- Native mutating tools now have a kernel-enforced, server-side Preview -> Confirm -> Execute boundary; the first default-off proof is `notes_write`.
+- Native-agent follow-up turns now receive a bounded prior user/assistant history, and connection-backed tools are offered only when at least one declared profile kind is configured.
+- The native agent now receives the authenticated session role through a handler-bound, default-deny context and can offer three default-off administrator-only read tools for safe update status, aggregate stats, and bounded activity diagnostics. Tool arguments cannot supply or override the role; backup tools remain deferred. Public remains `0.1.0-alpha604`.
+- Latest internal image: `0.1.0-alpha845`
+- Latest internal TAR: `aria-alpha845-local.tar`
+- Current public release: `0.1.0-alpha604`
+- Public release: not yet approved

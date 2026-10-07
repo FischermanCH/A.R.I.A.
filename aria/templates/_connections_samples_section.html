@@ -1,4 +1,5 @@
 <section class="floating-card connections-section">
+  {% set connections_profiles_import_sample_path = module_route_path('connections_profiles', '/config/connections/import-sample') %}
   {% if request.state.can_access_advanced_config %}
   <h3>{{ tr(request, 'connections_overview.section_samples_title', 'Mitgelieferte Beispiel-Verbindungen') }}</h3>
   <p class="hint-text">{{ tr(request, 'connections_overview.section_samples_desc', 'Beispielprofile aus /app/samples/connections zum schnellen Import in deine ARIA-Instanz.') }}</p>
@@ -13,7 +14,7 @@
       <p>{{ sample.description }}</p>
       {% endif %}
       <p class="hint-text">{{ sample.ref }} · {{ sample.file_name }}</p>
-      <form class="inline-form" method="post" action="/config/connections/import-sample">
+      <form class="inline-form" method="post" action="{{ connections_profiles_import_sample_path }}">
         <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">
         <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
         <button type="submit">{{ tr(request, 'config.sample_connections_import_btn', 'Sample importieren') }}</button>

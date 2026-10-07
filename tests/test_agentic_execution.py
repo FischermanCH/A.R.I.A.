@@ -2,20 +2,18 @@ from __future__ import annotations
 
 import asyncio
 
-from aria.core.action_plan import ActionPlan
-from aria.core.agentic_execution import AgenticExecutionRequest
-from aria.core.agentic_execution import AgenticExecutionResult
-from aria.core.agentic_execution_learning import AgenticExecutionLearningService
-from aria.core.agentic_execution_registry import AgenticExecutionRegistry
-from aria.core.agentic_execution_registry import agentic_execution_registered_runtime_adapter_ids
-from aria.core.agentic_execution_registry import agentic_execution_runtime_adapter_status
-from aria.core.agentic_execution_learning import suppress_auto_learning
-from aria.core.agentic_capability_execution import GenericCapabilityExecutionHandler
-from aria.core.agentic_capability_execution import GenericCapabilityExecutionHooks
-from aria.core.agentic_rss_execution import RSSFeedExecutionHandler
-from aria.core.agentic_rss_execution import RSSFeedExecutionHooks
-from aria.core.agentic_ssh_execution import MultiTargetSSHExecutionHandler
-from aria.core.agentic_ssh_execution import MultiTargetSSHExecutionHooks
+from aria.modules.action_contracts.plan import ActionPlan
+from aria.modules.runtime_execution_registry.contracts import AgenticExecutionRequest
+from aria.modules.runtime_execution_registry.contracts import AgenticExecutionResult
+from aria.modules.runtime_execution_registry.registry import AgenticExecutionRegistry
+from aria.modules.runtime_execution_registry.registry import agentic_execution_registered_runtime_adapter_ids
+from aria.modules.runtime_execution_registry.registry import agentic_execution_runtime_adapter_status
+from aria.modules.capability_runtime.handler import GenericCapabilityExecutionHandler
+from aria.modules.capability_runtime.handler import GenericCapabilityExecutionHooks
+from aria.modules.rss_runtime.agentic_execution import RSSFeedExecutionHandler
+from aria.modules.rss_runtime.agentic_execution import RSSFeedExecutionHooks
+from aria.modules.ssh_runtime.agentic_execution import MultiTargetSSHExecutionHandler
+from aria.modules.ssh_runtime.agentic_execution import MultiTargetSSHExecutionHooks
 
 
 async def _empty_execute(_plan: ActionPlan, _language: str) -> str:
@@ -44,18 +42,12 @@ def _handler() -> MultiTargetSSHExecutionHandler:
             format_execution_error=lambda _plan, exc, _language: str(exc),
             build_capability_detail_lines=lambda _plan, _language: [],
             text=lambda _language, _key, default="", **values: str(default).format(**values),
-            learning_service=AgenticExecutionLearningService(
-                schedule_followup=lambda _entry, _user_id, _language, _detail_lines, _curate: None
-            ),
             payload_multi_target_refs=lambda payload: list(payload.get("connection_refs", []) or []),
             preflight_refs=lambda refs, _command: (refs, [], []),
             execute_plan=_empty_execute,
             remember_action=lambda _user_id, _plan: None,
             remember_multi_target_action=lambda _user_id, _payload, _refs, _command, _summary: None,
-            result_state=lambda _text: "ok",
             configured_connection_refs=lambda _kind: [],
-            extract_free_disk_threshold_gib=lambda _message: None,
-            extract_summary_free_disk_gib=lambda _text: None,
             extract_disk_measurement=lambda _text: None,
             operator_summary=lambda _language, target_count, _records: f"Overall: {target_count} targets.",
             relevant_result_texts=lambda _records: [],
@@ -119,18 +111,12 @@ def test_multi_target_ssh_handler_executes_allowed_targets_concurrently() -> Non
             format_execution_error=lambda _plan, exc, _language: str(exc),
             build_capability_detail_lines=lambda _plan, _language: [],
             text=lambda _language, _key, default="", **values: str(default).format(**values),
-            learning_service=AgenticExecutionLearningService(
-                schedule_followup=lambda _entry, _user_id, _language, _detail_lines, _curate: None
-            ),
             payload_multi_target_refs=lambda payload: list(payload.get("connection_refs", []) or []),
             preflight_refs=lambda refs, _command: (refs, [], []),
             execute_plan=execute_plan,
             remember_action=lambda _user_id, _plan: None,
             remember_multi_target_action=lambda _user_id, _payload, _refs, _command, _summary: None,
-            result_state=lambda _text: "ok",
             configured_connection_refs=lambda _kind: [],
-            extract_free_disk_threshold_gib=lambda _message: None,
-            extract_summary_free_disk_gib=lambda _text: None,
             extract_disk_measurement=lambda _text: None,
             operator_summary=lambda _language, target_count, _records: f"Overall: {target_count} targets.",
             relevant_result_texts=lambda _records: [],
@@ -174,21 +160,11 @@ def _rss_handler() -> RSSFeedExecutionHandler:
             format_execution_error=lambda _plan, exc, _language: str(exc),
             build_capability_detail_lines=lambda _plan, _language: [],
             text=lambda _language, _key, default="", **values: str(default).format(**values),
-            learning_service=AgenticExecutionLearningService(
-                schedule_followup=lambda _entry, _user_id, _language, _detail_lines, _curate: None
-            ),
             execute_plan=_empty_execute,
             remember_action=lambda _user_id, _plan: None,
-            rss_group_bundle_for_query=_empty_rss_group_bundle_for_query,
-            rss_group_bundle_from_candidate_aliases=lambda _query, _selected_ref, _rows: None,
-            build_rss_group_bundle_note=lambda group, refs: f"group:{group}:{','.join(refs)}",
             rss_digest_options_note_for_query=_empty_rss_digest_options_note_for_query,
         )
     )
-
-
-async def _empty_rss_group_bundle_for_query(_query: str, _selected_ref: str) -> tuple[str, list[str]] | None:
-    return None
 
 
 async def _empty_rss_digest_options_note_for_query(_query: str, _language: str) -> str:
@@ -289,9 +265,6 @@ def _generic_handler(
             format_execution_error=lambda _plan, exc, _language: str(exc),
             build_capability_detail_lines=lambda plan, _language: [f"detail:{plan.connection_ref}"],
             text=lambda _language, _key, default="", **values: str(default).format(**values),
-            learning_service=AgenticExecutionLearningService(
-                schedule_followup=lambda entry, *_args: scheduled.append(entry) if scheduled is not None else None
-            ),
             execute_plan=_execute_plan,
             remember_action=lambda user_id, plan: remembered.append((user_id, plan)) if remembered is not None else None,
             execute_content_access=_execute_content_access,
@@ -308,22 +281,21 @@ def test_generic_capability_handler_executes_and_records_context() -> None:
     scheduled: list[object] = []
     handler = _generic_handler(executed=executed, remembered=remembered, scheduled=scheduled)
 
-    with suppress_auto_learning():
-        result = asyncio.run(
-            handler.execute(
-                AgenticExecutionRequest(
-                    resolved={"query": "send status"},
-                    payload={
-                        "capability": "webhook_send",
-                        "connection_kind": "webhook",
-                        "connection_ref": "alerts",
-                        "content": "online",
-                    },
-                    action={"candidate_kind": "capability"},
-                    user_id="neo",
-                )
+    result = asyncio.run(
+        handler.execute(
+            AgenticExecutionRequest(
+                resolved={"query": "send status"},
+                payload={
+                    "capability": "webhook_send",
+                    "connection_kind": "webhook",
+                    "connection_ref": "alerts",
+                    "content": "online",
+                },
+                action={"candidate_kind": "capability"},
+                user_id="neo",
             )
         )
+    )
 
     assert result.intents == ["capability:webhook_send"]
     assert result.text == "executed"
@@ -365,24 +337,4 @@ def test_generic_capability_handler_uses_content_access_before_runtime() -> None
     assert result.errors == []
     assert executed == []
     assert remembered == []
-    assert scheduled == []
-
-
-def test_agentic_execution_learning_service_respects_suppression() -> None:
-    scheduled: list[object] = []
-    service = AgenticExecutionLearningService(
-        schedule_followup=lambda entry, *_args: scheduled.append(entry)
-    )
-
-    with suppress_auto_learning():
-        service.record_capability_success(
-            action={},
-            plan=ActionPlan(capability="calendar_read", connection_kind="google_calendar"),
-            result_text="ok",
-            user_message="was steht morgen im kalender",
-            user_id="neo",
-            language="de",
-            detail_lines=[],
-        )
-
     assert scheduled == []

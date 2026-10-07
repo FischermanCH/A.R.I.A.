@@ -1,20 +1,36 @@
+{% set memory_create_path = module_route_path('memory_admin_ui', '/memories/create') %}
 <section id="memory-create" class="floating-card config-domain-section">
   <div class="page-title-row"><span>{{ icon('plus', 'page-title-icon') }}</span><h3>{{ tr(request, 'memories.create_title', 'Eigene Memory erfassen') }}</h3></div>
-  <p class="hint-text">{{ tr(request, 'memories.create_subtitle', 'Lege bewusst einen eigenen Eintrag an. ARIA speichert ihn in der passenden Memory-Collection.') }}</p>
-  <form method="post" action="/memories/create" class="editor-form">
+  <p class="hint-text">{{ tr(request, 'memories.create_subtitle', 'Lege einen strukturierten Fakt oder eine Präferenz für dein persönliches Modell an.') }}</p>
+  <form method="post" action="{{ memory_create_path }}" class="editor-form">
     <input type="hidden" name="source_view" value="{{ memory_create_source_view|default('create') }}">
     <div class="connection-form-grid">
       <div>
-        <label for="import_memory_type">{{ tr(request, 'memories.create_type', 'Memory-Typ') }}</label>
-        <select id="import_memory_type" name="memory_type">
+        <label for="memory_claim_kind">{{ tr(request, 'memories.create_kind', 'Claim-Typ') }}</label>
+        <select id="memory_claim_kind" name="kind" required>
           <option value="fact">{{ tr(request, 'memories.type_fact', 'Fakten') }}</option>
           <option value="preference">{{ tr(request, 'memories.type_preference', 'Präferenzen') }}</option>
-          <option value="knowledge">{{ tr(request, 'memories.type_knowledge', 'Rollup-Wissen') }}</option>
         </select>
       </div>
+      <div>
+        <label for="memory_claim_subject">{{ tr(request, 'memories.create_subject', 'Subjekt') }}</label>
+        <input id="memory_claim_subject" name="subject" type="text" value="ich" maxlength="160" required>
+      </div>
+      <div>
+        <label for="memory_claim_predicate">{{ tr(request, 'memories.create_predicate', 'Prädikat') }}</label>
+        <input id="memory_claim_predicate" name="predicate" type="text" list="memory-claim-predicate-suggestions" maxlength="160" placeholder="{{ tr(request, 'memories.create_predicate_placeholder', 'z. B. mag') }}" required>
+        <datalist id="memory-claim-predicate-suggestions">
+          <option value="mag"></option>
+          <option value="bevorzugt"></option>
+          <option value="nutzt"></option>
+          <option value="ist"></option>
+          <option value="hat"></option>
+        </datalist>
+      </div>
     </div>
-    <label for="import_memory_text">{{ tr(request, 'memories.create_text', 'Text') }}</label>
-    <textarea id="import_memory_text" name="text" class="editor-textarea short" maxlength="4000" placeholder="{{ tr(request, 'memories.create_placeholder', 'z. B. Ich nutze für Server-Dateien meist mein Hauptsystem.') }}" required></textarea>
-    <button type="submit">{{ tr(request, 'memories.create_button', 'Memory speichern') }}</button>
+    <label for="memory_claim_value">{{ tr(request, 'memories.create_value', 'Wert') }}</label>
+    <textarea id="memory_claim_value" name="value" class="editor-textarea short" maxlength="700" placeholder="{{ tr(request, 'memories.create_value_placeholder', 'z. B. grünen Tee') }}" required></textarea>
+    <p class="hint-text">{{ tr(request, 'memories.create_predicate_hint', 'Die Vorschläge für das Prädikat sind nur Beispiele; du kannst frei formulieren.') }}</p>
+    <button type="submit">{{ tr(request, 'memories.create_button', 'Claim speichern') }}</button>
   </form>
 </section>

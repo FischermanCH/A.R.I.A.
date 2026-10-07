@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import ast
+import os
 import re
+import shlex
 import subprocess
+import tomllib
 from pathlib import Path
 
-from aria.core.release_meta import DEFAULT_RELEASE_LABEL
+from aria.modules.release_update.release_meta import DEFAULT_RELEASE_LABEL
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,11 +30,89 @@ LOCAL_PRIVATE_PATHS = {
     *DEMO_RECIPE_PROMPTS,
 }
 
+PUBLIC_TREE_FORBIDDEN_PREFIXES = {
+    ".cache/",
+    ".claude/",
+    ".codex/",
+    "data/",
+    "docs/backlog/",
+    "docs/internal/",
+    "docs/local/",
+    "test-results/",
+}
+
+PUBLIC_TREE_FORBIDDEN_EXACT = {
+    "docs/AI_CONTEXT.md",
+    "config/config.yaml",
+    "config/secrets.env",
+    *DEMO_RECIPE_PROMPTS,
+}
+
+PRIVATE_OPERATOR_PATH_PATTERNS: tuple[str, ...] = ()
+
+PRIVATE_LITERAL_ENV = "ARIA_RELEASE_FORBIDDEN_LITERALS"
+PRIVATE_LITERAL_FILE = ROOT / ".release-hygiene.local"
+GENERIC_PRIVATE_PATTERNS = (
+    re.compile(r"/(?:Users|home)/(?!(?:user|username|aria|app|runner|tmp|opt|var)(?:/|\b))[^/\s'\"`]+"),
+    re.compile(
+        r"\b(?![a-z0-9.-]*(?:example|local)[a-z0-9.-]*\.lan\b)"
+        r"(?!(?:dns-node-[0-9]+|mgmt|fileserver)\.lan\b)"
+        r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.lan\b",
+        re.I,
+    ),
+)
+SPLIT_PRIVATE_LITERAL = re.compile(
+    r"(?:"
+    r"(['\"])/(?:Users|home)/\1\s*\+\s*(['\"])[^'\"]+\2"
+    r"|"
+    r"(['\"])[a-z0-9-]+\.\3\s*\+\s*(['\"])[^'\"]+\.lan\4"
+    r")",
+    re.I,
+)
+
+
+def _local_forbidden_literals() -> tuple[str, ...]:
+    values = [item.strip() for item in os.getenv(PRIVATE_LITERAL_ENV, "").split(os.pathsep) if item.strip()]
+    if PRIVATE_LITERAL_FILE.is_file():
+        values.extend(
+            line.strip()
+            for line in PRIVATE_LITERAL_FILE.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+    return tuple(dict.fromkeys(values))
+
+
+def _constant_strings_from_source(text: str) -> tuple[str, ...]:
+    """Fold Python constant concatenations without publishing private literals here."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return ()
+    values: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Add):
+            continue
+        try:
+            value = ast.literal_eval(node)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(value, str):
+            values.append(value)
+    return tuple(values)
+
 
 def test_gitignore_blocks_generated_packaging_outputs() -> None:
     gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
-    for pattern in {"*.egg-info/", "build/", "dist/", "*.whl"}:
+    for pattern in {"*.egg-info/", "build/", "dist/", "*.whl", "*.tar", "*.tar.gz"}:
+        assert pattern in gitignore
+
+
+def test_gitignore_blocks_agent_browser_and_editor_state() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    for pattern in {".codex/", ".claude/", ".cache/", "test-results/", ".idea/", ".vscode/"}:
         assert pattern in gitignore
 
 
@@ -71,7 +153,6 @@ def test_dockerignore_blocks_internal_working_docs() -> None:
         "docs/local/",
         "docs/backlog/",
         "docs/internal/",
-        "docs/release/",
         "docs/product/agentic-context-performance-plan.md",
         "docs/product/agentic-context-routing-dev-plan.md",
         "docs/product/agentic-context-runtime-v2.md",
@@ -84,6 +165,20 @@ def test_dockerignore_blocks_internal_working_docs() -> None:
 
     for pattern in internal_docs:
         assert pattern in dockerignore
+
+
+def test_container_packages_only_public_product_release_authority() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+
+    assert "COPY pyproject.toml README.md CHANGELOG.md LICENSE /app/" in dockerfile
+    assert (
+        "COPY docs/release/docker-hub-overview.md "
+        "/app/docs/release/docker-hub-overview.md"
+    ) in dockerfile
+    assert "docs/release/*" in dockerignore
+    assert "!docs/release/docker-hub-overview.md" in dockerignore
+    assert "docs/release/" not in dockerignore
 
 
 def test_dockerignore_blocks_local_user_and_demo_data() -> None:
@@ -114,6 +209,123 @@ def test_public_tree_does_not_track_local_user_or_demo_data() -> None:
     assert forbidden == []
 
 
+def test_public_release_tree_does_not_track_private_or_internal_artifacts() -> None:
+    result = subprocess.run(
+        ["git", "ls-files"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+    forbidden = sorted(
+        path
+        for path in tracked
+        if path in PUBLIC_TREE_FORBIDDEN_EXACT
+        or any(path.startswith(prefix) for prefix in PUBLIC_TREE_FORBIDDEN_PREFIXES)
+    )
+
+    assert forbidden == []
+
+
+def test_git_add_candidate_tree_has_no_private_operator_evidence_or_secret_shapes() -> None:
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    )
+    candidates = [
+        ROOT / raw.decode("utf-8", "surrogateescape")
+        for raw in result.stdout.split(b"\0")
+        if raw
+    ]
+    forbidden_patterns = (*PRIVATE_OPERATOR_PATH_PATTERNS, *_local_forbidden_literals())
+    secret_shapes = (
+        re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+        re.compile(r"\bgh[opsu]_[A-Za-z0-9]{20,}\b"),
+        re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+        re.compile("-" * 5 + r"BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY" + "-" * 5),
+    )
+    offenders: list[str] = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        relative = path.relative_to(ROOT)
+        generic_scan_exempt = relative.parts[0] in {"tests", "samples"}
+        generic_private = (
+            not generic_scan_exempt
+            and any(pattern.search(text) for pattern in GENERIC_PRIVATE_PATTERNS)
+        )
+        split_private = bool(SPLIT_PRIVATE_LITERAL.search(text))
+        folded_private = any(
+                (
+                    not generic_scan_exempt
+                    and any(pattern.search(value) for pattern in GENERIC_PRIVATE_PATTERNS)
+                )
+            or any(literal in value for literal in forbidden_patterns)
+            for value in _constant_strings_from_source(text)
+        )
+        if (
+            any(pattern in text for pattern in forbidden_patterns)
+            or generic_private
+            or split_private
+            or folded_private
+            or any(pattern.search(text) for pattern in secret_shapes)
+        ):
+            offenders.append(str(path.relative_to(ROOT)))
+
+    assert offenders == []
+
+
+def test_docker_copy_roots_are_covered_by_public_hygiene_exclusions() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    dockerignore = set((ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines())
+    copied_roots: set[str] = set()
+    for line in dockerfile.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("COPY "):
+            continue
+        parts = shlex.split(stripped)
+        if "--from=docker_cli" in parts:
+            continue
+        copied_roots.update(part for part in parts[1:-1] if not part.startswith("--"))
+
+    if "." in copied_roots or "docs" in copied_roots:
+        for pattern in {"docs/AI_CONTEXT.md", "docs/backlog/", "docs/internal/", "docs/local/"}:
+            assert pattern in dockerignore
+    if "." in copied_roots or "prompts" in copied_roots:
+        for pattern in DEMO_RECIPE_PROMPTS:
+            assert pattern in dockerignore
+    if "." in copied_roots or "config" in copied_roots:
+        for pattern in {"config/config.yaml", "config/secrets.env"}:
+            assert pattern in dockerignore
+    if "." in copied_roots:
+        assert "data/" in dockerignore
+
+
+def test_python_package_data_does_not_publish_private_roots() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+    aria_data = set(package_data["aria"])
+
+    assert aria_data
+    for pattern in aria_data:
+        assert not pattern.startswith(("docs/", "config/", "prompts/", "samples/", "data/", ".codex/"))
+
+
+def test_release_note_template_does_not_embed_private_operator_paths() -> None:
+    template = (ROOT / "docs" / "release" / "github-release-notes-template.md").read_text(encoding="utf-8")
+
+    for pattern in PRIVATE_OPERATOR_PATH_PATTERNS:
+        assert pattern not in template
+
+
 def test_release_label_matches_current_alpha_backlog_version() -> None:
     backlog = (ROOT / "docs" / "backlog" / "alpha-backlog.md").read_text(encoding="utf-8")
     match = re.search(r"aktuell (?:gebaut|versioniert): `([^`]+)`", backlog)
@@ -128,7 +340,7 @@ def test_source_runtime_assets_are_present_for_container_builds() -> None:
         ROOT / "prompts" / "persona.md",
         ROOT / "prompts" / "recipes" / "memory.md",
         ROOT / "prompts" / "recipes" / "memory_compress.md",
-        ROOT / "samples" / "recipes" / "ssh-healthcheck-template.json",
+        ROOT / "samples" / "recipes" / "ssh-uptime-all-hosts.json",
         ROOT / "samples" / "security" / "guardrails.sample.yaml",
         ROOT / "config" / "config.example.yaml",
         ROOT / "config" / "secrets.env.example",
@@ -227,11 +439,12 @@ def test_memory_browser_keeps_ios_touch_navigation_usable() -> None:
     assert "font-size: 0.78rem;" in css
 
 
-def test_auto_memory_indicator_links_to_settings() -> None:
+def test_chat_has_no_legacy_auto_memory_indicator() -> None:
     template = (ROOT / "aria" / "templates" / "chat.html").read_text(encoding="utf-8")
 
-    assert 'href="/memories/auto-memory"' in template
-    assert "auto-memory-indicator" in template
+    assert "memory_admin_auto_memory_path" not in template
+    assert "auto-memory-indicator" not in template
+    assert "chat.debug_auto_memory_learning" not in template
 
 
 def test_mobile_viewport_uses_ios_safe_area() -> None:
@@ -259,7 +472,8 @@ def test_admin_config_mobile_guards_cover_small_viewports() -> None:
 def test_stats_navigation_uses_immediate_busy_indicator() -> None:
     template = (ROOT / "aria" / "templates" / "base.html").read_text(encoding="utf-8")
 
-    assert 'href="/stats" data-busy-immediate="true"' in template
+    assert "module_route_path('stats_ui', '/stats')" in template
+    assert 'data-busy-immediate="true"' in template
 
 
 def test_dockerfile_uses_runtime_constraints_for_reproducible_installs() -> None:

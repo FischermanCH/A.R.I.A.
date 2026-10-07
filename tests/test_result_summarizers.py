@@ -1,11 +1,11 @@
 from types import SimpleNamespace
 
-from aria.core.result_summarizers import summarize_file_result_for_chat
-from aria.core.result_summarizers import summarize_http_api_result_for_chat
-from aria.core.result_summarizers import summarize_imap_result_for_chat
-from aria.core.result_summarizers import summarize_rss_category_result_for_chat
-from aria.core.result_summarizers import summarize_ssh_result_for_chat
-from aria.core.text_utils import extract_json_object
+from aria.modules.runtime_result_summary.summarizers import summarize_file_result_for_chat
+from aria.modules.runtime_result_summary.summarizers import summarize_http_api_result_for_chat
+from aria.modules.runtime_result_summary.summarizers import summarize_imap_result_for_chat
+from aria.modules.runtime_result_summary.summarizers import summarize_rss_category_result_for_chat
+from aria.modules.runtime_result_summary.summarizers import summarize_ssh_result_for_chat
+from aria.modules.platform_primitives.text_utils import extract_json_object
 
 
 def test_summarize_ssh_result_for_chat_disk_only() -> None:

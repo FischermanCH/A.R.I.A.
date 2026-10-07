@@ -1,4 +1,5 @@
 {% from "_icons.html" import icon %}
+{% set recipes_ui_import_sample_path = module_route_path('recipes_ui', '/recipes/import-sample') %}
 <section class="floating-card skills-section" id="skills-samples">
   <h3>{{ tr(request, 'recipes.samples_title', 'Vorlagen') }}</h3>
   <p class="hint-text">{{ tr(request, 'recipes.samples_hint', 'Vorlagen können direkt importiert und danach als eigenes Rezept angepasst werden.') }}</p>
@@ -18,7 +19,6 @@
         {% if sample.connections_label %}
         <span class="status-badge">{{ tr(request, 'recipes.sample_connections', 'Connections') }}: {{ sample.connections_label }}</span>
         {% endif %}
-        <span class="status-badge">{{ tr(request, 'recipes.sample_triggers', 'Trigger') }}: {{ sample.trigger_count }}</span>
         {% if sample.schedule_enabled %}
         <span class="status-badge status-badge-muted">{{ tr(request, 'recipes.sample_schedule', 'Schedule') }}: {{ sample.schedule_cron or 'on' }}</span>
         {% else %}
@@ -37,7 +37,7 @@
       <p>{{ sample.description }}</p>
       {% endif %}
       {% if not recipes_readonly %}
-      <form method="post" action="/recipes/import-sample" class="inline-form">
+      <form method="post" action="{{ recipes_ui_import_sample_path }}" class="inline-form">
         <input type="hidden" name="return_to" value="{{ page_return_to or '' }}">
         <input type="hidden" name="sample_file" value="{{ sample.file_name }}">
         <button type="submit" class="skill-action-button ui-action-button">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.import_sample_btn', 'Vorlage importieren') }}</button>

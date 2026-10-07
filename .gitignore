@@ -2,6 +2,12 @@ config/config.yaml
 config/*.bak.*
 config/secrets.env
 .env
+# Local agent/process state and generated test/browser artifacts.
+.codex/
+.release-hygiene.local
+.claude/
+.cache/
+test-results/
 
 __pycache__/
 *.py[cod]
@@ -15,9 +21,20 @@ venv/
 build/
 dist/
 *.whl
+*.tar
+*.tar.gz
+*.tgz
 dist/*.tar
 dist/*.tar.gz
 dist/*.tgz
+
+# Editor and operating-system metadata.
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
 
 # Local runtime/user/demo data. Never publish or commit this tree.
 data/

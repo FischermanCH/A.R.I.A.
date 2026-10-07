@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
+{% set config_ui_overview_path = module_route_path('config_ui', '/config') %}
+{% set config_ui_llm_debug_clear_path = module_route_path('config_ui', '/config/llm/debug/clear') %}
 <main class="config-layout config-domain-layout config-domain-surface-layout">
   {% include "_config_nav.html" %}
   {% include "_config_page_header.html" %}
 
   <section class="config-card floating-card config-domain-section">
     <div class="inline-actions routing-index-actions">
-      <a class="button-like" href="/config/workbench?return_to={{ return_to|urlencode if return_to else '%2Fconfig' }}">{{ tr(request, 'config.workbench_back_to_settings', 'Back to Workbench') }}</a>
-      <form method="post" action="/config/llm/debug/clear" class="inline-form">
+      <a class="button-like" href="{{ config_ui_overview_path }}">{{ tr(request, 'config.back_to_settings', 'Back to settings') }}</a>
+      <form method="post" action="{{ config_ui_llm_debug_clear_path }}" class="inline-form">
         <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token if request and request.state else '' }}">
         <button type="submit" class="button-like danger-button">{{ tr(request, 'llm_debug.clear', 'Clear debug log') }}</button>
       </form>
@@ -24,7 +26,7 @@
 
   {% if not entries %}
   <section class="config-card floating-card config-domain-section">
-    <p>{{ tr(request, 'llm_debug.empty', 'No LLM calls have been captured yet. Run a chat or workbench request and reload this page.') }}</p>
+    <p>{{ tr(request, 'llm_debug.empty', 'No LLM calls have been captured yet. Run a chat or model request and reload this page.') }}</p>
   </section>
   {% endif %}
 

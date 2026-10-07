@@ -3,8 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from aria.core.discord_alerts import runtime_host_line
-from aria.core.runtime_endpoint import cookie_should_be_secure, request_is_secure, resolve_runtime_url
+from aria.modules.discord_alerting.alerts import runtime_host_line
+from aria.modules.integration_support.runtime_endpoint import cookie_should_be_secure, request_is_secure, resolve_runtime_url
 
 
 def _request(*, scheme: str = "http", headers: dict[str, str] | None = None, host: str = "localhost", port: int = 8800):
@@ -101,5 +101,5 @@ def test_runtime_host_line_prefers_configured_public_url() -> None:
 
 
 def test_runtime_host_line_falls_back_to_detected_local_url_for_bind_all() -> None:
-    with patch("aria.core.runtime_endpoint._detect_lan_ip", return_value="192.0.2.29"):
+    with patch("aria.modules.integration_support.runtime_endpoint._detect_lan_ip", return_value="192.0.2.29"):
         assert runtime_host_line(_settings(host="0.0.0.0", port=8800, public_url="")) == "Host: http://192.0.2.29:8800"

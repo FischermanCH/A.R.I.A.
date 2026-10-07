@@ -70,6 +70,24 @@ Chat-Details zeigen Quellen, Collection und Chunk-Referenzen, wenn Dokument-Reca
 
 Auto-Memory kann dauerhafte Fakten und Praeferenzen speichern, wenn ARIA genug Sicherheit hat. Agentisches Lernen kann ausserdem reviewbare Konventionen aus User-Feedback und erfolgreichen sicheren Laeufen extrahieren. Lernartefakte sind Kontext und Review-Material; sie umgehen keine Policy, Guardrails oder Bestaetigungen.
 
+Der Learning Governor begrenzt neue Events, Candidates und Evals pro Quelle und Tag/Session nach FIFO, dedupliziert inhaltsgleiche Artefakte trotz wechselnder IDs und speichert Evals nur oberhalb der konfigurierten Review-/Wichtigkeitsgrenze. Der Memory Browser blendet keine vorhandenen Punkte aus und kennzeichnet `aktiv wirksam`, `nur Review` und `nur Audit`. Eine automatische Wichtigkeits-Retention bereinigt Event-, Candidate- und Eval-Sammlungen beim Start sowie nach neuen Eintraegen. Sie behaelt wichtige und quellen-diverse Evidenz und schuetzt aktivierte, promotete, regression-gepruefte oder explizit geschuetzte Punkte; Alter ist kein Auswahlkriterium.
+
+`/memories/auto-memory` zeigt den vollstaendigen Learning-Bestand des Users und erlaubt das punktgenaue manuelle Loeschen. Eine begrenzte LLM-first Synthese verdichtet passende Roh-Candidates in kanonische Review-Artefakte mit Provenienz; sie aktiviert keine Runtime-Wirkung und loescht Quellen erst nach erfolgreichem Store.
+
+Die Seite trennt alle sichtbaren Roh-Candidates von der echten Review-Warteschlange. Nur kanonische Synthese-Candidates mit mindestens zwei belegten Quellpunkten koennen akzeptiert oder abgelehnt werden; Roh-Evidenz bleibt sichtbar und loeschbar, verlangt aber keine manuelle Entscheidung. Akzeptieren bedeutet nur menschlich geprueft: Das Promotion Gate entscheidet danach ueber `eligible` oder `reviewed_blocked`, ohne Runtime-Aktivierung. Geeignete Low-Risk-Kandidaten lassen sich fuer Apply vorbereiten und ueber `Gate & Regression` kontrolliert durch Regression, Preflight und eine separate explizite Learning-Hint-Aktivierung fuehren.
+
+Aktivierte Learning Hints erreichen den bevorzugten MetaCatalog/AriaTurn-Pfad als schwache Signale und koennen Safety, Konfiguration, explizite Ziele oder Quellenautoritaet nicht ueberstimmen. Match und echte LLM-Nutzung werden getrennt gezaehlt. Zeitnahes Feedback wird nur an benutzte Hinweise gebunden; wiederholt negatives Feedback suspendiert automatisch.
+
+Explizit bestaetigte alternative Schreibweisen koennen als `entity_alias_v1` gelernt werden. Ein einzelner Tippfehler erzeugt keinen dauerhaften Alias. Die Aktivierung verlangt unterschiedliche beobachtete/kanonische Formen, ausdrueckliche User-Bestaetigung und einen exakten Beleg der kanonischen Form in bestehendem Nicht-Learning-Memory. Der aktive Hint bleibt ein schwaches LLM-first Signal und veraendert keine Fakten oder Dosierungen.
+
+Strukturierte persönliche Claims führen Typ, Scope, Autorität und Lifecycle-Status. Nur aktive Claims werden in den begrenzten persönlichen Kontext für Turn-Plan und Antwort geladen; rohe Learning-Artefakte und historische/suspendierte Claims bleiben sichtbar, aber unwirksam. `/memories/auto-memory` zeigt Wirkung und Feedback und erlaubt punktgenaues Suspendieren, Reaktivieren und Löschen.
+
+Zeitfenster werden automatisch durchgesetzt: geplante und abgelaufene Claims bleiben sichtbar, gelangen aber nicht in ARIAs persönlichen Turn-Kontext.
+
+Korrekturen ersetzen Claims nachvollziehbar statt sie still zu überschreiben. Ziele und Projekte besitzen eigene Aktionen zum Pausieren, Fortsetzen, Abschließen und Wiederöffnen; Session-Scope bleibt in Session Memory.
+
+`/memories/auto-memory` zeigt fuer jeden aktiven Hinweis Lifecycle, Version, Match-/Use-Zaehler, Feedback und letzte Nutzung. Hinweise koennen dort suspendiert, reaktiviert oder punktgenau geloescht werden. Deferred-Evidenz wird begrenzt neu betrachtet, wenn neue Evidenz eintrifft.
+
 ### Gedaechtnis-Browser
 
 Der Gedaechtnis-Browser ist die grafische Pflege- und Debug-Ansicht fuer ARIAs Qdrant-/Memory-Daten. Er zeigt dieselben Daten in zwei zusammenhaengenden Formen:

@@ -1,4 +1,8 @@
 {% from "_icons.html" import icon %}
+{% set recipes_ui_start_path = module_route_path('recipes_ui', '/recipes/start') %}
+{% set recipes_ui_wizard_path = module_route_path('recipes_ui', '/recipes/wizard') %}
+{% set recipes_ui_delete_path = module_route_path('recipes_ui', '/recipes/delete') %}
+{% set recipes_ui_duplicate_path = module_route_path('recipes_ui', '/recipes/duplicate') %}
 <!--
   UI-Migrationshinweis:
   Diese Uebersicht zeigt heute gespeicherte Rezepte. Mittelfristig soll hier sichtbarer werden,
@@ -12,8 +16,8 @@
     </div>
     {% if not recipes_readonly %}
     <div class="inline-actions recipes-section-actions">
-      <a class="button-like ui-action-link" href="/recipes/wizard?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.new_recipe_title', 'Neues Rezept') }}</a>
-      <a class="secondary-button ui-action-link" href="/recipes/start">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</a>
+      <a class="button-like ui-action-link" href="{{ recipes_ui_wizard_path }}?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.new_recipe_title', 'Neues Rezept') }}</a>
+      <a class="secondary-button ui-action-link" href="{{ recipes_ui_start_path }}">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</a>
     </div>
     {% endif %}
   </div>
@@ -42,9 +46,6 @@
       <details class="skill-details">
         <summary>{{ tr(request, 'recipes.details', 'Details') }}</summary>
         <div class="skill-details-content">
-          {% if row.router_keywords %}
-          <p class="hint-text">{{ tr(request, 'recipes.trigger', 'Trigger') }}: {{ row.router_keywords|join(", ") }}</p>
-          {% endif %}
           {% if row.connections %}
           <p class="hint-text">{{ tr(request, 'recipes.connections', 'Connections') }}: {{ row.connections|join(", ") }}</p>
           {% endif %}
@@ -61,7 +62,7 @@
           <div class="inline-actions">
             <a
               class="button-like ui-icon-only"
-              href="/recipes/wizard?skill_id={{ row.key }}&return_to={{ page_return_to | urlencode }}"
+              href="{{ recipes_ui_wizard_path }}?skill_id={{ row.key }}&return_to={{ page_return_to | urlencode }}"
               title="{{ tr(request, 'recipes.edit', 'Bearbeiten') }}"
               aria-label="{{ tr(request, 'recipes.edit', 'Bearbeiten') }}"
             >
@@ -70,8 +71,21 @@
             </a>
             <button
               type="submit"
+              class="secondary-button ui-icon-only"
+              formaction="{{ recipes_ui_duplicate_path }}"
+              formmethod="post"
+              name="recipe_id"
+              value="{{ row.key }}"
+              title="{{ tr(request, 'recipes.duplicate', 'Duplizieren') }}"
+              aria-label="{{ tr(request, 'recipes.duplicate', 'Duplizieren') }}"
+            >
+              {{ icon('duplicate', 'ui-action-icon') }}
+              <span class="sr-only">{{ tr(request, 'recipes.duplicate', 'Duplizieren') }}</span>
+            </button>
+            <button
+              type="submit"
               class="danger-btn ui-icon-only"
-              formaction="/recipes/delete"
+              formaction="{{ recipes_ui_delete_path }}"
               formmethod="post"
               name="skill_id"
               value="{{ row.key }}"
@@ -96,8 +110,8 @@
       <p>{{ tr(request, 'recipes.none_text', 'Erstelle das erste Rezept über den Wizard oder importiere ein JSON-Manifest.') }}</p>
       {% if not recipes_readonly %}
       <div class="inline-actions">
-        <a class="button-like ui-action-link" href="/recipes/wizard?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.new_recipe_title', 'Neues Rezept') }}</a>
-        <a class="secondary-button ui-action-link" href="/recipes/start">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</a>
+        <a class="button-like ui-action-link" href="{{ recipes_ui_wizard_path }}?return_to={{ page_return_to | urlencode }}">{{ icon('plus', 'ui-action-icon') }}{{ tr(request, 'recipes.new_recipe_title', 'Neues Rezept') }}</a>
+        <a class="secondary-button ui-action-link" href="{{ recipes_ui_start_path }}">{{ icon('upload', 'ui-action-icon') }}{{ tr(request, 'recipes.templates_title', 'Vorlagen') }}</a>
       </div>
       {% endif %}
     </article>

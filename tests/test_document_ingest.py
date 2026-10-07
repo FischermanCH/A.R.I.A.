@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aria.core.document_ingest import DocumentIngestError, prepare_uploaded_document
+from aria.modules.document_ingest.ingest import DocumentIngestError, prepare_uploaded_document
 
 
 def _minimal_text_pdf_bytes(text: str) -> bytes:
@@ -52,7 +52,7 @@ def test_prepare_uploaded_document_chunks_markdown() -> None:
     assert prepared.source_type == "md"
     assert prepared.mime_type == "text/markdown"
     assert prepared.summary
-    assert prepared.keywords
+    assert prepared.keywords == []
     assert len(prepared.chunks) >= 2
     assert prepared.chunks[0].index == 1
     assert prepared.chunks[-1].total == len(prepared.chunks)
@@ -80,7 +80,7 @@ def test_prepare_uploaded_document_extracts_text_pdf() -> None:
     assert prepared.mime_type == "application/pdf"
     assert "Atlas NAS Dokumentation" in prepared.text
     assert "Atlas NAS Dokumentation" in prepared.summary
-    assert "atlas" in prepared.keywords
+    assert prepared.keywords == []
     assert len(prepared.chunks) == 1
 
 

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 
-from aria.core.rss_grouping import build_rss_status_groups
-from aria.core.rss_grouping import load_cached_rss_status_groups
-from aria.core.rss_grouping import save_cached_rss_status_groups
+from aria.modules.rss_digest.grouping import build_rss_status_groups
+from aria.modules.rss_digest.grouping import load_cached_rss_status_groups
+from aria.modules.rss_digest.grouping import save_cached_rss_status_groups
 
 
-def test_rss_grouping_fallback_groups_security_and_news() -> None:
+def test_rss_grouping_fallback_uses_technical_host_names() -> None:
     rows = [
         {
             'ref': 'security-feed',
@@ -26,8 +26,7 @@ def test_rss_grouping_fallback_groups_security_and_news() -> None:
     groups = asyncio.run(build_rss_status_groups(rows))
 
     names = {item['name'] for item in groups}
-    assert 'Security' in names
-    assert 'News & Tech' in names
+    assert names == {'Example', 'Heise'}
 
 
 def test_rss_grouping_prefers_llm_labels_when_available() -> None:

@@ -1,5 +1,6 @@
 const ARIA_UPDATE_SW_VERSION = "2026-05-16-alpha269";
 const ARIA_RECONNECT_LABELS = __ARIA_RECONNECT_LABELS__;
+const ARIA_RECONNECT_HEALTH_URL = __ARIA_RECONNECT_HEALTH_URL__;
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -115,7 +116,9 @@ function reconnectShell(targetUrl) {
       const retry = document.getElementById("retry");
       async function probe() {
         try {
-          const response = await fetch("/health?reconnect=" + Date.now(), { cache: "no-store" });
+          const healthUrl = new URL(ARIA_RECONNECT_HEALTH_URL, self.location.origin);
+          healthUrl.searchParams.set("reconnect", String(Date.now()));
+          const response = await fetch(healthUrl.toString(), { cache: "no-store" });
           const text = await response.text();
           if (response.ok && text.toLowerCase().includes("ok")) {
             status.textContent = labels.online || "ARIA is reachable again. Reloading ...";

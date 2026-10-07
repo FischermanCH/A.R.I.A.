@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aria.core.rss_opml import build_opml_document, parse_opml_feeds
+from aria.modules.rss_opml.opml import build_opml_document, parse_opml_feeds
 
 
 def test_parse_opml_feeds_keeps_nested_group_tags_and_deduplicates_urls() -> None:

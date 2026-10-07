@@ -41,7 +41,6 @@ LOCAL_ENV_FILE = str(os.environ.get("ARIA_UPDATE_LOCAL_ENV_FILE", "/var/lib/aria
 LOCAL_IMAGE_REF = str(os.environ.get("ARIA_UPDATE_LOCAL_IMAGE_REF", "aria:alpha-local") or "aria:alpha-local").strip()
 LOCAL_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_SERVICE_NAME", "aria") or "aria").strip()
 LOCAL_QDRANT_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_QDRANT_SERVICE_NAME", "aria-qdrant") or "aria-qdrant").strip()
-LOCAL_SEARXNG_SERVICE_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_SEARXNG_SERVICE_NAME", "aria-searxng") or "aria-searxng").strip()
 LOCAL_COMPOSE_PROJECT_NAME = str(os.environ.get("ARIA_UPDATE_LOCAL_PROJECT_NAME", "") or "").strip()
 STATE_LOCK = threading.Lock()
 STATUS_RECONCILE_LOCK = threading.Lock()
@@ -52,11 +51,6 @@ SERVICE_RESTART_TARGETS = {
         "label": "Qdrant",
         "managed_service": "qdrant",
         "local_service": LOCAL_QDRANT_SERVICE_NAME,
-    },
-    "searxng": {
-        "label": "SearXNG",
-        "managed_service": "searxng",
-        "local_service": LOCAL_SEARXNG_SERVICE_NAME,
     },
 }
 
@@ -438,13 +432,20 @@ def _state_has_stale_failure(state: dict[str, Any]) -> bool:
     return normalized in {"error", "failed"} or bool(last_error) or "failed" in last_result
 
 
+def _aria_health_ok() -> bool:
+    try:
+        with urlopen(HEALTH_URL, timeout=3.0) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+            return response.status == 200 and "ok" in payload.lower()
+    except (OSError, URLError, TimeoutError, ValueError):
+        return False
+
+
 def _reconcile_stale_error_state() -> dict[str, Any]:
     global _last_status_reconcile_monotonic
 
     state = _load_state()
     if not _state_has_stale_failure(state):
-        return state
-    if not (INSTALL_DIR / "aria-stack.sh").exists():
         return state
 
     with STATUS_RECONCILE_LOCK:
@@ -455,6 +456,25 @@ def _reconcile_stale_error_state() -> dict[str, Any]:
 
         state = _load_state()
         if not _state_has_stale_failure(state):
+            return state
+
+        if HELPER_MODE == "internal-local":
+            if not _aria_health_ok():
+                return state
+            _write_log_line(
+                f"[{_now_iso()}] INFO: ARIA health recovered after a previous local update error. "
+                "Resetting helper status to ok."
+            )
+            return _update_state(
+                status="ok",
+                running=False,
+                current_step="",
+                last_error="",
+                last_result="ARIA healthy after previous update timeout.",
+                last_finished_at=state.get("last_finished_at") or _now_iso(),
+            )
+
+        if not (INSTALL_DIR / "aria-stack.sh").exists():
             return state
 
         ok, _detail = _run_quickcheck(_managed_host_stack_helper_command("validate"))

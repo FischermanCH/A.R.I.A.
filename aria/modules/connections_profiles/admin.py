@@ -1,0 +1,839 @@
+from __future__ import annotations
+
+from pathlib import Path
+import secrets
+from typing import Any
+
+import yaml
+
+from aria.modules.configuration_foundations.config import get_master_key
+from aria.modules.connections_catalog.catalog import connection_field_labels, connection_kind_label, sanitize_connection_payload
+from aria.modules.connections_health_cache.health import delete_connection_health
+from aria.modules.platform_primitives.i18n import I18NStore
+from aria.modules.security_storage.secure_store import SecureConfigStore, SecureStoreConfig, decode_master_key
+from aria.modules.sftp.profile_admin import CONNECTION_ADMIN_SPEC as SFTP_CONNECTION_ADMIN_SPEC
+from aria.modules.sftp.profile_admin import CONNECTION_CREATE_SPEC as SFTP_CONNECTION_CREATE_SPEC
+from aria.modules.sftp.profile_admin import CONNECTION_UPDATE_SPEC as SFTP_CONNECTION_UPDATE_SPEC
+from aria.modules.sftp.profile_admin import build_sftp_connection_profile
+from aria.modules.sftp.profile_admin import update_sftp_connection_profile
+from aria.modules.ssh.profile_admin import CONNECTION_ADMIN_SPEC as SSH_CONNECTION_ADMIN_SPEC
+from aria.modules.ssh.profile_admin import CONNECTION_CREATE_SPEC as SSH_CONNECTION_CREATE_SPEC
+from aria.modules.ssh.profile_admin import CONNECTION_UPDATE_SPEC as SSH_CONNECTION_UPDATE_SPEC
+from aria.modules.ssh.profile_admin import build_ssh_connection_profile
+from aria.modules.ssh.profile_admin import update_ssh_connection_profile
+
+
+_CONNECTION_ADMIN_I18N = I18NStore(Path(__file__).resolve().parents[2] / "i18n")
+
+
+class ConnectionAdminError(ValueError):
+    def __init__(self, code: str, **params: Any) -> None:
+        self.code = str(code or "unknown").strip() or "unknown"
+        self.params = dict(params)
+        super().__init__(self.code)
+
+
+def _admin_text(language: str | None, key: str, **values: Any) -> str:
+    template = _CONNECTION_ADMIN_I18N.t(str(language or "de"), key, key)
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
+def _success_message(spec: dict[str, Any], *, language: str | None = None) -> str:
+    key = str(spec.get("success_message_key", "") or "").strip()
+    if not key:
+        return ""
+    return _admin_text(language, key)
+
+
+def connection_admin_success_message(spec: dict[str, Any], *, language: str | None = None) -> str:
+    return _success_message(spec, language=language)
+
+
+def _admin_error(code: str, **params: Any) -> ConnectionAdminError:
+    return ConnectionAdminError(code, **params)
+
+
+CONNECTION_ADMIN_SPECS: dict[str, dict[str, Any]] = {
+    "ssh": SSH_CONNECTION_ADMIN_SPEC,
+    "discord": {
+        "health_prefix": "discord",
+        "secret_keys": ["connections.discord.{ref}.webhook_url"],
+        "success_message_key": "connection_admin.success.discord_deleted",
+    },
+    "sftp": SFTP_CONNECTION_ADMIN_SPEC,
+    "smb": {
+        "health_prefix": "smb",
+        "secret_keys": ["connections.smb.{ref}.password"],
+        "success_message_key": "connection_admin.success.smb_deleted",
+    },
+    "webhook": {
+        "health_prefix": "webhook",
+        "secret_keys": ["connections.webhook.{ref}.url"],
+        "success_message_key": "connection_admin.success.webhook_deleted",
+    },
+    "inbound_webhook": {
+        "health_prefix": "inbound_webhook",
+        "secret_keys": ["connections.inbound_webhook.{ref}.token"],
+        "success_message_key": "",
+    },
+    "email": {
+        "health_prefix": "email",
+        "secret_keys": ["connections.email.{ref}.password"],
+        "success_message_key": "connection_admin.success.email_deleted",
+    },
+    "imap": {
+        "health_prefix": "imap",
+        "secret_keys": ["connections.imap.{ref}.password"],
+        "success_message_key": "connection_admin.success.imap_deleted",
+    },
+    "http_api": {
+        "health_prefix": "http_api",
+        "secret_keys": ["connections.http_api.{ref}.auth_token"],
+        "success_message_key": "connection_admin.success.http_api_deleted",
+    },
+    "google_calendar": {
+        "health_prefix": "google_calendar",
+        "secret_keys": [
+            "connections.google_calendar.{ref}.ical_url",
+            "connections.google_calendar.{ref}.client_secret",
+            "connections.google_calendar.{ref}.refresh_token",
+        ],
+        "success_message_key": "connection_admin.success.google_calendar_deleted",
+    },
+    "rss": {
+        "health_prefix": "rss",
+        "secret_keys": [],
+        "success_message_key": "connection_admin.success.rss_deleted",
+    },
+    "website": {
+        "health_prefix": "website",
+        "secret_keys": [],
+        "success_message_key": "connection_admin.success.website_deleted",
+    },
+    "mqtt": {
+        "health_prefix": "mqtt",
+        "secret_keys": ["connections.mqtt.{ref}.password"],
+        "success_message_key": "connection_admin.success.mqtt_deleted",
+    },
+}
+
+CONNECTION_CREATE_SPECS: dict[str, dict[str, Any]] = {
+    "ssh": SSH_CONNECTION_CREATE_SPEC,
+    "sftp": SFTP_CONNECTION_CREATE_SPEC,
+    "smb": {
+        "section": "smb",
+        "required": ["host", "share"],
+        "success_message_key": "connection_admin.success.smb_created",
+    },
+    "discord": {
+        "section": "discord",
+        "required": ["webhook_url"],
+        "success_message_key": "connection_admin.success.discord_created",
+    },
+    "rss": {
+        "section": "rss",
+        "required": ["feed_url"],
+        "success_message_key": "connection_admin.success.rss_created",
+    },
+    "website": {
+        "section": "website",
+        "required": ["url"],
+        "success_message_key": "connection_admin.success.website_created",
+    },
+    "webhook": {
+        "section": "webhook",
+        "required": ["url"],
+        "success_message_key": "connection_admin.success.webhook_created",
+    },
+    "inbound_webhook": {
+        "section": "inbound_webhook",
+        "required": [],
+        "success_message_key": "",
+    },
+    "http_api": {
+        "section": "http_api",
+        "required": ["base_url"],
+        "success_message_key": "connection_admin.success.http_api_created",
+    },
+    "google_calendar": {
+        "section": "google_calendar",
+        "required": ["ical_url"],
+        "success_message_key": "connection_admin.success.google_calendar_created",
+    },
+    "mqtt": {
+        "section": "mqtt",
+        "required": ["host"],
+        "success_message_key": "connection_admin.success.mqtt_created",
+    },
+    "email": {
+        "section": "email",
+        "required": ["smtp_host"],
+        "success_message_key": "connection_admin.success.email_created",
+    },
+    "imap": {
+        "section": "imap",
+        "required": ["host"],
+        "success_message_key": "connection_admin.success.imap_created",
+    },
+}
+
+CONNECTION_UPDATE_SPECS: dict[str, dict[str, Any]] = {
+    "ssh": SSH_CONNECTION_UPDATE_SPEC,
+    "sftp": SFTP_CONNECTION_UPDATE_SPEC,
+    "smb": {
+        "section": "smb",
+        "success_message_key": "connection_admin.success.smb_updated",
+    },
+    "discord": {
+        "section": "discord",
+        "success_message_key": "connection_admin.success.discord_updated",
+    },
+    "rss": {
+        "section": "rss",
+        "success_message_key": "connection_admin.success.rss_updated",
+    },
+    "website": {
+        "section": "website",
+        "success_message_key": "connection_admin.success.website_updated",
+    },
+    "webhook": {
+        "section": "webhook",
+        "success_message_key": "connection_admin.success.webhook_updated",
+    },
+    "inbound_webhook": {
+        "section": "inbound_webhook",
+        "success_message_key": "",
+    },
+    "http_api": {
+        "section": "http_api",
+        "success_message_key": "connection_admin.success.http_api_updated",
+    },
+    "google_calendar": {
+        "section": "google_calendar",
+        "success_message_key": "connection_admin.success.google_calendar_updated",
+    },
+    "mqtt": {
+        "section": "mqtt",
+        "success_message_key": "connection_admin.success.mqtt_updated",
+    },
+    "email": {
+        "section": "email",
+        "success_message_key": "connection_admin.success.email_updated",
+    },
+    "imap": {
+        "section": "imap",
+        "success_message_key": "connection_admin.success.imap_updated",
+    },
+}
+
+CONNECTION_PROFILE_CREATE_BUILDERS = {
+    "ssh": build_ssh_connection_profile,
+    "sftp": build_sftp_connection_profile,
+}
+
+CONNECTION_PROFILE_UPDATE_BUILDERS = {
+    "ssh": update_ssh_connection_profile,
+    "sftp": update_sftp_connection_profile,
+}
+
+
+def friendly_connection_admin_error_text(
+    exc: Exception,
+    *,
+    kind: str = "",
+    action: str = "",
+    language: str | None = None,
+) -> str:
+    raw = str(exc).strip() or "unknown"
+    clean_kind = str(kind or "").strip().lower().replace("-", "_")
+    kind_label = connection_kind_label(clean_kind) if clean_kind else "Connection"
+    field_labels = connection_field_labels(clean_kind)
+
+    if isinstance(exc, ConnectionAdminError):
+        params = dict(exc.params)
+        field = str(params.get("field", "") or "").strip()
+        if field:
+            params["field_label"] = field_labels.get(field, field)
+        params.setdefault("kind_label", kind_label)
+        return _admin_text(language, f"connection_admin.error.{exc.code}", **params)
+
+    return raw
+
+
+def sanitize_connection_ref(value: str | None) -> str:
+    import re
+
+    clean = re.sub(r"\s+", "-", str(value or "").strip().lower())
+    clean = re.sub(r"[^a-z0-9._-]", "", clean)
+    return clean[:64].strip(".-_")
+
+
+def read_raw_config(config_path: Path) -> dict[str, Any]:
+    if not config_path.exists():
+        raise _admin_error("config_missing", config_path=str(config_path))
+    with config_path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_raw_config(config_path: Path, raw: dict[str, Any]) -> None:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with config_path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(raw, handle, allow_unicode=True, sort_keys=False)
+
+
+def get_secure_store_for_config(base_dir: Path, raw: dict[str, Any]) -> SecureConfigStore | None:
+    security = raw.get("security", {})
+    if not isinstance(security, dict) or not bool(security.get("enabled", True)):
+        return None
+    master = get_master_key(base_dir / "config" / "config.yaml")
+    if not master:
+        return None
+    db_rel = str(security.get("db_path", "data/auth/aria_secure.sqlite")).strip() or "data/auth/aria_secure.sqlite"
+    db_path = Path(db_rel)
+    if not db_path.is_absolute():
+        db_path = (base_dir / db_path).resolve()
+    return SecureConfigStore(
+        config=SecureStoreConfig(db_path=db_path, enabled=True),
+        master_key=decode_master_key(master),
+    )
+
+
+def get_inbound_webhook_token(base_dir: Path, ref_raw: str) -> str:
+    ref = sanitize_connection_ref(ref_raw)
+    if not ref:
+        return ""
+    raw = read_raw_config(base_dir / "config" / "config.yaml")
+    store = get_secure_store_for_config(base_dir, raw)
+    if not store:
+        return ""
+    return store.get_secret(f"connections.inbound_webhook.{ref}.token", default="")
+
+
+def provision_inbound_webhook_token(base_dir: Path, ref_raw: str) -> str:
+    ref = sanitize_connection_ref(ref_raw)
+    if not ref:
+        raise _admin_error("invalid_ref")
+    raw = read_raw_config(base_dir / "config" / "config.yaml")
+    connections = raw.get("connections", {})
+    profiles = connections.get("inbound_webhook", {}) if isinstance(connections, dict) else {}
+    if not isinstance(profiles, dict) or ref not in profiles:
+        raise _admin_error("profile_ref_not_found", ref=ref)
+    store = get_secure_store_for_config(base_dir, raw)
+    if not store:
+        raise _admin_error("security_store_required")
+    token = secrets.token_urlsafe(32)
+    store.set_secret(f"connections.inbound_webhook.{ref}.token", token)
+    return token
+
+
+def list_connection_refs(base_dir: Path) -> dict[str, list[str]]:
+    raw = read_raw_config(base_dir / "config" / "config.yaml")
+    rows = raw.get("connections", {})
+    if not isinstance(rows, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for kind, values in rows.items():
+        if isinstance(values, dict):
+            refs = sorted(sanitize_connection_ref(ref) for ref in values.keys())
+            result[str(kind).strip().lower()] = [ref for ref in refs if ref]
+    return result
+
+
+def resolve_connection_target(
+    catalog: dict[str, list[str]],
+    *,
+    ref_hint: str,
+    kind_hint: str = "",
+) -> tuple[str, str]:
+    clean_ref = sanitize_connection_ref(ref_hint)
+    clean_kind = str(kind_hint or "").strip().lower().replace("-", "_")
+    if not clean_ref:
+        raise _admin_error("invalid_ref")
+
+    if clean_kind in {"smtp"}:
+        clean_kind = "email"
+    if clean_kind in {"http api"}:
+        clean_kind = "http_api"
+
+    if clean_kind:
+        refs = catalog.get(clean_kind, [])
+        if clean_ref not in refs:
+            raise _admin_error("typed_profile_not_found", kind=clean_kind.upper(), ref=clean_ref)
+        return clean_kind, clean_ref
+
+    matches: list[tuple[str, str]] = []
+    for kind, refs in catalog.items():
+        if clean_ref in refs:
+            matches.append((kind, clean_ref))
+    if not matches:
+        raise _admin_error("profile_ref_not_found", ref=clean_ref)
+    if len(matches) > 1:
+        kinds = ", ".join(kind for kind, _ in matches)
+        raise _admin_error("ambiguous_ref", ref=clean_ref, kinds=kinds)
+    return matches[0]
+
+
+def delete_connection_profile(base_dir: Path, kind: str, ref_raw: str) -> dict[str, Any]:
+    clean_kind = str(kind or "").strip().lower()
+    spec = CONNECTION_ADMIN_SPECS.get(clean_kind)
+    if not spec:
+        raise _admin_error("unknown_type")
+
+    ref = sanitize_connection_ref(ref_raw)
+    if not ref:
+        raise _admin_error("invalid_ref")
+
+    config_path = base_dir / "config" / "config.yaml"
+    raw = read_raw_config(config_path)
+    connections = raw.setdefault("connections", {})
+    if not isinstance(connections, dict):
+        raise _admin_error("invalid_config")
+    rows = connections.setdefault(clean_kind, {})
+    if not isinstance(rows, dict) or ref not in rows:
+        raise _admin_error("profile_not_found")
+
+    rows.pop(ref, None)
+    write_raw_config(config_path, raw)
+
+    store = get_secure_store_for_config(base_dir, raw)
+    if store:
+        for key_template in spec.get("secret_keys", []):
+            store.delete_secret(str(key_template).format(ref=ref))
+
+    delete_connection_health(f"{spec['health_prefix']}:{ref}")
+    return {
+        "kind": clean_kind,
+        "ref": ref,
+        "success_message": _success_message(spec),
+        "success_message_key": str(spec.get("success_message_key", "") or ""),
+    }
+
+
+def create_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: dict[str, Any]) -> dict[str, Any]:
+    clean_kind = str(kind or "").strip().lower().replace("-", "_")
+    spec = CONNECTION_CREATE_SPECS.get(clean_kind)
+    if not spec:
+        raise _admin_error("create_not_supported")
+
+    ref = sanitize_connection_ref(ref_raw)
+    if not ref:
+        raise _admin_error("invalid_ref")
+
+    config_path = base_dir / "config" / "config.yaml"
+    raw = read_raw_config(config_path)
+    connections = raw.setdefault("connections", {})
+    if not isinstance(connections, dict):
+        raise _admin_error("invalid_config")
+    section = str(spec["section"])
+    rows = connections.setdefault(section, {})
+    if not isinstance(rows, dict):
+        raise _admin_error("invalid_section")
+    if ref in rows:
+        raise _admin_error("profile_exists", ref=ref)
+
+    row_value = sanitize_connection_payload(clean_kind, payload)
+    for field in spec.get("required", []):
+        if not str(row_value.get(field, "")).strip():
+            raise _admin_error("required_field", field=field)
+
+    store = get_secure_store_for_config(base_dir, raw)
+    generated_token = ""
+    profile_builder = CONNECTION_PROFILE_CREATE_BUILDERS.get(clean_kind)
+    if profile_builder is not None:
+        rows[ref] = profile_builder(row_value, ref=ref, store=store, admin_error=_admin_error)
+    elif clean_kind == "smb":
+        rows[ref] = {
+            "host": str(row_value.get("host", "")).strip(),
+            "port": int(row_value.get("port", 445) or 445),
+            "share": str(row_value.get("share", "")).strip(),
+            "user": str(row_value.get("user", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "root_path": str(row_value.get("root_path", "")).strip(),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        password = str(row_value.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.smb.{ref}.password", password)
+    elif clean_kind == "discord":
+        if not store:
+            raise _admin_error("security_store_required")
+        allow_recipe_messages = bool(
+            row_value.get("allow_recipe_messages", row_value.get("allow_skill_messages", True))
+        )
+        alert_recipe_errors = bool(
+            row_value.get("alert_recipe_errors", row_value.get("alert_skill_errors", False))
+        )
+        rows[ref] = {
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "send_test_messages": bool(row_value.get("send_test_messages", True)),
+            "allow_skill_messages": allow_recipe_messages,
+            "allow_recipe_messages": allow_recipe_messages,
+            "alert_skill_errors": alert_recipe_errors,
+            "alert_recipe_errors": alert_recipe_errors,
+            "alert_connection_changes": bool(row_value.get("alert_connection_changes", False)),
+            "alert_system_events": bool(row_value.get("alert_system_events", False)),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        store.set_secret(f"connections.discord.{ref}.webhook_url", str(row_value.get("webhook_url", "")).strip())
+    elif clean_kind == "rss":
+        rows[ref] = {
+            "feed_url": str(row_value.get("feed_url", "")).strip(),
+            "group_name": str(row_value.get("group_name", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+    elif clean_kind == "website":
+        rows[ref] = {
+            "url": str(row_value.get("url", "")).strip(),
+            "group_name": str(row_value.get("group_name", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+    elif clean_kind == "webhook":
+        if not store:
+            raise _admin_error("security_store_required")
+        rows[ref] = {
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "method": str(row_value.get("method", "POST")).strip().upper() or "POST",
+            "content_type": str(row_value.get("content_type", "application/json")).strip() or "application/json",
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        store.set_secret(f"connections.webhook.{ref}.url", str(row_value.get("url", "")).strip())
+    elif clean_kind == "inbound_webhook":
+        if not store:
+            raise _admin_error("security_store_required")
+        rows[ref] = {
+            "enabled": bool(row_value.get("enabled", True)),
+            "provider_profile": str(row_value.get("provider_profile", "generic")).strip().lower() or "generic",
+            "allowed_content_types": list(
+                row_value.get(
+                    "allowed_content_types",
+                    ["application/json", "application/x-www-form-urlencoded", "text/plain"],
+                )
+            ),
+            "max_body_bytes": int(row_value.get("max_body_bytes", 65536) or 65536),
+            "routing_policy": "log_only",
+            "store_raw_body": bool(row_value.get("store_raw_body", False)),
+            "max_events": int(row_value.get("max_events", 1000) or 1000),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        generated_token = secrets.token_urlsafe(32)
+        store.set_secret(f"connections.inbound_webhook.{ref}.token", generated_token)
+    elif clean_kind == "http_api":
+        rows[ref] = {
+            "base_url": str(row_value.get("base_url", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "health_path": str(row_value.get("health_path", "/")).strip() or "/",
+            "method": str(row_value.get("method", "GET")).strip().upper() or "GET",
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        auth_token = str(row_value.get("auth_token", "")).strip()
+        if auth_token:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
+    elif clean_kind == "google_calendar":
+        rows[ref] = {
+            "calendar_id": str(row_value.get("calendar_id", "primary")).strip() or "primary",
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        if not store:
+            raise _admin_error("security_store_required")
+        store.set_secret(f"connections.google_calendar.{ref}.ical_url", str(row_value.get("ical_url", "")).strip())
+    elif clean_kind == "mqtt":
+        rows[ref] = {
+            "host": str(row_value.get("host", "")).strip(),
+            "port": int(row_value.get("port", 1883) or 1883),
+            "user": str(row_value.get("user", "")).strip(),
+            "topic": str(row_value.get("topic", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "use_tls": bool(row_value.get("use_tls", False)),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        password = str(row_value.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.mqtt.{ref}.password", password)
+    elif clean_kind == "email":
+        rows[ref] = {
+            "smtp_host": str(row_value.get("smtp_host", "")).strip(),
+            "port": int(row_value.get("port", 587) or 587),
+            "user": str(row_value.get("user", "")).strip(),
+            "from_email": str(row_value.get("from_email", "")).strip(),
+            "to_email": str(row_value.get("to_email", "")).strip(),
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "starttls": bool(row_value.get("starttls", True)),
+            "use_ssl": bool(row_value.get("use_ssl", False)),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        password = str(row_value.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.email.{ref}.password", password)
+    elif clean_kind == "imap":
+        rows[ref] = {
+            "host": str(row_value.get("host", "")).strip(),
+            "port": int(row_value.get("port", 993) or 993),
+            "user": str(row_value.get("user", "")).strip(),
+            "mailbox": str(row_value.get("mailbox", "INBOX")).strip() or "INBOX",
+            "timeout_seconds": int(row_value.get("timeout_seconds", 10) or 10),
+            "use_ssl": bool(row_value.get("use_ssl", True)),
+            "title": str(row_value.get("title", "")).strip(),
+            "description": str(row_value.get("description", "")).strip(),
+            "aliases": list(row_value.get("aliases", []) if isinstance(row_value.get("aliases", []), list) else []),
+            "tags": list(row_value.get("tags", []) if isinstance(row_value.get("tags", []), list) else []),
+        }
+        password = str(row_value.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.imap.{ref}.password", password)
+    else:
+        raise _admin_error("unsupported_type")
+
+    write_raw_config(config_path, raw)
+    result = {
+        "kind": clean_kind,
+        "ref": ref,
+        "success_message": _success_message(spec),
+        "success_message_key": str(spec.get("success_message_key", "") or ""),
+    }
+    if generated_token:
+        result["generated_token"] = generated_token
+    return result
+
+
+def update_connection_profile(base_dir: Path, kind: str, ref_raw: str, payload: dict[str, Any]) -> dict[str, Any]:
+    clean_kind = str(kind or "").strip().lower().replace("-", "_")
+    spec = CONNECTION_UPDATE_SPECS.get(clean_kind)
+    if not spec:
+        raise _admin_error("update_not_supported")
+
+    ref = sanitize_connection_ref(ref_raw)
+    if not ref:
+        raise _admin_error("invalid_ref")
+
+    config_path = base_dir / "config" / "config.yaml"
+    raw = read_raw_config(config_path)
+    connections = raw.setdefault("connections", {})
+    if not isinstance(connections, dict):
+        raise _admin_error("invalid_config")
+    section = str(spec["section"])
+    rows = connections.setdefault(section, {})
+    if not isinstance(rows, dict) or ref not in rows:
+        raise _admin_error("profile_ref_not_found", ref=ref)
+
+    current = rows.get(ref, {})
+    if not isinstance(current, dict):
+        raise _admin_error("invalid_existing_data")
+    row_value = dict(current)
+    update_payload = sanitize_connection_payload(clean_kind, payload)
+    store = get_secure_store_for_config(base_dir, raw)
+
+    profile_updater = CONNECTION_PROFILE_UPDATE_BUILDERS.get(clean_kind)
+    if profile_updater is not None:
+        row_value = profile_updater(row_value, update_payload, ref=ref, store=store, admin_error=_admin_error)
+    elif clean_kind == "smb":
+        for field in ("host", "share", "user", "root_path"):
+            value = str(update_payload.get(field, "")).strip()
+            if value:
+                row_value[field] = value
+        if "port" in update_payload:
+            row_value["port"] = int(update_payload.get("port", 445) or 445)
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+        password = str(update_payload.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.smb.{ref}.password", password)
+    elif clean_kind == "discord":
+        webhook_url = str(update_payload.get("webhook_url", "")).strip()
+        if webhook_url:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.discord.{ref}.webhook_url", webhook_url)
+        for field, default in (
+            ("timeout_seconds", 10),
+            ("send_test_messages", True),
+            ("allow_skill_messages", True),
+            ("alert_skill_errors", False),
+            ("alert_connection_changes", False),
+            ("alert_system_events", False),
+        ):
+            if field in update_payload:
+                value = update_payload.get(field, default)
+                row_value[field] = int(value or default) if field == "timeout_seconds" else bool(value)
+    elif clean_kind == "rss":
+        feed_url = str(update_payload.get("feed_url", "")).strip()
+        if feed_url:
+            row_value["feed_url"] = feed_url
+        group_name = str(update_payload.get("group_name", "")).strip()
+        if group_name:
+            row_value["group_name"] = group_name
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+    elif clean_kind == "website":
+        url = str(update_payload.get("url", "")).strip()
+        if url:
+            row_value["url"] = url
+        group_name = str(update_payload.get("group_name", "")).strip()
+        if group_name:
+            row_value["group_name"] = group_name
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+    elif clean_kind == "webhook":
+        url = str(update_payload.get("url", "")).strip()
+        if url:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.webhook.{ref}.url", url)
+        for field, default in (("timeout_seconds", 10), ("method", "POST"), ("content_type", "application/json")):
+            if field in update_payload:
+                value = update_payload.get(field, default)
+                row_value[field] = int(value or default) if field == "timeout_seconds" else str(value).strip().upper() if field == "method" else str(value).strip() or default
+    elif clean_kind == "inbound_webhook":
+        for field in ("enabled", "store_raw_body"):
+            if field in update_payload:
+                row_value[field] = bool(update_payload.get(field))
+        for field in ("provider_profile",):
+            if field in update_payload:
+                row_value[field] = str(update_payload.get(field, "")).strip().lower() or "generic"
+        if "allowed_content_types" in update_payload:
+            row_value["allowed_content_types"] = list(update_payload.get("allowed_content_types") or [])
+        for field, default in (("max_body_bytes", 65536), ("max_events", 1000)):
+            if field in update_payload:
+                row_value[field] = int(update_payload.get(field, default) or default)
+        row_value["routing_policy"] = "log_only"
+    elif clean_kind == "http_api":
+        base_url = str(update_payload.get("base_url", "")).strip()
+        if base_url:
+            row_value["base_url"] = base_url
+        for field, default in (("timeout_seconds", 10), ("health_path", "/"), ("method", "GET")):
+            if field in update_payload:
+                value = update_payload.get(field, default)
+                row_value[field] = int(value or default) if field == "timeout_seconds" else str(value).strip().upper() if field == "method" else str(value).strip() or default
+        auth_token = str(update_payload.get("auth_token", "")).strip()
+        if auth_token:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.http_api.{ref}.auth_token", auth_token)
+    elif clean_kind == "google_calendar":
+        for field in ("calendar_id",):
+            value = str(update_payload.get(field, "")).strip()
+            if value:
+                row_value[field] = value
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+        ical_url = str(update_payload.get("ical_url", "")).strip()
+        if ical_url:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.google_calendar.{ref}.ical_url", ical_url)
+    elif clean_kind == "mqtt":
+        for field in ("host", "user", "topic"):
+            value = str(update_payload.get(field, "")).strip()
+            if value:
+                row_value[field] = value
+        if "port" in update_payload:
+            row_value["port"] = int(update_payload.get("port", 1883) or 1883)
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+        if "use_tls" in update_payload:
+            row_value["use_tls"] = bool(update_payload.get("use_tls"))
+        password = str(update_payload.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.mqtt.{ref}.password", password)
+    elif clean_kind == "email":
+        for field in ("smtp_host", "user", "from_email", "to_email"):
+            value = str(update_payload.get(field, "")).strip()
+            if value:
+                row_value[field] = value
+        if "port" in update_payload:
+            row_value["port"] = int(update_payload.get("port", 587) or 587)
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+        if "starttls" in update_payload:
+            row_value["starttls"] = bool(update_payload.get("starttls"))
+        if "use_ssl" in update_payload:
+            row_value["use_ssl"] = bool(update_payload.get("use_ssl"))
+        password = str(update_payload.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.email.{ref}.password", password)
+    elif clean_kind == "imap":
+        for field in ("host", "user", "mailbox"):
+            value = str(update_payload.get(field, "")).strip()
+            if value:
+                row_value[field] = value
+        if "port" in update_payload:
+            row_value["port"] = int(update_payload.get("port", 993) or 993)
+        if "timeout_seconds" in update_payload:
+            row_value["timeout_seconds"] = int(update_payload.get("timeout_seconds", 10) or 10)
+        if "use_ssl" in update_payload:
+            row_value["use_ssl"] = bool(update_payload.get("use_ssl"))
+        password = str(update_payload.get("password", "")).strip()
+        if password:
+            if not store:
+                raise _admin_error("security_store_required")
+            store.set_secret(f"connections.imap.{ref}.password", password)
+    else:
+        raise _admin_error("unsupported_type")
+
+    for field in ("title", "description"):
+        if field in update_payload:
+            row_value[field] = str(update_payload.get(field, "")).strip()
+    for field in ("aliases", "tags"):
+        if field in update_payload and isinstance(update_payload.get(field), list):
+            row_value[field] = list(update_payload.get(field))
+
+    rows[ref] = row_value
+    write_raw_config(config_path, raw)
+    return {
+        "kind": clean_kind,
+        "ref": ref,
+        "success_message": _success_message(spec),
+        "success_message_key": str(spec.get("success_message_key", "") or ""),
+    }

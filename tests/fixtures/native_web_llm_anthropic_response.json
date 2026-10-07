@@ -1,0 +1,46 @@
+{
+  "_probe_duration_ms": 5380,
+  "id": "msg_fixture_anthropic_web",
+  "model": "anthropic/web-capable-fixture",
+  "stop_reason": "end_turn",
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_fixture_1",
+      "name": "web_search",
+      "input": {
+        "query": "n8n latest release official"
+      }
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_fixture_1",
+      "content": [
+        {
+          "type": "web_search_result",
+          "url": "https://github.com/n8n-io/n8n/releases/latest",
+          "title": "n8n latest release"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "Die Fixture-Version wird durch die offizielle n8n-Releasequelle belegt.",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://github.com/n8n-io/n8n/releases/latest",
+          "title": "n8n latest release",
+          "cited_text": "Latest release"
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 390,
+    "output_tokens": 95,
+    "server_tool_use": {
+      "web_search_requests": 1
+    }
+  }
+}

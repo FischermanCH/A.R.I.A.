@@ -13,6 +13,18 @@ Zweck: kurze, wiederholbare Pruefliste fuer interne Alpha-Builds, bevor ein Buil
 
 ## Nach internem Build / Update
 
+Vor einem TAR-Export muss das frisch gebaute Image das isolierte Browser-Gate
+aus [docs/testing/e2e-harness.md](../testing/e2e-harness.md) durchlaufen:
+
+```bash
+scripts/e2e/run.sh <fresh-image-tag>
+```
+
+Die Szenario-Tabelle und alle Strict-Fake-Verletzungen gehoeren in
+`verification.e2e` der aktiven Acceptance. Ein rotes Szenario blockiert den
+Export, sofern der aktuelle Arbeitsauftrag nicht ausdruecklich eine geaenderte
+Erwartung autorisiert.
+
 1. Oeffne `/health`.
    - Erwartung: `ok`.
 
@@ -59,7 +71,7 @@ Zweck: kurze, wiederholbare Pruefliste fuer interne Alpha-Builds, bevor ein Buil
 
 1. Auf einem internen Testsystem den normalen Update-Button oder `aria-stack.sh update` nutzen.
 2. Erwartung: normaler Managed Update recreatet nur `aria`.
-3. Qdrant/SearXNG/Valkey duerfen nur bei bewusstem `repair` oder `update-all` neu erstellt werden.
+3. Qdrant darf nur bei bewusstem `repair` oder `update-all` neu erstellt werden.
 4. Nach Update erneut `/stats` und die Prompts 3, 6, 9 pruefen.
 
 ## Wenn etwas rot ist

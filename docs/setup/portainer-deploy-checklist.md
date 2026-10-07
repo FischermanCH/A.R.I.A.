@@ -17,14 +17,6 @@ The public Portainer stack already includes all required runtime services:
 
 - `aria`
 - `qdrant`
-- `searxng`
-- `searxng-valkey`
-
-The SearXNG settings are embedded directly into the stack through Docker `configs`.
-
-That means:
-
-- no separate host-side `searxng.settings.yml` is needed for the normal public Portainer path
 
 ## 2. Before you start
 
@@ -35,8 +27,6 @@ Make sure the target host already has:
 - access to pull these images:
   - `fischermanch/aria:alpha`
   - `qdrant/qdrant:latest`
-  - `searxng/searxng:latest`
-  - `valkey/valkey:8-alpine`
 
 ARIA is currently best suited for:
 
@@ -65,7 +55,6 @@ Set at least these values:
 
 ```dotenv
 ARIA_QDRANT_API_KEY=replace-with-a-long-random-key
-SEARXNG_SECRET=replace-with-a-long-random-key
 ARIA_HTTP_PORT=8800
 ARIA_PUBLIC_URL=http://your-hostname:8800
 ```
@@ -74,13 +63,11 @@ Generate good secrets on Unix:
 
 ```bash
 openssl rand -hex 32
-openssl rand -hex 32
 ```
 
 Notes:
 
 - `ARIA_QDRANT_API_KEY` must be the same key for both ARIA and Qdrant
-- `SEARXNG_SECRET` is for the in-stack SearXNG service
 - `ARIA_HTTP_PORT` is the host port for the ARIA web UI
 - `ARIA_PUBLIC_URL` is optional but useful for clear host/link messages; it should match the real browser URL that users open, including an internal LAN URL such as `http://aria.example.lan/`
 
@@ -130,34 +117,6 @@ Important:
 - do not create a second fresh stack unless that is intentional
 - do not rename your data volumes casually
 - do not assume a copy/pasted fresh sample will magically reuse old data if the stack name, network, or volume names changed
-
-## 8. Existing Portainer stack delta
-
-If you already have an older ARIA Portainer stack that was created before the SearXNG integration, do not blindly replace it with the fresh public sample if the old stack already has working data.
-
-Keep these parts from the existing stack:
-
-- your current ARIA data volumes
-- your current Qdrant storage volume
-- your current custom network name
-- your current host port
-- your current public URL
-
-The actual delta to reach the newer web-search-ready stack is usually only:
-
-1. add `searxng-valkey`
-2. add `searxng`
-3. add the SearXNG cache volume and Valkey data volume
-4. extend `aria.depends_on` with `searxng`
-5. keep the embedded `searxng_settings` Docker config
-6. add `SEARXNG_SECRET`
-
-That means in practice:
-
-- keep your current ARIA and Qdrant data
-- keep your current network
-- keep your current port
-- add only the missing SearXNG services and settings
 
 ## 9. Multi-instance hosts
 

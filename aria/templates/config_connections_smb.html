@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <main class="config-layout">
+  {% set smb_ui_save_path = required_module_route_path('smb_ui', '/config/connections/smb/save') %}
   {% include "_connection_page_intro.html" %}
   {% include "_connection_status_block.html" %}
   {% include "_connection_mode_nav.html" %}
@@ -18,7 +19,7 @@
       <small>{% if smb_test_status == 'ok' %}{{ info_message }}{% else %}{{ error_message }}{% endif %}</small>
     </article>
     {% endif %}
-    <form method="post" action="/config/connections/smb/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ smb_ui_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="{{ selected_smb_ref }}">
       {% set schema_fields = smb_edit_form_fields %}
       {% include "_connection_schema_fields.html" %}
@@ -57,7 +58,7 @@
     <h2>{{ tr(request,'config_conn.create_new_title','Neue Verbindung erfassen') }}</h2>
     <p>{{ tr(request,'config_conn.create_new_subtitle','Hier erfasst du bewusst eine neue Verbindung. Die Felder starten leer und erzeugen ein neues Profil.') }}</p>
     <div class="skill-summary connection-flow-note"><strong>{{ tr(request,'config_conn.recommended_flow','Recommended flow') }}</strong><span>{{ tr(request,'config_conn.smb_recommended_flow_text','1) Save SMB profile with host, share, user and password. 2) ARIA stores the password in the secure store. 3) Save. 4) ARIA tests the connection automatically.') }}</span></div>
-    <form method="post" action="/config/connections/smb/save" class="editor-form" autocomplete="off">
+    <form method="post" action="{{ smb_ui_save_path }}" class="editor-form" autocomplete="off">
       <input type="hidden" name="original_ref" value="">
       {% set schema_fields = smb_new_form_fields %}
       {% include "_connection_schema_fields.html" %}
